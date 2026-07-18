@@ -254,7 +254,7 @@ function publicNavigation(route: WorkspaceRoute): PublicNavigation {
       };
     case 'settings':
       return {
-        nav: { view: 'workspace', section: 'settings', settingsSection: route.section },
+        nav: { view: 'workspace', section: 'settings', settingsSection: route.section ?? 'agents' },
         workspaceId: route.workspaceId,
       };
     case 'legacy-repo':
@@ -308,7 +308,7 @@ function publicRoute(nav: Nav, workspaceId: string | null): WorkspaceRoute | nul
         case 'memory': return { kind: 'memory', workspaceId };
         case 'insights': return { kind: 'insights', workspaceId };
         case 'notifications': return { kind: 'notifications', workspaceId };
-        case 'settings': return { kind: 'settings', workspaceId, section: nav.settingsSection };
+        case 'settings': return { kind: 'settings', workspaceId, section: nav.settingsSection ?? 'agents' };
       }
       return null;
     }
@@ -1009,7 +1009,7 @@ function App() {
               case 'settings':
                 setNav(sidebarWorkspaceId === null
                   ? { view: 'settings' }
-                  : { view: 'workspace', section: 'settings' });
+                  : { view: 'workspace', section: 'settings', settingsSection: 'agents' });
                 break;
               case 'today': setNav({ view: 'workspace', section: 'today' }); break;
               case 'trunks': setNav({ view: 'workspace', section: 'trunks' }); break;

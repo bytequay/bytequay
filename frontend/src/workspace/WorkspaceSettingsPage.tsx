@@ -11,11 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState, type ReactNode } from 'react';
-import type { WorkspaceCardDto } from '../types';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import type { WorkspaceCardDto, WorkModelOptionsDto } from '../types';
 import {
   workspaceApi,
   type WorkspaceCreationDto,
+  type WorkspaceMemoryDto,
   type WorkspaceRepositoryDto,
   type WorkspaceSettingsDto,
 } from './workspaceApi';
@@ -41,10 +42,10 @@ type StoredSettings = {
 };
 
 const defaults: StoredSettings = {
-  planModel: 'claude-sonnet-4.5',
-  devModel: 'claude-sonnet-4.5',
-  reviewModel: 'claude-sonnet-4.5',
-  ciFixModel: 'gpt-5.2-codex',
+  planModel: 'cli:claude-code',
+  devModel: 'cli:claude-code',
+  reviewModel: 'cli:claude-code',
+  ciFixModel: 'cli:codex',
   perSessionCap: 1,
   dailyCap: 10,
   pauseAtCap: true,
@@ -58,33 +59,57 @@ const defaults: StoredSettings = {
 };
 
 export default function WorkspaceSettingsPage({
-  workspace, workspaceId, section = 'general', onSelectSection,
+  workspace, workspaceId, section = 'general', onSelectSection, onOpenMemory,
 }: {
   workspace: WorkspaceCardDto;
   workspaceId: string;
   section?: WorkspaceSettingsSection;
   onSelectSection?: (section: WorkspaceSettingsSection) => void;
+  onOpenMemory?: () => void;
 }) {
   const [settings, setSettings] = useState<StoredSettings>(defaults);
+  const [displayName, setDisplayName] = useState(workspace.name);
+  const [nameDraft, setNameDraft] = useState(workspace.name);
   const [repo, setRepo] = useState<WorkspaceRepositoryDto | null>(null);
+  const [modelOptions, setModelOptions] = useState<WorkModelOptionsDto | null>(null);
+  const [memory, setMemory] = useState<WorkspaceMemoryDto | null>(null);
   const [saved, setSaved] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [refreshingModels, setRefreshingModels] = useState(false);
   const [reclone, setReclone] = useState<WorkspaceCreationDto | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([workspaceApi.repository(workspaceId), workspaceApi.settings(workspaceId)])
-      .then(([repository, persisted]) => {
+    setDisplayName(workspace.name);
+    setNameDraft(workspace.name);
+    void Promise.all([
+      workspaceApi.repository(workspaceId),
+      workspaceApi.settings(workspaceId),
+      workspaceApi.workModelOptions(),
+    ])
+      .then(([repository, persisted, options]) => {
         if (cancelled) return;
         setRepo(repository);
-        setSettings(fromDto(persisted));
+        setSettings(coerceSettingsChoices(fromDto(persisted), choicesFrom(options)));
+        setModelOptions(options);
       })
       .catch(reason => {
         if (!cancelled) setActionMessage(reason instanceof Error ? reason.message : String(reason));
       });
     return () => { cancelled = true; };
-  }, [workspaceId]);
+  }, [workspace.name, workspaceId]);
+
+  useEffect(() => {
+    if (section !== 'memory' || memory !== null) return;
+    let cancelled = false;
+    void workspaceApi.memory(workspaceId)
+      .then(next => { if (!cancelled) setMemory(next); })
+      .catch(reason => {
+        if (!cancelled) setActionMessage(reason instanceof Error ? reason.message : String(reason));
+      });
+    return () => { cancelled = true; };
+  }, [memory, section, workspaceId]);
 
   useEffect(() => {
     if (reclone === null || reclone.state === 'ready' || reclone.state === 'failed') return;
@@ -112,6 +137,11 @@ export default function WorkspaceSettingsPage({
   const save = async () => {
     setActionMessage(null);
     try {
+      if (nameDraft.trim() !== displayName) {
+        const renamed = await workspaceApi.rename(workspaceId, nameDraft);
+        setDisplayName(renamed.name);
+        setNameDraft(renamed.name);
+      }
       const persisted = await workspaceApi.saveSettings(workspaceId, toDto(settings));
       setSettings(fromDto(persisted));
       setSaved(true);
@@ -122,6 +152,21 @@ export default function WorkspaceSettingsPage({
     }
   };
   const repoName = repo?.fullName ?? workspace.name;
+  const agentChoices = useMemo(() => choicesFrom(modelOptions), [modelOptions]);
+  const refreshModelOptions = async () => {
+    setRefreshingModels(true);
+    try {
+      const nextOptions = await workspaceApi.refreshWorkModelOptions();
+      setModelOptions(nextOptions);
+      setSettings(current => coerceSettingsChoices(current, choicesFrom(nextOptions)));
+    }
+    catch (reason) {
+      setActionMessage(reason instanceof Error ? reason.message : String(reason));
+    }
+    finally {
+      setRefreshingModels(false);
+    }
+  };
   const visualFrame = typeof document === 'undefined'
     ? undefined
     : document.documentElement.dataset.workspaceVisualFrame;
@@ -129,7 +174,7 @@ export default function WorkspaceSettingsPage({
   return (
     <section className="wu-page wu-settings">
       <header className="wu-page-header">
-        <div className="wu-page-heading"><h1>Settings</h1><span>{workspace.name}</span></div>
+        <div className="wu-page-heading"><h1>Settings</h1><span>{displayName}</span></div>
       </header>
       <div className="wu-settings__layout">
         <nav className="wu-settings__nav">
@@ -156,6 +201,14 @@ export default function WorkspaceSettingsPage({
           {section === 'general' && (
             <>
               <SettingsCard title="Repository">
+                <SettingRow label="Workspace name" detail="Shown in the sidebar, switcher, and workspace cards.">
+                  <label className="wu-text-input">
+                    <input value={nameDraft} onChange={event => {
+                      setNameDraft(event.target.value);
+                      setSaved(false);
+                    }} />
+                  </label>
+                </SettingRow>
                 <SettingRow label="GitHub repository" detail="The sole repository owned by this workspace.">
                   <code>{repoName}</code>
                 </SettingRow>
@@ -174,12 +227,24 @@ export default function WorkspaceSettingsPage({
             <>
               <SettingsCard title="Defaults per session kind" subtitle="threads can override per run">
                 <ModelRow label="Deep reasoning for specs & plans" tone="plan" value={settings.planModel}
+                  choices={agentChoices}
+                  onRefresh={() => { void refreshModelOptions(); }}
+                  refreshing={refreshingModels}
                   onChange={value => update('planModel', value)} />
                 <ModelRow label="Code writing & tests" tone="dev" value={settings.devModel}
+                  choices={agentChoices}
+                  onRefresh={() => { void refreshModelOptions(); }}
+                  refreshing={refreshingModels}
                   onChange={value => update('devModel', value)} />
                 <ModelRow label="PR review rounds" tone="review" value={settings.reviewModel}
+                  choices={agentChoices}
+                  onRefresh={() => { void refreshModelOptions(); }}
+                  refreshing={refreshingModels}
                   onChange={value => update('reviewModel', value)} />
                 <ModelRow label="Cheap loops on red builds" tone="ci-fix" value={settings.ciFixModel}
+                  choices={agentChoices}
+                  onRefresh={() => { void refreshModelOptions(); }}
+                  refreshing={refreshingModels}
                   onChange={value => update('ciFixModel', value)} />
               </SettingsCard>
               <SettingsCard title="Budget caps">
@@ -228,6 +293,13 @@ export default function WorkspaceSettingsPage({
                 onChange={value => update('distillMinutes', value)} />
               <SettingRow label="Context audience" detail="Matching KB entries may be read by all session kinds.">
                 <span className="wu-audience-chips"><i>plan</i><i>dev</i><i>review</i><i>ci-fix</i></span>
+              </SettingRow>
+              <SettingRow label="Workspace memory" detail={memory === null
+                ? 'Loading memory summary…'
+                : `${memory.characters.toLocaleString()} / ${memory.characterBudget.toLocaleString()} characters · ${memory.blocks.length} brain blocks · ${memory.knowledge.length} KB entries`}>
+                <button type="button" className="wu-icon-button" onClick={onOpenMemory}>
+                  View memory
+                </button>
               </SettingRow>
             </SettingsCard>
           )}
@@ -314,29 +386,112 @@ function SettingRow({ label, detail, children }: {
   );
 }
 
-function ModelRow({ label, tone, value, onChange }: {
+type AgentChoice = {
+  value: string;
+  label: string;
+  detail: string;
+  disabled?: boolean;
+};
+
+function ModelRow({ label, tone, value, choices, refreshing, onRefresh, onChange }: {
   label: string;
   tone: string;
   value: string;
+  choices: AgentChoice[];
+  refreshing: boolean;
+  onRefresh: () => void;
   onChange: (value: string) => void;
 }) {
-  const claude = value.startsWith('claude');
+  const selected = selectableChoice(value, choices);
   return (
     <div className="wu-setting-row wu-model-row">
       <span className={`wu-kind-chip ${tone}`}>{tone === 'ci-fix' ? 'ci fix' : tone}</span>
       <span className="wu-model-row__description">{label}</span>
       <label className="wu-model-picker">
-        <span className={claude ? 'claude' : 'gpt'}>{claude ? 'C' : 'G'}</span>
-        <select value={value} onChange={event => onChange(event.target.value)}>
-        <option value="claude-opus-4.8">claude-opus-4.8</option>
-        <option value="claude-sonnet-4.5">claude-sonnet-4.5</option>
-        <option value="gpt-5.2-codex">gpt-5.2-codex</option>
-        <option value="local">local</option>
+        <span className={choiceClass(selected)}>{choiceGlyph(selected)}</span>
+        <select value={selected} onChange={event => onChange(event.target.value)}>
+          {choices.map(choice => (
+            <option key={choice.value} value={choice.value} disabled={choice.disabled}>
+              {choice.label}{choice.disabled ? ' (not available)' : choice.detail.length === 0 ? '' : ` · ${choice.detail}`}
+            </option>
+          ))}
         </select>
         <svg viewBox="0 0 24 24" aria-hidden><path d="m6 9 6 6 6-6" /></svg>
       </label>
+      <button type="button" className="wu-model-refresh" disabled={refreshing} onClick={onRefresh}>
+        {refreshing ? 'Checking…' : 'Check'}
+      </button>
     </div>
   );
+}
+
+function choicesFrom(options: WorkModelOptionsDto | null): AgentChoice[] {
+  const choices: AgentChoice[] = [
+    { value: 'cli:claude-code', label: 'Claude CLI', detail: cliDetail(options, 'claude-code'), disabled: cliDisabled(options, 'claude-code') },
+    { value: 'cli:codex', label: 'Codex CLI', detail: cliDetail(options, 'codex'), disabled: cliDisabled(options, 'codex') },
+  ];
+  options?.apiProviders.forEach(provider => {
+    provider.accounts.forEach(account => {
+      choices.push({
+        value: `api:${provider.id}:${account.name}`,
+        label: 'API',
+        detail: `${provider.displayName} · ${account.name}${account.isDefault ? ' · default' : ''}`,
+      });
+    });
+  });
+  choices.push({ value: 'local', label: 'Local', detail: 'local runtime' });
+  return choices;
+}
+
+function selectableChoice(value: string, choices: AgentChoice[]): string {
+  const normalized = choices.some(choice => choice.value === value) ? value : normalizeChoice(value);
+  const current = choices.find(choice => choice.value === normalized);
+  if (current !== undefined && !current.disabled) return normalized;
+  return choices.find(choice => !choice.disabled)?.value ?? normalized;
+}
+
+function coerceSettingsChoices(value: StoredSettings, choices: AgentChoice[]): StoredSettings {
+  return {
+    ...value,
+    planModel: selectableChoice(value.planModel, choices),
+    devModel: selectableChoice(value.devModel, choices),
+    reviewModel: selectableChoice(value.reviewModel, choices),
+    ciFixModel: selectableChoice(value.ciFixModel, choices),
+  };
+}
+
+function cliDisabled(options: WorkModelOptionsDto | null, id: string): boolean {
+  const agent = options?.cliAgents.find(row => row.id === id);
+  return agent === undefined ? true : !agent.installed;
+}
+
+function cliDetail(options: WorkModelOptionsDto | null, id: string): string {
+  const agent = options?.cliAgents.find(row => row.id === id);
+  if (agent === undefined) return 'checking…';
+  if (!agent.installed) return 'not installed';
+  return agent.authed ? 'available' : 'installed';
+}
+
+function normalizeChoice(value: string): string {
+  if (value.startsWith('cli:') || value.startsWith('api:') || value === 'local') return value;
+  const lower = value.toLowerCase();
+  if (lower.includes('codex') || lower.includes('gpt')) return 'cli:codex';
+  if (lower.includes('claude')) return 'cli:claude-code';
+  return 'local';
+}
+
+function choiceClass(value: string): string {
+  if (value.startsWith('cli:claude')) return 'claude';
+  if (value.startsWith('cli:codex') || value.startsWith('api:openai')) return 'gpt';
+  if (value.startsWith('api:')) return 'api';
+  return 'local';
+}
+
+function choiceGlyph(value: string): string {
+  if (value.startsWith('cli:claude')) return 'C';
+  if (value.startsWith('cli:codex')) return 'X';
+  if (value.startsWith('api:')) return 'A';
+  return 'L';
 }
 
 function NumberRow({ label, value, prefix, suffix, onChange }: {
@@ -405,10 +560,10 @@ function DangerRow({ title, detail, action, destructive = false, disabled = fals
 
 function fromDto(value: WorkspaceSettingsDto): StoredSettings {
   return {
-    planModel: value.providers.plan ?? defaults.planModel,
-    devModel: value.providers.dev ?? defaults.devModel,
-    reviewModel: value.providers.review ?? defaults.reviewModel,
-    ciFixModel: value.providers['ci-fix'] ?? defaults.ciFixModel,
+    planModel: normalizeChoice(value.providers.plan ?? defaults.planModel),
+    devModel: normalizeChoice(value.providers.dev ?? defaults.devModel),
+    reviewModel: normalizeChoice(value.providers.review ?? defaults.reviewModel),
+    ciFixModel: normalizeChoice(value.providers['ci-fix'] ?? defaults.ciFixModel),
     perSessionCap: value.sessionCapUsd,
     dailyCap: value.dailyCapUsd,
     pauseAtCap: value.pauseAtCap,

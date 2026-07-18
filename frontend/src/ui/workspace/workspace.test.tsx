@@ -111,6 +111,18 @@ describe('WorkspaceNavSidebar', () => {
       .toBe('330px');
   });
 
+  it('shows Settings as a normal workspace nav destination', () => {
+    const onNavigate = vi.fn();
+    render(
+      <WorkspaceNavSidebar workspaceMode onNavigate={onNavigate}>
+        <div />
+      </WorkspaceNavSidebar>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(onNavigate).toHaveBeenCalledWith('settings');
+  });
+
   it('folds to the chrome row when collapsed and the toggle fires onToggleCollapse', () => {
     const onToggleCollapse = vi.fn();
     const { container, rerender } = render(

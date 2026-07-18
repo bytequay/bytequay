@@ -25,6 +25,7 @@ import {
   visibleRows,
   type WorkspaceFilter,
 } from './workspaceModel';
+import AgentColumn from './AgentColumn';
 import PullBoard from './PullBoard';
 import PullDetailPane from './PullDetailPane';
 import PullRowItem from './PullRowItem';
@@ -54,9 +55,12 @@ function RefreshIcon() {
   );
 }
 
-export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, onOpenPr, onBackToList }: {
+export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, initialAgentView, onOpenPr, onBackToList }: {
   workspaceId: string;
   initialPrNumber?: number;
+  /** Open with the agent column already replacing the work list (deep link
+   *  from the standalone Pulls screen's "Work with agent" button). */
+  initialAgentView?: boolean;
   onOpenPr: (n: number) => void;
   onBackToList: () => void;
 }) {
@@ -70,6 +74,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, onO
   const [paneOpen, setPaneOpen] = useState(true);
   const [detW, setDetW] = useState(DETAIL_DEFAULT);
   const [paneRow, setPaneRow] = useState<PullRow | null>(null);
+  const [agentView, setAgentView] = useState(initialAgentView === true);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,6 +99,10 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, onO
       setPaneOpen(true);
     }
   }, [initialPrNumber]);
+
+  useEffect(() => {
+    if (initialAgentView === true) setAgentView(true);
+  }, [initialAgentView]);
 
   const counts = useMemo(() => filterCounts(prs), [prs]);
   const visible = useMemo(() => visibleRows(prs, filter), [prs, filter]);
@@ -171,15 +180,31 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, onO
     window.addEventListener('mouseup', up);
   };
 
+  // GitHub-first: start the review, then re-pull the façade list so the
+  // pane's agent buttons flip to the assigned state.
+  const assignAgent = () => {
+    if (paneRow === null) return;
+    void window.bridge.startAgentReview(paneRow.id, { workspaceId })
+      .catch(() => { /* transient; the buttons stay unassigned */ })
+      .finally(refresh);
+  };
+
   const tabs: [WorkspaceFilter, string][] = [
     ['review', `To review · ${counts.review}`],
     ['mine', `Mine · ${counts.mine}`],
     ['all', `All · ${counts.open}`],
   ];
 
+  const agentShown = agentView && paneRow !== null;
+
   return (
     <div style={{ display: 'flex', minWidth: 0, minHeight: 0, height: '100%', background: '#fff' }}>
+      {/* ═══ Agent review column — swaps in for the work list ═══ */}
+      {agentShown && paneRow !== null && (
+        <AgentColumn prId={paneRow.id} workspaceId={workspaceId} onBack={() => setAgentView(false)} />
+      )}
       {/* ═══ Work list ═══ */}
+      {!agentShown && (
       <div style={{ flex: 1, minWidth: 220, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px 8px', borderBottom: '1px solid #e7e9ec', flexShrink: 0, flexWrap: 'wrap' }}>
           {wide && (
@@ -281,6 +306,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, onO
           <PullBoard columns={boardCols} onPick={row => pick(row.num)} />
         )}
       </div>
+      )}
 
       {/* ═══ PR detail pane ═══ */}
       {paneShown && (
@@ -291,7 +317,14 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, onO
             title="Drag to resize"
             style={{ position: 'absolute', left: -3, top: 0, bottom: 0, width: 6, cursor: 'col-resize', zIndex: 5 }}
           />
-          {paneRow !== null && <PullDetailPane key={paneRow.id} row={paneRow} />}
+          {paneRow !== null && (
+            <PullDetailPane
+              key={paneRow.id}
+              row={paneRow}
+              onWorkWithAgent={() => setAgentView(true)}
+              onAssignAgent={assignAgent}
+            />
+          )}
         </div>
       )}
     </div>

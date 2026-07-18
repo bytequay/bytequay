@@ -46,6 +46,8 @@ type Props = {
   onOpenBranch?: (branchName: string) => void;
   onOpenTrunk?: (trunkId: string) => void;
   selectedNumber?: number;
+  /** Open the pull-requests surface with the agent-review column showing. */
+  initialAgentView?: boolean;
   selectedBranch?: string;
   onBackToList: () => void;
 };
@@ -63,6 +65,7 @@ export default function WorkspaceRepoPage({
   onOpenBranch,
   onOpenTrunk,
   selectedNumber,
+  initialAgentView,
   selectedBranch,
   onBackToList,
 }: Props) {
@@ -86,6 +89,7 @@ export default function WorkspaceRepoPage({
       <WorkspacePullsScreen
         workspaceId={workspaceId}
         initialPrNumber={selectedNumber}
+        initialAgentView={initialAgentView}
         onOpenPr={onOpenPr}
         onBackToList={onBackToList}
       />

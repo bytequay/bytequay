@@ -35,7 +35,7 @@ function readStoredWidth(): number {
 /** Nav destinations. No Search (removed in this model). The first four
  *  are the primary (top) group; the rest sit in the bottom group. */
 export type WsNavKey =
-  | 'home' | 'workspaces' | 'reviews' | 'my-work' | 'automations'
+  | 'home' | 'workspaces' | 'pulls' | 'reviews' | 'my-work' | 'automations'
   | 'repos' | 'email' | 'notifications' | 'settings'
   | 'today' | 'trunks' | 'pull-requests' | 'issues' | 'backlog'
   | 'branches' | 'commits' | 'sessions' | 'memory' | 'insights';
@@ -54,9 +54,25 @@ export const WORKSPACES_ICON = (
   </svg>
 );
 
+/** The redesigned Pull-requests item's icon — the prototype's checklist glyph
+ *  (docs/mockups/design/pr-redesign/Pull Requests.dc.html app nav). */
+export const PULLS_ICON = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="4" width="6.5" height="6.5" rx="1.4" />
+    <path d="m3.6 7.1 1.4 1.4 2.6-2.8" />
+    <path d="M12.5 6.2h8.5" />
+    <path d="M12.5 12h8.5" />
+    <path d="M12.5 17.8h8.5" />
+  </svg>
+);
+
 const TOP_NAV: { key: WsNavKey; ic: ReactNode; label: string }[] = [
   { key: 'home', ic: <SidebarIcon kind="home" />, label: 'Home' },
   { key: 'workspaces', ic: WORKSPACES_ICON, label: 'Workspaces' },
+  // Temporary during the PR-redesign rollout: the new unified surface sits
+  // alongside Reviews + My work; those two retire when the swap lands.
+  { key: 'pulls', ic: PULLS_ICON, label: 'Pull requests' },
   { key: 'reviews', ic: <SidebarIcon kind="reviews" />, label: 'Reviews' },
   { key: 'my-work', ic: <SidebarIcon kind="work" />, label: 'My work' },
 ];

@@ -1,0 +1,32 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* Hover states for the redesigned PR screens (pulls/). The prototypes carry
+ * these as style-hover attributes; everything else stays inline in JSX per
+ * the copy-don't-invent rule — only :hover needs CSS. Class names map 1:1 to
+ * the prototype's hover values. */
+
+.pl-hov-row:hover { background: #f4f5f7 !important; }
+.pl-hov-nav:hover { background: rgba(0, 0, 0, 0.05); }
+.pl-hov-ic:hover { background: rgba(0, 0, 0, 0.06); }
+.pl-hov-btn:hover { background: #f6f8fa !important; }
+.pl-hov-tgl:hover { background: #e7e9ec !important; }
+.pl-hov-drag:hover { background: rgba(9, 105, 218, 0.35); }
+.pl-hov-agent:hover { background: rgba(139, 92, 246, 0.15) !important; }
+.pl-hov-agent-dash:hover { background: rgba(139, 92, 246, 0.06) !important; }
+.pl-hov-load:hover { background: #f4f5f7; color: #17191c; }
+
+@keyframes pl-pulse {
+  50% { opacity: 0.35; }
+}

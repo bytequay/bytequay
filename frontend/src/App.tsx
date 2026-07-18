@@ -46,6 +46,7 @@ import type {
 } from './threads/ThreadsLeftRail';
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
+import PullsScreen from './pulls/PullsScreen';
 import HomePage from './home/HomePage';
 import { PrDetailsView, type AgentReviewNavTarget } from './pr/localpr/PrDetailsView';
 import InAppBrowser from './InAppBrowser';
@@ -64,6 +65,9 @@ type Status = 'checking' | 'needs-pat' | 'ready';
 export type Nav =
   | { view: 'home' }
   | { view: 'my-prs' }
+  /** Redesigned unified Pull-requests surface (pulls/PullsScreen). Sits
+   *  alongside my-prs/reviews during rollout; those retire at swap time. */
+  | { view: 'pulls' }
   | { view: 'reviews' }
   /** `back` carries the parent screen so the PR-detail breadcrumb
    *  returns the user where they came from — Repository home, Local
@@ -903,6 +907,7 @@ function App() {
       case 'thread-detail': case 'task-brain': case 'stage-detail': case 'task-code': return 'trunks';
       case 'agent-review': return 'pull-requests';
       case 'my-prs': return 'my-work';
+      case 'pulls': return 'pulls';
       case 'reviews': return 'reviews';
       case 'repos': case 'repository': case 'local-repo': return 'repos';
       case 'email': return 'email';
@@ -996,6 +1001,7 @@ function App() {
                 // on its landing card.
                 setNav({ view: 'workspaces-landing' });
                 break;
+              case 'pulls': setNav({ view: 'pulls' }); break;
               case 'reviews': setNav({ view: 'reviews' }); break;
               case 'my-work': setNav({ view: 'my-prs' }); break;
               case 'automations': break; // no Automations surface yet
@@ -1066,6 +1072,7 @@ function App() {
             onOpenNotifications={() => setNav({ view: 'notifications' })}
           />
         )}
+        {nav.view === 'pulls' && <PullsScreen />}
         {nav.view === 'my-prs' && (
           <PullRequestList
             onGoToTeams={() => setNav({ view: 'teams' })}

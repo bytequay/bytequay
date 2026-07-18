@@ -213,7 +213,6 @@ export default function PullChanges({ row, bundle, refresh, onComment }: {
                 allowComments={capabilities?.draftLocalComments === true && addLineComment !== null}
                 onAddComment={addLineComment}
                 fetchBlob={fetchBlob}
-                login={login}
                 repoCtx={repoCtx}
               />
             ))}

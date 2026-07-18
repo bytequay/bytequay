@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
+import CurrentUserAvatar from '../CurrentUserAvatar';
 import { renderMarkdown, type MarkdownRepoContext } from '../markdown';
 import { relativeTime } from '../notificationDisplay';
 import type { ReviewThreadDto } from '../types';
@@ -54,9 +55,8 @@ export function AiReplyButton() {
 
 /** Prototype composer row — "Add a comment on line R17". Submits through the
  *  local-draft path (addLocalPrComment) the parent wires in. */
-export function InlineComposerRow({ label, login, repoCtx, onSubmit, onCancel }: {
+export function InlineComposerRow({ label, repoCtx, onSubmit, onCancel }: {
   label: string;
-  login: string;
   repoCtx: MarkdownRepoContext;
   onSubmit: (body: string) => Promise<void>;
   onCancel: () => void;
@@ -76,7 +76,7 @@ export function InlineComposerRow({ label, login, repoCtx, onSubmit, onCancel }:
       <td style={{ padding: '8px 14px', background: '#fff', whiteSpace: 'normal', lineHeight: 1.5 }}>
         <div style={{ fontFamily: SANS, whiteSpace: 'normal', lineHeight: 1.5, border: '1px solid #d5dbe1', borderRadius: 10, background: '#fff', boxShadow: '0 4px 12px rgba(0,0,0,0.06)', maxWidth: 640 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px 8px' }}>
-            <Av login={login} size={24} />
+            <CurrentUserAvatar size={24} />
             <span style={{ fontSize: 13, fontWeight: 600, color: '#17191c' }}>Add a comment on line{label.includes(' to ') ? 's' : ''} {label}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '0 10px', borderBottom: '1px solid #e7e9ec' }}>

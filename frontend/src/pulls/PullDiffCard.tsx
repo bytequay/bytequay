@@ -44,7 +44,7 @@ const MONO = "'SF Mono',ui-monospace,Menlo,monospace";
  * Parsing and expand math come from diffParse / diffExpand via changesModel.
  */
 export default function PullDiffCard({
-  file, open, onToggle, threads, threadCtx, allowComments, onAddComment, fetchBlob, login, repoCtx,
+  file, open, onToggle, threads, threadCtx, allowComments, onAddComment, fetchBlob, repoCtx,
 }: {
   file: DiffFileDto;
   open: boolean;
@@ -55,7 +55,6 @@ export default function PullDiffCard({
   allowComments: boolean;
   onAddComment: ((filePath: string, side: 'LEFT' | 'RIGHT', line: number, startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string) => Promise<void>) | null;
   fetchBlob: ((path: string) => Promise<{ lines: string[] }>) | null;
-  login: string;
   repoCtx: MarkdownRepoContext;
 }) {
   const hunks = useMemo(() => parseUnifiedDiff(file.patch), [file.patch]);
@@ -173,7 +172,6 @@ export default function PullDiffCard({
                 {composerHere && onAddComment !== null && (
                   <InlineComposerRow
                     label={rangeLabel(composer.side, composer.line, composer.startLine, composer.startSide)}
-                    login={login}
                     repoCtx={repoCtx}
                     onSubmit={async body => {
                       await onAddComment(file.filename, composer.side, composer.line, composer.startLine, composer.startSide, body);

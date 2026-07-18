@@ -237,8 +237,8 @@ public abstract class AbstractCliThreadAgent
     {
         requireNonNull(thread, "thread is null");
         // CLI_AGENT is the dev/trunk case; BRAIN_AGENT is a brain thread whose
-        // resolved work model is CLI, so it runs as a claude-code subprocess
-        // too (read-only brain, MCP-scoped to the brain allowlist).
+        // resolved work model is CLI, so it runs as the selected CLI agent too
+        // (read-only brain, MCP-scoped to the brain allowlist).
         if (thread.kind() != ThreadKind.CLI_AGENT && thread.kind() != ThreadKind.BRAIN_AGENT) {
             throw new IllegalArgumentException(getClass().getSimpleName()
                     + " only handles CLI_AGENT / BRAIN_AGENT threads");

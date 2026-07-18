@@ -143,6 +143,12 @@ public class PonytailBundleService
         skills.put(ManagedSkillPolicy.TRUNK_PLANNER, new ManagedSkill(
                 ManagedSkillPolicy.TRUNK_PLANNER,
                 readResource("managed-skills/bytequay/trunk-planner/SKILL.md")));
+        skills.put(ManagedSkillPolicy.CODEGRAPH_FIRST, new ManagedSkill(
+                ManagedSkillPolicy.CODEGRAPH_FIRST,
+                readResource("managed-skills/bytequay/codegraph-first/SKILL.md")));
+        skills.put(ManagedSkillPolicy.TASK_EXECUTION, new ManagedSkill(
+                ManagedSkillPolicy.TASK_EXECUTION,
+                readResource("managed-skills/bytequay/task-execution/SKILL.md")));
         return new ManagedSkillBundle(bundle.version(), bundle.source(), Map.copyOf(skills));
     }
 

@@ -34,10 +34,10 @@ import java.util.regex.Pattern;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Writes resolved skills to a session-scoped temp directory so a CLI
- * client (Claude Code, Reasonix, …) can read them through its own
- * skill-discovery loop. The DB stays the source of truth; the files
- * are ephemeral — created at session start, deleted at session end.
+ * Legacy export helper that writes resolved skills to a temporary directory.
+ * ByteQuay provider sessions no longer use native skill discovery; runtime
+ * selection goes through {@link ByteQuaySkillSelector}. This remains for
+ * diagnostics and compatibility with explicit exports.
  *
  * <p>Layout the materializer produces (one folder per resolved skill,
  * mirroring the convention Claude Code expects):
@@ -54,6 +54,7 @@ import static java.util.Objects.requireNonNull;
  * of the same session produces identical files.
  */
 @Service
+@Deprecated
 public class SkillMaterializer
 {
     private static final Logger log = LoggerFactory.getLogger(SkillMaterializer.class);

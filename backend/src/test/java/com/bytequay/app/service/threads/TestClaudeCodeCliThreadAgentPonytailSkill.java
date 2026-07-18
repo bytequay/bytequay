@@ -31,8 +31,6 @@ import com.bytequay.app.service.skills.ManagedSkillBundle;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
@@ -50,8 +48,7 @@ class TestClaudeCodeCliThreadAgentPonytailSkill
     private static final String CWD = "/tmp/wt-claude";
 
     @Test
-    void activeManagedPonytailMaterializesHiddenSkill()
-            throws Exception
+    void activeManagedPonytailIsInjectedByByteQuayNotNativeDiscovery()
     {
         ObjectMapper mapper = new ObjectMapper();
         ClaudeCodeCliThreadAgent agent = new ClaudeCodeCliThreadAgent(
@@ -66,15 +63,16 @@ class TestClaudeCodeCliThreadAgentPonytailSkill
 
         try {
             ProcessBuilder command = agent.buildCommand("implement");
-            Path skill = Path.of(command.environment().get("BYTEQUAY_SKILLS_DIR"))
-                    .resolve("ponytail")
-                    .resolve("SKILL.md");
+            String prompt = argumentAfter(command.command(), "--append-system-prompt");
 
-            assertThat(Files.readString(skill))
-                    .contains("name: ponytail")
+            assertThat(prompt)
+                    .startsWith("TASK ROLE")
+                    .contains("# ByteQuay managed runtime skills")
+                    .contains("## ponytail")
                     .contains("smallest working change");
-            assertThat(command.command())
-                    .containsSubsequence("--append-system-prompt", "TASK ROLE");
+            assertThat(command.command()).contains("--safe-mode", "--strict-mcp-config");
+            assertThat(command.command()).doesNotContain("--bare");
+            assertThat(command.environment()).doesNotContainKey("BYTEQUAY_SKILLS_DIR");
         }
         finally {
             agent.cleanupProviderResources();
@@ -96,13 +94,43 @@ class TestClaudeCodeCliThreadAgentPonytailSkill
         agent.setActiveManagedSkillNames(List.of(CavemanPrompt.NAME));
 
         try {
-            assertThat(agent.buildCommand("implement").command())
-                    .containsSubsequence("--append-system-prompt",
-                            "# ByteQuay managed runtime skills\n\n## caveman\n\nCAVEMAN BODY");
+            String prompt = argumentAfter(
+                    agent.buildCommand("implement").command(), "--append-system-prompt");
+            assertThat(prompt)
+                    .startsWith("TASK ROLE")
+                    .contains("# ByteQuay managed runtime skills\n\n## caveman\n\nCAVEMAN BODY");
         }
         finally {
             agent.cleanupProviderResources();
         }
+    }
+
+    @Test
+    void resolvedAuthoredSkillBodyIsInjectedWithoutNativeDiscovery()
+    {
+        ObjectMapper mapper = new ObjectMapper();
+        ClaudeCodeCliThreadAgent agent = new ClaudeCodeCliThreadAgent(
+                thread(), new EmptyThreadStore(), new EmptyTaskStore(),
+                new StreamJsonParser(mapper), mapper, new McpPermissionGate(),
+                sameThreadExecutor(), CheckpointTrigger.NOOP,
+                () -> "", null, "TASK ROLE", CWD, ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+        agent.setActiveManagedSkills(List.of(new ManagedSkill("authored", "AUTHORED BODY")));
+
+        try {
+            ProcessBuilder command = agent.buildCommand("implement");
+            String prompt = argumentAfter(command.command(), "--append-system-prompt");
+
+            assertThat(prompt).contains("## authored", "AUTHORED BODY");
+            assertThat(command.environment()).doesNotContainKey("BYTEQUAY_SKILLS_DIR");
+        }
+        finally {
+            agent.cleanupProviderResources();
+        }
+    }
+
+    private static String argumentAfter(List<String> command, String flag)
+    {
+        return command.get(command.indexOf(flag) + 1);
     }
 
     private static Thread thread()

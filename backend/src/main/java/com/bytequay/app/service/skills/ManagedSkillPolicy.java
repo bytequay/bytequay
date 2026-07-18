@@ -28,6 +28,8 @@ public class ManagedSkillPolicy
     static final String PONYTAIL = "ponytail";
     static final String PONYTAIL_REVIEW = "ponytail-review";
     static final String TRUNK_PLANNER = "trunk-planner";
+    static final String CODEGRAPH_FIRST = "codegraph-first";
+    static final String TASK_EXECUTION = "task-execution";
     private static final String BRAIN_REVIEW_SOURCE = "brain-review";
     private static final Set<String> TRUNK_PLANNING_SOURCES = Set.of(
             "backlog-start",
@@ -67,15 +69,21 @@ public class ManagedSkillPolicy
                 && turn != null
                 && turn.initiator() != null
                 && BRAIN_REVIEW_SOURCE.equals(turn.initiator().source())) {
-            return List.of(PONYTAIL_REVIEW, CavemanPrompt.NAME);
+            return List.of(PONYTAIL_REVIEW, CODEGRAPH_FIRST, CavemanPrompt.NAME);
         }
         if (isTrunkPlanningTurn(kind, turn, stageType)) {
-            return List.of(TRUNK_PLANNER, CavemanPrompt.NAME);
+            return List.of(TRUNK_PLANNER, CODEGRAPH_FIRST, CavemanPrompt.NAME);
         }
         if (stageType != null && CODING_STAGE_TYPES.contains(stageType)) {
-            return List.of(PONYTAIL, CavemanPrompt.NAME);
+            return List.of(TASK_EXECUTION, CODEGRAPH_FIRST, PONYTAIL, CavemanPrompt.NAME);
         }
-        return List.of(CavemanPrompt.NAME);
+        if (turn != null && turn.taskId() != null) {
+            return List.of(TASK_EXECUTION, CODEGRAPH_FIRST, CavemanPrompt.NAME);
+        }
+        if (kind != ThreadKind.BRAIN_AGENT) {
+            return List.of(CODEGRAPH_FIRST, CavemanPrompt.NAME);
+        }
+        return List.of(CODEGRAPH_FIRST, CavemanPrompt.NAME);
     }
 
     private static boolean isTrunkPlanningTurn(ThreadKind kind, ThreadTurn turn, StageType stageType)

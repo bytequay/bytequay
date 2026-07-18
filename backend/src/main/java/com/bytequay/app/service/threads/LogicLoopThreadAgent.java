@@ -26,6 +26,7 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.agents.AgentContextCompiler;
 import com.bytequay.app.service.agents.ToolCall;
 import com.bytequay.app.service.agents.ToolExecutor;
 import com.bytequay.app.service.agents.TurnHooks;
@@ -38,13 +39,13 @@ import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.local.ds4.Ds4State;
 import com.bytequay.app.service.skills.ManagedSkill;
 import com.bytequay.app.service.skills.ManagedSkillBundle;
-import com.bytequay.app.service.skills.ManagedSkillPrompt;
 import com.bytequay.app.service.threads.tools.AgentTool;
 import com.bytequay.app.service.threads.tools.AgentToolContext;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
 import com.bytequay.app.service.threads.tools.ToolPermissionMediator;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.Gating;
+import com.bytequay.app.service.workspaces.WorkspaceDocumentLoader;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -159,6 +160,9 @@ public class LogicLoopThreadAgent
     private volatile String activeAgentRunId;
     private volatile ManagedSkillBundle managedSkillBundle = ManagedSkillBundle.empty();
     private volatile List<ManagedSkill> activeManagedSkills = List.of();
+    /** Null keeps the legacy role/kind filter; non-null is the scheduler's
+     * bounded tool set, including an intentionally empty set. */
+    private volatile Set<String> activeToolNames;
     private volatile Runnable preTurnHook = () -> {};
     private final ObjectMapper mapper;
     private final ExecutorService executor;
@@ -242,7 +246,7 @@ public class LogicLoopThreadAgent
      *  <p>Tools that intentionally stay <em>off</em> the trunk:
      *  every {@code PublishToolHandlers} mutator (push, merge_pr,
      *  approve_pr, open_pr, post_comment, …), {@code run_shell},
-     *  {@code run_checks}, and {@code load_skill}. Add a name here only
+     *  {@code run_checks}, and provider-driven skill discovery. Add a name here only
      *  after confirming the trunk can complete its planning loop without
      *  it. */
     // Package-private so the characterization test can pin the contract:
@@ -252,8 +256,6 @@ public class LogicLoopThreadAgent
             "lookup_memory",
             "read_workspace_memory",
             "recall_thread",
-            "list_skills",
-            "list_tools",
             "list_prs",
             "read_pr",
             "read_issue",
@@ -928,29 +930,52 @@ public class LogicLoopThreadAgent
 
     private String composeSystemPrompt()
     {
-        String managed = ManagedSkillPrompt.render(activeManagedSkills);
+        String role;
         if (kind == ThreadKind.BRAIN_AGENT) {
             // The registry composes the brain prompt (role template + context
             // digest) and passes it as roleSkillText at session creation; fall
             // back to the bare template if it wasn't supplied.
-            String base = roleSkillText == null || roleSkillText.isBlank()
+            role = roleSkillText == null || roleSkillText.isBlank()
                     ? BRAIN_SYSTEM_PROMPT
                     : roleSkillText;
-            return managed.isBlank() ? base : base + "\n\n" + managed;
         }
-        if (roleSkillText == null || roleSkillText.isBlank()) {
-            return managed.isBlank() ? null : managed;
+        else {
+            role = roleSkillText;
         }
-        return managed.isBlank()
-                ? roleSkillText.trim()
-                : roleSkillText.trim() + "\n\n" + managed;
+        RoleAndKnowledge separated = splitRoleAndKnowledge(role);
+        String compiled = AgentContextCompiler.compilePrompt(
+                separated.role(),
+                WorkspaceDocumentLoader.load(workingDir),
+                separated.knowledge(),
+                activeManagedSkills).systemPrompt();
+        return compiled.isBlank() ? null : compiled;
     }
+
+    private static RoleAndKnowledge splitRoleAndKnowledge(String prompt)
+    {
+        String marker = "\n\n# Workspace memory and knowledge\n\n";
+        if (prompt == null) {
+            return new RoleAndKnowledge(null, null);
+        }
+        int split = prompt.indexOf(marker);
+        if (split < 0) {
+            return new RoleAndKnowledge(prompt, null);
+        }
+        return new RoleAndKnowledge(
+                prompt.substring(0, split),
+                prompt.substring(split + marker.length()));
+    }
+
+    private record RoleAndKnowledge(String role, String knowledge) {}
 
     /** The tool-name allowlist for this turn: brain agents get the
      *  brain review surface, trunk turns get the narrow trunk allowlist,
      *  task turns rely on role/kind filtering only (null = no name filter). */
     private Set<String> toolNameFilter()
     {
+        if (activeToolNames != null) {
+            return activeToolNames;
+        }
         if (kind == ThreadKind.BRAIN_AGENT) {
             return BRAIN_TOOL_ALLOWLIST;
         }
@@ -1213,6 +1238,18 @@ public class LogicLoopThreadAgent
     public void setActiveManagedSkillNames(List<String> names)
     {
         this.activeManagedSkills = managedSkillBundle.select(names);
+    }
+
+    @Override
+    public void setActiveManagedSkills(List<ManagedSkill> skills)
+    {
+        this.activeManagedSkills = skills == null ? List.of() : List.copyOf(skills);
+    }
+
+    @Override
+    public void setActiveToolNames(Set<String> names)
+    {
+        this.activeToolNames = names == null ? null : Set.copyOf(names);
     }
 
     private List<String> activeManagedSkillNames()

@@ -22,6 +22,10 @@ public enum ThreadTurnEventType
     TURN_FAILED,
     TURN_CANCELLED,
 
+    /** Per-turn CodeGraph-first effectiveness counters, stored as JSON in
+     *  {@link ThreadTurnEvent#message()}. */
+    CODEGRAPH_POLICY,
+
     /** A loop-iteration summary written to the chronological log so it
      *  surfaces on the brain feed. Carries {@code is_summary = true}. */
     ITERATION_SUMMARY

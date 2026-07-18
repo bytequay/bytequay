@@ -39,9 +39,12 @@ class TestCodeGraphFirstRuntime
         assertThat(CodeGraphFirstRuntime.shouldRedirect(threadId, agentKey)).isTrue();
         assertThat(CodeGraphFirstRuntime.shouldRedirect(threadId, agentKey)).isTrue();
         assertThat(CodeGraphFirstRuntime.shouldRedirect(threadId, agentKey)).isFalse();
+        assertThat(CodeGraphFirstRuntime.finishTurn(threadId, agentKey))
+                .isEqualTo(new CodeGraphFirstRuntime.Metrics(2, 0, 0, 0, 0, 1));
 
         CodeGraphFirstRuntime.prepare(process, threadId, agentKey);
         assertThat(CodeGraphFirstRuntime.shouldRedirect(threadId, agentKey)).isTrue();
+        assertThat(CodeGraphFirstRuntime.finishTurn(threadId, agentKey).redirected()).isEqualTo(1);
     }
 
     @Test
@@ -53,8 +56,11 @@ class TestCodeGraphFirstRuntime
         CodeGraphFirstRuntime.prepare(process, threadId, agentKey);
 
         CodeGraphFirstRuntime.markAttempted(threadId, agentKey);
+        CodeGraphFirstRuntime.markSucceeded(threadId, agentKey);
 
         assertThat(CodeGraphFirstRuntime.shouldRedirect(threadId, agentKey)).isFalse();
+        assertThat(CodeGraphFirstRuntime.finishTurn(threadId, agentKey))
+                .isEqualTo(new CodeGraphFirstRuntime.Metrics(0, 1, 1, 0, 1, 0));
     }
 
     @Test
@@ -92,9 +98,12 @@ class TestCodeGraphFirstRuntime
         CommandResult fallback = run(broad);
 
         assertThat(first.exitCode()).isEqualTo(2);
-        assertThat(first.stderr()).contains("CodeGraph-first", "mcp__bytequay__codegraph_explore");
+        assertThat(first.stderr()).contains(
+                "CodeGraph-first", "mcp__bytequay__codegraph_explore", "rg MissingSymbol");
         assertThat(second.exitCode()).isEqualTo(2);
         assertThat(fallback.exitCode()).isNotEqualTo(2);
+        assertThat(CodeGraphFirstRuntime.finishTurn(threadId, agentKey))
+                .isEqualTo(new CodeGraphFirstRuntime.Metrics(2, 0, 0, 0, 0, 1));
 
         CodeGraphFirstRuntime.prepare(broad, threadId, agentKey);
         CodeGraphFirstRuntime.markAttempted(threadId, agentKey);

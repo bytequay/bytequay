@@ -51,6 +51,7 @@ public final class CodeGraphFirstRuntime
     private static final int MAX_REDIRECTS = 2;
     private static final String ATTEMPTED_FILE = "codegraph-attempted";
     private static final String REDIRECT_COUNT_FILE = "redirect-count";
+    private static final String METRICS_FILE = "metrics-events";
     private static final String STATE_DIRECTORY_ENV = "BYTEQUAY_CODEGRAPH_STATE_DIR";
     private static final String SHIM_DIRECTORY_ENV = "BYTEQUAY_CODEGRAPH_SHIM_DIR";
     private static final Set<String> GUARDED_COMMANDS = Set.of(
@@ -58,11 +59,26 @@ public final class CodeGraphFirstRuntime
 
     private static final Path ROOT = Path.of(System.getProperty("java.io.tmpdir"),
             "bytequay-codegraph-first-" + ProcessHandle.current().pid());
-    private static final Path SHIM_DIRECTORY = ROOT.resolve("bin-v1");
+    private static final Path SHIM_DIRECTORY = ROOT.resolve("bin-v2");
     private static final Object LOCK = new Object();
     private static volatile boolean shimsReady;
 
     private CodeGraphFirstRuntime() {}
+
+    /** Reset one scheduler turn, including API-lane turns with no CLI process. */
+    public static void beginTurn(String threadId, String agentKey)
+    {
+        if (!validScope(threadId, agentKey)) {
+            return;
+        }
+        try {
+            resetState(stateDirectory(threadId, agentKey));
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("Could not reset CodeGraph-first state for {}/{}: {}",
+                    threadId, agentKey, e.getMessage());
+        }
+    }
 
     /** Reset one agent's turn state and install the managed search shims. */
     public static void prepare(ProcessBuilder process, String threadId, String agentKey)
@@ -73,9 +89,7 @@ public final class CodeGraphFirstRuntime
         }
         try {
             Path stateDirectory = stateDirectory(threadId, agentKey);
-            Files.createDirectories(stateDirectory);
-            Files.deleteIfExists(stateDirectory.resolve(ATTEMPTED_FILE));
-            Files.deleteIfExists(stateDirectory.resolve(REDIRECT_COUNT_FILE));
+            resetState(stateDirectory);
             ensureShims();
 
             String currentPath = process.environment().getOrDefault("PATH", "");
@@ -106,11 +120,22 @@ public final class CodeGraphFirstRuntime
             Files.writeString(directory.resolve(ATTEMPTED_FILE), "attempted\n",
                     StandardCharsets.UTF_8, StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
+            appendMetric(directory, "attempted");
         }
         catch (IOException | RuntimeException e) {
             log.warn("Could not record CodeGraph attempt for {}/{}: {}",
                     threadId, agentKey, e.getMessage());
         }
+    }
+
+    public static void markSucceeded(String threadId, String agentKey)
+    {
+        appendMetric(threadId, agentKey, "succeeded");
+    }
+
+    public static void markFailed(String threadId, String agentKey)
+    {
+        appendMetric(threadId, agentKey, "failed");
     }
 
     /**
@@ -130,16 +155,19 @@ public final class CodeGraphFirstRuntime
                 Path directory = stateDirectory(threadId, agentKey);
                 Files.createDirectories(directory);
                 if (Files.isRegularFile(directory.resolve(ATTEMPTED_FILE))) {
+                    appendMetric(directory, "fallback");
                     return false;
                 }
                 Path countFile = directory.resolve(REDIRECT_COUNT_FILE);
                 int count = readRedirectCount(countFile);
                 if (count >= MAX_REDIRECTS) {
+                    appendMetric(directory, "ignored");
                     return false;
                 }
                 Files.writeString(countFile, Integer.toString(count + 1) + "\n",
                         StandardCharsets.UTF_8, StandardOpenOption.CREATE,
                         StandardOpenOption.TRUNCATE_EXISTING);
+                appendMetric(directory, "redirected");
                 return true;
             }
             catch (IOException | RuntimeException e) {
@@ -148,6 +176,96 @@ public final class CodeGraphFirstRuntime
                 return false;
             }
         }
+    }
+
+    /** Snapshot the current turn so the scheduler can persist one durable event. */
+    public static Metrics finishTurn(String threadId, String agentKey)
+    {
+        if (!validScope(threadId, agentKey)) {
+            return Metrics.EMPTY;
+        }
+        try {
+            Path file = stateDirectory(threadId, agentKey).resolve(METRICS_FILE);
+            if (!Files.isRegularFile(file)) {
+                return Metrics.EMPTY;
+            }
+            int redirected = 0;
+            int attempted = 0;
+            int succeeded = 0;
+            int failed = 0;
+            int fallback = 0;
+            int ignored = 0;
+            for (String event : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+                switch (event) {
+                    case "redirected" -> redirected++;
+                    case "attempted" -> attempted++;
+                    case "succeeded" -> succeeded++;
+                    case "failed" -> failed++;
+                    case "fallback" -> fallback++;
+                    case "ignored" -> ignored++;
+                    default -> {}
+                }
+            }
+            return new Metrics(redirected, attempted, succeeded, failed, fallback, ignored);
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("Could not read CodeGraph-first metrics for {}/{}: {}",
+                    threadId, agentKey, e.getMessage());
+            return Metrics.EMPTY;
+        }
+    }
+
+    public record Metrics(
+            int redirected, int attempted, int succeeded, int failed, int fallback, int ignored)
+    {
+        private static final Metrics EMPTY = new Metrics(0, 0, 0, 0, 0, 0);
+
+        public boolean isEmpty()
+        {
+            return redirected == 0 && attempted == 0 && succeeded == 0
+                    && failed == 0 && fallback == 0 && ignored == 0;
+        }
+
+        public String toJson()
+        {
+            return "{\"redirected\":" + redirected
+                    + ",\"attempted\":" + attempted
+                    + ",\"succeeded\":" + succeeded
+                    + ",\"failed\":" + failed
+                    + ",\"fallback\":" + fallback
+                    + ",\"ignored\":" + ignored + "}";
+        }
+    }
+
+    private static void resetState(Path directory)
+            throws IOException
+    {
+        Files.createDirectories(directory);
+        Files.deleteIfExists(directory.resolve(ATTEMPTED_FILE));
+        Files.deleteIfExists(directory.resolve(REDIRECT_COUNT_FILE));
+        Files.deleteIfExists(directory.resolve(METRICS_FILE));
+    }
+
+    private static void appendMetric(String threadId, String agentKey, String event)
+    {
+        if (!validScope(threadId, agentKey)) {
+            return;
+        }
+        try {
+            appendMetric(stateDirectory(threadId, agentKey), event);
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("Could not record CodeGraph-first metric for {}/{}: {}",
+                    threadId, agentKey, e.getMessage());
+        }
+    }
+
+    private static void appendMetric(Path directory, String event)
+            throws IOException
+    {
+        Files.createDirectories(directory);
+        Files.writeString(directory.resolve(METRICS_FILE), event + "\n",
+                StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     }
 
     private static int readRedirectCount(Path countFile)
@@ -237,7 +355,7 @@ public final class CodeGraphFirstRuntime
             fi
 
             state_dir=${BYTEQUAY_CODEGRAPH_STATE_DIR:-}
-            if [ -z "$state_dir" ] || [ -f "$state_dir/codegraph-attempted" ]; then
+            if [ -z "$state_dir" ]; then
               exec "$real" "$@"
             fi
 
@@ -286,6 +404,11 @@ public final class CodeGraphFirstRuntime
               exec "$real" "$@"
             fi
 
+            if [ -f "$state_dir/codegraph-attempted" ]; then
+              printf '%s\n' fallback >> "$state_dir/metrics-events" 2>/dev/null || true
+              exec "$real" "$@"
+            fi
+
             count=0
             if [ -r "$state_dir/redirect-count" ]; then
               count=$(sed -n '1p' "$state_dir/redirect-count" 2>/dev/null || true)
@@ -294,18 +417,23 @@ public final class CodeGraphFirstRuntime
               ''|*[!0-9]*) count=0 ;;
             esac
             if [ "$count" -ge 2 ]; then
+              printf '%s\n' ignored >> "$state_dir/metrics-events" 2>/dev/null || true
               exec "$real" "$@"
             fi
             next=$((count + 1))
             if ! (umask 077 && printf '%s\n' "$next" > "$state_dir/redirect-count"); then
               exec "$real" "$@"
             fi
+            printf '%s\n' redirected >> "$state_dir/metrics-events" 2>/dev/null || true
 
+            safe_search=$(printf '%s' "$tool $*" | tr -cd '[:alnum:]_./: ,=-')
             cat >&2 <<'BYTEQUAY_CODEGRAPH_MESSAGE'
             Blocked by ByteQuay's CodeGraph-first exploration policy.
-            This looks like broad repository discovery. Call this tool first:
-
-            mcp__bytequay__codegraph_explore({"query":"Map the code relevant to the current task. Return the main implementation files, symbols, callers, tests, and change impact."})
+            This looks like broad repository discovery. Call CodeGraph first.
+            BYTEQUAY_CODEGRAPH_MESSAGE
+            printf '%s\n' \
+              "mcp__bytequay__codegraph_explore({\\\"query\\\":\\\"Map code relevant to this blocked search: $safe_search. Return implementation files, symbols, callers, tests, and change impact.\\\"})" >&2
+            cat >&2 <<'BYTEQUAY_CODEGRAPH_MESSAGE'
 
             Then use native search for exact literal checks or completeness verification.
             If CodeGraph is unavailable, retry; ByteQuay fails open after two redirects.

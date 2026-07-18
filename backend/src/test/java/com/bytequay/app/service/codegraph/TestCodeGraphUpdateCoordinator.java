@@ -134,6 +134,25 @@ class TestCodeGraphUpdateCoordinator
         }
     }
 
+    @Test
+    void symbolQueryRefreshesTheIndexBeforeSearching(@TempDir Path tempDir)
+            throws Exception
+    {
+        Path checkout = tempDir.toAbsolutePath().normalize();
+        Fingerprint fingerprint = new Fingerprint("one");
+        FakeCodeGraphService service = new FakeCodeGraphService(fingerprint);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CodeGraphUpdateCoordinator coordinator = new CodeGraphUpdateCoordinator(service, executor);
+        try {
+            assertThat(coordinator.query(checkout, "AuthToken")).isEqualTo("query:AuthToken");
+            assertThat(service.indexed).containsExactly(fingerprint);
+            assertThat(service.queries).containsExactly("AuthToken");
+        }
+        finally {
+            executor.shutdownNow();
+        }
+    }
+
     private static final class ChurningCodeGraphService
             extends CodeGraphService
     {
@@ -164,6 +183,7 @@ class TestCodeGraphUpdateCoordinator
     {
         private final Queue<Fingerprint> fingerprints;
         private final List<Fingerprint> indexed = new ArrayList<>();
+        private final List<String> queries = new ArrayList<>();
         private CountDownLatch started;
         private CountDownLatch release;
 
@@ -204,6 +224,13 @@ class TestCodeGraphUpdateCoordinator
                 }
             }
             return CodeGraphResult.ok("synced");
+        }
+
+        @Override
+        public String query(Path checkout, String search)
+        {
+            queries.add(search);
+            return "query:" + search;
         }
     }
 }

@@ -46,6 +46,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WorktreeLeaseStore;
+import com.bytequay.app.service.codegraph.CodeGraphFirstRuntime;
 import com.bytequay.app.service.skills.CavemanPrompt;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -69,6 +70,7 @@ import java.util.function.Consumer;
 
 import static com.bytequay.app.domain.ThreadKind.CLI_AGENT;
 import static com.bytequay.app.domain.ThreadKind.LOGIC_LOOP;
+import static com.bytequay.app.domain.ThreadTurnEventType.CODEGRAPH_POLICY;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_CANCELLED;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_FAILED;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_FINISHED;
@@ -323,6 +325,29 @@ class TestAgentScheduler
         assertThat(harness.events.listEventsByTaskId(thread.id(), 10))
                 .extracting(ThreadTurnEvent::turnId)
                 .containsOnly(turnId);
+    }
+
+    @Test
+    void persistsCodeGraphPolicyMetricsWithTheCompletedTurn()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-codegraph", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+
+        String turnId = harness.scheduler.enqueueTurn(thread, "find auth flow");
+        CodeGraphFirstRuntime.shouldRedirect(thread.id(), thread.id());
+        CodeGraphFirstRuntime.markAttempted(thread.id(), thread.id());
+        CodeGraphFirstRuntime.markSucceeded(thread.id(), thread.id());
+        session.completeNext();
+
+        assertThat(harness.events.listEventsByTaskId(thread.id(), 10))
+                .anySatisfy(event -> {
+                    assertThat(event.turnId()).isEqualTo(turnId);
+                    assertThat(event.event()).isEqualTo(CODEGRAPH_POLICY);
+                    assertThat(event.message()).isEqualTo(
+                            "{\"redirected\":1,\"attempted\":1,\"succeeded\":1,"
+                                    + "\"failed\":0,\"fallback\":0,\"ignored\":0}");
+                });
     }
 
     @Test

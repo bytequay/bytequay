@@ -26,9 +26,9 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Resolves the projection the {@code list_skills} tool returns at
- * runtime and the body the {@code load_skill} tool returns. Pure
- * read-side — the writes go through {@link SkillService}.
+ * Read-side catalog used by ByteQuay's skill selector and settings UI.
+ * Providers never query this catalog directly; writes go through
+ * {@link SkillService}.
  *
  * <p>The query is intentionally explicit (one struct of filters)
  * rather than chained-builder style so the cached prefix can include
@@ -47,9 +47,7 @@ public class SkillManifestService
 
     /**
      * Resolve the manifest entries that match the query. The result is
-     * sorted by (scope, name) so the same input always serialises to
-     * the same bytes — important once the projection lands in a tool
-     * result and becomes part of the cached prefix on the next turn.
+     * sorted by (scope, name) so selection and diagnostics are deterministic.
      */
     public List<SkillManifestEntry> query(SkillManifestQuery query)
     {
@@ -63,8 +61,7 @@ public class SkillManifestService
                 .filter(Skill::enabled)
                 // Role applicability is derived from usage, not stored: a
                 // build/task agent sees every development (usage=build)
-                // skill in scope; review-surface skills are reviewer
-                // voices and never reach the list_skills catalog.
+                // skill in scope; review-surface skills are reviewer voices.
                 .filter(s -> !"review".equals(s.usage()))
                 .filter(s -> matchesScope(s, scopes, touchedRepos, threadId))
                 .sorted(Comparator
@@ -75,9 +72,7 @@ public class SkillManifestService
     }
 
     /**
-     * Load the body for a named skill — the {@code load_skill} tool's
-     * return value. Empty when the row is missing or disabled; callers
-     * surface that to the model as a "skill not available" tool error.
+     * Load one selected skill body. Empty when the row is missing or disabled.
      */
     public Optional<String> loadBody(String name)
     {

@@ -17,6 +17,8 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.agents.AgentContextCompiler;
+import com.bytequay.app.service.workspaces.WorkspaceDocumentLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
@@ -227,7 +229,10 @@ public class CodexCliThreadAgent
                 // tools (no `tools/list`), so the model never sees create_task
                 // and improvises with its built-in multi_agent spawn. The rmcp
                 // client does the streamable-HTTP tool discovery.
-                .add("-c", "experimental_use_rmcp_client=true");
+                .add("-c", "experimental_use_rmcp_client=true")
+                // Do not ingest AGENTS.md into ByteQuay-managed sessions.
+                // The role/workspace/skill contract below is authoritative.
+                .add("-c", "project_doc_max_bytes=0");
         if (isReadOnlySession()) {
             // Repeat the policy as a config override so resumed sessions made
             // before this guard was added are tightened too; exec resume does
@@ -237,7 +242,10 @@ public class CodexCliThreadAgent
         if (reasoningEffort != null && !reasoningEffort.isBlank()) {
             argv.add("-c", "model_reasoning_effort=\"" + reasoningEffort + "\"");
         }
-        argv.add("exec");
+        argv.add("exec")
+                // Personal config can add MCP servers and behaviour outside
+                // the role contract. Auth remains available to Codex.
+                .add("--ignore-user-config");
         String resume = resumeSessionId();
         boolean firstTurn = resume == null || resume.isBlank();
         if (firstTurn) {
@@ -256,7 +264,7 @@ public class CodexCliThreadAgent
             // The prompt is the trailing positional arg. Fold hidden managed
             // skills, role-skill, and workspace memory in front of it, since
             // Codex has no system-prompt flag.
-            argv.add(composePrompt(userInput, true));
+            argv.add(composePrompt(userInput));
         }
         else {
             // `codex exec resume --json --skip-git-repo-check <SESSION_ID>
@@ -267,7 +275,7 @@ public class CodexCliThreadAgent
                     .add("--json")
                     .add("--skip-git-repo-check")
                     .add(resume)
-                    .add(composePrompt(userInput, false));
+                    .add(composePrompt(userInput));
         }
 
         ProcessBuilder pb = new ProcessBuilder(argv.build());
@@ -298,34 +306,17 @@ public class CodexCliThreadAgent
         process.getOutputStream().close();
     }
 
-    /** Prepend the role-skill body and workspace memory to the first
-     *  turn's prompt, so a Codex session opens with the same project
-     *  brain the Claude agent injects via {@code --append-system-prompt}.
-     *  Both blocks are optional; when neither is present the user's prompt
-     *  is returned unchanged. */
-    private String composePrompt(String userInput, boolean firstTurn)
+    /** Compile the same ByteQuay-owned context used by Claude and the API lane. */
+    private String composePrompt(String userInput)
     {
-        StringBuilder preamble = new StringBuilder();
-        String managed = activeManagedSkillPrompt();
-        if (!managed.isBlank()) {
-            preamble.append(managed).append("\n\n");
-        }
-        // Task sessions already retain their frozen role in provider history.
-        // Repeat the trunk/brain boundary on resumed read-only turns so stale
-        // execution context cannot redefine the planning agent's identity.
-        if ((firstTurn || isReadOnlySession())
-                && roleSkillText != null && !roleSkillText.isBlank()) {
-            preamble.append(roleSkillText.strip()).append("\n\n");
-        }
-        String workspaceMemory = firstTurn ? workspaceMemoryProvider.get() : null;
-        if (firstTurn && workspaceMemory != null && !workspaceMemory.isBlank()) {
-            preamble.append("# Workspace memory\n\n")
-                    .append(workspaceMemory.strip())
-                    .append("\n\n");
-        }
-        if (preamble.length() == 0) {
+        String compiled = AgentContextCompiler.compilePrompt(
+                roleSkillText,
+                WorkspaceDocumentLoader.load(workingDir),
+                workspaceMemoryProvider.get(),
+                activeManagedSkills()).systemPrompt();
+        if (compiled.isBlank()) {
             return userInput;
         }
-        return preamble.append("---\n\n").append(userInput).toString();
+        return compiled + "\n\n---\n\n" + userInput;
     }
 }

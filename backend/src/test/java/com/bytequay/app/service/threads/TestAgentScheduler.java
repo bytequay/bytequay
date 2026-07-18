@@ -46,6 +46,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WorktreeLeaseStore;
+import com.bytequay.app.service.codegraph.CodeGraphFirstRuntime;
 import com.bytequay.app.service.skills.CavemanPrompt;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -60,6 +61,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -68,6 +70,7 @@ import java.util.function.Consumer;
 
 import static com.bytequay.app.domain.ThreadKind.CLI_AGENT;
 import static com.bytequay.app.domain.ThreadKind.LOGIC_LOOP;
+import static com.bytequay.app.domain.ThreadTurnEventType.CODEGRAPH_POLICY;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_CANCELLED;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_FAILED;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_FINISHED;
@@ -157,7 +160,11 @@ class TestAgentScheduler
                 thread, "implement", "task-1", stageId, TurnInitiator.user());
 
         assertThat(session.inputs).containsExactly("implement");
-        assertThat(session.skillNames).containsExactly(List.of("ponytail", CavemanPrompt.NAME));
+        assertThat(session.skillNames).containsExactly(List.of(
+                "task-execution", "codegraph-first", "ponytail", CavemanPrompt.NAME));
+        assertThat(session.toolNames.getFirst())
+                .contains("codegraph_explore", "run_checks", "push")
+                .doesNotContain("list_skills", "list_tools", "load_skill");
     }
 
     @Test
@@ -176,7 +183,11 @@ class TestAgentScheduler
                 thread, "implement", "task-1", stageId, TurnInitiator.user());
 
         assertThat(session.inputs).containsExactly("implement");
-        assertThat(session.skillNames).containsExactly(List.of("ponytail", CavemanPrompt.NAME));
+        assertThat(session.skillNames).containsExactly(List.of(
+                "task-execution", "codegraph-first", "ponytail", CavemanPrompt.NAME));
+        assertThat(session.toolNames.getFirst())
+                .contains("codegraph_explore", "run_checks", "push")
+                .doesNotContain("list_skills", "list_tools", "load_skill");
     }
 
     @Test
@@ -189,7 +200,11 @@ class TestAgentScheduler
         harness.scheduler.enqueueTrunkTurn(thread, "go ahead and implement this");
 
         assertThat(session.inputs).containsExactly("go ahead and implement this");
-        assertThat(session.skillNames).containsExactly(List.of("trunk-planner", CavemanPrompt.NAME));
+        assertThat(session.skillNames).containsExactly(List.of(
+                "trunk-planner", "codegraph-first", CavemanPrompt.NAME));
+        assertThat(session.toolNames.getFirst())
+                .contains("codegraph_explore", "create_task")
+                .doesNotContain("run_checks", "push", "list_skills", "list_tools", "load_skill");
     }
 
     @Test
@@ -310,6 +325,29 @@ class TestAgentScheduler
         assertThat(harness.events.listEventsByTaskId(thread.id(), 10))
                 .extracting(ThreadTurnEvent::turnId)
                 .containsOnly(turnId);
+    }
+
+    @Test
+    void persistsCodeGraphPolicyMetricsWithTheCompletedTurn()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-codegraph", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+
+        String turnId = harness.scheduler.enqueueTurn(thread, "find auth flow");
+        CodeGraphFirstRuntime.shouldRedirect(thread.id(), thread.id());
+        CodeGraphFirstRuntime.markAttempted(thread.id(), thread.id());
+        CodeGraphFirstRuntime.markSucceeded(thread.id(), thread.id());
+        session.completeNext();
+
+        assertThat(harness.events.listEventsByTaskId(thread.id(), 10))
+                .anySatisfy(event -> {
+                    assertThat(event.turnId()).isEqualTo(turnId);
+                    assertThat(event.event()).isEqualTo(CODEGRAPH_POLICY);
+                    assertThat(event.message()).isEqualTo(
+                            "{\"redirected\":1,\"attempted\":1,\"succeeded\":1,"
+                                    + "\"failed\":0,\"fallback\":0,\"ignored\":0}");
+                });
     }
 
     @Test
@@ -857,6 +895,7 @@ class TestAgentScheduler
         private final Thread thread;
         private final List<String> inputs = new ArrayList<>();
         private final List<List<String>> skillNames = new ArrayList<>();
+        private final List<Set<String>> toolNames = new ArrayList<>();
         private final ArrayDeque<CompletableFuture<Void>> completions = new ArrayDeque<>();
         private ThreadStatus status = ThreadStatus.IDLE;
 
@@ -933,6 +972,12 @@ class TestAgentScheduler
         public void setActiveManagedSkillNames(List<String> names)
         {
             skillNames.add(names == null ? List.of() : List.copyOf(names));
+        }
+
+        @Override
+        public void setActiveToolNames(Set<String> names)
+        {
+            toolNames.add(names == null ? Set.of() : Set.copyOf(names));
         }
 
         private void completeNext()

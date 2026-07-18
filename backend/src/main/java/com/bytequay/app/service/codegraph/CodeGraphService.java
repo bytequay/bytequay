@@ -106,6 +106,12 @@ public class CodeGraphService
         return codeGraph.explore(normalize(checkout), query);
     }
 
+    public String query(Path checkout, String search)
+            throws IOException, InterruptedException
+    {
+        return codeGraph.query(normalize(checkout), search);
+    }
+
     private void ensureIgnored(Path checkout)
             throws IOException, InterruptedException
     {

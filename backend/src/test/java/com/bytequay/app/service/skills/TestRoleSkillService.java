@@ -13,12 +13,16 @@
  */
 package com.bytequay.app.service.skills;
 
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestRoleSkillService
 {
@@ -31,23 +35,18 @@ class TestRoleSkillService
     }
 
     @Test
-    void trunkTemplateLoadsFromTheClasspath()
+    void trunkTemplateComesFromTheVersionedByteQuayRegistry()
             throws IOException
     {
         RoleSkillService service = bootedService();
 
         assertThat(service.trunkTemplate())
-                .contains("Role · Trunk")
-                .contains("read-only")
-                .contains("not your responsibilities")
-                .contains("Running builds, tests, typechecks, validation, or commit gates")
-                .contains("Never claim implementation or validation work")
-                .contains("Do not call `create_task` in the")
-                .contains("immediately preceding reply")
-                .contains("read_current_repository")
-                .contains("not inspect `.git/config`")
-                // The trunk may cut tasks via create_task (its only write tool).
-                .contains("create_task");
+                .contains("ByteQuay role · Trunk")
+                .contains("Role version: `trunk@1`")
+                .contains("Character:")
+                .contains("do not edit files, run builds or tests, commit, push, or publish")
+                .contains("create_task")
+                .doesNotContain("AGENTS.md", "CLAUDE.md");
     }
 
     @Test
@@ -144,5 +143,32 @@ class TestRoleSkillService
         assertThat(body).contains("`ship` — Finalise the current task");
         assertThat(body).contains("`next` — Park the current task at AWAITING_REVIEW");
         assertThat(body).contains("`awaiting_review` — A task whose agent finished");
+    }
+
+    @Test
+    void taskRowsStoreAVersionReferenceAndLegacyBodiesStillResolve()
+            throws IOException
+    {
+        RoleSkillService service = bootedService();
+
+        assertThat(service.taskRoleReference()).isEqualTo("task@1");
+        assertThat(service.resolveForTask(task("task@1")))
+                .contains("Role version: `task@1`")
+                .contains("feature/role-context");
+        assertThat(service.resolveForTask(task("legacy frozen prompt")))
+                .isEqualTo("legacy frozen prompt");
+        assertThatThrownBy(() -> service.resolveForTask(task("task@999")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unknown ByteQuay role version: task@999");
+    }
+
+    private static Task task(String role)
+    {
+        Instant now = Instant.parse("2026-07-18T00:00:00Z");
+        return new Task(
+                "task-1", "thread-1", 1L, TaskStatus.RUNNING,
+                "feature/role-context", "/tmp/worktree", "main", "/tmp/repo",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, null, now, null, null, "Role context", role, null);
     }
 }

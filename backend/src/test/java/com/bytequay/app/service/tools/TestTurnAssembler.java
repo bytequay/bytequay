@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestTurnAssembler
 {
     @Test
-    void toolsListPlacesSkillToolsFirstThenActionTools()
+    void toolsListContainsOnlyTheResolvedActionTools()
     {
         TurnAssembler assembler = new TurnAssembler();
 
@@ -34,11 +34,9 @@ class TestTurnAssembler
                 List.of(),
                 "new turn");
 
-        assertThat(req.tools()).hasSize(4);
-        assertThat(req.tools().get(0)).contains("\"name\":\"list_skills\"");
-        assertThat(req.tools().get(1)).contains("\"name\":\"list_tools\"");
-        assertThat(req.tools().get(2)).contains("\"name\":\"load_skill\"");
-        assertThat(req.tools().get(3)).contains("\"name\":\"read_file\"");
+        assertThat(req.tools()).singleElement()
+                .asString()
+                .contains("\"name\":\"read_file\"");
     }
 
     @Test
@@ -93,7 +91,7 @@ class TestTurnAssembler
     }
 
     @Test
-    void openAiShapeUsesOpenAiSkillTools()
+    void providerShapeDoesNotAddUnselectedTools()
     {
         TurnAssembler assembler = new TurnAssembler();
 
@@ -105,10 +103,7 @@ class TestTurnAssembler
                 List.of(),
                 "");
 
-        assertThat(req.tools()).hasSize(3);
-        // OpenAI-shape wraps each tool in {type: function, function: ...}
-        assertThat(req.tools().get(0)).contains("\"type\":\"function\"");
-        assertThat(req.tools().get(0)).contains("\"name\":\"list_skills\"");
+        assertThat(req.tools()).isEmpty();
     }
 
     @Test

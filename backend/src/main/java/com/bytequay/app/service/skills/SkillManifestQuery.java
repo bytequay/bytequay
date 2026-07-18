@@ -17,8 +17,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Filter set the manifest projection applies before returning entries
- * to the {@code list_skills} tool. All fields are optional; a query
+ * Filter set ByteQuay applies when selecting or inspecting skills. All fields are optional; a query
  * with everything empty matches every enabled global skill.
  *
  * @param scopes         scopes to include (defaults to global only when

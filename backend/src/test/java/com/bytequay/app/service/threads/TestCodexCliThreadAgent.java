@@ -22,6 +22,7 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.skills.ManagedSkill;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -72,7 +73,7 @@ class TestCodexCliThreadAgent
     }
 
     @Test
-    void resumeTurnInsertsResumeSubcommandAndSkipsTheRolePreamble()
+    void resumeTurnKeepsTheByteQuayContextAndIgnoresProviderConfig()
     {
         CodexCliThreadAgent agent = agent("gpt-5", "sess-abc", "ROLE BRIEF");
 
@@ -81,7 +82,9 @@ class TestCodexCliThreadAgent
         // `codex [-c …] exec resume --json --skip-git-repo-check <id> <prompt>`
         // continues the recorded session — the resume args appear in order.
         assertThat(cmd).containsSubsequence(
-                "exec", "resume", "--json", "--skip-git-repo-check", "sess-abc", "next step");
+                "exec", "--ignore-user-config", "resume", "--json",
+                "--skip-git-repo-check", "sess-abc");
+        assertThat(cmd.get(cmd.size() - 1)).contains("ROLE BRIEF").endsWith("next step");
         // `exec resume` rejects --sandbox / -C / -m (they were recorded on the
         // session) — passing them made every resume exit 2. Guard against it.
         assertThat(cmd).doesNotContain("--sandbox", "-C", "-m");
@@ -123,6 +126,18 @@ class TestCodexCliThreadAgent
         List<String> resumed = agent("gpt-5", "sess-abc", "").buildCommand("go").command();
         assertThat(resumed).containsSubsequence(
                 "codex", "-c", url, "-c", approval, "-c", rmcp, "exec", "resume");
+    }
+
+    @Test
+    void disablesProviderInstructionFilesForFreshAndResumedTurns()
+    {
+        List<String> fresh = agent("gpt-5", null, "").buildCommand("go").command();
+        List<String> resumed = agent("gpt-5", "sess-abc", "").buildCommand("go").command();
+
+        assertThat(fresh).containsSubsequence("-c", "project_doc_max_bytes=0", "exec",
+                "--ignore-user-config");
+        assertThat(resumed).containsSubsequence("-c", "project_doc_max_bytes=0", "exec",
+                "--ignore-user-config", "resume");
     }
 
     @Test
@@ -242,6 +257,20 @@ class TestCodexCliThreadAgent
         // The user's prompt lands after the preamble separator.
         assertThat(prompt).contains("---");
         assertThat(prompt).endsWith("implement X");
+    }
+
+    @Test
+    void resolvedAuthoredSkillBodyIsInjectedOnFreshAndResumedTurns()
+    {
+        CodexCliThreadAgent fresh = agent("gpt-5", null, "TASK ROLE");
+        fresh.setActiveManagedSkills(List.of(new ManagedSkill("authored", "AUTHORED BODY")));
+        CodexCliThreadAgent resumed = agent("gpt-5", "sess-abc", "TASK ROLE");
+        resumed.setActiveManagedSkills(List.of(new ManagedSkill("authored", "AUTHORED BODY")));
+
+        assertThat(lastArg(fresh.buildCommand("implement")))
+                .contains("## authored", "AUTHORED BODY");
+        assertThat(lastArg(resumed.buildCommand("continue")))
+                .contains("## authored", "AUTHORED BODY");
     }
 
     @Test

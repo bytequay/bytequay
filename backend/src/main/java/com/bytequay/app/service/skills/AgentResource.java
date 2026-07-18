@@ -13,18 +13,17 @@
  */
 package com.bytequay.app.service.skills;
 
-import com.bytequay.app.service.concepts.ConceptRegistry;
-
-/**
- * @deprecated compatibility name for tests and integrations compiled before
- * roles became first-class ByteQuay definitions. Use {@link RoleRegistry}.
- */
-@Deprecated(forRemoval = false)
-public class RoleSkillService
-        extends RoleRegistry
+/** Resource domains a ByteQuay role may receive or query. */
+public enum AgentResource
 {
-    public RoleSkillService(ConceptRegistry concepts)
-    {
-        super(concepts);
-    }
+    WORKSPACE_DOCUMENT,
+    WORKSPACE_MEMORY,
+    THREAD,
+    TASK,
+    STAGE,
+    REPOSITORY,
+    WORKTREE,
+    CODEGRAPH,
+    PULL_REQUEST,
+    CI
 }

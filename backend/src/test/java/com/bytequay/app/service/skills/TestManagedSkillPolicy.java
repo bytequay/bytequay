@@ -33,17 +33,17 @@ class TestManagedSkillPolicy
     private final ManagedSkillPolicy policy = new ManagedSkillPolicy();
 
     @Test
-    void codingStageGetsPonytailAndCaveman()
+    void codingStageGetsTheByteQuayExecutionBundle()
     {
         assertThat(policy.skillNames(ThreadKind.CLI_AGENT, turn("user"), StageType.DEVELOPMENT_STAGE))
-                .containsExactly("ponytail", CavemanPrompt.NAME);
+                .containsExactly("task-execution", "codegraph-first", "ponytail", CavemanPrompt.NAME);
     }
 
     @Test
-    void apiCodingStageGetsPonytailAndCaveman()
+    void apiCodingStageGetsTheSameByteQuayExecutionBundle()
     {
         assertThat(policy.skillNames(ThreadKind.LOGIC_LOOP, turn("user"), StageType.DEVELOPMENT_STAGE))
-                .containsExactly("ponytail", CavemanPrompt.NAME);
+                .containsExactly("task-execution", "codegraph-first", "ponytail", CavemanPrompt.NAME);
     }
 
     @Test
@@ -54,37 +54,37 @@ class TestManagedSkillPolicy
     }
 
     @Test
-    void trunkPlanningTurnGetsTrunkPlannerAndCaveman()
+    void trunkPlanningTurnGetsPlannerAndCodeGraphGuidance()
     {
         assertThat(policy.skillNames(
                 ThreadKind.CLI_AGENT, turn("user", "go ahead and implement this"), null))
-                .containsExactly("trunk-planner", CavemanPrompt.NAME);
+                .containsExactly("trunk-planner", "codegraph-first", CavemanPrompt.NAME);
     }
 
     @Test
-    void explicitTrunkPlanningSourceGetsTrunkPlannerAndCaveman()
+    void explicitTrunkPlanningSourceGetsPlannerAndCodeGraphGuidance()
     {
         assertThat(policy.skillNames(
                 ThreadKind.LOGIC_LOOP, turn("backlog-start", "please review this"), null))
-                .containsExactly("trunk-planner", CavemanPrompt.NAME);
+                .containsExactly("trunk-planner", "codegraph-first", CavemanPrompt.NAME);
     }
 
     @Test
-    void normalTrunkAndNormalBrainGetCaveman()
+    void normalTrunkGetsCodeGraphGuidanceButBrainStaysMinimal()
     {
         assertThat(policy.skillNames(ThreadKind.CLI_AGENT, turn("user"), null))
-                .containsExactly(CavemanPrompt.NAME);
+                .containsExactly("codegraph-first", CavemanPrompt.NAME);
         assertThat(policy.skillNames(
                 ThreadKind.BRAIN_AGENT, turn("user", "go ahead and implement this"), null))
                 .containsExactly(CavemanPrompt.NAME);
     }
 
     @Test
-    void taskTurnWithoutStageGetsCavemanButNotTrunkPlanner()
+    void taskTurnWithoutStageGetsTheGenericTaskBundle()
     {
         assertThat(policy.skillNames(
                 ThreadKind.CLI_AGENT, turn("user", "go ahead and implement this", "task-1"), null))
-                .containsExactly(CavemanPrompt.NAME);
+                .containsExactly("task-execution", "codegraph-first", CavemanPrompt.NAME);
     }
 
     @Test

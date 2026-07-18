@@ -19,10 +19,12 @@ import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.service.skills.ManagedSkill;
 import com.bytequay.app.service.skills.ManagedSkillBundle;
 
 import java.util.List;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 
@@ -70,6 +72,8 @@ final class AgentViews
         @Override public void setActiveAgentRun(String agentRunId) { delegate.setActiveAgentRun(agentRunId); }
         @Override public void setManagedSkillBundle(ManagedSkillBundle bundle) { delegate.setManagedSkillBundle(bundle); }
         @Override public void setActiveManagedSkillNames(List<String> names) { delegate.setActiveManagedSkillNames(names); }
+        @Override public void setActiveManagedSkills(List<ManagedSkill> skills) { delegate.setActiveManagedSkills(skills); }
+        @Override public void setActiveToolNames(Set<String> names) { delegate.setActiveToolNames(names); }
         @Override public void setMcpAgentKey(String agentKey) { delegate.setMcpAgentKey(agentKey); }
         @Override public void interrupt() { delegate.interrupt(); }
         @Override public void resume() { delegate.resume(); }

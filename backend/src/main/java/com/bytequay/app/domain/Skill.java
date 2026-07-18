@@ -16,18 +16,18 @@ package com.bytequay.app.domain;
 import java.time.Instant;
 
 /**
- * A skill is a model-triggered chunk of context the agent loads on demand
- * via the list_skills / load_skill tools, or — for rubrics — an
- * always-applied hint resolved by the review path.
+ * A ByteQuay-managed context module. ByteQuay selects a bounded set before
+ * dispatch; providers do not discover or load skills themselves. Rubrics are
+ * selected by the review path.
  *
  * @param scope        'global' (every workspace), 'repo' (the value of
  *                     {@code repo} is the {@code owner/name} it targets),
  *                     or 'thread' (one specific thread)
  * @param repo         {@code owner/name} when scope = 'repo'; null otherwise
  * @param threadId     the bound thread when scope = 'thread'; null otherwise
- * @param description  the trigger blurb shown after the "loads when…" marker
- * @param body         the prompt body the agent loads via load_skill
- * @param kind         'library' (general — the model decides to load it),
+ * @param description  the trigger blurb used by ByteQuay's selector
+ * @param body         the prompt body ByteQuay injects when selected
+ * @param kind         'library' (general reusable context),
  *                     'persona' (always-on identity for a role), or
  *                     'rubric' (deterministic review-time rule)
  * @param roleTag      binds the skill to a specific agent role (e.g.
@@ -55,7 +55,7 @@ public record Skill(
         String kind,
         /** Surface the skill belongs to: {@code review} rows are
          *  selectable as reviewer roles (and only there); {@code build}
-         *  rows feed the build/task agents' skill tools (and only
+         *  rows feed the build/task agents' skill selector (and only
          *  them). */
         String usage,
         String roleTag,

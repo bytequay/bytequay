@@ -370,8 +370,7 @@ public abstract class AbstractCliThreadAgent
     }
 
     /** Tear down any per-session temp resources on {@link #stop}.
-     *  Default no-op; a subclass with on-disk session state (MCP config,
-     *  materialized skills) overrides. */
+     *  Default no-op; a subclass with on-disk session state overrides. */
     protected void cleanupProviderResources()
     {
     }
@@ -488,6 +487,12 @@ public abstract class AbstractCliThreadAgent
     public final void setActiveManagedSkillNames(List<String> names)
     {
         this.activeManagedSkills = managedSkillBundle.select(names);
+    }
+
+    @Override
+    public final void setActiveManagedSkills(List<ManagedSkill> skills)
+    {
+        this.activeManagedSkills = skills == null ? List.of() : List.copyOf(skills);
     }
 
     protected final List<ManagedSkill> activeManagedSkills()

@@ -13,18 +13,23 @@
  */
 package com.bytequay.app.service.skills;
 
-import com.bytequay.app.service.concepts.ConceptRegistry;
-
-/**
- * @deprecated compatibility name for tests and integrations compiled before
- * roles became first-class ByteQuay definitions. Use {@link RoleRegistry}.
- */
-@Deprecated(forRemoval = false)
-public class RoleSkillService
-        extends RoleRegistry
+/** Provider-neutral roles owned by ByteQuay. */
+public enum ByteQuayRole
 {
-    public RoleSkillService(ConceptRegistry concepts)
+    TRUNK("trunk"),
+    TASK("task"),
+    BRAIN("brain"),
+    REVIEWER("reviewer");
+
+    private final String id;
+
+    ByteQuayRole(String id)
     {
-        super(concepts);
+        this.id = id;
+    }
+
+    public String id()
+    {
+        return id;
     }
 }

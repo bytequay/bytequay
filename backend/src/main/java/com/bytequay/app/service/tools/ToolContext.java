@@ -21,9 +21,8 @@ import java.util.Set;
  * right manifest projection. Fixed for the duration of one turn so the
  * tool result bytes are stable.
  *
- * @param touchedRepos  the repos the turn might touch — used to scope
- *                      the {@code list_skills} default to global +
- *                      these repos
+ * @param touchedRepos  the repos the turn might touch — used by catalog
+ *                      diagnostics and compatibility queries
  * @param threadId      the thread this turn runs in, if scoping to
  *                      thread-specific skills is desired
  * @param role          agent role identifier (e.g. "trunk", "task",

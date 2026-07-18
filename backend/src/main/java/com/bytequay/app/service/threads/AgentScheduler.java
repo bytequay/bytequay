@@ -35,9 +35,14 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.AgentContextCompiler;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
+import com.bytequay.app.service.agents.ToolExposurePolicy;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.runs.SessionBudgetPolicy;
 import com.bytequay.app.service.skills.ManagedSkillPolicy;
+import com.bytequay.app.service.tools.PermissionResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -105,6 +110,8 @@ public class AgentScheduler
     private final StageStore stages;
     private final TaskStore tasks;
     private final ManagedSkillPolicy managedSkillPolicy;
+    private final AgentContextCompiler contextCompiler;
+    private final ActiveAgentContextRegistry activeContexts;
     private final AgentRunService agentRuns;
     private final SessionBudgetPolicy sessionBudgets;
     /** Agent metrics are cumulative; snapshot each turn's starting point so
@@ -134,13 +141,15 @@ public class AgentScheduler
             StageStore stages,
             TaskStore tasks,
             ManagedSkillPolicy managedSkillPolicy,
+            AgentContextCompiler contextCompiler,
+            ActiveAgentContextRegistry activeContexts,
             AgentRunService agentRuns,
             SessionBudgetPolicy sessionBudgets,
             @Value("${bytequay.threads.scheduler.max-cli-running:4}") int maxCliRunning,
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
         this(threads, turns, events, sessions, stages, tasks,
-                managedSkillPolicy, agentRuns, sessionBudgets,
+                managedSkillPolicy, contextCompiler, activeContexts, agentRuns, sessionBudgets,
                 maxCliRunning, maxApiRunning, true);
     }
 
@@ -155,7 +164,7 @@ public class AgentScheduler
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
         this(threads, turns, events, sessions, stages, tasks,
-                null, null, null, maxCliRunning, maxApiRunning, true);
+                null, null, null, null, null, maxCliRunning, maxApiRunning, true);
     }
 
     private AgentScheduler(
@@ -166,6 +175,8 @@ public class AgentScheduler
             StageStore stages,
             TaskStore tasks,
             ManagedSkillPolicy managedSkillPolicy,
+            AgentContextCompiler contextCompiler,
+            ActiveAgentContextRegistry activeContexts,
             AgentRunService agentRuns,
             SessionBudgetPolicy sessionBudgets,
             int maxCliRunning,
@@ -179,6 +190,10 @@ public class AgentScheduler
         this.stages = requireNonNull(stages, "stages is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.managedSkillPolicy = managedSkillPolicy == null ? new ManagedSkillPolicy() : managedSkillPolicy;
+        this.contextCompiler = contextCompiler == null
+                ? new AgentContextCompiler(this.managedSkillPolicy, new ToolExposurePolicy())
+                : contextCompiler;
+        this.activeContexts = activeContexts == null ? new ActiveAgentContextRegistry() : activeContexts;
         this.agentRuns = agentRuns;
         this.sessionBudgets = sessionBudgets;
         lanes.put(CLI, new LaneState(checkedLimit(maxCliRunning, "maxCliRunning")));
@@ -678,8 +693,13 @@ public class AgentScheduler
             // messages it emits inherit an explicit stage_id.
             session.setActiveStage(runningTurn.stageId());
             session.setActiveAgentRun(runningTurn.agentRunId());
-            session.setActiveManagedSkillNames(managedSkillPolicy.skillNames(
-                    thread.kind(), runningTurn, stageType(runningTurn.stageId())));
+            ResolvedAgentContext context = contextCompiler.resolve(
+                    thread.kind(), runningTurn, stageType(runningTurn.stageId()), session.workingDir());
+            session.setResolvedAgentContext(context);
+            activeContexts.put(
+                    runningTurn.threadId(),
+                    PermissionResolver.agentKeyFor(runningTurn.taskId(), runningTurn.stageId()),
+                    context);
             usageBaselines.put(runningTurn.id(), session.metrics());
             completion = requireNonNull(
                     session.send(runningTurn.input()),
@@ -712,6 +732,9 @@ public class AgentScheduler
                 now,
                 errorMessage);
         turns.saveTurn(finished);
+        activeContexts.remove(
+                runningTurn.threadId(),
+                PermissionResolver.agentKeyFor(runningTurn.taskId(), runningTurn.stageId()));
         appendEvent(finished, failed ? TURN_FAILED : TURN_FINISHED, finished.errorMessage());
         boolean budgetPaused = accountRun(finished, session);
         if (failed || !budgetPaused) {

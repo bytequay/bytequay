@@ -14,22 +14,12 @@
 package com.bytequay.app.service.skills;
 
 /**
- * Projection of one skill row as it appears in the {@code list_skills}
- * manifest the model browses at runtime. Carries only the fields the
- * model needs to decide whether to load the body — the body itself
- * lands in history as the {@code load_skill} tool result.
+ * Catalog projection used by ByteQuay's selector and settings UI. The body is
+ * fetched only after ByteQuay selects an entry for a bounded turn context.
  *
- * <p>The order of fields here is part of the manifest's wire shape and
- * therefore part of the cached prefix once the manifest lands in a
- * tool result. Keep it stable.
- *
- * @param id          primary key — used as the cache key in the
- *                    runtime so subsequent {@code load_skill} calls
- *                    can cross-reference the row the manifest pointed
- *                    at, even if the user renames it
- * @param name        unique skill name — the model passes this to
- *                    {@code load_skill}
- * @param description the "loads when …" trigger the model matches on
+ * @param id          primary key used by settings and cache invalidation
+ * @param name        unique skill name
+ * @param description the trigger ByteQuay's selector matches on
  * @param scope       one of 'global' / 'repo' / 'thread'
  * @param repo        owner/name when {@code scope='repo'}; null otherwise
  * @param roleTag     role this skill targets, or null

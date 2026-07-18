@@ -34,7 +34,7 @@ import com.bytequay.app.service.local.ds4.Ds4Instrumentation;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.skills.ManagedSkillBundle;
 import com.bytequay.app.service.skills.PonytailBundleService;
-import com.bytequay.app.service.skills.RoleSkillService;
+import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.skills.SkillMaterializer;
 import com.bytequay.app.service.stage.AgentContextDigest;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
@@ -109,14 +109,10 @@ public class ThreadRegistry
     /** Production-only audience-filtered brain + KB read path. Legacy tests
      *  keep using workspaceMemoryProvider directly. */
     private SessionKnowledgeProvider sessionKnowledge;
-    /** Resolves the skills the CLI lane materializes for each session.
-     *  May be null on legacy / test paths that don't care about skill
-     *  materialization. */
+    /** Supplies ByteQuay-managed skill bodies to every provider lane. */
     private final SkillMaterializer skillMaterializer;
-    /** Resolves the trunk role skill template. Task role skills come
-     *  from each task's frozen {@code role_skill} column. May be null
-     *  on legacy / test paths. */
-    private final RoleSkillService roleSkillService;
+    /** Resolves ByteQuay role definitions and legacy task role values. */
+    private final RoleRegistry roleRegistry;
     private final PonytailBundleService ponytailBundleService;
     /** Resolves the effective work model for the API lane; null on
      *  CLI-only legacy / test paths. */
@@ -182,7 +178,7 @@ public class ThreadRegistry
             WatchedRepoStore watchedRepos,
             WorktreeService worktreeService,
             SkillMaterializer skillMaterializer,
-            RoleSkillService roleSkillService,
+            RoleRegistry roleRegistry,
             PonytailBundleService ponytailBundleService,
             WorkModelResolver workModelResolver,
             CredentialService credentialService,
@@ -202,7 +198,7 @@ public class ThreadRegistry
                 thread -> resolveTrunkPlanningCwd(
                         store, worktreeService, workspaces, watchedRepos, thread),
                 skillMaterializer,
-                roleSkillService,
+                roleRegistry,
                 ponytailBundleService,
                 workModelResolver,
                 credentialService,
@@ -337,7 +333,7 @@ public class ThreadRegistry
             WorktreeLeaseService leaseService,
             Function<Thread, String> trunkCwdResolver,
             SkillMaterializer skillMaterializer,
-            RoleSkillService roleSkillService,
+            RoleRegistry roleRegistry,
             PonytailBundleService ponytailBundleService,
             WorkModelResolver workModelResolver,
             CredentialService credentialService,
@@ -360,7 +356,7 @@ public class ThreadRegistry
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
         this.trunkCwdResolver = requireNonNull(trunkCwdResolver, "trunkCwdResolver is null");
         this.skillMaterializer = skillMaterializer;
-        this.roleSkillService = roleSkillService;
+        this.roleRegistry = roleRegistry;
         this.ponytailBundleService = ponytailBundleService;
         this.workModelResolver = workModelResolver;
         this.credentialService = credentialService;
@@ -384,7 +380,7 @@ public class ThreadRegistry
             WorktreeLeaseService leaseService,
             Function<Thread, String> trunkCwdResolver,
             SkillMaterializer skillMaterializer,
-            RoleSkillService roleSkillService,
+            RoleRegistry roleRegistry,
             PonytailBundleService ponytailBundleService,
             WorkModelResolver workModelResolver,
             CredentialService credentialService,
@@ -395,7 +391,7 @@ public class ThreadRegistry
     {
         this(store, taskStore, stageStore, parser, mapper, gate, executor,
                 checkpointTrigger, thread -> workspaceMemoryProvider.get(), leaseService,
-                trunkCwdResolver, skillMaterializer, roleSkillService,
+                trunkCwdResolver, skillMaterializer, roleRegistry,
                 ponytailBundleService, workModelResolver, credentialService,
                 toolRegistry, ds4, ds4Instrumentation, contextDigest,
                 CodeGraphUpdateCoordinator.disabled());
@@ -795,14 +791,14 @@ public class ThreadRegistry
                         ? new CodexCliThreadAgent(
                                 thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                                 workspaceMemorySupplier(thread, trunkAudience(thread)),
-                                roleSkillService == null ? null : roleSkillService.trunkTemplate(),
+                                roleRegistry == null ? null : roleRegistry.trunkTemplate(),
                                 initialCwd,
                                 CodexCliThreadAgent.TrunkMode.ENABLED,
                                 PLANNING_REASONING_EFFORT)
                         : new ClaudeCodeCliThreadAgent(
                                 thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                                 workspaceMemorySupplier(thread, trunkAudience(thread)), skillMaterializer,
-                                roleSkillService == null ? null : roleSkillService.trunkTemplate(),
+                                roleRegistry == null ? null : roleRegistry.trunkTemplate(),
                                 initialCwd,
                                 ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
                                 PLANNING_REASONING_EFFORT);
@@ -818,7 +814,7 @@ public class ThreadRegistry
                         thread, store, mapper, executor,
                         credentialService, resolved, trunkCwdResolver.apply(thread),
                         roleWithKnowledge(
-                                roleSkillService == null ? null : roleSkillService.trunkTemplate(),
+                                roleRegistry == null ? null : roleRegistry.trunkTemplate(),
                                 thread, trunkAudience(thread)),
                         toolRegistry, ds4, ds4Instrumentation, gate);
                 agent.setPreTurnHook(() -> {
@@ -944,11 +940,12 @@ public class ThreadRegistry
     private String brainSystemPrompt(Thread thread)
     {
         if (contextDigest == null || thread.parentTaskId() == null) {
-            return LogicLoopThreadAgent.BRAIN_SYSTEM_PROMPT;
+            return roleRegistry == null ? LogicLoopThreadAgent.BRAIN_SYSTEM_PROMPT : roleRegistry.brainTemplate();
         }
         String digest = contextDigest.build(
                 thread.parentTaskId(), AgentContextDigest.DEFAULT_CAP_TOKENS);
-        return LogicLoopThreadAgent.BRAIN_SYSTEM_PROMPT + "\n\n" + digest;
+        String role = roleRegistry == null ? LogicLoopThreadAgent.BRAIN_SYSTEM_PROMPT : roleRegistry.brainTemplate();
+        return role + "\n\n" + digest;
     }
 
     /** Whether a CLI-agent thread should run the {@code codex} binary
@@ -969,11 +966,13 @@ public class ThreadRegistry
         return new WorkModel(WorkModelKind.API, "anthropic", null, null);
     }
 
-    /** The bound task's frozen role skill body for the CLI agent's
-     *  session role block, or null when no task is bound. */
-    private static String resolveTaskRoleSkill(Task boundTask)
+    /** Render the bound task's versioned ByteQuay role, or null for trunk. */
+    private String resolveTaskRoleSkill(Task boundTask)
     {
-        return boundTask == null ? null : boundTask.roleSkill();
+        if (boundTask == null) {
+            return null;
+        }
+        return roleRegistry == null ? boundTask.roleSkill() : roleRegistry.resolveForTask(boundTask);
     }
 
     private ThreadAgent withManagedSkillBundle(ThreadAgent agent)

@@ -89,10 +89,9 @@ public record Task(
         /** User-supplied rename, e.g. "Cost & tokens parser". Null
          *  means fall back to the humanised branch name. */
         String name,
-        /** Role skill body composed + frozen at task creation —
-         *  loaded as the system role block on every turn so the
-         *  cached prefix stays byte-stable for the lifetime of the
-         *  task. Null on legacy rows (no role block injected). */
+        /** Versioned ByteQuay role reference (for example {@code task@1}).
+         *  Legacy rows may contain the old frozen prompt body or null; the
+         *  role registry resolves both shapes without provider-specific files. */
         String roleSkill,
         /** Per-task override on the work-model cascade — the most
          *  specific scope. Null means "no override" — the resolver

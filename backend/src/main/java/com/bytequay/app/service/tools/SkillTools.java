@@ -29,8 +29,9 @@ import java.util.Set;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The three always-present runtime tools — {@code list_skills},
- * {@code list_tools}, and {@code load_skill}.
+ * Provider-neutral skill catalog diagnostics. ByteQuay's context
+ * compiler selects skills before a turn; these operations are not
+ * registered as model-facing runtime tools.
  *
  * <h3>Wire contract</h3>
  *
@@ -42,13 +43,9 @@ import static java.util.Objects.requireNonNull;
  *
  * <h3>Cache-stability contract</h3>
  *
- * Tool definitions are returned as constant strings, byte-identical
- * across calls. The model's prefix cache (DeepSeek auto, Anthropic via
- * {@code cache_control}) only kicks in when the bytes preceding the
- * new turn are the same as the previous turn, so these definitions
- * must never depend on time, repo state, or query parameters. The
- * manifest itself is dynamic — but it appears in a tool result at the
- * tail of the history, not in the tool definitions or system prompt.
+ * Frozen provider-shaped definitions remain for diagnostic clients and
+ * backward-compatible serialization tests. Runtime adapters must expose
+ * only the definitions selected by {@code AgentContextCompiler}.
  *
  * <p>This class has no Spring-time state beyond the manifest service
  * dependency, so the same instance is safe to share across threads.

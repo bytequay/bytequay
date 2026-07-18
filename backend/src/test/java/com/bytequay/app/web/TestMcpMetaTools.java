@@ -18,6 +18,11 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
+import com.bytequay.app.service.skills.ByteQuayRole;
+import com.bytequay.app.service.tools.AgentRole;
+import com.bytequay.app.service.tools.RoleCapabilities;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -28,16 +33,14 @@ import org.springframework.web.context.request.async.DeferredResult;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Coverage for the three meta tools — {@code list_tools},
- * {@code list_skills}, {@code load_skill} — that the MCP server
- * inherits from the {@link com.bytequay.app.service.tools.SkillTools}
- * runtime. None of these mutate state; the tests assert response
- * shapes and that the role filter keeps the catalog honest.
+ * Verifies model-driven skill and tool catalog discovery is not exposed by
+ * MCP. ByteQuay resolves the bounded set before the provider starts a turn.
  */
 @SpringBootTest
 class TestMcpMetaTools
@@ -47,85 +50,75 @@ class TestMcpMetaTools
     @Autowired
     private ThreadStore threads;
     @Autowired
+    private ActiveAgentContextRegistry activeContexts;
+    @Autowired
     private ObjectMapper mapper;
 
     @Test
-    void listToolsReturnsCatalogFilteredByRole()
-            throws Exception
+    void toolsListOmitsModelDrivenCatalogOperations()
+            throws InterruptedException
     {
         String threadId = newTrunkThread();
 
         JsonNode response = await(controller.handle(threadId,
-                jsonRpc("tools/call", mapper.createObjectNode()
-                        .put("name", "list_tools")
-                        .set("arguments", mapper.createObjectNode()))));
+                jsonRpc("tools/list", mapper.createObjectNode())));
 
-        // The plain-text content is itself a JSON array of catalog
-        // entries.
-        String text = response.path("result").path("content").get(0).path("text").asText();
-        JsonNode catalog = mapper.readTree(text);
-        assertThat(catalog.isArray()).isTrue();
-        List<String> names = toNames(catalog);
-        assertThat(names).contains(
-                "approval_prompt", "recall_thread", "list_tools",
-                "list_skills", "load_skill");
-        // Trunk role excludes the task-only publishers.
-        assertThat(names).doesNotContain("push", "post_comment", "request_review");
-        // Each entry carries gating + security alongside name + description.
-        JsonNode listToolsEntry = catalog.findValue("name");
-        assertThat(listToolsEntry).isNotNull();
-        boolean foundGatingField = false;
-        for (JsonNode entry : catalog) {
-            if ("list_tools".equals(entry.path("name").asText())) {
-                assertThat(entry.path("gating").asText()).isEqualTo("auto");
-                assertThat(entry.path("security").asText()).isEqualTo("tool_discover");
-                foundGatingField = true;
-                break;
-            }
+        List<String> names = toNames(response.path("result").path("tools"));
+        assertThat(names).contains("approval_prompt", "recall_thread");
+        assertThat(names).doesNotContain(
+                "list_tools", "list_skills", "load_skill",
+                "push", "post_comment", "request_review");
+    }
+
+    @Test
+    void removedCatalogOperationsAreUnknownEvenWhenCalledDirectly()
+            throws InterruptedException
+    {
+        String threadId = newTrunkThread();
+
+        for (String name : List.of("list_tools", "list_skills", "load_skill")) {
+            JsonNode response = await(controller.handle(threadId,
+                    jsonRpc("tools/call", mapper.createObjectNode()
+                            .put("name", name)
+                            .set("arguments", mapper.createObjectNode()))));
+
+            assertThat(response.path("error").path("code").asInt()).isEqualTo(-32602);
+            assertThat(response.path("error").path("message").asText())
+                    .isEqualTo("unknown tool: " + name);
         }
-        assertThat(foundGatingField).isTrue();
     }
 
     @Test
-    void listSkillsReturnsTheManifestForTheThread()
+    void activeTurnContextHidesAndRefusesUnselectedTools()
             throws Exception
     {
         String threadId = newTrunkThread();
+        ResolvedAgentContext context = new ResolvedAgentContext(
+                ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
+                RoleCapabilities.forRole(AgentRole.TRUNK), List.of("codegraph-first"),
+                Set.of(), Set.of("recall_thread"));
+        activeContexts.put(threadId, "trunk", context);
+        try {
+            JsonNode listed = await(controller.handle(threadId, "trunk",
+                    jsonRpc("tools/list", mapper.createObjectNode())));
+            assertThat(toNames(listed.path("result").path("tools")))
+                    .containsExactly("recall_thread");
 
-        JsonNode response = await(controller.handle(threadId,
-                jsonRpc("tools/call", mapper.createObjectNode()
-                        .put("name", "list_skills")
-                        .set("arguments", mapper.createObjectNode()))));
+            JsonNode called = await(controller.handle(threadId, "trunk",
+                    jsonRpc("tools/call", mapper.createObjectNode()
+                            .put("name", "read_pr")
+                            .set("arguments", mapper.createObjectNode()))));
+            String text = called.path("result").path("content").get(0).path("text").asText();
+            assertThat(mapper.readTree(text).path("message").asText())
+                    .contains("is not active for role trunk@1");
+        }
+        finally {
+            activeContexts.remove(threadId, "trunk");
+        }
 
-        String text = response.path("result").path("content").get(0).path("text").asText();
-        JsonNode parsed = mapper.readTree(text);
-        // The manifest is always an array — empty when no skills
-        // apply, populated when the test DB has rows (e.g. the
-        // migrated 'Trino code style' row from V87).
-        assertThat(parsed.isArray()).isTrue();
-    }
-
-    @Test
-    void loadSkillWithUnknownNameSurfacesADenyEnvelope()
-            throws Exception
-    {
-        String threadId = newTrunkThread();
-
-        JsonNode response = await(controller.handle(threadId,
-                jsonRpc("tools/call", mapper.createObjectNode()
-                        .put("name", "load_skill")
-                        .set("arguments", mapper.createObjectNode()
-                                .put("name", "no-such-skill-exists-here")))));
-
-        String text = response.path("result").path("content").get(0).path("text").asText();
-        JsonNode envelope = mapper.readTree(text);
-        assertThat(envelope.path("behavior").asText()).isEqualTo("deny");
-        // The dispatcher's own error payload rides inside the deny
-        // envelope so the model treats it as a recoverable failure
-        // rather than a permission rejection.
-        assertThat(envelope.path("message").asText())
-                .contains("skill not found")
-                .contains("no-such-skill-exists-here");
+        JsonNode betweenTurns = await(controller.handle(threadId, "trunk",
+                jsonRpc("tools/list", mapper.createObjectNode())));
+        assertThat(toNames(betweenTurns.path("result").path("tools"))).isEmpty();
     }
 
     private JsonNode jsonRpc(String method, JsonNode params)

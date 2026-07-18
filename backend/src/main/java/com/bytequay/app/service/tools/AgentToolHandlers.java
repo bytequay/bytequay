@@ -499,18 +499,12 @@ public class AgentToolHandlers
         }
     }
 
-    /** Args record for {@code list_tools} — no args. */
+    /** Args record for the diagnostic tool catalog query — no args. */
     public record ListToolsArgs() {}
 
-    @AgentTool(
-            name = "list_tools",
-            description = "List every tool available this turn, filtered to the "
-                    + "caller's role. Returns a JSON array of {name, description, "
-                    + "gating, security} entries — useful when picking the right "
-                    + "verb for the next action.",
-            security = SecurityType.TOOL_DISCOVER,
-            gating = Gating.AUTO,
-            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    // Deliberately not an @AgentTool. ByteQuay resolves the bounded tool set
+    // before a turn, so model-driven catalog discovery would bypass that
+    // decision. The handler remains callable by diagnostics and tests.
     public ToolOutcome listTools(ListToolsArgs args, ToolCall call)
     {
         List<ToolCatalogEntry> entries = registry.visibleTo(call.role()).stream()
@@ -526,40 +520,26 @@ public class AgentToolHandlers
     /** Wire shape for one {@code list_tools} catalog entry. */
     public record ToolCatalogEntry(String name, String description, String gating, String security) {}
 
-    /** Args record for {@code list_skills}. */
+    /** Args record for the diagnostic skill catalog query. */
     public record ListSkillsArgs(
             @ToolParam(description = "Optional scope filter — one of global, repo, thread. "
                     + "Omit to see all skills visible to this thread.") String scope,
             @ToolParam(description = "Optional substring match against the trigger description. "
                     + "Case-insensitive.") String query) {}
 
-    @AgentTool(
-            name = "list_skills",
-            description = "List the skills available for this turn. Returns a JSON array "
-                    + "of {id, name, description, scope, repo, role_tag, kind} entries. "
-                    + "Skills are model-triggered — read the \"loads when …\" description "
-                    + "and decide whether to load the body via load_skill.",
-            security = SecurityType.SKILL_USE,
-            gating = Gating.AUTO,
-            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    // Deliberately not an @AgentTool; skill selection belongs to ByteQuay's
+    // context compiler, not to the provider model.
     public ToolOutcome listSkills(ListSkillsArgs args, ToolCall call)
     {
         return skillOutcome(skillTools.listSkills(args.scope(), args.query(), skillContext(call)));
     }
 
-    /** Args record for {@code load_skill}. */
+    /** Args record for the diagnostic skill body query. */
     public record LoadSkillArgs(
             @ToolParam(description = "Unique skill name from a prior list_skills entry.",
                     required = true) String name) {}
 
-    @AgentTool(
-            name = "load_skill",
-            description = "Load the body of one skill by name. Returns a JSON object "
-                    + "{name, body}. Pair with list_skills: list to find the trigger "
-                    + "that matches the task, load to fetch the instructions.",
-            security = SecurityType.SKILL_USE,
-            gating = Gating.AUTO,
-            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    // Deliberately not an @AgentTool; retained for UI/diagnostic callers.
     public ToolOutcome loadSkill(LoadSkillArgs args, ToolCall call)
     {
         return skillOutcome(skillTools.loadSkill(args.name()));

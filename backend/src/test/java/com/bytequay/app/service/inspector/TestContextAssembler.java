@@ -30,6 +30,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.skills.RoleSkillService;
+import com.bytequay.app.service.skills.SkillManifestEntry;
 import com.bytequay.app.service.skills.SkillManifestService;
 import com.bytequay.app.service.tools.TurnAssembler;
 import com.bytequay.app.service.tools.TurnRequest;
@@ -148,7 +149,7 @@ class TestContextAssembler
     }
 
     @Test
-    void forTaskUsesTheFrozenRoleSkillBody()
+    void forTaskStillUnderstandsALegacyFrozenRoleBody()
     {
         Thread th = thread("th-1", "ws-1");
         Task task = task("tk-1", "th-1", "// frozen role for tk-1\n");
@@ -307,10 +308,23 @@ class TestContextAssembler
 
         ContextSection tools = ctx.sections().get(0);
         assertThat(tools.kind()).isEqualTo(SectionKind.TOOLS);
-        // Three built-in skill tools always present for ANTHROPIC.
-        assertThat(tools.sources()).hasSizeGreaterThanOrEqualTo(3);
-        assertThat(tools.sources()).extracting(p -> p.label())
-                .contains("list_skills", "list_tools", "load_skill");
+        assertThat(tools.sources()).isEmpty();
+        assertThat(ctx.wire().tools()).isEmpty();
+    }
+
+    @Test
+    void skillCatalogIsVisibleToDiagnosticsButNotInjectedIntoTheWire()
+    {
+        when(threadStore.findThreadById("th-1")).thenReturn(Optional.of(thread("th-1", "ws-1")));
+        when(skillManifest.query(any())).thenReturn(List.of(new SkillManifestEntry(
+                1L, "java-style", "Loads for Java changes", "global",
+                null, "task", "library")));
+
+        AssembledContext ctx = assembler.forThread("th-1");
+
+        assertThat(ctx.sections().get(4).body()).contains("java-style");
+        assertThat(ctx.sections().get(4).label()).contains("not injected");
+        assertThat(ctx.wire().systemBlocks()).noneMatch(block -> block.contains("java-style"));
     }
 
     @Test

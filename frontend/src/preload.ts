@@ -26,7 +26,6 @@ import type {
   CreateTeamRequest,
   CredentialDto,
   CredentialType,
-  DailyCardDto,
   Ds4ConfigDto,
   Ds4ConfigResponseDto,
   Ds4InstallRequestDto,
@@ -341,7 +340,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:recentActivity', login),
   getFollowingActivity: (login: string): Promise<RecentEventDto[]> =>
     ipcRenderer.invoke('repos:followingActivity', login),
-  getDailyCard: (): Promise<DailyCardDto> => ipcRenderer.invoke('home:dailyCard'),
   recordSurfaceVisit: (visit: SurfaceVisitInput): Promise<void> =>
     ipcRenderer.invoke('footprints:recordVisit', visit),
   getFootprints: (date?: string): Promise<FootprintsTrailDto> =>

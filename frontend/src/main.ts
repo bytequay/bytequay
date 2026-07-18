@@ -2576,12 +2576,6 @@ const url = new URL(`${BACKEND_BASE}/api/activity/following`);
     return res.json();
   });
 
-  ipcMain.handle('home:dailyCard', async () => {
-    const res = await fetch(`${BACKEND_BASE}/daily-card`);
-    if (!res.ok) throw new Error(`backend /daily-card returned ${res.status}`);
-    return res.json();
-  });
-
   // Footprints visit capture. Fire-and-forget by contract: a failed
   // write must never surface to the renderer or block navigation, so we
   // swallow errors here and only warn.

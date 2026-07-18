@@ -428,8 +428,6 @@ function PrMiniRow({ pr, onClick }: { pr: PullRequestDto; onClick: () => void })
   const verdicts = Object.values(pr.reviewerVerdicts ?? {});
   const changesRequested = verdicts.includes('CHANGES_REQUESTED');
   const approved = !changesRequested && verdicts.includes('APPROVED');
-  // 14d since last activity is the same threshold the daily-cards
-  // surfacing uses for "stale" — keeps the signal consistent.
   const stale = !changesRequested && !approved
     && pr.updatedAt
     && (Date.now() - new Date(pr.updatedAt).getTime()) > 14 * 24 * 3600 * 1000;

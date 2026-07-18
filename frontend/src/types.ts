@@ -1339,17 +1339,6 @@ export type CodexCliUpdateResultDto = {
   output: string;
 };
 
-/** Home-page daily card. Exactly one per day, picked deterministically
- *  by the backend from a curated pool. {@link author} / {@link role} are
- *  populated for {@code quote} cards and null for the other types. */
-export type DailyCardDto = {
-  type: 'quote' | 'review_tip' | 'open_source_tip' | 'tiny_challenge' | 'joke' | string;
-  text: string;
-  author: string | null;
-  role: string | null;
-  date: string;
-};
-
 /** A skill row — the model-triggered chunk of context the agent
  *  loads on demand via the list_skills / load_skill tools, or — for
  *  rubrics — an always-applied hint the review path resolves up front.
@@ -3101,8 +3090,6 @@ export type Bridge = {
   searchUsers: (query: string) => Promise<GitHubUserMatchDto[]>;
   getRecentActivity: (login: string) => Promise<RecentEventDto[]>;
   getFollowingActivity: (login: string) => Promise<RecentEventDto[]>;
-  /** Today's home-page daily card. Stable for the whole day. */
-  getDailyCard: () => Promise<DailyCardDto>;
   /** Records a visit to a tracked surface for the footprints trail.
    *  Fire-and-forget — callers don't await it and navigation never
    *  blocks on the write. */

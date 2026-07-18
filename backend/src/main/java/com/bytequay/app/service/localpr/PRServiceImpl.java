@@ -592,6 +592,14 @@ class PRServiceImpl
     }
 
     @Override
+    public void retainSyncedChecks(String prId, Set<String> runIds)
+    {
+        PR pr = require(prId);
+        store.retainChecks(pr.id(), PRCheck.KIND_REMOTE, Set.copyOf(runIds));
+        notifyUpdated(pr.id());
+    }
+
+    @Override
     public PR requestUserReview(String prId, String actor)
     {
         PR pr = require(prId);

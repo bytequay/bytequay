@@ -35,6 +35,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -144,6 +145,16 @@ class TestPRService
                 "pr1", "555", "build-success", PRCheck.STATUS_PASSED, NOW, NOW);
 
         verify(store, never()).addEvent(any());
+    }
+
+    @Test
+    void retainSyncedChecksPrunesOnlyMissingRemoteRuns()
+    {
+        pr(PR.STATUS_REMOTE_OPEN);
+
+        service.retainSyncedChecks("pr1", Set.of("current"));
+
+        verify(store).retainChecks("pr1", PRCheck.KIND_REMOTE, Set.of("current"));
     }
 
     @Test

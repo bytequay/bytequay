@@ -41,6 +41,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -324,6 +325,7 @@ class TestPRSyncService
 
         verify(prService).recordSyncedCheck(
                 eq("pr1"), eq("555"), eq("CI / Backend"), eq(PRCheck.STATUS_PASSED), any(), any());
+        verify(prService).retainSyncedChecks("pr1", Set.of("555"));
         verify(prService).updateSyncSnapshot(eq("pr1"), argThat(snap ->
                 Boolean.TRUE.equals(snap.mergeable()) && "clean".equals(snap.mergeableState())));
     }
@@ -695,6 +697,7 @@ class TestPRSyncService
         verify(prService).recordSyncedCheck(
                 eq("pr-ext"), eq("555"), eq("build"), eq(PRCheck.STATUS_PASSED), any(), any());
         verify(prService, times(1)).recordSyncedCheck(any(), any(), any(), any(), any(), any());
+        verify(prService).retainSyncedChecks("pr-ext", Set.of("555"));
     }
 
     @Test

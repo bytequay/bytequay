@@ -11,24 +11,47 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import { renderMarkdown } from '../markdown';
 import type { MarkdownRepoContext } from '../markdown';
+import { ReactionAddButton } from '../pr/Reactions';
+import type { ReactionContent } from '../pr/utils';
 import { Av } from './atoms';
 import type { TimelineItem } from './detailModel';
 
 /** Overview-timeline cards/rows, markup ported verbatim from the prototype's
  *  generic timeline + comment/review card shapes. */
 
-/** The "add reaction" smiley pill on every card footer (prototype markup). */
-export function ReactionPill() {
+/** The add-reaction affordance, backed by the shared GitHub emoji picker. */
+export function ReactionPill({ onPick }: { onPick: (content: ReactionContent) => Promise<void> }) {
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const pick = async (content: ReactionContent) => {
+    setState('saving');
+    try {
+      await onPick(content);
+      setState('saved');
+    }
+    catch {
+      setState('error');
+    }
+  };
   return (
-    <span className="pl-hov-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, width: 34, height: 25, border: '1px solid #d5dbe1', borderRadius: 999, justifyContent: 'center', color: '#59636e', cursor: 'pointer', fontSize: 11 }}>
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="9" />
-        <path d="M8.5 14.5a4.2 4.2 0 0 0 7 0" />
-        <path d="M9 9.5h.01" />
-        <path d="M15 9.5h.01" />
-      </svg>+
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+      <ReactionAddButton
+        disabled={state === 'saving'}
+        onPick={content => { void pick(content); }}
+        icon={(
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M8.5 14.5a4.2 4.2 0 0 0 7 0" />
+            <path d="M9 9.5h.01" />
+            <path d="M15 9.5h.01" />
+          </svg>
+        )}
+      />
+      {state === 'saving' && <span role="status" style={{ fontSize: 11.5, color: '#8b949e' }}>Adding…</span>}
+      {state === 'saved' && <span role="status" style={{ fontSize: 11.5, color: '#1a7f37' }}>Reaction added</span>}
+      {state === 'error' && <span role="alert" style={{ fontSize: 11.5, color: '#cf222e' }}>Could not add reaction</span>}
     </span>
   );
 }
@@ -53,13 +76,18 @@ function BotPill() {
   return <span style={{ border: '1px solid #d5dbe1', borderRadius: 999, padding: '0 7px', fontSize: 11, color: '#59636e' }}>Bot</span>;
 }
 
-function CommentCard({ item, repoCtx }: { item: Extract<TimelineItem, { kind: 'comment' }>; repoCtx: MarkdownRepoContext }) {
+function CommentCard({ item, repoCtx, onReaction }: {
+  item: Extract<TimelineItem, { kind: 'comment' }>;
+  repoCtx: MarkdownRepoContext;
+  onReaction?: (commentId: number, content: ReactionContent) => Promise<void>;
+}) {
+  const remoteId = item.remoteId;
   return (
     <div style={cardStyle}>
       <div style={{ ...cardHeadStyle, borderBottom: '1px solid #eef1f4' }}>
         <Av login={item.author} size={24} square={item.bot} />
         <span style={{ fontSize: 13 }}>
-          <b style={{ color: '#17191c', fontWeight: 600 }}>{item.author}</b>
+          <span style={{ color: '#17191c', fontWeight: 400 }}>{item.author}</span>
           {item.bot && <> <BotPill /></>}
         </span>
         <span style={{ marginLeft: 'auto', fontSize: 12.5, color: '#8b949e' }}>{item.time}</span>
@@ -74,7 +102,7 @@ function CommentCard({ item, repoCtx }: { item: Extract<TimelineItem, { kind: 'c
           <Av login={reply.author} size={22} square={reply.bot} />
           <span style={{ minWidth: 0 }}>
             <span style={{ fontSize: 12.5 }}>
-              <b style={{ color: '#17191c', fontWeight: 600 }}>{reply.author}</b>{' '}
+              <span style={{ color: '#17191c', fontWeight: 400 }}>{reply.author}</span>{' '}
               <span style={{ color: '#8b949e', fontSize: 11.5 }}>{reply.time}</span>
             </span>
             <div
@@ -84,7 +112,11 @@ function CommentCard({ item, repoCtx }: { item: Extract<TimelineItem, { kind: 'c
           </span>
         </div>
       ))}
-      <div style={{ padding: item.replies.length > 0 ? '8px 16px 12px' : '0 16px 12px' }}><ReactionPill /></div>
+      {remoteId !== null && onReaction !== undefined && (
+        <div style={{ padding: item.replies.length > 0 ? '8px 16px 12px' : '0 16px 12px' }}>
+          <ReactionPill onPick={content => onReaction(remoteId, content)} />
+        </div>
+      )}
     </div>
   );
 }
@@ -94,7 +126,7 @@ function ReviewCard({ item, repoCtx }: { item: Extract<TimelineItem, { kind: 're
     <div style={cardStyle}>
       <div style={cardHeadStyle}>
         <Av login={item.author} size={24} square={item.bot} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#17191c' }}>{item.author}</span>
+        <span style={{ fontSize: 13, fontWeight: 400, color: '#17191c' }}>{item.author}</span>
         {item.bot && <BotPill />}
         {item.verdict === 'approved' && (
           <span style={{ fontSize: 11.5, fontWeight: 600, color: '#1a7f37', background: '#dafbe1', border: '1px solid rgba(31,136,61,0.25)', borderRadius: 999, padding: '2px 10px' }}>Approved</span>
@@ -114,7 +146,11 @@ function ReviewCard({ item, repoCtx }: { item: Extract<TimelineItem, { kind: 're
   );
 }
 
-export default function PullTimeline({ items, repo }: { items: TimelineItem[]; repo: string }) {
+export default function PullTimeline({ items, repo, onCommentReaction }: {
+  items: TimelineItem[];
+  repo: string;
+  onCommentReaction?: (commentId: number, content: ReactionContent) => Promise<void>;
+}) {
   const [owner, name] = repo.split('/');
   const repoCtx: MarkdownRepoContext = { owner: owner ?? repo, repo: name ?? repo };
   return (
@@ -145,7 +181,7 @@ export default function PullTimeline({ items, repo }: { items: TimelineItem[]; r
                   </svg>
                 </span>
                 <span style={{ ...iconRowTextStyle, minWidth: undefined }}>
-                  <b style={{ color: '#17191c', fontWeight: 600 }}>{item.author}</b> merged commit{item.sha !== null && <> <span style={shaStyle}>{item.sha}</span></>} into{' '}
+                  <span style={{ color: '#17191c', fontWeight: 400 }}>{item.author}</span> merged commit{item.sha !== null && <> <span style={shaStyle}>{item.sha}</span></>} into{' '}
                   <span style={{ ...shaStyle, color: '#0969da', background: '#ddf4ff', borderRadius: 5, padding: '1px 7px' }}>{item.base}</span> · {item.time}
                 </span>
               </div>
@@ -153,7 +189,7 @@ export default function PullTimeline({ items, repo }: { items: TimelineItem[]; r
           case 'review':
             return <ReviewCard key={item.id} item={item} repoCtx={repoCtx} />;
           case 'comment':
-            return <CommentCard key={item.id} item={item} repoCtx={repoCtx} />;
+            return <CommentCard key={item.id} item={item} repoCtx={repoCtx} onReaction={onCommentReaction} />;
         }
       })}
     </>

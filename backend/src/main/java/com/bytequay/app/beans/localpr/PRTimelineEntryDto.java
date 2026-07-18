@@ -33,7 +33,8 @@ public record PRTimelineEntryDto(
         boolean isLocalOnly,
         Long strippedOnPushAt,
         long createdAt,
-        JsonNode payload)
+        JsonNode payload,
+        Long remoteEventId)
 {
     public static PRTimelineEntryDto from(PRTimelineEntry e, ObjectMapper mapper)
     {
@@ -45,7 +46,8 @@ public record PRTimelineEntryDto(
                 e.localOnly(),
                 e.strippedOnPushAt() == null ? null : e.strippedOnPushAt().toEpochMilli(),
                 e.createdAt().toEpochMilli(),
-                parse(e.payloadJson(), mapper));
+                parse(e.payloadJson(), mapper),
+                e.remoteEventId());
     }
 
     private static JsonNode parse(String json, ObjectMapper mapper)

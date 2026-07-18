@@ -426,6 +426,15 @@ public interface PullRequestRepository
     }
 
     /**
+     * Adds an emoji reaction to a pull request's description.
+     * Maps to: POST /repos/{owner}/{repo}/issues/{number}/reactions
+     */
+    default void addPullRequestReaction(String pat, PullRequestRef ref, String content)
+    {
+        throw new UnsupportedOperationException("addPullRequestReaction not implemented");
+    }
+
+    /**
      * Adds an emoji reaction to a per-line review comment.
      * Maps to: POST /repos/{owner}/{repo}/pulls/comments/{commentId}/reactions
      *
@@ -670,6 +679,30 @@ public interface PullRequestRepository
     default void removeRequestedReviewers(String pat, PullRequestRef pr, RequestReviewersCommand command)
     {
         throw new UnsupportedOperationException("removeRequestedReviewers not implemented");
+    }
+
+    /** Users GitHub allows to be assigned to issues and pull requests in a repository. */
+    default List<GitHubUserMatch> fetchAssignableUsers(String pat, RepoRef repo)
+    {
+        throw new UnsupportedOperationException("fetchAssignableUsers not implemented");
+    }
+
+    /** All labels configured for a repository. */
+    default List<IssueDetail.Label> fetchRepoLabels(String pat, RepoRef repo)
+    {
+        throw new UnsupportedOperationException("fetchRepoLabels not implemented");
+    }
+
+    /** Adds or removes one assignee from a pull request through the Issues API. */
+    default void setPullRequestAssignee(String pat, PullRequestRef pr, String login, boolean selected)
+    {
+        throw new UnsupportedOperationException("setPullRequestAssignee not implemented");
+    }
+
+    /** Adds or removes one label from a pull request through the Issues API. */
+    default void setPullRequestLabel(String pat, PullRequestRef pr, String label, boolean selected)
+    {
+        throw new UnsupportedOperationException("setPullRequestLabel not implemented");
     }
 
     // ── Repos and Users ───────────────────────────────────────────────────────

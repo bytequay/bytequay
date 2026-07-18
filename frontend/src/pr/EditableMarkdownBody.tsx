@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState, type ReactNode } from 'react';
+import MarkdownComposer from '../MarkdownComposer';
 import { type MarkdownRepoContext } from '../markdown';
 import { MarkdownWithPermalinks } from './GithubPermalinkCard';
 
@@ -39,6 +40,7 @@ export function EditableMarkdownBody({
   repoContext,
   editing: editingProp,
   onEditingChange,
+  composer = false,
 }: {
   body: string;
   canEdit: boolean;
@@ -55,6 +57,8 @@ export function EditableMarkdownBody({
    *  affordance. Omit both for the legacy self-contained behaviour. */
   editing?: boolean;
   onEditingChange?: (editing: boolean) => void;
+  /** Use the shared GitHub-style Write / Preview composer while editing. */
+  composer?: boolean;
 }) {
   const controlled = onEditingChange !== undefined;
   const [internalEditing, setInternalEditing] = useState(false);
@@ -108,13 +112,27 @@ export function EditableMarkdownBody({
   if (editing) {
     return (
       <div className="editable-comment-body editable-comment-body--editing">
-        <textarea
-          className="editable-comment-body__textarea"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          disabled={saving}
-          autoFocus
-        />
+        {composer ? (
+          <MarkdownComposer
+            value={draft}
+            onChange={setDraft}
+            rows={Math.max(8, Math.min(30, draft.split('\n').length + 2))}
+            autoGrow={false}
+            disabled={saving}
+            autoFocus
+            textareaClassName="editable-comment-body__textarea"
+            onSubmitShortcut={() => { void save(); }}
+            onCancelShortcut={cancel}
+          />
+        ) : (
+          <textarea
+            className="editable-comment-body__textarea"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            disabled={saving}
+            autoFocus
+          />
+        )}
         <div className="editable-comment-body__actions">
           <button
             type="button"

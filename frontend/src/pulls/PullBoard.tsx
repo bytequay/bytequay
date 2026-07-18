@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Av, RobotIcon, repoInit, repoTileStyle } from './atoms';
+import { Av, RobotIcon } from './atoms';
 import type { PullChip, PullRow } from './model';
 import type { Bucket } from './workspaceModel';
 
@@ -44,7 +44,7 @@ function BoardCard({ row, onPick }: { row: PullRow; onPick: () => void }) {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
         <span style={{ fontFamily: "'SF Mono',ui-monospace,Menlo,monospace", fontSize: 11.5, color: '#8b949e', flexShrink: 0 }}>#{row.num}</span>
-        <span style={repoTileStyle(row.repo)}>{repoInit(row.repo)}</span>
+        <Av login={row.repo.split('/')[0] ?? row.repo} size={16} square />
         <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', color: '#59636e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {(row.repo.split('/')[1] ?? row.repo).toUpperCase()}
         </span>
@@ -53,7 +53,7 @@ function BoardCard({ row, onPick }: { row: PullRow; onPick: () => void }) {
           <span title="Agent review assigned" style={{ color: '#8b5cf6', display: 'inline-flex', flexShrink: 0 }}><RobotIcon size={13} /></span>
         )}
       </div>
-      <div style={{ fontSize: 13.5, fontWeight: 600, color: '#17191c', lineHeight: 1.4, marginTop: 7 }}>{row.title}</div>
+      <div style={{ fontSize: 13, fontWeight: 500, color: '#17191c', lineHeight: 1.4, marginTop: 7 }}>{row.title}</div>
       {row.chips.length > 0 && (
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 8 }}>
           {cardChips(row).map(l => (

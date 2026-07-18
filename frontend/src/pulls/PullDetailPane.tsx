@@ -29,7 +29,7 @@ import PullOverview from './PullOverview';
 
 const branchChipStyle = { fontFamily: "'SF Mono',ui-monospace,Menlo,monospace", fontSize: 12, color: '#0969da', background: '#ddf4ff', borderRadius: 6, padding: '3px 10px' } as const;
 const statePillStyle = { display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', fontSize: 12.5, fontWeight: 600, borderRadius: 999, padding: '5px 13px' } as const;
-const tabBtnStyle = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 4px 10px', border: 0, background: 'transparent', fontSize: 13, cursor: 'pointer' } as const;
+const tabBtnStyle = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 4px 7px', border: 0, background: 'transparent', fontSize: 13, cursor: 'pointer' } as const;
 
 type AgentActions = {
   /** Opens the agent-review column for an agent-assigned PR. */
@@ -76,6 +76,9 @@ export default function PullDetailPane({ row, ...actions }: { row: PullRow } & A
   const [subTab, setSubTab] = useState<'overview' | 'changes'>('overview');
   const det = buildHeader(row, bundle);
   const isOverview = subTab === 'overview';
+  const githubUrl = row.dto.htmlUrl
+    || bundle?.pr.remotePrUrl
+    || (bundle?.pr.remotePrNumber == null ? null : `https://github.com/${row.repo}/pull/${bundle.pr.remotePrNumber}`);
 
   // The same bridge decision PRView's hosts make (useExternalPrActions.
   // submitLocalComment): remote-capable PRs post straight to GitHub,
@@ -93,21 +96,24 @@ export default function PullDetailPane({ row, ...actions }: { row: PullRow } & A
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div style={{ flexShrink: 0, borderBottom: '1px solid #e7e9ec', background: '#fff' }}>
-        <div style={{ maxWidth: 880, margin: '0 auto', padding: '18px 36px 0' }}>
+        <div style={{ maxWidth: 1040, margin: '0 auto', padding: '10px 36px 0' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-            <span style={{ fontSize: 20, fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.01em', color: '#17191c', minWidth: 0, flex: 1 }}>
-              {det.title} <span style={{ fontWeight: 300, color: '#8b949e' }}>{det.numS}</span>
-            </span>
-            <span
-              className="pl-hov-ic"
-              title="Copy title"
-              onClick={() => { void navigator.clipboard.writeText(`${det.title} #${row.num}`); }}
-              style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 7, color: '#8b949e', flexShrink: 0, marginTop: 2 }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+            <span style={{ fontSize: 20, fontWeight: 500, lineHeight: 1.3, letterSpacing: '-0.01em', color: '#17191c', minWidth: 0, flex: 1 }}>
+              {det.title}{' '}
+              <span style={{ whiteSpace: 'nowrap' }}>
+                <span style={{ fontWeight: 300, color: '#8b949e' }}>{det.numS}</span>
+                <span
+                  className="pl-hov-ic"
+                  title="Copy title"
+                  onClick={() => { void navigator.clipboard.writeText(`${det.title} #${row.num}`); }}
+                  style={{ width: 24, height: 24, display: 'inline-flex', verticalAlign: 'middle', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 7, color: '#8b949e', marginLeft: 4 }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+                </span>
+              </span>
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginTop: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginTop: 7 }}>
             {det.isMerged
               ? <span style={{ ...statePillStyle, background: '#8250df' }}><PrMergedIcon size={13} strokeWidth={2.2} />Merged</span>
               : <span style={{ ...statePillStyle, background: '#1f883d' }}><PrOpenIcon size={13} strokeWidth={2.2} />Open</span>}
@@ -121,7 +127,7 @@ export default function PullDetailPane({ row, ...actions }: { row: PullRow } & A
               </>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 2 }}>
             <button onClick={() => setSubTab('overview')} style={{ ...tabBtnStyle, borderBottom: `2px solid ${isOverview ? '#c2632a' : 'transparent'}`, fontWeight: isOverview ? 600 : 500, color: isOverview ? '#17191c' : '#6e7781' }}>
               <CommentBubbleIcon size={14} />
               Overview
@@ -133,6 +139,19 @@ export default function PullDetailPane({ row, ...actions }: { row: PullRow } & A
               <span style={{ fontSize: 10.5, fontWeight: 700, background: '#dafbe1', color: '#1a7f37', borderRadius: 999, padding: '1px 7px' }}>{det.addP}</span>
               <span style={{ fontSize: 10.5, fontWeight: 700, background: '#ffebe9', color: '#cf222e', borderRadius: 999, padding: '1px 7px' }}>{det.delP}</span>
             </button>
+            {githubUrl !== null && (
+              <button
+                type="button"
+                className="pl-github-link"
+                title="Open on GitHub"
+                aria-label="Open pull request on GitHub"
+                onClick={() => { void window.bridge.openInAppBrowser(githubUrl); }}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.63 5.47 7.71.4.08.55-.18.55-.39 0-.19-.01-.83-.01-1.51-2.01.38-2.53-.5-2.69-.96-.09-.23-.48-.96-.82-1.15-.28-.15-.68-.53-.01-.54.63-.01 1.08.59 1.23.83.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-.21-3.64-.91-3.64-4.02 0-.89.31-1.62.82-2.19-.08-.21-.36-1.04.08-2.16 0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.91c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.95.08 2.16.51.57.82 1.3.82 2.19 0 3.12-1.87 3.81-3.65 4.02.29.25.54.74.54 1.51 0 1.09-.01 1.97-.01 2.24 0 .22.15.47.55.39A8.16 8.16 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z" />
+                </svg>
+              </button>
+            )}
             <span style={{ flex: 1 }} />
             <AgentButtons det={det} repo={row.repo} actions={actions} />
           </div>
@@ -141,8 +160,14 @@ export default function PullDetailPane({ row, ...actions }: { row: PullRow } & A
 
       {isOverview ? (
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-          <div style={{ maxWidth: 880, margin: '0 auto', padding: '20px 36px 60px' }}>
-            <PullOverview row={row} bundle={bundle} isMerged={det.isMerged} onComment={onComment} />
+          <div style={{ maxWidth: 1040, margin: '0 auto', padding: '14px 36px 60px' }}>
+            <PullOverview
+              row={row}
+              bundle={bundle}
+              isMerged={det.isMerged}
+              onComment={onComment}
+              onDescriptionSaved={refresh}
+            />
           </div>
         </div>
       ) : (

@@ -19,8 +19,6 @@ import {
   PrMergedIcon,
   PrOpenIcon,
   RobotIcon,
-  repoInit,
-  repoTileStyle,
   shortCount,
 } from './atoms';
 import type { PullRow } from './model';
@@ -45,7 +43,7 @@ function WideRow({ row }: { row: PullRow }) {
       <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <KindIcon row={row} size={16} />
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#17191c', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.title}</span>
+          <span style={{ fontSize: 13, fontWeight: 500, color: '#17191c', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.title}</span>
           <span style={{ fontSize: 13.5, color: '#8b949e', flexShrink: 0 }}>#{row.num}</span>
         </div>
         {row.chips.length > 0 && (
@@ -56,7 +54,7 @@ function WideRow({ row }: { row: PullRow }) {
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 24, fontSize: 12.5, color: '#8b949e', minWidth: 0 }}>
-          <span style={repoTileStyle(row.repo)}>{repoInit(row.repo)}</span>
+          <Av login={row.repo.split('/')[0] ?? row.repo} size={16} square />
           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.repo}</span>
           <span>·</span>
           <Av login={row.author} size={16} />
@@ -91,7 +89,7 @@ function NarrowRow({ row }: { row: PullRow }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <span style={{ marginTop: 2, display: 'inline-flex' }}><KindIcon row={row} size={15} /></span>
-        <span style={{ fontSize: 15, fontWeight: 600, color: '#17191c', lineHeight: 1.4, minWidth: 0 }}>
+        <span style={{ fontSize: 15, fontWeight: 500, color: '#17191c', lineHeight: 1.4, minWidth: 0 }}>
           {row.title} <span style={{ color: '#8b949e', fontWeight: 400 }}>#{row.num}</span>
         </span>
       </div>
@@ -128,7 +126,7 @@ function NarrowRow({ row }: { row: PullRow }) {
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, paddingLeft: 23, fontSize: 12, color: '#8b949e', minWidth: 0 }}>
-        <span style={repoTileStyle(row.repo)}>{repoInit(row.repo)}</span>
+        <Av login={row.repo.split('/')[0] ?? row.repo} size={16} square />
         <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.repo}</span>
         <span>·</span>
         <Av login={row.author} size={16} />

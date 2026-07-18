@@ -225,7 +225,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px 8px', borderBottom: '1px solid #e7e9ec', flexShrink: 0, flexWrap: 'wrap' }}>
           {wide && (
             <>
-              <span style={{ fontSize: 15, fontWeight: 700, color: '#17191c', whiteSpace: 'nowrap' }}>Pull requests</span>
+              <span style={{ fontSize: 15, fontWeight: 400, color: '#17191c', whiteSpace: 'nowrap' }}>Pull requests</span>
               <span style={{ fontSize: 13, color: '#8b949e', whiteSpace: 'nowrap' }}>{counts.open} open</span>
               <span style={{ display: 'inline-flex', background: '#eceef0', borderRadius: 8, padding: 2, gap: 1, marginLeft: 4 }}>
                 {VIEW_SEGS.map(([key, label]) => (

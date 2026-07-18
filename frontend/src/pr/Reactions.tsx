@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { ReactionsDto } from '../types';
 import { REACTION_EMOJI, REACTION_PICKER, type ReactionContent } from './utils';
 
@@ -34,9 +34,10 @@ const REACTION_CONTENT_BY_FIELD: Record<keyof ReactionsDto, ReactionContent> = {
 /** The "+ reaction" affordance: a small smiley button that opens an
  *  inline emoji picker. Click an emoji → the parent's onPick callback
  *  fires. The popover closes on emoji click or click-outside. */
-export function ReactionAddButton({ onPick, disabled }: {
+export function ReactionAddButton({ onPick, disabled, icon }: {
   onPick: (content: ReactionContent) => void;
   disabled?: boolean;
+  icon?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -59,7 +60,7 @@ export function ReactionAddButton({ onPick, disabled }: {
         aria-haspopup="true"
         aria-expanded={open}
       >
-        <span aria-hidden="true">😀</span>
+        <span aria-hidden="true">{icon ?? '😀'}</span>
         <span className="reaction-add__plus" aria-hidden="true">+</span>
       </button>
       {open && (

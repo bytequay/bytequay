@@ -95,7 +95,7 @@ export default function PullDetailPane({ row, ...actions }: { row: PullRow } & A
       <div style={{ flexShrink: 0, borderBottom: '1px solid #e7e9ec', background: '#fff' }}>
         <div style={{ maxWidth: 880, margin: '0 auto', padding: '18px 36px 0' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-            <span style={{ fontSize: 21, fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.01em', color: '#17191c', minWidth: 0, flex: 1 }}>
+            <span style={{ fontSize: 20, fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.01em', color: '#17191c', minWidth: 0, flex: 1 }}>
               {det.title} <span style={{ fontWeight: 300, color: '#8b949e' }}>{det.numS}</span>
             </span>
             <span

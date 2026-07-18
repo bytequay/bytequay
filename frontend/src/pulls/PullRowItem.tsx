@@ -91,7 +91,7 @@ function NarrowRow({ row }: { row: PullRow }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <span style={{ marginTop: 2, display: 'inline-flex' }}><KindIcon row={row} size={15} /></span>
-        <span style={{ fontSize: 13.5, fontWeight: 600, color: '#17191c', lineHeight: 1.4, minWidth: 0 }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: '#17191c', lineHeight: 1.4, minWidth: 0 }}>
           {row.title} <span style={{ color: '#8b949e', fontWeight: 400 }}>#{row.num}</span>
         </span>
       </div>

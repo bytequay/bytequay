@@ -107,6 +107,7 @@ export interface LocalPRTimelineEvent {
   strippedOnPushAt: number | null;
   createdAt: number;
   payload: Record<string, unknown> | null;
+  remoteEventId?: number | null;
 }
 
 export type LocalPRCheckKind = 'local' | 'remote';

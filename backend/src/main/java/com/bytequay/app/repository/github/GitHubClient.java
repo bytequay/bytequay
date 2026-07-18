@@ -1142,6 +1142,90 @@ public class GitHubClient
     }
 
     @Override
+    public List<GitHubUserMatch> fetchAssignableUsers(String pat, RepoRef repo)
+    {
+        return paginator.paginate(
+                        pat,
+                        "/repos/{owner}/{repo}/assignees",
+                        new ParameterizedTypeReference<List<GitHubUserSearchResponse.Item>>() {},
+                        repo.owner(), repo.repo()).stream()
+                .filter(user -> user.login() != null)
+                .map(user -> new GitHubUserMatch(user.login(), user.avatarUrl(), null))
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public List<IssueDetail.Label> fetchRepoLabels(String pat, RepoRef repo)
+    {
+        return paginator.paginate(
+                        pat,
+                        "/repos/{owner}/{repo}/labels",
+                        new ParameterizedTypeReference<List<GitHubPullRequestDetailResponse.Label>>() {},
+                        repo.owner(), repo.repo()).stream()
+                .filter(label -> label.name() != null)
+                .map(label -> new IssueDetail.Label(label.name(), label.color()))
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public void setPullRequestAssignee(String pat, PullRequestRef pr, String login, boolean selected)
+    {
+        try {
+            if (selected) {
+                gitHubRestClient.post()
+                        .uri("/repos/{owner}/{repo}/issues/{number}/assignees",
+                                pr.owner(), pr.repo(), pr.number())
+                        .header("Authorization", authorization(pat))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(ImmutableMap.of("assignees", ImmutableList.of(login)))
+                        .retrieve()
+                        .toBodilessEntity();
+            }
+            else {
+                gitHubRestClient.method(HttpMethod.DELETE)
+                        .uri("/repos/{owner}/{repo}/issues/{number}/assignees",
+                                pr.owner(), pr.repo(), pr.number())
+                        .header("Authorization", authorization(pat))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(ImmutableMap.of("assignees", ImmutableList.of(login)))
+                        .retrieve()
+                        .toBodilessEntity();
+            }
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public void setPullRequestLabel(String pat, PullRequestRef pr, String label, boolean selected)
+    {
+        try {
+            if (selected) {
+                gitHubRestClient.post()
+                        .uri("/repos/{owner}/{repo}/issues/{number}/labels",
+                                pr.owner(), pr.repo(), pr.number())
+                        .header("Authorization", authorization(pat))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(ImmutableMap.of("labels", ImmutableList.of(label)))
+                        .retrieve()
+                        .toBodilessEntity();
+            }
+            else {
+                gitHubRestClient.method(HttpMethod.DELETE)
+                        .uri("/repos/{owner}/{repo}/issues/{number}/labels/{label}",
+                                pr.owner(), pr.repo(), pr.number(), label)
+                        .header("Authorization", authorization(pat))
+                        .retrieve()
+                        .toBodilessEntity();
+            }
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
     public void createInlineReviewComment(
             String pat,
             PullRequestRef pr,
@@ -1265,6 +1349,25 @@ public class GitHubClient
                     .uri("/repos/{owner}/{repo}/pulls/comments/{commentId}",
                             owner, repo, commentId)
                     .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public void addPullRequestReaction(String pat, PullRequestRef ref, String content)
+    {
+        try {
+            gitHubRestClient.post()
+                    .uri("/repos/{owner}/{repo}/issues/{number}/reactions",
+                            ref.owner(), ref.repo(), ref.number())
+                    .header("Authorization", authorization(pat))
+                    .header("Accept", "application/vnd.github.squirrel-girl-preview+json")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(ImmutableMap.of("content", content))
                     .retrieve()
                     .toBodilessEntity();
         }

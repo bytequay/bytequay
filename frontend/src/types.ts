@@ -783,6 +783,13 @@ export type SuggestedReviewerDto = {
   isCommenter: boolean;
 };
 
+export type PullRequestMetadataChoicesDto = {
+  users: GitHubUserMatchDto[];
+  labels: IssueLabelDto[];
+  assignees: string[];
+  selectedLabels: string[];
+};
+
 /** Mirror of backend EmailMessageDetail. Includes the parsed body
  *  (text and/or HTML) plus full headers — used inside an
  *  EmailThreadDetailDto. Either bodyText or bodyHtml may be null; the
@@ -2991,6 +2998,9 @@ export type Bridge = {
    *  the one-click chips above the Add-reviewer typeahead. Returns []
    *  on failure — non-essential affordance, never throws. */
   getSuggestedReviewers: (repo: string, number: number) => Promise<SuggestedReviewerDto[]>;
+  getPullRequestMetadataChoices: (repo: string, number: number) => Promise<PullRequestMetadataChoicesDto>;
+  setPullRequestAssignee: (repo: string, number: number, login: string, selected: boolean) => Promise<void>;
+  setPullRequestLabel: (repo: string, number: number, label: string, selected: boolean) => Promise<void>;
   /** Replies inline to an existing per-line review thread on the PR. */
   replyToReviewThread: (repo: string, number: number, rootCommentId: number, body: string) => Promise<void>;
   /** Edits a top-level issue / PR comment authored by the user.
@@ -3454,6 +3464,12 @@ export type Bridge = {
   /** Toggles the dismissed flag on a comment. Dismissed comments are kept
    *  on the row but excluded from the publish payload. */
   setAiReviewCommentDismissed: (draftId: number, commentId: number, dismissed: boolean) => Promise<AiReviewDraftDto>;
+  /** Adds an emoji reaction to the pull request description. */
+  addPullRequestReaction: (
+    repo: string,
+    number: number,
+    content: '+1' | '-1' | 'laugh' | 'confused' | 'heart' | 'hooray' | 'rocket' | 'eyes',
+  ) => Promise<void>;
   /** Adds an emoji reaction to a per-line review comment. {@code content}
    *  is one of the GitHub reaction strings (+1 / -1 / laugh / confused /
    *  heart / hooray / rocket / eyes). Idempotent on the GitHub side. */

@@ -81,38 +81,6 @@ export function Av({ login, size, square = false }: { login: string; size: numbe
   );
 }
 
-const REPO_TILE_COLORS: Record<string, string> = {
-  'trinodb/trino': '#c2438a',
-  'chenjian2664/ByteQuay': '#b45309',
-};
-
-export function repoInit(repo: string): string {
-  return (repo.split('/')[1] ?? repo).charAt(0).toUpperCase();
-}
-
-/** 16px one-letter repo/org tile (avatar placeholder until org avatars are wired). */
-export function repoTileStyle(repo: string): CSSProperties {
-  let c = REPO_TILE_COLORS[repo];
-  if (c === undefined) {
-    let h = 0;
-    for (let i = 0; i < repo.length; i++) h = (h * 31 + repo.charCodeAt(i)) % 360;
-    c = `oklch(0.55 0.13 ${h})`;
-  }
-  return {
-    width: 16,
-    height: 16,
-    borderRadius: 4,
-    background: c,
-    color: '#fff',
-    fontSize: 9,
-    fontWeight: 800,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  };
-}
-
 const LABEL_COLORS: Record<string, [string, string]> = {
   'cla-signed': ['rgba(196,88,80,0.13)', '#a04a3f'],
   'ui': ['rgba(23,134,110,0.12)', '#0f766e'],

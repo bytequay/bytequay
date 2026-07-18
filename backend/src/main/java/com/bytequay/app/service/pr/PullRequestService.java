@@ -17,8 +17,10 @@ import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.DiffSide;
+import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.GithubReviewState;
 import com.bytequay.app.domain.HandledAction;
+import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PrCheckRunState;
@@ -44,6 +46,7 @@ import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.repository.RepoMetadataCacheStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoListCache;
@@ -113,6 +116,7 @@ public class PullRequestService
     // is wasteful. Between polls the last resolved set is re-served so those
     // PRs stay in the sweep's result set and don't flicker off the dashboard.
     private static final Duration NOTIFICATION_POLL_INTERVAL = Duration.ofMinutes(5);
+    private static final Duration REPO_METADATA_TTL = Duration.ofDays(7);
 
     // PR-search pagination for the dashboard's relevant-PR fetch. 100 is
     // GitHub's max page size; 6 pages caps the per-query cost at 600 PRs
@@ -130,6 +134,7 @@ public class PullRequestService
     private final GitHubResponseCache responseCache;
     private final PullRequestDetailInvalidator detailInvalidator;
     private final RepoListCache repoListCache;
+    private final RepoMetadataCacheStore repoMetadataCache;
     private final Executor executor;
     private final PullRequestDetailFetcher detailFetcher;
     private final PatResolver patResolver;
@@ -174,6 +179,7 @@ public class PullRequestService
             GitHubResponseCache responseCache,
             PullRequestDetailInvalidator detailInvalidator,
             RepoListCache repoListCache,
+            RepoMetadataCacheStore repoMetadataCache,
             PatResolver patResolver,
             ApplicationEventPublisher eventPublisher,
             TaskStore taskStore,
@@ -191,6 +197,7 @@ public class PullRequestService
         this.responseCache = requireNonNull(responseCache, "responseCache is null");
         this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
         this.repoListCache = requireNonNull(repoListCache, "repoListCache is null");
+        this.repoMetadataCache = requireNonNull(repoMetadataCache, "repoMetadataCache is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.collaboratorPermissions = requireNonNull(collaboratorPermissions, "collaboratorPermissions is null");
@@ -969,6 +976,14 @@ public class PullRequestService
         detailStore.save(detailPrId, PullRequestDetailPatcher.withReviewThreadResolved(cached, rootCommentId, resolved));
     }
 
+    /** Adds an emoji reaction to the PR description. */
+    public void addPullRequestReaction(String repo, int number, String content)
+    {
+        String pat = patResolver.resolve(repo);
+        requireAllowedReactionContent(content);
+        gitHub.addPullRequestReaction(pat, parseRef(repo, number), content);
+    }
+
     /**
      * Adds an emoji reaction to a per-line review comment. {@code content}
      * is GitHub's reaction-content string ("+1", "heart", "rocket", …).
@@ -1057,6 +1072,66 @@ public class PullRequestService
                 pat,
                 ref,
                 () -> gitHub.fetchSuggestedReviewers(pat, ref));
+    }
+
+    public record MetadataChoices(
+            List<GitHubUserMatch> users,
+            List<IssueDetail.Label> labels,
+            List<String> assignees,
+            List<String> selectedLabels) {}
+
+    /** Current selections plus the repository choices used by the three metadata pickers. */
+    public MetadataChoices getMetadataChoices(String repo, int number)
+    {
+        String pat = patResolver.resolve(repo);
+        PullRequestRef ref = parseRef(repo, number);
+        IssueDetail issue = gitHub.fetchIssueDetail(pat, ref.repoRef(), number);
+        Optional<RepoMetadataCacheStore.Snapshot> cached = repoMetadataCache.find(ref.repoFullName());
+        RepoMetadataCacheStore.Snapshot choices = cached
+                .filter(snapshot -> !snapshot.fetchedAt().isBefore(Instant.now().minus(REPO_METADATA_TTL)))
+                .orElseGet(() -> refreshMetadataChoices(pat, ref, cached));
+        return new MetadataChoices(
+                choices.users(),
+                choices.labels(),
+                issue.assignees().stream().map(IssueDetail.Assignee::login).toList(),
+                issue.labels().stream().map(IssueDetail.Label::name).toList());
+    }
+
+    private RepoMetadataCacheStore.Snapshot refreshMetadataChoices(
+            String pat,
+            PullRequestRef ref,
+            Optional<RepoMetadataCacheStore.Snapshot> stale)
+    {
+        List<GitHubUserMatch> users = gitHub.fetchAssignableUsers(pat, ref.repoRef());
+        List<IssueDetail.Label> labels = gitHub.fetchRepoLabels(pat, ref.repoRef());
+        if (users.isEmpty() && stale.isPresent()) {
+            // ponytail: the shared paginator represents an upstream failure as
+            // an empty list; preserve the last useful DB snapshot rather than
+            // replacing it with a transient outage.
+            return stale.get();
+        }
+        if (labels.isEmpty() && stale.isPresent() && !stale.get().labels().isEmpty()) {
+            labels = stale.get().labels();
+        }
+        Instant fetchedAt = Instant.now();
+        repoMetadataCache.save(ref.repoFullName(), users, labels, fetchedAt);
+        return new RepoMetadataCacheStore.Snapshot(users, labels, fetchedAt);
+    }
+
+    public void setPullRequestAssignee(String repo, int number, String login, boolean selected)
+    {
+        String pat = patResolver.resolve(repo);
+        requireNotBlank(login, "assignee must not be blank");
+        gitHub.setPullRequestAssignee(pat, parseRef(repo, number), login.trim(), selected);
+        invalidatePullRequestCaches(repo, number);
+    }
+
+    public void setPullRequestLabel(String repo, int number, String label, boolean selected)
+    {
+        String pat = patResolver.resolve(repo);
+        requireNotBlank(label, "label must not be blank");
+        gitHub.setPullRequestLabel(pat, parseRef(repo, number), label.trim(), selected);
+        invalidatePullRequestCaches(repo, number);
     }
 
     /**

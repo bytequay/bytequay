@@ -26,6 +26,7 @@ import type {
   PullRequestDto,
   StartDevelopmentResponse,
   WorkspaceCardDto,
+  WorkspaceDto,
 } from '../types';
 
 export type WorkspaceSettingsDto = {
@@ -529,6 +530,14 @@ export const workspaceApi = {
       method: 'PUT',
       body: settings,
     }),
+  rename: (workspaceId: string, name: string) =>
+    window.bridge.workspaceApi<WorkspaceDto>({
+      path: `/api/workspaces/${enc(workspaceId)}`,
+      method: 'PATCH',
+      body: { name },
+    }),
+  workModelOptions: () => window.bridge.getWorkModelOptions(),
+  refreshWorkModelOptions: () => window.bridge.refreshWorkModelOptions(),
   onboarding: (workspaceId: string) =>
     window.bridge.workspaceApi<WorkspaceOnboardingDto>({
       path: `/api/workspaces/${enc(workspaceId)}/onboarding`,

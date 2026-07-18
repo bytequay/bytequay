@@ -199,8 +199,9 @@ function WorkspaceShell({
             <WorkspaceSettingsPage
               workspace={activeWorkspace}
               workspaceId={workspaceId}
-              section={isSettingsSection(settingsSection) ? settingsSection : 'general'}
+              section={isSettingsSection(settingsSection) ? settingsSection : 'agents'}
               onSelectSection={onSelectSettingsSection}
+              onOpenMemory={() => onSelectSection('memory')}
             />
           )
         )}

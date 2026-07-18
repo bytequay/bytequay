@@ -46,7 +46,6 @@ public class WebConfig
     private static final String DEEPSEEK_LOCAL_BASE_URL = "http://127.0.0.1:8000";
     private static final String OPENAI_API_BASE_URL = "https://api.openai.com/v1";
     private static final String GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
-    private static final String ZENQUOTES_BASE_URL = "https://zenquotes.io";
 
     // Outbound-HTTP timeouts. Without these a stuck GitHub call (rate-limited,
     // TCP dead connection, network blip) ties up a Tomcat worker until Node's
@@ -165,22 +164,6 @@ public class WebConfig
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
                 .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofMinutes(2)))
-                .build();
-    }
-
-    @Bean
-    public RestClient zenQuotesRestClient()
-    {
-        // ZenQuotes feed used by the home-page "daily card". Keyless and
-        // public; we hit it at most once per calendar day per backend
-        // lifetime, so the free tier's rate limit is a non-issue and a
-        // short read timeout is plenty. On any failure the daily card
-        // falls back to the in-process curated pool.
-        return RestClient.builder()
-                .baseUrl(ZENQUOTES_BASE_URL)
-                .defaultHeader("Accept", "application/json")
-                .defaultHeader("User-Agent", USER_AGENT)
-                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofSeconds(8)))
                 .build();
     }
 

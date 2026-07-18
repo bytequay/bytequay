@@ -178,6 +178,36 @@ describe('PullOverview', () => {
     expect(await screen.findByText('Updated description')).not.toBeNull();
   });
 
+  it('updates a task directly from the rendered pull request description', async () => {
+    const updatePrBody = vi.fn().mockResolvedValue(undefined);
+    const onDescriptionSaved = vi.fn();
+    const taskBundle = {
+      ...bundle,
+      pr: { ...bundle.pr, description: '- [ ] First task\n1. [ ] Second task' },
+    } as LocalPRBundle;
+    window.bridge = { updatePrBody } as unknown as typeof window.bridge;
+    render(
+      <PullOverview
+        row={row([])}
+        bundle={taskBundle}
+        isMerged={false}
+        onDescriptionSaved={onDescriptionSaved}
+      />,
+    );
+
+    const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    expect(checkboxes[1].disabled).toBe(false);
+    fireEvent.click(checkboxes[1]);
+
+    await waitFor(() => expect(updatePrBody).toHaveBeenCalledWith(
+      'trinodb/trino',
+      1,
+      '- [ ] First task\n1. [x] Second task',
+    ));
+    expect(onDescriptionSaved).toHaveBeenCalledOnce();
+    expect((screen.getAllByRole('checkbox')[1] as HTMLInputElement).checked).toBe(true);
+  });
+
   it('keeps a long description editor at the same height after previewing', () => {
     const longDescription = Array.from({ length: 40 }, (_, index) => `Line ${index + 1}`).join('\n');
     const longBundle = {

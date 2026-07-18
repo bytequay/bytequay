@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import type { LocalPRBundle } from '../types/localPr';
 import { renderMarkdown } from '../markdown';
 import type { MarkdownRepoContext } from '../markdown';
@@ -25,6 +25,7 @@ import PullChecksCard from './PullChecksCard';
 import PullComposer from './PullComposer';
 import PullMetadataBar from './PullMetadataBar';
 import PullTimeline, { ReactionPill } from './PullTimeline';
+import { enableTaskCheckboxes, toggleTaskCheckbox } from './pullDescriptionTasks';
 
 /** The Overview tab body: status/reviewer/label chips, the opened card,
  *  the timeline (with checks card), and the comment composer. */
@@ -67,6 +68,7 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
   const repoCtx: MarkdownRepoContext = { owner: owner ?? row.repo, repo: name ?? row.repo };
   const [editingDescription, setEditingDescription] = useState(false);
   const [optimisticDescription, setOptimisticDescription] = useState<string | null>(null);
+  const [savingDescriptionTask, setSavingDescriptionTask] = useState(false);
   const description = optimisticDescription ?? opened.description ?? '';
 
   useEffect(() => {
@@ -81,6 +83,30 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
     await window.bridge.updatePrBody(row.repo, remotePrNumber, body);
     setOptimisticDescription(body);
     onDescriptionSaved?.();
+  };
+
+  const changeDescriptionTask = async (event: MouseEvent<HTMLDivElement>) => {
+    const checkbox = event.target;
+    if (!(checkbox instanceof HTMLInputElement) || checkbox.type !== 'checkbox' || savingDescriptionTask) return;
+    const checkboxes = Array.from(event.currentTarget.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+    const next = toggleTaskCheckbox(description, checkboxes.indexOf(checkbox), checkbox.checked);
+    if (next === null) {
+      checkbox.checked = !checkbox.checked;
+      return;
+    }
+
+    const previous = description;
+    setOptimisticDescription(next);
+    setSavingDescriptionTask(true);
+    try {
+      await saveDescription(next);
+    }
+    catch {
+      setOptimisticDescription(previous);
+    }
+    finally {
+      setSavingDescriptionTask(false);
+    }
   };
   return (
     <>
@@ -118,7 +144,18 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
                 onEditingChange={setEditingDescription}
                 composer
                 renderViewSlot={body => body.trim().length > 0
-                  ? <div className="md-body pl-pr-description" dangerouslySetInnerHTML={{ __html: renderMarkdown(body, repoCtx) }} />
+                  ? (
+                    <div
+                      className="md-body pl-pr-description"
+                      aria-busy={savingDescriptionTask}
+                      onClick={event => { void changeDescriptionTask(event); }}
+                      dangerouslySetInnerHTML={{
+                        __html: canEditDescription && !savingDescriptionTask
+                          ? enableTaskCheckboxes(renderMarkdown(body, repoCtx))
+                          : renderMarkdown(body, repoCtx),
+                      }}
+                    />
+                  )
                   : <p style={{ margin: 0, color: '#8b949e', fontStyle: 'italic' }}>No description provided.</p>}
               />
             </div>

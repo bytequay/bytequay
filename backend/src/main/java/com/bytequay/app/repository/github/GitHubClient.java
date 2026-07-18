@@ -2267,6 +2267,29 @@ public class GitHubClient
     }
 
     @Override
+    public RepoIssue createIssue(String pat, RepoRef repo, String title, String body)
+    {
+        try {
+            GitHubIssueItem item = gitHubRestClient.post()
+                    .uri("/repos/{owner}/{repo}/issues", repo.owner(), repo.repo())
+                    .header("Authorization", authorization(pat))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(ImmutableMap.of("title", title, "body", body))
+                    .retrieve()
+                    .body(GitHubIssueItem.class);
+            if (item == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502),
+                        "Empty response from GitHub when creating issue");
+            }
+            return toRepoIssue(item);
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
     public IssueDetail fetchIssueDetail(String pat, RepoRef repo, int number)
     {
         try {

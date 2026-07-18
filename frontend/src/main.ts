@@ -2005,6 +2005,41 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('productIssues:report', async (_event, title: string, body: string) => {
+    const reportBody = `${body.trim()}\n\n---\nReported from ByteQuay ${APP_VERSION}.`;
+    const res = await fetch(`${BACKEND_BASE}/api/product-issues`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, body: reportBody }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Could not file ByteQuay issue (${res.status}): ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('productIssues:monitorStatus', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/product-issues/monitor`);
+    if (!res.ok) {
+      throw new Error(`Could not load issue monitor status (${res.status})`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('productIssues:setMonitor', async (_event, enabled: boolean) => {
+    const res = await fetch(`${BACKEND_BASE}/api/product-issues/monitor`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Could not update issue monitor (${res.status}): ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:issueDetail', async (_event, owner: string, repo: string, number: number) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/detail`,

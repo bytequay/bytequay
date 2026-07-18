@@ -719,7 +719,7 @@ function App() {
       case 'nav.repos':           setNav({ view: 'repos' }); break;
       case 'nav.email':           setNav({ view: 'email' }); break;
       case 'nav.notifications':   setNav({ view: 'notifications' }); break;
-      case 'nav.settings':        setNav({ view: 'settings' }); break;
+      case 'nav.settings':        setNav({ view: 'settings', section: d.section }); break;
       case 'create.thread':       setNav({ view: 'thread-create' }); break;
     }
   };
@@ -891,7 +891,7 @@ function App() {
       case 'repos': case 'repository': case 'local-repo': return 'repos';
       case 'email': return 'email';
       case 'notifications': return 'notifications';
-      case 'settings': return 'settings';
+      case 'settings': return nav.section === 'help' ? 'bug-report' : 'settings';
       default: return undefined;
     }
   })();
@@ -975,6 +975,7 @@ function App() {
               case 'automations': break; // no Automations surface yet
               case 'repos': setNav({ view: 'repos' }); break;
               case 'email': setNav({ view: 'email' }); break;
+              case 'bug-report': setNav({ view: 'settings', section: 'help' }); break;
               case 'notifications':
                 setNav(sidebarWorkspaceId === null
                   ? { view: 'notifications' }

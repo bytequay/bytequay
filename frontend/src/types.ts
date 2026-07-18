@@ -681,6 +681,12 @@ export type IssueDto = {
   linkedTrunkTitle?: string | null;
 };
 
+export type ProductIssueMonitorStatusDto = {
+  enabled: boolean;
+  eligible: boolean;
+  reason: string | null;
+};
+
 export type IssueLabelDto = { name: string; color: string };
 export type IssueAssigneeDto = { login: string; avatarUrl: string | null };
 export type IssueMilestoneDto = { title: string; state: string };
@@ -3051,6 +3057,10 @@ export type Bridge = {
    *  aren't in the 30 most-recent open PRs returned by getRepoPulls. */
   searchRepoPulls: (owner: string, repo: string, query: string) => Promise<PullRequestDto[]>;
   getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed') => Promise<IssueDto[]>;
+  /** Files a product bug in bytequay/bytequay regardless of watched repos. */
+  reportByteQuayIssue: (title: string, body: string) => Promise<IssueDto>;
+  getByteQuayIssueMonitor: () => Promise<ProductIssueMonitorStatusDto>;
+  setByteQuayIssueMonitor: (enabled: boolean) => Promise<ProductIssueMonitorStatusDto>;
   getIssueDetail: (owner: string, repo: string, number: number) => Promise<IssueDetailDto>;
   createIssueComment: (owner: string, repo: string, number: number, body: string) => Promise<IssueCommentDto>;
   setIssueState: (owner: string, repo: string, number: number, state: 'open' | 'closed') => Promise<IssueDetailDto>;

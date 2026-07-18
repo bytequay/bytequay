@@ -56,7 +56,7 @@ export type ControlDispatch =
   | { kind: 'nav.repos' }
   | { kind: 'nav.email' }
   | { kind: 'nav.notifications' }
-  | { kind: 'nav.settings' }
+  | { kind: 'nav.settings'; section?: 'help' }
   | { kind: 'create.thread' };
 
 /** Stable order — the catalog renders unfiltered queries in this
@@ -161,6 +161,15 @@ export const ACTION_CATALOG: ControlAction[] = [
     icon: '⚙',
     source: 'navigation',
     dispatch: { kind: 'nav.settings' },
+  },
+  {
+    id: 'create.issue-report',
+    label: 'Report a ByteQuay bug',
+    description: 'Quickly file a product issue in the ByteQuay GitHub repository.',
+    keywords: ['bug', 'issue', 'feedback', 'help', 'report'],
+    icon: '⚑',
+    source: 'create',
+    dispatch: { kind: 'nav.settings', section: 'help' },
   },
   {
     id: 'create.thread',

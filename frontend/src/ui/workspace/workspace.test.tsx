@@ -53,10 +53,14 @@ describe('WorkspaceNavSidebar', () => {
     expect(items.some(t => t?.includes('Automations'))).toBe(false);
     expect(items.some(t => t?.includes('Email'))).toBe(false);
     expect(items.some(t => t?.includes('Search'))).toBe(false);
+    expect(items.findIndex(t => t?.includes('Report a bug')))
+      .toBeLessThan(items.findIndex(t => t?.includes('Notifications')));
     expect(container.querySelector('.ws-user-footer')).toBeNull();
     expect(container.querySelector('.sb-nav-item.active')?.textContent).toContain('Workspaces');
     fireEvent.click(screen.getByText('Home'));
     expect(onNavigate).toHaveBeenCalledWith('home');
+    fireEvent.click(screen.getByText('Report a bug'));
+    expect(onNavigate).toHaveBeenCalledWith('bug-report');
   });
 
   it('shows the back hint on Workspaces only when backHint is set', () => {

@@ -31,6 +31,7 @@ import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
@@ -65,6 +66,16 @@ class TestBrainService
     private final BrainServiceImpl service = new BrainServiceImpl(
             taskStore, threadStore, scheduler, idGenerator, workModelResolver, attachmentStore, new ObjectMapper());
 
+    @BeforeEach
+    void resolveBrainToTheParentThreadDefault()
+    {
+        WorkModel choice = new WorkModel(WorkModelKind.CLI, "codex", null, null);
+        when(workModelResolver.resolveForThread(anyString())).thenReturn(
+                new WorkModelResolver.Resolved(choice,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.THREAD, DEV_THREAD, DEV_THREAD)));
+    }
+
     @Test
     void createsBrainThreadOnFirstMessageAndEnqueuesTurn()
     {
@@ -93,7 +104,7 @@ class TestBrainService
     }
 
     @Test
-    void brainThreadFollowsTheResolvedCliWorkModel()
+    void brainThreadFollowsTheResolvedCodexWorkModelWithoutInventingAClaudeModel()
     {
         Task task = mock(Task.class);
         when(task.id()).thenReturn(TASK_ID);
@@ -105,10 +116,11 @@ class TestBrainService
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
         when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
         when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-1");
-        // Project default resolves to a claude-code CLI model.
+        // The parent thread explicitly selects Codex and leaves its model to
+        // the CLI default.
         WorkModelResolver.Resolved resolved = mock(WorkModelResolver.Resolved.class);
         when(resolved.choice()).thenReturn(
-                new WorkModel(WorkModelKind.CLI, "claude-code", "claude-sonnet-4-6", null));
+                new WorkModel(WorkModelKind.CLI, "codex", null, null));
         when(workModelResolver.resolveForThread(DEV_THREAD)).thenReturn(resolved);
 
         service.sendMessage(TASK_ID, "How many pushes?", null);
@@ -117,7 +129,8 @@ class TestBrainService
         verify(threadStore).saveThread(saved.capture());
         assertThat(saved.getValue().workModel()).isNotNull();
         assertThat(saved.getValue().workModel().kind()).isEqualTo(WorkModelKind.CLI);
-        assertThat(saved.getValue().workModel().agentOrProvider()).isEqualTo("claude-code");
+        assertThat(saved.getValue().workModel().agentOrProvider()).isEqualTo("codex");
+        assertThat(saved.getValue().model()).isEmpty();
     }
 
     @Test

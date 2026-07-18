@@ -851,7 +851,7 @@ public class AgentScheduler
             case CLI_AGENT -> CLI;
             case LOGIC_LOOP -> API;
             // A brain agent follows its resolved work model: a CLI install
-            // runs it as a claude-code subprocess (CLI lane), an API install
+            // runs the selected CLI subprocess (CLI lane), an API install
             // runs it in-JVM (API lane). Default to API when unset.
             case BRAIN_AGENT -> thread.workModel() != null
                     && thread.workModel().kind() == WorkModelKind.CLI ? CLI : API;

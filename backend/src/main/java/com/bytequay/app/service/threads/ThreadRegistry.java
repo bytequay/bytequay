@@ -835,12 +835,11 @@ public class ThreadRegistry
 
     /**
      * Build the brain agent for a brain thread, following its resolved work
-     * model: a claude-code CLI subprocess on a CLI install, or the in-JVM
+     * model: the selected CLI subprocess on a CLI install, or the in-JVM
      * {@link LogicLoopThreadAgent} on an API install. Either way its system
      * prompt is the read-only brain template + the task's iteration digest,
      * and its working directory is the parent task's so file/git read tools
-     * resolve against the right clone. (Codex-as-brain and per-provider API
-     * keys are a follow-up; CLI here means claude-code.)
+     * resolve against the right clone.
      */
     private ThreadAgent buildBrain(Thread thread)
     {
@@ -854,12 +853,20 @@ public class ThreadRegistry
             // Runs without a focused Task in the parent task's worktree, with
             // the brain prompt as its role block. Its tool surface is scoped
             // to the brain allowlist by the MCP server (ThreadKind=BRAIN_AGENT).
-            return withManagedSkillBundle(new ClaudeCodeCliThreadAgent(
-                    thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                    workspaceMemorySupplier(thread, "plan"), skillMaterializer,
-                    brainSystemPrompt(thread), workingDir,
-                    ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
-                    PLANNING_REASONING_EFFORT));
+            return switch (resolved.agentOrProvider()) {
+                case "codex" -> withManagedSkillBundle(new CodexCliThreadAgent(
+                        thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
+                        workspaceMemorySupplier(thread, "plan"), brainSystemPrompt(thread), workingDir,
+                        CodexCliThreadAgent.TrunkMode.ENABLED, PLANNING_REASONING_EFFORT));
+                case "claude-code" -> withManagedSkillBundle(new ClaudeCodeCliThreadAgent(
+                        thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                        workspaceMemorySupplier(thread, "plan"), skillMaterializer,
+                        brainSystemPrompt(thread), workingDir,
+                        ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
+                        PLANNING_REASONING_EFFORT));
+                default -> throw new IllegalArgumentException(
+                        "unsupported CLI brain agent: " + resolved.agentOrProvider());
+            };
         }
         return withManagedSkillBundle(new LogicLoopThreadAgent(
                 thread, store, mapper, executor,

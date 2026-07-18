@@ -282,6 +282,28 @@ class TestThreadRegistryWorkModel
                 .containsSubsequence("--effort", "high");
     }
 
+    @Test
+    void codexBrainUsesTheResolvedThreadAgentAndCliDefaultModel()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(TASK_ID)));
+        WorkModel brainPick = new WorkModel(WorkModelKind.CLI, "codex", null, null);
+        when(workModelResolver.resolveForThread("brain-codex"))
+                .thenReturn(new WorkModelResolver.Resolved(brainPick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.THREAD, "brain-codex", "brain-codex")));
+        ThreadRegistry registry = newRegistry();
+
+        CodexCliThreadAgent agent = (CodexCliThreadAgent)
+                registry.getOrCreate(codexBrainThread(), null, null);
+
+        assertThat(agent.buildCommand("review this iteration").command())
+                .startsWith("codex")
+                .containsSubsequence("-c", "sandbox_mode=\"read-only\"")
+                .containsSubsequence("-c", "model_reasoning_effort=\"high\"")
+                .doesNotContain("-m", "claude-haiku-4-5-20251001");
+    }
+
     private ThreadRegistry newRegistry()
     {
         ObjectMapper mapper = new ObjectMapper();
@@ -333,6 +355,17 @@ class TestThreadRegistryWorkModel
                 "Brain wiring test", ThreadStatus.IDLE, "claude-sonnet-4-6",
                 0L, 0L, 0L, NOW, NOW, null, null,
                 ThreadFlow.BUILD, "ws-default", null, null, 1, TASK_ID);
+    }
+
+    private static Thread codexBrainThread()
+    {
+        return new Thread(
+                "brain-codex", ThreadKind.BRAIN_AGENT, "codex", /* agentSessionId */ null,
+                "Brain wiring test", ThreadStatus.IDLE, "",
+                0L, 0L, 0L, NOW, NOW, null, null,
+                ThreadFlow.BUILD, "ws-default",
+                new WorkModel(WorkModelKind.CLI, "codex", null, null),
+                null, 1, TASK_ID);
     }
 
     private static Task task(String id)

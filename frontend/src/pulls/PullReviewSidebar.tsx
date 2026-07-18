@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
+import CurrentUserAvatar from '../CurrentUserAvatar';
 import { renderMarkdown, type MarkdownRepoContext } from '../markdown';
 import { relativeTime } from '../notificationDisplay';
 import type { ActivityItemDto, DiffFileDto } from '../types';
@@ -87,7 +88,9 @@ function PendingCard({ c, files, login, onJump, onResolve, onDelete }: {
       )}
       <div style={{ padding: '10px 12px 12px', borderTop: '1px solid #e7e9ec' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          <Av login={c.author === 'you' ? login : c.author} size={22} />
+          {c.author === 'you'
+            ? <CurrentUserAvatar size={22} />
+            : <Av login={c.author} size={22} />}
           <span style={{ fontSize: 12.5, fontWeight: 600, color: '#17191c' }}>{c.author === 'you' ? login : c.author}</span>
           <span style={{ fontSize: 11.5, color: '#8b949e' }}>{relativeTime(new Date(c.createdAt).toISOString())}</span>
           <span style={{ flex: 1 }} />

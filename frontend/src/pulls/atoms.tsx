@@ -53,8 +53,8 @@ function avFallbackStyle(name: string, size: number, square: boolean): CSSProper
   };
 }
 
-/** GitHub bot logins carry a literal "[bot]" suffix; the github.com/{login}.png
- *  avatar shorthand 404s on it (same rule as the legacy Avatar component). */
+/** GitHub bot logins carry a literal "[bot]" suffix, but the avatar CDN
+ *  expects the account handle without it. */
 function avatarHandle(login: string): string {
   return login.replace(/\[bot]$/i, '');
 }
@@ -62,21 +62,21 @@ function avatarHandle(login: string): string {
 /**
  * GitHub user/bot avatar at the prototype's exact geometry: circle = human,
  * 6px-radius rounded square = bot. Falls back to the deterministic
- * initials-gradient badge from the prototype while loading fails.
+ * initials-gradient badge from the prototype when loading fails.
  */
 export function Av({ login, size, square = false }: { login: string; size: number; square?: boolean }) {
-  const [failed, setFailed] = useState(false);
-  if (failed || login.trim().length === 0) {
+  const [failedLogin, setFailedLogin] = useState<string | null>(null);
+  if (failedLogin === login || login.trim().length === 0) {
     return <span style={avFallbackStyle(login, size, square)}>{avInit(login)}</span>;
   }
   return (
     <img
-      src={`https://github.com/${encodeURIComponent(avatarHandle(login))}.png?size=${size * 2}`}
+      src={`https://avatars.githubusercontent.com/${encodeURIComponent(avatarHandle(login))}?s=${size * 2}`}
       alt={login}
       width={size}
       height={size}
       style={{ width: size, height: size, borderRadius: square ? 6 : '50%', flexShrink: 0, objectFit: 'cover' }}
-      onError={() => setFailed(true)}
+      onError={() => setFailedLogin(login)}
     />
   );
 }

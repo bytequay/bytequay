@@ -47,10 +47,10 @@ class TestManagedSkillPolicy
     }
 
     @Test
-    void brainReviewGetsPonytailReviewAndCaveman()
+    void brainReviewGetsPonytailReviewCodeGraphAndCaveman()
     {
         assertThat(policy.skillNames(ThreadKind.BRAIN_AGENT, turn("brain-review"), null))
-                .containsExactly("ponytail-review", CavemanPrompt.NAME);
+                .containsExactly("ponytail-review", "codegraph-first", CavemanPrompt.NAME);
     }
 
     @Test
@@ -70,13 +70,13 @@ class TestManagedSkillPolicy
     }
 
     @Test
-    void normalTrunkGetsCodeGraphGuidanceButBrainStaysMinimal()
+    void normalTrunkAndBrainGetCodeGraphGuidance()
     {
         assertThat(policy.skillNames(ThreadKind.CLI_AGENT, turn("user"), null))
                 .containsExactly("codegraph-first", CavemanPrompt.NAME);
         assertThat(policy.skillNames(
                 ThreadKind.BRAIN_AGENT, turn("user", "go ahead and implement this"), null))
-                .containsExactly(CavemanPrompt.NAME);
+                .containsExactly("codegraph-first", CavemanPrompt.NAME);
     }
 
     @Test

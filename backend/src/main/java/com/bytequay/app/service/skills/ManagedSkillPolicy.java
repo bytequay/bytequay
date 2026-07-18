@@ -69,7 +69,7 @@ public class ManagedSkillPolicy
                 && turn != null
                 && turn.initiator() != null
                 && BRAIN_REVIEW_SOURCE.equals(turn.initiator().source())) {
-            return List.of(PONYTAIL_REVIEW, CavemanPrompt.NAME);
+            return List.of(PONYTAIL_REVIEW, CODEGRAPH_FIRST, CavemanPrompt.NAME);
         }
         if (isTrunkPlanningTurn(kind, turn, stageType)) {
             return List.of(TRUNK_PLANNER, CODEGRAPH_FIRST, CavemanPrompt.NAME);
@@ -83,7 +83,7 @@ public class ManagedSkillPolicy
         if (kind != ThreadKind.BRAIN_AGENT) {
             return List.of(CODEGRAPH_FIRST, CavemanPrompt.NAME);
         }
-        return List.of(CavemanPrompt.NAME);
+        return List.of(CODEGRAPH_FIRST, CavemanPrompt.NAME);
     }
 
     private static boolean isTrunkPlanningTurn(ThreadKind kind, ThreadTurn turn, StageType stageType)

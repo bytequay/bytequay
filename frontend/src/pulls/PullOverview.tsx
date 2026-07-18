@@ -17,6 +17,7 @@ import { renderMarkdown } from '../markdown';
 import type { MarkdownRepoContext } from '../markdown';
 import { CommentActionsMenu } from '../pr/CommentActionsMenu';
 import { EditableMarkdownBody } from '../pr/EditableMarkdownBody';
+import { ReactionAddButton } from '../pr/Reactions';
 import { Av } from './atoms';
 import { buildChecks, buildOpenedCard, buildTimeline } from './detailModel';
 import type { PullRow } from './model';
@@ -28,6 +29,28 @@ import PullTimeline, { ReactionPill } from './PullTimeline';
 /** The Overview tab body: status/reviewer/label chips, the opened card,
  *  the timeline (with checks card), and the comment composer. */
 
+function SkeletonLine({ width }: { width: string }) {
+  return <span className="pl-pr-skeleton-line" style={{ display: 'block', width, height: 11, borderRadius: 999, background: '#f1f3f5', animation: 'pl-pulse 1.4s ease-in-out infinite' }} />;
+}
+
+function LoadingTimeline() {
+  return (
+    <div aria-hidden="true" style={{ position: 'relative', zIndex: 1 }}>
+      <div className="pl-pr-skeleton-card" style={{ border: '1px solid #d5dbe1', borderRadius: 10, background: '#fff', margin: '18px 0', padding: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ width: 30, height: 30, flexShrink: 0, borderRadius: '50%', background: '#f1f3f5', animation: 'pl-pulse 1.4s ease-in-out infinite' }} />
+          <div style={{ display: 'grid', gap: 8, width: 130 }}><SkeletonLine width="100%" /><SkeletonLine width="65%" /></div>
+        </div>
+        <div style={{ display: 'grid', gap: 10, marginTop: 16 }}><SkeletonLine width="100%" /><SkeletonLine width="88%" /><SkeletonLine width="64%" /></div>
+      </div>
+      <div className="pl-pr-skeleton-card" style={{ border: '1px solid #d5dbe1', borderRadius: 10, background: '#fff', margin: '18px 0', padding: 18, display: 'grid', gap: 10 }}>
+        <SkeletonLine width="92%" />
+        <SkeletonLine width="68%" />
+      </div>
+    </div>
+  );
+}
+
 export default function PullOverview({ row, bundle, isMerged, onComment, onDescriptionSaved }: {
   row: PullRow;
   bundle: LocalPRBundle | null | undefined;
@@ -35,6 +58,7 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
   onComment?: (body: string) => Promise<void>;
   onDescriptionSaved?: () => void;
 }) {
+  const loading = bundle === undefined;
   const opened = buildOpenedCard(row, bundle);
   const items = bundle !== null && bundle !== undefined ? buildTimeline(bundle) : [];
   const remotePrNumber = bundle?.pr.remotePrNumber ?? null;
@@ -78,7 +102,13 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
           )}
         </div>
         <div style={{ padding: '10px 18px 6px', fontSize: 13.5, lineHeight: 1.65, color: '#1f2328' }}>
-          {opened.description !== null && (
+          {loading ? (
+            <div role="status" aria-label="Loading pull request details" style={{ display: 'grid', gap: 10, padding: '2px 0 7px' }}>
+              <SkeletonLine width="14%" />
+              <SkeletonLine width="100%" />
+              <SkeletonLine width="82%" />
+            </div>
+          ) : opened.description !== null && (
             <div className="pl-pr-description-editor">
               <EditableMarkdownBody
                 body={description}
@@ -94,7 +124,9 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
             </div>
           )}
         </div>
-        {remotePrNumber !== null && (
+        {loading ? (
+          <div style={{ padding: '8px 16px 13px' }}><ReactionAddButton disabled onPick={() => {}} /></div>
+        ) : remotePrNumber !== null && (
           <div style={{ padding: '8px 16px 13px' }}>
             <ReactionPill onPick={content => window.bridge.addPullRequestReaction(row.repo, remotePrNumber, content)} />
           </div>
@@ -104,12 +136,16 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
       {/* timeline */}
       <div style={{ position: 'relative', padding: '6px 0 0' }}>
         <div style={{ position: 'absolute', left: 12, top: 8, bottom: 8, width: 2, background: '#e9ebee' }} />
-        <PullTimeline
-          items={items}
-          repo={row.repo}
-          onCommentReaction={(commentId, content) => window.bridge.addIssueCommentReaction(row.repo, commentId, content)}
-        />
-        {checks !== null && <PullChecksCard model={checks} />}
+        {loading ? <LoadingTimeline /> : (
+          <>
+            <PullTimeline
+              items={items}
+              repo={row.repo}
+              onCommentReaction={(commentId, content) => window.bridge.addIssueCommentReaction(row.repo, commentId, content)}
+            />
+            {checks !== null && <PullChecksCard model={checks} />}
+          </>
+        )}
       </div>
 
       <PullComposer canClose={!isMerged} onComment={onComment} repoCtx={repoCtx} />

@@ -31,12 +31,25 @@ const branchChipStyle = { fontFamily: "'SF Mono',ui-monospace,Menlo,monospace", 
 const statePillStyle = { display: 'inline-flex', alignItems: 'center', gap: 6, color: '#fff', fontSize: 12.5, fontWeight: 600, borderRadius: 999, padding: '5px 13px' } as const;
 const tabBtnStyle = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 4px 10px', border: 0, background: 'transparent', fontSize: 13, cursor: 'pointer' } as const;
 
-function AgentButtons({ det, repo }: { det: ReturnType<typeof buildHeader>; repo: string }) {
-  // agent actions wire up with the agent-column work
+type AgentActions = {
+  /** Opens the agent-review column for an agent-assigned PR. */
+  onWorkWithAgent?: () => void;
+  /** Jumps to the repo's workspace PR surface. */
+  onOpenInWorkspace?: () => void;
+  /** Starts an agent review for a PR with no agent assigned yet. */
+  onAssignAgent?: () => void;
+  /** True when the host resolved the repo and found no workspace — the
+   *  workspace-bound buttons stay rendered but inert with a hint title. */
+  noWorkspace?: boolean;
+};
+
+const NO_WORKSPACE_TITLE = 'No workspace for this repo yet';
+
+function AgentButtons({ det, repo, actions }: { det: ReturnType<typeof buildHeader>; repo: string; actions: AgentActions }) {
   const noop = () => {};
   if (!det.agentAssigned) {
     return (
-      <button className="pl-hov-btn" onClick={noop} title="Assign an agent" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', marginBottom: 4, border: '1px solid #d5dbe1', background: '#fff', borderRadius: 8, color: '#454c54', cursor: 'pointer', flexShrink: 0 }}>
+      <button className="pl-hov-btn" onClick={actions.onAssignAgent ?? noop} title="Assign an agent" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', marginBottom: 4, border: '1px solid #d5dbe1', background: '#fff', borderRadius: 8, color: '#454c54', cursor: 'pointer', flexShrink: 0 }}>
         <span style={{ color: '#8b5cf6', display: 'inline-flex' }}><RobotIcon size={14} /></span>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
       </button>
@@ -44,13 +57,13 @@ function AgentButtons({ det, repo }: { det: ReturnType<typeof buildHeader>; repo
   }
   return (
     <>
-      <button className="pl-hov-agent" onClick={noop} title={det.agentTitle} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', marginBottom: 4, border: '1px solid rgba(139,92,246,0.35)', background: 'rgba(139,92,246,0.08)', borderRadius: 8, color: '#7c3aed', cursor: 'pointer', flexShrink: 0 }}>
+      <button className="pl-hov-agent" onClick={actions.onWorkWithAgent ?? noop} title={actions.noWorkspace === true ? NO_WORKSPACE_TITLE : det.agentTitle} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', marginBottom: 4, border: '1px solid rgba(139,92,246,0.35)', background: 'rgba(139,92,246,0.08)', borderRadius: 8, color: '#7c3aed', cursor: 'pointer', flexShrink: 0 }}>
         <RobotIcon size={14} />
         {det.agentRunning
           ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#2da44e', animation: 'pl-pulse 1.4s ease-in-out infinite' }} />
           : <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#b6bcc2' }} />}
       </button>
-      <button className="pl-hov-btn" onClick={noop} title={`Open in workspace — locate this review task in the ${repo.split('/')[1] ?? repo} trunk`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', marginBottom: 4, border: '1px solid #d5dbe1', background: '#fff', borderRadius: 8, color: '#454c54', cursor: 'pointer', flexShrink: 0 }}>
+      <button className="pl-hov-btn" onClick={actions.onOpenInWorkspace ?? noop} title={actions.noWorkspace === true ? NO_WORKSPACE_TITLE : `Open in workspace — locate this review task in the ${repo.split('/')[1] ?? repo} trunk`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', marginBottom: 4, border: '1px solid #d5dbe1', background: '#fff', borderRadius: 8, color: '#454c54', cursor: 'pointer', flexShrink: 0 }}>
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.6" /><rect x="14" y="3" width="7" height="7" rx="1.6" /><rect x="3" y="14" width="7" height="7" rx="1.6" /><rect x="14" y="14" width="7" height="7" rx="1.6" /></svg>
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7" /><path d="M9 7h8v8" /></svg>
       </button>
@@ -58,7 +71,7 @@ function AgentButtons({ det, repo }: { det: ReturnType<typeof buildHeader>; repo
   );
 }
 
-export default function PullDetailPane({ row }: { row: PullRow }) {
+export default function PullDetailPane({ row, ...actions }: { row: PullRow } & AgentActions) {
   const { bundle, refresh } = usePR(row.dto.id);
   const [subTab, setSubTab] = useState<'overview' | 'changes'>('overview');
   const det = buildHeader(row, bundle);
@@ -121,7 +134,7 @@ export default function PullDetailPane({ row }: { row: PullRow }) {
               <span style={{ fontSize: 10.5, fontWeight: 700, background: '#ffebe9', color: '#cf222e', borderRadius: 999, padding: '1px 7px' }}>{det.delP}</span>
             </button>
             <span style={{ flex: 1 }} />
-            <AgentButtons det={det} repo={row.repo} />
+            <AgentButtons det={det} repo={row.repo} actions={actions} />
           </div>
         </div>
       </div>

@@ -33,13 +33,34 @@ const DETAIL_MIN = 460;
 const DETAIL_MAX = 1150;
 const DETAIL_DEFAULT = 940;
 
-export default function PullsScreen() {
+export default function PullsScreen({ onOpenWorkspacePr }: {
+  /** Routes a PR into its repo's workspace surface; {@code agent} opens it
+   *  with the agent-review column already showing. Omitted → the pane's
+   *  workspace-bound buttons stay inert. */
+  onOpenWorkspacePr?: (repo: string, prNumber: number, opts: { agent: boolean }) => void;
+}) {
   const [prs, setPrs] = useState<DashboardPR[]>([]);
   const [tab, setTab] = useState<PullTab>('all');
   const [sel, setSel] = useState<string | null>(null);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detW, setDetW] = useState(DETAIL_DEFAULT);
+  // repo fullName (lowercased) → workspace id, for the pane's workspace-
+  // bound agent buttons — same resolution App's legacy-repo redirect uses.
+  const [wsByRepo, setWsByRepo] = useState<Map<string, string>>(new Map());
   const alive = useRef(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.bridge.listWorkspaces()
+      .then(cards => {
+        if (cancelled) return;
+        setWsByRepo(new Map(cards.flatMap(card => card.repository == null
+          ? []
+          : [[card.repository.fullName.toLowerCase(), card.id] as const])));
+      })
+      .catch(() => { /* transient; the buttons stay inert */ });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     alive.current = true;
@@ -68,6 +89,19 @@ export default function PullsScreen() {
   const selRow = sel !== null ? rows.find(r => r.id === sel) ?? null : null;
   const paneShown = selRow !== null && paneOpen;
   const wide = !paneShown;
+  const selWorkspaceId = selRow === null ? undefined : wsByRepo.get(selRow.repo.toLowerCase());
+
+  // Same start path as the dashboard's handleAgentReview: optimistic
+  // reviewState flip, plain start (the button only shows when no review
+  // exists yet), revert on failure.
+  const assignAgent = (row: { id: string; repo: string }) => {
+    const previous = prs.find(pr => pr.id === row.id)?.reviewState;
+    setPrs(current => current.map(pr => pr.id === row.id ? { ...pr, reviewState: 'running' } : pr));
+    void window.bridge.startAgentReview(row.id, { workspaceId: wsByRepo.get(row.repo.toLowerCase()) })
+      .catch(() => {
+        setPrs(current => current.map(pr => pr.id === row.id ? { ...pr, reviewState: previous ?? 'none' } : pr));
+      });
+  };
 
   const detDragStart = (e: ReactMouseEvent) => {
     e.preventDefault();
@@ -158,7 +192,18 @@ export default function PullsScreen() {
             title="Drag to resize"
             style={{ position: 'absolute', left: -3, top: 0, bottom: 0, width: 6, cursor: 'col-resize', zIndex: 5 }}
           />
-          <PullDetailPane key={selRow.id} row={selRow} />
+          <PullDetailPane
+            key={selRow.id}
+            row={selRow}
+            onWorkWithAgent={onOpenWorkspacePr !== undefined && selWorkspaceId !== undefined
+              ? () => onOpenWorkspacePr(selRow.repo, selRow.num, { agent: true })
+              : undefined}
+            onOpenInWorkspace={onOpenWorkspacePr !== undefined && selWorkspaceId !== undefined
+              ? () => onOpenWorkspacePr(selRow.repo, selRow.num, { agent: false })
+              : undefined}
+            onAssignAgent={() => assignAgent(selRow)}
+            noWorkspace={onOpenWorkspacePr !== undefined && selWorkspaceId === undefined}
+          />
         </div>
       )}
     </div>

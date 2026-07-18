@@ -25,6 +25,7 @@
 .pl-hov-drag:hover { background: rgba(9, 105, 218, 0.35); }
 .pl-hov-agent:hover { background: rgba(139, 92, 246, 0.15) !important; }
 .pl-hov-agent-dash:hover { background: rgba(139, 92, 246, 0.06) !important; }
+.pl-hov-send:hover { background: #000 !important; }
 .pl-hov-load:hover { background: #f4f5f7; color: #17191c; }
 .pl-hov-green:hover:not(:disabled) { background: #1a7f37 !important; }
 .pl-hov-ic8:hover { background: rgba(0, 0, 0, 0.08) !important; }

@@ -37,6 +37,188 @@
 .pl-pend-ta:hover { border-color: #d5dbe1 !important; }
 .pl-pend-ta:focus { border-color: #0969da !important; background: #fff !important; }
 
+.pl-pr-description > :first-child { margin-top: 0; }
+.pl-pr-description :is(h1, h2, h3, h4, h5, h6) {
+  padding-bottom: 7px;
+  border-bottom: 1px solid #d8dee4;
+  font-weight: 500;
+  line-height: 1.3;
+}
+.pl-pr-description h1 { font-size: 20px; }
+.pl-pr-description h2 { font-size: 18px; }
+.pl-pr-description h3 { font-size: 16px; }
+.pl-pr-description :is(h4, h5, h6) { font-size: 14px; }
+.pl-pr-description > :is(h1, h2, h3, h4, h5, h6):not(:first-child) { margin-top: 1.25em; }
+
+.pl-pr-description-editor .editable-comment-body--editing { gap: 10px; }
+.pl-pr-description-editor .md-composer {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #fff;
+}
+.pl-pr-description-editor .md-composer__head {
+  min-height: 40px;
+  justify-content: flex-start;
+  padding: 0 8px;
+  border-bottom: 1px solid #d0d7de;
+  background: #f6f8fa;
+}
+.pl-pr-description-editor .md-composer__tab {
+  padding: 10px 14px;
+  border-radius: 6px 6px 0 0;
+  color: #59636e;
+  font-size: 12px;
+}
+.pl-pr-description-editor .md-composer__tab--active {
+  border-color: #d0d7de;
+  background: #fff;
+  color: #1f2328;
+  font-weight: 600;
+}
+.pl-pr-description-editor .editable-comment-body__textarea,
+.pl-pr-description-editor .md-composer__preview {
+  width: 100%;
+  min-height: 220px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  color: #1f2328;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.pl-pr-description-editor .editable-comment-body__textarea {
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.pl-pr-description-editor .editable-comment-body__textarea:focus { box-shadow: none; }
+.pl-pr-description-editor .editable-comment-body__actions {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  gap: 8px;
+}
+.pl-pr-description-editor .editable-comment-body__actions .button,
+.pl-pr-description-editor .editable-comment-body__actions .pr-comment-box__cancel {
+  min-height: 32px;
+  margin: 0;
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.pl-pr-description-editor .editable-comment-body__actions .button--primary {
+  border: 1px solid rgba(27, 31, 36, 0.15);
+  background: #1f883d;
+  color: #fff;
+  box-shadow: 0 1px 0 rgba(27, 31, 36, 0.1);
+}
+.pl-pr-description-editor .editable-comment-body__actions .button--primary:hover:not(:disabled) { background: #1a7f37; }
+.pl-pr-description-editor .editable-comment-body__actions .button--primary:disabled { opacity: 0.55; }
+.pl-pr-description-editor .editable-comment-body__actions .pr-comment-box__cancel {
+  border: 1px solid rgba(27, 31, 36, 0.15);
+  background: #f6f8fa;
+  color: #24292f;
+  box-shadow: 0 1px 0 rgba(27, 31, 36, 0.04);
+}
+.pl-pr-description-editor .editable-comment-body__actions .pr-comment-box__cancel:hover { background: #f3f4f6; }
+
+.pl-github-link {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0 0 4px -8px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #59636e;
+  cursor: pointer;
+}
+.pl-github-link:hover { background: #eef1f4; color: #1f2328; }
+.pl-github-link:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+
+.pl-meta-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; position: relative; z-index: 4; }
+.pl-meta-picker { position: relative; display: inline-flex; }
+.pl-meta-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 31px;
+  padding: 4px 12px;
+  border: 1px solid #d5dbe1;
+  border-radius: 999px;
+  background: #fff;
+  color: #454c54;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(31, 35, 40, 0.04);
+}
+.pl-meta-chip:hover, .pl-meta-chip--open { background: #eef1f4; }
+.pl-meta-chip__person { display: inline-flex; align-items: center; gap: 6px; color: #17191c; font-weight: 400; }
+.pl-meta-chip__label-dot { width: 14px; height: 10px; border-radius: 999px; flex-shrink: 0; }
+.pl-meta-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  width: 360px;
+  max-width: calc(100vw - 48px);
+  overflow: hidden;
+  border: 1px solid #d5dbe1;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(31, 35, 40, 0.14);
+}
+.pl-meta-popover__search {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-bottom: 1px solid #d8dee4;
+  outline: 0;
+  padding: 14px 16px;
+  background: #fff;
+  color: #1f2328;
+  font: inherit;
+  font-size: 14px;
+}
+.pl-meta-popover__search::placeholder { color: #8b949e; }
+.pl-meta-popover__list { max-height: 410px; overflow-y: auto; padding: 8px; }
+.pl-meta-option {
+  position: relative;
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #1f2328;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.pl-meta-option:hover, .pl-meta-option--selected { background: #f1f2f4; }
+.pl-meta-option--selected::before { content: ''; position: absolute; left: -8px; top: 7px; bottom: 7px; width: 4px; border-radius: 4px; background: #0969da; }
+.pl-meta-option:disabled { opacity: 0.65; cursor: wait; }
+.pl-meta-option__check { width: 14px; display: inline-flex; color: #59636e; flex-shrink: 0; }
+.pl-meta-option__dot { width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0; }
+.pl-meta-option__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-meta-option__bot { border: 1px solid #d5dbe1; border-radius: 999px; padding: 1px 7px; color: #59636e; font-size: 11px; }
+.pl-meta-option__busy { margin-left: auto; color: #8b949e; }
+.pl-meta-popover__message { padding: 18px 12px; color: #8b949e; font-size: 13px; text-align: center; }
+.pl-meta-popover__error { border-top: 1px solid #ffcecb; padding: 8px 12px; background: #ffebe9; color: #cf222e; font-size: 11.5px; }
+
 /* The prototype helmet's `table.code` rules (Pull Requests.dc.html), scoped
  * to the Changes tab's diff tables as `.pl-code`. */
 table.pl-code { width: 100%; border-collapse: collapse; font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.7; }

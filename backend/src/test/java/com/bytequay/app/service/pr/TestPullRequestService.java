@@ -14,7 +14,9 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.domain.DiffFile;
+import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.HandledAction;
+import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrCiSnapshot;
@@ -36,6 +38,7 @@ import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.repository.RepoMetadataCacheStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoListCache;
@@ -53,6 +56,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -114,6 +118,9 @@ class TestPullRequestService
 
     @Mock
     private RepoListCache repoListCache;
+
+    @Mock
+    private RepoMetadataCacheStore repoMetadataCache;
 
     @Mock
     private PatResolver patResolver;
@@ -239,7 +246,7 @@ class TestPullRequestService
     {
         return new PullRequestService(
                 gitHub, store, detailStore, viewStateStore, settingsStore, credentialService,
-                responseCache, detailInvalidator, repoListCache, patResolver, eventPublisher,
+                responseCache, detailInvalidator, repoListCache, repoMetadataCache, patResolver, eventPublisher,
                 taskStore, collaboratorPermissions, Runnable::run, Runnable::run);
     }
 
@@ -1408,6 +1415,113 @@ class TestPullRequestService
     // positive, got: 0". Now they use parseRepoRef. These tests pin
     // both the happy path and the content-allowlist + repo-format
     // validation so the bug can't slip back.
+
+    @Test
+    void testMetadataChoicesCombineCurrentAndAvailableValues()
+    {
+        PullRequestRef ref = PullRequestRef.of("trinodb", "trino", 4074);
+        when(gitHub.fetchIssueDetail("pat", ref.repoRef(), 4074)).thenReturn(metadataIssue());
+        when(repoMetadataCache.find("trinodb/trino")).thenReturn(Optional.empty());
+        when(gitHub.fetchAssignableUsers("pat", ref.repoRef())).thenReturn(
+                ImmutableList.of(new GitHubUserMatch("alice", null, null)));
+        when(gitHub.fetchRepoLabels("pat", ref.repoRef())).thenReturn(
+                ImmutableList.of(new IssueDetail.Label("jdbc", "007f8b")));
+
+        PullRequestService.MetadataChoices choices =
+                pullRequestService.getMetadataChoices("trinodb/trino", 4074);
+
+        assertThat(choices.users()).extracting(GitHubUserMatch::login).containsExactly("alice");
+        assertThat(choices.assignees()).containsExactly("alice");
+        assertThat(choices.selectedLabels()).containsExactly("jdbc");
+        verify(repoMetadataCache).save(
+                eq("trinodb/trino"), eq(choices.users()), eq(choices.labels()), any(Instant.class));
+    }
+
+    @Test
+    void testMetadataChoicesUseFreshRepoCache()
+    {
+        PullRequestRef ref = PullRequestRef.of("trinodb", "trino", 4074);
+        RepoMetadataCacheStore.Snapshot cached = new RepoMetadataCacheStore.Snapshot(
+                ImmutableList.of(new GitHubUserMatch("cached-user", null, null)),
+                ImmutableList.of(new IssueDetail.Label("cached-label", "123456")),
+                Instant.now());
+        when(gitHub.fetchIssueDetail("pat", ref.repoRef(), 4074)).thenReturn(metadataIssue());
+        when(repoMetadataCache.find("trinodb/trino")).thenReturn(Optional.of(cached));
+
+        PullRequestService.MetadataChoices choices =
+                pullRequestService.getMetadataChoices("trinodb/trino", 4074);
+
+        assertThat(choices.users()).extracting(GitHubUserMatch::login).containsExactly("cached-user");
+        assertThat(choices.labels()).extracting(IssueDetail.Label::name).containsExactly("cached-label");
+        verify(gitHub, never()).fetchAssignableUsers(anyString(), any());
+        verify(gitHub, never()).fetchRepoLabels(anyString(), any());
+        verify(repoMetadataCache, never()).save(anyString(), any(), any(), any());
+    }
+
+    @Test
+    void testMetadataChoicesRefreshStaleRepoCache()
+    {
+        PullRequestRef ref = PullRequestRef.of("trinodb", "trino", 4074);
+        RepoMetadataCacheStore.Snapshot stale = new RepoMetadataCacheStore.Snapshot(
+                ImmutableList.of(new GitHubUserMatch("stale-user", null, null)),
+                ImmutableList.of(new IssueDetail.Label("stale-label", "123456")),
+                Instant.now().minus(Duration.ofDays(8)));
+        when(gitHub.fetchIssueDetail("pat", ref.repoRef(), 4074)).thenReturn(metadataIssue());
+        when(repoMetadataCache.find("trinodb/trino")).thenReturn(Optional.of(stale));
+        when(gitHub.fetchAssignableUsers("pat", ref.repoRef())).thenReturn(
+                ImmutableList.of(new GitHubUserMatch("fresh-user", null, null)));
+        when(gitHub.fetchRepoLabels("pat", ref.repoRef())).thenReturn(
+                ImmutableList.of(new IssueDetail.Label("fresh-label", "654321")));
+
+        PullRequestService.MetadataChoices choices =
+                pullRequestService.getMetadataChoices("trinodb/trino", 4074);
+
+        assertThat(choices.users()).extracting(GitHubUserMatch::login).containsExactly("fresh-user");
+        assertThat(choices.labels()).extracting(IssueDetail.Label::name).containsExactly("fresh-label");
+        verify(repoMetadataCache).save(
+                eq("trinodb/trino"), eq(choices.users()), eq(choices.labels()), any(Instant.class));
+    }
+
+    @Test
+    void testAssigneeAndLabelSelectionsForwardToGitHub()
+    {
+        PullRequestRef ref = PullRequestRef.of("trinodb", "trino", 4074);
+
+        pullRequestService.setPullRequestAssignee("trinodb/trino", 4074, "alice", true);
+        pullRequestService.setPullRequestLabel("trinodb/trino", 4074, "jdbc", false);
+
+        verify(gitHub).setPullRequestAssignee("pat", ref, "alice", true);
+        verify(gitHub).setPullRequestLabel("pat", ref, "jdbc", false);
+    }
+
+    private static IssueDetail metadataIssue()
+    {
+        return new IssueDetail(
+                1L, 4074, "title", "body", "author", null, "open", "url",
+                Instant.EPOCH, Instant.EPOCH, null,
+                ImmutableList.of(new IssueDetail.Label("jdbc", "007f8b")),
+                ImmutableList.of(new IssueDetail.Assignee("alice", null)),
+                null, ImmutableList.of(), ImmutableList.of(), false);
+    }
+
+    @Test
+    void testAddPullRequestReactionForwardsToGitHub()
+    {
+        pullRequestService.addPullRequestReaction("trinodb/trino", 4074, "heart");
+
+        verify(gitHub).addPullRequestReaction(
+                "pat", PullRequestRef.of("trinodb", "trino", 4074), "heart");
+    }
+
+    @Test
+    void testAddPullRequestReactionRejectsInvalidContent()
+    {
+        assertThatThrownBy(() ->
+                pullRequestService.addPullRequestReaction("trinodb/trino", 4074, "fire"))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
+                        .isEqualTo(BAD_REQUEST.value()));
+    }
 
     @Test
     void testAddReviewCommentReactionWithValidRepoForwardsToGitHub()

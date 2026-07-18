@@ -553,6 +553,37 @@ public class PullRequestController
         return pullRequestService.getSuggestedReviewers(repo, number);
     }
 
+    /** Current assignees/labels plus the repository choices for the metadata pickers. */
+    @GetMapping("/prs/metadata")
+    public PullRequestService.MetadataChoices metadataChoices(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        return pullRequestService.getMetadataChoices(repo, number);
+    }
+
+    public record MetadataSelectionRequest(String value, boolean selected) {}
+
+    @PostMapping("/prs/assignees")
+    public Map<String, String> setAssignee(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestBody MetadataSelectionRequest request)
+    {
+        pullRequestService.setPullRequestAssignee(repo, number, request.value(), request.selected());
+        return ImmutableMap.of("result", "updated");
+    }
+
+    @PostMapping("/prs/labels")
+    public Map<String, String> setLabel(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestBody MetadataSelectionRequest request)
+    {
+        pullRequestService.setPullRequestLabel(repo, number, request.value(), request.selected());
+        return ImmutableMap.of("result", "updated");
+    }
+
     /**
      * Inline comment request body.
      *
@@ -585,6 +616,20 @@ public class PullRequestController
     }
 
     public record AddReactionRequest(String content) {}
+
+    /**
+     * Adds an emoji reaction to the pull request description.
+     * POST /prs/{number}/reactions?repo=
+     */
+    @PostMapping("/prs/{number}/reactions")
+    public Map<String, String> addPullRequestReaction(
+            @RequestParam("repo") String repo,
+            @PathVariable int number,
+            @RequestBody AddReactionRequest req)
+    {
+        pullRequestService.addPullRequestReaction(repo, number, req.content());
+        return ImmutableMap.of("result", "reacted");
+    }
 
     /**
      * Adds an emoji reaction to a per-line review comment. Idempotent on

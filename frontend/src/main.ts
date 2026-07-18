@@ -1685,6 +1685,20 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     }
   });
 
+  ipcMain.handle('pr:addPullRequestReaction', async (_event, repo: string, number: number, content: string) => {
+    const url = new URL(`${BACKEND_BASE}/prs/${number}/reactions`);
+    url.searchParams.set('repo', repo);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Reaction failed (${res.status}): ${text}`);
+    }
+  });
+
   ipcMain.handle('pr:addReviewReaction', async (_event, repo: string, commentId: number, content: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/review-comments/${commentId}/reactions`);
     url.searchParams.set('repo', repo);
@@ -1762,6 +1776,48 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
       return [];
     }
     return res.json();
+  });
+
+  ipcMain.handle('backend:getPrMetadataChoices', async (_event, repo: string, number: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/metadata`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    const res = await fetch(url);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Load PR metadata failed (${res.status}): ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('backend:setPrAssignee', async (_event, repo: string, number: number, login: string, selected: boolean) => {
+    const url = new URL(`${BACKEND_BASE}/prs/assignees`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: login, selected }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Update assignee failed (${res.status}): ${text}`);
+    }
+  });
+
+  ipcMain.handle('backend:setPrLabel', async (_event, repo: string, number: number, label: string, selected: boolean) => {
+    const url = new URL(`${BACKEND_BASE}/prs/labels`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: label, selected }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Update label failed (${res.status}): ${text}`);
+    }
   });
 
   ipcMain.handle('backend:createInlineReviewComment', async (

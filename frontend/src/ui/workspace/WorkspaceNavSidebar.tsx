@@ -150,6 +150,7 @@ export function WorkspaceNavSidebar({
     <div
       key={n.key}
       className={n.key === activeNav ? 'sb-nav-item active' : 'sb-nav-item'}
+      style={n.key === 'pulls' ? { fontWeight: 400 } : undefined}
       role="button"
       tabIndex={0}
       title={n.label}

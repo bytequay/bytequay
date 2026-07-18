@@ -114,7 +114,7 @@ export type TimelineItem =
   | { kind: 'review'; id: string; at: number; time: string; author: string; bot: boolean;
       verdict: 'approved' | 'changes' | null; body: string | null }
   | { kind: 'comment'; id: string; at: number; time: string; author: string; bot: boolean;
-      body: string; replies: TimelineReply[] }
+      body: string; replies: TimelineReply[]; remoteId: number | null }
   | { kind: 'merged'; id: string; at: number; time: string; author: string; sha: string | null; base: string };
 
 function str(payload: Record<string, unknown> | null, key: string): string | null {
@@ -134,12 +134,20 @@ const APPROVED_VERDICTS = new Set(['APPROVED', 'approved']);
  */
 export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
   const items: TimelineItem[] = [];
+  const remoteCommentIds = new Map<string, number>();
   for (const event of bundle.timeline) {
+    if (event.eventType === 'comment') {
+      const commentId = str(event.payload, 'commentId');
+      if (commentId !== null && typeof event.remoteEventId === 'number') {
+        remoteCommentIds.set(commentId, event.remoteEventId);
+      }
+    }
     if (event.eventType === 'commit') {
       const sha = str(event.payload, 'sha');
+      const message = str(event.payload, 'message') ?? '';
       items.push({
         kind: 'commit', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
-        message: str(event.payload, 'message') ?? '', sha: sha !== null ? sha.slice(0, 7) : '',
+        message: message.split(/\r?\n/, 1)[0] ?? '', sha: sha !== null ? sha.slice(0, 7) : '',
       });
       continue;
     }
@@ -173,6 +181,7 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
     items.push({
       kind: 'comment', id: root.id, at: root.createdAt, time: agoLabel(root.createdAt),
       author: displayName(root.author), bot: isBotActor(root.author), body: root.body, replies,
+      remoteId: remoteCommentIds.get(root.id) ?? null,
     });
   }
   items.sort((a, b) => a.at - b.at);

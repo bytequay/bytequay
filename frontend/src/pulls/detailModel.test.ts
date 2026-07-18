@@ -89,7 +89,7 @@ describe('buildTimeline', () => {
   it('maps commits with 7-char shas and skips non-counterpart event types', () => {
     const items = buildTimeline(bundle({
       timeline: [
-        event({ id: 'c', payload: { sha: 'abcdef0123456', message: 'Fix it' } }),
+        event({ id: 'c', payload: { sha: 'abcdef0123456', message: 'Fix it\n\nLong commit body' } }),
         event({ id: 'ci', eventType: 'ci', createdAt: 1100, payload: { name: 'tests', status: 'passed' } }),
         event({ id: 'st', eventType: 'status', createdAt: 1200, payload: { from: 'a', to: 'b' } }),
       ],
@@ -113,6 +113,10 @@ describe('buildTimeline', () => {
 
   it('groups PR-level comment replies under their root and skips file-line comments', () => {
     const items = buildTimeline(bundle({
+      timeline: [event({
+        id: 'root-event', eventType: 'comment', remoteEventId: 4357983764,
+        payload: { commentId: 'root' },
+      })],
       comments: [
         comment({ id: 'root' }),
         comment({ id: 'reply', parentCommentId: 'root', createdAt: 3000, author: 'github-actions[bot]' }),
@@ -120,7 +124,7 @@ describe('buildTimeline', () => {
       ],
     }));
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ kind: 'comment', id: 'root' });
+    expect(items[0]).toMatchObject({ kind: 'comment', id: 'root', remoteId: 4357983764 });
     const root = items[0];
     if (root.kind !== 'comment') throw new Error('expected comment');
     expect(root.replies.map(r => r.id)).toEqual(['reply']);

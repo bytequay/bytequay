@@ -48,6 +48,7 @@ import type {
   PullRequestDetailDto,
   PrLinksDto,
   PullRequestDto,
+  PullRequestMetadataChoicesDto,
   AssembledContextDto,
   TaskTraceDto,
   ConceptRowDto,
@@ -222,6 +223,12 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:removeRequestedReviewer', repo, number, reviewer),
   getSuggestedReviewers: (repo: string, number: number): Promise<SuggestedReviewerDto[]> =>
     ipcRenderer.invoke('backend:getSuggestedReviewers', repo, number),
+  getPullRequestMetadataChoices: (repo: string, number: number): Promise<PullRequestMetadataChoicesDto> =>
+    ipcRenderer.invoke('backend:getPrMetadataChoices', repo, number),
+  setPullRequestAssignee: (repo: string, number: number, login: string, selected: boolean): Promise<void> =>
+    ipcRenderer.invoke('backend:setPrAssignee', repo, number, login, selected),
+  setPullRequestLabel: (repo: string, number: number, label: string, selected: boolean): Promise<void> =>
+    ipcRenderer.invoke('backend:setPrLabel', repo, number, label, selected),
   createInlineReviewComment: (
     repo: string,
     number: number,
@@ -467,6 +474,11 @@ const bridge: Bridge = {
     ipcRenderer.invoke('ai:deleteComment', draftId, commentId),
   setAiReviewCommentDismissed: (draftId: number, commentId: number, dismissed: boolean): Promise<AiReviewDraftDto> =>
     ipcRenderer.invoke('ai:dismissComment', draftId, commentId, dismissed),
+  addPullRequestReaction: (
+    repo: string,
+    number: number,
+    content: '+1' | '-1' | 'laugh' | 'confused' | 'heart' | 'hooray' | 'rocket' | 'eyes',
+  ): Promise<void> => ipcRenderer.invoke('pr:addPullRequestReaction', repo, number, content),
   addReviewCommentReaction: (
     repo: string,
     commentId: number,

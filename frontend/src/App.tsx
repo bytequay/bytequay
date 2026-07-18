@@ -112,6 +112,10 @@ export type Nav =
   | { view: 'workspace';
       section?: WorkspaceSection;
       prNumber?: number;
+      /** Open the pull-requests section with the agent-review column
+       *  already replacing the work list (deep link from PullsScreen's
+       *  "Work with agent" button). */
+      agentColumn?: boolean;
       issueNumber?: number;
       sessionId?: string;
       backlogKey?: string;
@@ -1072,7 +1076,30 @@ function App() {
             onOpenNotifications={() => setNav({ view: 'notifications' })}
           />
         )}
-        {nav.view === 'pulls' && <PullsScreen />}
+        {nav.view === 'pulls' && (
+          <PullsScreen
+            onOpenWorkspacePr={(repo, prNumber, opts) => {
+              // Same repo → workspace resolution as the legacy-repo redirect
+              // effect: the workspace whose repository fullName matches.
+              const fullName = repo.toLowerCase();
+              void window.bridge.listWorkspaces()
+                .then(cards => {
+                  const workspace = cards.find(card =>
+                    card.repository?.fullName.toLowerCase() === fullName);
+                  if (workspace === undefined) return;
+                  setActiveWorkspaceId(workspace.id);
+                  writeActiveWorkspaceId(workspace.id);
+                  setNav({
+                    view: 'workspace',
+                    section: 'pull-requests',
+                    prNumber,
+                    agentColumn: opts.agent || undefined,
+                  });
+                })
+                .catch(() => { /* transient; the click is a no-op on failure */ });
+            }}
+          />
+        )}
         {nav.view === 'my-prs' && (
           <PullRequestList
             onGoToTeams={() => setNav({ view: 'teams' })}
@@ -1244,6 +1271,7 @@ function App() {
             section={nav.section ?? 'today'}
             workspaceId={activeWorkspaceId}
             prNumber={nav.prNumber}
+            agentColumn={nav.agentColumn}
             issueNumber={nav.issueNumber}
             branchName={nav.branchName}
             sessionId={nav.sessionId}

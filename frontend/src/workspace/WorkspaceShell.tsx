@@ -81,6 +81,8 @@ type Props = {
   /** Canonical workspace issue-detail route. */
   onOpenIssue?: (issueNumber: number) => void;
   prNumber?: number;
+  /** Open the pull-requests section with the agent-review column showing. */
+  agentColumn?: boolean;
   issueNumber?: number;
   branchName?: string;
   onOpenBranch?: (branchName: string) => void;
@@ -110,7 +112,7 @@ type Props = {
  *  and Insights are the other two tabs. */
 function WorkspaceShell({
   section, onSelectSection, workspaceId, onOpenThread, onOpenPr,
-  onOpenIssue, prNumber, issueNumber, branchName, onOpenBranch,
+  onOpenIssue, prNumber, agentColumn, issueNumber, branchName, onOpenBranch,
   sessionId, onOpenSession,
   backlogKey, onOpenBacklog,
   settingsSection, onSelectSettingsSection,
@@ -156,6 +158,7 @@ function WorkspaceShell({
             onOpenBranch={onOpenBranch}
             onOpenTrunk={onOpenThread}
             selectedNumber={activeSection === 'pull-requests' ? prNumber : issueNumber}
+            initialAgentView={activeSection === 'pull-requests' ? agentColumn : undefined}
             selectedBranch={activeSection === 'branches' ? branchName : undefined}
             onBackToList={() => onSelectSection(activeSection)}
           />

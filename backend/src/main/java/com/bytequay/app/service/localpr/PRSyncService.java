@@ -659,14 +659,18 @@ public class PRSyncService
         if (detail.checkRuns() == null) {
             return;
         }
+        Set<String> currentRunIds = new HashSet<>();
         for (PullRequestDetail.CheckRun run : detail.checkRuns()) {
             if (run.githubId() == null) {
                 continue;
             }
+            String runId = String.valueOf(run.githubId());
+            currentRunIds.add(runId);
             prService.recordSyncedCheck(
-                    pr.id(), String.valueOf(run.githubId()), run.name(),
+                    pr.id(), runId, run.name(),
                     mapCheckStatus(run.status(), run.conclusion()), null, null);
         }
+        prService.retainSyncedChecks(pr.id(), currentRunIds);
     }
 
     /** GitHub's check-run {@code status}/{@code conclusion} pair onto the

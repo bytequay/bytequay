@@ -38,6 +38,7 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -272,6 +273,29 @@ class TestPRSchema
         assertThat(prStore.timelineFor(pr.id())).containsExactly(event);
         assertThat(prStore.checksFor(pr.id())).containsExactly(check);
         assertThat(prStore.commentsFor(pr.id())).containsExactly(comment);
+    }
+
+    @Test
+    void retainChecksRemovesStaleRemoteRunsWithoutTouchingLocalChecks()
+    {
+        String taskId = seedTask();
+        Instant now = Instant.parse("2026-07-01T00:00:00Z");
+        PR pr = prStore.save(PR.create(
+                UUID.randomUUID().toString(), taskId, "feature/x", "main", "CI snapshot", "", now));
+        prStore.addCheck(new PRCheck(
+                "local", pr.id(), PRCheck.KIND_LOCAL, "mvn test", PRCheck.STATUS_PASSED,
+                1L, now, now, null));
+        prStore.addCheck(new PRCheck(
+                "stale", pr.id(), PRCheck.KIND_REMOTE, "build", PRCheck.STATUS_FAILED,
+                null, now, now, "old-run"));
+        prStore.addCheck(new PRCheck(
+                "current", pr.id(), PRCheck.KIND_REMOTE, "build", PRCheck.STATUS_PASSED,
+                null, now, now, "current-run"));
+
+        prStore.retainChecks(pr.id(), PRCheck.KIND_REMOTE, Set.of("current-run"));
+
+        assertThat(prStore.checksFor(pr.id())).extracting(PRCheck::id)
+                .containsExactlyInAnyOrder("local", "current");
     }
 
     private String seedTask()

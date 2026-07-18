@@ -34,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Component
 class SqlitePRStore
@@ -429,6 +430,16 @@ class SqlitePRStore
         return checks.findByPrIdOrderByStartedAtMsAsc(prId).stream()
                 .map(SqlitePRStore::toDomain)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public void retainChecks(String prId, String kind, Set<String> runIds)
+    {
+        checks.deleteAll(checks.findByPrIdOrderByStartedAtMsAsc(prId).stream()
+                .filter(check -> kind.equals(check.getKind()))
+                .filter(check -> check.getRunId() == null || !runIds.contains(check.getRunId()))
+                .toList());
     }
 
     @Override

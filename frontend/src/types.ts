@@ -3224,6 +3224,9 @@ export type Bridge = {
    *  {@code date} is omitted). {@code date} is ISO YYYY-MM-DD. */
   getFootprints: (date?: string) => Promise<FootprintsTrailDto>;
   updateProfile: (name: string, bio: string, location: string) => Promise<UserProfileDto>;
+  /** Opens an unhandled HTTP(S) link in ByteQuay's browser overlay. */
+  openInAppBrowser: (url: string) => Promise<void>;
+  /** Explicit escape hatch for OAuth and the browser overlay's Browser button. */
   openExternal: (url: string) => Promise<void>;
   getUserStats: (login: string, force?: boolean) => Promise<UserStatsDto>;
   // Teams

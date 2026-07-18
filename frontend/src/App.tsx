@@ -1073,8 +1073,8 @@ function App() {
             onOpenLinkedRef={ref => {
               if (ref.kind === 'COMMIT') {
                 // No in-app commit-detail route yet — open the
-                // github.com commit page in the system browser.
-                void window.bridge.openExternal(ref.url);
+                // github.com commit page in ByteQuay's browser.
+                void window.bridge.openInAppBrowser(ref.url);
                 return;
               }
               const number = parseInt(ref.slug, 10);

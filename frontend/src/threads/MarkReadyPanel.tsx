@@ -109,7 +109,7 @@ export function MarkReadyPanel({ notificationId, pr, onMarked }: {
           type="button"
           className="button button--secondary"
           style={{ marginLeft: 'auto' }}
-          onClick={() => { void window.bridge.openExternal(prUrl); }}
+          onClick={() => { void window.bridge.openInAppBrowser(prUrl); }}
           title="Open this pull request on GitHub"
         >
           {pr.owner}/{pr.repo}#{pr.number} ↗

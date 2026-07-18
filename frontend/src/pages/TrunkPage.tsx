@@ -153,7 +153,7 @@ export function TrunkPage({
       return;
     }
     if (item.itemPath?.startsWith('http') === true) {
-      void window.bridge?.openExternal(item.itemPath);
+      void window.bridge?.openInAppBrowser(item.itemPath);
     }
   };
 

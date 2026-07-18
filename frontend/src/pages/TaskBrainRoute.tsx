@@ -500,7 +500,7 @@ export function TaskBrainRoute({
         number: task.prNumber,
         status: finished ? 'merged' : (linkedPr?.status ?? (task.prDraft ? 'draft' : 'open')),
         onOpen: () => {
-          void bridge?.openExternal(
+          void bridge?.openInAppBrowser(
             `https://github.com/${task.repoFullName}/pull/${task.prNumber}`);
         },
       }

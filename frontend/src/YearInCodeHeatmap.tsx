@@ -143,7 +143,7 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
 
   // Dismiss on outside click + Escape. The popover stops propagation
   // on its own click so a click *inside* (e.g. on a commit row) doesn't
-  // immediately close it before openExternal fires.
+  // immediately close it before the in-app browser opens.
   useEffect(() => {
     if (selected === null) return;
     const onDown = (e: MouseEvent) => {
@@ -384,9 +384,8 @@ type PopoverState = UserCommitDto[] | 'loading' | 'error';
 
 /** Floating list of commits for one cube. Anchored by the click's
  *  viewport coords (position:fixed) and clamped to stay inside the
- *  window. Each row opens the commit on github.com via the bridge's
- *  shell.openExternal — keeps the embedded WebContentsView free for
- *  the PR review surfaces. */
+ *  window. Each row opens the commit on github.com in ByteQuay's
+ *  browser overlay. */
 const CommitPopover = forwardRef<HTMLDivElement, {
   day: ContributionDayDto;
   clientX: number;
@@ -445,7 +444,7 @@ const CommitPopover = forwardRef<HTMLDivElement, {
               <button
                 type="button"
                 className="home-heatmap__popover-row"
-                onClick={() => { void window.bridge.openExternal(c.htmlUrl); }}
+                onClick={() => { void window.bridge.openInAppBrowser(c.htmlUrl); }}
                 title={`${c.repoFullName} · ${c.sha}`}
               >
                 <span className="home-heatmap__popover-repo">{c.repoFullName}</span>

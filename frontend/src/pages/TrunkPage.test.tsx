@@ -64,7 +64,7 @@ function mockBridge({
     answerQuestion: vi.fn().mockResolvedValue(undefined),
     startBacklogDevelopment: vi.fn().mockResolvedValue({ item: null, taskId: null }),
     skipBacklogItem: vi.fn().mockResolvedValue(undefined),
-    openExternal: vi.fn().mockResolvedValue(undefined),
+    openInAppBrowser: vi.fn().mockResolvedValue(undefined),
   };
   (window as unknown as { bridge: unknown }).bridge = bridge;
   return bridge;

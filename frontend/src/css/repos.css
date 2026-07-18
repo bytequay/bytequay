@@ -1316,7 +1316,7 @@
 
 /* Success toast — anchored to the bottom-right of the page. Lives
    until the user dismisses; clicking the link opens the new PR on
-   github.com via shell.openExternal (same path as other repo links). */
+   github.com in the shared browser overlay. */
 .create-pr-toast {
   position: fixed;
   bottom: 24px;

@@ -204,8 +204,7 @@ function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, onOp
 
   // Clicking a card opens the in-app PR detail page. The embedded review
   // (Open on Remote) and native diff viewer are still reachable from there;
-  // openExternal stays only for explicit "open on github.com" actions
-  // elsewhere on the card.
+  // explicit "open on github.com" actions use the shared browser overlay.
   const handleSelect = (pr: PullRequestDto) => {
     void window.bridge.markPrViewed(pr.id).catch(() => { /* best-effort */ });
     setSelectedPr(pr);

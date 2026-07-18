@@ -58,7 +58,7 @@ export function PRHeader({
             type="button"
             className="pr-num pr-num-link"
             title="Open on GitHub"
-            onClick={() => { void window.bridge.openExternal(pr.remotePrUrl!); }}
+            onClick={() => { void window.bridge.openInAppBrowser(pr.remotePrUrl!); }}
           >
             {prNumLabel}
           </button>

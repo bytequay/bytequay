@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { marked } from 'marked';
 import { useAutoGrow } from './useAutoGrow';
 import { useMentions } from './useMentions';
@@ -21,6 +21,7 @@ type Props = {
   onChange: (next: string) => void;
   placeholder?: string;
   rows?: number;
+  autoGrow?: boolean;
   disabled?: boolean;
   /** Optional autoFocus on mount — reply composers want this. */
   autoFocus?: boolean;
@@ -55,6 +56,7 @@ function MarkdownComposer({
   onChange,
   placeholder,
   rows = 3,
+  autoGrow = true,
   disabled,
   autoFocus,
   textareaClassName,
@@ -65,7 +67,9 @@ function MarkdownComposer({
   headerLeft,
 }: Props) {
   const [tab, setTab] = useState<'write' | 'preview'>(initialTab);
-  const taRef = useAutoGrow(value);
+  const autoGrowRef = useAutoGrow(value);
+  const fixedHeightRef = useRef<HTMLTextAreaElement>(null);
+  const taRef = autoGrow ? autoGrowRef : fixedHeightRef;
   const mentions = useMentions({ value, onChange, candidates: mentionCandidates, textareaRef: taRef });
   const previewHtml = tab === 'preview'
     ? (marked(value.trim() || '_Nothing to preview._', { gfm: true, breaks: true }) as string)

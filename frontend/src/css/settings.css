@@ -35,6 +35,108 @@
   font-weight: 600;
 }
 
+/* Help & feedback — compact fixed-repository issue form. */
+.product-issue-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.product-issue-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.product-issue-form__field input,
+.product-issue-form__field textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  color: var(--text-1);
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 400;
+  resize: vertical;
+}
+
+.product-issue-form__field input:focus,
+.product-issue-form__field textarea:focus {
+  outline: 2px solid var(--accent-a40);
+  border-color: var(--accent);
+}
+
+.product-issue-form__field small {
+  color: var(--text-3);
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+}
+
+.product-issue-form__images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.product-issue-form__image {
+  position: relative;
+  width: 112px;
+  height: 72px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+.product-issue-form__image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.product-issue-form__image button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.72);
+  color: white;
+  cursor: pointer;
+  line-height: 18px;
+}
+
+.product-issue-form__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.product-issue-form__success,
+.product-issue-form__error,
+.product-issue-monitor__status {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+}
+
+.product-issue-form__success { color: #047857; }
+.product-issue-form__error { color: #aa4e3e; }
+
+.product-issue-form__success button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .credentials-tab__header {
   display: flex;
   align-items: flex-start;
@@ -756,4 +858,3 @@
   color: var(--text-3);
   font-size: 13px;
 }
-

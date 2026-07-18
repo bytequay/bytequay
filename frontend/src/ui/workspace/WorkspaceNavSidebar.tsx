@@ -192,21 +192,13 @@ export function WorkspaceNavSidebar({
             <div className="sb-spacer" />
             {!hideBottomNav && (
               <div className="sb-nav sb-nav--bottom">
-                {(workspaceMode ? BOTTOM_NAV.slice(0, 1) : BOTTOM_NAV).map(navItem)}
+                {BOTTOM_NAV.map(navItem)}
               </div>
             )}
             {workspaceMode && (
               <div className="ws-user-footer">
                 <CurrentUserAvatar size={26} className="ws-user-avatar" />
                 <span className="ws-user-name">chenjian2664</span>
-                <button
-                  type="button"
-                  className="ws-user-settings"
-                  aria-label="Workspace settings"
-                  onClick={() => onNavigate?.('settings')}
-                >
-                  <SidebarIcon kind="settings" />
-                </button>
               </div>
             )}
           </>

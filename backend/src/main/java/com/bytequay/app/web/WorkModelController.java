@@ -54,9 +54,8 @@ public class WorkModelController
     /**
      * POST /api/work-models/refresh — kept as an alias for the GET
      * endpoint so the picker's existing Refresh affordance keeps
-     * working. The CLI-detection cache it used to invalidate is gone
-     * (every CLI agent is now reported as available unconditionally),
-     * so a refresh just re-reads the catalog × credentials snapshot.
+     * working. This re-reads credentials and re-probes local CLI
+     * binaries with non-interactive version checks.
      */
     @PostMapping("/work-models/refresh")
     public WorkModelOptions refresh()

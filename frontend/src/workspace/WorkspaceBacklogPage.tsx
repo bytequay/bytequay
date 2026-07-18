@@ -240,7 +240,7 @@ function BacklogRow({
         {item.status === 'open' && (
           <TrunkPicker
             trunks={trunks}
-            label="Start dev →"
+            label="Start work under a thread"
             onSelect={onStart}
             onNewTrunk={onNewTrunk}
           />

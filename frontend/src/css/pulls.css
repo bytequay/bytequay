@@ -27,6 +27,23 @@
 .pl-hov-agent-dash:hover { background: rgba(139, 92, 246, 0.06) !important; }
 .pl-hov-load:hover { background: #f4f5f7; color: #17191c; }
 .pl-hov-green:hover:not(:disabled) { background: #1a7f37 !important; }
+.pl-hov-ic8:hover { background: rgba(0, 0, 0, 0.08) !important; }
+.pl-hov-tree:hover { background: #eceef0 !important; }
+.pl-hov-bdrag:hover { background: #0969da !important; }
+.pl-hov-phead:hover { background: #eef1f4 !important; }
+.pl-hov-trash:hover { color: #cf222e !important; }
+.pl-pend-ta:hover { border-color: #d5dbe1 !important; }
+.pl-pend-ta:focus { border-color: #0969da !important; background: #fff !important; }
+
+/* The prototype helmet's `table.code` rules (Pull Requests.dc.html), scoped
+ * to the Changes tab's diff tables as `.pl-code`. */
+table.pl-code { width: 100%; border-collapse: collapse; font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.7; }
+table.pl-code td { padding: 0 12px; white-space: pre-wrap; word-break: break-word; vertical-align: top; }
+table.pl-code td.ln { width: 42px; min-width: 42px; padding: 0 8px; text-align: right; color: #8b949e; font-size: 11px; background: #f6f8fa; border-right: 1px solid #e7e9ec; user-select: none; white-space: nowrap; }
+table.pl-code tr.add td.src { background: #e6ffec; }
+table.pl-code tr.add td.ln { background: #ccffd8; color: #1a7f37; border-right-color: #ccffd8; }
+table.pl-code tr.del td.src { background: #ffebe9; }
+table.pl-code tr.del td.ln { background: #ffd7d5; color: #cf222e; border-right-color: #ffd7d5; }
 
 @keyframes pl-pulse {
   50% { opacity: 0.35; }

@@ -64,6 +64,17 @@ const bundle = {
 } as LocalPRBundle;
 
 describe('PullOverview', () => {
+  it('shows structured skeleton cards while a large pull request loads', () => {
+    const { container } = render(
+      <PullOverview row={row([])} bundle={undefined} isMerged={false} />,
+    );
+
+    expect(screen.getByRole('status', { name: 'Loading pull request details' })).not.toBeNull();
+    expect(container.querySelectorAll('.pl-pr-skeleton-card')).toHaveLength(2);
+    expect(container.querySelectorAll('.pl-pr-skeleton-line').length).toBeGreaterThan(3);
+    expect(screen.queryByText('No description provided.')).toBeNull();
+  });
+
   it('shows only avatars with username tooltips when there are more than three reviewers', () => {
     const { container } = render(
       <PullOverview row={row(['one', 'two', 'three', 'four', 'five'])} bundle={bundle} isMerged={false} />,

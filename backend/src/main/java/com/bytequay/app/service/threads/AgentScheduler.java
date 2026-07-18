@@ -39,6 +39,7 @@ import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.AgentContextCompiler;
 import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.agents.ToolExposurePolicy;
+import com.bytequay.app.service.codegraph.CodeGraphFirstRuntime;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.runs.SessionBudgetPolicy;
 import com.bytequay.app.service.skills.ManagedSkillPolicy;
@@ -73,6 +74,7 @@ import java.util.stream.Collectors;
 
 import static com.bytequay.app.domain.ThreadResourceLane.API;
 import static com.bytequay.app.domain.ThreadResourceLane.CLI;
+import static com.bytequay.app.domain.ThreadTurnEventType.CODEGRAPH_POLICY;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_CANCELLED;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_FAILED;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_FINISHED;
@@ -700,6 +702,7 @@ public class AgentScheduler
                     runningTurn.threadId(),
                     PermissionResolver.agentKeyFor(runningTurn.taskId(), runningTurn.stageId()),
                     context);
+            CodeGraphFirstRuntime.beginTurn(runningTurn.threadId(), agentKeyOf(runningTurn));
             usageBaselines.put(runningTurn.id(), session.metrics());
             completion = requireNonNull(
                     session.send(runningTurn.input()),
@@ -736,6 +739,11 @@ public class AgentScheduler
                 runningTurn.threadId(),
                 PermissionResolver.agentKeyFor(runningTurn.taskId(), runningTurn.stageId()));
         appendEvent(finished, failed ? TURN_FAILED : TURN_FINISHED, finished.errorMessage());
+        CodeGraphFirstRuntime.Metrics codeGraphMetrics = CodeGraphFirstRuntime.finishTurn(
+                runningTurn.threadId(), agentKeyOf(runningTurn));
+        if (!codeGraphMetrics.isEmpty()) {
+            appendEvent(finished, CODEGRAPH_POLICY, codeGraphMetrics.toJson());
+        }
         boolean budgetPaused = accountRun(finished, session);
         if (failed || !budgetPaused) {
             transitionRun(

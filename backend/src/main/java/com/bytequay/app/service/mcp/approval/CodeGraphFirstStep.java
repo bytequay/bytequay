@@ -15,7 +15,9 @@ package com.bytequay.app.service.mcp.approval;
 
 import com.bytequay.app.service.codegraph.CodeGraphFirstRuntime;
 import com.bytequay.app.service.codegraph.CodeGraphFirstSearchClassifier;
+import com.bytequay.app.service.codegraph.CodeGraphFirstSearchClassifier.Suggestion;
 import com.bytequay.app.service.mcp.McpResponses;
+import com.fasterxml.jackson.core.io.JsonStringEncoder;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
@@ -27,16 +29,6 @@ import static java.util.Objects.requireNonNull;
 public class CodeGraphFirstStep
         implements ApprovalStep
 {
-    public static final String REDIRECT_MESSAGE = """
-            Blocked by ByteQuay's CodeGraph-first exploration policy.
-            This looks like broad repository discovery. Call this tool first:
-
-            mcp__bytequay__codegraph_explore({"query":"Map the code relevant to the current task. Return the main implementation files, symbols, callers, tests, and change impact."})
-
-            Then use native search for exact literal checks or completeness verification.
-            If CodeGraph is unavailable, retry; ByteQuay fails open after two redirects.
-            """;
-
     private final McpResponses responses;
 
     public CodeGraphFirstStep(McpResponses responses)
@@ -63,6 +55,30 @@ public class CodeGraphFirstStep
             return ApprovalStepResult.cont();
         }
         return ApprovalStepResult.resolve(
-                responses.toolResponse(context.id(), responses.deny(REDIRECT_MESSAGE)));
+                responses.toolResponse(context.id(), responses.deny(redirectMessage(context))));
+    }
+
+    private static String redirectMessage(ApprovalContext context)
+    {
+        Suggestion suggestion = CodeGraphFirstSearchClassifier.suggestion(context);
+        String mode = suggestion.symbol() ? ",\"mode\":\"symbol\"" : "";
+        String call = "mcp__bytequay__codegraph_explore({\"query\":"
+                + jsonString(suggestion.query()) + mode + "})";
+        return """
+                Blocked by ByteQuay's CodeGraph-first exploration policy.
+                This looks like broad repository discovery. Call this tailored tool request first:
+
+                %s
+
+                Then use native search for exact literal checks or completeness verification.
+                Correct invalid CodeGraph arguments and retry. A real CodeGraph attempt, including
+                an unavailable/indexing failure, unlocks native search; ignored redirects fail open
+                after two rejections.
+                """.formatted(call);
+    }
+
+    private static String jsonString(String value)
+    {
+        return "\"" + new String(JsonStringEncoder.getInstance().quoteAsString(value)) + "\"";
     }
 }

@@ -41,7 +41,7 @@ class TestCodeGraphFirstStep
 
         assertThat(result).isInstanceOf(ApprovalStepResult.Resolve.class);
         assertThat(((ApprovalStepResult.Resolve) result).response().toString())
-                .contains("deny", "mcp__bytequay__codegraph_explore", "callers", "tests");
+                .contains("deny", "mcp__bytequay__codegraph_explore", "DailyCard", "symbol");
     }
 
     @Test
@@ -56,9 +56,11 @@ class TestCodeGraphFirstStep
 
         Scope globScope = scope();
         prepare(globScope);
-        assertThat(step.apply(context(globScope, "Glob",
-                mapper.readTree("{\"pattern\":\"**/*.tsx\"}"))))
-                .isInstanceOf(ApprovalStepResult.Resolve.class);
+        ApprovalStepResult glob = step.apply(context(globScope, "Glob",
+                mapper.readTree("{\"pattern\":\"**/*.tsx\"}")));
+        assertThat(glob).isInstanceOf(ApprovalStepResult.Resolve.class);
+        assertThat(((ApprovalStepResult.Resolve) glob).response().toString())
+                .contains("**/*.tsx", "call paths");
     }
 
     @Test

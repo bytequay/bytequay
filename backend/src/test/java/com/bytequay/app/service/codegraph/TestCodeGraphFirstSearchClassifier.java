@@ -68,6 +68,26 @@ class TestCodeGraphFirstSearchClassifier
                 .isFalse();
     }
 
+    @Test
+    void derivesSymbolAndSemanticSuggestionsFromRejectedCalls()
+            throws Exception
+    {
+        assertThat(CodeGraphFirstSearchClassifier.suggestion(
+                context("Grep", "{\"pattern\":\"DailyCard\",\"path\":\"frontend/src\"}")))
+                .isEqualTo(new CodeGraphFirstSearchClassifier.Suggestion("DailyCard", true));
+
+        assertThat(CodeGraphFirstSearchClassifier.suggestion(
+                context("Glob", "{\"pattern\":\"**/*.java\"}")))
+                .satisfies(suggestion -> {
+                    assertThat(suggestion.symbol()).isFalse();
+                    assertThat(suggestion.query()).contains("**/*.java", "symbols", "call paths");
+                });
+
+        assertThat(CodeGraphFirstSearchClassifier.suggestion(
+                context("Bash", "{\"command\":\"rg -n AuthToken backend/src\"}")))
+                .isEqualTo(new CodeGraphFirstSearchClassifier.Suggestion("AuthToken", true));
+    }
+
     private static boolean shell(String command)
     {
         return CodeGraphFirstSearchClassifier.isBroadShellDiscovery(command);

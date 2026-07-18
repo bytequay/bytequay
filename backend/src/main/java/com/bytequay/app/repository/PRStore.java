@@ -23,6 +23,7 @@ import com.bytequay.app.domain.PRTriageState;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Persistence boundary for the {@link PR} aggregate — the PR row plus
@@ -108,6 +109,11 @@ public interface PRStore
     PRCheck addCheck(PRCheck check);
 
     List<PRCheck> checksFor(String prId);
+
+    /** Keep only the listed external runs for one check kind. Used after a
+     *  GitHub snapshot sync so reruns and checks from an older head do not
+     *  accumulate in the current PR view. */
+    void retainChecks(String prId, String kind, Set<String> runIds);
 
     // ── pr_comment ─────────────────────────────────────────────────
     /** Insert or update a comment (add, resolve, edit, or stamp stripped). */

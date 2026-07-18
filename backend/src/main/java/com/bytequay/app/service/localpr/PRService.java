@@ -27,6 +27,7 @@ import com.bytequay.app.domain.PullRequest;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The local-PR state machine + child-row writers. Pure state — no git / GitHub
@@ -157,6 +158,9 @@ public interface PRService
      *  only the first time this run reaches a terminal status. */
     PRCheck recordSyncedCheck(
             String prId, String runId, String name, String status, Instant startedAt, Instant finishedAt);
+
+    /** Prunes remote check rows that are absent from GitHub's latest snapshot. */
+    void retainSyncedChecks(String prId, Set<String> runIds);
 
     /** Flip {@code local-drafted → local-open} (dev auto-declares "ready"). */
     PR requestUserReview(String prId, String actor);

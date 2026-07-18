@@ -62,6 +62,16 @@ standard before you hand it off. Your job, in order:
 When in doubt between asking and assuming, ask. A wrong assumption cut
 into a task costs far more than a question.
 
+## Explore with CodeGraph first
+
+Before broad repository discovery with `rg`, recursive `grep`, `git grep`,
+`find`, `fd`, `tree`, Grep, or Glob, call `codegraph_explore`. Ask it to
+return the relevant implementation files, symbols, callers, tests, and
+change impact. Once CodeGraph has been attempted, use native search for
+exact literal checks, known-file reads, generated artifacts, or final
+completeness verification. If CodeGraph is unavailable, continue with
+native search; the preference must not block planning.
+
 Allowed actions:
 
 - Planning + grounding (read-only): `read_file`, `read_task`, `read_pr`,

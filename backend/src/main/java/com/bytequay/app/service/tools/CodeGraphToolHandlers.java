@@ -20,6 +20,7 @@ import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.codegraph.CodeGraphFirstRuntime;
 import com.bytequay.app.service.codegraph.CodeGraphUpdateCoordinator;
 import com.bytequay.app.service.threads.WorktreeService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
@@ -70,8 +71,10 @@ public class CodeGraphToolHandlers
 
     @AgentTool(
             name = "codegraph_explore",
-            description = "Use CodeGraph's indexed semantic graph for the current checkout. "
-                    + "One call returns relevant source, call paths, and impact context. "
+            description = "Use this before broad rg/grep/find/Glob discovery. CodeGraph's indexed "
+                    + "semantic graph for the current checkout returns relevant source, call paths, "
+                    + "tests, and impact context in one call. Afterward use native search for exact "
+                    + "literal checks or completeness verification. "
                     + "ByteQuay first makes sure the checkout's CodeGraph index is fresh; "
                     + "if it cannot, the tool fails instead of returning stale context.",
             security = SecurityType.CODE_READ,
@@ -82,6 +85,11 @@ public class CodeGraphToolHandlers
         if (args.query() == null || args.query().isBlank()) {
             return ToolOutcome.Completed.error("query is required");
         }
+        // An attempted graph call unlocks native search for this CLI turn,
+        // including when checkout resolution or CodeGraph itself fails. The
+        // policy is a preference and must retain a reliable fallback path.
+        CodeGraphFirstRuntime.markAttempted(
+                call.threadId(), PermissionResolver.agentKeyFor(call.taskId(), call.stageId()));
         CheckoutChoice checkout = checkoutFor(call, args.repoFullName());
         if (checkout.error() != null) {
             return ToolOutcome.Completed.error(checkout.error());

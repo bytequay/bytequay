@@ -60,7 +60,7 @@ import static java.util.Objects.requireNonNull;
  *       dispatches through the CLI-lane registry's
  *       {@code invoke(name, ToolCall)} entry point, so the API lane
  *       gets {@code recall_memory}, {@code lookup_memory},
- *       {@code create_task}, {@code list_skills}, {@code list_terms}
+ *       {@code create_task}, {@code list_terms}
  *       and the rest of the catalog for free. No duplicate
  *       implementations.</li>
  * </ul>

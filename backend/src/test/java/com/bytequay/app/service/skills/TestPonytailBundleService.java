@@ -48,6 +48,12 @@ class TestPonytailBundleService
         assertThat(bundle.select(List.of("trunk-planner")))
                 .singleElement()
                 .satisfies(skill -> assertThat(skill.body()).contains("Trunk Planner"));
+        assertThat(bundle.select(List.of("codegraph-first")))
+                .singleElement()
+                .satisfies(skill -> assertThat(skill.body()).contains("CodeGraph First"));
+        assertThat(bundle.select(List.of("task-execution")))
+                .singleElement()
+                .satisfies(skill -> assertThat(skill.body()).contains("Task Execution"));
     }
 
     @Test

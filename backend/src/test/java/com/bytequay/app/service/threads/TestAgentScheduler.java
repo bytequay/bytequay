@@ -60,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -157,7 +158,11 @@ class TestAgentScheduler
                 thread, "implement", "task-1", stageId, TurnInitiator.user());
 
         assertThat(session.inputs).containsExactly("implement");
-        assertThat(session.skillNames).containsExactly(List.of("ponytail", CavemanPrompt.NAME));
+        assertThat(session.skillNames).containsExactly(List.of(
+                "task-execution", "codegraph-first", "ponytail", CavemanPrompt.NAME));
+        assertThat(session.toolNames.getFirst())
+                .contains("codegraph_explore", "run_checks", "push")
+                .doesNotContain("list_skills", "list_tools", "load_skill");
     }
 
     @Test
@@ -176,7 +181,11 @@ class TestAgentScheduler
                 thread, "implement", "task-1", stageId, TurnInitiator.user());
 
         assertThat(session.inputs).containsExactly("implement");
-        assertThat(session.skillNames).containsExactly(List.of("ponytail", CavemanPrompt.NAME));
+        assertThat(session.skillNames).containsExactly(List.of(
+                "task-execution", "codegraph-first", "ponytail", CavemanPrompt.NAME));
+        assertThat(session.toolNames.getFirst())
+                .contains("codegraph_explore", "run_checks", "push")
+                .doesNotContain("list_skills", "list_tools", "load_skill");
     }
 
     @Test
@@ -189,7 +198,11 @@ class TestAgentScheduler
         harness.scheduler.enqueueTrunkTurn(thread, "go ahead and implement this");
 
         assertThat(session.inputs).containsExactly("go ahead and implement this");
-        assertThat(session.skillNames).containsExactly(List.of("trunk-planner", CavemanPrompt.NAME));
+        assertThat(session.skillNames).containsExactly(List.of(
+                "trunk-planner", "codegraph-first", CavemanPrompt.NAME));
+        assertThat(session.toolNames.getFirst())
+                .contains("codegraph_explore", "create_task")
+                .doesNotContain("run_checks", "push", "list_skills", "list_tools", "load_skill");
     }
 
     @Test
@@ -857,6 +870,7 @@ class TestAgentScheduler
         private final Thread thread;
         private final List<String> inputs = new ArrayList<>();
         private final List<List<String>> skillNames = new ArrayList<>();
+        private final List<Set<String>> toolNames = new ArrayList<>();
         private final ArrayDeque<CompletableFuture<Void>> completions = new ArrayDeque<>();
         private ThreadStatus status = ThreadStatus.IDLE;
 
@@ -933,6 +947,12 @@ class TestAgentScheduler
         public void setActiveManagedSkillNames(List<String> names)
         {
             skillNames.add(names == null ? List.of() : List.copyOf(names));
+        }
+
+        @Override
+        public void setActiveToolNames(Set<String> names)
+        {
+            toolNames.add(names == null ? Set.of() : Set.copyOf(names));
         }
 
         private void completeNext()

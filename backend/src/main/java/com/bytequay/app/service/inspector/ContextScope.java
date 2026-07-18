@@ -19,9 +19,8 @@ package com.bytequay.app.service.inspector;
  * <ul>
  *   <li>{@link #TRUNK} — what a trunk turn would see. Uses the
  *       trunk role template plus the workspace brain.</li>
- *   <li>{@link #TASK} — what a task turn would see. Uses the
- *       task's frozen {@code role_skill} body plus the workspace
- *       brain.</li>
+ *   <li>{@link #TASK} — what a task turn would see. Resolves the task's
+ *       versioned ByteQuay role plus workspace context.</li>
  * </ul>
  */
 public enum ContextScope

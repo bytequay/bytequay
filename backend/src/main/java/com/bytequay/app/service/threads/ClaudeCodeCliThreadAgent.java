@@ -17,26 +17,19 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.skills.CavemanPrompt;
-import com.bytequay.app.service.skills.ManagedSkill;
+import com.bytequay.app.service.agents.AgentContextCompiler;
 import com.bytequay.app.service.skills.SkillMaterializer;
-import com.bytequay.app.service.tools.ToolContext;
+import com.bytequay.app.service.workspaces.WorkspaceDocumentLoader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -50,15 +43,12 @@ import static java.util.Objects.requireNonNull;
  * metrics, permission gate, snapshotting) lives in
  * {@link AbstractCliThreadAgent}; this subclass supplies only the
  * Claude-specific bits: the argv (with the MCP permission-prompt tool,
- * appended role-skill + workspace-memory system prompts, and the Node
- * heap cap) plus the per-session MCP-config and materialized-skills temp
- * files it cleans up on stop.
+ * appended ByteQuay-managed context and the Node heap cap) plus the
+ * per-session MCP config it cleans up on stop.
  */
 public class ClaudeCodeCliThreadAgent
         extends AbstractCliThreadAgent
 {
-    private static final Logger log = LoggerFactory.getLogger(ClaudeCodeCliThreadAgent.class);
-
     /** Built-in tools exposed to the read-only trunk. MCP tools such as
      *  create_task are configured separately and remain available. */
     private static final String TRUNK_BUILTIN_TOOLS = "Read,Glob,Grep,WebFetch,WebSearch";
@@ -75,14 +65,8 @@ public class ClaudeCodeCliThreadAgent
      *  role block applies). Frozen once so the system prefix stays
      *  byte-stable across turns, which keeps the prompt cache warm. */
     private final String roleSkillText;
-    /** Materializes the resolved skills into a session-scoped temp dir on
-     *  first turn; cleaned up on stop. The DB stays the source of truth —
-     *  these files are ephemeral and re-derived every fresh session. */
-    private final SkillMaterializer skillMaterializer;
-    private final AtomicReference<Path> skillsDir = new AtomicReference<>();
     /** Optional Claude Code effort level for planning-heavy sessions. */
     private final String reasoningEffort;
-    private final AtomicReference<Set<String>> managedSkillFolders = new AtomicReference<>(Set.of());
     /** Lazily-written MCP config file Claude reads via {@code
      *  --mcp-config}. Same path for the lifetime of one session. */
     private final AtomicReference<Path> mcpConfigPath = new AtomicReference<>();
@@ -97,7 +81,7 @@ public class ClaudeCodeCliThreadAgent
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
-            SkillMaterializer skillMaterializer,
+            @SuppressWarnings("unused") SkillMaterializer skillMaterializer,
             String roleSkillText,
             Task boundTask)
     {
@@ -215,7 +199,7 @@ public class ClaudeCodeCliThreadAgent
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
-            SkillMaterializer skillMaterializer,
+            @SuppressWarnings("unused") SkillMaterializer skillMaterializer,
             String roleSkillText,
             String binary,
             String trunkCwd,
@@ -226,10 +210,6 @@ public class ClaudeCodeCliThreadAgent
         super(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 binary, trunkCwd, boundTask, modelOverride);
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
-        // skillMaterializer is allowed to be null on legacy / test paths
-        // that don't care about skill materialization; the buildCommand
-        // hook gates I/O behind a null check.
-        this.skillMaterializer = skillMaterializer;
         this.roleSkillText = roleSkillText;
         this.reasoningEffort = reasoningEffort;
     }
@@ -242,6 +222,10 @@ public class ClaudeCodeCliThreadAgent
                 .add("-p")
                 .add("--output-format", "stream-json")
                 .add("--verbose")
+                // ByteQuay owns role, skill, resource, MCP, and tool selection.
+                // Safe mode disables CLAUDE.md, skills, plugins, hooks, and
+                // discovered MCP servers while preserving normal auth.
+                .add("--safe-mode")
                 // Surface the upstream Anthropic stream events (text
                 // deltas, content_block_start/stop, message_delta) so the
                 // parser can emit AssistantTextDelta events for the
@@ -250,6 +234,9 @@ public class ClaudeCodeCliThreadAgent
                 // for persistence.
                 .add("--include-partial-messages")
                 .add("--mcp-config", ensureMcpConfig().toString())
+                // Only the explicit ByteQuay MCP file above may contribute
+                // external tools to this provider session.
+                .add("--strict-mcp-config")
                 .add("--permission-prompt-tool", "mcp__bytequay__approval_prompt");
         if (isReadOnlySession()) {
             // The role prompt says the trunk is read-only, but a prompt is not
@@ -267,27 +254,14 @@ public class ClaudeCodeCliThreadAgent
         if (reasoningEffort != null && !reasoningEffort.isBlank()) {
             argv.add("--effort", reasoningEffort);
         }
-        // Inject the role skill body as the system role block. Frozen at
-        // session construction so the prefix stays byte-stable for the
-        // lifetime of the session — that's what keeps the cache warm
-        // across turns. Skipped when null (legacy rows).
-        if (roleSkillText != null && !roleSkillText.isBlank()) {
-            argv.add("--append-system-prompt", roleSkillText.strip());
-        }
-        // Caveman's upstream description is trigger-based, so discovery
-        // alone does not guarantee activation. Inject the already-selected
-        // skill directly, matching Codex and the API lane.
-        String caveman = activeManagedSkillPrompt(CavemanPrompt.NAME);
-        if (!caveman.isBlank()) {
-            argv.add("--append-system-prompt", caveman);
-        }
-        // Inject the workspace memory as an appended system prompt so
-        // every turn sees the distilled project brain. Skip the flag when
-        // memory is blank to avoid noise.
         String workspaceMemory = workspaceMemoryProvider.get();
-        if (workspaceMemory != null && !workspaceMemory.isBlank()) {
-            argv.add("--append-system-prompt",
-                    "# Workspace memory\n\n" + workspaceMemory.strip());
+        String compiled = AgentContextCompiler.compilePrompt(
+                roleSkillText,
+                WorkspaceDocumentLoader.load(workingDir),
+                workspaceMemory,
+                activeManagedSkills()).systemPrompt();
+        if (!compiled.isBlank()) {
+            argv.add("--append-system-prompt", compiled);
         }
         String resume = resumeSessionId();
         if (resume != null && !resume.isBlank()) {
@@ -308,14 +282,6 @@ public class ClaudeCodeCliThreadAgent
                 "NODE_OPTIONS",
                 "--max-old-space-size=512",
                 (existing, ours) -> existing.contains("--max-old-space-size") ? existing : existing + " " + ours);
-        // Resolve + materialize the skill manifest into a session-scoped
-        // temp dir. The CLI lane reads SKILL.md folders from disk through
-        // its own discovery loop; the path lives in an env var the
-        // integration picks up.
-        Path skills = ensureSkillsDir();
-        if (skills != null) {
-            pb.environment().put("BYTEQUAY_SKILLS_DIR", skills.toString());
-        }
         return pb;
     }
 
@@ -323,7 +289,6 @@ public class ClaudeCodeCliThreadAgent
     protected void cleanupProviderResources()
     {
         cleanupMcpConfig();
-        cleanupSkillsDir();
     }
 
     /** Lazily writes the per-thread MCP config to a temp file Claude
@@ -367,119 +332,5 @@ public class ClaudeCodeCliThreadAgent
                 // Best-effort — temp file gets cleaned on JVM exit anyway.
             }
         }
-    }
-
-    /** Re-materialize the resolved skills into a session-scoped temp dir
-     *  on every buildCommand. Idempotent: the materializer overwrites
-     *  SKILL.md files in place so a re-spawn picks up edits the user made
-     *  between turns. Silently no-ops when neither DB skills nor built-in
-     *  managed skills apply. */
-    private Path ensureSkillsDir()
-    {
-        if (skillMaterializer == null && activeManagedSkills().isEmpty()) {
-            return null;
-        }
-        Path existing = skillsDir.get();
-        if (existing == null) {
-            try {
-                existing = Files.createTempDirectory("bytequay-skills-" + threadId + "-");
-                existing.toFile().deleteOnExit();
-                skillsDir.set(existing);
-            }
-            catch (IOException e) {
-                log.warn("Failed to create skills temp dir for thread {}: {}", threadId, e.getMessage());
-                return null;
-            }
-        }
-        try {
-            if (skillMaterializer != null) {
-                skillMaterializer.materialize(existing, ToolContext.forRepo(repoFromWorkingDir(), null));
-            }
-        }
-        catch (RuntimeException e) {
-            log.warn("Skill materialization failed for thread {}: {}", threadId, e.getMessage());
-        }
-        writeManagedSkills(existing);
-        return existing;
-    }
-
-    private void writeManagedSkills(Path baseDir)
-    {
-        List<ManagedSkill> active = activeManagedSkills();
-        Set<String> next = active.stream()
-                .map(ManagedSkill::name)
-                .collect(Collectors.toSet());
-        for (String stale : managedSkillFolders.get()) {
-            if (!next.contains(stale)) {
-                cleanupPathQuietly(baseDir.resolve(stale));
-            }
-        }
-        for (ManagedSkill skill : active) {
-            Path folder = baseDir.resolve(skill.name());
-            try {
-                Files.createDirectories(folder);
-                Files.writeString(folder.resolve("SKILL.md"), skill.body(), StandardCharsets.UTF_8);
-            }
-            catch (IOException e) {
-                log.warn("Failed to write managed skill {} for thread {}: {}",
-                        skill.name(), threadId, e.getMessage());
-            }
-        }
-        managedSkillFolders.set(next);
-    }
-
-    private void cleanupSkillsDir()
-    {
-        Path p = skillsDir.getAndSet(null);
-        if (p == null) {
-            return;
-        }
-        if (skillMaterializer != null) {
-            skillMaterializer.cleanup(p);
-            return;
-        }
-        cleanupPathQuietly(p);
-    }
-
-    private void cleanupPathQuietly(Path dir)
-    {
-        if (dir == null || !Files.exists(dir)) {
-            return;
-        }
-        try (var stream = Files.walk(dir)) {
-            stream.sorted(Comparator.reverseOrder())
-                    .forEach(p -> {
-                        try {
-                            Files.deleteIfExists(p);
-                        }
-                        catch (IOException e) {
-                            log.warn("Failed to delete skill path {}: {}", p, e.getMessage());
-                        }
-                    });
-        }
-        catch (IOException e) {
-            log.warn("Failed to walk skill dir {}: {}", dir, e.getMessage());
-        }
-    }
-
-    /** Best-effort owner/repo extraction from the working dir. Returns
-     *  null when the cwd doesn't follow the watched-repo convention — the
-     *  manifest query then falls back to global-only rows. */
-    private String repoFromWorkingDir()
-    {
-        if (workingDir == null) {
-            return null;
-        }
-        Path path = Path.of(workingDir);
-        Path name = path.getFileName();
-        if (name == null) {
-            return null;
-        }
-        Path parent = path.getParent();
-        Path owner = parent == null ? null : parent.getFileName();
-        if (owner == null) {
-            return null;
-        }
-        return owner + "/" + name;
     }
 }

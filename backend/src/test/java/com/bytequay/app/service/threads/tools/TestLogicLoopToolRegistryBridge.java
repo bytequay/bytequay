@@ -50,19 +50,17 @@ class TestLogicLoopToolRegistryBridge
     private ObjectMapper mapper;
 
     @Test
-    void exposesTheCliLaneCatalogIncludingTheCoreMemoryAndDiscoveryTools()
+    void exposesCoreMemoryToolsButNotProviderDrivenCatalogDiscovery()
     {
         List<String> bridged = registry.bridgedToolNames();
         // The conversation that prompted the bridge surfaced
         // recall_memory / lookup_memory specifically; assert those.
-        // The rest of the catalog is in flux so we don't pin every
-        // name — but the discovery + memory surface should be the
-        // floor for any future trim.
+        // The rest of the catalog is in flux, but ByteQuay-managed skill and
+        // tool selection must never leak back into the provider catalog.
         assertThat(bridged).contains(
                 "recall_memory",
-                "lookup_memory",
-                "list_tools",
-                "list_skills");
+                "lookup_memory");
+        assertThat(bridged).doesNotContain("list_tools", "list_skills", "load_skill");
     }
 
     @Test

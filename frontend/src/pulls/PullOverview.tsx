@@ -88,7 +88,7 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
                 onEditingChange={setEditingDescription}
                 composer
                 renderViewSlot={body => body.trim().length > 0
-                  ? <div className="pl-pr-description" dangerouslySetInnerHTML={{ __html: renderMarkdown(body, repoCtx) }} />
+                  ? <div className="md-body pl-pr-description" dangerouslySetInnerHTML={{ __html: renderMarkdown(body, repoCtx) }} />
                   : <p style={{ margin: 0, color: '#8b949e', fontStyle: 'italic' }}>No description provided.</p>}
               />
             </div>

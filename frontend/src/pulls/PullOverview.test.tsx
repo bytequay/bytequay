@@ -73,7 +73,7 @@ describe('PullOverview', () => {
       expect(screen.queryByText(login)).toBeNull();
       expect(screen.getByTitle(login).querySelector('img')?.getAttribute('alt')).toBe(login);
     }
-    expect(container.querySelector('.pl-pr-description')).not.toBeNull();
+    expect(container.querySelector('.pl-pr-description')?.classList.contains('md-body')).toBe(true);
     expect(screen.getByText('octocat').getAttribute('style')).toContain('font-weight: 400');
   });
 

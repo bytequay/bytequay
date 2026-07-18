@@ -32,6 +32,7 @@
 .pl-hov-bdrag:hover { background: #0969da !important; }
 .pl-hov-phead:hover { background: #eef1f4 !important; }
 .pl-hov-trash:hover { color: #cf222e !important; }
+.pl-hov-card:hover { border-color: #b6bcc2 !important; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.07) !important; }
 .pl-pend-ta:hover { border-color: #d5dbe1 !important; }
 .pl-pend-ta:focus { border-color: #0969da !important; background: #fff !important; }
 

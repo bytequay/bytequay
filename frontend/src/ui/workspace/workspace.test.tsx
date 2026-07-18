@@ -47,7 +47,9 @@ describe('WorkspaceNavSidebar', () => {
     const items = Array.from(container.querySelectorAll('.sb-nav-item')).map(b => b.textContent);
     expect(items.some(t => t?.includes('Home'))).toBe(true);
     expect(items.some(t => t?.includes('Workspaces'))).toBe(true);
-    expect(items.some(t => t?.includes('My work'))).toBe(true);
+    expect(items.some(t => t?.includes('Pull requests'))).toBe(true);
+    expect(items.some(t => t?.includes('My work'))).toBe(false);
+    expect(items.some(t => t?.includes('Reviews'))).toBe(false);
     expect(items.some(t => t?.includes('Automations'))).toBe(false);
     expect(items.some(t => t?.includes('Email'))).toBe(false);
     expect(items.some(t => t?.includes('Search'))).toBe(false);

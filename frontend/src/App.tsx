@@ -23,7 +23,6 @@ import ControlBar, { type PageContextTag } from './control/ControlBar';
 import { Ds4StatusWidget } from './components/Ds4StatusWidget';
 import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
-import ReviewQueuePage from './review/ReviewQueuePage';
 import { TrunkRoute } from './pages/TrunkRoute';
 import { WorkspaceNavShell } from './pages/WorkspaceNavShell';
 import { useThreadTasks } from './pages/useThreadTasks';
@@ -45,10 +44,9 @@ import type {
   RepoFilter as ThreadsRepoFilter,
 } from './threads/ThreadsLeftRail';
 import type { SettingsSection } from './settings/types';
-import PullRequestList from './PullRequestList';
 import PullsScreen from './pulls/PullsScreen';
 import HomePage from './home/HomePage';
-import { PrDetailsView, type AgentReviewNavTarget } from './pr/localpr/PrDetailsView';
+import type { AgentReviewNavTarget } from './pr/localpr/PrDetailsView';
 import InAppBrowser from './InAppBrowser';
 import FindBar from './FindBar';
 import LogoLoading from './LogoLoading';
@@ -64,11 +62,11 @@ import {
 type Status = 'checking' | 'needs-pat' | 'ready';
 export type Nav =
   | { view: 'home' }
-  | { view: 'my-prs' }
-  /** Redesigned unified Pull-requests surface (pulls/PullsScreen). Sits
-   *  alongside my-prs/reviews during rollout; those retire at swap time. */
-  | { view: 'pulls' }
-  | { view: 'reviews' }
+  /** The unified Pull-requests surface (pulls/PullsScreen). {@code initialPr}
+   *  deep-links a specific PR: the screen resolves it and opens its pane
+   *  even when the row isn't in the dashboard list ({@code repo} is the
+   *  "owner/name" fullName). */
+  | { view: 'pulls'; initialPr?: { repo: string; number: number } }
   /** `back` carries the parent screen so the PR-detail breadcrumb
    *  returns the user where they came from — Repository home, Local
    *  repo, Team kanban, or just Home. Defaults to Home when unset. */
@@ -94,10 +92,6 @@ export type Nav =
    *  from a "View code diff" button on the brain view or a stage detail. */
   | { view: 'task-code'; threadId: string; taskId: string; back?: Nav }
   | { view: 'review-thread'; threadId: string; back?: Nav }
-  /** Durable external-PR agent review. Unlike the legacy panel-review
-   *  route above, this is the AgentReview aggregate owned by a lightweight
-   *  workspace thread; the PR is supporting context, not the nav owner. */
-  | { view: 'agent-review'; threadId: string; workspaceId: string; owner: string; repo: string; prNumber: number; roundId: string; back?: Nav }
   | { view: 'notifications' }
   | { view: 'repos' }
   | { view: 'repository'; owner: string; repo: string }
@@ -216,7 +210,8 @@ type PublicNavigation = { nav: Nav; workspaceId: string | null };
 function publicNavigation(route: WorkspaceRoute): PublicNavigation {
   switch (route.kind) {
     case 'home': return { nav: { view: 'home' }, workspaceId: null };
-    case 'reviews': return { nav: { view: 'reviews' }, workspaceId: null };
+    // URL compat: the retired Reviews surface's hash lands on Pulls.
+    case 'reviews': return { nav: { view: 'pulls' }, workspaceId: null };
     case 'workspaces': return { nav: { view: 'workspaces-landing' }, workspaceId: null };
     case 'workspace':
       return { nav: { view: 'workspace', section: 'today' }, workspaceId: route.workspaceId };
@@ -286,7 +281,6 @@ function publicNavigation(route: WorkspaceRoute): PublicNavigation {
 function publicRoute(nav: Nav, workspaceId: string | null): WorkspaceRoute | null {
   switch (nav.view) {
     case 'home': return { kind: 'home' };
-    case 'reviews': return { kind: 'reviews' };
     case 'workspaces-landing': return { kind: 'workspaces' };
     case 'thread-detail':
     case 'task-brain':
@@ -295,8 +289,6 @@ function publicRoute(nav: Nav, workspaceId: string | null): WorkspaceRoute | nul
       return workspaceId === null ? null : {
         kind: 'trunks', workspaceId, trunkId: nav.threadId,
       };
-    case 'agent-review':
-      return { kind: 'pull-request', workspaceId: nav.workspaceId, number: nav.prNumber };
     case 'workspace': {
       if (workspaceId === null) return { kind: 'workspaces' };
       const section = nav.section === 'home' ? 'today' : nav.section === 'threads' ? 'trunks'
@@ -478,26 +470,15 @@ function App() {
         if (review !== null) {
           const bundle = await window.bridge.getLocalPrBundle(review.review.pr_id);
           if (openThreadRequestRef.current !== request) return;
-          const repoSlug = bundle?.pr.repo;
           const prNumber = bundle?.pr.remotePrNumber;
-          const roundId = review.rounds.reduceRight<(typeof review.rounds)[number] | undefined>(
-            (selected, round) => selected
-              ?? (round.status === 'RUNNING' || round.status === 'QUEUED' ? round : undefined),
-            undefined,
-          )?.id ?? review.rounds.at(-1)?.id;
           const workspaceId = review.review.workspace_id;
-          if (repoSlug !== null && repoSlug !== undefined && prNumber !== null
-              && prNumber !== undefined && roundId !== undefined && workspaceId !== null) {
-            const [owner, repo] = repoSlug.split('/');
-            if (owner && repo) {
-              setActiveWorkspaceId(workspaceId);
-              writeActiveWorkspaceId(workspaceId);
-              setNav({
-                view: 'agent-review', threadId, workspaceId,
-                owner, repo, prNumber, roundId, back,
-              });
-              return;
-            }
+          if (prNumber !== null && prNumber !== undefined && workspaceId !== null) {
+            setActiveWorkspaceId(workspaceId);
+            writeActiveWorkspaceId(workspaceId);
+            setNav({
+              view: 'workspace', section: 'pull-requests', prNumber, agentColumn: true,
+            });
+            return;
           }
         }
 
@@ -518,7 +499,7 @@ function App() {
       openThread(threadId);
       return;
     }
-    setNav({ view: 'reviews' });
+    setNav({ view: 'pulls' });
   };
 
   /** Open a stage-backed run's own log. Detached artifact runs route through
@@ -539,8 +520,9 @@ function App() {
 
   // Repo/Repository/LocalRepo are compatibility inputs only. Resolve the
   // repository's sole workspace, then immediately replace them with a
-  // canonical workspace route. An unconnected PR belongs to remote Reviews;
-  // no retired standalone-repository page is rendered.
+  // canonical workspace route. An unconnected PR deep-links into the
+  // unified Pulls surface; no retired standalone-repository page is
+  // rendered.
   useEffect(() => {
     if (nav.view === 'repos') {
       setNav({ view: 'workspaces-landing' });
@@ -560,7 +542,7 @@ function App() {
           card.repository?.fullName.toLowerCase() === fullName);
         if (workspace === undefined) {
           setNav(nav.view === 'repo' && nav.prNumber !== undefined
-            ? { view: 'reviews' }
+            ? { view: 'pulls', initialPr: { repo: `${owner}/${repo}`, number: nav.prNumber } }
             : { view: 'workspaces-landing' });
           return;
         }
@@ -587,7 +569,7 @@ function App() {
       .catch(() => {
         if (!cancelled) {
           setNav(nav.view === 'repo' && nav.prNumber !== undefined
-            ? { view: 'reviews' }
+            ? { view: 'pulls', initialPr: { repo: `${owner}/${repo}`, number: nav.prNumber } }
             : { view: 'workspaces-landing' });
         }
       });
@@ -712,8 +694,7 @@ function App() {
         { label: nav.section ?? 'home', kind: 'scope' },
       ];
       case 'workspaces-landing': return [{ label: 'workspaces', kind: 'scope' }];
-      case 'my-prs':         return [{ label: 'pull-requests', kind: 'scope' }];
-      case 'reviews':        return [{ label: 'reviews', kind: 'scope' }];
+      case 'pulls':          return [{ label: 'pull-requests', kind: 'scope' }];
       case 'thread-detail':  return [{ label: 'thread', kind: 'entity' }];
       case 'thread-create':  return [{ label: 'new-thread', kind: 'scope' }];
       case 'repos':          return [{ label: 'repos', kind: 'scope' }];
@@ -722,7 +703,6 @@ function App() {
       case 'notifications':  return [{ label: 'notifications', kind: 'scope' }];
       case 'settings':       return [{ label: 'settings', kind: 'scope' }];
       case 'review-thread':  return [{ label: 'review-thread', kind: 'entity' }];
-      case 'agent-review':   return [{ label: 'agent-review', kind: 'entity' }];
       default:               return [];
     }
   })();
@@ -735,7 +715,7 @@ function App() {
       case 'nav.home':            setNav({ view: 'home' }); break;
       case 'nav.workspace':       setNav({ view: 'workspace', section: d.section }); break;
       case 'nav.threads':         setNav({ view: 'workspace', section: 'threads' }); break;
-      case 'nav.pull-requests':   setNav({ view: 'my-prs' }); break;
+      case 'nav.pull-requests':   setNav({ view: 'pulls' }); break;
       case 'nav.repos':           setNav({ view: 'repos' }); break;
       case 'nav.email':           setNav({ view: 'email' }); break;
       case 'nav.notifications':   setNav({ view: 'notifications' }); break;
@@ -860,15 +840,13 @@ function App() {
   // change the hook count between renders and crash the whole app.
   const inWorkspaceFlow = nav.view === 'workspace'
     || nav.view === 'thread-detail' || nav.view === 'task-brain'
-    || nav.view === 'stage-detail' || nav.view === 'task-code'
-    || nav.view === 'agent-review';
+    || nav.view === 'stage-detail' || nav.view === 'task-code';
   // The viewed thread's own workspace wins once resolved (e.g. by
   // TrunkRoute) — a thread opened from outside the workspace flow (a PR's
   // linked-task chip, footprint resume) shows ITS workspace's rail instead
   // of whatever workspace the landing grid was last pointed at.
-  const sidebarWorkspaceId = nav.view === 'agent-review'
-    ? nav.workspaceId
-    : inWorkspaceFlow ? (viewedThreadWorkspaceId ?? activeWorkspaceId) : null;
+  const sidebarWorkspaceId = inWorkspaceFlow
+    ? (viewedThreadWorkspaceId ?? activeWorkspaceId) : null;
   const { activeWorkspace: sidebarWorkspace } = useWorkspaceNav(sidebarWorkspaceId);
 
   if (fatal) {
@@ -909,10 +887,7 @@ function App() {
       case 'workspaces-landing': return 'workspaces';
       case 'workspace': return workspaceSectionNav(nav.section ?? 'today');
       case 'thread-detail': case 'task-brain': case 'stage-detail': case 'task-code': return 'trunks';
-      case 'agent-review': return 'pull-requests';
-      case 'my-prs': return 'my-work';
       case 'pulls': return 'pulls';
-      case 'reviews': return 'reviews';
       case 'repos': case 'repository': case 'local-repo': return 'repos';
       case 'email': return 'email';
       case 'notifications': return 'notifications';
@@ -925,8 +900,7 @@ function App() {
   // workspace rail steps aside for them. Cast to a plain string so this alias
   // doesn't narrow `nav` inside the rail JSX.
   const ownsTaskSidebar = (nav.view as string) === 'stage-detail'
-    || (nav.view as string) === 'task-brain'
-    || (nav.view as string) === 'agent-review';
+    || (nav.view as string) === 'task-brain';
 
   const openAgentReview = (target: AgentReviewNavTarget) => {
     setActiveWorkspaceId(target.workspaceId);
@@ -940,17 +914,11 @@ function App() {
       });
       return;
     }
-    const [owner, repo] = target.repo.split('/');
-    if (!owner || !repo) return;
     setNav({
-      view: 'agent-review',
-      threadId: target.threadId,
-      workspaceId: target.workspaceId,
-      owner,
-      repo,
+      view: 'workspace',
+      section: 'pull-requests',
       prNumber: target.prNumber,
-      roundId: target.roundId,
-      back: nav,
+      agentColumn: true,
     });
   };
 
@@ -959,9 +927,7 @@ function App() {
     || nav.view === 'thread-detail'
     || nav.view === 'task-brain'
     || nav.view === 'stage-detail'
-    || nav.view === 'task-code'
-    || nav.view === 'agent-review'
-    || nav.view === 'reviews';
+    || nav.view === 'task-code';
   const resolvingLegacyRepo = nav.view === 'repos' || nav.view === 'repo'
     || nav.view === 'repository' || nav.view === 'local-repo';
 
@@ -987,7 +953,7 @@ function App() {
           backEnabled={canGoBack(navHistoryRef.current)}
           forwardEnabled={canGoForward(navHistoryRef.current)}
           onResumeVisit={stop => resumeStop(stop, {
-            openPrKanban: () => setNav({ view: 'my-prs' }),
+            openPrKanban: () => setNav({ view: 'pulls' }),
             openPr: (owner, repo, prNumber) =>
               setNav({ view: 'repo', owner, repo, prNumber, back: { view: 'home' } }),
             openTask: (threadId, taskId) => setNav(lastTaskNav(threadId, taskId)),
@@ -1006,8 +972,6 @@ function App() {
                 setNav({ view: 'workspaces-landing' });
                 break;
               case 'pulls': setNav({ view: 'pulls' }); break;
-              case 'reviews': setNav({ view: 'reviews' }); break;
-              case 'my-work': setNav({ view: 'my-prs' }); break;
               case 'automations': break; // no Automations surface yet
               case 'repos': setNav({ view: 'repos' }); break;
               case 'email': setNav({ view: 'email' }); break;
@@ -1068,8 +1032,10 @@ function App() {
               writeActiveWorkspaceId(workspaceId);
               setNav({ view: 'workspace', section: 'pull-requests', prNumber });
             }}
-            onOpenRemoteReview={() => setNav({ view: 'reviews' })}
-            onGoToMyPrs={() => setNav({ view: 'my-prs' })}
+            onOpenRemoteReview={(owner, repo, prNumber) => setNav({
+              view: 'pulls', initialPr: { repo: `${owner}/${repo}`, number: prNumber },
+            })}
+            onGoToMyPrs={() => setNav({ view: 'pulls' })}
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
             onGoToTeams={() => setNav({ view: 'teams' })}
             onOpenTask={(threadId, taskId) => setNav(lastTaskNav(threadId, taskId))}
@@ -1078,6 +1044,7 @@ function App() {
         )}
         {nav.view === 'pulls' && (
           <PullsScreen
+            initialPr={nav.initialPr}
             onOpenWorkspacePr={(repo, prNumber, opts) => {
               // Same repo → workspace resolution as the legacy-repo redirect
               // effect: the workspace whose repository fullName matches.
@@ -1097,28 +1064,6 @@ function App() {
                   });
                 })
                 .catch(() => { /* transient; the click is a no-op on failure */ });
-            }}
-          />
-        )}
-        {nav.view === 'my-prs' && (
-          <PullRequestList
-            onGoToTeams={() => setNav({ view: 'teams' })}
-            onOpenLocalBranch={(owner, repo, branch) =>
-              setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
-            onOpenSettings={() => setNav({ view: 'settings' })}
-            onStartReview={openStartedReview}
-            onOpenAgentReview={openAgentReview}
-            workspaceId={activeWorkspaceId}
-          />
-        )}
-        {nav.view === 'reviews' && (
-          <ReviewQueuePage
-            onOpenPr={(owner, repo, prNumber) =>
-              setNav({ view: 'repo', owner, repo, prNumber, back: nav })}
-            onOpenWorkspace={workspaceId => {
-              setActiveWorkspaceId(workspaceId);
-              writeActiveWorkspaceId(workspaceId);
-              setNav({ view: 'workspace' });
             }}
           />
         )}
@@ -1242,20 +1187,6 @@ function App() {
             })}
           />
         )}
-        {nav.view === 'agent-review' && (
-          <PrDetailsView
-            pr={{
-              id: `${nav.owner}/${nav.repo}#${nav.prNumber}`,
-              repo: `${nav.owner}/${nav.repo}`,
-              number: nav.prNumber,
-            }}
-            workspaceId={nav.workspaceId}
-            initialReviewRoundId={nav.roundId}
-            onCloseReviewRound={() => setNav(nav.back ?? {
-              view: 'repo', owner: nav.owner, repo: nav.repo, prNumber: nav.prNumber,
-            })}
-          />
-        )}
         {nav.view === 'workspaces-landing' && (
           <WorkspacesLandingPage
             currentWorkspaceId={activeWorkspaceId}
@@ -1349,7 +1280,7 @@ function App() {
         {nav.view === 'teams' && (
           <TeamsManagePage
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
-            onBack={() => setNav({ view: 'my-prs' })}
+            onBack={() => setNav({ view: 'pulls' })}
           />
         )}
         {nav.view === 'team' && (

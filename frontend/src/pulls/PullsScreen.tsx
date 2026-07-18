@@ -14,8 +14,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { DashboardPR } from '../types/dashboardPr';
-import { PULL_TABS, rowsForTab } from './model';
-import type { PullTab } from './model';
+import type { LocalPR } from '../types/localPr';
+import { PULL_TABS, rowsForTab, toRow } from './model';
+import type { PullRow, PullTab } from './model';
 import PullRowItem from './PullRowItem';
 import PullDetailPane from './PullDetailPane';
 import { PaneToggleIcon } from './atoms';
@@ -33,17 +34,63 @@ const DETAIL_MIN = 460;
 const DETAIL_MAX = 1150;
 const DETAIL_DEFAULT = 940;
 
-export default function PullsScreen({ onOpenWorkspacePr }: {
+/** Minimal DashboardPR off the unified-PR resolver's LocalPR, for a
+ *  deep-linked PR that isn't in the dashboard list (someone else's PR the
+ *  sync never picked up). Enough for the row + pane header; the pane's
+ *  usePR call fetches the full bundle by id anyway. */
+function dashboardPrFromLocal(pr: LocalPR, repo: string, number: number): DashboardPR {
+  const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString());
+  return {
+    id: pr.id,
+    repo,
+    number,
+    title: pr.title,
+    author: pr.author,
+    htmlUrl: pr.remotePrUrl ?? '',
+    createdAt: iso(pr.createdAt),
+    updatedAt: iso(pr.syncedAt),
+    origin: null,
+    labels: [],
+    labelColors: null,
+    draft: pr.status === 'remote-drafted' || pr.status === 'local-drafted',
+    viewedAt: null,
+    reviewedAt: null,
+    handledAction: null,
+    requestedReviewers: [],
+    ciStatus: null,
+    additions: pr.syncedAdditions ?? 0,
+    deletions: pr.syncedDeletions ?? 0,
+    commentCount: 0,
+    attentionReason: null,
+    state: pr.status === 'merged' ? 'merged' : pr.status === 'closed' ? 'closed' : 'open',
+    closedAt: iso(pr.closedAt),
+    mergedAt: iso(pr.mergedAt),
+    mergeable: pr.syncedMergeable,
+    mergeableState: pr.syncedMergeableState,
+    headPushedAt: null,
+    reviewerVerdicts: null,
+    snoozedUntil: null,
+    snoozeWakeReason: null,
+  };
+}
+
+export default function PullsScreen({ onOpenWorkspacePr, initialPr }: {
   /** Routes a PR into its repo's workspace surface; {@code agent} opens it
    *  with the agent-review column already showing. Omitted → the pane's
    *  workspace-bound buttons stay inert. */
   onOpenWorkspacePr?: (repo: string, prNumber: number, opts: { agent: boolean }) => void;
+  /** Deep-link: resolve this PR on mount, select its row, and open the
+   *  pane — even when the row isn't in the dashboard list. {@code repo}
+   *  is the "owner/name" fullName. */
+  initialPr?: { repo: string; number: number };
 }) {
   const [prs, setPrs] = useState<DashboardPR[]>([]);
   const [tab, setTab] = useState<PullTab>('all');
   const [sel, setSel] = useState<string | null>(null);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detW, setDetW] = useState(DETAIL_DEFAULT);
+  // Fallback pane row for a deep-linked PR outside the dashboard list.
+  const [extraRow, setExtraRow] = useState<PullRow | null>(null);
   // repo fullName (lowercased) → workspace id, for the pane's workspace-
   // bound agent buttons — same resolution App's legacy-repo redirect uses.
   const [wsByRepo, setWsByRepo] = useState<Map<string, string>>(new Map());
@@ -85,11 +132,50 @@ export default function PullsScreen({ onOpenWorkspacePr }: {
     return () => { alive.current = false; };
   }, []);
 
+  // Deep-link: resolve the PR to its unified id, select it, open the pane.
+  // The extraRow only wins when the dashboard list doesn't have the row.
+  useEffect(() => {
+    if (initialPr === undefined) return;
+    const [owner, repo] = initialPr.repo.split('/');
+    if (!owner || !repo) return;
+    let cancelled = false;
+    void window.bridge.getPrForRepoPull(owner, repo, initialPr.number)
+      .then(pr => {
+        if (cancelled) return;
+        setExtraRow(toRow(dashboardPrFromLocal(pr, initialPr.repo, initialPr.number)));
+        setSel(pr.id);
+        setPaneOpen(true);
+      })
+      .catch(() => { /* bad deep link — the list still renders */ });
+    return () => { cancelled = true; };
+  }, [initialPr]);
+
   const rows = useMemo(() => rowsForTab(prs, tab), [prs, tab]);
-  const selRow = sel !== null ? rows.find(r => r.id === sel) ?? null : null;
+  const selRow = sel === null ? null
+    : rows.find(r => r.id === sel)
+      // In the dashboard data but filtered out by the current tab
+      // (e.g. a deep-linked merged PR while "All" hides done ones).
+      ?? (() => { const pr = prs.find(p => p.id === sel); return pr === undefined ? null : toRow(pr); })()
+      ?? (extraRow !== null && extraRow.id === sel ? extraRow : null);
   const paneShown = selRow !== null && paneOpen;
   const wide = !paneShown;
   const selWorkspaceId = selRow === null ? undefined : wsByRepo.get(selRow.repo.toLowerCase());
+
+  // The list opens PR detail as local state (nav stays on the Pulls
+  // surface), so App's nav-driven footprint capture never sees it. Record
+  // the visit here — same PR surfaceId as the nav layer — so the opened PR
+  // lands in the rail's Recent list. Fire-and-forget like the nav path.
+  useEffect(() => {
+    if (selRow === null) return;
+    void window.bridge.recordSurfaceVisit({
+      surfaceType: 'PR',
+      surfaceId: `${selRow.repo}#${selRow.num}`,
+      title: `${selRow.title} #${selRow.num}`,
+      context: selRow.repo,
+    })
+      .then(() => window.dispatchEvent(new Event('footprint-recorded')))
+      .catch(() => { /* fire-and-forget */ });
+  }, [selRow?.repo, selRow?.num]);
 
   // Same start path as the dashboard's handleAgentReview: optimistic
   // reviewState flip, plain start (the button only shows when no review

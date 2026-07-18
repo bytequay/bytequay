@@ -165,7 +165,7 @@ function installApplicationMenu(): void {
       submenu: [
         {
           label: 'Open project on GitHub',
-          click: () => { void shell.openExternal('https://github.com/chenjian2664/bytequay'); },
+          click: () => requestInAppOpen('https://github.com/chenjian2664/bytequay'),
         },
       ],
     },
@@ -226,6 +226,11 @@ let reviewView: WebContentsView | null = null;
 // replaces whatever's currently mounted. The user closes it via the
 // toolbar's × button, which IPCs `inapp:unmount` and we tear it down.
 let inappView: WebContentsView | null = null;
+
+function requestInAppOpen(url: string): void {
+  if (!/^https?:/i.test(url) || !mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send('inapp:open-request', { url });
+}
 
 // Third-party auth hosts that refuse to work in embedded browsers. Google has
 // enforced this since 2021 on all OAuth flows, regardless of user agent — we
@@ -380,11 +385,6 @@ const createWindow = async () => {
   // window's React UI. The renderer subscribes to `inapp:open-request`
   // and mounts an InAppBrowser overlay with ←/→/× chrome — gives the
   // user a clear path back to the app via the × close button.
-  const requestInAppOpen = (url: string) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('inapp:open-request', { url });
-    }
-  };
   mainWindow.webContents.setWindowOpenHandler(({ url, disposition }) => {
     if (!/^https?:/i.test(url)) return { action: 'deny' };
     // Cmd-click (mac) / Ctrl-click (linux/win) → spawn a native popup
@@ -2652,6 +2652,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
+  ipcMain.handle('inapp:open', (_event, url: string) => {
+    if (typeof url === 'string') requestInAppOpen(url);
+  });
+
   ipcMain.handle('shell:writeClipboard', async (_event, text: string) => {
     if (typeof text === 'string') {
       clipboard.writeText(text);
@@ -2723,7 +2727,8 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
         notifyBlocked(provider);
         return { action: 'deny' };
       }
-      return { action: 'allow' };
+      requestInAppOpen(targetUrl);
+      return { action: 'deny' };
     });
     // Push the latest can-go-back/forward state to the renderer on every
     // navigation. Drives the ←/→ toolbar buttons in ReviewScreen so they

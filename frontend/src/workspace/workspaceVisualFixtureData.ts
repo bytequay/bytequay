@@ -1997,6 +1997,7 @@ export function installWorkspaceVisualBridge(frame: string): void {
     getFollowingActivity: empty,
     listTeams: empty,
     recordSurfaceVisit: async () => undefined,
+    openInAppBrowser: async () => undefined,
     openExternal: async () => undefined,
     getDs4Status: async () => cast({
       state: 'DISABLED',

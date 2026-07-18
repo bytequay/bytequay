@@ -53,7 +53,7 @@ type Props = {
 };
 
 function openUrl(url: string) {
-  void window.bridge.openExternal(url);
+  void window.bridge.openInAppBrowser(url);
 }
 
 /** Match a github.com URL of the form {@code /<owner>/<repo>} or

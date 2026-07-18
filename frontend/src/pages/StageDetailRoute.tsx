@@ -283,9 +283,9 @@ export function StageDetailRoute({
 
   const openPr = useCallback(() => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    if (realtimeCi !== null) { void bridge?.openExternal(realtimeCi.prUrl); return; }
+    if (realtimeCi !== null) { void bridge?.openInAppBrowser(realtimeCi.prUrl); return; }
     if (repoFullName != null && prNumber !== null) {
-      void bridge?.openExternal(`https://github.com/${repoFullName}/pull/${prNumber}`);
+      void bridge?.openInAppBrowser(`https://github.com/${repoFullName}/pull/${prNumber}`);
     }
   }, [realtimeCi, repoFullName, prNumber]);
 

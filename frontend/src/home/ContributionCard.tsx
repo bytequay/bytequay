@@ -35,7 +35,7 @@ function ContributionCard({ profile }: Props) {
               <button
                 type="button"
                 className="hp-avatar-btn"
-                onClick={() => { void window.bridge.openExternal(profile.htmlUrl); }}
+                onClick={() => { void window.bridge.openInAppBrowser(profile.htmlUrl); }}
                 title="Open GitHub profile"
               >
                 <Avatar login={profile.login} size={40} className="avatar--profile" />

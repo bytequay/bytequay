@@ -17,6 +17,7 @@ import type { DashboardPR } from '../types/dashboardPr';
 import { PULL_TABS, rowsForTab } from './model';
 import type { PullTab } from './model';
 import PullRowItem from './PullRowItem';
+import PullDetailPane from './PullDetailPane';
 import { PaneToggleIcon } from './atoms';
 import '../css/pulls.css';
 
@@ -24,7 +25,8 @@ import '../css/pulls.css';
  * Screen 1 of the PR redesign — the standalone "Pull requests" surface
  * (docs/mockups/design/pr-redesign/Pull Requests.dc.html): filter tabs +
  * PR list on the left, drag-resizable detail pane on the right. The list
- * is live dashboard data; the detail pane fills out in the next phase.
+ * is live dashboard data; the pane renders <PullDetailPane> (header +
+ * Overview tab) off the same row's unified PR bundle.
  */
 
 const DETAIL_MIN = 460;
@@ -147,7 +149,7 @@ export default function PullsScreen() {
         </div>
       </div>
 
-      {/* ═══ PR detail pane — header only for now; Overview/Changes land next phase ═══ */}
+      {/* ═══ PR detail pane ═══ */}
       {paneShown && selRow !== null && (
         <div style={{ width: detW, flexShrink: 1, minWidth: 0, borderLeft: '1px solid #e7e9ec', display: 'flex', minHeight: 0, background: '#fff', position: 'relative' }}>
           <div
@@ -156,15 +158,7 @@ export default function PullsScreen() {
             title="Drag to resize"
             style={{ position: 'absolute', left: -3, top: 0, bottom: 0, width: 6, cursor: 'col-resize', zIndex: 5 }}
           />
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <div style={{ flexShrink: 0, borderBottom: '1px solid #e7e9ec', background: '#fff' }}>
-              <div style={{ maxWidth: 880, margin: '0 auto', padding: '18px 36px 16px' }}>
-                <span style={{ fontSize: 21, fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.01em', color: '#17191c' }}>
-                  {selRow.title} <span style={{ fontWeight: 300, color: '#8b949e' }}>#{selRow.num}</span>
-                </span>
-              </div>
-            </div>
-          </div>
+          <PullDetailPane key={selRow.id} row={selRow} />
         </div>
       )}
     </div>

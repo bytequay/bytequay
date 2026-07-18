@@ -26,6 +26,7 @@ import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.codegraph.CodeGraphFirstRuntime;
 import com.bytequay.app.service.skills.ManagedSkill;
 import com.bytequay.app.service.skills.ManagedSkillBundle;
 import com.bytequay.app.service.skills.ManagedSkillPrompt;
@@ -814,6 +815,12 @@ public abstract class AbstractCliThreadAgent
             log.warn("Pre-turn hook for thread {} failed: {}", threadId, e.getMessage());
         }
         ProcessBuilder pb = buildCommand(userInput);
+        // Provider CLIs own their native Bash/Grep/Glob execution, so those
+        // calls do not naturally pass through ByteQuay's MCP dispatcher.
+        // Install the per-turn CodeGraph-first search shims in the subprocess
+        // environment before it starts; failures are fail-open inside the
+        // runtime helper and never prevent the agent turn.
+        CodeGraphFirstRuntime.prepare(pb, threadId, mcpAgentKey());
         // Clear any stale interrupt flag from a prior turn so a fresh
         // turn's non-zero exit isn't misread as a user cancellation.
         userInterrupted.set(false);

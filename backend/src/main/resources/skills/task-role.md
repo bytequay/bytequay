@@ -34,6 +34,16 @@ Before you touch a file:
 The trunk owns *what* and *why*; you own *how*, and you own getting it
 right. When "how" forces a decision that's really a "what", stop and ask.
 
+## Explore with CodeGraph first
+
+Before broad repository discovery with `rg`, recursive `grep`, `git grep`,
+`find`, `fd`, `tree`, Grep, or Glob, call `codegraph_explore`. Ask it to
+return the relevant implementation files, symbols, callers, tests, and
+change impact. Once CodeGraph has been attempted, use native search for
+exact literal checks, known-file reads, generated artifacts, or final
+completeness verification. If CodeGraph is unavailable, continue with
+native search; the preference must not block the task.
+
 Allowed actions on this turn:
 
 - Edit files in this worktree.

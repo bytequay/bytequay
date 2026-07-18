@@ -1767,7 +1767,8 @@ export type ThreadTurnEventTypeDto =
   | 'TURN_STARTED'
   | 'TURN_FINISHED'
   | 'TURN_FAILED'
-  | 'TURN_CANCELLED';
+  | 'TURN_CANCELLED'
+  | 'CODEGRAPH_POLICY';
 
 /** Durable scheduler event for one thread turn. Complements
  *  ThreadTurnDto with a chronological "why did this happen?" trail. */

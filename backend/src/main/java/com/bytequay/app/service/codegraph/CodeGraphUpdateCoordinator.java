@@ -105,6 +105,22 @@ public class CodeGraphUpdateCoordinator
         return codeGraph.explore(checkout, query.strip());
     }
 
+    public String query(Path checkout, String search)
+            throws IOException, InterruptedException
+    {
+        if (codeGraph == null) {
+            throw new IllegalStateException("CodeGraph integration disabled.");
+        }
+        if (search == null || search.isBlank()) {
+            throw new IllegalArgumentException("search is required");
+        }
+        CodeGraphResult ready = ensureFreshSync(checkout, "before-codegraph-query");
+        if (!ready.ok()) {
+            throw new IllegalStateException(ready.message());
+        }
+        return codeGraph.query(checkout, search.strip());
+    }
+
     @PreDestroy
     public void stop()
     {

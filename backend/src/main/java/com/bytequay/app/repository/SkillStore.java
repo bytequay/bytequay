@@ -27,7 +27,7 @@ public interface SkillStore
     /** Lookup by primary key. */
     Optional<Skill> byId(long id);
 
-    /** Lookup by unique name. Used by {@code load_skill} at runtime. */
+    /** Lookup by unique name for ByteQuay selection and settings diagnostics. */
     Optional<Skill> byName(String name);
 
     /** All enabled global rows. */

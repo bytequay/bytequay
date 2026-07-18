@@ -99,6 +99,21 @@ public class CodeGraphRunner
                 List.of(bin(), "explore", query),
                 project,
                 QUERY_TIMEOUT_SECONDS);
+        return output(result);
+    }
+
+    public String query(Path project, String search)
+            throws IOException, InterruptedException
+    {
+        CodeGraphProcessResult result = run(
+                List.of(bin(), "query", search, "--limit", "10"),
+                project,
+                QUERY_TIMEOUT_SECONDS);
+        return output(result);
+    }
+
+    private static String output(CodeGraphProcessResult result)
+    {
         result.requireSuccess();
         return result.stdout().isBlank() ? result.stderr().strip() : result.stdout().strip();
     }

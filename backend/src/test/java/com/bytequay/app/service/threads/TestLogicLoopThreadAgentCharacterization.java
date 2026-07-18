@@ -27,7 +27,6 @@ import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.local.ds4.Ds4State;
 import com.bytequay.app.service.local.ds4.Ds4Status;
 import com.bytequay.app.service.skills.ManagedSkill;
-import com.bytequay.app.service.skills.ManagedSkillBundle;
 import com.bytequay.app.service.threads.tools.AgentTool;
 import com.bytequay.app.service.threads.tools.AgentToolContext;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
@@ -53,7 +52,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -199,10 +197,8 @@ class TestLogicLoopThreadAgentCharacterization
     {
         server.enqueue(SSE_FINAL_TEXT);
         LogicLoopThreadAgent agent = agent();
-        agent.setManagedSkillBundle(new ManagedSkillBundle(
-                "test", "test", Map.of("ponytail",
-                        new ManagedSkill("ponytail", "name: ponytail\n\nsmallest working change"))));
-        agent.setActiveManagedSkillNames(List.of("ponytail"));
+        agent.setActiveManagedSkills(List.of(
+                new ManagedSkill("ponytail", "name: ponytail\n\nsmallest working change")));
 
         agent.send("implement").toCompletableFuture().get(20, TimeUnit.SECONDS);
 

@@ -25,6 +25,8 @@ import com.bytequay.app.beans.mcp.ToolDescriptor;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.threads.LogicLoopThreadAgent;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.AgentToolRegistry;
@@ -37,6 +39,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.context.request.async.DeferredResult;
 
@@ -81,19 +84,23 @@ public class McpServiceImpl
     private final PermissionResolver permissions;
     private final McpResponses responses;
     private final ThreadStore threadStore;
+    private final ActiveAgentContextRegistry activeContexts;
     private final Map<String, ToolHandler> handlersByName;
 
+    @Autowired
     public McpServiceImpl(
             AgentToolRegistry registry,
             PermissionResolver permissions,
             McpResponses responses,
             ThreadStore threadStore,
-            List<ToolHandler> handlers)
+            List<ToolHandler> handlers,
+            ActiveAgentContextRegistry activeContexts)
     {
         this.registry = requireNonNull(registry, "registry is null");
         this.permissions = requireNonNull(permissions, "permissions is null");
         this.responses = requireNonNull(responses, "responses is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.activeContexts = requireNonNull(activeContexts, "activeContexts is null");
         // Build the strategy map at construction. Spring injects
         // every ToolHandler bean; failing fast on a duplicate name
         // catches an accidental two-bean-registers-the-same-tool
@@ -108,6 +115,18 @@ public class McpServiceImpl
             }
         }
         this.handlersByName = Map.copyOf(map);
+    }
+
+    /** Compatibility constructor for focused unit tests. */
+    public McpServiceImpl(
+            AgentToolRegistry registry,
+            PermissionResolver permissions,
+            McpResponses responses,
+            ThreadStore threadStore,
+            List<ToolHandler> handlers)
+    {
+        this(registry, permissions, responses, threadStore, handlers,
+                new ActiveAgentContextRegistry());
     }
 
     @Override
@@ -199,8 +218,18 @@ public class McpServiceImpl
         // the thread, so concurrent stage agents list their own tools.
         AgentRole role = permissions.roleFor(threadId, agentKey);
         ThreadKind kind = kindFor(threadId);
+        Set<SecurityType> grants = permissions.grants(threadId, agentKey);
+        Set<String> activeToolNames = activeContexts.find(threadId, agentKey)
+                .map(ResolvedAgentContext::toolNames)
+                // Agent-scoped URLs are deny-by-default between turns. The
+                // null-key legacy endpoint retains its role-filtered catalog.
+                .orElse(agentKey == null ? null : Set.of());
         List<ToolDescriptor> tools = new ArrayList<>();
         for (ToolSpec spec : registry.visibleTo(role)) {
+            if (!grants.contains(spec.security())
+                    || (activeToolNames != null && !activeToolNames.contains(spec.name()))) {
+                continue;
+            }
             // Beyond role, some tools are gated to a thread kind (e.g.
             // record_plan to the brain) — hide those the caller's kind
             // can't reach.
@@ -298,6 +327,18 @@ public class McpServiceImpl
             deferred.setResult(responses.toolResponse(id, responses.deny(
                     "tool '" + name + "' is not available to the current thread kind ("
                             + kind + ")")));
+            return;
+        }
+        Optional<ResolvedAgentContext> activeContext = activeContexts.find(threadId, agentKey);
+        if (agentKey != null && activeContext.isEmpty()) {
+            deferred.setResult(responses.toolResponse(id, responses.deny(
+                    "no active ByteQuay context for agent '" + agentKey + "'")));
+            return;
+        }
+        if (activeContext.isPresent() && !activeContext.get().toolNames().contains(name)) {
+            deferred.setResult(responses.toolResponse(id, responses.deny(
+                    "tool '" + name + "' is not active for role "
+                            + activeContext.get().roleReference() + " in this turn")));
             return;
         }
         Set<SecurityType> grants = permissions.grants(threadId, agentKey);

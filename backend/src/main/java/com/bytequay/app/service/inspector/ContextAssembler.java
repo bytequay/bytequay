@@ -20,7 +20,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.skills.RoleSkillService;
+import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.skills.SkillManifestEntry;
 import com.bytequay.app.service.skills.SkillManifestQuery;
 import com.bytequay.app.service.skills.SkillManifestService;
@@ -42,11 +42,9 @@ import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Builds an {@link AssembledContext} — the read-only view of "what
- * would be in the agent's prompt right now" for one thread (TRUNK
- * scope) or one task (TASK scope). Calls into the production
- * {@link TurnAssembler} so the wire bytes are produced by the same
- * code path a real turn uses; no parallel assembler.
+ * Builds an {@link AssembledContext} — a read-only diagnostic view of one
+ * thread (TRUNK scope) or task (TASK scope). The wire preview uses the shared
+ * {@link TurnAssembler}; catalog-only data is kept out of that preview.
  *
  * <h3>Non-negotiable: view, not send.</h3>
  *
@@ -59,9 +57,10 @@ import static java.util.Objects.requireNonNull;
  *
  * Sections ① TOOLS, ② ROLE, ③ BRAIN, ⑦ HISTORY, ⑧ NEW_TURN are
  * populated. ④ CONCEPT_PREAMBLE renders from the
- * {@link RoleSkillService}'s preamble builder. ⑤ SKILL_MANIFEST
- * pulls top-N briefs from the skill manifest. ⑥ MEMORY renders
- * applied memory items via {@link MemoryItemService}.
+ * {@link RoleRegistry}'s preamble builder. ⑤ SKILL_MANIFEST is an
+ * administrative catalog view and is deliberately not injected into the
+ * wire prompt. ⑥ MEMORY renders applied memory items via
+ * {@link MemoryItemService}.
  */
 @Service
 public class ContextAssembler
@@ -85,7 +84,7 @@ public class ContextAssembler
 
     private final ThreadStore threadStore;
     private final TaskStore taskStore;
-    private final RoleSkillService roleSkills;
+    private final RoleRegistry roles;
     private final WorkspaceService workspaces;
     private final SkillManifestService skillManifest;
     private final MemoryItemService memoryItems;
@@ -94,7 +93,7 @@ public class ContextAssembler
     public ContextAssembler(
             ThreadStore threadStore,
             TaskStore taskStore,
-            RoleSkillService roleSkills,
+            RoleRegistry roles,
             WorkspaceService workspaces,
             SkillManifestService skillManifest,
             MemoryItemService memoryItems,
@@ -102,7 +101,7 @@ public class ContextAssembler
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.roleSkills = requireNonNull(roleSkills, "roleSkills is null");
+        this.roles = requireNonNull(roles, "roles is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.skillManifest = requireNonNull(skillManifest, "skillManifest is null");
         this.memoryItems = requireNonNull(memoryItems, "memoryItems is null");
@@ -122,7 +121,7 @@ public class ContextAssembler
                 () -> new ResponseStatusException(HttpStatusCode.valueOf(404),
                         "no thread with id " + threadId));
         String workspaceId = thread.workspaceId();
-        String roleBody = roleSkills.trunkTemplate();
+        String roleBody = roles.trunkTemplate();
         return assemble(ContextScope.TRUNK, threadId, workspaceId, roleBody, thread);
     }
 
@@ -145,13 +144,9 @@ public class ContextAssembler
             throw new ResponseStatusException(HttpStatusCode.valueOf(404),
                     "task " + taskId + " is not on thread " + threadId);
         }
-        // The role-skill body is frozen on the task row at creation;
-        // an older task pre-dating the preamble feature carries a
-        // null/blank value, in which case fall back to the live
-        // template so the inspector still has something to show.
-        String roleBody = task.roleSkill() != null && !task.roleSkill().isBlank()
-                ? task.roleSkill()
-                : "";
+        // New rows carry a versioned role reference; legacy rows may still
+        // carry a frozen body. RoleRegistry resolves both forms.
+        String roleBody = roles.resolveForTask(task);
         return assemble(ContextScope.TASK, taskId, thread.workspaceId(), roleBody, thread);
     }
 
@@ -163,7 +158,7 @@ public class ContextAssembler
             Thread thread)
     {
         String brainBody = workspaceId == null ? "" : safeMemory(workspaceId);
-        String preamble = roleSkills.buildConceptPreamble();
+        String preamble = roles.buildConceptPreamble();
         List<SkillManifestEntry> skillEntries = skillManifest.query(
                 SkillManifestQuery.forRepoContext(null, null));
         String manifestBody = renderSkillManifest(skillEntries);
@@ -176,15 +171,15 @@ public class ContextAssembler
         List<String> history = messages.stream().map(m -> nullToEmpty(m.contentJson())).toList();
         String newTurn = "";
 
-        // Wire bytes via the production assembler — identical to
-        // what a real turn would dispatch for the same inputs.
+        // The catalog remains visible below for settings/diagnostics, but it
+        // is not a system block. AgentContextCompiler selects runtime skills.
         TurnRequest wire = turnAssembler.assemble(
                 List.of(),
                 ProviderShape.ANTHROPIC,
                 roleBody,
                 brainBody,
                 preamble,
-                manifestBody,
+                null,
                 memoryBody,
                 history,
                 newTurn);
@@ -230,7 +225,7 @@ public class ContextAssembler
         sections.add(section(SectionKind.CONCEPT_PREAMBLE, "④ concepts",
                 nullToEmpty(preamble),
                 conceptPreambleProvenance(preamble)));
-        sections.add(section(SectionKind.SKILL_MANIFEST, "⑤ skills",
+        sections.add(section(SectionKind.SKILL_MANIFEST, "⑤ skill catalog (not injected)",
                 nullToEmpty(manifestBody),
                 skillProvenance(skillEntries)));
         sections.add(section(SectionKind.MEMORY, "⑥ memory",
@@ -289,8 +284,8 @@ public class ContextAssembler
         if (preamble == null || preamble.isEmpty()) {
             return List.of();
         }
-        List<Provenance> out = new ArrayList<>(RoleSkillService.TASK_PREAMBLE_CONCEPTS.size());
-        for (String name : RoleSkillService.TASK_PREAMBLE_CONCEPTS) {
+        List<Provenance> out = new ArrayList<>(RoleRegistry.TASK_PREAMBLE_CONCEPTS.size());
+        for (String name : RoleRegistry.TASK_PREAMBLE_CONCEPTS) {
             out.add(new Provenance("concept", name,
                     "/settings/concepts#" + name, null));
         }

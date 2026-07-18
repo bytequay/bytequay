@@ -23,6 +23,11 @@ import type {
   ThreadTurnEventDto,
   WatchedRepoDto,
 } from '../types';
+import {
+  formatCodeGraphPolicy,
+  hasCodeGraphPolicyMetrics,
+  summarizeCodeGraphPolicy,
+} from './codeGraphPolicyMetrics';
 import GroupMenu from './GroupMenu';
 import NotificationStrip from './NotificationStrip';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
@@ -1233,6 +1238,7 @@ function ThreadWindowSidebar({
   const toolUsage = useMemo(() => deriveToolUsage(messages), [messages]);
   const ctx = useMemo(() => computeContextUsage(messages, modelName), [messages, modelName]);
   const scheduler = useMemo(() => summarizeTurnState(turns, thread.status), [turns, thread.status]);
+  const codeGraphPolicy = useMemo(() => summarizeCodeGraphPolicy(turnEvents), [turnEvents]);
   const agentCwd = threadAgentCwd(null);
   const displayBranch = threadDisplayBranch(null);
   const [sessionActionError, setSessionActionError] = useState<string | null>(null);
@@ -1308,6 +1314,9 @@ function ThreadWindowSidebar({
           <Metric label="Turn state" value={scheduler.state} live={scheduler.live} />
           <Metric label="Lane" value={scheduler.lane} mono />
           <Metric label="Waiting turns" value={String(scheduler.queued)} />
+          {hasCodeGraphPolicyMetrics(codeGraphPolicy) && (
+            <Metric label="CodeGraph" value={formatCodeGraphPolicy(codeGraphPolicy)} wrap />
+          )}
           {scheduler.latestInput !== '' && (
             <Metric label="Latest input" value={scheduler.latestInput} wrap />
           )}
@@ -2264,7 +2273,7 @@ function SchedulerEventHistory({ events, turns }: { events: ThreadTurnEventDto[]
             <div key={event.id} style={schedulerEventRowStyle} title={schedulerEventTitle(event, turn)}>
               <span style={{ ...schedulerEventNameStyle, color: meta.color }}>{meta.label}</span>
               <span style={schedulerEventTimeStyle}>{schedulerEventTime(event, turn)}</span>
-              <span style={schedulerEventMsgStyle}>{event.message ?? schedulerEventHint(event, turn, meta)}</span>
+              <span style={schedulerEventMsgStyle}>{schedulerEventMessage(event, turn, meta)}</span>
             </div>
           );
         })}
@@ -2602,7 +2611,24 @@ function schedulerEventMeta(event: ThreadTurnEventDto['event']): { label: string
         hint: 'The queued turn was cancelled before it ran.',
         color: '#64748b',
       };
+    case 'CODEGRAPH_POLICY':
+      return {
+        label: 'CodeGraph',
+        hint: 'CodeGraph-first search policy counters recorded for this turn.',
+        color: '#0369a1',
+      };
   }
+}
+
+function schedulerEventMessage(
+  event: ThreadTurnEventDto,
+  turn: ThreadTurnDto | null,
+  meta: { label: string; hint: string; color: string },
+): string {
+  if (event.event === 'CODEGRAPH_POLICY') {
+    return formatCodeGraphPolicy(summarizeCodeGraphPolicy([event]));
+  }
+  return event.message ?? schedulerEventHint(event, turn, meta);
 }
 
 function schedulerEventTime(event: ThreadTurnEventDto, turn: ThreadTurnDto | null): string {
@@ -2641,9 +2667,9 @@ function queuedDurationLabel(event: ThreadTurnEventDto, turn: ThreadTurnDto | nu
 }
 
 function schedulerEventTitle(event: ThreadTurnEventDto, turn: ThreadTurnDto | null): string {
-  const message = event.message ? ` · ${event.message}` : '';
   const meta = schedulerEventMeta(event.event);
-  return `${meta.label} · ${schedulerEventHint(event, turn, meta)} · ${new Date(event.createdAt).toLocaleString()}${message}`;
+  const message = schedulerEventMessage(event, turn, meta);
+  return `${meta.label} · ${message} · ${new Date(event.createdAt).toLocaleString()}`;
 }
 
 function formatCost(milli: number | null): string {

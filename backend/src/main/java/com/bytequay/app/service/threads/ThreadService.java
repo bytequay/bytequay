@@ -42,7 +42,7 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.InvestigationReviewService;
-import com.bytequay.app.service.skills.RoleSkillService;
+import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.workspaces.WorkspaceDataPurger;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
@@ -122,7 +122,7 @@ public class ThreadService
     private final WorktreeLeaseService leases;
     private final GitRunner git;
     private final WorktreeService worktreeService;
-    private final RoleSkillService roleSkillService;
+    private final RoleRegistry roleRegistry;
     private final IdGenerator idGenerator;
     private final WorkspaceDataPurger dataPurger;
     private final CheckpointSummariser titleSummariser;
@@ -146,7 +146,7 @@ public class ThreadService
             WorktreeLeaseService leases,
             GitRunner git,
             WorktreeService worktreeService,
-            RoleSkillService roleSkillService,
+            RoleRegistry roleRegistry,
             IdGenerator idGenerator,
             @Lazy PullRequestService pullRequests,
             WorkspaceDataPurger dataPurger,
@@ -164,7 +164,7 @@ public class ThreadService
         this.leases = requireNonNull(leases, "leases is null");
         this.git = requireNonNull(git, "git is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
-        this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
+        this.roleRegistry = requireNonNull(roleRegistry, "roleRegistry is null");
         this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
         this.dataPurger = requireNonNull(dataPurger, "dataPurger is null");
         this.titleSummariser = requireNonNull(titleSummariser, "titleSummariser is null");
@@ -556,9 +556,9 @@ public class ThreadService
         // Previously hardcoded "main", which mis-targeted master repos and
         // forks alike.
         String baseBranch = worktreeService.resolveBaseBranchName(Path.of(request.workingDir()));
-        String roleSkillText = roleSkillService.generateForTask(
-                /* repo — derivable from workingDir later */ null,
-                branchName, taskId, baseBranch);
+        // Persist an immutable ByteQuay role reference, not a provider prompt
+        // snapshot. The registry renders this version for every provider.
+        String roleSkillText = roleRegistry.taskRoleReference();
         Task task = new Task(
                 taskId,
                 threadId,
@@ -1487,8 +1487,7 @@ public class ThreadService
         // "thread … has no task; cannot spawn CLI agent" for every
         // session-scoped op at the trunk — interrupt, subscribe, and
         // (the one users hit) the permission-prompt + tool-budget path
-        // that fires when the trunk agent calls a gated MCP tool like
-        // list_skills.
+        // that fires when the trunk agent calls a gated MCP tool.
         return taskStore.hasActiveTask(threadId)
                 ? registry.getOrCreate(thread)
                 : registry.getOrCreateTrunk(thread);

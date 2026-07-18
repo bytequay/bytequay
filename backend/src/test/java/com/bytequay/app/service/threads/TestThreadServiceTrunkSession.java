@@ -48,7 +48,7 @@ import static org.mockito.Mockito.when;
  * build a task-mode CLI agent from, so {@code sessionOrThrow} must
  * route to the trunk-scope agent — otherwise every session-scoped op
  * at the trunk (subscribe, interrupt, the permission-prompt / budget
- * path behind gated MCP tools like list_skills) throws
+ * path behind gated MCP tools) throws
  * "thread … has no task; cannot spawn CLI agent".
  */
 @SpringBootTest

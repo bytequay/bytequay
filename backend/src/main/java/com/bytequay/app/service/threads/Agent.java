@@ -19,10 +19,13 @@ import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
+import com.bytequay.app.service.skills.ManagedSkill;
 import com.bytequay.app.service.skills.ManagedSkillBundle;
 
 import java.util.List;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 
@@ -72,6 +75,27 @@ public interface Agent
 
     default void setActiveManagedSkillNames(List<String> names)
     {
+    }
+
+    default void setActiveManagedSkills(List<ManagedSkill> skills)
+    {
+    }
+
+    default void setActiveToolNames(Set<String> names)
+    {
+    }
+
+    default void setResolvedAgentContext(ResolvedAgentContext context)
+    {
+        if (context != null) {
+            if (context.skills().isEmpty()) {
+                setActiveManagedSkillNames(context.skillNames());
+            }
+            else {
+                setActiveManagedSkills(context.skills());
+            }
+            setActiveToolNames(context.toolNames());
+        }
     }
 
     default void setMcpAgentKey(String agentKey)

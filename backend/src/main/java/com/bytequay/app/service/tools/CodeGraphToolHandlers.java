@@ -30,6 +30,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -67,13 +68,22 @@ public class CodeGraphToolHandlers
                     + "file, flow, call path, or area of the current checkout.",
                     required = true) String query,
             @ToolParam(description = "Optional repository in owner/name form. Required when a "
-                    + "trunk workspace has more than one managed local repo.") String repoFullName) {}
+                    + "trunk workspace has more than one managed local repo.") String repoFullName,
+            @ToolParam(description = "Optional 'symbol' for a fast indexed symbol-name lookup; "
+                    + "omit for semantic exploration.") String mode)
+    {
+        public CodeGraphExploreArgs(String query, String repoFullName)
+        {
+            this(query, repoFullName, null);
+        }
+    }
 
     @AgentTool(
             name = "codegraph_explore",
             description = "Use this before broad rg/grep/find/Glob discovery. CodeGraph's indexed "
                     + "semantic graph for the current checkout returns relevant source, call paths, "
-                    + "tests, and impact context in one call. Afterward use native search for exact "
+                    + "tests, and impact context in one call. Set mode='symbol' for a direct indexed "
+                    + "symbol-name lookup. Afterward use native search for exact "
                     + "literal checks or completeness verification. "
                     + "ByteQuay first makes sure the checkout's CodeGraph index is fresh; "
                     + "if it cannot, the tool fails instead of returning stale context.",
@@ -85,26 +95,39 @@ public class CodeGraphToolHandlers
         if (args.query() == null || args.query().isBlank()) {
             return ToolOutcome.Completed.error("query is required");
         }
-        // An attempted graph call unlocks native search for this CLI turn,
-        // including when checkout resolution or CodeGraph itself fails. The
-        // policy is a preference and must retain a reliable fallback path.
-        CodeGraphFirstRuntime.markAttempted(
-                call.threadId(), PermissionResolver.agentKeyFor(call.taskId(), call.stageId()));
+        String mode = args.mode() == null || args.mode().isBlank()
+                ? "explore"
+                : args.mode().strip().toLowerCase(Locale.ROOT);
+        if (!mode.equals("explore") && !mode.equals("symbol")) {
+            return ToolOutcome.Completed.error("mode must be 'explore' or 'symbol'");
+        }
         CheckoutChoice checkout = checkoutFor(call, args.repoFullName());
         if (checkout.error() != null) {
             return ToolOutcome.Completed.error(checkout.error());
         }
+        // Only an actual graph invocation unlocks native search. Invalid
+        // arguments and checkout-selection errors remain correctable and keep
+        // the redirect active; availability/indexing failures unlock fallback.
+        String agentKey = PermissionResolver.agentKeyFor(call.taskId(), call.stageId());
+        CodeGraphFirstRuntime.markAttempted(call.threadId(), agentKey);
         try {
-            return ToolOutcome.Completed.ok(codeGraph.explore(checkout.path(), args.query()));
+            String result = mode.equals("symbol")
+                    ? codeGraph.query(checkout.path(), args.query())
+                    : codeGraph.explore(checkout.path(), args.query());
+            CodeGraphFirstRuntime.markSucceeded(call.threadId(), agentKey);
+            return ToolOutcome.Completed.ok(result);
         }
         catch (RuntimeException e) {
+            CodeGraphFirstRuntime.markFailed(call.threadId(), agentKey);
             return ToolOutcome.Completed.error("CodeGraph unavailable: " + e.getMessage());
         }
         catch (InterruptedException e) {
             java.lang.Thread.currentThread().interrupt();
+            CodeGraphFirstRuntime.markFailed(call.threadId(), agentKey);
             return ToolOutcome.Completed.error("CodeGraph interrupted");
         }
         catch (Exception e) {
+            CodeGraphFirstRuntime.markFailed(call.threadId(), agentKey);
             return ToolOutcome.Completed.error("CodeGraph failed: " + e.getMessage());
         }
     }

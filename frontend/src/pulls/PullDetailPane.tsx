@@ -17,6 +17,7 @@ import { derivePRCapabilities } from '../pr/prCapabilities';
 import { CommentBubbleIcon, PrMergedIcon, PrOpenIcon, RobotIcon } from './atoms';
 import { buildHeader } from './detailModel';
 import type { PullRow } from './model';
+import PullChanges from './PullChanges';
 import PullOverview from './PullOverview';
 
 /**
@@ -132,9 +133,7 @@ export default function PullDetailPane({ row }: { row: PullRow }) {
           </div>
         </div>
       ) : (
-        <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#8b949e' }}>
-          Changes view coming with the diff work
-        </div>
+        <PullChanges row={row} bundle={bundle} refresh={refresh} onComment={onComment} />
       )}
     </div>
   );

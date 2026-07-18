@@ -34,6 +34,7 @@ import {
   type WorkspaceTrunkDto,
 } from './workspaceApi';
 import PullRequestBoardList from './PullRequestBoardList';
+import WorkspacePullsScreen from '../pulls/WorkspacePullsScreen';
 
 export type WorkspaceRepoSection = 'pull-requests' | 'issues' | 'branches' | 'commits';
 
@@ -81,16 +82,14 @@ export default function WorkspaceRepoPage({
   if (repo === null) return <PageLoading title={titleFor(section)} />;
 
   if (section === 'pull-requests') {
-    return selectedNumber === undefined
-      ? <PullRequestsPage workspaceId={workspaceId} onOpen={onOpenPr} />
-      : (
-        <PullRequestDetailPage
-          workspaceId={workspaceId}
-          number={selectedNumber}
-          onBack={onBackToList}
-          onOpenTrunk={onOpenTrunk}
-        />
-      );
+    return (
+      <WorkspacePullsScreen
+        workspaceId={workspaceId}
+        initialPrNumber={selectedNumber}
+        onOpenPr={onOpenPr}
+        onBackToList={onBackToList}
+      />
+    );
   }
   if (section === 'issues') {
     return selectedNumber === undefined

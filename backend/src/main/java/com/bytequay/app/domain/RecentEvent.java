@@ -24,4 +24,8 @@ public record RecentEvent(
         String prTitle,
         int prNumber,
         String refType,
-        String actorLogin) {}
+        String actorLogin,
+        String actorAvatarUrl,
+        String detail,
+        String ref,
+        String reviewState) {}

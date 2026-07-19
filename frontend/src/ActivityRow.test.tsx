@@ -81,7 +81,7 @@ describe('ActivityRow', () => {
     expect(html).not.toContain('title="https://github.com/trinodb/trino"');
   });
 
-  it('renders PR number as a separate link for review events', () => {
+  it('renders a linked PR fallback for review events without a title', () => {
     const html = renderToStaticMarkup(
       <ActivityRow
         event={event({ type: 'PullRequestReviewEvent', prNumber: 42 })}
@@ -92,8 +92,27 @@ describe('ActivityRow', () => {
       />,
     );
     expect(html).toContain('https://github.com/trinodb/trino/pull/42');
-    expect(html).toContain('reviewed PR ');
-    expect(html).toContain('#42');
+    expect(html).toContain('Reviewed ');
+    expect(html).toContain('PR #42');
+  });
+
+  it('renders the PR title in the sentence and keeps the number in the detail line', () => {
+    const html = renderToStaticMarkup(
+      <ActivityRow
+        event={event({
+          type: 'PullRequestReviewEvent',
+          prNumber: 30384,
+          prTitle: 'Improve exchange source memory accounting',
+        })}
+        actor={{ login: 'octocat', profileUrl: 'https://github.com/octocat' }}
+        showActorName={true}
+        formatTime={() => '19m'}
+        onOpenUrl={noop}
+      />,
+    );
+    expect(html).toContain('reviewed ');
+    expect(html).toContain('Improve exchange source memory accounting');
+    expect(html).toContain('Review submitted on PR #30384');
   });
 
   it('renders issues path (not pull) for IssuesEvent', () => {
@@ -121,10 +140,40 @@ describe('ActivityRow', () => {
         onOpenUrl={noop}
       />,
     );
-    // Avatar still renders (the row's actor block) but the
-    // home-following-item__name button is omitted.
     expect(html).not.toContain('home-following-item__name');
-    expect(html).toContain('home-following-item__avatar');
+    expect(html).toContain('home-activity-icon--commit');
+    expect(html).not.toContain('home-following-item__avatar');
+  });
+
+  it('uses the actor avatar URL supplied by the GitHub event payload', () => {
+    const html = renderToStaticMarkup(
+      <ActivityRow
+        event={event({ actorAvatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4' })}
+        actor={{
+          login: 'octocat',
+          profileUrl: 'https://github.com/octocat',
+          avatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4',
+        }}
+        showActorName={true}
+        formatTime={() => '2h'}
+        onOpenUrl={noop}
+      />,
+    );
+    expect(html).toContain('https://avatars.githubusercontent.com/u/1?v=4');
+  });
+
+  it('renders a concrete second-line payload', () => {
+    const html = renderToStaticMarkup(
+      <ActivityRow
+        event={event({ type: 'PushEvent', detail: 'fix: persist inbox acknowledgement' })}
+        actor={null}
+        showActorName={false}
+        formatTime={() => '2h'}
+        onOpenUrl={noop}
+      />,
+    );
+    expect(html).toContain('home-following-item__detail');
+    expect(html).toContain('fix: persist inbox acknowledgement');
   });
 });
 

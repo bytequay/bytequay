@@ -17,6 +17,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
+import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitHubEventItem(
@@ -27,7 +28,7 @@ record GitHubEventItem(
         @JsonProperty("created_at") Instant createdAt)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Actor(String login) {}
+    record Actor(String login, @JsonProperty("avatar_url") String avatarUrl) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Repo(String name) {}
@@ -37,8 +38,21 @@ record GitHubEventItem(
             Integer size,
             String action,
             @JsonProperty("ref_type") String refType,
-            @JsonProperty("pull_request") PrPayload pullRequest) {}
+            String ref,
+            @JsonProperty("pull_request") PrPayload pullRequest,
+            IssuePayload issue,
+            ReviewPayload review,
+            List<CommitPayload> commits) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record PrPayload(int number, String title) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record IssuePayload(int number, String title) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ReviewPayload(String state) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record CommitPayload(String message) {}
 }

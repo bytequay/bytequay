@@ -16,14 +16,13 @@ import type { NotificationDto, WorkspaceRepoDto } from '../types';
 import type { DashboardPR } from '../types/dashboardPr';
 import { buildInboxItems, type InboxItem } from './inboxItems';
 import { fetchDeployNotices, type DeployNoticeDto } from './homeData';
-import { isPublishGateNotification } from '../notificationDisplay';
+import { taskLabel } from '../threads/taskLabel';
 import InboxCard, {
   type InboxHandlers,
   type WorkspaceInboxTarget,
 } from './InboxCard';
 
-/** Rows shown before "See all" takes over. */
-const MAX_ROWS = 6;
+const MAX_GROUP_ROWS = 3;
 
 /** Persisted "Unread only" filter — survives navigating away and back. */
 const UNREAD_ONLY_KEY = 'home:inbox:unreadOnly';
@@ -36,8 +35,8 @@ type Props = {
   onOpenWorkspacePr?: (workspaceId: string, prNumber: number) => void;
   onOpenRemoteReview?: (owner: string, repo: string, prNumber: number) => void;
   onOpenTask?: (threadId: string, taskId: string) => void;
-  /** "See all" → the notification center. */
-  onSeeAll: () => void;
+  /** Kept for older visual fixtures; See all is now the local filter. */
+  onSeeAll?: () => void;
   /** Re-fetch the PR list after an inbox action changed it (approve). */
   onPrsChanged: (next: DashboardPR[]) => void;
 };
@@ -50,14 +49,14 @@ function InboxSection({
   onOpenWorkspacePr,
   onOpenRemoteReview,
   onOpenTask,
-  onSeeAll,
   onPrsChanged,
 }: Props) {
   const [notifications, setNotifications] = useState<NotificationDto[]>([]);
   const [deploys, setDeploys] = useState<DeployNoticeDto[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [workspaceRepos, setWorkspaceRepos] = useState<Map<string, WorkspaceInboxTarget>>(new Map());
-  const [unreadOnly, setUnreadOnly] = useState(() => localStorage.getItem(UNREAD_ONLY_KEY) === '1');
+  const [taskTitles, setTaskTitles] = useState<Map<string, string>>(new Map());
+  const [unreadOnly, setUnreadOnly] = useState(() => localStorage.getItem(UNREAD_ONLY_KEY) !== '0');
   /** Transient hint when the backend refuses a dismiss. */
   const [note, setNote] = useState<string | null>(null);
 
@@ -78,6 +77,22 @@ function InboxSection({
   useEffect(() => {
     fetchDeployNotices().then(setDeploys).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const threadIds = [...new Set(notifications
+      .filter(notification => notification.threadId !== null && notification.taskId !== null)
+      .map(notification => notification.threadId as string))];
+    if (threadIds.length === 0) return;
+    let cancelled = false;
+    void Promise.all(threadIds.map(async threadId => {
+      const tasks = await window.bridge.listTasksForThread(threadId)
+        .catch((): Awaited<ReturnType<typeof window.bridge.listTasksForThread>> => []);
+      return tasks.map(task => [task.id, taskLabel(task)] as const);
+    })).then(rows => {
+      if (!cancelled) setTaskTitles(new Map(rows.flat()));
+    });
+    return () => { cancelled = true; };
+  }, [notifications]);
 
   useEffect(() => {
     if (typeof window.bridge.listWorkspaces !== 'function'
@@ -108,10 +123,41 @@ function InboxSection({
     () => buildInboxItems(notifications, prs ?? [], deploys),
     [notifications, prs, deploys],
   );
-  const unreadCount = items.filter(i => !i.read).length;
-  const visible = items
-    .filter(i => !hiddenIds.includes(i.id) && (!unreadOnly || !i.read))
-    .slice(0, MAX_ROWS);
+  const available = items.filter(item => !hiddenIds.includes(item.id));
+  const unreadCount = available.filter(item => !item.read).length;
+  const needsAction = available.filter(item => item.actionRequired);
+  const notificationsToShow = available
+    .filter(item => !item.actionRequired && (!unreadOnly || !item.read));
+  const visibleNeedsAction = needsAction.slice(0, MAX_GROUP_ROWS);
+  const visibleNotifications = notificationsToShow.slice(0, MAX_GROUP_ROWS);
+
+  const ack = (item: InboxItem) => {
+    if (item.read || item.actionRequired || item.source.kind !== 'notification') return;
+    const id = item.source.notification.id;
+    const readAt = new Date().toISOString();
+    setNotifications(current => current.map(notification => notification.id === id
+      ? { ...notification, status: 'READ', readAt }
+      : notification));
+    window.bridge.markNotificationRead(id)
+      .catch(() => { void refresh(); });
+  };
+
+  const ackAll = () => {
+    const ids = available
+      .filter(item => !item.actionRequired && !item.read && item.source.kind === 'notification')
+      .map(item => item.source.kind === 'notification' ? item.source.notification.id : '')
+      .filter(Boolean);
+    if (ids.length === 0) return;
+    const readAt = new Date().toISOString();
+    const idSet = new Set(ids);
+    setNotifications(current => current.map(notification => idSet.has(notification.id)
+      ? { ...notification, status: 'READ', readAt }
+      : notification));
+    void Promise.allSettled(ids.map(id => window.bridge.markNotificationRead(id)))
+      .then(results => {
+        if (results.some(result => result.status === 'rejected')) void refresh();
+      });
+  };
 
   const handlers: InboxHandlers = {
     openPr: onOpenPr,
@@ -120,6 +166,7 @@ function InboxSection({
     workspaceForRepo: (owner, repo) =>
       workspaceRepos.get(`${owner}/${repo}`.toLowerCase()) ?? null,
     openTask: onOpenTask,
+    ack,
     dismiss: (item: InboxItem) => {
       if (item.source.kind === 'notification') {
         const n = item.source.notification;
@@ -160,26 +207,7 @@ function InboxSection({
       const full = `${owner}/${repo}`;
       return (prs ?? []).find(p => p.repo === full && p.number === prNumber)?.title ?? null;
     },
-    opened: (item: InboxItem) => {
-      if (item.source.kind !== 'notification') return;
-      const n = item.source.notification;
-      // Informational rows clear on engagement. A publish-gate
-      // AWAITING_REVIEW (rendered as the embedded PublishGatePane) keeps its
-      // unread state until its own dedicated action actually resolves it
-      // (same rule as the thread strip) — but a plain AWAITING_REVIEW (just
-      // "View PR" / "View task" / "Dismiss", same as NEEDS_ATTENTION's
-      // "stuck task" framing suggests) has no OTHER resolution path, so
-      // engaging with it here is the only signal it'll ever get; leaving it
-      // unread forever until a manual Dismiss isn't "waiting for
-      // resolution", it's a dead end.
-      const clearsOnEngagement = n.kind === 'AUTO_FIX_DONE'
-        || (n.kind === 'AWAITING_REVIEW' && !isPublishGateNotification(n));
-      if (clearsOnEngagement && n.status === 'UNREAD') {
-        window.bridge.markNotificationRead(n.id)
-          .then(() => refresh())
-          .catch(() => { /* best-effort */ });
-      }
-    },
+    taskTitle: taskId => taskTitles.get(taskId) ?? null,
   };
 
   return (
@@ -190,48 +218,50 @@ function InboxSection({
           {unreadCount > 0 && <span className="home-inbox__badge">{unreadCount}</span>}
         </div>
         <div className="home-inbox__controls">
-          <div
+          <button
+            type="button"
             className={`home-inbox__filter${unreadOnly ? ' home-inbox__filter--on' : ''}`}
-            role="button"
-            tabIndex={0}
-            onClick={() => setUnreadOnly(v => {
-              localStorage.setItem(UNREAD_ONLY_KEY, v ? '0' : '1');
-              return !v;
-            })}
-            onKeyDown={event => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                setUnreadOnly(v => {
-                  localStorage.setItem(UNREAD_ONLY_KEY, v ? '0' : '1');
-                  return !v;
-                });
-              }
+            onClick={() => {
+              localStorage.setItem(UNREAD_ONLY_KEY, '1');
+              setUnreadOnly(true);
             }}
           >
             <span className="home-inbox__filter-dot" aria-hidden="true" />
             Unread only
-          </div>
-          <a role="button" tabIndex={0} className="home-inbox__seeall"
-            onClick={onSeeAll}
-            onKeyDown={event => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                onSeeAll();
-              }
-            }}>
+          </button>
+          <button
+            type="button"
+            className={`home-inbox__filter${!unreadOnly ? ' home-inbox__filter--on' : ''}`}
+            onClick={() => {
+              localStorage.setItem(UNREAD_ONLY_KEY, '0');
+              setUnreadOnly(false);
+            }}
+          >
             See all
-          </a>
+          </button>
         </div>
       </div>
-      {visible.length === 0 ? (
-        <p className="home-inbox__empty">
-          {unreadOnly ? 'No unread notifications' : 'Nothing needs you right now.'}
-        </p>
-      ) : (
-        <div className="home-inbox__list">
-          {visible.map(item => <InboxCard key={item.id} item={item} handlers={handlers} />)}
+      <div className="home-inbox__list">
+        <div className="home-inbox__group-header">
+          Needs your action
+          <span className="home-inbox__group-count">{needsAction.length}</span>
         </div>
-      )}
+        {visibleNeedsAction.map(item => <InboxCard key={item.id} item={item} handlers={handlers} />)}
+        {visibleNeedsAction.length === 0 && (
+          <p className="home-inbox__empty">Nothing needs you right now.</p>
+        )}
+        <div className="home-inbox__group-header home-inbox__group-header--notifications">
+          Notifications · just so you know
+          <span className="home-inbox__group-count">{notificationsToShow.length}</span>
+          <button type="button" className="home-inbox__ack-all" onClick={ackAll}>Ack all</button>
+        </div>
+        {visibleNotifications.map(item => <InboxCard key={item.id} item={item} handlers={handlers} />)}
+        {visibleNotifications.length === 0 && (
+          <p className="home-inbox__empty">
+            {unreadOnly ? 'All caught up — nothing left to acknowledge.' : 'No notifications yet.'}
+          </p>
+        )}
+      </div>
       {note && <p className="home-inbox__note" role="status">{note}</p>}
     </div>
   );

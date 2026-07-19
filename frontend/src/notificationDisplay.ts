@@ -22,6 +22,8 @@ export function kindIcon(kind: NotificationKindDto): string {
     case 'AWAITING_REVIEW':  return '\u{1F441}';
     case 'NEEDS_ATTENTION':  return '⚠';
     case 'AUTO_FIX_DONE':    return '✓';
+    case 'READY_TO_MERGE':   return '✓';
+    case 'PASSIVE':          return '·';
   }
 }
 
@@ -32,6 +34,8 @@ export function kindIcon(kind: NotificationKindDto): string {
 export function titleFor(n: NotificationDto): string {
   if (n.kind === 'AWAITING_REVIEW') return 'Awaiting your review';
   if (n.kind === 'NEEDS_ATTENTION') return 'Needs your attention';
+  if (n.kind === 'READY_TO_MERGE') return 'Ready to merge';
+  if (n.kind === 'PASSIVE') return n.title ?? 'Update';
   const payload = payloadOf(n);
   if (payload) {
     const resolution = typeof payload.publishResolution === 'string'
@@ -74,7 +78,7 @@ export function titleFor(n: NotificationDto): string {
  *  renderer. */
 export function previewFor(n: NotificationDto): string {
   const payload = payloadOf(n);
-  if (!payload) return '';
+  if (!payload) return n.summary ?? '';
   if (n.kind === 'AWAITING_REVIEW') {
     const action = typeof payload.action === 'string' ? payload.action : null;
     return `Paused — needs your approval to ${actionLabel(action)}`;
@@ -100,6 +104,7 @@ export function previewFor(n: NotificationDto): string {
     if (left) return left;
     if (nextTitle) return `next: ${nextTitle}`;
   }
+  if (n.summary) return n.summary;
   // Debugging fallback for unknown payloads — surfaces the first few
   // keys so a developer can see what shape landed.
   return Object.entries(payload)

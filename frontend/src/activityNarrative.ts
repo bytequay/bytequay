@@ -17,7 +17,7 @@ import type { RecentEventDto } from './types';
  *  clickable link (the renderer wires it up via {@code openUrl}); plain
  *  segments render as static text. Used to make repo / PR / issue
  *  mentions in the home-page activity feeds tappable. */
-export type NarrativeSegment = { text: string; url?: string };
+export type NarrativeSegment = { text: string; url?: string; emphasized?: boolean };
 
 /** Collapses runs of consecutive PushEvents, and separately runs of
  *  consecutive PullRequestReviewCommentEvents, to the same repo (and same
@@ -46,7 +46,7 @@ export function groupRecentEvents(events: RecentEventDto[]): RecentEventDto[] {
     }
     const prev = out[out.length - 1];
     if (e.type === 'PushEvent' && prev && prev.type === 'PushEvent'
-        && prev.repo === e.repo && prev.prNumber === e.prNumber) {
+        && prev.repo === e.repo && prev.prNumber === e.prNumber && prev.ref === e.ref) {
       out[out.length - 1] = {
         ...prev,
         commitCount: prev.commitCount + e.commitCount,
@@ -91,34 +91,44 @@ export function followingNarrativeSegments(e: RecentEventDto): NarrativeSegment[
   const repoSeg: NarrativeSegment = { text: e.repo };
   const hasNumber = typeof e.prNumber === 'number' && e.prNumber > 0;
   const prSeg = (): NarrativeSegment | null => hasNumber
-    ? { text: `#${e.prNumber}`, url: prUrl(e.repo, e.prNumber) }
+    ? { text: `#${e.prNumber}`, url: prUrl(e.repo, e.prNumber), emphasized: true }
     : null;
+  const prObject = (): NarrativeSegment | null => {
+    if (!e.prTitle && !hasNumber) return null;
+    return {
+      text: e.prTitle ?? `PR #${e.prNumber}`,
+      url: hasNumber ? prUrl(e.repo, e.prNumber) : undefined,
+      emphasized: true,
+    };
+  };
   const issueSeg = (): NarrativeSegment | null => hasNumber
-    ? { text: `#${e.prNumber}`, url: issueUrl(e.repo, e.prNumber) }
+    ? { text: `#${e.prNumber}`, url: issueUrl(e.repo, e.prNumber), emphasized: true }
     : null;
 
   switch (e.type) {
     case 'PullRequestEvent': {
       const verb = e.action === 'opened' ? 'opened' : e.action === 'closed' ? 'closed' : 'updated';
-      const pr = prSeg();
+      const pr = prObject();
       return pr
-        ? [{ text: `${verb} pull request ` }, pr, { text: ' in ' }, repoSeg]
-        : [{ text: `${verb} a pull request in ` }, repoSeg];
+        ? [{ text: `${verb} ` }, pr, { text: ' in ' }, repoSeg]
+        : [{ text: verb + ' ' }, { text: 'a PR', emphasized: true }, { text: ' in ' }, repoSeg];
     }
     case 'PullRequestReviewEvent': {
-      const pr = prSeg();
+      const pr = prObject();
+      const state = e.reviewState?.toLowerCase().replace('_', ' ');
+      const outcome = state ? [{ text: ` · ${state}` }] : [];
       return pr
-        ? [{ text: 'reviewed PR ' }, pr, { text: ' in ' }, repoSeg]
-        : [{ text: 'reviewed a PR in ' }, repoSeg];
+        ? [{ text: 'reviewed ' }, pr, ...outcome, { text: ' in ' }, repoSeg]
+        : [{ text: 'reviewed ' }, { text: 'a PR', emphasized: true }, ...outcome, { text: ' in ' }, repoSeg];
     }
     case 'PullRequestReviewCommentEvent': {
-      const pr = prSeg();
+      const pr = prObject();
       // Merged rows (multiple consecutive comments on the same PR) count
       // comments — "commented on PR #4043 3 times".
       const countPhrase = e.commentCount && e.commentCount > 1 ? ` ${e.commentCount} times` : '';
       return pr
-        ? [{ text: 'commented on PR ' }, pr, { text: `${countPhrase} in ` }, repoSeg]
-        : [{ text: `commented on a PR${countPhrase} in ` }, repoSeg];
+        ? [{ text: 'commented on ' }, pr, { text: `${countPhrase} in ` }, repoSeg]
+        : [{ text: 'commented on ' }, { text: `a PR${countPhrase}`, emphasized: true }, { text: ' in ' }, repoSeg];
     }
     case 'PushEvent': {
       const n = e.commitCount || 1;
@@ -131,12 +141,13 @@ export function followingNarrativeSegments(e: RecentEventDto): NarrativeSegment[
       if (pr) {
         return [{ text: `pushed ${countPhrase} to PR ` }, pr, { text: ' in ' }, repoSeg];
       }
+      const branch = branchName(e.ref);
       // No PR: link the count phrase to the repo's commits page since the
       // event payload doesn't carry per-commit SHAs. Repo name is plain text.
       return [
         { text: 'pushed ' },
-        { text: countPhrase, url: commitsUrl(e.repo) },
-        { text: ' to ' },
+        { text: countPhrase, url: commitsUrl(e.repo), emphasized: true },
+        { text: branch ? ` to ${branch} in ` : ' to ' },
         repoSeg,
       ];
     }
@@ -144,24 +155,48 @@ export function followingNarrativeSegments(e: RecentEventDto): NarrativeSegment[
       const iss = issueSeg();
       return iss
         ? [{ text: 'commented on issue ' }, iss, { text: ' in ' }, repoSeg]
-        : [{ text: 'commented in ' }, repoSeg];
+        : [{ text: 'commented on ' }, { text: 'an issue', emphasized: true }, { text: ' in ' }, repoSeg];
     }
     case 'IssuesEvent': {
       const verb = e.action === 'opened' ? 'opened' : 'closed';
       const iss = issueSeg();
       return iss
         ? [{ text: `${verb} issue ` }, iss, { text: ' in ' }, repoSeg]
-        : [{ text: `${verb} an issue in ` }, repoSeg];
+        : [{ text: verb + ' ' }, { text: 'an issue', emphasized: true }, { text: ' in ' }, repoSeg];
     }
-    case 'CreateEvent':
-      return e.refType === 'repository'
-        ? [{ text: 'created repository ' }, repoSeg]
-        : [{ text: 'created a branch in ' }, repoSeg];
+    case 'CreateEvent': {
+      if (e.refType === 'repository') {
+        return [{ text: 'created repository ' }, { ...repoSeg, emphasized: true }];
+      }
+      const branch = e.ref ? `branch ${e.ref}` : 'a branch';
+      return [{ text: 'created ' }, { text: branch, emphasized: true }, { text: ' in ' }, repoSeg];
+    }
     case 'WatchEvent':
-      return [{ text: 'starred ' }, repoSeg];
+      return [{ text: 'starred ' }, { ...repoSeg, emphasized: true }];
     case 'ForkEvent':
-      return [{ text: 'forked ' }, repoSeg];
-    default:
-      return [{ text: 'activity in ' }, repoSeg];
+      return [{ text: 'forked ' }, { ...repoSeg, emphasized: true }];
+    case 'DeleteEvent': {
+      const branch = e.ref ? `branch ${e.ref}` : 'a branch or tag';
+      return [{ text: 'deleted ' }, { text: branch, emphasized: true }, { text: ' from ' }, repoSeg];
+    }
+    case 'ReleaseEvent':
+      return [{ text: 'published ' }, { text: 'a release', emphasized: true }, { text: ' in ' }, repoSeg];
+    case 'MemberEvent':
+      return [{ text: 'updated ' }, { text: 'collaborator access', emphasized: true }, { text: ' in ' }, repoSeg];
+    case 'PublicEvent':
+      return [{ text: 'made ' }, { ...repoSeg, emphasized: true }, { text: ' public' }];
+    case 'CommitCommentEvent':
+      return [{ text: 'commented on ' }, { text: 'a commit', emphasized: true }, { text: ' in ' }, repoSeg];
+    case 'GollumEvent':
+      return [{ text: 'updated ' }, { text: 'wiki pages', emphasized: true }, { text: ' in ' }, repoSeg];
+    default: {
+      const eventName = e.type.replace(/Event$/, '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+      return [{ text: 'recorded ' }, { text: `${eventName} activity`, emphasized: true }, { text: ' in ' }, repoSeg];
+    }
   }
+}
+
+function branchName(ref?: string | null): string | null {
+  if (!ref) return null;
+  return ref.replace(/^refs\/heads\//, '');
 }

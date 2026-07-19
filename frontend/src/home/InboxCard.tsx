@@ -11,11 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
 import type { DashboardPR } from '../types/dashboardPr';
 import { relativeTime } from '../notificationDisplay';
 import { prRefFromNotification } from '../threads/notificationNav';
-import type { InboxItem, InboxItemType } from './inboxItems';
+import type { InboxItem } from './inboxItems';
 
 export type WorkspaceInboxTarget = {
   workspaceId: string;
@@ -31,8 +30,10 @@ export type InboxHandlers = {
   dismiss: (item: InboxItem) => void;
   approve: (pr: DashboardPR) => Promise<void>;
   resolved: () => void;
+  ack?: (item: InboxItem) => void;
   opened?: (item: InboxItem) => void;
   prTitle?: (owner: string, repo: string, prNumber: number) => string | null;
+  taskTitle?: (taskId: string) => string | null;
 };
 
 /**
@@ -44,7 +45,11 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
   const workspace = ref === null
     ? null
     : handlers.workspaceForRepo?.(ref.owner, ref.repo) ?? null;
-  const actionableReview = item.type === 'review' || item.type === 'approval';
+  const title = itemTitle(item, ref, handlers);
+  const repoLabel = ref?.repo ?? workspace?.name ?? 'bytequay';
+  const icon = item.icon ?? legacyIcon(item.type);
+  const actionRequired = item.actionRequired
+    ?? (item.type === 'review' || item.type === 'approval' || item.type === 'blocked');
 
   const open = () => {
     handlers.opened?.(item);
@@ -85,36 +90,67 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
           }
         }}
       >
-        <span className={`home-inbox-tile home-inbox-tile--${item.type}`} aria-hidden>
-          <InboxIcon type={item.type} />
+        <span className={`home-inbox-tile home-inbox-tile--${item.type} home-inbox-tile--icon-${icon}`} aria-hidden>
+          <InboxIcon icon={icon} />
         </span>
         <span className="home-inbox-card__text">
-          <strong className="home-inbox-card__title">{item.title}</strong>
+          <span className="home-inbox-card__title-line">
+            <span className="home-inbox-card__title">{title}</span>
+            <time className="home-inbox-card__time">{relativeTime(item.time).replace(' ago', '')}</time>
+          </span>
           <small className="home-inbox-card__sub">{item.sub}</small>
         </span>
-        <span className={`home-inbox-card__scope ${workspace === null ? 'remote' : ''}`}>
-          {workspace === null
-            ? <GlobeIcon />
-            : <WorkspaceScopeIcon owner={ref?.owner ?? ''} />}
-          {workspace?.name ?? (ref === null ? 'bytequay' : 'remote')}
+        <span className="home-inbox-card__scope" title={ref === null ? repoLabel : `${ref.owner}/${ref.repo}`}>
+          <span className="home-inbox-card__repo-initial" aria-hidden="true">{repoLabel.charAt(0).toUpperCase()}</span>
+          {repoLabel}
         </span>
-        {actionableReview && (
+        {actionRequired ? (
           <button
             type="button"
-            className={`home-inbox-card__action${workspace === null ? ' remote' : ''}`}
+            className="home-inbox-card__action"
             onClick={event => {
               event.stopPropagation();
               open();
             }}
           >
-            {workspace === null ? 'Open in Reviews' : 'Review →'}
+            Review <ArrowIcon />
+          </button>
+        ) : item.read ? (
+          <span className="home-inbox-card__acked"><CheckIcon /> Acked</span>
+        ) : (
+          <button
+            type="button"
+            className="home-inbox-card__ack"
+            title="Acknowledge — mark read without opening"
+            onClick={event => {
+              event.stopPropagation();
+              handlers.ack?.(item);
+            }}
+          >
+            <CheckIcon /> Ack
           </button>
         )}
-        <time className="home-inbox-card__time">{relativeTime(item.time).replace(' ago', '')}</time>
-        {!item.read && <i className="home-inbox-card__dot" aria-label="unread" />}
+        <i className={`home-inbox-card__dot${item.read ? ' home-inbox-card__dot--clear' : ''}`} aria-label={item.read ? undefined : 'unread'} />
       </div>
     </article>
   );
+}
+
+function itemTitle(
+  item: InboxItem,
+  ref: ReturnType<typeof itemRef>,
+  handlers: InboxHandlers,
+): string {
+  if (item.source.kind === 'pr') return item.source.pr.title;
+  if (ref !== null) {
+    const prTitle = handlers.prTitle?.(ref.owner, ref.repo, ref.prNumber);
+    if (prTitle) return prTitle;
+  }
+  if (item.source.kind === 'notification' && item.source.notification.taskId !== null) {
+    const taskTitle = handlers.taskTitle?.(item.source.notification.taskId);
+    if (taskTitle) return taskTitle;
+  }
+  return item.title;
 }
 
 function itemRef(item: InboxItem): {
@@ -137,42 +173,31 @@ function itemRef(item: InboxItem): {
   return null;
 }
 
-function InboxIcon({ type }: { type: InboxItemType }) {
-  if (type === 'review' || type === 'approval') {
-    return <svg viewBox="0 0 24 24"><circle cx="18" cy="18" r="2.5" /><circle cx="6" cy="6" r="2.5" /><path d="M6 21V9M13 6h3a2 2 0 0 1 2 2v7" /></svg>;
+function legacyIcon(type: InboxItem['type']): NonNullable<InboxItem['icon']> {
+  if (type === 'review' || type === 'approval' || type === 'mention') return 'pr';
+  if (type === 'blocked') return 'attention';
+  return type === 'done' ? 'check' : 'task';
+}
+
+function InboxIcon({ icon }: { icon: NonNullable<InboxItem['icon']> }) {
+  if (icon === 'pr') {
+    return <svg viewBox="0 0 24 24"><circle cx="18" cy="18" r="2.3" /><circle cx="6" cy="5.5" r="2.3" /><circle cx="6" cy="18.5" r="2.3" /><path d="M6 7.8v8.4M11.3 5.5H15a3 3 0 0 1 3 3v7.7" /></svg>;
   }
-  if (type === 'blocked') {
+  if (icon === 'attention') {
     return <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg>;
   }
-  if (type === 'info') {
-    return <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /><path d="M12 8v3M12 13.5h.01" /></svg>;
+  if (icon === 'task') {
+    return <svg viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15" rx="2" /><path d="m8.4 12.3 2.4 2.4 4.8-5.2" /></svg>;
   }
-  if (type === 'mention') {
-    return <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>;
-  }
-  return <svg viewBox="0 0 24 24"><circle cx="18" cy="18" r="2.6" /><circle cx="6" cy="6" r="2.6" /><path d="M6 21V9a9 9 0 0 0 9 9" /></svg>;
+  return <svg viewBox="0 0 24 24"><path d="M20 6.5 9.4 17.1 4.2 11.9" /></svg>;
 }
 
-function GlobeIcon() {
-  return <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5c2.2 2.4 3.3 5.2 3.3 8.5S14.2 18.1 12 20.5M12 3.5C9.8 5.9 8.7 8.7 8.7 12s1.1 6.1 3.3 8.5" /></svg>;
+function CheckIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6.5 9.4 17.1 4.2 11.9" /></svg>;
 }
 
-function WorkspaceScopeIcon({ owner }: { owner: string }) {
-  const [failed, setFailed] = useState(false);
-  if (failed || owner === '') {
-    return <svg className="home-inbox-card__workspace-icon" viewBox="0 0 24 24">
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </svg>;
-  }
-  return <img
-    className="home-inbox-card__workspace-icon"
-    src={`https://github.com/${encodeURIComponent(owner)}.png?size=24`}
-    alt=""
-    onError={() => setFailed(true)}
-  />;
+function ArrowIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>;
 }
 
 export default InboxCard;

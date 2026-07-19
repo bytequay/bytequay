@@ -20,6 +20,7 @@ import type { DeployNoticeDto } from './homeData';
 /** Visual flavour of an inbox row — picks the icon tile color. Matches
  *  the home design's six notification variants. */
 export type InboxItemType = 'approval' | 'done' | 'review' | 'mention' | 'blocked' | 'info';
+export type InboxItemIcon = 'pr' | 'check' | 'task' | 'attention';
 
 /** One row in the home Inbox. A discriminated `source` keeps the raw
  *  record around so the card can offer the right actions (publish gate
@@ -28,11 +29,14 @@ export type InboxItem = {
   /** Stable key, prefixed by source ("n:", "pr:", "dep:"). */
   id: string;
   type: InboxItemType;
+  icon?: InboxItemIcon;
   title: string;
   sub: string;
   /** ISO timestamp the row sorts by (newest first). */
   time: string;
   read: boolean;
+  /** True for live gates/review requests; false for ackable FYI rows. */
+  actionRequired?: boolean;
   source:
     | { kind: 'notification'; notification: NotificationDto }
     | { kind: 'pr'; pr: DashboardPR }
@@ -51,14 +55,53 @@ function notificationType(n: NotificationDto): InboxItemType {
   }
 }
 
+function notificationPayload(n: NotificationDto): Record<string, unknown> {
+  try {
+    const payload: unknown = JSON.parse(n.payloadJson);
+    return typeof payload === 'object' && payload !== null ? payload as Record<string, unknown> : {};
+  }
+  catch {
+    return {};
+  }
+}
+
+function text(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
+}
+
+function notificationTitle(n: NotificationDto, payload: Record<string, unknown>): string {
+  const pr = typeof payload.pr === 'object' && payload.pr !== null
+    ? payload.pr as Record<string, unknown>
+    : {};
+  return text(payload.prTitle)
+    ?? text(pr.title)
+    ?? text(payload.taskTitle)
+    ?? text(n.summary)
+    ?? text(n.title)
+    ?? titleFor(n);
+}
+
+function notificationIcon(n: NotificationDto, payload: Record<string, unknown>): InboxItemIcon {
+  if (n.kind === 'AWAITING_REVIEW' || n.kind === 'READY_TO_MERGE') return 'pr';
+  if (n.kind === 'NEEDS_ATTENTION') return 'attention';
+  if (text(payload.publishResolution) !== null) return 'check';
+  if (typeof payload.prNumber === 'number' || typeof payload.shippedTaskId === 'string') return 'pr';
+  return n.taskId !== null ? 'task' : 'check';
+}
+
 export function notificationToInboxItem(n: NotificationDto): InboxItem {
+  const payload = notificationPayload(n);
   return {
     id: `n:${n.id}`,
     type: notificationType(n),
-    title: titleFor(n),
-    sub: previewFor(n),
+    icon: notificationIcon(n, payload),
+    title: notificationTitle(n, payload),
+    sub: [titleFor(n), previewFor(n)].filter(Boolean).join(' · '),
     time: n.createdAt,
     read: n.status !== 'UNREAD' && n.status !== 'RESOLVING',
+    actionRequired: n.kind === 'AWAITING_REVIEW'
+      || n.kind === 'NEEDS_ATTENTION'
+      || n.kind === 'READY_TO_MERGE',
     source: { kind: 'notification', notification: n },
   };
 }
@@ -94,8 +137,10 @@ export function prToInboxItem(pr: DashboardPR): InboxItem | null {
       ...base,
       id: `pr:${pr.id}`,
       type: 'blocked',
-      title: `PR #${pr.number} needs attention`,
-      sub: `${reasonLabel(reason)} — ${pr.title} — ${pr.repo}`,
+      icon: 'attention',
+      title: pr.title,
+      sub: `Needs attention · ${reasonLabel(reason)} · ${pr.repo} #${pr.number}`,
+      actionRequired: true,
     };
   }
   if (pr.origin === 'REVIEW_REQUESTED' && pr.reviewedAt === null) {
@@ -103,8 +148,10 @@ export function prToInboxItem(pr: DashboardPR): InboxItem | null {
       ...base,
       id: `pr:${pr.id}`,
       type: 'review',
-      title: `Review requested on #${pr.number}`,
-      sub: `${pr.title} — ${pr.repo}`,
+      icon: 'pr',
+      title: pr.title,
+      sub: `Review requested · ${pr.repo} #${pr.number}`,
+      actionRequired: true,
     };
   }
   if (reason === 'MENTIONED') {
@@ -112,8 +159,10 @@ export function prToInboxItem(pr: DashboardPR): InboxItem | null {
       ...base,
       id: `pr:${pr.id}`,
       type: 'mention',
-      title: `You were mentioned on #${pr.number}`,
-      sub: `${pr.title} — ${pr.repo}`,
+      icon: 'pr',
+      title: pr.title,
+      sub: `You were mentioned · ${pr.repo} #${pr.number}`,
+      actionRequired: true,
     };
   }
   if (reason === 'NEW_COMMENT') {
@@ -121,8 +170,10 @@ export function prToInboxItem(pr: DashboardPR): InboxItem | null {
       ...base,
       id: `pr:${pr.id}`,
       type: 'info',
-      title: `New comments on #${pr.number}`,
-      sub: `${pr.title} — ${pr.repo}`,
+      icon: 'pr',
+      title: pr.title,
+      sub: `New comments · ${pr.repo} #${pr.number}`,
+      actionRequired: true,
     };
   }
   return null;
@@ -132,10 +183,12 @@ export function deployToInboxItem(d: DeployNoticeDto): InboxItem {
   return {
     id: `dep:${d.id}`,
     type: 'info',
-    title: `Deploy ${d.succeeded ? 'succeeded' : 'failed'}`,
-    sub: `${d.environment} — ${d.repoFullName} @ ${d.commit}`,
+    icon: d.succeeded ? 'check' : 'attention',
+    title: d.repoFullName,
+    sub: `Deploy ${d.succeeded ? 'succeeded' : 'failed'} · ${d.environment} · ${d.commit}`,
     time: d.finishedAt,
     read: true,
+    actionRequired: false,
     source: { kind: 'deploy', deploy: d },
   };
 }

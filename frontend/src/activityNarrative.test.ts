@@ -43,22 +43,34 @@ describe('followingNarrativeSegments', () => {
   // Helpers: pull just the linked segments out so the assertions read as
   // a flat URL list — clearer than zipping over text chunks.
   const links = (segments: ReturnType<typeof followingNarrativeSegments>) =>
-    segments.filter(s => s.url).map(s => s.url!);
+    segments.flatMap(s => s.url ? [s.url] : []);
 
   it('PullRequestEvent (opened) → only the PR is linked, repo is plain text', () => {
     const segs = followingNarrativeSegments(event({ type: 'PullRequestEvent', action: 'opened', prNumber: 7 }));
-    expect(segs.map(s => s.text).join('')).toBe('opened pull request #7 in trinodb/trino');
+    expect(segs.map(s => s.text).join('')).toBe('opened PR #7 in trinodb/trino');
     expect(links(segs)).toEqual(['https://github.com/trinodb/trino/pull/7']);
+  });
+
+  it('uses the PR title as the linked object when GitHub supplies it', () => {
+    const segs = followingNarrativeSegments(event({
+      type: 'PullRequestReviewEvent',
+      prNumber: 30384,
+      prTitle: 'Improve exchange source memory accounting',
+    }));
+    expect(segs.map(s => s.text).join('')).toBe(
+      'reviewed Improve exchange source memory accounting in trinodb/trino',
+    );
+    expect(links(segs)).toEqual(['https://github.com/trinodb/trino/pull/30384']);
   });
 
   it('PullRequestEvent (closed) uses "closed" verb', () => {
     const segs = followingNarrativeSegments(event({ type: 'PullRequestEvent', action: 'closed', prNumber: 9 }));
-    expect(segs.map(s => s.text).join('')).toBe('closed pull request #9 in trinodb/trino');
+    expect(segs.map(s => s.text).join('')).toBe('closed PR #9 in trinodb/trino');
   });
 
   it('PullRequestEvent without prNumber has no link at all', () => {
     const segs = followingNarrativeSegments(event({ type: 'PullRequestEvent', prNumber: 0 }));
-    expect(segs.map(s => s.text).join('')).toBe('opened a pull request in trinodb/trino');
+    expect(segs.map(s => s.text).join('')).toBe('opened a PR in trinodb/trino');
     expect(links(segs)).toEqual([]);
   });
 
@@ -80,6 +92,16 @@ describe('followingNarrativeSegments', () => {
     const many = followingNarrativeSegments(event({ type: 'PushEvent', commitCount: 4, prNumber: 0 }));
     expect(many.map(s => s.text).join('')).toBe('pushed 4 commits to trinodb/trino');
     expect(links(many)).toEqual(['https://github.com/trinodb/trino/commits']);
+
+    const branch = followingNarrativeSegments(event({
+      type: 'PushEvent',
+      commitCount: 2,
+      prNumber: 0,
+      ref: 'refs/heads/optimize-task-query',
+    }));
+    expect(branch.map(s => s.text).join('')).toBe(
+      'pushed 2 commits to optimize-task-query in trinodb/trino',
+    );
   });
 
   it('merged PushEvent (pushCount>1) counts pushes and links the PR when present', () => {
@@ -124,7 +146,7 @@ describe('followingNarrativeSegments', () => {
     expect(links(branch)).toEqual([]);
   });
 
-  it('Watch / Fork / unknown render as plain text (no links)', () => {
+  it('Watch / Fork / unknown render specific verbs without vague activity copy', () => {
     const watch = followingNarrativeSegments(event({ type: 'WatchEvent' }));
     expect(watch.map(s => s.text).join('')).toBe('starred trinodb/trino');
     expect(links(watch)).toEqual([]);
@@ -134,7 +156,8 @@ describe('followingNarrativeSegments', () => {
     expect(links(fork)).toEqual([]);
 
     const unknown = followingNarrativeSegments(event({ type: 'GollumEvent' }));
-    expect(unknown.map(s => s.text).join('')).toBe('activity in trinodb/trino');
+    expect(unknown.map(s => s.text).join('')).toBe('updated wiki pages in trinodb/trino');
+    expect(unknown.map(s => s.text).join('')).not.toContain('activity in');
     expect(links(unknown)).toEqual([]);
   });
 });
@@ -164,6 +187,14 @@ describe('groupRecentEvents', () => {
     ]);
     expect(grouped).toHaveLength(5);
     expect(grouped.every(e => e.pushCount === undefined)).toBe(true);
+  });
+
+  it('does not merge pushes to different branches', () => {
+    const grouped = groupRecentEvents([
+      { ...push('a/x'), ref: 'refs/heads/main' },
+      { ...push('a/x'), ref: 'refs/heads/release' },
+    ]);
+    expect(grouped).toHaveLength(2);
   });
 
   const comment = (repo: string, prNumber: number) =>

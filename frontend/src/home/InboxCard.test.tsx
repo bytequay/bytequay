@@ -42,7 +42,7 @@ describe('InboxCard', () => {
     const handlers = makeHandlers({ openRemoteReview: vi.fn() });
     const item = notificationToInboxItem(notif({ payload: MERGE_GATE }));
     render(<InboxCard item={item} handlers={handlers} />);
-    expect(screen.getByText('Open in Reviews')).toBeTruthy();
+    expect(screen.getByText('Review')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Awaiting your review/ }));
     expect(handlers.openRemoteReview).toHaveBeenCalledWith('chenjian2664', 'ByteQuay', 29);
   });
@@ -59,20 +59,39 @@ describe('InboxCard', () => {
     expect(handlers.opened).toHaveBeenCalledOnce();
   });
 
+  it('acknowledges an FYI row without opening it', () => {
+    const handlers = makeHandlers({ ack: vi.fn() });
+    const item = notificationToInboxItem(notif({
+      kind: 'AUTO_FIX_DONE',
+      payload: { publishResolution: 'approved', action: 'push', message: 'Pushed the branch' },
+    }));
+    render(<InboxCard item={item} handlers={handlers} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ack' }));
+
+    expect(handlers.ack).toHaveBeenCalledWith(item);
+    expect(handlers.openPr).not.toHaveBeenCalled();
+    expect(handlers.openTask).not.toHaveBeenCalled();
+    expect(handlers.opened).not.toHaveBeenCalled();
+  });
+
+  it('keeps the relative time beside the title', () => {
+    const item = notificationToInboxItem(notif({ payload: MERGE_GATE }));
+    const { container } = render(<InboxCard item={item} handlers={makeHandlers()} />);
+
+    expect(container.querySelector('.home-inbox-card__title-line .home-inbox-card__time')).toBeTruthy();
+    expect(container.querySelector('.home-inbox-card__row > .home-inbox-card__time')).toBeNull();
+  });
+
   it('prefers the owning workspace and renders its workspace chip', () => {
     const handlers = makeHandlers({
       openWorkspacePr: vi.fn(),
       workspaceForRepo: () => ({ workspaceId: 'ws-1', name: 'ByteQuay' }),
     });
     const item = notificationToInboxItem(notif({ payload: MERGE_GATE }));
-    const { container } = render(<InboxCard item={item} handlers={handlers} />);
+    render(<InboxCard item={item} handlers={handlers} />);
     expect(screen.getByText('ByteQuay')).toBeTruthy();
-    const workspaceIcon = container.querySelector('.home-inbox-card__workspace-icon');
-    expect(workspaceIcon?.getAttribute('src'))
-      .toContain('github.com/chenjian2664.png');
-    fireEvent.error(workspaceIcon as HTMLImageElement);
-    expect(container.querySelector('.home-inbox-card__workspace-icon')?.tagName).toBe('svg');
-    expect(screen.getByText('Review →')).toBeTruthy();
+    expect(screen.getByText('Review')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Awaiting your review/ }));
     expect(handlers.openWorkspacePr).toHaveBeenCalledWith('ws-1', 29);
     expect(handlers.openPr).not.toHaveBeenCalled();

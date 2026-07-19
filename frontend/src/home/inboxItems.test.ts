@@ -71,6 +71,7 @@ describe('notificationToInboxItem', () => {
     expect(notificationToInboxItem(notif({ kind: 'AWAITING_REVIEW' })).type).toBe('approval');
     expect(notificationToInboxItem(notif({ kind: 'NEEDS_ATTENTION' })).type).toBe('blocked');
     expect(notificationToInboxItem(notif({ kind: 'AUTO_FIX_DONE' })).type).toBe('done');
+    expect(notificationToInboxItem(notif({ kind: 'AUTO_FIX_DONE' })).actionRequired).toBe(false);
   });
 
   it('falls back to info for kinds the frontend does not know yet', () => {
@@ -90,7 +91,10 @@ describe('prToInboxItem', () => {
   it('turns a fresh review request into a review row', () => {
     const item = prToInboxItem(pr());
     expect(item?.type).toBe('review');
-    expect(item?.title).toBe('Review requested on #412');
+    expect(item?.title).toBe('feat: migrate auth to JWT');
+    expect(item?.sub).toBe('Review requested · org/backend-core #412');
+    expect(item?.icon).toBe('pr');
+    expect(item?.actionRequired).toBe(true);
     expect(item?.read).toBe(false);
   });
 

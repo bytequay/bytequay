@@ -136,6 +136,12 @@ function ReviewCard({ item, repoCtx }: { item: Extract<TimelineItem, { kind: 're
         {item.verdict === 'changes' && (
           <span style={{ fontSize: 11.5, fontWeight: 600, color: '#cf222e', background: '#ffebe9', border: '1px solid rgba(207,34,46,0.25)', borderRadius: 999, padding: '2px 10px' }}>Changes requested</span>
         )}
+        {item.verdict === 'commented' && (
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: '#57606a', background: '#f6f8fa', border: '1px solid #d8dee4', borderRadius: 999, padding: '2px 10px' }}>Commented</span>
+        )}
+        {item.verdict === 'dismissed' && (
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: '#57606a', background: '#f6f8fa', border: '1px solid #d8dee4', borderRadius: 999, padding: '2px 10px' }}>Dismissed</span>
+        )}
         <span style={{ marginLeft: 'auto', fontSize: 12.5, color: '#8b949e' }}>{item.time}</span>
       </div>
       {item.body !== null && (

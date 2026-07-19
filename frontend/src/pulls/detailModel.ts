@@ -109,10 +109,12 @@ export function labelDotColor(row: PullRow): string {
 
 export type TimelineReply = { id: string; author: string; bot: boolean; body: string; time: string };
 
+export type TimelineReviewVerdict = 'approved' | 'changes' | 'commented' | 'dismissed' | null;
+
 export type TimelineItem =
   | { kind: 'commit'; id: string; at: number; time: string; message: string; sha: string }
   | { kind: 'review'; id: string; at: number; time: string; author: string; bot: boolean;
-      verdict: 'approved' | 'changes' | null; body: string | null }
+      verdict: TimelineReviewVerdict; body: string | null }
   | { kind: 'comment'; id: string; at: number; time: string; author: string; bot: boolean;
       body: string; replies: TimelineReply[]; remoteId: number | null }
   | { kind: 'merged'; id: string; at: number; time: string; author: string; sha: string | null; base: string };
@@ -122,7 +124,52 @@ function str(payload: Record<string, unknown> | null, key: string): string | nul
   return typeof v === 'string' ? v : null;
 }
 
-const APPROVED_VERDICTS = new Set(['APPROVED', 'approved']);
+function reviewVerdict(value: string | null): TimelineReviewVerdict {
+  switch (value?.toUpperCase().replaceAll('-', '_')) {
+    case 'APPROVE':
+    case 'APPROVED':
+      return 'approved';
+    case 'REQUEST_CHANGES':
+    case 'CHANGES_REQUESTED':
+      return 'changes';
+    case 'COMMENT':
+    case 'COMMENTED':
+      return 'commented';
+    case 'DISMISS':
+    case 'DISMISSED':
+      return 'dismissed';
+    default:
+      return null;
+  }
+}
+
+const REVIEW_RECONCILE_WINDOW_MS = 10_000;
+
+/** Pair ByteQuay's local "submitted" audit event with the canonical review
+ *  that the following GitHub sync adds. The publish API currently does not
+ *  retain GitHub's review id on the local event, so verdict + timestamp is the
+ *  only shared identity available for historical rows. */
+function duplicateLocalReviewIds(bundle: LocalPRBundle): Set<string> {
+  const local = bundle.timeline.filter(event => event.eventType === 'review'
+    && event.isLocalOnly && str(event.payload, 'reviewEvent') === 'submitted');
+  const remote = bundle.timeline.filter(event => event.eventType === 'review'
+    && typeof event.remoteEventId === 'number');
+  const duplicates = new Set<string>();
+
+  // ponytail: review timelines are small; capture the GitHub id at publish
+  // time if this bounded local scan ever becomes measurable.
+  for (const canonical of remote) {
+    const verdict = reviewVerdict(str(canonical.payload, 'verdict'));
+    if (verdict === null) continue;
+    const match = local
+      .filter(candidate => !duplicates.has(candidate.id)
+        && reviewVerdict(str(candidate.payload, 'verdict')) === verdict
+        && Math.abs(candidate.createdAt - canonical.createdAt) <= REVIEW_RECONCILE_WINDOW_MS)
+      .sort((a, b) => Math.abs(a.createdAt - canonical.createdAt) - Math.abs(b.createdAt - canonical.createdAt))[0];
+    if (match !== undefined) duplicates.add(match.id);
+  }
+  return duplicates;
+}
 
 /**
  * Maps the local timeline + PR-level comments to the template's card shapes:
@@ -135,6 +182,7 @@ const APPROVED_VERDICTS = new Set(['APPROVED', 'approved']);
 export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
   const items: TimelineItem[] = [];
   const remoteCommentIds = new Map<string, number>();
+  const duplicateReviews = duplicateLocalReviewIds(bundle);
   for (const event of bundle.timeline) {
     if (event.eventType === 'comment') {
       const commentId = str(event.payload, 'commentId');
@@ -152,6 +200,7 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
       continue;
     }
     if (event.eventType === 'review') {
+      if (duplicateReviews.has(event.id)) continue;
       const reviewEvent = str(event.payload, 'reviewEvent');
       if (reviewEvent === 'started' || reviewEvent === 'addressing-started') continue;
       const verdict = str(event.payload, 'verdict');
@@ -160,7 +209,7 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
       items.push({
         kind: 'review', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
         author: displayName(event.actor), bot: isBotActor(event.actor),
-        verdict: verdict === null ? null : APPROVED_VERDICTS.has(verdict) ? 'approved' : 'changes',
+        verdict: reviewVerdict(verdict),
         body: body !== null && body.trim().length > 0 ? body : null,
       });
     }

@@ -31,6 +31,7 @@ const EXPANSION_KEY = 'byq.trunkExpanded.v1';
 type ExpansionStore = {
   a?: Record<string, boolean>;
   b?: Record<string, boolean>;
+  workspaceOpen?: boolean;
 };
 
 export function TrunkWorkspaceSidebar({
@@ -80,7 +81,7 @@ export function TrunkWorkspaceSidebar({
   onNewThread?: () => void;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean> | null>(() => readExpansion().b ?? null);
-  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(() => readExpansion().workspaceOpen ?? false);
   const [tasksByThread, setTasksByThread] = useState<Record<string, WorkUnitTaskDto[]>>({});
 
   const effectiveExpanded = useMemo(() => {
@@ -104,7 +105,7 @@ export function TrunkWorkspaceSidebar({
     if (selected === undefined) return;
     const next = { [selected.title]: true };
     setExpanded(next);
-    writeExpansion(next);
+    writeExpansion({ b: next });
   }, [expanded, selectedThreadId, threads]);
 
   useEffect(() => {
@@ -142,7 +143,7 @@ export function TrunkWorkspaceSidebar({
     if (!hasTasks) return;
     const next = { ...effectiveExpanded, [thread.title]: !effectiveExpanded[thread.title] };
     setExpanded(next);
-    writeExpansion(next);
+    writeExpansion({ b: next });
   };
 
   return (
@@ -219,7 +220,11 @@ export function TrunkWorkspaceSidebar({
 
           <div className="trunk-page-v2-nav__workspace">
             <button type="button" className="trunk-page-v2-nav__workspace-toggle"
-              aria-expanded={workspaceOpen} onClick={() => setWorkspaceOpen(open => !open)}>
+              aria-expanded={workspaceOpen} onClick={() => setWorkspaceOpen(open => {
+                const next = !open;
+                writeExpansion({ workspaceOpen: next });
+                return next;
+              })}>
               <span className={workspaceOpen ? 'is-open' : ''}><ChevronIcon size={11} /></span>
               <strong>WORKSPACE</strong>
             </button>
@@ -318,10 +323,10 @@ function readExpansion(): ExpansionStore {
   }
 }
 
-function writeExpansion(next: Record<string, boolean>) {
+function writeExpansion(patch: Partial<ExpansionStore>) {
   try {
     const current = readExpansion();
-    window.localStorage.setItem(EXPANSION_KEY, JSON.stringify({ ...current, b: next }));
+    window.localStorage.setItem(EXPANSION_KEY, JSON.stringify({ ...current, ...patch }));
   }
   catch {
     // Expansion persistence is convenience only.

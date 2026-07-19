@@ -123,6 +123,23 @@ describe('WorkspaceNavShell', () => {
     expect(onSwitchWorkspace).toHaveBeenCalledOnce();
   });
 
+  it('remembers whether the workspace navigation group is folded', async () => {
+    mockBridge();
+    const { unmount } = render(<WorkspaceNavShell activeWorkspaceId="bq" />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'WORKSPACE' })).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: 'WORKSPACE' }));
+    expect(screen.getByRole('button', { name: 'WORKSPACE' }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('Pull requests')).toBeTruthy();
+
+    unmount();
+    render(<WorkspaceNavShell activeWorkspaceId="bq" />);
+    expect(screen.getByRole('button', { name: 'WORKSPACE' }).getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: 'WORKSPACE' }));
+    expect(screen.queryByText('Pull requests')).toBeNull();
+  });
+
   it('opens a nested task with its owning trunk from a workspace page', async () => {
     mockBridge({
       listTasks: vi.fn().mockResolvedValue([

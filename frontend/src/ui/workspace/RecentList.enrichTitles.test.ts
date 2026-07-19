@@ -45,6 +45,20 @@ describe('enrichTitles', () => {
     expect(enriched.title).toBe('Replace two lambdas');
   });
 
+  it('carries task repo and PR metadata for the approved second line', async () => {
+    window.bridge = {
+      listTasksForThread: vi.fn(async () => [task({
+        linkedPrRef: 'chenjian2664/ByteQuay#42',
+        prNumber: 42,
+      })]),
+    } as unknown as typeof window.bridge;
+
+    const [enriched] = await enrichTitles([stop()]);
+
+    expect(enriched.recentRepo).toBe('chenjian2664/ByteQuay');
+    expect(enriched.recentNumber).toBe(42);
+  });
+
   it('falls back to the humanised branch when the task has no name', async () => {
     window.bridge = {
       listTasksForThread: vi.fn(async () => [task({ name: null })]),

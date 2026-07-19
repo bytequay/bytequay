@@ -45,16 +45,17 @@
 /* Right-panel sections: flat lists under small uppercase headers —
    the 240px panel reads as one surface, not stacked cards. */
 .home-side-section--recent-activity {
-  margin-top: var(--space-3);
+  margin-top: 0;
 }
 
 .home-side-section__title {
-  font-size: 10px;
+  padding: 2px 8px 8px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--text-3);
+  color: #6e7781;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin: 0 0 var(--space-1);
+  letter-spacing: 0.06em;
+  margin: 0;
 }
 
 /* Shared card base — tuned to match the workspace-card visual
@@ -610,13 +611,25 @@
 .home-following-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: 1px;
 }
 
 .home-following-item {
   display: flex;
   align-items: flex-start;
-  gap: var(--space-2);
+  gap: 9px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.home-following-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.home-following-item:focus-visible {
+  outline: 2px solid var(--accent-border);
+  outline-offset: -2px;
 }
 
 .home-following-item__actor {
@@ -633,15 +646,48 @@
   display: block;
 }
 
+.home-activity-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  color: #57606a;
+  background: #f0f2f4;
+}
+
+.home-activity-icon--pr,
+.home-activity-icon--review {
+  color: #1a7f37;
+  background: #dafbe1;
+}
+
+.home-activity-icon--sync {
+  color: #0969da;
+  background: #ddf4ff;
+}
+
+.home-activity-icon svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .home-following-item__body {
   flex: 1;
   min-width: 0;
 }
 
 .home-following-item__text {
-  font-size: var(--font-size-sm);
-  line-height: 1.5;
-  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: #57606a;
   word-break: break-word;
 }
 
@@ -649,9 +695,9 @@
   background: none;
   border: none;
   padding: 0;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--text-1);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #17191c;
   cursor: pointer;
   font-family: inherit;
 }
@@ -662,7 +708,7 @@
 }
 
 .home-following-item__verb {
-  color: var(--text-2);
+  color: #57606a;
 }
 
 /* Inline links for repo / PR / issue references inside an activity row.
@@ -676,9 +722,9 @@
   margin: 0;
   font: inherit;
   font-size: inherit;
-  color: var(--accent);
+  color: inherit;
   cursor: pointer;
-  font-weight: 500;
+  font-weight: inherit;
 }
 .home-following-item__link:hover {
   text-decoration: underline;
@@ -686,9 +732,14 @@
 
 /* PR title shown under a merged push row — small, muted, single line with
    ellipsis when it overflows the card width. */
-.home-following-item__prtitle {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
+.home-following-item__object {
+  color: #17191c;
+  font-weight: 500;
+}
+
+.home-following-item__detail {
+  font-size: 11.5px;
+  color: #8b949e;
   margin-top: 1px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -696,9 +747,11 @@
 }
 
 .home-following-item__time {
-  font-size: var(--font-size-xs);
-  color: var(--text-3);
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #a0a6ad;
   margin-top: 2px;
+  text-align: right;
 }
 
 /* Section title (used by PullRequestPreview) */

@@ -17,6 +17,7 @@ import type { DashboardPR } from '../types/dashboardPr';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
+import { relativeTime } from '../notificationDisplay';
 import { bucketize } from '../prBuckets';
 import { getCached, setCached } from '../dataCache';
 import ContributionCard from './ContributionCard';
@@ -82,17 +83,6 @@ export function parseGithubUrl(url: string): { owner: string; repo: string; prNu
   }
 }
 
-function formatRelativeTime(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const mins = Math.round(diffMs / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  if (hrs < 48) return 'Yesterday';
-  return `${Math.round(hrs / 24)} days ago`;
-}
-
 function HomePage({
   onSelectRepo,
   onOpenWorkspacePr,
@@ -101,7 +91,6 @@ function HomePage({
   onOpenTeam,
   onGoToTeams,
   onOpenTask,
-  onOpenNotifications,
 }: Props) {
   /** Smart router for activity-row link clicks: keep github.com repo and
    *  PR links inside the app (RepoDetailPage will auto-select the PR via
@@ -245,7 +234,6 @@ function HomePage({
           onOpenWorkspacePr={onOpenWorkspacePr}
           onOpenRemoteReview={onOpenRemoteReview}
           onOpenTask={onOpenTask}
-          onSeeAll={() => onOpenNotifications?.()}
           onPrsChanged={v => { setPrs(v); setCached(KEY_PRS, v); }}
         />
       </div>
@@ -277,9 +265,9 @@ function HomePage({
                 <ActivityRow
                   key={i}
                   event={e}
-                  actor={profile ? { login: profile.login, profileUrl: profile.htmlUrl } : null}
+                  actor={null}
                   showActorName={false}
-                  formatTime={formatRelativeTime}
+                  formatTime={iso => relativeTime(iso).replace(' ago', '')}
                   onOpenUrl={handleActivityLink}
                 />
               ))}
@@ -298,10 +286,14 @@ function HomePage({
                   key={i}
                   event={e}
                   actor={e.actorLogin
-                    ? { login: e.actorLogin, profileUrl: `https://github.com/${e.actorLogin}` }
+                    ? {
+                      login: e.actorLogin,
+                      profileUrl: `https://github.com/${e.actorLogin}`,
+                      avatarUrl: e.actorAvatarUrl,
+                    }
                     : null}
                   showActorName={true}
-                  formatTime={formatRelativeTime}
+                  formatTime={iso => relativeTime(iso).replace(' ago', '')}
                   onOpenUrl={handleActivityLink}
                 />
               ))}

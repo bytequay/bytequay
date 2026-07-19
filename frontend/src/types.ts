@@ -938,6 +938,14 @@ export type RecentEventDto = {
   prNumber: number;
   refType: string | null;
   actorLogin: string | null;
+  /** GitHub event actor.avatar_url. Older cached rows may omit it. */
+  actorAvatarUrl?: string | null;
+  /** Commit subject or PR/issue title supplied by the event payload. */
+  detail?: string | null;
+  /** Created branch/tag name for CreateEvent. */
+  ref?: string | null;
+  /** APPROVED / CHANGES_REQUESTED / COMMENTED for review events. */
+  reviewState?: string | null;
   /** Set by {@link groupRecentEvents} when consecutive pushes to the same
    *  repo/PR are collapsed into one row; absent for un-merged events. */
   pushCount?: number;
@@ -2343,7 +2351,9 @@ export type NewTaskRequestDto = {
 export type NotificationKindDto =
   | 'AWAITING_REVIEW'
   | 'NEEDS_ATTENTION'
-  | 'AUTO_FIX_DONE';
+  | 'AUTO_FIX_DONE'
+  | 'READY_TO_MERGE'
+  | 'PASSIVE';
 
 export type NotificationStatusDto = 'UNREAD' | 'READ' | 'RESOLVING' | 'RESOLVED' | 'DISMISSED';
 
@@ -2740,6 +2750,11 @@ export type NotificationDto = {
   payloadJson: string;
   createdAt: string;
   readAt: string | null;
+  workspaceId?: string | null;
+  publicType?: string | null;
+  title?: string | null;
+  summary?: string | null;
+  itemPath?: string | null;
 };
 
 /** Row in the Settings → Concepts catalog. Read-only; concepts

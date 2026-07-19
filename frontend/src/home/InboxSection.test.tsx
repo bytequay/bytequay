@@ -16,7 +16,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import InboxSection from './InboxSection';
 import type { NotificationDto } from '../types';
 
-afterEach(() => { cleanup(); Reflect.deleteProperty(window, 'bridge'); });
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  Reflect.deleteProperty(window, 'bridge');
+});
 
 function notif(over: Partial<NotificationDto> & { payload: object }): NotificationDto {
   const { payload, ...rest } = over;
@@ -38,7 +42,7 @@ function mockBridge(notifications: NotificationDto[]) {
 }
 
 describe('InboxSection', () => {
-  it('opens and marks a plain AWAITING_REVIEW notification read', async () => {
+  it('opens a plain AWAITING_REVIEW notification without acknowledging its live gate', async () => {
     const bridge = mockBridge([
       notif({ payload: { repoFullName: 'chenjian2664/ByteQuay', prNumber: 29 } }),
     ]);
@@ -47,8 +51,57 @@ describe('InboxSection', () => {
       <InboxSection prs={[]} onOpenPr={onOpenPr} onSeeAll={() => {}} onPrsChanged={() => {}} />,
     );
     fireEvent.click(await screen.findByText('Awaiting your review'));
-    await waitFor(() => expect(bridge.markNotificationRead).toHaveBeenCalledWith('n1'));
     expect(onOpenPr).toHaveBeenCalledWith('chenjian2664', 'ByteQuay', 29);
+    expect(bridge.markNotificationRead).not.toHaveBeenCalled();
+  });
+
+  it('acks an informational row in place without navigating', async () => {
+    const bridge = mockBridge([
+      notif({
+        kind: 'AUTO_FIX_DONE',
+        payload: {
+          publishResolution: 'approved', action: 'push', message: 'Pushed the branch',
+          pr: { owner: 'chenjian2664', repo: 'ByteQuay', number: 29, title: 'Inbox acknowledgement' },
+        },
+      }),
+    ]);
+    const onOpenPr = vi.fn();
+    render(<InboxSection prs={[]} onOpenPr={onOpenPr} onPrsChanged={() => {}} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Ack' }));
+
+    expect(bridge.markNotificationRead).toHaveBeenCalledWith('n1');
+    expect(onOpenPr).not.toHaveBeenCalled();
+    expect(screen.queryByText('Inbox acknowledgement')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'See all' }));
+    expect(await screen.findByText('Acked')).toBeTruthy();
+    expect(screen.getByText('Inbox acknowledgement').closest('.home-inbox-card')?.classList
+      .contains('home-inbox-card--read')).toBe(true);
+  });
+
+  it('Ack all marks only FYI rows read and leaves live review requests unread', async () => {
+    const bridge = mockBridge([
+      notif({ id: 'fyi-1', kind: 'AUTO_FIX_DONE', payload: { message: 'Task done' } }),
+      notif({ id: 'fyi-2', kind: 'PASSIVE', payload: { message: 'PR merged' } }),
+      notif({
+        id: 'review-1',
+        kind: 'AWAITING_REVIEW',
+        payload: { repoFullName: 'chenjian2664/ByteQuay', prNumber: 29 },
+      }),
+    ]);
+    const { container } = render(
+      <InboxSection prs={[]} onOpenPr={() => {}} onPrsChanged={() => {}} />,
+    );
+    await screen.findByText('Ack all');
+    expect(container.querySelector('.home-inbox__badge')?.textContent).toBe('3');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ack all' }));
+
+    await waitFor(() => expect(bridge.markNotificationRead).toHaveBeenCalledTimes(2));
+    expect(bridge.markNotificationRead).toHaveBeenCalledWith('fyi-1');
+    expect(bridge.markNotificationRead).toHaveBeenCalledWith('fyi-2');
+    expect(bridge.markNotificationRead).not.toHaveBeenCalledWith('review-1');
+    expect(container.querySelector('.home-inbox__badge')?.textContent).toBe('1');
   });
 
   it('opens a publish gate without clearing its approval state', async () => {

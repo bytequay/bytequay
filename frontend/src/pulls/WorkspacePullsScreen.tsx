@@ -46,6 +46,17 @@ const DETAIL_DEFAULT = 940;
 
 const VIEW_SEGS: ['board' | 'list', string][] = [['board', 'Board'], ['list', 'List']];
 
+async function loadPullRequests(workspaceId: string, selectedNumber?: number): Promise<PullRequestDto[]> {
+  const rows = await workspaceApi.pullRequests(workspaceId);
+  if (selectedNumber === undefined || rows.some(pr => pr.number === selectedNumber)) return rows;
+  try {
+    return [...rows, await workspaceApi.pullRequest(workspaceId, selectedNumber)];
+  }
+  catch {
+    return rows;
+  }
+}
+
 function RefreshIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -86,11 +97,11 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
 
   useEffect(() => {
     let cancelled = false;
-    void workspaceApi.pullRequests(workspaceId)
+    void loadPullRequests(workspaceId, initialPrNumber)
       .then(rows => { if (!cancelled) setPrs(rows); })
       .catch(() => { /* transient; Refresh retries */ });
     return () => { cancelled = true; };
-  }, [workspaceId]);
+  }, [workspaceId, initialPrNumber]);
 
   // Deep links: the App nav sets selectedNumber; mirror it into local state.
   useEffect(() => {
@@ -156,7 +167,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
   }, [selDto, repo]);
 
   const refresh = () => {
-    void workspaceApi.pullRequests(workspaceId)
+    void loadPullRequests(workspaceId, sel ?? undefined)
       .then(setPrs)
       .catch(() => { /* transient; user can retry */ });
   };

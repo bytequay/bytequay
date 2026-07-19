@@ -57,6 +57,7 @@ describe('WorkspaceNavSidebar', () => {
       .toBeLessThan(items.findIndex(t => t?.includes('Notifications')));
     expect(container.querySelector('.ws-user-footer')).toBeNull();
     expect(container.querySelector('.sb-nav-item.active')?.textContent).toContain('Workspaces');
+    expect(screen.getByText('Pull requests').closest('.sb-nav-item')?.getAttribute('style')).toContain('font-weight: 400');
     fireEvent.click(screen.getByText('Home'));
     expect(onNavigate).toHaveBeenCalledWith('home');
     fireEvent.click(screen.getByText('Report a bug'));

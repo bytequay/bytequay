@@ -152,7 +152,8 @@ function foldSummary(run: StageConversationRow[]): { label: string; meta: string
  * activity remains visible.
  */
 export function stageFeed(
-  rows: StageConversationRow[], onDecide?: PermissionDecideHandler, threadId?: string, live = false): ReactNode[] {
+  rows: StageConversationRow[], onDecide?: PermissionDecideHandler, threadId?: string,
+  live = false, defaultOpen = false): ReactNode[] {
   const out: ReactNode[] = [];
   let run: StageConversationRow[] = [];
   const flush = (isTail: boolean) => {
@@ -165,6 +166,7 @@ export function stageFeed(
         meta={meta}
         icon={<ClockIcon size={14} strokeWidth={1.8} />}
         forceOpen={live && isTail}
+        defaultOpen={defaultOpen}
       >
         {run.map(r => stageRow(r, onDecide, threadId))}
       </WorkFold>,

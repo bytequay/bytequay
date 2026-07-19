@@ -85,7 +85,7 @@ describe('PullOverview', () => {
       expect(screen.getByTitle(login).querySelector('img')?.getAttribute('alt')).toBe(login);
     }
     expect(container.querySelector('.pl-pr-description')?.classList.contains('md-body')).toBe(true);
-    expect(screen.getByText('octocat').getAttribute('style')).toContain('font-weight: 400');
+    expect(screen.getByText('octocat').getAttribute('style')).toContain('font-weight: 600');
   });
 
   it('uses regular weight for every timeline username', () => {

@@ -35,11 +35,16 @@ import { WorkModelPill } from '../workspace/WorkModelPill';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
 import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
 import { PlanOverlay } from './PlanOverlay';
-import TaskCodePage from '../threads/TaskCodePage';
 import { ConvIndex } from '../threads/ConvIndex';
 import { AgentReviewHeaderAction } from '../review/AgentReviewHeaderAction';
 import { AgentReviewRoundPage } from '../review/AgentReviewRoundPage';
 import { useAgentReviewState } from '../review/useAgentReviewState';
+import { PullDetailBody } from '../pulls/PullDetailPane';
+import { pullRowFromLocal } from '../pulls/localRow';
+import type { PullRow } from '../pulls/model';
+import { derivePRCapabilities } from '../pr/prCapabilities';
+import { formatCost, formatDuration } from '../threads/brain/format';
+import { TaskChangedFilesCard } from './TaskChangedFilesCard';
 
 /**
  * Data adapter that mounts the V3 {@link TaskBrainPage} on the live brain
@@ -50,7 +55,9 @@ import { useAgentReviewState } from '../review/useAgentReviewState';
  */
 export function TaskBrainRoute({
   threadId, taskId, onOpenStage, onOpenCode, onOpenRun, onClosed,
-  onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
+  onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
+  trunkLabel, workspaceName, workspaceRepository,
+  onNavigateGlobal, onSwitchWorkspace, onNotifications, notificationCount,
   initialReviewRoundId,
 }: {
   threadId: string;
@@ -62,13 +69,21 @@ export function TaskBrainRoute({
   /** Closing a task seals it terminal + reaps its worktree, so the page is
    *  a dead end afterwards — navigate away (back to the thread trunk). */
   onClosed: () => void;
-  /** Global nav-history back/forward, forwarded to the task sidebar's
-   *  TrafficLights — same as the main Sidebar uses. */
+  /** Open the task's owning trunk from the plain trunk row and breadcrumb. */
   onBack?: () => void;
+  /** Browser-style history back for the traffic-light row. */
+  onHistoryBack?: () => void;
   onForward?: () => void;
   backEnabled?: boolean;
   forwardEnabled?: boolean;
   onToggleCollapse?: () => void;
+  trunkLabel?: string;
+  workspaceName?: string;
+  workspaceRepository?: string;
+  onNavigateGlobal?: (destination: 'home' | 'workspaces') => void;
+  onSwitchWorkspace?: () => void;
+  onNotifications?: () => void;
+  notificationCount?: number;
   initialReviewRoundId?: string;
 }) {
   const { data, pollFast } = useBrainViewData(taskId);
@@ -169,8 +184,8 @@ export function TaskBrainRoute({
     });
   }, []);
 
-  // The cumulative diff backing the full-page review takeover — fetched
-  // lazily, only once the user opens the review.
+  // One task-wide diff backs both the locked timeline artifact and the
+  // full-page review takeover.
   const [reviewFiles, setReviewFiles] = useState<DiffFileDto[] | null>(null);
   useEffect(() => {
     setAgentRoundId(null);
@@ -179,7 +194,6 @@ export function TaskBrainRoute({
     setSelectedAgentLine(null);
     setPrSubTabRequest(undefined);
     setReviewTabRequest(undefined);
-    setReviewFiles(null);
     setReviewOpen(false);
     if (initialReviewRoundId !== undefined) {
       setReviewOpen(true);
@@ -188,7 +202,6 @@ export function TaskBrainRoute({
   }, [threadId, taskId, initialReviewRoundId, setReviewOpen]);
   useEffect(() => {
     setReviewFiles(null);
-    if (!reviewOpen) return;
     const b = typeof window !== 'undefined' ? window.bridge : undefined;
     if (b?.getTaskCumulativeDiff === undefined) return;
     let cancelled = false;
@@ -196,7 +209,7 @@ export function TaskBrainRoute({
       .then(list => { if (!cancelled) setReviewFiles(list); })
       .catch(() => { if (!cancelled) setReviewFiles([]); });
     return () => { cancelled = true; };
-  }, [reviewOpen, threadId, taskId]);
+  }, [threadId, taskId]);
   // Auto-approve mode. The backend persists it per-task; a per-thread default
   // (localStorage) lets new tasks inherit the user's latest choice, with the
   // per-task toggle overriding (A4.3, defaulted). Toggling updates both.
@@ -431,8 +444,12 @@ export function TaskBrainRoute({
         feed={brainFeed}
         stages={stages}
         density="focused"
+        foldClosedStages={false}
         onOpenStage={onOpenStage}
         threadId={threadId}
+        developmentArtifact={reviewFiles !== null && reviewFiles.length > 0
+          ? <TaskChangedFilesCard files={reviewFiles} onReview={onOpenCode} />
+          : undefined}
         spineTrailer={planTimelineNode}
         trailer={(
           <>
@@ -532,18 +549,27 @@ export function TaskBrainRoute({
     <TaskSidebar
       task={{
         title: task.title, branch: task.branch,
+        taskNumber: task.taskNumber,
+        repository: workspaceRepository ?? task.repoFullName,
+        workspaceName,
         metaLine: task.statusLabel, finished,
       }}
       nodes={livePlanNodes}
       guard={buildGuardChip(data.guard, task.terminal)}
-      onBack={onBack}
+      onBack={onHistoryBack}
+      onOpenTrunk={onBack}
       onForward={onForward}
       backEnabled={backEnabled}
       forwardEnabled={forwardEnabled}
       onToggleCollapse={onToggleCollapse}
-      threadLabel="Back to thread"
+      threadLabel={trunkLabel}
       user={getCached<UserProfileDto>('home:profile')?.login}
+      onNavigateGlobal={onNavigateGlobal}
+      onSwitchWorkspace={onSwitchWorkspace}
+      onNotifications={onNotifications}
+      notificationCount={notificationCount}
       defaultExpandPhases
+      highlightActiveStage={false}
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}
       onOpenPr={pr?.onOpen}
@@ -559,6 +585,46 @@ export function TaskBrainRoute({
   );
 
   const displayedTaskBundle = agentReview.displayedBundle ?? localPrBundle;
+  // Normal task pages reuse the locked Pull Requests detail body. Keep the
+  // legacy PRView below exclusively for the review-round drill-in, whose
+  // finding APIs do not exist on PullDetailBody.
+  const taskRemotePrNumber = displayedTaskBundle?.pr.remotePrNumber ?? null;
+  const taskPullRow = displayedTaskBundle !== null && displayedTaskBundle !== undefined
+      && taskRemotePrNumber !== null
+    ? ((): PullRow => {
+        const base = pullRowFromLocal(displayedTaskBundle.pr, task.repoFullName, taskRemotePrNumber);
+        const reviewState = agentReview.headerState === 'never' ? 'none' : agentReview.headerState;
+        return {
+          ...base,
+          hasAgent: reviewState !== 'none',
+          dto: { ...base.dto, reviewState },
+        };
+      })()
+    : null;
+  const onTaskPrComment = async (body: string) => {
+    if (displayedTaskBundle === null || displayedTaskBundle === undefined) return;
+    const localPr = displayedTaskBundle.pr;
+    if (derivePRCapabilities(localPr, 'details').postRemoteComment) {
+      await window.bridge.postRemotePrComment(localPr.id, body);
+    }
+    else {
+      await window.bridge.addLocalPrComment(localPr.id, { scope: 'pr', body });
+    }
+    refreshLocalPr();
+  };
+  const taskPullDetail = taskPullRow !== null && displayedTaskBundle !== null
+      && displayedTaskBundle !== undefined ? (
+    <PullDetailBody
+      key={taskPullRow.id}
+      row={taskPullRow}
+      bundle={displayedTaskBundle}
+      refresh={refreshLocalPr}
+      onComment={onTaskPrComment}
+      onAssignAgent={() => { void agentReview.startReview(); }}
+      onWorkWithAgent={() => openAgentRound()}
+      onOpenInWorkspace={onOpenCode}
+    />
+  ) : null;
   const openAgentFinding = (
     findingId: string,
     filePath: string | null = null,
@@ -705,9 +771,17 @@ export function TaskBrainRoute({
 
   return (
     <TaskBrainPage
-      task={{ pillLabel: `TASK #${task.taskNumber}`, title: task.title, branch: task.branch, finished }}
-      pr={pr}
+      task={{
+        pillLabel: `TASK #${task.taskNumber}`,
+        taskNumber: task.taskNumber,
+        title: task.title,
+        branch: task.branch,
+        finished,
+        trunkLabel,
+      }}
+      pr={taskPullDetail !== null ? pr : undefined}
       sidebar={sidebar}
+      onOpenTrunk={onBack}
       openTabRequest={openTabRequest}
       conversation={conversation}
       conversationIndex={data.brainThreadId !== null ? (
@@ -721,8 +795,17 @@ export function TaskBrainRoute({
         value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true,
         placeholder: 'Ask the brain, or steer the task…',
         images, onImagesChange: setImages,
-        closedNote: task.terminal ? 'This task is closed.' : undefined,
-        modePill: <WorkModelPill scope={{ kind: 'task', threadId, taskId }} />,
+        closedNote: task.terminal
+          ? 'This task is closed — ask the brain, or reopen to continue…'
+          : undefined,
+        modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'task', threadId, taskId }} />,
+        usage: {
+          planPercent: data.rightRail.context.tokensLimit > 0
+            ? Math.round((data.rightRail.context.tokensUsed / data.rightRail.context.tokensLimit) * 100)
+            : 0,
+          sessionLabel: `${data.rightRail.context.tokensUsed.toLocaleString('en-US')} AI credits`,
+        },
+        meta: `Task #${task.taskNumber} · ${formatDuration(data.aggregate.activeTimeSec)} · ${formatCost(data.aggregate.costCents)}`,
       }}
       run={{
         statusLabel: task.statusLabel,
@@ -740,13 +823,15 @@ export function TaskBrainRoute({
       markReadyReminder={proposalAction(shipProposal) === 'mark_ready'}
       onOpenMarkReady={onOpenCode}
       tabs={{
-        pr: taskPrView ?? undefined,
-        // Gated on having a PR (like StageDetailRoute's `hasDiff`) — otherwise
-        // this is the only tab, so it becomes the default and its
-        // paneExpanded behavior hides the conversation column, burying the
-        // plan-approval UI before there's even anything to review yet.
-        code: task.prNumber !== null ? <TaskCodePage embedded threadId={threadId} taskId={taskId} /> : undefined,
+        pr: taskPullDetail ?? undefined,
       }}
+      changes={taskPullDetail !== null && displayedTaskBundle !== null && displayedTaskBundle !== undefined ? {
+        additions: displayedTaskBundle.pr.syncedAdditions
+          ?? displayedTaskBundle.commits.reduce((sum, commit) => sum + commit.additions, 0),
+        deletions: displayedTaskBundle.pr.syncedDeletions
+          ?? displayedTaskBundle.commits.reduce((sum, commit) => sum + commit.deletions, 0),
+        onOpen: onOpenCode,
+      } : undefined}
       onSubmitReview={onSubmitReview}
       submittingReview={submittingReview}
       pendingReviewComments={pendingReviewComments}

@@ -32,10 +32,9 @@ function mockBridge(over: Record<string, unknown> = {}) {
       ],
     }),
     cutTaskNow: vi.fn().mockResolvedValue({ id: 'task-3', seq: 3, name: 'Cut now', status: 'RUNNING', branchName: null }),
-    // Every cut task folds, including the latest one — seq just orders them.
     // createdAt matters: it's what buildTrunkTimeline sorts on, so both get
     // a real value bracketing the planning round below (task-2 before it,
-    // task-1 after).
+    // task-1 after). The newest task remains expanded in locked frame 1b.
     listTasksForThread: vi.fn().mockResolvedValue([
       {
         id: 'task-1', seq: 2, name: 'Add meter', status: 'RUNNING', branchName: 'feat/x', workingDir: '/repo/web',
@@ -63,15 +62,13 @@ describe('TrunkRoute', () => {
     // The thread title shows in both the top bar and the sidebar's
     // current-thread row.
     expect((await screen.findAllByText('Backend cleanup')).length).toBeGreaterThanOrEqual(1);
-    // Both cut tasks fold by default — open them to reach the planning
-    // message underneath.
     await screen.findAllByText('Add meter'); // wait for the mount-time load to settle
-    container.querySelectorAll('.sp-taskrow .sp-taskrow__bar').forEach(bar => fireEvent.click(bar));
     expect(screen.getByText('plan the cleanup')).toBeTruthy();
-    // Active task card shows in the now-open conversation fold and the
-    // unified activity rail.
-    expect(screen.getAllByText('Add meter').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText('Activity').length).toBeGreaterThanOrEqual(1);
+    // Active task detail stays visible on the branch rail; the locked
+    // workspace-level overview replaces the old Activity pane.
+    expect(container.querySelector('.trunk-page-v2__branch-row--cut')).toBeTruthy();
+    expect(screen.getAllByText('Add meter').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('WORKSPACE')).toBeTruthy();
   });
 
   it('renders task cuts as milestone nodes carrying the task card', async () => {
@@ -79,11 +76,7 @@ describe('TrunkRoute', () => {
     const { container } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
     const conv = container.querySelector('.conv') as HTMLElement;
     expect(conv).toBeTruthy();
-    // Every cut task folds by default now — open both folds to reach the
-    // milestone peak (purple ◆ + "Task cut" kicker) embedding the existing
-    // task card, the same card used in the Tasks tab.
     await screen.findAllByText('Add meter');
-    conv.querySelectorAll('.sp-taskrow .sp-taskrow__bar').forEach(bar => fireEvent.click(bar));
     const cut = conv.querySelector('.sp-ms--purple');
     expect(cut).toBeTruthy();
     expect(cut?.textContent).toContain('Task cut');
@@ -105,17 +98,40 @@ describe('TrunkRoute', () => {
     mockBridge();
     const onOpenTask = vi.fn();
     const { container } = render(<TrunkRoute threadId="t1" onOpenTask={onOpenTask} />);
-    // Every cut task folds by default now — open the folds to reach the
-    // task card underneath.
     await screen.findAllByText('Add meter');
-    container.querySelectorAll('.sp-taskrow .sp-taskrow__bar').forEach(bar => fireEvent.click(bar));
-    // Both task folds are now open, each with its own card — pick task-1's
-    // by its title, since the two folds carry different cards.
+    // The newest cut's existing task card is directly operable on the rail.
     const card = Array.from(container.querySelectorAll('.sp-ms .task-card'))
       .find(c => c.textContent?.includes('Add meter')) as HTMLElement;
     expect(card).toBeTruthy();
     fireEvent.click(card);
     expect(onOpenTask).toHaveBeenCalledWith('task-1');
+  });
+
+  it('loads the newest task artifacts and routes their actions to the diff page', async () => {
+    const getTaskCumulativeDiff = vi.fn().mockResolvedValue([{
+        filename: 'frontend/src/App.tsx', status: 'modified', additions: 8, deletions: 3, patch: null,
+      }]);
+    const listTaskCommits = vi.fn().mockResolvedValue([{
+        sha: 'abc123def456', shortSha: 'abc123de', authorName: 'Jack', authorEmail: 'jack@example.com',
+        authoredAt: '2026-06-24T10:02:00Z', subject: 'Tighten workspace routes',
+      }]);
+    mockBridge({
+      getTaskCumulativeDiff,
+      listTaskCommits,
+    });
+    const onReviewTask = vi.fn();
+    render(
+      <TrunkRoute threadId="t1" onOpenTask={() => {}} onReviewTask={onReviewTask} />,
+    );
+
+    await screen.findByText('Edited 1 file');
+    expect(getTaskCumulativeDiff).toHaveBeenCalledWith('t1', 'task-1');
+    expect(listTaskCommits).toHaveBeenCalledWith('t1', 'task-1');
+    expect(screen.getByText('abc123de')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(onReviewTask).toHaveBeenNthCalledWith(1, 'task-1');
+    expect(onReviewTask).toHaveBeenNthCalledWith(2, 'task-1');
   });
 
   it('clears a stuck Working indicator once a turn ends without ever replying', async () => {
@@ -198,15 +214,11 @@ describe('TrunkRoute', () => {
   it('folds the round work and surfaces the headline reply', async () => {
     mockBridge();
     const { container } = render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
-    // The planning round now lands inside the task fold it led up to — every
-    // cut task folds by default, including the latest. Open both folds to
-    // reach it.
     await screen.findAllByText('Add meter');
-    container.querySelectorAll('.sp-taskrow .sp-taskrow__bar').forEach(bar => fireEvent.click(bar));
-    // The last assistant text is the headline — visible once its fold opens.
+    // The last assistant text stays visible on the trunk rail.
     expect(screen.getByText('Here is the plan.')).toBeTruthy();
     // The thinking row folds into the round's own work disclosure (hidden in
-    // Focused density), nested one level deeper than the task fold.
+    // Focused density), with no outer task fold around the newest cut.
     expect(screen.queryByText('weighing the approach')).toBeNull();
     const work = container.querySelector('.sp-work__bar') as HTMLElement;
     expect(work).toBeTruthy();

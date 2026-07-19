@@ -15,6 +15,10 @@
 /** Workspace-model navigation shell. */
 export { WorkspaceNavSidebar } from './WorkspaceNavSidebar';
 export type { WsNavKey } from './WorkspaceNavSidebar';
+export {
+  CheckCircleIcon, ChevronIcon, PullRequestBranchIcon, SidebarRow, TrunkLineIcon,
+  WorkspaceChromeRow, WorkspaceGlobalRows, WorkspaceSidebarFooter, WorkspaceSwitcherCard,
+} from './WorkspacePageChrome';
 export { RecentList } from './RecentList';
 export { WorkspaceSwitcher } from './WorkspaceSwitcher';
 export { ThreadList, ThreadListItem } from './ThreadList';

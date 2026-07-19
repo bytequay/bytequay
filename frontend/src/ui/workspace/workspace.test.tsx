@@ -129,6 +129,20 @@ describe('WorkspaceNavSidebar', () => {
     expect(onNavigate).toHaveBeenCalledWith('settings');
   });
 
+  it('keeps Home and Workspaces above a single workspace', () => {
+    const onNavigate = vi.fn();
+    render(
+      <WorkspaceNavSidebar workspaceMode onNavigate={onNavigate}>
+        <div />
+      </WorkspaceNavSidebar>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Home' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Workspaces' }));
+    expect(onNavigate.mock.calls).toEqual([['home'], ['workspaces']]);
+    expect(screen.queryByRole('button', { name: 'Pull requests' })).toBeNull();
+  });
+
   it('folds to the chrome row when collapsed and the toggle fires onToggleCollapse', () => {
     const onToggleCollapse = vi.fn();
     const { container, rerender } = render(

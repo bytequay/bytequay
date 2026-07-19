@@ -12,7 +12,9 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
+import type {
+  DiffFileDto, ThreadCommitDto, ThreadDto, ThreadMessageDto, WorkUnitTaskDto,
+} from '../types';
 import { Callout, Conv, EventRow, QueuedMessages, Thought, Working } from '../ui/conv';
 import { useMessageQueue } from '../threads/useMessageQueue';
 import { useThreadStream } from '../threads/useThreadStream';
@@ -50,9 +52,10 @@ function epochOrNull(ts: string | undefined): number | null {
  * and notifications tabs load themselves via the trunk pane hook. Inline
  * task-launch cards and the full sidebar tree are backfilled later.
  */
-export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
+export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceResolved }: {
   threadId: string;
   onOpenTask: (taskId: string) => void;
+  onReviewTask?: (taskId: string) => void;
   /** Reports the loaded thread's own workspace id — lets the caller's
    *  sidebar follow whichever workspace this thread actually belongs to
    *  (it may differ from whatever workspace the user last manually
@@ -62,6 +65,11 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
   const [thread, setThread] = useState<ThreadDto | null>(null);
   const [messages, setMessages] = useState<ThreadMessageDto[]>([]);
   const [tasks, setTasks] = useState<WorkUnitTaskDto[]>([]);
+  const [taskArtifacts, setTaskArtifacts] = useState<{
+    taskId: string;
+    files: DiffFileDto[];
+    commits: ThreadCommitDto[];
+  } | null>(null);
   // Task ids whose PR has an open merge gate (ready to merge).
   const [mergeReadyIds, setMergeReadyIds] = useState<ReadonlySet<string>>(new Set());
   const [text, setText] = useState('');
@@ -78,6 +86,7 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
     setThread(null);
     setMessages([]);
     setTasks([]);
+    setTaskArtifacts(null);
     setMergeReadyIds(new Set());
   }
   // Clear the "working" indicator once a new assistant reply lands, not when
@@ -155,6 +164,34 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
     const id = window.setInterval(() => { void load(); }, 3000);
     return () => window.clearInterval(id);
   }, [load]);
+
+  const latestTaskId = tasks.reduce<WorkUnitTaskDto | null>(
+    (latest, task) => latest === null || task.seq > latest.seq ? task : latest,
+    null,
+  )?.id;
+
+  useEffect(() => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (latestTaskId === undefined
+      || bridge?.getTaskCumulativeDiff === undefined
+      || bridge.listTaskCommits === undefined) {
+      setTaskArtifacts(null);
+      return;
+    }
+    let cancelled = false;
+    void Promise.allSettled([
+      bridge.getTaskCumulativeDiff(threadId, latestTaskId),
+      bridge.listTaskCommits(threadId, latestTaskId),
+    ]).then(([files, commits]) => {
+      if (cancelled) return;
+      setTaskArtifacts({
+        taskId: latestTaskId,
+        files: files.status === 'fulfilled' ? files.value : [],
+        commits: commits.status === 'fulfilled' ? commits.value : [],
+      });
+    });
+    return () => { cancelled = true; };
+  }, [latestTaskId, threadId]);
 
   // Live SSE stream: the agent's reasoning + reply appear token-by-token as
   // they're generated, instead of only when a poll fires after the turn. The
@@ -237,18 +274,26 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
 
   // Scroll host for the conversation-index rail's click-to-jump.
   const conversationRef = useRef<HTMLDivElement | null>(null);
-  // The rail only lists prompts that have a visible row to jump to: every
-  // cut task folds its whole segment away (see TrunkFeed), so only the
-  // trailing not-yet-cut conversation is on screen. Same segmentation as
-  // the feed — reset at each cut, keep what follows the last one. When
-  // everything is folded the set is empty and the rail hides itself.
+  // The rail only lists prompts that have a visible row to jump to: the
+  // planning segment which produced the newest cut remains open, as does
+  // any not-yet-cut conversation after it. Older cut segments stay compact.
   const visibleSeqs = (() => {
-    let acc: number[] = [];
-    for (const item of buildTrunkTimeline(messages, tasks)) {
-      if (item.kind === 'cut') acc = [];
-      else if (item.kind === 'round' && item.round.userTurn !== null) acc.push(item.round.userTurn.seq);
+    const timeline = buildTrunkTimeline(messages, tasks);
+    const cuts = timeline.filter(item => item.kind === 'cut');
+    const latestTaskId = cuts[cuts.length - 1]?.cut.task.id;
+    const visible: number[] = [];
+    let segment: number[] = [];
+    for (const item of timeline) {
+      if (item.kind === 'round' && item.round.userTurn !== null) {
+        segment.push(item.round.userTurn.seq);
+      }
+      else if (item.kind === 'cut') {
+        if (item.cut.task.id === latestTaskId) visible.push(...segment);
+        segment = [];
+      }
     }
-    return new Set(acc);
+    visible.push(...segment);
+    return new Set(visible);
   })();
 
   const conversation = (
@@ -261,6 +306,19 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
         mergeReadyIds={mergeReadyIds}
         onAnswerQuestion={sendNow}
         onDecidePermission={onDecidePermission}
+        artifactsByTaskId={taskArtifacts === null ? undefined : new Map([[
+          taskArtifacts.taskId,
+          {
+            files: taskArtifacts.files,
+            commits: taskArtifacts.commits,
+            onReview: onReviewTask === undefined
+              ? undefined : () => onReviewTask(taskArtifacts.taskId),
+            // decision pending: there is no safe undo mutation yet. Open the
+            // existing diff surface instead of silently changing git state.
+            onUndo: onReviewTask === undefined
+              ? undefined : () => onReviewTask(taskArtifacts.taskId),
+          },
+        ]])}
         trailer={(
           <>
             {liveThinking.length > 0 && (
@@ -291,6 +349,9 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
     .filter(t => !TERMINAL_TASK_STATUSES.has(t.status))
     .map(t => toTaskCard(t, mergeReadyIds.has(t.id)));
   const closed = tasks.filter(t => TERMINAL_TASK_STATUSES.has(t.status)).map(t => toTaskCard(t, false));
+  const historyTasks = tasks
+    .filter(task => TERMINAL_TASK_STATUSES.has(task.status) && task.id !== latestTaskId)
+    .map(task => toTaskCard(task, false));
 
   return (
     <TrunkPage
@@ -299,6 +360,7 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
         title: thread?.title ?? 'Thread',
         status: thread?.status,
         branch: tasks.find(task => !TERMINAL_TASK_STATUSES.has(task.status))?.branchName ?? null,
+        workspaceId: thread?.workspaceId,
       }}
       conversation={conversation}
       conversationIndex={(
@@ -311,11 +373,12 @@ export function TrunkRoute({ threadId, onOpenTask, onWorkspaceResolved }: {
       )}
       composer={{
         value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true,
-        placeholder: 'Discuss the next task, ask the brain, or paste an error…',
+        placeholder: 'Do anything — ask the brain, cut a task, or paste an error…',
         images, onImagesChange: setImages,
-        modePill: <WorkModelPill scope={{ kind: 'thread', threadId }} />,
+        modePill: <WorkModelPill scope={{ kind: 'thread', threadId }} variant="workspace-v2" />,
       }}
       tasks={{ active, closed }}
+      historyTasks={historyTasks}
       onOpenTask={onOpenTask}
     />
   );

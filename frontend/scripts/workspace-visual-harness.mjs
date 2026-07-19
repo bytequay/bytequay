@@ -11,6 +11,7 @@ const FRAME_IDS = [
   '4a', '4b', '4c', '4d', '4e', '4f',
   '5a', '5b', '5c', '5d', '5e', '5f',
   '6a', '6b', '6c', '6d',
+  '7a', '7b', '7c',
 ];
 const MAX_ANTI_ALIAS_COMPONENT_DIMENSION = 256;
 const MAX_ANTI_ALIAS_COMPONENT_PIXELS = 4096;
@@ -36,10 +37,12 @@ function required(values, name) {
 }
 
 async function createWindow() {
+  const width = Number(values.get('width') ?? '1440');
+  const height = Number(values.get('height') ?? '880');
   const window = new BrowserWindow({
     show: false,
-    width: 1440,
-    height: 880,
+    width,
+    height,
     useContentSize: true,
     backgroundColor: '#e9ebee',
     webPreferences: {
@@ -47,7 +50,7 @@ async function createWindow() {
       sandbox: true,
     },
   });
-  window.setContentSize(1440, 880);
+  window.setContentSize(width, height);
   window.webContents.on('console-message', (_event, level, message) => {
     if (level >= 2) process.stderr.write(`renderer: ${message}\n`);
   });
@@ -128,8 +131,8 @@ async function captureWindow(window, outputPath) {
   const image = await window.webContents.capturePage({
     x: 0,
     y: 0,
-    width: 1440,
-    height: 880,
+    width: Number(values.get('width') ?? '1440'),
+    height: Number(values.get('height') ?? '880'),
   });
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   await fs.writeFile(outputPath, image.toPNG());

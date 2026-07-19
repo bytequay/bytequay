@@ -25,7 +25,7 @@ const nodes = buildLivePlan({
 });
 
 describe('TaskSidebar', () => {
-  it('renders the task identity and the live-plan diagram', () => {
+  it('renders the task identity and locked STAGES cards', () => {
     render(
       <TaskSidebar
         task={{ title: 'Add cost-meter card', branch: 'feat/cost-meter' }}
@@ -34,7 +34,7 @@ describe('TaskSidebar', () => {
     );
     expect(screen.getByText('Add cost-meter card')).toBeTruthy();
     expect(screen.getByText('feat/cost-meter')).toBeTruthy();
-    expect(screen.getByText('Live plan')).toBeTruthy();
+    expect(screen.getByText('STAGES')).toBeTruthy();
     expect(screen.getByText('Plan')).toBeTruthy();
     expect(screen.getByText('Remote Development')).toBeTruthy();
     expect(screen.getByText('Cleanup')).toBeTruthy();
@@ -92,22 +92,53 @@ describe('TaskSidebar', () => {
     expect(onOpenStage).toHaveBeenCalledWith('dev-1');
   });
 
-  it('renders AgentReview as a sibling track and opens its round', () => {
-    const onOpenRound = vi.fn();
-    render(
+  it('keeps Cleanup disabled with the locked no-agent tooltip and no chevron', () => {
+    const { container } = render(
       <TaskSidebar
         task={{ title: 'x', branch: 'b' }}
         nodes={nodes}
-        agentReview={{
-          status: 'questions',
-          rounds: [{ id: 'round-1', status: 'questions', findings: 2 }],
-          onOpenRound,
-        }}
       />,
     );
-    expect(screen.getByText('Agent review')).toBeTruthy();
-    expect(screen.getByText('Review and verify fixes')).toBeTruthy();
-    fireEvent.click(screen.getByText('Round 1'));
-    expect(onOpenRound).toHaveBeenCalledWith('round-1');
+    const cleanupButton = screen.getByText('Cleanup').closest('button') as HTMLButtonElement;
+    expect(cleanupButton.disabled).toBe(true);
+    expect(cleanupButton.title).toBe('Runs automatically — no agent page');
+    expect(cleanupButton.classList.contains('is-automatic')).toBe(true);
+    expect(cleanupButton.querySelector('.workspace-task-stage__top > svg')).toBeNull();
+    expect(container.querySelector('.workspace-task-sidebar-v2__trunk')).toBeTruthy();
+  });
+
+  it('uses real workspace/trunk identity and keeps history navigation distinct', () => {
+    const onHistoryBack = vi.fn();
+    const onOpenTrunk = vi.fn();
+    const onNavigateGlobal = vi.fn();
+    const onSwitchWorkspace = vi.fn();
+    const onNotifications = vi.fn();
+    render(
+      <TaskSidebar
+        task={{
+          title: 'x', branch: 'b', workspaceName: 'ByteQuay', repository: 'owner/bytequay',
+        }}
+        threadLabel="Clean code v2"
+        nodes={nodes}
+        onBack={onHistoryBack}
+        onOpenTrunk={onOpenTrunk}
+        onNavigateGlobal={onNavigateGlobal}
+        onSwitchWorkspace={onSwitchWorkspace}
+        onNotifications={onNotifications}
+        notificationCount={26}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.click(screen.getByText('Clean code v2'));
+    fireEvent.click(screen.getByRole('button', { name: 'Home' }));
+    fireEvent.click(screen.getByTitle('Switch workspace'));
+    fireEvent.click(screen.getByRole('button', { name: /Notifications/ }));
+    expect(onHistoryBack).toHaveBeenCalledOnce();
+    expect(onOpenTrunk).toHaveBeenCalledOnce();
+    expect(onNavigateGlobal).toHaveBeenCalledWith('home');
+    expect(onSwitchWorkspace).toHaveBeenCalledOnce();
+    expect(onNotifications).toHaveBeenCalledOnce();
+    expect(screen.getByText('owner/bytequay')).toBeTruthy();
+    expect(screen.getByText('26')).toBeTruthy();
   });
 });

@@ -51,7 +51,7 @@ const FEED: BrainFeedRow[] = [
 describe('BrainFeed', () => {
   it('renders a stage boundary node with name + done duration + outcome', () => {
     const { container } = render(<BrainFeed feed={FEED} stages={[DEV]} density="full" />);
-    expect(container.querySelector('.sp-node--blue .sp-node__nm')?.textContent).toBe('Development');
+    expect(container.querySelector('.sp-node--green .sp-node__nm')?.textContent).toBe('Development');
     expect(container.querySelector('.sp-node__st')?.textContent).toContain('done · 7m');
     expect(container.querySelector('.sp-node__meta')?.textContent).toContain('Routed 7 sites');
   });
@@ -67,6 +67,15 @@ describe('BrainFeed', () => {
     // Expanding the boundary (the only button while folded) reveals the chatter.
     fireEvent.click(screen.getByRole('button'));
     expect(screen.getByText('All sites routed')).toBeTruthy();
+  });
+
+  it('keeps completed-stage summaries visible in the locked focused feed', () => {
+    const { container } = render(
+      <BrainFeed feed={FEED} stages={[DEV]} density="focused" foldClosedStages={false} />,
+    );
+    expect(screen.getByText('All sites routed')).toBeTruthy();
+    expect(container.querySelector('.sp-work.open')).toBeNull();
+    expect(screen.queryByText('intermediate work step')).toBeNull();
   });
 
   it('Full density shows the work fold contents inline', () => {
@@ -86,5 +95,16 @@ describe('BrainFeed', () => {
 
     fireEvent.click(screen.getByText('runtime'));
     expect(screen.getByText('Managed skills: ponytail')).toBeTruthy();
+  });
+
+  it('promotes a remote CI failure into the locked red quote card', () => {
+    const failure = {
+      ...row('ci', 'ITERATION_SUMMARY', 'Detected red CI in `TypecheckTest` — iteration 3 failed'),
+      stageType: 'CI_FIXING_STAGE' as const,
+    };
+    const { container } = render(<BrainFeed feed={[failure]} stages={[]} density="full" />);
+    expect(container.querySelector('.workspace-task-ci-failure__milestone')).toBeTruthy();
+    expect(screen.getByText('REMOTE CI')).toBeTruthy();
+    expect(container.querySelector('.workspace-task-ci-failure__quote')).toBeTruthy();
   });
 });

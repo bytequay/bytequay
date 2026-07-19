@@ -51,10 +51,19 @@ function workSummary(work: BrainFeedRow[], headline: BrainFeedRow | null): { lab
  * carries no tool calls, so the work fold collects the round's intermediate
  * prose only.
  */
-export function BrainFeed({ feed, stages, density, spineTrailer, trailer, onOpenStage, threadId }: {
+export function BrainFeed({
+  feed, stages, density, foldClosedStages = true, developmentArtifact,
+  spineTrailer, trailer, onOpenStage, threadId,
+}: {
   feed: BrainFeedRow[];
   stages: StageDto[];
   density: Density;
+  /** Focused legacy surfaces may collapse completed stages wholesale. The
+   *  locked brain keeps their summary/update rows visible and folds only
+   *  the Worked-for trace. */
+  foldClosedStages?: boolean;
+  /** Real task diff card, placed directly after the Development milestone. */
+  developmentArtifact?: ReactNode;
   /** Timeline-aware tail appended inside the spine (milestones hung on the rail). */
   spineTrailer?: ReactNode;
   /** Live tail appended after the spine (queued msgs, working indicator). */
@@ -68,6 +77,7 @@ export function BrainFeed({ feed, stages, density, spineTrailer, trailer, onOpen
 }) {
   const segments = buildBrainTimeline(feed, stages);
   const full = density === 'full';
+  const developmentSegment = segments.findIndex(segment => segment.stage?.type === 'DEVELOPMENT_STAGE');
   // Closed stages start folded in Focused; track the ones the user expanded.
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const toggle = (id: string) => setExpanded(prev => {
@@ -81,7 +91,7 @@ export function BrainFeed({ feed, stages, density, spineTrailer, trailer, onOpen
       <Spine>
         {segments.map((seg, si) => {
         const stage = seg.stage;
-        const foldable = stage !== null && seg.closed && !full;
+        const foldable = foldClosedStages && stage !== null && seg.closed && !full;
         const collapsed = foldable && !expanded.has(stage.id);
         let autonomous = 0;
         const rounds = seg.rounds.map(r => {
@@ -89,7 +99,17 @@ export function BrainFeed({ feed, stages, density, spineTrailer, trailer, onOpen
           // When a closed stage is folded, keep the user's interventions
           // visible but drop the agent chatter (design.md #20).
           if (collapsed && r.userTurn === null) return null;
-          return <RoundView key={r.id} round={r} tag={tag} full={full} collapsedStage={collapsed} threadId={threadId} />;
+          return (
+            <RoundView
+              key={r.id}
+              round={r}
+              tag={tag}
+              full={full}
+              collapsedStage={collapsed}
+              segmentStageType={stage?.type ?? null}
+              threadId={threadId}
+            />
+          );
         });
         return (
           <div key={stage?.id ?? `seg-${si}`}>
@@ -103,9 +123,11 @@ export function BrainFeed({ feed, stages, density, spineTrailer, trailer, onOpen
               />
             )}
             {rounds}
+            {developmentArtifact !== undefined && si === developmentSegment && developmentArtifact}
           </div>
         );
         })}
+        {developmentArtifact !== undefined && developmentSegment < 0 && developmentArtifact}
         {spineTrailer}
       </Spine>
       {trailer}
@@ -113,16 +135,20 @@ export function BrainFeed({ feed, stages, density, spineTrailer, trailer, onOpen
   );
 }
 
-function RoundView({ round, tag, full, collapsedStage, threadId }: {
+function RoundView({ round, tag, full, collapsedStage, segmentStageType, threadId }: {
   round: BrainRound;
   tag?: string;
   full: boolean;
   collapsedStage: boolean;
+  segmentStageType: StageDto['type'] | null;
   threadId?: string;
 }) {
   const work = workOf(round);
+  const visibleFailures = work.filter(isRemoteCiFailure);
+  const foldedWork = work.filter(row => !isRemoteCiFailure(row));
   const headline = headlineOf(round);
   const qna = isQnA(round);
+  const ciFailure = headline !== null && isRemoteCiFailure(headline);
   return (
     <Round tag={tag}>
       {round.userTurn !== null && (
@@ -147,14 +173,14 @@ function RoundView({ round, tag, full, collapsedStage, threadId }: {
       )}
       {!collapsedStage && !qna && (
         <>
-          {work.length > 0 && (
+          {foldedWork.length > 0 && (
             <WorkFold
-              label={workSummary(work, headline).label}
-              meta={workSummary(work, headline).meta}
+              label={workSummary(foldedWork, headline).label}
+              meta={workSummary(foldedWork, headline).meta}
               icon={<ClockIcon size={14} strokeWidth={1.8} />}
               forceOpen={full}
             >
-              {work.map(w => (
+              {foldedWork.map(w => (
                 <div className="sp-submsg" key={w.id}>
                   <div className="sp-submsg__who">Brain<span className="ago"><EventTimestamp iso={w.ts} /></span></div>
                   <div className="sp-submsg__tx"><MarkdownProse text={w.body} /></div>
@@ -162,11 +188,66 @@ function RoundView({ round, tag, full, collapsedStage, threadId }: {
               ))}
             </WorkFold>
           )}
-          {headline !== null && (
-            <Headline who="Brain" body={headline.body} timestamp={<EventTimestamp iso={headline.ts} />} />
-          )}
+          {visibleFailures.map(row => (
+            <RemoteCiFailure
+              key={row.id}
+              row={row}
+              includeMilestone={segmentStageType !== 'CI_FIXING_STAGE'}
+            />
+          ))}
+          {headline !== null && (ciFailure
+            ? (
+              <RemoteCiFailure
+                row={headline}
+                includeMilestone={segmentStageType !== 'CI_FIXING_STAGE'}
+              />
+            )
+            : <Headline who="Brain" body={headline.body} timestamp={<EventTimestamp iso={headline.ts} />} />)}
         </>
       )}
     </Round>
+  );
+}
+
+function isRemoteCiFailure(row: BrainFeedRow): boolean {
+  if (row.type === 'NEEDS_ATTENTION' && row.stageType === 'CI_FIXING_STAGE') return true;
+  return row.stageType === 'CI_FIXING_STAGE'
+    && /(?:red|fail(?:ed|ing)?|error|exception)/i.test(row.body);
+}
+
+function RemoteCiFailure({ row, includeMilestone }: {
+  row: BrainFeedRow;
+  includeMilestone: boolean;
+}) {
+  const round = row.body.match(/(?:round|iter(?:ation)?)\s*#?(\d+)/i)?.[1];
+  const title = round === undefined
+    ? 'Remote CI failed'
+    : `Remote CI failed — round ${round} awakened`;
+  const body = row.body.replace(/\*\*|`/g, '');
+  return (
+    <div className="workspace-task-ci-failure">
+      {includeMilestone && (
+        <div className="workspace-task-ci-failure__milestone">
+          <strong>REMOTE CI</strong>
+          <span>{round === undefined ? 'awakened' : `round ${round} · awakened`}</span>
+          <i aria-hidden />
+          <small><EventTimestamp iso={row.ts} /></small>
+        </div>
+      )}
+      <div className="workspace-task-ci-failure__quote">
+        <div><FailureIcon /><strong>{title}</strong></div>
+        <pre>{body}</pre>
+      </div>
+    </div>
+  );
+}
+
+function FailureIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m9 9 6 6M15 9l-6 6" />
+    </svg>
   );
 }

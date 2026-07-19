@@ -15,7 +15,7 @@ import type { ReactNode } from 'react';
 
 /** Spine hues — one per lifecycle stage / node tier. Drives the `--n`
  *  custom property each node colours its mark + label from. */
-export type SpineColor = 'purple' | 'blue' | 'amber' | 'teal' | 'orange' | 'gray' | 'green';
+export type SpineColor = 'purple' | 'blue' | 'amber' | 'teal' | 'orange' | 'gray' | 'green' | 'red';
 
 /**
  * Layer-1 spine primitive: the vertical timeline rail. A line runs down the

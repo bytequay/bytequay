@@ -16,12 +16,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceNavShell } from './WorkspaceNavShell';
 import { logoColorFor, monogram, threadStatusDot } from './useWorkspaceNav';
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(window, 'bridge'); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  window.localStorage.clear();
+  Reflect.deleteProperty(window, 'bridge');
+});
 
 function mockBridge(over: Record<string, unknown> = {}) {
   const bridge = {
     listWorkspaces: vi.fn().mockResolvedValue([
-      { id: 'bq', name: 'ByteQuay', color: '#8b5cf6', isScratch: false, repos: ['web', 'trino', 'docs'], activeThreadCount: 5, tasksInFlight: 3 },
+      {
+        id: 'bq', name: 'ByteQuay', color: '#8b5cf6', isScratch: false,
+        repos: ['web', 'trino', 'docs'], activeThreadCount: 5, tasksInFlight: 3,
+        repository: { owner: 'acme', repo: 'widget', fullName: 'acme/widget' },
+      },
       { id: 'tr', name: 'Trino', color: '#0d9488', isScratch: false, repos: ['trino', 'web'], activeThreadCount: 3, tasksInFlight: 1 },
     ]),
     listTasks: vi.fn().mockResolvedValue([
@@ -73,7 +82,7 @@ describe('WorkspaceNavShell', () => {
     expect(onResumeVisit).toHaveBeenCalledWith(expect.objectContaining({ surfaceId: 'org/web#42' }));
   });
 
-  it('shows the switcher + thread list (with trunk tiles) when a workspace is active', async () => {
+  it('shows the locked switcher + expandable trunk tree on a selected trunk', async () => {
     const bridge = mockBridge();
     const onOpenThread = vi.fn();
     const { container } = render(
@@ -81,27 +90,59 @@ describe('WorkspaceNavShell', () => {
     );
     await waitFor(() => expect(bridge.listTasks).toHaveBeenCalledWith({ workspaceId: 'bq' }));
     // Switcher shows the active workspace.
-    expect(container.querySelector('.ws-switcher')?.textContent).toContain('ByteQuay');
-    // Thread rows render with their trunk tiles + the selected one highlights.
+    expect(container.querySelector('.workspace-page-switcher')?.textContent).toContain('ByteQuay');
+    expect(container.querySelector('.workspace-page-switcher__tile img')?.getAttribute('src'))
+      .toBe('https://github.com/acme.png?size=56');
+    // Trunk rows render with the selected one highlighted.
     expect(await screen.findByText('Backend cleanup review')).toBeTruthy();
-    expect(container.querySelector('.thread-item.active')?.textContent).toContain('Backend cleanup review');
-    expect(container.querySelector('.thread-item .trunk-tile svg')).toBeTruthy();
+    expect(container.querySelector('.trunk-page-v2-nav__trunk > button.is-active')?.textContent)
+      .toContain('Backend cleanup review');
+    expect(container.querySelector('.trunk-page-v2-nav__trunk-icon svg')).toBeTruthy();
     fireEvent.click(screen.getByText('Fix Delta Lake timestamp'));
     expect(onOpenThread).toHaveBeenCalledWith('t2');
   });
 
-  it('the switcher ▾ fires onSwitchWorkspace', async () => {
+  it('uses the locked trunk-first navigation for an active workspace', async () => {
     mockBridge();
     const onSwitchWorkspace = vi.fn();
     const { container } = render(
       <WorkspaceNavShell activeWorkspaceId="bq" onSwitchWorkspace={onSwitchWorkspace} />,
     );
-    await waitFor(() => expect(container.querySelector('.ws-switcher')).toBeTruthy());
-    fireEvent.click(container.querySelector('.ws-switcher') as HTMLElement);
+    expect(container.querySelector('.trunk-page-v2-nav')).toBeTruthy();
+    await waitFor(() => expect(container.querySelector('.workspace-page-switcher')).toBeTruthy());
+
+    const text = container.textContent ?? '';
+    expect(text.indexOf('TRUNKS')).toBeLessThan(text.indexOf('WORKSPACE'));
+    expect(screen.queryByText('WORK')).toBeNull();
+    expect(screen.queryByText('REPO')).toBeNull();
+    expect(screen.queryByText('BRAIN')).toBeNull();
+    expect(screen.queryByText('PINNED TRUNKS')).toBeNull();
+    expect(screen.getByRole('button', { name: 'WORKSPACE' }).getAttribute('aria-expanded')).toBe('false');
+
+    fireEvent.click(container.querySelector('.workspace-page-switcher') as HTMLElement);
     expect(onSwitchWorkspace).toHaveBeenCalledOnce();
   });
 
-  it('renders live workspace counts with selected tasks and collapsed review trunks', async () => {
+  it('opens a nested task with its owning trunk from a workspace page', async () => {
+    mockBridge({
+      listTasks: vi.fn().mockResolvedValue([
+        { id: 't1', title: 'Backend cleanup review', status: 'IDLE', workspaceId: 'bq', flow: 'build' },
+      ]),
+      listTasksForThread: vi.fn().mockResolvedValue([
+        { id: 'task-1', threadId: 't1', name: 'Remove dead flag', branchName: 'task/remove-dead-flag', status: 'RUNNING', prNumber: null },
+      ]),
+    });
+    const onOpenTask = vi.fn();
+    render(<WorkspaceNavShell activeWorkspaceId="bq" onOpenTask={onOpenTask} />);
+
+    const trunk = await screen.findByRole('button', { name: /Backend cleanup review/ });
+    await waitFor(() => expect(trunk.getAttribute('aria-expanded')).toBe('false'));
+    fireEvent.click(trunk);
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove dead flag' }));
+    expect(onOpenTask).toHaveBeenCalledWith('t1', 'task-1');
+  });
+
+  it('renders live workspace counts with selected tasks in the locked workspace group', async () => {
     mockBridge({
       listTasks: vi.fn().mockResolvedValue([
         {
@@ -114,7 +155,7 @@ describe('WorkspaceNavShell', () => {
         },
       ]),
       workspaceApi: vi.fn().mockResolvedValue({
-        repository: { fullName: 'acme/widget' },
+        repository: { owner: 'acme', repo: 'widget', fullName: 'acme/widget' },
         sidebarCounts: {
           todayNeedsYou: 2,
           trunks: 3,
@@ -138,21 +179,21 @@ describe('WorkspaceNavShell', () => {
     );
 
     expect(await screen.findByText('Implement parser')).toBeTruthy();
-    expect(screen.getByText('Pull requests').closest('.ws-destination')?.textContent)
+    fireEvent.click(screen.getByRole('button', { name: 'WORKSPACE' }));
+    expect(screen.getByText('Pull requests').closest('.workspace-page-row')?.textContent)
       .toContain('4');
-    expect(screen.getByText('Issues').closest('.ws-destination')?.textContent)
+    expect(screen.getByText('Issues').closest('.workspace-page-row')?.textContent)
       .toContain('5');
-    expect(screen.getByText('Sessions').closest('.ws-destination')?.textContent)
+    expect(screen.getByText('Sessions').closest('.workspace-page-row')?.textContent)
       .toContain('1');
-    expect(screen.getByText('Reviews')).toBeTruthy();
-    expect(screen.getByText('Review PR #42')).toBeTruthy();
-    expect(screen.getByText('auto-archives when the PR closes')).toBeTruthy();
+    expect(screen.queryByText('Review PR #42')).toBeNull();
+    expect(screen.getByText('WORKSPACE')).toBeTruthy();
   });
 
-  it('reveals every hidden development trunk from the overflow button', async () => {
+  it('shows every development trunk and persists its expansion state', async () => {
     mockBridge({
       listTasks: vi.fn().mockResolvedValue([
-        { id: 't1', title: 'First trunk', status: 'IDLE', workspaceId: 'bq', flow: 'build' },
+        { id: 't1', title: 'First trunk', status: 'IDLE', workspaceId: 'bq', flow: 'build', taskCount: 1 },
         { id: 't2', title: 'Second trunk', status: 'IDLE', workspaceId: 'bq', flow: 'build' },
         { id: 't3', title: 'Third trunk', status: 'IDLE', workspaceId: 'bq', flow: 'build' },
         { id: 't4', title: 'Fourth trunk', status: 'IDLE', workspaceId: 'bq', flow: 'build' },
@@ -163,11 +204,15 @@ describe('WorkspaceNavShell', () => {
 
     render(<WorkspaceNavShell activeWorkspaceId="bq" selectedThreadId="t1" />);
 
-    const more = await screen.findByRole('button', { name: '2 more…' });
-    expect(screen.queryByText('Fourth trunk')).toBeNull();
-    fireEvent.click(more);
-    expect(screen.getByText('Fourth trunk')).toBeTruthy();
+    expect(await screen.findByText('Fourth trunk')).toBeTruthy();
     expect(screen.getByText('Fifth trunk')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '2 more…' })).toBeNull();
+
+    const first = screen.getByRole('button', { name: /First trunk/ });
+    expect(first.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(first);
+    expect(first.getAttribute('aria-expanded')).toBe('false');
+    expect(JSON.parse(window.localStorage.getItem('byq.trunkExpanded.v1') ?? '{}').b)
+      .toMatchObject({ 'First trunk': false });
   });
 });

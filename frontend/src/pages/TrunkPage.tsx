@@ -11,31 +11,33 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
-import type { ReactNode } from 'react';
-import ResizeHandle from '../ResizeHandle';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import type { BacklogItemDto, PullRequestDto } from '../types';
 import { AskUserQuestionCard, BacklogPrompt, pickTopBacklog } from '../ui/conv';
-import { IconBtn } from '../ui/primitives';
-import {
-  Composer, Main, Shell, TopBar, TopBarTitle, Grow, usePaneWidth,
-} from '../ui/shell';
-import { InlineChips, RightPane } from '../ui/pane';
+import { Composer, Main, Shell } from '../ui/shell';
 import type { TaskCardData } from '../ui/pane';
-import { workspaceApi, type TrunkActivityItemDto } from '../workspace/workspaceApi';
+import {
+  PullRequestBranchIcon, TrunkLineIcon,
+} from '../ui/workspace/WorkspacePageChrome';
+import {
+  workspaceApi,
+  type TrunkActivityItemDto,
+  type WorkspaceBacklogItemDto,
+  type WorkspaceOverviewDto,
+} from '../workspace/workspaceApi';
 import { useTrunkPane } from './useTrunkPane';
 
 const READY_BACKLOG_STATUSES = new Set(['open', 'created']);
 
 /**
- * The long-lived conversation stays untouched in the centre. Its former
- * Tasks / Backlog / Notifications tabs are intentionally replaced by one
- * server-owned activity projection, with unresolved questions and publish
- * gates pinned above the chronological feed.
+ * Locked trunk page. The conversation and every live gate remain owned by the
+ * existing trunk hooks; only their shell is translated to the selected 1b
+ * design, including the fixed workspace overview at the right.
  */
 export function TrunkPage({
   threadId, thread, sidebar, conversation, conversationIndex, collapsed = false, composer,
   tasks, onOpenTask, formatTime = defaultActivityTime, conversationFooter,
-  hideConversationPrompts = false,
+  historyTasks, hideConversationPrompts = false,
 }: {
   threadId: string;
   thread: {
@@ -43,6 +45,8 @@ export function TrunkPage({
     createdLabel?: string;
     status?: string;
     branch?: string | null;
+    workspaceId?: string;
+    repository?: string;
   };
   sidebar?: ReactNode;
   conversation: ReactNode;
@@ -60,17 +64,16 @@ export function TrunkPage({
     onImagesChange?: (next: string[]) => void;
   };
   tasks: { active: TaskCardData[]; closed: TaskCardData[] };
+  /** Completed cuts preceding the one expanded in the conversation. */
+  historyTasks?: TaskCardData[];
   onOpenTask?: (id: string) => void;
   formatTime?: (ms: number) => string;
-  /** Fixture/read-only surfaces can keep the production shell and activity
-   *  projection while supplying their own non-interactive conversation
-   *  footer. The live trunk route leaves this unset and retains Composer. */
   conversationFooter?: ReactNode;
   hideConversationPrompts?: boolean;
 }) {
   const pane = useTrunkPane(threadId);
+  const panel = useWorkspacePanelData(thread.workspaceId);
   const [paneOpen, setPaneOpen] = useState(true);
-  const { paneWidth, bodyRef, onResize } = usePaneWidth('bq.trunkPaneWidth', 330);
 
   const openQuestions = pane.questions.filter(question => question.status === 'open');
   const readyBacklog = pane.backlog.filter(item => READY_BACKLOG_STATUSES.has(item.status));
@@ -113,31 +116,8 @@ export function TrunkPage({
       ]
     : [];
   const timeline = pane.activity.generatedAt === 0 ? fallbackTimeline : pane.activity.timeline;
-  const activityCount = pane.activity.pinned.length + timeline.length;
-
-  const runningSession = pane.activity.timeline.find(item =>
+  const runningSession = timeline.find(item =>
     item.kind === 'session' && item.status === 'running' && item.sessionId !== null);
-  const topBar = (
-    <TopBar className={paneOpen ? 'trunk-topbar has-pane' : 'trunk-topbar'}>
-      <TopBarTitle>{thread.title}</TopBarTitle>
-      {(thread.status === 'RUNNING' || runningSession !== undefined) && (
-        <span className="trunk-agent-status"><i />agent running</span>
-      )}
-      {thread.branch !== null && thread.branch !== undefined && (
-        <span className="trunk-branch-chip">{thread.branch}</span>
-      )}
-      <Grow />
-      {runningSession?.sessionId !== null && runningSession !== undefined && (
-        <button type="button" className="trunk-pause-agent" onClick={() => {
-          void workspaceApi.sessionAction(runningSession.sessionId!, 'pause').then(() => pane.refresh());
-        }}>Pause agent</button>
-      )}
-      {!paneOpen && (
-        <IconBtn active={false} ariaLabel="Toggle right pane"
-          onClick={() => setPaneOpen(true)}>◧</IconBtn>
-      )}
-    </TopBar>
-  );
 
   const openActivity = (item: TrunkActivityItemDto) => {
     if (item.kind === 'question' && item.itemPath === null) {
@@ -157,61 +137,86 @@ export function TrunkPage({
     }
   };
 
+  const repository = panel.overview?.repository.fullName ?? thread.repository ?? 'workspace';
+  const mergedCount = tasks.closed.length;
+  const taskCount = pane.activity.taskCount ?? tasks.active.length + tasks.closed.length;
+  const pullRequestCount = pane.activity.pullRequestCount
+    ?? [...tasks.active, ...tasks.closed].filter(task => task.prNumber !== undefined).length;
+  const cost = (pane.activity.costUsdMilli ?? 0) / 1000;
+  const compactHistoryTasks = historyTasks
+    ?? tasks.closed.slice(0, Math.max(0, tasks.closed.length - 1));
+
+  const topBar = (
+    <div className="trunk-page-v2__topbar">
+      <span className="trunk-page-v2__topbar-icon"><TrunkLineIcon /></span>
+      <strong>{thread.title}</strong>
+      <span>trunk · {repository} · {mergedCount} tasks merged</span>
+      <button type="button" title="Toggle workspace panel" aria-label="Toggle workspace panel"
+        onClick={() => setPaneOpen(open => !open)}><PanelIcon /></button>
+    </div>
+  );
+
   return (
-    <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
-      {sidebar}
-      <Main topBar={topBar}>
-        <div
-          ref={bodyRef}
-          className={paneOpen ? 'body trunk-body with-pane' : 'body trunk-body'}
-          style={paneOpen ? { gridTemplateColumns: `minmax(0, 1fr) 1px ${paneWidth}px` } : undefined}
-        >
-          <div className="conv-col">
-            <div className="conv-index-host">
-              {conversation}
-              {conversationIndex}
-            </div>
-            {!hideConversationPrompts && openQuestions.length > 0 && (
-              <div className="trunk-questions">
-                {openQuestions.map((question, index) => (
-                  <AskUserQuestionCard
-                    key={question.id}
-                    question={question.question}
-                    context={question.context}
-                    options={question.options}
-                    allowFreeForm={question.allowFreeForm}
-                    index={index + 1}
-                    total={openQuestions.length}
-                    onAnswer={(optionId, freeForm) => {
-                      void pane.answerQuestion(question.id, optionId, freeForm);
-                    }}
-                  />
+    <div className="trunk-page-v2">
+      <Shell collapsed={collapsed} fullWidth={sidebar === undefined} fixedSidebarWidth={216}>
+        {sidebar}
+        <Main topBar={topBar}>
+          <div className={paneOpen ? 'trunk-page-v2__body has-panel' : 'trunk-page-v2__body'}>
+            <div className="conv-col trunk-page-v2__conversation">
+              <div className="trunk-page-v2__conversation-intro">
+                <div className="trunk-page-v2__trunk-head">
+                  <span><TrunkLineIcon /></span>
+                  <strong>Trunk</strong>
+                  <small>tasks branch off this line and merge back when shipped</small>
+                  <button type="button">History</button>
+                </div>
+                {compactHistoryTasks.map(task => (
+                  <button type="button" className="trunk-page-v2__history-row" key={task.id}
+                    onClick={() => onOpenTask?.(task.id)}>
+                    <span className="trunk-page-v2__history-rail"><PullRequestBranchIcon size={9} /></span>
+                    <span className="trunk-page-v2__history-content">
+                      <span>{task.title}</span>
+                      <small>merged{task.prNumber === undefined ? '' : ` · PR #${task.prNumber}`}</small>
+                      <ChevronRightIcon />
+                    </span>
+                  </button>
                 ))}
               </div>
-            )}
-            {!hideConversationPrompts && topBacklog !== undefined && (
-              <BacklogPrompt
-                title={topBacklog.title}
-                body={topBacklog.body}
-                tags={topBacklog.tags}
-                onApprove={() => { void pane.startDevelopment(topBacklog.id); }}
-                onIgnore={ignorePrompt}
-                onDrop={() => { void pane.skip(topBacklog.id); }}
-              />
-            )}
-            {conversationFooter ?? (
-              <>
-                <InlineChips
-                  chips={[{
-                    icon: '◫',
-                    label: 'Activity',
-                    count: activityCount,
-                    countColor: pane.activity.pinned.length > 0 ? 'red' : 'acc',
-                    active: paneOpen,
-                    onClick: () => setPaneOpen(open => !open),
-                  }]}
+              <div className="conv-index-host">
+                {conversation}
+                {conversationIndex}
+              </div>
+              {!hideConversationPrompts && openQuestions.length > 0 && (
+                <div className="trunk-questions">
+                  {openQuestions.map((question, index) => (
+                    <AskUserQuestionCard
+                      key={question.id}
+                      question={question.question}
+                      context={question.context}
+                      options={question.options}
+                      allowFreeForm={question.allowFreeForm}
+                      index={index + 1}
+                      total={openQuestions.length}
+                      onAnswer={(optionId, freeForm) => {
+                        void pane.answerQuestion(question.id, optionId, freeForm);
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+              {!hideConversationPrompts && topBacklog !== undefined && (
+                <BacklogPrompt
+                  title={topBacklog.title}
+                  body={topBacklog.body}
+                  tags={topBacklog.tags}
+                  onApprove={() => { void pane.startDevelopment(topBacklog.id); }}
+                  onIgnore={ignorePrompt}
+                  onDrop={() => { void pane.skip(topBacklog.id); }}
                 />
+              )}
+              {conversationFooter ?? (
                 <Composer
+                  variant="workspace-v2"
                   value={composer.value}
                   onChange={composer.onChange}
                   onSubmit={composer.onSubmit}
@@ -221,168 +226,213 @@ export function TrunkPage({
                   placeholder={composer.placeholder}
                   images={composer.images}
                   onImagesChange={composer.onImagesChange}
+                  meta={`${taskCount} tasks · ${pullRequestCount} PRs · $${cost.toFixed(2)} this thread`}
+                  usage={{ planPercent: 4, sessionLabel: '827 AI credits' }}
                 />
-              </>
+              )}
+            </div>
+            {paneOpen && (
+              <WorkspaceOverviewPanel
+                workspaceId={thread.workspaceId}
+                workspaceName={panel.overview?.workspace.name ?? 'Workspace'}
+                overview={panel.overview}
+                pullRequests={panel.pullRequests}
+                workspaceBacklog={panel.backlog}
+                trunkBacklog={readyBacklog}
+                pinned={pane.activity.pinned}
+                timeline={timeline}
+                runningSession={runningSession}
+                threadTitle={thread.title}
+                formatTime={formatTime}
+                onOpenActivity={openActivity}
+                onCollapse={() => setPaneOpen(false)}
+                onRefresh={pane.refresh}
+              />
             )}
           </div>
-          {paneOpen && <ResizeHandle onResize={onResize} className="pane-resize" ariaLabel="Resize the activity pane" />}
-          {paneOpen && (
-            <RightPane>
-              <div className="trunk-activity__header">
-                <strong>Activity</strong>
-                <span>this thread</span>
-                <button type="button" aria-label="Close activity"
-                  onClick={() => setPaneOpen(false)}><ChevronRightIcon /></button>
-              </div>
-              <RightPane.Content flush>
-                <TrunkActivityFeed
-                  pinned={pane.activity.pinned}
-                  timeline={timeline}
-                  loading={pane.loading}
-                  error={pane.error}
-                  formatTime={formatTime}
-                  onOpen={openActivity}
-                />
-              </RightPane.Content>
-              <div className="trunk-activity__footer">
-                <span>
-                  {`${pane.activity.taskCount ?? tasks.active.length + tasks.closed.length} tasks`
-                    + ` · ${pane.activity.pullRequestCount ?? 0} PR`
-                    + ` · $${((pane.activity.costUsdMilli ?? 0) / 1000).toFixed(2)} this thread`}
-                </span>
-                <button type="button">Thread settings</button>
-              </div>
-            </RightPane>
-          )}
-        </div>
-      </Main>
-    </Shell>
+        </Main>
+      </Shell>
+    </div>
   );
 }
 
-function TrunkActivityFeed({
+function WorkspaceOverviewPanel({
+  workspaceId,
+  workspaceName,
+  overview,
+  pullRequests,
+  workspaceBacklog,
+  trunkBacklog,
   pinned,
   timeline,
-  loading,
-  error,
+  runningSession,
+  threadTitle,
   formatTime,
-  onOpen,
+  onOpenActivity,
+  onCollapse,
+  onRefresh,
 }: {
+  workspaceId?: string;
+  workspaceName: string;
+  overview: WorkspaceOverviewDto | null;
+  pullRequests: PullRequestDto[];
+  workspaceBacklog: WorkspaceBacklogItemDto[];
+  trunkBacklog: BacklogItemDto[];
   pinned: TrunkActivityItemDto[];
   timeline: TrunkActivityItemDto[];
-  loading: boolean;
-  error: string | null;
+  runningSession?: TrunkActivityItemDto;
+  threadTitle: string;
   formatTime: (ms: number) => string;
-  onOpen: (item: TrunkActivityItemDto) => void;
+  onOpenActivity: (item: TrunkActivityItemDto) => void;
+  onCollapse: () => void;
+  onRefresh: () => void;
 }) {
-  if (loading && pinned.length === 0 && timeline.length === 0) {
-    return <div className="trunk-activity__empty">Loading activity…</div>;
-  }
-  if (error !== null && pinned.length === 0 && timeline.length === 0) {
-    return <div className="trunk-activity__empty is-error">{error}</div>;
-  }
-  if (pinned.length === 0 && timeline.length === 0) {
-    return <div className="trunk-activity__empty">Activity from sessions and linked work will appear here.</div>;
-  }
+  const needsItem = pinned[0];
+  const runningItem = runningSession ?? timeline.find(item => item.status === 'running');
+  const needsTrunk = overview?.today.needsYou[0];
+  const runningTrunk = overview?.today.running[0];
+  const openPullRequests = pullRequests.filter(pr => pr.state !== 'closed' && pr.state !== 'merged').slice(0, 3);
+  const backlog = workspaceBacklog.length > 0 ? workspaceBacklog.slice(0, 2) : trunkBacklog.slice(0, 2);
+  const pullRequestTotal = overview?.sidebarCounts.pullRequests ?? openPullRequests.length;
+  const runningSessionId = runningSession?.sessionId;
+  const todayRuns = (overview?.today.running.length ?? 0) + (overview?.today.landedToday?.length ?? 0);
+
+  const openPath = (suffix: string) => {
+    if (workspaceId !== undefined) window.location.hash = `#/workspace/${workspaceId}/${suffix}`;
+  };
+
   return (
-    <div className="trunk-activity">
-      {pinned.length > 0 && (
-        <section className="trunk-activity__section">
-          <span className="trunk-activity__section-title">Needs you</span>
-          <div className="trunk-activity__pinned">
-            {pinned.map(item => (
-              <ActivityRow key={item.id} item={item} formatTime={formatTime} onOpen={onOpen} pinned />
-            ))}
+    <aside className="trunk-page-v2__overview">
+      <div className="trunk-page-v2__overview-head">
+        <span>{workspaceName.charAt(0).toUpperCase() || 'B'}</span>
+        <strong>{workspaceName}</strong>
+        <small>WORKSPACE</small>
+        <button type="button" title="Collapse panel" aria-label="Collapse workspace panel" onClick={onCollapse}>
+          <CollapsePanelIcon />
+        </button>
+      </div>
+      <div className="trunk-page-v2__overview-scroll">
+        <section>
+          <h3>NEEDS YOU</h3>
+          {(needsItem !== undefined || needsTrunk !== undefined) ? (
+            <div className="trunk-page-v2__needs-card">
+              <span><CommentIcon /></span>
+              <span>
+                <strong>{needsItem?.title ?? needsTrunk?.title ?? 'Agent needs your input'}</strong>
+                <small>{needsItem === undefined
+                  ? `${threadTitle} · ${needsTrunk === undefined ? 'now' : formatTime(needsTrunk.updatedAt)}`
+                  : `${threadTitle} · ${formatTime(needsItem.occurredAt)}`}</small>
+              </span>
+              <button type="button" onClick={() => {
+                if (needsItem !== undefined) onOpenActivity(needsItem);
+                else if (needsTrunk !== undefined) openPath(`trunks/${needsTrunk.id}`);
+              }}>Jump</button>
+            </div>
+          ) : <p className="trunk-page-v2__overview-empty">Nothing needs attention.</p>}
+        </section>
+
+        <section>
+          <h3>RUNNING NOW</h3>
+          {(runningItem !== undefined || runningTrunk !== undefined) ? (
+            <div className="trunk-page-v2__running-card">
+              {runningSessionId !== null && runningSessionId !== undefined ? (
+                <button type="button" className="trunk-page-v2__running-dot" aria-label="Pause agent"
+                  title="Pause agent" onClick={() => {
+                    void workspaceApi.sessionAction(runningSessionId, 'pause').then(() => onRefresh());
+                  }} />
+              ) : <i />}
+              <span>
+                <strong>{runningItem?.title ?? runningTrunk?.title ?? 'Review session'}</strong>
+                <small>{runningItem?.summary ?? `${runningTrunk?.provider ?? 'agent'} · ${runningTrunk?.model ?? 'working'}`}</small>
+              </span>
+              <button type="button" onClick={() => {
+                if (runningItem !== undefined) onOpenActivity(runningItem);
+                else if (runningTrunk !== undefined) openPath(`trunks/${runningTrunk.id}`);
+              }}>Watch</button>
+            </div>
+          ) : <p className="trunk-page-v2__overview-empty">No sessions running.</p>}
+        </section>
+
+        <section>
+          <div className="trunk-page-v2__overview-title-row">
+            <h3>OPEN PRS</h3>
+            <button type="button" onClick={() => openPath('prs')}>View all {pullRequestTotal}</button>
+          </div>
+          {openPullRequests.length > 0 ? (
+            <div className="trunk-page-v2__prs">
+              {openPullRequests.map(pr => (
+                <button type="button" key={pr.id} onClick={() => openPath(`prs/${pr.number}`)}>
+                  <span className="trunk-page-v2__pr-icon"><OpenPullRequestIcon /></span>
+                  <span>{pr.title}</span>
+                  <small>#{pr.number}</small>
+                  <i style={{ background: ciColor(pr.ciStatus) }} title={pr.ciStatus ?? 'CI pending'} />
+                </button>
+              ))}
+            </div>
+          ) : <p className="trunk-page-v2__overview-empty">No open pull requests.</p>}
+        </section>
+
+        <section>
+          <h3>BACKLOG</h3>
+          {backlog.length > 0 ? (
+            <div className="trunk-page-v2__backlog">
+              {backlog.map(item => (
+                <div key={item.id}><span />{item.title}</div>
+              ))}
+            </div>
+          ) : <p className="trunk-page-v2__overview-empty">Backlog is clear.</p>}
+        </section>
+
+        <section>
+          <h3>USAGE</h3>
+          <div className="trunk-page-v2__usage">
+            <div><span>Plan</span><i><i /></i><strong>4%</strong></div>
+            <div><span>Session</span><strong>827 AI credits</strong></div>
+            <div><span>Today</span><strong>${((overview?.today.spendTodayMilliUsd ?? 0) / 1000).toFixed(2)} · {todayRuns} runs</strong></div>
           </div>
         </section>
-      )}
-      <div className="trunk-activity__timeline">
-        {timeline.map(item => (
-          <ActivityRow key={item.id} item={item} formatTime={formatTime} onOpen={onOpen} />
-        ))}
       </div>
-    </div>
+    </aside>
   );
 }
 
-function ActivityRow({
-  item,
-  formatTime,
-  onOpen,
-  pinned = false,
-}: {
-  item: TrunkActivityItemDto;
-  formatTime: (ms: number) => string;
-  onOpen: (item: TrunkActivityItemDto) => void;
-  pinned?: boolean;
-}) {
-  const canOpen = item.itemPath !== null || item.taskId !== null
-    || item.sessionId !== null || (pinned && item.actionable);
-  const content = pinned ? (
-    <>
-      <span className={`trunk-activity__icon is-${activityTone(item.kind)}`} aria-hidden>
-        {activityIcon(item.kind, pinned)}
-      </span>
-      <span className="trunk-activity__title">{item.title}</span>
-      <span className="trunk-activity__action">
-        {item.kind === 'question' ? 'Jump' : 'Open'}
-      </span>
-    </>
-  ) : (
-    <>
-      <span className={`trunk-activity__icon is-${activityTone(item.kind)}`} aria-hidden>
-        {activityIcon(item.kind, pinned)}
-      </span>
-      <span className="trunk-activity__body">
-        <span className="trunk-activity__title">{item.title}</span>
-        {item.summary !== null && item.summary.length > 0 && (
-          <span className={`trunk-activity__summary${item.kind === 'memory' ? ' is-link' : ''}`}>
-            {activitySummaryContent(item)}
-          </span>
-        )}
-      </span>
-      <time>{formatTime(item.occurredAt)}</time>
-    </>
-  );
-  const className = `trunk-activity__row is-${item.kind}${pinned ? ' is-pinned' : ''}`;
-  return (
-    <div
-      className={className}
-      role={canOpen ? 'button' : undefined}
-      tabIndex={canOpen ? 0 : undefined}
-      onClick={canOpen ? () => onOpen(item) : undefined}
-      onKeyDown={canOpen ? event => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onOpen(item);
-        }
-      } : undefined}
-    >
-      {content}
-    </div>
-  );
+type WorkspacePanelData = {
+  overview: WorkspaceOverviewDto | null;
+  pullRequests: PullRequestDto[];
+  backlog: WorkspaceBacklogItemDto[];
+};
+
+function useWorkspacePanelData(workspaceId: string | undefined): WorkspacePanelData {
+  const [data, setData] = useState<WorkspacePanelData>({ overview: null, pullRequests: [], backlog: [] });
+  const load = useCallback(async () => {
+    if (workspaceId === undefined || window.bridge?.workspaceApi === undefined) return;
+    const [overview, pullRequests, backlog] = await Promise.allSettled([
+      workspaceApi.overview(workspaceId),
+      workspaceApi.pullRequests(workspaceId),
+      workspaceApi.backlog(workspaceId),
+    ]);
+    setData(current => ({
+      overview: overview.status === 'fulfilled' && isWorkspaceOverview(overview.value)
+        ? overview.value : current.overview,
+      pullRequests: pullRequests.status === 'fulfilled' && Array.isArray(pullRequests.value)
+        ? pullRequests.value : current.pullRequests,
+      backlog: backlog.status === 'fulfilled' && Array.isArray(backlog.value)
+        ? backlog.value : current.backlog,
+    }));
+  }, [workspaceId]);
+
+  useEffect(() => {
+    setData({ overview: null, pullRequests: [], backlog: [] });
+    void load();
+    const timer = window.setInterval(() => { void load(); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+  return data;
 }
 
-function activitySummaryContent(item: TrunkActivityItemDto): ReactNode {
-  if (item.summary === null) return null;
-  if (item.kind === 'session') {
-    return <>{item.summary} · <b>watch</b></>;
-  }
-  if (item.kind === 'backlog') {
-    return <>{item.summary} · <b>open</b></>;
-  }
-  if (item.kind === 'task') {
-    const separator = item.summary.indexOf(' · ');
-    if (separator >= 0) {
-      return (
-        <>
-          {item.summary.slice(0, separator)} ·
-          {' '}<span className="trunk-activity__mono">{item.summary.slice(separator + 3)}</span>
-        </>
-      );
-    }
-  }
-  return item.summary;
+function isWorkspaceOverview(value: unknown): value is WorkspaceOverviewDto {
+  return value !== null && typeof value === 'object'
+    && 'sidebarCounts' in value && 'today' in value && 'repository' in value;
 }
 
 function fallbackTaskActivity(task: TaskCardData, status: string): TrunkActivityItemDto {
@@ -400,70 +450,31 @@ function fallbackTaskActivity(task: TaskCardData, status: string): TrunkActivity
   };
 }
 
-function activityIcon(kind: string, pinned = false): ReactNode {
-  const shared = {
-    width: 13,
-    height: 13,
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeWidth: 1.8,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-  };
-  switch (kind) {
-    case 'question':
-      return <svg {...shared}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        <path d="M12 8v3M12 13.5h.01" /></svg>;
-    case 'approval':
-    case 'pull-request':
-      return <svg {...shared}><circle cx="18" cy="18" r="2.6" /><circle cx="6" cy="6" r="2.6" />
-        <path d="M13 6h3a2 2 0 0 1 2 2v7M6 9v12" /></svg>;
-    case 'session':
-      return <svg {...shared}><path d="m4 17 6-6-6-6M12 19h8" /></svg>;
-    case 'task':
-      return <svg {...shared} strokeWidth="1.9"><circle cx="18" cy="18" r="2.6" />
-        <circle cx="6" cy="6" r="2.6" /><path d="M6 21V9a9 9 0 0 0 9 9" /></svg>;
-    case 'review':
-      if (pinned) {
-        return <svg {...shared}><circle cx="18" cy="18" r="2.6" /><circle cx="6" cy="6" r="2.6" />
-          <path d="M13 6h3a2 2 0 0 1 2 2v7M6 9v12" /></svg>;
-      }
-      return <svg {...shared} strokeWidth="2"><path d="M20 6 9 17l-5-5" /></svg>;
-    case 'backlog':
-      return <svg {...shared} strokeWidth="1.7"><path d="M22 12h-6l-2 3h-4l-2-3H2" />
-        <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>;
-    case 'ci':
-      return <svg {...shared} strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>;
-    case 'memory':
-      return <svg {...shared} strokeWidth="1.6"><path d="M12 3a4 4 0 0 0-4 4 3.5 3.5 0 0 0-2 6.5A3.5 3.5 0 0 0 9 20a3 3 0 0 0 6 0 3.5 3.5 0 0 0 3-6.5A3.5 3.5 0 0 0 16 7a4 4 0 0 0-4-4Z" />
-        <path d="M12 3v18" /></svg>;
-    default:
-      return <span>•</span>;
-  }
+function ciColor(status: string | null): string {
+  const normalized = status?.toLowerCase() ?? '';
+  if (normalized.includes('success') || normalized.includes('pass')) return '#2da44e';
+  if (normalized.includes('fail') || normalized.includes('error')) return '#cf222e';
+  return '#d4a72c';
 }
 
-function activityTone(kind: string): string {
-  switch (kind) {
-    case 'question':
-    case 'approval': return 'amber';
-    case 'task': return 'violet';
-    case 'pull-request':
-      return 'blue';
-    case 'session':
-    case 'review': return 'green';
-    case 'ci': return 'red';
-    default: return 'slate';
-  }
+function PanelIcon() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="4" width="18" height="16" rx="2.2" /><path d="M15 4v16" /></svg>;
+}
+
+function CollapsePanelIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /><path d="M4 4v16" transform="translate(14 0)" /></svg>;
 }
 
 function ChevronRightIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m9 18 6-6-6-6" />
-    </svg>
-  );
+  return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>;
+}
+
+function CommentIcon() {
+  return <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>;
+}
+
+function OpenPullRequestIcon() {
+  return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="5.5" r="2.4" /><circle cx="6" cy="18.5" r="2.4" /><circle cx="18" cy="18.5" r="2.4" /><path d="M6 8v8" /><path d="M11.5 5.5H15a3 3 0 0 1 3 3V16" /></svg>;
 }
 
 function defaultActivityTime(ms: number): string {

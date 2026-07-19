@@ -59,6 +59,18 @@ describe('Shell', () => {
     const { container: collapsed } = render(sampleSidebar(true));
     expect(collapsed).toMatchSnapshot('collapsed');
   });
+
+  it('locks design sidebars to 216px without a resize handle', () => {
+    const { container } = render(
+      <Shell fixedSidebarWidth={216}>
+        <aside />
+        <main />
+      </Shell>,
+    );
+    expect((container.querySelector('.shell') as HTMLElement).style.gridTemplateColumns)
+      .toBe('216px minmax(0, 1fr)');
+    expect(container.querySelector('.sidebar-resize')).toBeNull();
+  });
 });
 
 describe('Sidebar composition', () => {

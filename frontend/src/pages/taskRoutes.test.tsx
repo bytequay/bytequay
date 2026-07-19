@@ -47,9 +47,12 @@ describe('TaskBrainRoute', () => {
     };
     render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} onClosed={() => {}} />);
 
-    // The V3 shell + a TASK pill render from the fixture.
+    // The locked shell + BRAIN badge render from the fixture.
     expect(document.querySelector('.shell')).toBeTruthy();
-    expect(document.querySelector('.v3-pill--task')).toBeTruthy();
+    expect(document.querySelector('.workspace-task-header__badge')?.textContent).toBe('BRAIN');
+
+    fireEvent.click(screen.getByTitle('Usage'));
+    expect(screen.getByText(/AI credits$/)).toBeTruthy();
 
     const box = screen.getByRole('textbox');
     fireEvent.change(box, { target: { value: 'what next?' } });
@@ -125,7 +128,7 @@ describe('StageDetailRoute', () => {
     render(<StageDetailRoute threadId="t1" taskId="task-1" stageId="stage-1" onOpenCode={() => {}} />);
 
     expect(document.querySelector('.shell')).toBeTruthy();
-    expect(document.querySelector('.v3-pill--stage')).toBeTruthy();
+    expect(document.querySelector('.workspace-task-header__badge')?.textContent).toBe('DEV STAGE');
 
     const box = screen.getByRole('textbox');
     fireEvent.change(box, { target: { value: 'fix the import' } });

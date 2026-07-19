@@ -23,18 +23,23 @@ import { ChevronRightIcon } from '../../TaskBrainDesignIcons';
  * bar even while folded. `forceOpen` (density = Full) overrides the local
  * toggle.
  */
-export function WorkFold({ label = 'Brain worked', meta, failed, forceOpen = false, icon, children }: {
+export function WorkFold({
+  label = 'Brain worked', meta, failed, forceOpen = false, defaultOpen = false, icon, children,
+}: {
   label?: ReactNode;
   /** Right-aligned mono meta, e.g. "4 steps · 18 tool calls · 2m". */
   meta?: ReactNode;
   /** Failure count surfaced as a red badge even while collapsed. */
   failed?: number;
   forceOpen?: boolean;
+  /** Initial disclosure state. Unlike forceOpen, the user can still collapse
+   *  it — stage pages use this for their full-log default. */
+  defaultOpen?: boolean;
   /** Replaces the default ✦ spark (Task Conversation uses a clock). */
   icon?: ReactNode;
   children?: ReactNode;
 }) {
-  const [selfOpen, setSelfOpen] = useState(false);
+  const [selfOpen, setSelfOpen] = useState(defaultOpen);
   const open = forceOpen || selfOpen;
   return (
     <div className={`sp-work${open ? ' open' : ''}`}>

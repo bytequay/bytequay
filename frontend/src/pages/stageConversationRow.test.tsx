@@ -93,6 +93,16 @@ describe('stageFeed grouping', () => {
     const { container } = render(<>{stageFeed(rows, undefined, undefined, true)}</>);
     expect(container.querySelectorAll('.tool-block')).toHaveLength(2);
   });
+
+  it('starts stage-detail groups open but lets the user collapse them', () => {
+    const rows = [row({ id: 't1' }), row({ id: 't2' })];
+    const { container } = render(<>{stageFeed(rows, undefined, undefined, false, true)}</>);
+    const toggle = container.querySelector('.sp-work__bar') as HTMLButtonElement;
+    expect(container.querySelectorAll('.tool-block')).toHaveLength(2);
+    expect((toggle as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(toggle);
+    expect(container.querySelector('.tool-block')).toBeNull();
+  });
 });
 
 describe('stageRow permission', () => {

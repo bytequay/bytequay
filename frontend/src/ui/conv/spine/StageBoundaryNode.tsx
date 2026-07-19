@@ -13,16 +13,17 @@
  */
 import type { StageDto, StageType } from '../../../types/brainView';
 import { formatDuration } from '../../../threads/brain/format';
+import { EventTimestamp } from '../EventRow';
 import { SpineNode } from './Spine';
 import type { SpineColor } from './Spine';
 
 const VISUAL: Record<StageType, { color: SpineColor; mark: string; name: string }> = {
-  PLAN_STAGE: { color: 'purple', mark: '◆', name: 'Planning' },
-  DEVELOPMENT_STAGE: { color: 'blue', mark: '▶', name: 'Development' },
-  REMOTE_DEVELOPMENT_STAGE: { color: 'teal', mark: '◇', name: 'Remote Development' },
-  CI_FIXING_STAGE: { color: 'amber', mark: '✦', name: 'CI Fix' },
-  REVIEW_MONITOR_STAGE: { color: 'teal', mark: '◇', name: 'Review Monitor' },
-  CLEANUP_STAGE: { color: 'gray', mark: '◆', name: 'Cleanup' },
+  PLAN_STAGE: { color: 'gray', mark: '◆', name: 'Planning' },
+  DEVELOPMENT_STAGE: { color: 'green', mark: '▶', name: 'Development' },
+  REMOTE_DEVELOPMENT_STAGE: { color: 'purple', mark: '◇', name: 'Remote Development' },
+  CI_FIXING_STAGE: { color: 'red', mark: '✦', name: 'Remote CI' },
+  REVIEW_MONITOR_STAGE: { color: 'purple', mark: '◇', name: 'Review Monitor' },
+  CLEANUP_STAGE: { color: 'purple', mark: '◆', name: 'Merge / Close' },
   REVIEW_STAGE: { color: 'purple', mark: '◆', name: 'Review' },
   REVIEW_ROUND_STAGE: { color: 'teal', mark: '✦', name: 'Review Round' },
   BRANCH_GUARD_STAGE: { color: 'amber', mark: '🛡', name: 'Branch Guard' },
@@ -58,10 +59,12 @@ export function StageBoundaryNode({ stage, closed, collapsed, onToggle, onOpen, 
 }) {
   const v = VISUAL[stage.type];
   const dur = durationLabel(stage);
-  const state = closed
-    ? (dur !== null ? `done · ${dur}` : 'done')
-    : stage.state === 'ACTIVE' || stage.state === 'OPEN' ? 'active'
-      : stage.state === 'PAUSED' ? 'paused' : 'open';
+  const state = stage.type === 'CI_FIXING_STAGE' && stage.loopIteration > 0
+    ? `round ${stage.loopIteration} · ${closed ? 'done' : 'awakened'}`
+    : closed
+      ? (dur !== null ? `done · ${dur}` : 'done')
+      : stage.state === 'ACTIVE' || stage.state === 'OPEN' ? 'active'
+        : stage.state === 'PAUSED' ? 'paused' : 'open';
   const outcome = stage.summary.trim().length > 0 ? truncate(stage.summary, 64) : undefined;
   return (
     <SpineNode
@@ -73,7 +76,13 @@ export function StageBoundaryNode({ stage, closed, collapsed, onToggle, onOpen, 
       collapsed={collapsed}
       onToggle={onToggle}
       onOpen={onOpen}
-      right={amended === true ? <span className="sp-node__tick">plan amended</span> : undefined}
+      right={(
+        <>
+          <span className="sp-node__rule" aria-hidden />
+          <span className="sp-node__time"><EventTimestamp iso={stage.closedAt ?? stage.openedAt} /></span>
+          {amended === true && <span className="sp-node__tick">plan amended</span>}
+        </>
+      )}
     />
   );
 }

@@ -12,14 +12,14 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
-import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
+import type { DiffFileDto, ThreadCommitDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
+import { TaskChangedFilesCard } from '../pages/TaskChangedFilesCard';
 import {
-  ActivityStrip, Headline, Round, Spine, SpineBreak, TaskCutNode, TaskFold, UserTurn, WorkFold,
+  ActivityStrip, EventTimestamp, Headline, Round, Spine, SpineBreak, TaskCutNode, TaskFold, UserTurn, WorkFold,
 } from '../ui/conv';
 import type { Density, TaskStatus, ToolGroup } from '../ui/conv';
 import { AskQuestionCard } from './AskQuestionCard';
 import { MarkdownProse } from './MarkdownProse';
-import { EventTimestamp } from '../ui/conv';
 import { cardStatus, toTaskCard } from './taskCardData';
 import { taskLabel } from './taskLabel';
 import {
@@ -28,6 +28,7 @@ import {
 import type { TrunkRound, TrunkSummary } from './trunkTimeline';
 import { PermissionCard } from './PermissionCard';
 import type { PermissionDecideHandler } from './PermissionCard';
+import { formatDuration } from './brain/format';
 
 /** Short status word for a folded-but-not-done task's bar (tone 'running') —
  *  it has no completion summary yet, so this previews *why* it's folded. */
@@ -52,6 +53,13 @@ type AskHandling = {
   pendingId: string | null;
   /** Sends the composed answer as the next user turn. */
   onAnswer?: (text: string) => void;
+};
+
+export type TrunkTaskArtifacts = {
+  files: DiffFileDto[];
+  commits: ThreadCommitDto[];
+  onReview?: () => void;
+  onUndo?: () => void;
 };
 
 /** Batch a round's work rows into folded sub-messages + tool activity strips,
@@ -118,6 +126,102 @@ function renderWork(
   return out;
 }
 
+function workedFor(work: ThreadMessageDto[], headline: ThreadMessageDto | null): string {
+  const measuredMs = work.reduce((sum, row) => sum + Math.max(0, row.durationMs ?? 0), 0);
+  const first = Date.parse(work[0]?.ts ?? '');
+  const last = Date.parse(headline?.ts ?? work[work.length - 1]?.ts ?? '');
+  const elapsedMs = Number.isNaN(first) || Number.isNaN(last) ? 0 : Math.max(0, last - first);
+  return `Worked for ${formatDuration(Math.max(measuredMs, elapsedMs) / 1000)}`;
+}
+
+function BranchRailRow({ kind, children }: {
+  kind: 'cut' | 'detail' | 'merge';
+  children: ReactNode;
+}) {
+  return (
+    <div className={`trunk-page-v2__branch-row trunk-page-v2__branch-row--${kind}`}>
+      <div className="trunk-page-v2__branch-rail" aria-hidden>
+        {kind === 'cut' && (
+          <>
+            <svg width="42" height="32" viewBox="0 0 42 32" fill="none">
+              <path d="M14 2 C14 20, 30 12, 30 32" stroke="#8250df55" strokeWidth="2" />
+            </svg>
+            <span className="trunk-page-v2__branch-dot" />
+            <span className="trunk-page-v2__branch-line" />
+          </>
+        )}
+        {kind === 'detail' && <span className="trunk-page-v2__branch-line" />}
+        {kind === 'merge' && (
+          <>
+            <svg width="42" height="28" viewBox="0 0 42 28" fill="none">
+              <path d="M30 0 C30 16, 14 8, 14 26" stroke="#8250df55" strokeWidth="2" />
+            </svg>
+            <span className="trunk-page-v2__merge-dot" />
+          </>
+        )}
+      </div>
+      <div className="trunk-page-v2__branch-body">{children}</div>
+    </div>
+  );
+}
+
+function MergeRow({ task, completedAt }: { task: WorkUnitTaskDto; completedAt?: number }) {
+  return (
+    <div className="trunk-page-v2__merge-row">
+      <span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="6" cy="6" r="2.4" />
+          <circle cx="18" cy="18" r="2.4" />
+          <path d="M6 8.5V12a6 6 0 0 0 6 6h3.4" />
+        </svg>
+      </span>
+      <strong>Merged into trunk</strong>
+      <small>
+        {task.prNumber === null ? 'squash · CI green' : `PR #${task.prNumber} · squash · CI green`}
+      </small>
+      {completedAt !== undefined && Number.isFinite(completedAt) && (
+        <time><EventTimestamp iso={new Date(completedAt).toISOString()} /></time>
+      )}
+    </div>
+  );
+}
+
+function CommitRow({ commit }: { commit: ThreadCommitDto }) {
+  return (
+    <div className="trunk-page-v2__commit-row">
+      Committed as <code>{commit.shortSha}</code> — <code>{commit.subject}</code>
+    </div>
+  );
+}
+
+function taskWorkLabel(task: WorkUnitTaskDto, summary: TrunkSummary | undefined): string {
+  const startedAt = Date.parse(task.createdAt);
+  const elapsed = summary === undefined || !Number.isFinite(startedAt)
+    ? 0
+    : Math.max(0, summary.ts - startedAt);
+  return `Worked for ${formatDuration(elapsed / 1000)}`;
+}
+
+function TaskArtifactTrace({ artifacts }: { artifacts: TrunkTaskArtifacts }) {
+  const groups: ToolGroup[] = [];
+  if (artifacts.files.length > 0) {
+    groups.push({
+      kind: 'Edit',
+      rows: artifacts.files.slice(0, 4).map(file => ({ label: file.filename })),
+    });
+  }
+  if (artifacts.commits.length > 0) {
+    groups.push({
+      kind: 'Commit',
+      rows: artifacts.commits.slice(0, 2).map(commit => ({
+        label: `${commit.shortSha} — ${commit.subject}`,
+      })),
+    });
+  }
+  return <ActivityStrip groups={groups} filesChanged={artifacts.files.length} />;
+}
+
 /**
  * The trunk conversation feed on the timeline spine (M10). Reuses the brain
  * feed's rounds / work folds / tool activity strips, and adds the trunk
@@ -128,6 +232,7 @@ function renderWork(
  */
 export function TrunkFeed({
   messages, tasks, density, onOpenTask, trailer, mergeReadyIds, onAnswerQuestion, onDecidePermission,
+  artifactsByTaskId,
 }: {
   messages: ThreadMessageDto[];
   tasks: WorkUnitTaskDto[];
@@ -144,6 +249,7 @@ export function TrunkFeed({
    *  prompt (previously answerable only by waiting out the backend's
    *  timeout) an actual clickable card. */
   onDecidePermission?: PermissionDecideHandler;
+  artifactsByTaskId?: ReadonlyMap<string, TrunkTaskArtifacts>;
 }) {
   const full = density === 'full';
   const items = buildTrunkTimeline(messages, tasks);
@@ -187,8 +293,7 @@ export function TrunkFeed({
         )}
         {work.length > 0 && (
           <WorkFold
-            label="Trunk worked"
-            meta={`${work.length} ${work.length === 1 ? 'step' : 'steps'}`}
+            label={workedFor(work, headline)}
             forceOpen={full || holdsPendingAsk || holdsPendingPermission}
           >
             {renderWork(work, full, ask, onDecidePermission)}
@@ -219,28 +324,19 @@ export function TrunkFeed({
     );
   };
 
-  // Segment the trunk by CUT events, not by task completion: each segment is
-  // the planning conversation that led up to a cut, plus the cut card
-  // itself, and it folds the instant the cut happens — regardless of how
-  // long the resulting task takes to finish, and with no "current task stays
-  // open" exception: every cut folds immediately, including the most recent
-  // one. That's what the trunk actually does: talk until the work is clear
-  // enough to cut, cut it (the boundary), then start fresh on whatever comes
-  // next. Folding on completion timing instead (the old approach) breaks
-  // under concurrent tasks — a later task is routinely cut, and does its own
-  // work, before an earlier one's completion summary finally lands, which
-  // buried the later task's cut inside the earlier one's collapsed fold,
-  // invisible until you happened to expand exactly that one. Cut order has
-  // no such ambiguity: cuts are strictly ordered events regardless of how
-  // long each resulting task takes afterward. Only the trailing segment
-  // after the LAST cut — conversation that hasn't itself produced a cut yet
-  // — stays unfolded.
+  // Cut order is the only reliable boundary when tasks run concurrently.
+  // Locked frame 1b keeps completed history compact above this feed, keeps
+  // older still-running cuts as quiet fold rows, and leaves the newest cut
+  // expanded on its branch rail. Inside that live detail only the ordinary
+  // `Worked for …` trace rows start collapsed.
   const summaryByTaskId = new Map<string, TrunkSummary>();
   for (const item of items) {
     if (item.kind === 'summary' && item.summary.taskId !== null) {
       summaryByTaskId.set(item.summary.taskId, item.summary);
     }
   }
+  const cutItems = items.filter(item => item.kind === 'cut');
+  const latestTaskId = cutItems[cutItems.length - 1]?.cut.task.id;
 
   const nodes: ReactNode[] = [];
   let segment: ReactNode[] = [];
@@ -254,6 +350,69 @@ export function TrunkFeed({
     const cutCard = renderCut(task);
     const s = summaryByTaskId.get(task.id);
     const status = cardStatus(task.status);
+
+    if (task.id === latestTaskId) {
+      nodes.push(...segment);
+      segment = [];
+      nodes.push(
+        <BranchRailRow key={`cut-${task.id}`} kind="cut">{cutCard}</BranchRailRow>,
+      );
+      const artifacts = artifactsByTaskId?.get(task.id);
+      const hasArtifactDetails = artifacts !== undefined
+        && (artifacts.files.length > 0 || artifacts.commits.length > 0);
+      if (hasArtifactDetails) {
+        nodes.push(
+          <BranchRailRow key={`work-${task.id}`} kind="detail">
+            <WorkFold label={taskWorkLabel(task, s)}>
+              <TaskArtifactTrace artifacts={artifacts} />
+            </WorkFold>
+          </BranchRailRow>,
+        );
+      }
+      if (s !== undefined && s.text.trim().length > 0) {
+        nodes.push(
+          <BranchRailRow key={`summary-${task.id}`} kind="detail">
+            <Headline bare who="Agent" body={s.text} />
+          </BranchRailRow>,
+        );
+      }
+      if (artifacts !== undefined && artifacts.files.length > 0) {
+        nodes.push(
+          <BranchRailRow key={`files-${task.id}`} kind="detail">
+            <TaskChangedFilesCard
+              files={artifacts.files}
+              verb="Edited"
+              onUndo={artifacts.onUndo}
+              onReview={artifacts.onReview}
+            />
+          </BranchRailRow>,
+        );
+      }
+      const commit = artifacts?.commits[0];
+      if (commit !== undefined) {
+        nodes.push(
+          <BranchRailRow key={`commit-${task.id}`} kind="detail">
+            <CommitRow commit={commit} />
+          </BranchRailRow>,
+        );
+      }
+      if (task.status === 'COMPLETED' && task.prState?.toUpperCase() === 'MERGED') {
+        nodes.push(
+          <BranchRailRow key={`merge-${task.id}`} kind="merge">
+            <MergeRow task={task} completedAt={s?.ts} />
+          </BranchRailRow>,
+        );
+      }
+      continue;
+    }
+
+    // Completed predecessors are already rendered as the compact merged-task
+    // rows immediately below the trunk head by TrunkPage.
+    if (s !== undefined || task.status === 'COMPLETED') {
+      segment = [];
+      continue;
+    }
+
     nodes.push(
       <TaskFold
         key={`fold-${task.id}`}

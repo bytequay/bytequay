@@ -42,6 +42,7 @@ type Props = {
    *  this to refresh any cached resolved-model display elsewhere on
    *  the page. */
   onChange?: (resolved: ResolvedWorkModelDto) => void;
+  variant?: 'default' | 'workspace-v2';
 };
 
 /**
@@ -58,7 +59,8 @@ type Props = {
  * picker writes go through the same bridge as the workspace settings
  * page so the per-scope cascade stays consistent across surfaces.
  */
-export function WorkModelPill({ scope, onChange }: Props) {
+export function WorkModelPill({ scope, onChange, variant = 'default' }: Props) {
+  const workspaceVariant = variant === 'workspace-v2';
   const [resolved, setResolved] = useState<ResolvedWorkModelDto | null>(null);
   const [options, setOptions] = useState<WorkModelOptionsDto | null>(null);
   const [open, setOpen] = useState(false);
@@ -189,7 +191,8 @@ export function WorkModelPill({ scope, onChange }: Props) {
 
   if (resolved === null && error === null) {
     return (
-      <button type="button" style={pillStyle(false)} disabled>
+      <button type="button" className={workspaceVariant ? 'workspace-work-model-pill' : undefined}
+        style={pillStyle(false, workspaceVariant)} disabled>
         <span style={pillTextStyle}>Model…</span>
       </button>
     );
@@ -199,7 +202,8 @@ export function WorkModelPill({ scope, onChange }: Props) {
     return (
       <button
         type="button"
-        style={pillStyle(false)}
+        className={workspaceVariant ? 'workspace-work-model-pill' : undefined}
+        style={pillStyle(false, workspaceVariant)}
         onClick={() => { void load(); }}
         title={error}
       >
@@ -213,7 +217,8 @@ export function WorkModelPill({ scope, onChange }: Props) {
       <button
         ref={triggerRef}
         type="button"
-        style={pillStyle(open)}
+        className={workspaceVariant ? 'workspace-work-model-pill' : undefined}
+        style={pillStyle(open, workspaceVariant)}
         onClick={() => {
           // Compute the spot before flipping open so the portaled
           // popover renders in place with no first-frame flash.
@@ -225,7 +230,12 @@ export function WorkModelPill({ scope, onChange }: Props) {
         aria-expanded={open}
       >
         <span style={pillTextStyle}>{label}</span>
-        <span style={pillChevStyle} aria-hidden>⌄</span>
+        {workspaceVariant ? (
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8b949e"
+            strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        ) : <span style={pillChevStyle} aria-hidden>⌄</span>}
       </button>
       {open && pos !== null && createPortal(
         <div
@@ -310,7 +320,25 @@ const wrapperStyle: React.CSSProperties = {
   display: 'inline-flex',
 };
 
-function pillStyle(active: boolean): React.CSSProperties {
+function pillStyle(active: boolean, workspaceVariant = false): React.CSSProperties {
+  if (workspaceVariant) {
+    return {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 5,
+      height: 26,
+      padding: '4px 9px',
+      border: 0,
+      ...(active ? { background: '#f6f8fa' } : {}),
+      color: '#454c54',
+      borderRadius: 7,
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+      fontSize: 12.5,
+      fontWeight: 400,
+      whiteSpace: 'nowrap',
+    };
+  }
   return {
     display: 'inline-flex',
     alignItems: 'center',

@@ -77,7 +77,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
 }) {
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
   const [repo, setRepo] = useState<WorkspaceRepositoryDto | null>(null);
-  const [view, setView] = useState<'board' | 'list'>('board');
+  const [view, setView] = useState<'board' | 'list'>('list');
   // Default filter: 'all' — deterministic before data loads. Revisit if a
   // review-first default proves better in daily use.
   const [filter, setFilter] = useState<WorkspaceFilter>('all');

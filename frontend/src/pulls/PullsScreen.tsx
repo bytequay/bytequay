@@ -13,6 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
+import { getCached, setCached } from '../dataCache';
 import type { DashboardPR } from '../types/dashboardPr';
 import type { LocalPR } from '../types/localPr';
 import { PULL_TABS, rowsForTab, toRow } from './model';
@@ -31,8 +32,9 @@ import '../css/pulls.css';
  */
 
 const DETAIL_MIN = 460;
-const DETAIL_MAX = 1150;
+const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 940;
+const PRS_CACHE_KEY = 'prs:list';
 
 /** Minimal DashboardPR off the unified-PR resolver's LocalPR, for a
  *  deep-linked PR that isn't in the dashboard list (someone else's PR the
@@ -84,11 +86,15 @@ export default function PullsScreen({ onOpenWorkspacePr, initialPr }: {
    *  is the "owner/name" fullName. */
   initialPr?: { repo: string; number: number };
 }) {
-  const [prs, setPrs] = useState<DashboardPR[]>([]);
+  const [prs, setPrs] = useState<DashboardPR[]>(
+    () => getCached<DashboardPR[]>(PRS_CACHE_KEY) ?? [],
+  );
+  const [dashboardLoaded, setDashboardLoaded] = useState(false);
   const [tab, setTab] = useState<PullTab>('all');
   const [sel, setSel] = useState<string | null>(null);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detW, setDetW] = useState(DETAIL_DEFAULT);
+  const [initialPrError, setInitialPrError] = useState(false);
   // Fallback pane row for a deep-linked PR outside the dashboard list.
   const [extraRow, setExtraRow] = useState<PullRow | null>(null);
   // repo fullName (lowercased) → workspace id, for the pane's workspace-
@@ -114,9 +120,15 @@ export default function PullsScreen({ onOpenWorkspacePr, initialPr }: {
     const load = async () => {
       try {
         const data = await window.bridge.fetchDashboardPrs();
-        if (alive.current) setPrs(data);
+        if (alive.current) {
+          setPrs(data);
+          setCached(PRS_CACHE_KEY, data);
+        }
       } catch {
         // Backend not up yet — the sync below retries the fetch.
+      }
+      finally {
+        if (alive.current) setDashboardLoaded(true);
       }
     };
     void load();
@@ -133,12 +145,26 @@ export default function PullsScreen({ onOpenWorkspacePr, initialPr }: {
   }, []);
 
   // Deep-link: resolve the PR to its unified id, select it, open the pane.
-  // The extraRow only wins when the dashboard list doesn't have the row.
+  // Home already cached dashboard rows, so use that known id immediately.
+  // The GitHub-backed resolver is only needed for PRs outside the dashboard.
   useEffect(() => {
     if (initialPr === undefined) return;
+    const dashboardPr = prs.find(pr => pr.number === initialPr.number
+      && pr.repo.toLowerCase() === initialPr.repo.toLowerCase());
+    if (dashboardPr !== undefined) {
+      setInitialPrError(false);
+      setSel(dashboardPr.id);
+      setPaneOpen(true);
+      return;
+    }
+    if (!dashboardLoaded) return;
     const [owner, repo] = initialPr.repo.split('/');
-    if (!owner || !repo) return;
+    if (!owner || !repo) {
+      setInitialPrError(true);
+      return;
+    }
     let cancelled = false;
+    setInitialPrError(false);
     void window.bridge.getPrForRepoPull(owner, repo, initialPr.number)
       .then(pr => {
         if (cancelled) return;
@@ -146,9 +172,9 @@ export default function PullsScreen({ onOpenWorkspacePr, initialPr }: {
         setSel(pr.id);
         setPaneOpen(true);
       })
-      .catch(() => { /* bad deep link — the list still renders */ });
+      .catch(() => { if (!cancelled) setInitialPrError(true); });
     return () => { cancelled = true; };
-  }, [initialPr]);
+  }, [dashboardLoaded, initialPr, prs]);
 
   const rows = useMemo(() => rowsForTab(prs, tab), [prs, tab]);
   const selRow = sel === null ? null
@@ -157,7 +183,8 @@ export default function PullsScreen({ onOpenWorkspacePr, initialPr }: {
       // (e.g. a deep-linked merged PR while "All" hides done ones).
       ?? (() => { const pr = prs.find(p => p.id === sel); return pr === undefined ? null : toRow(pr); })()
       ?? (extraRow !== null && extraRow.id === sel ? extraRow : null);
-  const paneShown = selRow !== null && paneOpen;
+  const openingInitialPr = initialPr !== undefined && selRow === null;
+  const paneShown = paneOpen && (selRow !== null || openingInitialPr);
   const wide = !paneShown;
   const selWorkspaceId = selRow === null ? undefined : wsByRepo.get(selRow.repo.toLowerCase());
 
@@ -270,7 +297,7 @@ export default function PullsScreen({ onOpenWorkspacePr, initialPr }: {
       </div>
 
       {/* ═══ PR detail pane ═══ */}
-      {paneShown && selRow !== null && (
+      {paneShown && (
         <div style={{ width: detW, flexShrink: 1, minWidth: 0, borderLeft: '1px solid #e7e9ec', display: 'flex', minHeight: 0, background: '#fff', position: 'relative' }}>
           <div
             className="pl-hov-drag"
@@ -278,18 +305,29 @@ export default function PullsScreen({ onOpenWorkspacePr, initialPr }: {
             title="Drag to resize"
             style={{ position: 'absolute', left: -3, top: 0, bottom: 0, width: 6, cursor: 'col-resize', zIndex: 5 }}
           />
-          <PullDetailPane
-            key={selRow.id}
-            row={selRow}
-            onWorkWithAgent={onOpenWorkspacePr !== undefined && selWorkspaceId !== undefined
-              ? () => onOpenWorkspacePr(selRow.repo, selRow.num, { agent: true })
-              : undefined}
-            onOpenInWorkspace={onOpenWorkspacePr !== undefined && selWorkspaceId !== undefined
-              ? () => onOpenWorkspacePr(selRow.repo, selRow.num, { agent: false })
-              : undefined}
-            onAssignAgent={() => assignAgent(selRow)}
-            noWorkspace={onOpenWorkspacePr !== undefined && selWorkspaceId === undefined}
-          />
+          {selRow !== null ? (
+            <PullDetailPane
+              key={selRow.id}
+              row={selRow}
+              onWorkWithAgent={onOpenWorkspacePr !== undefined && selWorkspaceId !== undefined
+                ? () => onOpenWorkspacePr(selRow.repo, selRow.num, { agent: true })
+                : undefined}
+              onOpenInWorkspace={onOpenWorkspacePr !== undefined && selWorkspaceId !== undefined
+                ? () => onOpenWorkspacePr(selRow.repo, selRow.num, { agent: false })
+                : undefined}
+              onAssignAgent={() => assignAgent(selRow)}
+              noWorkspace={onOpenWorkspacePr !== undefined && selWorkspaceId === undefined}
+            />
+          ) : (
+            <div
+              role="status"
+              style={{ flex: 1, display: 'grid', placeItems: 'center', color: initialPrError ? '#cf222e' : '#59636e', fontSize: 13 }}
+            >
+              {initialPrError
+                ? `Couldn't open ${initialPr?.repo} #${initialPr?.number}.`
+                : `Opening ${initialPr?.repo} #${initialPr?.number}…`}
+            </div>
+          )}
         </div>
       )}
     </div>

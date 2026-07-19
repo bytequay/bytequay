@@ -41,7 +41,7 @@ import '../css/pulls.css';
  */
 
 const DETAIL_MIN = 460;
-const DETAIL_MAX = 1150;
+const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 940;
 
 const VIEW_SEGS: ['board' | 'list', string][] = [['board', 'Board'], ['list', 'List']];

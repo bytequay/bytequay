@@ -55,7 +55,10 @@ function InboxSection({
   const [deploys, setDeploys] = useState<DeployNoticeDto[]>([]);
   const [hiddenIds, setHiddenIds] = useState<string[]>([]);
   const [workspaceRepos, setWorkspaceRepos] = useState<Map<string, WorkspaceInboxTarget>>(new Map());
-  const [taskTitles, setTaskTitles] = useState<Map<string, string>>(new Map());
+  const [tasksById, setTasksById] = useState<Map<string, {
+    title: string;
+    workingDir: string | null;
+  }>>(new Map());
   const [unreadOnly, setUnreadOnly] = useState(() => localStorage.getItem(UNREAD_ONLY_KEY) !== '0');
   /** Transient hint when the backend refuses a dismiss. */
   const [note, setNote] = useState<string | null>(null);
@@ -87,9 +90,12 @@ function InboxSection({
     void Promise.all(threadIds.map(async threadId => {
       const tasks = await window.bridge.listTasksForThread(threadId)
         .catch((): Awaited<ReturnType<typeof window.bridge.listTasksForThread>> => []);
-      return tasks.map(task => [task.id, taskLabel(task)] as const);
+      return tasks.map(task => [task.id, {
+        title: taskLabel(task),
+        workingDir: task.workingDir,
+      }] as const);
     })).then(rows => {
-      if (!cancelled) setTaskTitles(new Map(rows.flat()));
+      if (!cancelled) setTasksById(new Map(rows.flat()));
     });
     return () => { cancelled = true; };
   }, [notifications]);
@@ -207,7 +213,8 @@ function InboxSection({
       const full = `${owner}/${repo}`;
       return (prs ?? []).find(p => p.repo === full && p.number === prNumber)?.title ?? null;
     },
-    taskTitle: taskId => taskTitles.get(taskId) ?? null,
+    taskTitle: taskId => tasksById.get(taskId)?.title ?? null,
+    taskWorkingDir: taskId => tasksById.get(taskId)?.workingDir ?? null,
   };
 
   return (

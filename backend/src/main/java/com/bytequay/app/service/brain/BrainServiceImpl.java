@@ -203,8 +203,14 @@ public class BrainServiceImpl
 
                 %s%s
 
-                Investigate the project as needed with your read-only introspection tools, \
-                then call record_plan(task_id='%s', plan={…}) with a structured plan: what you \
+                Investigate the project as needed with your read-only introspection tools. For \
+                non-trivial tasks, if your runtime supports native subagents, delegate at most \
+                two parallel read-only investigations: one for architecture/risk (affected \
+                components, existing patterns, hidden risks), and one for validation/data \
+                (tests, migrations, compatibility, verification). Do not delegate trivial tasks. \
+                Subagents must not edit files, execute commands, or publish anything. Wait for \
+                their results and synthesize them yourself, then call \
+                record_plan(task_id='%s', plan={…}) with a structured plan: what you \
                 understand (affected components, existing patterns to follow, constraints), what \
                 you intend to do (numbered steps, validation strategy, push strategy), and the \
                 risk / effort / value signals. Set status to "finalized" when the plan is ready \

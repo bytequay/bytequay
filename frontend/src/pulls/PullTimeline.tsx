@@ -94,6 +94,7 @@ function CommentCard({ item, repoCtx, onReaction }: {
         <span style={{ color: '#8b949e', cursor: 'pointer', letterSpacing: 1, fontWeight: 700 }}>···</span>
       </div>
       <div
+        className="md-body"
         style={{ padding: '13px 18px', fontSize: 13.5, lineHeight: 1.65, color: '#1f2328' }}
         dangerouslySetInnerHTML={{ __html: renderMarkdown(item.body, repoCtx) }}
       />
@@ -106,6 +107,7 @@ function CommentCard({ item, repoCtx, onReaction }: {
               <span style={{ color: '#8b949e', fontSize: 11.5 }}>{reply.time}</span>
             </span>
             <div
+              className="md-body"
               style={{ fontSize: 13, color: '#1f2328', lineHeight: 1.6 }}
               dangerouslySetInnerHTML={{ __html: renderMarkdown(reply.body, repoCtx) }}
             />
@@ -138,6 +140,7 @@ function ReviewCard({ item, repoCtx }: { item: Extract<TimelineItem, { kind: 're
       </div>
       {item.body !== null && (
         <div
+          className="md-body"
           style={{ padding: '0 18px 14px', fontSize: 13.5, lineHeight: 1.65, color: '#1f2328' }}
           dangerouslySetInnerHTML={{ __html: renderMarkdown(item.body, repoCtx) }}
         />

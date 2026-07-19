@@ -104,11 +104,33 @@ describe('buildTimeline', () => {
         event({ id: 'r1', eventType: 'review', actor: 'brain', payload: { reviewEvent: 'started', scope: 'dev' } }),
         event({ id: 'r2', eventType: 'review', actor: '@rev', createdAt: 1500, payload: { verdict: 'APPROVED' } }),
         event({ id: 'r3', eventType: 'review', actor: '@rev', createdAt: 1600, payload: { verdict: 'request-changes', body: 'nope' } }),
+        event({ id: 'r4', eventType: 'review', actor: '@rev', createdAt: 1700, payload: { verdict: 'COMMENTED' } }),
+        event({ id: 'r5', eventType: 'review', actor: '@rev', createdAt: 1800, payload: { verdict: 'DISMISSED' } }),
       ],
     }));
-    expect(items.map(i => i.id)).toEqual(['r2', 'r3']);
+    expect(items.map(i => i.id)).toEqual(['r2', 'r3', 'r4', 'r5']);
     expect(items[0]).toMatchObject({ kind: 'review', verdict: 'approved', author: 'rev' });
     expect(items[1]).toMatchObject({ kind: 'review', verdict: 'changes', body: 'nope' });
+    expect(items[2]).toMatchObject({ kind: 'review', verdict: 'commented' });
+    expect(items[3]).toMatchObject({ kind: 'review', verdict: 'dismissed' });
+  });
+
+  it('shows a locally published GitHub review once using the canonical remote event', () => {
+    const items = buildTimeline(bundle({
+      timeline: [
+        event({
+          id: 'local', eventType: 'review', actor: 'you', isLocalOnly: true,
+          createdAt: 1_000, payload: { reviewEvent: 'submitted', verdict: 'COMMENT' },
+        }),
+        event({
+          id: 'remote', eventType: 'review', actor: '@me', isLocalOnly: false,
+          createdAt: 1_001, remoteEventId: 42, payload: { verdict: 'COMMENTED', body: null },
+        }),
+      ],
+    }));
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ id: 'remote', kind: 'review', author: 'me', verdict: 'commented' });
   });
 
   it('groups PR-level comment replies under their root and skips file-line comments', () => {

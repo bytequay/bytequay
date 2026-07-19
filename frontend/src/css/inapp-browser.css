@@ -7,7 +7,7 @@
 .inapp-browser {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 1100; /* Above .app-window-drag-region (1000), including its click-blocking top strip. */
   display: flex;
   flex-direction: column;
   background: var(--bg-base);

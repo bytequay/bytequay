@@ -78,7 +78,7 @@ export function WorkspaceSwitcherCard({ name, repository, onSwitch }: {
 }) {
   return (
     <div className="workspace-page-switcher-wrap">
-      <button type="button" className="workspace-page-switcher" title="Switch workspace" onClick={onSwitch}>
+      <button type="button" className="workspace-page-switcher" title={`Open ${name} Today`} onClick={onSwitch}>
         <span className="workspace-page-switcher__tile" aria-hidden>
           {repository.includes('/')
             ? <RepoAv repo={repository} size={28} />

@@ -32,7 +32,9 @@ describe('locked workspace page chrome', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Home' }));
     fireEvent.click(screen.getByRole('button', { name: 'Workspaces' }));
-    fireEvent.click(screen.getByRole('button', { name: 'ByteQuaychenjian2664/ByteQuay' }));
+    const workspace = screen.getByRole('button', { name: 'ByteQuaychenjian2664/ByteQuay' });
+    expect(workspace.getAttribute('title')).toBe('Open ByteQuay Today');
+    fireEvent.click(workspace);
     expect(onNavigate.mock.calls.map(call => call[0])).toEqual(['home', 'workspaces']);
     expect(onSwitch).toHaveBeenCalledOnce();
   });

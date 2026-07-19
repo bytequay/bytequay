@@ -83,6 +83,32 @@ export function parseGithubUrl(url: string): { owner: string; repo: string; prNu
   }
 }
 
+/** Fill the title omitted by some GitHub activity payloads using the
+ * existing cached single-PR endpoint. Duplicate events share one lookup. */
+export async function enrichActivityPrTitles(events: RecentEventDto[]): Promise<RecentEventDto[]> {
+  const missing = new Map(events
+    .filter(event => event.type.startsWith('PullRequest') && event.prNumber > 0 && !event.prTitle)
+    .map(event => [`${event.repo}#${event.prNumber}`, event] as const));
+  const titles = new Map<string, string>();
+  await Promise.all([...missing].map(async ([key, event]) => {
+    const slash = event.repo.indexOf('/');
+    if (slash < 1) return;
+    try {
+      const pr = await window.bridge.getRepoPull(
+        event.repo.slice(0, slash),
+        event.repo.slice(slash + 1),
+        event.prNumber,
+      );
+      titles.set(key, pr.title);
+    }
+    catch { /* Leave the compact #number fallback when offline. */ }
+  }));
+  return events.map(event => ({
+    ...event,
+    prTitle: event.prTitle ?? titles.get(`${event.repo}#${event.prNumber}`) ?? null,
+  }));
+}
+
 function HomePage({
   onSelectRepo,
   onOpenWorkspacePr,
@@ -145,9 +171,11 @@ function HomePage({
 
     if (loadedProfile) {
       window.bridge.getRecentActivity(loadedProfile.login)
+        .then(enrichActivityPrTitles)
         .then(setEvents)
         .catch(() => {});
       window.bridge.getFollowingActivity(loadedProfile.login)
+        .then(enrichActivityPrTitles)
         .then(setFollowingEvents)
         .catch(() => {});
     }

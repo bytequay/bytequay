@@ -93,10 +93,12 @@ describe('ActivityRow', () => {
     );
     expect(html).toContain('https://github.com/trinodb/trino/pull/42');
     expect(html).toContain('Reviewed ');
-    expect(html).toContain('PR #42');
+    expect(html).toContain('#42');
+    expect(html).not.toContain('PR #42');
+    expect(html).not.toContain('home-following-item__detail');
   });
 
-  it('renders the PR title in the sentence and keeps the number in the detail line', () => {
+  it('renders the compact PR number in the sentence and the title in the detail line', () => {
     const html = renderToStaticMarkup(
       <ActivityRow
         event={event({
@@ -111,8 +113,9 @@ describe('ActivityRow', () => {
       />,
     );
     expect(html).toContain('reviewed ');
+    expect(html).toContain('#30384');
     expect(html).toContain('Improve exchange source memory accounting');
-    expect(html).toContain('Review submitted on PR #30384');
+    expect(html).not.toContain('PR #30384');
   });
 
   it('renders issues path (not pull) for IssuesEvent', () => {
@@ -174,6 +177,19 @@ describe('ActivityRow', () => {
     );
     expect(html).toContain('home-following-item__detail');
     expect(html).toContain('fix: persist inbox acknowledgement');
+  });
+
+  it('omits a redundant commit-count detail line', () => {
+    const html = renderToStaticMarkup(
+      <ActivityRow
+        event={event({ type: 'PushEvent', commitCount: 1, detail: '1 commits' })}
+        actor={null}
+        showActorName={false}
+        formatTime={() => '2h'}
+        onOpenUrl={noop}
+      />,
+    );
+    expect(html).not.toContain('home-following-item__detail');
   });
 });
 

@@ -199,7 +199,9 @@ export function WorkspaceNavSidebar({
         {/* Folded, the primary destinations stay reachable as an icon-only
             column (title attr carries the label as a tooltip); the
             workspace body, secondary nav, and footer drop out. */}
-        {!workspaceMode && <div className="sb-nav">{TOP_NAV.map(navItem)}</div>}
+        <div className="sb-nav">
+          {(workspaceMode ? TOP_NAV.slice(0, 2) : TOP_NAV).map(navItem)}
+        </div>
         {!collapsed && (
           <>
             {children}

@@ -113,11 +113,11 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
       <PullMetadataBar row={row} />
 
       {/* opened card */}
-      <div style={{ position: 'relative', border: '1px solid #d5dbe1', borderRadius: 10, background: '#fff', marginTop: 14 }}>
+      <div style={{ position: 'relative', border: '1px solid #d5dbe1', borderRadius: 10, background: '#fff', marginTop: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 16px', borderBottom: '1px solid #eef1f4' }}>
           <Av login={opened.author} size={24} square={opened.bot} />
           <span style={{ fontSize: 13, color: '#57606a' }}>
-            <span style={{ color: '#17191c', fontWeight: 400 }}>{opened.author}</span> opened pull request
+            <span style={{ color: '#17191c', fontWeight: 600 }}>{opened.author}</span> opened pull request
           </span>
           <span style={{ marginLeft: 'auto', fontSize: 12.5, color: '#8b949e', flexShrink: 0 }}>{opened.time}</span>
           {canEditDescription && (
@@ -127,7 +127,7 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
             />
           )}
         </div>
-        <div style={{ padding: '10px 18px 6px', fontSize: 13.5, lineHeight: 1.65, color: '#1f2328' }}>
+        <div style={{ padding: '14px 18px 6px', fontSize: 13.5, lineHeight: 1.65, color: '#1f2328' }}>
           {loading ? (
             <div role="status" aria-label="Loading pull request details" style={{ display: 'grid', gap: 10, padding: '2px 0 7px' }}>
               <SkeletonLine width="14%" />

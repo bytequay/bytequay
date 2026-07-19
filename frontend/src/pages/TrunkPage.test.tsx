@@ -60,7 +60,18 @@ function mockBridge({
     listBacklog: vi.fn().mockResolvedValue([]),
     listThreadSignals: vi.fn().mockResolvedValue([]),
     listThreadQuestions: vi.fn().mockResolvedValue(questions),
-    workspaceApi: vi.fn().mockResolvedValue(trunkActivity),
+    workspaceApi: vi.fn(({ path }: { path: string }) => {
+      if (path.endsWith('/activity')) return Promise.resolve(trunkActivity);
+      if (path.endsWith('/overview')) {
+        return Promise.resolve({
+          workspace: { id: 'ws-1', name: 'ByteQuay' },
+          repository: { fullName: 'acme/bytequay' },
+          sidebarCounts: { pullRequests: 0 },
+          today: { needsYou: [], running: [], spendTodayMilliUsd: 1840 },
+        });
+      }
+      return Promise.resolve([]);
+    }),
     answerQuestion: vi.fn().mockResolvedValue(undefined),
     startBacklogDevelopment: vi.fn().mockResolvedValue({ item: null, taskId: null }),
     skipBacklogItem: vi.fn().mockResolvedValue(undefined),
@@ -76,7 +87,7 @@ function renderTrunk(onOpenTask = vi.fn()) {
     ...render(
       <TrunkPage
         threadId="t1"
-        thread={{ title: 'Backend cleanup', createdLabel: '3d ago' }}
+        thread={{ title: 'Backend cleanup', createdLabel: '3d ago', workspaceId: 'ws-1' }}
         sidebar={<aside data-testid="sidebar" />}
         conversation={<div data-testid="conv">conversation</div>}
         composer={{ value: '', onChange: () => {}, onSubmit: () => {} }}
@@ -98,15 +109,18 @@ afterEach(() => {
 beforeEach(() => { mockBridge(); });
 
 describe('TrunkPage', () => {
-  it('renders the trunk shell, conversation, and unified Activity rail', async () => {
+  it('renders the locked trunk shell, conversation, and workspace overview', async () => {
     renderTrunk();
 
     expect(screen.getByTestId('sidebar')).toBeTruthy();
     expect(screen.getByTestId('conv')).toBeTruthy();
     expect(screen.getByText('Backend cleanup')).toBeTruthy();
-    expect(screen.getAllByText('Activity').length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByText('WORKSPACE')).toBeTruthy();
     expect(await screen.findByText('Active task')).toBeTruthy();
-    expect(screen.getByText('Closed task')).toBeTruthy();
+    expect(screen.getByText('RUNNING NOW')).toBeTruthy();
+    expect(screen.getByText('OPEN PRS')).toBeTruthy();
+    expect(screen.getByText('BACKLOG')).toBeTruthy();
+    expect(screen.getByText('USAGE')).toBeTruthy();
   });
 
   it('pins actionable gates above the canonical timeline', async () => {
@@ -140,20 +154,20 @@ describe('TrunkPage', () => {
     });
     renderTrunk();
 
-    expect(await screen.findByText('Needs you')).toBeTruthy();
+    expect(await screen.findByText('NEEDS YOU')).toBeTruthy();
     expect(screen.getByText('Plan ready — 4 steps')).toBeTruthy();
     expect(screen.getByText('Dev session')).toBeTruthy();
   });
 
-  it('opens a task outcome from the activity timeline', async () => {
+  it('opens a running task from the workspace overview', async () => {
     mockBridge({
       trunkActivity: activity({
         timeline: [{
           id: 'task:9',
           kind: 'task',
-          title: 'Tests shipped',
+          title: 'Tests running',
           summary: null,
-          status: 'done',
+          status: 'running',
           itemPath: null,
           taskId: 'task-9',
           sessionId: null,
@@ -165,7 +179,8 @@ describe('TrunkPage', () => {
     const onOpenTask = vi.fn();
     renderTrunk(onOpenTask);
 
-    fireEvent.click(await screen.findByText('Tests shipped'));
+    await screen.findByText('Tests running');
+    fireEvent.click(screen.getByRole('button', { name: 'Watch' }));
     expect(onOpenTask).toHaveBeenCalledWith('task-9');
   });
 
@@ -183,7 +198,7 @@ describe('TrunkPage', () => {
     window.location.hash = '#/home';
     mockBridge({
       trunkActivity: activity({
-        timeline: [{
+        pinned: [{
           id: 'review:4',
           kind: 'review',
           title: 'Review round complete',
@@ -199,17 +214,28 @@ describe('TrunkPage', () => {
     });
     renderTrunk();
 
-    fireEvent.click(await screen.findByText('Review round complete'));
+    await screen.findByText('Review round complete');
+    fireEvent.click(screen.getByRole('button', { name: 'Jump' }));
     expect(window.location.hash).toBe('#/workspace/ws-1/prs/148');
   });
 
-  it('collapses and reopens the unified activity rail from its inline chip', async () => {
+  it('collapses and reopens the workspace overview', async () => {
     renderTrunk();
     await screen.findByText('Active task');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close activity' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse workspace panel' }));
     expect(screen.queryByText('Active task')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Activity/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle workspace panel' }));
     expect(await screen.findByText('Active task')).toBeTruthy();
+  });
+
+  it('uses the task-free trunk composer with the locked usage values', async () => {
+    renderTrunk();
+
+    expect(screen.getByRole('button', { name: 'Usage' })).toBeTruthy();
+    expect(screen.queryByText(/Changes \+/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Usage' }));
+    expect(screen.getByText('4% used')).toBeTruthy();
+    expect(screen.getAllByText('827 AI credits').length).toBe(2);
   });
 });

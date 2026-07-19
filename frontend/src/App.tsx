@@ -847,7 +847,10 @@ function App() {
   // of whatever workspace the landing grid was last pointed at.
   const sidebarWorkspaceId = inWorkspaceFlow
     ? (viewedThreadWorkspaceId ?? activeWorkspaceId) : null;
-  const { activeWorkspace: sidebarWorkspace } = useWorkspaceNav(sidebarWorkspaceId);
+  const {
+    activeWorkspace: sidebarWorkspace,
+    rawThreads: sidebarThreads,
+  } = useWorkspaceNav(sidebarWorkspaceId);
 
   if (fatal) {
     return (
@@ -881,6 +884,11 @@ function App() {
 
   // Ready: global app shell with the workspace-model left nav.
   const selectedThreadId = currentThreadId;
+  const selectedTrunkLabel = currentThreadId === undefined
+    ? undefined
+    : sidebarThreads.find(thread => thread.id === currentThreadId)?.title;
+  const taskWorkspaceRepository = sidebarWorkspace?.repository?.fullName
+    ?? sidebarWorkspace?.repos[0];
   const sidebarActiveNav: WsNavKey | undefined = (() => {
     switch (nav.view) {
       case 'home': return 'home';
@@ -999,11 +1007,7 @@ function App() {
             }
           }}
           onOpenThread={openThread}
-          onOpenTask={taskId => {
-            if (navThreadId !== null) {
-              setNav(lastTaskNav(navThreadId, taskId));
-            }
-          }}
+          onOpenTask={(threadId, taskId) => setNav(lastTaskNav(threadId, taskId))}
           // Clicking the workspace card stays in the workspace (from a
           // thread/task it returns to its surface; on it, a no-op).
           // Switching workspaces happens on the Workspaces landing page.
@@ -1111,6 +1115,9 @@ function App() {
           <TrunkRoute
             threadId={nav.threadId}
             onOpenTask={taskId => setNav(lastTaskNav(nav.threadId, taskId))}
+            onReviewTask={taskId => setNav({
+              view: 'task-code', threadId: nav.threadId, taskId, back: nav,
+            })}
             onWorkspaceResolved={setViewedThreadWorkspaceId}
           />
         )}
@@ -1128,9 +1135,21 @@ function App() {
             onOpenRun={openRun(nav.threadId, nav.taskId)}
             onClosed={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
             onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
+            onHistoryBack={goBack}
             onForward={goForward}
             backEnabled={canGoBack(navHistoryRef.current)}
             forwardEnabled={canGoForward(navHistoryRef.current)}
+            trunkLabel={selectedTrunkLabel}
+            workspaceName={sidebarWorkspace?.name}
+            workspaceRepository={taskWorkspaceRepository}
+            onNavigateGlobal={destination => setNav(destination === 'home'
+              ? { view: 'home' }
+              : { view: 'workspaces-landing' })}
+            onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}
+            onNotifications={() => setNav(sidebarWorkspaceId === null
+              ? { view: 'notifications' }
+              : { view: 'workspace', section: 'notifications' })}
+            notificationCount={unreadNotificationCount}
           />
         )}
         {nav.view === 'task-code' && (
@@ -1156,6 +1175,7 @@ function App() {
             })}
             onOpenRun={openRun(nav.threadId, nav.taskId)}
             onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
+            onHistoryBack={goBack}
             onForward={goForward}
             backEnabled={canGoBack(navHistoryRef.current)}
             forwardEnabled={canGoForward(navHistoryRef.current)}
@@ -1166,6 +1186,17 @@ function App() {
               view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
               initialReviewRoundId: roundId,
             })}
+            trunkLabel={selectedTrunkLabel}
+            workspaceName={sidebarWorkspace?.name}
+            workspaceRepository={taskWorkspaceRepository}
+            onNavigateGlobal={destination => setNav(destination === 'home'
+              ? { view: 'home' }
+              : { view: 'workspaces-landing' })}
+            onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}
+            onNotifications={() => setNav(sidebarWorkspaceId === null
+              ? { view: 'notifications' }
+              : { view: 'workspace', section: 'notifications' })}
+            notificationCount={unreadNotificationCount}
           />
         )}
         {nav.view === 'notifications' && (

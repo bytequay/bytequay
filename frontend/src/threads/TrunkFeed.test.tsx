@@ -14,7 +14,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TrunkFeed } from './TrunkFeed';
-import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
+import type { DiffFileDto, ThreadCommitDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
 
 afterEach(cleanup);
 
@@ -27,8 +27,9 @@ function msg(id: string, role: string, type: string, body: unknown, ts: string):
 
 function task(
   id: string, seq: number, name: string, status: string, createdAt: string,
+  prState: string | null = null,
 ): WorkUnitTaskDto {
-  return { id, seq, name, status, createdAt } as unknown as WorkUnitTaskDto;
+  return { id, seq, name, status, createdAt, prState, prNumber: 42 } as unknown as WorkUnitTaskDto;
 }
 
 describe('TrunkFeed', () => {
@@ -88,7 +89,7 @@ describe('TrunkFeed', () => {
     expect(screen.queryByText(/Approval needed/)).toBeNull();
   });
 
-  it('folds a task by its own identity, not by whichever summary lands next — concurrent tasks stay visible', () => {
+  it('keeps the newest cut expanded without losing an older concurrent task', () => {
     // Regression: task2 and task3 both start (and task3's own cut lands)
     // BEFORE task2's own completion summary is finally recorded — tasks run
     // concurrently, so a later task routinely starts before an earlier one
@@ -112,15 +113,97 @@ describe('TrunkFeed', () => {
       <TrunkFeed messages={messages} tasks={tasks} density="focused" onOpenTask={() => {}} />,
     );
 
-    // task1 and task2 are done — blue folds.
-    expect(container.querySelectorAll('.sp-taskrow--done').length).toBe(2);
-    // task3 and task4 both have no summary yet — each still gets its own
-    // green "running" fold instead of vanishing into task2's, or staying
-    // unfolded as "the current task". Every cut folds immediately; there's
-    // no such exception.
+    // Completed predecessors live in TrunkPage's compact history, not in a
+    // second set of feed folds.
+    expect(container.querySelectorAll('.sp-taskrow--done').length).toBe(0);
+    // The older still-running cut remains a compact row, so concurrency
+    // cannot make it disappear behind an unrelated completion summary.
     const runningFolds = container.querySelectorAll('.sp-taskrow--running');
-    expect(runningFolds.length).toBe(2);
+    expect(runningFolds.length).toBe(1);
     expect(runningFolds[0].textContent).toContain('Task three');
-    expect(runningFolds[1].textContent).toContain('Task four');
+    // Locked frame 1b keeps the newest task detail visible on the branch.
+    const latestCut = container.querySelector('.trunk-page-v2__branch-row--cut');
+    expect(latestCut?.textContent).toContain('Task four');
+  });
+
+  it('curves the newest completed task back into the trunk', () => {
+    const messages = [
+      msg('sum1', 'assistant', 'task_summary', { text: 'First shipped.', taskId: 't1', taskSeq: 1 },
+        '2026-01-01T01:00:00Z'),
+      msg('sum2', 'assistant', 'task_summary', { text: 'Second shipped.', taskId: 't2', taskSeq: 2 },
+        '2026-01-02T01:00:00Z'),
+    ];
+    const tasks = [
+      task('t1', 1, 'Task one', 'COMPLETED', '2026-01-01T00:00:00Z'),
+      task('t2', 2, 'Task two', 'COMPLETED', '2026-01-02T00:00:00Z', 'MERGED'),
+    ];
+
+    const { container } = render(
+      <TrunkFeed messages={messages} tasks={tasks} density="focused" onOpenTask={() => {}} />,
+    );
+
+    expect(container.querySelector('.trunk-page-v2__branch-row--cut')?.textContent).toContain('Task two');
+    expect(container.querySelector('.trunk-page-v2__branch-row--detail')?.textContent).toContain('Second shipped.');
+    expect(container.querySelector('.trunk-page-v2__branch-row--merge')?.textContent).toContain('Merged into trunk');
+    expect(container.textContent).not.toContain('Task one');
+  });
+
+  it('keeps the newest task artifacts on its branch in the locked order', () => {
+    const onReview = vi.fn();
+    const onUndo = vi.fn();
+    const messages = [
+      msg('sum', 'assistant', 'task_summary', {
+        text: 'Removed the stale pages and verified every route.', taskId: 't1', taskSeq: 1,
+      }, '2026-01-01T00:04:00Z'),
+    ];
+    const files: DiffFileDto[] = Array.from({ length: 5 }, (_, index): DiffFileDto => ({
+      filename: `frontend/src/file-${index + 1}.tsx`, status: 'modified', additions: index + 1,
+      deletions: index, patch: null,
+    }));
+    const commits: ThreadCommitDto[] = [{
+      sha: 'd4aae82f1234', shortSha: 'd4aae82f', authorName: 'Jack', authorEmail: 'jack@example.com',
+      authoredAt: '2026-01-01T00:03:00Z', subject: 'Remove stale repository pages',
+    }];
+    const artifactsByTaskId = new Map([['t1', { files, commits, onReview, onUndo }]]);
+    const { container } = render(
+      <TrunkFeed
+        messages={messages}
+        tasks={[task('t1', 1, 'Task one', 'COMPLETED', '2026-01-01T00:00:00Z', 'MERGED')]}
+        density="focused"
+        onOpenTask={() => {}}
+        artifactsByTaskId={artifactsByTaskId}
+      />,
+    );
+
+    const branchText = Array.from(container.querySelectorAll('.trunk-page-v2__branch-row'))
+      .map(row => row.textContent ?? '');
+    expect(branchText[0]).toContain('Task one');
+    expect(branchText[1]).toContain('Worked for 4m');
+    expect(branchText[2]).toContain('Removed the stale pages');
+    expect(branchText[3]).toContain('Edited 5 files');
+    expect(branchText[4]).toContain('d4aae82f');
+    expect(branchText[5]).toContain('Merged into trunk');
+    expect(container.querySelector('.sp-work__inner')).toBeNull();
+    expect(container.querySelectorAll('.workspace-task-files-card__file')).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button', { name: 'Show 2 more files' }));
+    expect(container.querySelectorAll('.workspace-task-files-card__file')).toHaveLength(5);
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(onReview).toHaveBeenCalledOnce();
+    expect(onUndo).toHaveBeenCalledOnce();
+  });
+
+  it('does not draw a merge curve for a completed but unmerged task', () => {
+    const { container } = render(
+      <TrunkFeed
+        messages={[msg('sum', 'assistant', 'task_summary', {
+          text: 'Closed without merging.', taskId: 't1', taskSeq: 1,
+        }, '2026-01-01T01:00:00Z')]}
+        tasks={[task('t1', 1, 'Closed task', 'COMPLETED', '2026-01-01T00:00:00Z', 'CLOSED')]}
+        density="focused"
+        onOpenTask={() => {}}
+      />,
+    );
+    expect(container.querySelector('.trunk-page-v2__branch-row--merge')).toBeNull();
   });
 });

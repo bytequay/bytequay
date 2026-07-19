@@ -12,8 +12,26 @@
  * limitations under the License.
  */
 import { useEffect, useState, type ReactNode } from 'react';
+import type {
+  DiffFileDto, ThreadCommitDto, ThreadMessageDto, WorkUnitTaskDto,
+} from '../types';
+import type { BrainFeedRow, StageConversationRow, StageDto } from '../types/brainView';
+import type { LocalPRBundle } from '../types/localPr';
+import { PullDetailBody } from '../pulls/PullDetailPane';
+import { pullRowFromLocal } from '../pulls/localRow';
+import { StageDetailPage } from '../pages/StageDetailPage';
+import { TaskBrainPage } from '../pages/TaskBrainPage';
+import { TaskChangedFilesCard } from '../pages/TaskChangedFilesCard';
+import { stageFeed } from '../pages/stageConversationRow';
 import { WorkspaceNavShell } from '../pages/WorkspaceNavShell';
 import { TrunkPage } from '../pages/TrunkPage';
+import { TrunkWorkspaceSidebar } from '../pages/TrunkWorkspaceSidebar';
+import { TrunkFeed } from '../threads/TrunkFeed';
+import { BrainFeed } from '../threads/brain/BrainFeed';
+import { toTaskCard } from '../threads/taskCardData';
+import { ActivityStrip, Conv, Headline, Spine, SpineNode, WorkFold } from '../ui/conv';
+import { TaskSidebar } from '../ui/shell/TaskSidebar';
+import type { LivePlanNode, LivePlanPhaseNode } from '../ui/shell/livePlanModel';
 import type { TaskNavRow, WsNavKey } from '../ui/workspace';
 import type { InboxItem } from '../home/inboxItems';
 import InboxCard, { type InboxHandlers } from '../home/InboxCard';
@@ -28,6 +46,7 @@ import WorkspaceRepoPage from './WorkspaceRepoPage';
 import WorkspaceSessionsPage from './WorkspaceSessionsPage';
 import WorkspaceSettingsPage from './WorkspaceSettingsPage';
 import WorkspaceShell, { type WorkspaceSection } from './WorkspaceShell';
+import { WorkModelPill } from './WorkModelPill';
 import {
   VISUAL_BACKLOG_KEY,
   VISUAL_BRANCH_NAME,
@@ -40,12 +59,16 @@ import {
   visualCreationReady,
   visualPullRequests,
   visualTasks,
+  visualThreadMessages,
+  visualThreads,
   visualWorkspaces,
 } from './workspaceVisualFixtureData';
 
 type Props = {
   frame: string;
 };
+
+const LOCKED_PAGE_FRAMES = new Set(['7a', '7b', '7c']);
 
 const STUDY_WIDTH: Record<string, number> = {
   '3a': 1060,
@@ -120,7 +143,10 @@ export default function WorkspaceVisualFixture({ frame }: Props) {
   const content = renderFrame(frame);
   const studyWidth = STUDY_WIDTH[frame];
   return (
-    <div className={`workspace-visual-canvas workspace-redesign workspace-visual-frame-${frame}`}>
+    <div
+      className={`workspace-visual-canvas workspace-redesign workspace-visual-frame-${frame}`}
+      style={LOCKED_PAGE_FRAMES.has(frame) ? { width: 1600, height: 980 } : undefined}
+    >
       {studyWidth === undefined ? content : (
         <div
           className="workspace-visual-study"
@@ -295,9 +321,571 @@ function renderFrame(frame: string): ReactNode {
       );
     case '6d':
       return <CreationToastStudy />;
+    case '7a':
+      return <LockedTrunkFrame />;
+    case '7b':
+      return <LockedTaskBrainFrame />;
+    case '7c':
+      return <LockedStageFrame />;
     default:
       return <div className="wu-body-message">Unknown workspace visual frame {frame}</div>;
   }
+}
+
+const LOCKED_TASK_TITLE = 'Remove unused daily quote feature';
+const LOCKED_TASK_BRANCH = 'dev/remove-unused-daily-quote-feature';
+const LOCKED_TASK_ID = 'visual-task-daily-quote';
+const LOCKED_TRUNK_ID = 'trunk-clean-code';
+const HOUR_MS = 60 * 60_000;
+const lockedTaskAt = Date.now() - 20 * HOUR_MS;
+const lockedIso = (offsetMs = 0) => new Date(lockedTaskAt + offsetMs).toISOString();
+
+const lockedTaskFiles: DiffFileDto[] = [
+  ['backend/src/main/java/com/bytequay/app/service/DailyCardService.java', 118],
+  ['backend/src/main/java/com/bytequay/app/web/DailyCardController.java', 64],
+  ['electron/preload.ts', 22],
+  ['backend/src/main/java/com/bytequay/app/domain/DailyCard.java', 41],
+  ['backend/src/main/java/com/bytequay/app/config/RestClientConfig.java', 28],
+  ['backend/src/main/java/com/bytequay/app/client/ZenQuotesClient.java', 39],
+  ['electron/ipc.ts', 12],
+  ['frontend/src/types/dailyCard.ts', 7],
+].map(([filename, deletions]): DiffFileDto => ({
+  filename: String(filename),
+  status: 'removed',
+  additions: 0,
+  deletions: Number(deletions),
+  patch: null,
+}));
+
+const lockedTrunkFiles: DiffFileDto[] = [
+  ['frontend/src/workspace/WorkspaceRepoPage.tsx', 18, 22],
+  ['frontend/src/workspace/WorkspaceShell.tsx', 14, 9],
+  ['frontend/src/App.tsx', 12, 6],
+  ['frontend/src/pages/WorkspaceNavShell.tsx', 10, 5],
+  ['frontend/src/workspace/workspaceRoutes.ts', 9, 4],
+  ['frontend/src/workspace/WorkspaceRepoPage.test.tsx', 13, 3],
+  ['frontend/src/pages/WorkspaceNavShell.test.tsx', 11, 2],
+  ['frontend/src/workspace/workspaceRoutes.test.ts', 7, 1],
+].map(([filename, additions, deletions]): DiffFileDto => ({
+  filename: String(filename),
+  status: 'modified',
+  additions: Number(additions),
+  deletions: Number(deletions),
+  patch: null,
+}));
+
+const lockedTrunkCommits: ThreadCommitDto[] = [{
+  sha: 'd4aae82f42667d9a',
+  shortSha: 'd4aae82f',
+  authorName: 'chenjian2664',
+  authorEmail: 'jack@example.com',
+  authoredAt: lockedIso(-19 * HOUR_MS),
+  subject: 'Remove stale repository pages',
+}];
+
+const lockedTaskPrBundle: LocalPRBundle = {
+  pr: {
+    id: 'visual-local-pr-37',
+    taskId: LOCKED_TASK_ID,
+    branchName: LOCKED_TASK_BRANCH,
+    baseBranch: 'main',
+    title: LOCKED_TASK_TITLE,
+    description: [
+      '## Summary',
+      '',
+      '- remove the unused daily quote service and endpoint',
+      '- remove the Electron IPC and renderer type plumbing',
+      '- verify there are no remaining ZenQuotes references',
+      '',
+      '## Validation',
+      '',
+      '- `mvn verify` — 1,685 tests passed',
+      '- `npm test` — 1,206 tests passed',
+    ].join('\n'),
+    status: 'merged',
+    createdAt: lockedTaskAt - HOUR_MS,
+    pushedAt: lockedTaskAt - 45 * 60_000,
+    remotePrNumber: 37,
+    remotePrUrl: 'https://github.com/chenjian2664/ByteQuay/pull/37',
+    mergedAt: lockedTaskAt,
+    closedAt: null,
+    origin: 'task',
+    repo: 'chenjian2664/ByteQuay',
+    author: 'chenjian2664',
+    syncedAt: lockedTaskAt,
+    syncedAdditions: 0,
+    syncedDeletions: 331,
+    syncedMergeable: true,
+    syncedMergeableState: 'clean',
+    syncedMergeQueueEnabled: false,
+    syncedMergeQueueState: null,
+    branchDeletedAt: lockedTaskAt + 2 * 60_000,
+  },
+  commits: [
+    {
+      id: 'visual-pr-37-commit-1', localPrId: 'visual-local-pr-37', sha: '1c1f4b96a74d',
+      message: 'Remove unused daily quote feature', additions: 0, deletions: 331,
+      authoredAt: lockedTaskAt - 50 * 60_000, pushedAt: lockedTaskAt - 45 * 60_000,
+    },
+  ],
+  timeline: [
+    {
+      id: 'visual-pr-37-timeline-commit', localPrId: 'visual-local-pr-37', eventType: 'commit',
+      actor: 'chenjian2664', isLocalOnly: false, strippedOnPushAt: null,
+      createdAt: lockedTaskAt - 50 * 60_000,
+      payload: { sha: '1c1f4b96a74d', message: 'Remove unused daily quote feature' },
+    },
+    {
+      id: 'visual-pr-37-timeline-review', localPrId: 'visual-local-pr-37', eventType: 'review',
+      actor: 'codex-reviewer[bot]', isLocalOnly: false, strippedOnPushAt: null,
+      createdAt: lockedTaskAt - 18 * 60_000,
+      payload: { verdict: 'APPROVED', body: 'Deletion-only cleanup looks safe. All references and checks are clean.' },
+    },
+  ],
+  checks: Array.from({ length: 22 }, (_, index) => ({
+    id: `visual-pr-37-check-${index + 1}`,
+    localPrId: 'visual-local-pr-37',
+    kind: 'remote' as const,
+    name: `ByteQuay CI / ${['backend', 'frontend', 'lint', 'package'][index % 4]} (${index + 1})`,
+    status: 'passed' as const,
+    durationMs: 28_000 + index * 1_000,
+    startedAt: lockedTaskAt - 40 * 60_000,
+    finishedAt: lockedTaskAt - 12 * 60_000 + index * 100,
+    runId: `visual-ci-${index + 1}`,
+  })),
+  comments: [{
+    id: 'visual-pr-37-comment-1', localPrId: 'visual-local-pr-37', origin: 'remote', scope: 'pr',
+    filePath: null, lineNumber: null, side: 'RIGHT', startLine: null, startSide: null,
+    author: 'codex-reviewer[bot]', body: 'Verified the feature is unreachable from the renderer. Nice cleanup.',
+    createdAt: lockedTaskAt - 15 * 60_000, resolvedAt: lockedTaskAt - 10 * 60_000,
+    dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, publishedAt: lockedTaskAt - 15 * 60_000,
+  }],
+  pendingStripCount: 0,
+};
+
+const lockedTaskPullRow = (() => {
+  const row = pullRowFromLocal(lockedTaskPrBundle.pr, 'chenjian2664/ByteQuay', 37);
+  return {
+    ...row,
+    status: 'passed' as const,
+    comments: 1,
+    hasAgent: true,
+    chips: [{ t: 'cleanup', bg: '#f3e8ff', fg: '#6f42c1' }],
+    dto: {
+      ...row.dto,
+      labels: ['cleanup'],
+      labelColors: { cleanup: 'd4c5f9' },
+      requestedReviewers: ['codex-reviewer'],
+      ciStatus: 'PASSING' as const,
+      additions: 0,
+      deletions: 331,
+      commentCount: 1,
+      reviewerVerdicts: { 'codex-reviewer': 'APPROVED' },
+      reviewState: 'done' as const,
+    },
+  };
+})();
+
+function LockedTrunkFrame() {
+  const thread = visualThreads.find(value => value.id === LOCKED_TRUNK_ID);
+  if (thread === undefined) return null;
+  const workTasks = visualTasks.filter(task => task.threadId === LOCKED_TRUNK_ID);
+  const latestWorkTask = workTasks.reduce<WorkUnitTaskDto | null>(
+    (latest, task) => latest === null || task.seq > latest.seq ? task : latest,
+    null,
+  );
+  const taskCards = workTasks.map(task => toTaskCard(task, false));
+  return (
+    <TrunkPage
+      threadId={thread.id}
+      thread={{
+        title: thread.title,
+        status: thread.status,
+        branch: null,
+        workspaceId: VISUAL_WORKSPACE_ID,
+        repository: 'chenjian2664/ByteQuay',
+      }}
+      sidebar={(
+        <TrunkWorkspaceSidebar
+          workspaceName="bytequay-v3-test"
+          repository="chenjian2664/ByteQuay"
+          threads={visualThreads.filter(value => value.flow !== 'review').slice(0, 6)}
+          selectedThreadId={thread.id}
+          selectedTasks={workTasks.map(task => ({
+            id: task.id,
+            label: task.name ?? task.branchName,
+            pr: 'merged',
+          }))}
+          counts={{ todayNeedsYou: 3, pullRequests: 4, issues: 2, backlog: 7, branches: 3, sessions: 1 }}
+          notificationCount={8}
+          collapsed={false}
+          onNavigate={() => {}}
+          onOpenThread={() => {}}
+          onOpenTask={() => {}}
+          onSwitchWorkspace={() => {}}
+          onNewThread={() => {}}
+        />
+      )}
+      conversation={(
+        <Conv>
+          <TrunkFeed
+            messages={lockedTrunkMessages()}
+            tasks={workTasks}
+            density="focused"
+            onOpenTask={() => {}}
+            artifactsByTaskId={latestWorkTask === null ? undefined : new Map([[
+              latestWorkTask.id,
+              {
+                files: lockedTrunkFiles,
+                commits: lockedTrunkCommits,
+                onReview: () => {},
+                onUndo: () => {},
+              },
+            ]])}
+          />
+        </Conv>
+      )}
+      composer={{
+        value: '',
+        onChange: () => {},
+        onSubmit: () => {},
+        placeholder: 'Message the thread…',
+        modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'thread', threadId: thread.id }} />,
+      }}
+      tasks={{ active: [], closed: taskCards }}
+      onOpenTask={() => {}}
+      hideConversationPrompts
+    />
+  );
+}
+
+function LockedTaskBrainFrame() {
+  return (
+    <TaskBrainPage
+      task={{
+        pillLabel: 'TASK #1', title: LOCKED_TASK_TITLE, branch: LOCKED_TASK_BRANCH,
+        finished: true, taskNumber: 1, trunkLabel: 'Clean code v2',
+      }}
+      pr={{ number: 37, status: 'merged', onOpen: () => {} }}
+      sidebar={<LockedTaskSidebar />}
+      conversation={<LockedBrainConversation />}
+      composer={lockedTaskComposer(
+        'This task is closed — ask the brain, or reopen to continue…',
+        'Task #1 · 23m 24s · $0.42',
+      )}
+      tabs={{ pr: <LockedPrPanel /> }}
+      changes={{ additions: 0, deletions: 331, onOpen: () => {} }}
+      onOpenTrunk={() => {}}
+      onSubmitReview={async () => {}}
+    />
+  );
+}
+
+function LockedStageFrame() {
+  return (
+    <StageDetailPage
+      stageKind="dev"
+      stage={{ title: 'Local Development', branch: LOCKED_TASK_BRANCH, pillLabel: 'DEV STAGE' }}
+      taskTitle={LOCKED_TASK_TITLE}
+      taskNumber={1}
+      trunkLabel="Clean code v2"
+      pr={{ number: 37, status: 'merged', onOpen: () => {} }}
+      sidebar={<LockedTaskSidebar activeDevelopment />}
+      conversation={<LockedStageConversation />}
+      composer={lockedTaskComposer(
+        'This stage is closed — ask about what happened here…',
+        'Stage 2 of 4 · 15m 23s',
+      )}
+      run={{ statusLabel: 'completed', terminal: true }}
+      tabs={{ pr: <LockedPrPanel /> }}
+      changes={{ additions: 0, deletions: 331, onOpen: () => {} }}
+      onOpenTrunk={() => {}}
+      onOpenTask={() => {}}
+      onSubmitReview={async () => {}}
+    />
+  );
+}
+
+function LockedTaskSidebar({ activeDevelopment = false }: { activeDevelopment?: boolean }) {
+  return (
+    <TaskSidebar
+      task={{
+        title: LOCKED_TASK_TITLE,
+        branch: LOCKED_TASK_BRANCH,
+        taskNumber: 1,
+        repository: 'chenjian2664/ByteQuay',
+        workspaceName: 'bytequay-v3-test',
+        finished: true,
+      }}
+      threadLabel="Clean code v2"
+      nodes={lockedTaskNodes(activeDevelopment)}
+      highlightActiveStage={activeDevelopment}
+      notificationCount={8}
+      onOpenTrunk={() => {}}
+      onOpenStage={() => {}}
+      onOpenBrain={() => {}}
+      onNavigateGlobal={() => {}}
+      onSwitchWorkspace={() => {}}
+    />
+  );
+}
+
+function LockedPrPanel() {
+  return (
+    <PullDetailBody
+      row={lockedTaskPullRow}
+      bundle={lockedTaskPrBundle}
+      refresh={() => {}}
+      onComment={async () => {}}
+    />
+  );
+}
+
+function lockedTaskComposer(closedNote: string, meta: string) {
+  return {
+    value: '',
+    onChange: () => {},
+    onSubmit: () => {},
+    closedNote,
+    modePill: (
+      <WorkModelPill
+        variant="workspace-v2"
+        scope={{ kind: 'thread' as const, threadId: LOCKED_TRUNK_ID }}
+      />
+    ),
+    usage: { planPercent: 4, sessionLabel: '827 AI credits' },
+    meta,
+  };
+}
+
+function lockedTaskNodes(activeDevelopment: boolean): LivePlanNode[] {
+  const phase = (key: string, label: string, meta?: string): LivePlanPhaseNode => ({
+    key, label, meta, status: 'done', glyph: '✓', nav: { kind: 'none' },
+  });
+  return [
+    {
+      key: 'plan', label: 'Plan', status: 'done', glyph: '✓', meta: '1m 45s · brain',
+      placement: 'full', activeView: false, nav: { kind: 'brain' }, nodeType: 'stage',
+      phases: [
+        phase('plan-scope', 'Scope'), phase('plan-removal', 'Removal plan'),
+        phase('plan-validation', 'Validation'), phase('plan-rollback', 'Rollback notes'),
+      ],
+    },
+    {
+      key: 'local-development', label: 'Local Development', status: 'done', glyph: '✓',
+      meta: '15m 23s · 8 files · 1c1f4b96', placement: 'full', activeView: activeDevelopment,
+      nav: { kind: 'stage', stageId: 'visual-dev-stage' }, nodeType: 'stage',
+      phases: [
+        phase('dev-implementing', 'Implementing'), phase('dev-validation', 'Validation'),
+        phase('dev-brain-review', 'Brain review'), phase('dev-local-review', 'Local review', 'approved'),
+        phase('dev-push', 'Push / PR', 'PR #37'),
+      ],
+    },
+    {
+      key: 'remote-development', label: 'Remote Development', status: 'done', glyph: '✓',
+      meta: '7m 16s · PR #37 · 22 checks', placement: 'full', activeView: false,
+      nav: { kind: 'stage', stageId: 'visual-remote-stage' }, nodeType: 'stage',
+    },
+    {
+      key: 'cleanup', label: 'Cleanup', status: 'done', glyph: '✓',
+      meta: 'branch deleted · refs clean', placement: 'full', activeView: false,
+      nav: { kind: 'none' }, nodeType: 'auto',
+    },
+  ];
+}
+
+function LockedBrainConversation() {
+  const stages = lockedBrainStages();
+  return (
+    <Conv>
+      <BrainFeed
+        feed={lockedBrainRows(stages)}
+        stages={stages}
+        density="focused"
+        foldClosedStages={false}
+        onOpenStage={() => {}}
+        developmentArtifact={<TaskChangedFilesCard files={lockedTaskFiles} onReview={() => {}} />}
+        spineTrailer={(
+          <>
+            <WorkFold label="Worked for 22s" meta="· 2 steps">
+              <ActivityStrip
+                groups={[{ kind: 'Read', rows: [
+                  { label: 'Scanned renderer imports for getDailyCard — none' },
+                  { label: 'Checked IPC registrations for home:dailyCard' },
+                ] }]}
+              />
+            </WorkFold>
+            <SpineNode mark="◆" color="purple" name="MERGE / CLOSE" state="merged · PR #37" meta="20h ago" />
+            <Headline
+              bare
+              body="Cleanup verified — no remaining references. Task closed with **11 of 11** plan steps done."
+            />
+          </>
+        )}
+      />
+    </Conv>
+  );
+}
+
+function LockedStageConversation() {
+  return (
+    <Conv>
+      <Spine>
+        <div className="workspace-task-stage-log__stamp">DEV STAGE · 20h ago</div>
+        {stageFeed(lockedStageRows(), undefined, undefined, false, true)}
+        <TaskChangedFilesCard files={lockedTaskFiles} onReview={() => {}} />
+        <Headline
+          bare
+          body="Commit `1c1f4b96` is ready with a clean worktree. Handed to Remote Development for PR #37, CI, and review comments."
+        />
+      </Spine>
+    </Conv>
+  );
+}
+
+function lockedBrainStages(): StageDto[] {
+  return [
+    {
+      id: 'visual-plan-stage', taskId: LOCKED_TASK_ID, type: 'PLAN_STAGE', state: 'CLOSED',
+      openedAt: lockedIso(-HOUR_MS), closedAt: lockedIso(-HOUR_MS + 105_000), callerStageId: null,
+      summary: 'Removal plan approved', loopIteration: 0,
+    },
+    {
+      id: 'visual-dev-stage', taskId: LOCKED_TASK_ID, type: 'DEVELOPMENT_STAGE', state: 'CLOSED',
+      openedAt: lockedIso(-45 * 60_000), closedAt: lockedIso(-45 * 60_000 + 923_000), callerStageId: null,
+      summary: '8-file deletion-only cleanup', loopIteration: 0,
+    },
+  ];
+}
+
+function lockedBrainRows(stages: StageDto[]): BrainFeedRow[] {
+  const row = (
+    id: string,
+    type: BrainFeedRow['type'],
+    body: string,
+    stage: StageDto | null,
+    offsetMs: number,
+  ): BrainFeedRow => ({
+    id, type, body, stageId: stage?.id ?? null, stageType: stage?.type ?? null,
+    referencedStageId: null, messageSeq: null, images: [], managedSkills: [], ts: lockedIso(offsetMs),
+  });
+  const [plan, dev] = stages;
+  const ciStage: StageDto = {
+    id: 'visual-ci-stage', taskId: LOCKED_TASK_ID, type: 'CI_FIXING_STAGE', state: 'CLOSED',
+    openedAt: lockedIso(-28 * 60_000), closedAt: lockedIso(-26 * 60_000), callerStageId: null,
+    summary: 'Remote CI recovered', loopIteration: 3,
+  };
+  return [
+    row('brain-discovery', 'BRAIN_AGENT_RESPONSE',
+      '`DailyCardService` is wired but unused by the UI. The endpoint, IPC handler, preload method, and renderer type are safe cleanup candidates.', null, -2 * HOUR_MS),
+    { ...row('brain-user', 'USER_MESSAGE', "Let's remove it", null, -2 * HOUR_MS + 60_000), messageSeq: 1 },
+    row('brain-cut', 'BRAIN_AGENT_RESPONSE',
+      'Plan approved. Cutting one focused development task with removal scope and validation requirements.', null, -2 * HOUR_MS + 82_000),
+    row('brain-plan-open', 'STAGE_OPENED', '', plan ?? null, -HOUR_MS),
+    row('brain-plan-summary', 'BRAIN_AGENT_RESPONSE',
+      'The execution plan covers all eight dead-code files, clean builds, identifier searches, and rollback notes.', plan ?? null, -HOUR_MS + 90_000),
+    row('brain-plan-close', 'STAGE_CLOSED', '', plan ?? null, -HOUR_MS + 105_000),
+    row('brain-dev-open', 'STAGE_OPENED', '', dev ?? null, -45 * 60_000),
+    row('brain-dev-summary', 'BRAIN_AGENT_RESPONSE',
+      'Confident this is a **dead-code-only removal**: no renderer references remain, and all frontend and backend checks pass locally.', dev ?? null, -30 * 60_000),
+    row('brain-dev-close', 'STAGE_CLOSED', '', dev ?? null, -29 * 60_000),
+    row('brain-ci-segment', 'STAGE_OPENED', '', null, -28 * 60_000),
+    row('brain-ci-failure', 'NEEDS_ATTENTION',
+      'round 3 awakened\nmvn verify › TestApplicationContextSmoke\nNoSuchBeanDefinitionException: no bean named dailyCardService (stale context import)',
+      ciStage, -27 * 60_000),
+  ];
+}
+
+function lockedStageRows(): StageConversationRow[] {
+  const row = (
+    id: string,
+    kind: StageConversationRow['kind'],
+    text: string | null,
+    offsetMs: number,
+    tool?: { tag: string; label: string; detail: string; result?: string },
+  ): StageConversationRow => ({
+    id, kind, text, messageSeq: null, ts: lockedIso(offsetMs), images: [], managedSkills: [],
+    toolTag: tool?.tag ?? null, toolLabel: tool?.label ?? null, toolDetail: tool?.detail ?? null,
+    toolResult: tool?.result ?? null, toolError: false, toolDiff: null, iterationNumber: null, callId: null,
+  });
+  return [
+    row('stage-intro', 'agent',
+      'Frontend validation is clean. I’m doing one clean backend build plus the context smoke test so removed Java classes cannot be masked by stale compiled output.', 0),
+    row('stage-tsc', 'tool_call', null, 1_000,
+      { tag: 'Run', label: 'TypeScript', detail: 'npx tsc --noEmit', result: 'clean' }),
+    row('stage-tests', 'tool_call', null, 20_000,
+      { tag: 'Run', label: 'Tests', detail: 'npx vitest run --no-cache', result: '1,206 passed' }),
+    row('stage-lint', 'tool_call', null, 44_000,
+      { tag: 'Run', label: 'Lint', detail: 'npm run lint', result: 'zero errors' }),
+    row('stage-backend', 'agent',
+      'Clean backend compilation and the Spring context smoke test passed. Running every sandbox-safe backend test as the final verification.', 60_000),
+    row('stage-maven', 'tool_call', null, 61_000,
+      { tag: 'Run', label: 'Maven', detail: 'mvn clean -Dtest=TestApplicationContextSmoke verify', result: 'passed' }),
+    row('stage-review', 'agent',
+      'Final review shows an **8-file, deletion-only** source diff with no stale identifiers or compiled daily-card classes.', 120_000),
+    row('stage-diff', 'tool_call', null, 121_000,
+      { tag: 'Read', label: 'Diff', detail: '8 files · +0 −331', result: 'deletion-only' }),
+    row('stage-search', 'tool_call', null, 150_000,
+      { tag: 'Read', label: 'Search', detail: 'dailyCard|ZenQuotes', result: 'no references remain' }),
+    row('stage-verify', 'tool_call', null, 180_000,
+      { tag: 'Run', label: 'Maven', detail: 'mvn verify', result: '1,685 tests passed' }),
+    row('stage-done', 'agent',
+      'The source work is complete. The focused commit and PR description are ready for review.', 181_000),
+  ];
+}
+
+function lockedTrunkMessages(): ThreadMessageDto[] {
+  const [base] = visualThreadMessages;
+  if (base === undefined) return [];
+  const message = (
+    id: string,
+    seq: number,
+    role: string,
+    type: string,
+    content: Record<string, unknown>,
+    agoMs: number,
+    durationMs: number | null = null,
+  ): ThreadMessageDto => ({
+    ...base,
+    id,
+    threadId: LOCKED_TRUNK_ID,
+    taskId: null,
+    seq,
+    role,
+    type,
+    contentJson: JSON.stringify(content),
+    durationMs,
+    ts: new Date(Date.now() - agoMs).toISOString(),
+  });
+  const workTasks = visualTasks.filter(task => task.threadId === LOCKED_TRUNK_ID);
+  return [
+    message('locked-trunk-user', 1, 'user', 'text', {
+      text: 'Remove the stale repository routes and renderer entry points, then cut focused tasks and verify both sides.',
+    }, 26 * HOUR_MS),
+    message('locked-trunk-think', 2, 'assistant', 'thinking', {
+      summary: 'Mapped the route registrations, imports, tests, and IPC exposure before splitting the cleanup.',
+    }, 26 * HOUR_MS - 60_000, 70_000),
+    message('locked-trunk-tool', 3, 'assistant', 'tool_call', {
+      toolName: 'Search', input: { pattern: 'WorkspaceRepoPage|legacy renderer routes' },
+    }, 26 * HOUR_MS - 90_000, 60_000),
+    message('locked-trunk-headline', 4, 'assistant', 'text', {
+      text: 'Found two independent cleanup paths. I cut one task for route normalization and one for the stale repository pages so they can run in parallel.',
+    }, 26 * HOUR_MS - 130_000),
+    ...workTasks.map((task, index) => message(
+      `locked-trunk-summary-${task.id}`,
+      5 + index,
+      'assistant',
+      'task_summary',
+      {
+        text: index === workTasks.length - 1
+          ? 'Removed the stale repository pages, tightened the navigation fallbacks, and verified the complete frontend suite.'
+          : 'Normalized renderer routes and kept every existing deep link behavior intact.',
+        taskId: task.id,
+        taskSeq: task.seq,
+      },
+      22 * HOUR_MS - index * 60_000,
+    )),
+  ];
 }
 
 function VisualTrunkConversation() {

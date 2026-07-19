@@ -15,11 +15,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { getCached, setCached } from '../dataCache';
 import type { DashboardPR } from '../types/dashboardPr';
-import type { LocalPR } from '../types/localPr';
 import { PULL_TABS, rowsForTab, toRow } from './model';
 import type { PullRow, PullTab } from './model';
 import PullRowItem from './PullRowItem';
 import PullDetailPane from './PullDetailPane';
+import { pullRowFromLocal } from './localRow';
 import { PaneToggleIcon } from './atoms';
 import '../css/pulls.css';
 
@@ -32,49 +32,9 @@ import '../css/pulls.css';
  */
 
 const DETAIL_MIN = 460;
-const DETAIL_MAX = 1600;
+const DETAIL_MAX = 1150;
 const DETAIL_DEFAULT = 940;
 const PRS_CACHE_KEY = 'prs:list';
-
-/** Minimal DashboardPR off the unified-PR resolver's LocalPR, for a
- *  deep-linked PR that isn't in the dashboard list (someone else's PR the
- *  sync never picked up). Enough for the row + pane header; the pane's
- *  usePR call fetches the full bundle by id anyway. */
-function dashboardPrFromLocal(pr: LocalPR, repo: string, number: number): DashboardPR {
-  const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString());
-  return {
-    id: pr.id,
-    repo,
-    number,
-    title: pr.title,
-    author: pr.author,
-    htmlUrl: pr.remotePrUrl ?? '',
-    createdAt: iso(pr.createdAt),
-    updatedAt: iso(pr.syncedAt),
-    origin: null,
-    labels: [],
-    labelColors: null,
-    draft: pr.status === 'remote-drafted' || pr.status === 'local-drafted',
-    viewedAt: null,
-    reviewedAt: null,
-    handledAction: null,
-    requestedReviewers: [],
-    ciStatus: null,
-    additions: pr.syncedAdditions ?? 0,
-    deletions: pr.syncedDeletions ?? 0,
-    commentCount: 0,
-    attentionReason: null,
-    state: pr.status === 'merged' ? 'merged' : pr.status === 'closed' ? 'closed' : 'open',
-    closedAt: iso(pr.closedAt),
-    mergedAt: iso(pr.mergedAt),
-    mergeable: pr.syncedMergeable,
-    mergeableState: pr.syncedMergeableState,
-    headPushedAt: null,
-    reviewerVerdicts: null,
-    snoozedUntil: null,
-    snoozeWakeReason: null,
-  };
-}
 
 export default function PullsScreen({ onOpenWorkspacePr, initialPr }: {
   /** Routes a PR into its repo's workspace surface; {@code agent} opens it
@@ -168,7 +128,7 @@ export default function PullsScreen({ onOpenWorkspacePr, initialPr }: {
     void window.bridge.getPrForRepoPull(owner, repo, initialPr.number)
       .then(pr => {
         if (cancelled) return;
-        setExtraRow(toRow(dashboardPrFromLocal(pr, initialPr.repo, initialPr.number)));
+        setExtraRow(pullRowFromLocal(pr, initialPr.repo, initialPr.number));
         setSel(pr.id);
         setPaneOpen(true);
       })

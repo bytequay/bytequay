@@ -2136,9 +2136,10 @@ function workspaceResponse(frame: string, request: WorkspaceApiRequest): unknown
   if (path.endsWith('/onboarding')) return visualOnboarding(frame);
   if (path.endsWith('/notifications')) return visualCanonicalNotifications;
   if (path.endsWith('/notifications/mutes')) return visualNotificationMutes;
-  if (path.includes(`/api/trunks/${VISUAL_TRUNK_ID}/activity`)) {
+  const activityPath = path.match(/^\/api\/trunks\/([^/]+)\/activity$/);
+  if (activityPath !== null) {
     return {
-      trunkId: VISUAL_TRUNK_ID,
+      trunkId: decodeURIComponent(activityPath[1]),
       pinned: [
         {
           id: 'activity-question',

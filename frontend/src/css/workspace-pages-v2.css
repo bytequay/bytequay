@@ -1,0 +1,352 @@
+/* Locked workspace/task page chrome translated from the Design Component source. */
+.workspace-page-chrome {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px 8px;
+}
+
+.workspace-page-chrome button {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+}
+
+.workspace-page-chrome__lights { display: flex; gap: 8px; }
+.workspace-page-chrome__lights button { width: 12px; height: 12px; border-radius: 50%; cursor: default; }
+.workspace-page-chrome__lights button:nth-child(1) { background: #ff5f57; }
+.workspace-page-chrome__lights button:nth-child(2) { background: #febc2e; }
+.workspace-page-chrome__lights button:nth-child(3) { background: #28c840; }
+
+.workspace-page-chrome__button,
+.workspace-page-chrome__history button {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 6px;
+  color: #8b949e;
+  background: transparent;
+}
+.workspace-page-chrome__button:hover,
+.workspace-page-chrome__history button:hover { background: rgba(0, 0, 0, 0.06); }
+.workspace-page-chrome__history { margin-left: auto; color: #8b949e; display: inline-flex; gap: 1px; }
+.workspace-page-chrome__history button:disabled { color: #c6cbd1; cursor: default; }
+
+.workspace-page-global-rows {
+  padding: 2px 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.workspace-page-global-rows button,
+.workspace-page-row,
+.workspace-page-footer > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #454c54;
+  cursor: pointer;
+  font: 400 13px/normal -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: left;
+}
+.workspace-page-global-rows button:hover,
+.workspace-page-row:hover,
+.workspace-page-footer > button:hover { background: rgba(0, 0, 0, 0.05); }
+.workspace-page-global-rows button > span,
+.workspace-page-row > span:first-child,
+.workspace-page-footer > button > span {
+  color: #6e7781;
+  width: 17px;
+  display: inline-flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.workspace-page-row > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-page-row > small,
+.workspace-page-footer > button > small { margin-left: auto; color: #8b949e; font-size: 12px; }
+
+.workspace-page-switcher-wrap { padding: 8px 8px 2px; }
+.workspace-page-switcher {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  background: #ffffff;
+  border: 1px solid #e7e9ec;
+  border-radius: 10px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: left;
+}
+.workspace-page-switcher:hover { border-color: #d5dbe1; background: #fcfcfd; }
+.workspace-page-switcher__tile {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: #b45309;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.workspace-page-switcher__copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; flex: 1; }
+.workspace-page-switcher__copy > span {
+  font-size: 13px;
+  font-weight: 600;
+  color: #17191c;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-page-switcher__copy small {
+  font-size: 11px;
+  color: #8b949e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-page-switcher > svg { flex-shrink: 0; }
+
+.workspace-page-footer {
+  padding: 6px 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
+}
+.workspace-page-footer > button { padding: 5px 10px; font-size: 12.5px; }
+.workspace-page-footer__user {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px 2px;
+  margin-top: 3px;
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
+}
+.workspace-page-footer__user > span {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #fcd34d, #d97706);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #78350f;
+  font-size: 9px;
+  font-weight: 800;
+}
+.workspace-page-footer__user strong { font-size: 13px; color: #17191c; font-weight: 500; }
+.trunk-page-v2 .workspace-page-footer { padding: 4px 8px 10px; border-top: 0; }
+
+/* Shared locked composer: values are copied from both workspace HTML specs. */
+.shell .composer-wrap--workspace-v2 {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 6px 28px 16px;
+  box-sizing: border-box;
+  background: #fff;
+}
+.shell .composer-wrap--workspace-v2 > * { width: min(100%, 760px); margin-left: auto; margin-right: auto; }
+.trunk-page-v2 .shell .composer-wrap--workspace-v2 > * { width: min(100%, 780px); }
+.shell .workspace-composer-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+.shell .workspace-composer-meta > span:last-child {
+  margin-left: auto;
+  font-size: 11px;
+  color: #a5abb2;
+}
+.shell .composer--workspace-v2 {
+  display: block;
+  width: 100%;
+  gap: 0;
+  padding: 0;
+  border: 1.5px solid #d0d7de;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.task-brain .shell .composer-wrap--workspace-v2 {
+  padding: 6px 28px 16px;
+  background: #fff;
+}
+.task-brain .shell .composer--workspace-v2 {
+  display: block;
+  width: min(100%, 760px);
+  margin: 0 auto;
+  gap: 0;
+  padding: 0;
+  border-color: #d0d7de;
+  border-radius: 14px;
+}
+.shell .composer--workspace-v2 .input {
+  display: block;
+  width: 100%;
+  min-height: 35px;
+  max-height: 160px;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 12px 14px 4px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: #17191c;
+  font: 400 13.5px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.task-brain .shell .composer--workspace-v2 .input {
+  min-height: 35px;
+  padding: 12px 14px 4px;
+  color: #17191c;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.shell .composer--workspace-v2 .input::placeholder,
+.shell .composer--workspace-v2 .input:disabled { color: #8b949e; opacity: 1; }
+.shell .composer--workspace-v2 .footer {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px 10px;
+}
+.task-brain .shell .composer--workspace-v2 .footer { gap: 2px; padding: 6px 10px 10px; }
+.shell .composer--workspace-v2 .plus,
+.shell .workspace-composer-mic,
+.shell .workspace-composer-usage > button {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #6e7781;
+  cursor: pointer;
+}
+.shell .composer--workspace-v2 .plus:hover,
+.shell .workspace-composer-mic:hover,
+.shell .workspace-composer-usage > button:hover,
+.shell .workspace-composer-effort:hover { background: #f6f8fa; }
+.shell .workspace-composer-effort {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #454c54;
+  cursor: pointer;
+  font: 400 12.5px/normal -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.shell .workspace-composer-effort-wrap { position: relative; display: inline-flex; }
+.shell .workspace-composer-effort-menu {
+  position: absolute;
+  left: 0;
+  bottom: 32px;
+  z-index: 6;
+  width: 104px;
+  padding: 4px;
+  border: 1px solid #e1e5e9;
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+.shell .workspace-composer-effort-menu button {
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #454c54;
+  cursor: pointer;
+  font: 400 12.5px/normal -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: left;
+}
+.shell .workspace-composer-effort-menu button:hover,
+.shell .workspace-composer-effort-menu button[aria-selected="true"] { background: #f6f8fa; }
+.workspace-work-model-pill { background: transparent; }
+.workspace-work-model-pill:hover { background: #f6f8fa; }
+.shell .workspace-composer-usage { position: relative; display: inline-flex; }
+.shell .workspace-composer-usage > button { border-radius: 50%; }
+.shell .workspace-composer-usage__popover {
+  position: absolute;
+  bottom: 34px;
+  right: -40px;
+  width: 240px;
+  box-sizing: border-box;
+  padding: 4px 0;
+  z-index: 5;
+  background: #fff;
+  border: 1px solid #e1e5e9;
+  border-radius: 11px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+}
+.shell .workspace-composer-usage__popover > div { display: flex; align-items: center; gap: 10px; padding: 9px 14px; }
+.shell .workspace-composer-usage__popover span { font-size: 12.5px; color: #57606a; }
+.shell .workspace-composer-usage__popover strong {
+  margin-left: auto;
+  color: #17191c;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.shell .workspace-composer-usage__popover > div > i {
+  flex: 1;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eceef0;
+}
+.shell .workspace-composer-usage__popover > div > i > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #2da44e;
+}
+.shell .workspace-composer-usage__popover hr { height: 1px; margin: 0; border: 0; background: #f0f2f4; }
+.shell .composer--workspace-v2 .send {
+  width: 30px;
+  height: 30px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: #24292f;
+  color: #fff;
+}
+.task-brain .shell .composer--workspace-v2 .footer .plus {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  color: #6e7781;
+}
+.task-brain .shell .composer--workspace-v2 .footer .send {
+  width: 30px;
+  height: 30px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: #24292f;
+  color: #fff;
+}
+.shell .composer--workspace-v2 .send:hover { background: #000; }
+.shell .composer--workspace-v2 .send:disabled { background: #24292f; color: #fff; opacity: 1; cursor: default; }

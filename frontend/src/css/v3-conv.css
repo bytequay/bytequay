@@ -1032,6 +1032,7 @@
 .shell .sp-node--teal,   .shell .sp-nodecard--teal   { --n: var(--teal);   --nd: var(--teal-deep); }
 .shell .sp-node--orange, .shell .sp-nodecard--orange { --n: var(--orange); --nd: var(--orange); }
 .shell .sp-node--green,  .shell .sp-nodecard--green  { --n: var(--green);  --nd: var(--green); }
+.shell .sp-node--red,    .shell .sp-nodecard--red    { --n: var(--red);    --nd: var(--red); }
 .shell .sp-node--gray,   .shell .sp-nodecard--gray   { --n: var(--text-4); --nd: var(--text-3); }
 
 /* ── Boundary node (Layer 1) ── */

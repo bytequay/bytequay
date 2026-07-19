@@ -131,7 +131,7 @@ describe('TaskSidebar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     fireEvent.click(screen.getByText('Clean code v2'));
     fireEvent.click(screen.getByRole('button', { name: 'Home' }));
-    fireEvent.click(screen.getByTitle('Switch workspace'));
+    fireEvent.click(screen.getByTitle('Open ByteQuay Today'));
     fireEvent.click(screen.getByRole('button', { name: /Notifications/ }));
     expect(onHistoryBack).toHaveBeenCalledOnce();
     expect(onOpenTrunk).toHaveBeenCalledOnce();

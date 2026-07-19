@@ -847,6 +847,13 @@ function App() {
   // of whatever workspace the landing grid was last pointed at.
   const sidebarWorkspaceId = inWorkspaceFlow
     ? (viewedThreadWorkspaceId ?? activeWorkspaceId) : null;
+  const openSidebarWorkspaceToday = useCallback(() => {
+    if (sidebarWorkspaceId !== null) {
+      setActiveWorkspaceId(sidebarWorkspaceId);
+      writeActiveWorkspaceId(sidebarWorkspaceId);
+    }
+    setNav({ view: 'workspace', section: 'today' });
+  }, [setNav, sidebarWorkspaceId]);
   const {
     activeWorkspace: sidebarWorkspace,
     rawThreads: sidebarThreads,
@@ -1008,10 +1015,7 @@ function App() {
           }}
           onOpenThread={openThread}
           onOpenTask={(threadId, taskId) => setNav(lastTaskNav(threadId, taskId))}
-          // Clicking the workspace card stays in the workspace (from a
-          // thread/task it returns to its surface; on it, a no-op).
-          // Switching workspaces happens on the Workspaces landing page.
-          onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}
+          onSwitchWorkspace={openSidebarWorkspaceToday}
           onNewThread={() => setNewThreadDialogOpen(true)}
         />
       )}
@@ -1145,7 +1149,7 @@ function App() {
             onNavigateGlobal={destination => setNav(destination === 'home'
               ? { view: 'home' }
               : { view: 'workspaces-landing' })}
-            onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}
+            onSwitchWorkspace={openSidebarWorkspaceToday}
             onNotifications={() => setNav(sidebarWorkspaceId === null
               ? { view: 'notifications' }
               : { view: 'workspace', section: 'notifications' })}
@@ -1192,7 +1196,7 @@ function App() {
             onNavigateGlobal={destination => setNav(destination === 'home'
               ? { view: 'home' }
               : { view: 'workspaces-landing' })}
-            onSwitchWorkspace={() => setNav({ view: 'workspaces-landing' })}
+            onSwitchWorkspace={openSidebarWorkspaceToday}
             onNotifications={() => setNav(sidebarWorkspaceId === null
               ? { view: 'notifications' }
               : { view: 'workspace', section: 'notifications' })}

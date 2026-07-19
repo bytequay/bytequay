@@ -12,13 +12,19 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { FootprintStopDto, PullRequestDto, SurfaceType } from '../../types';
+import type { FootprintStopDto, PullRequestDto, SurfaceType, WorkUnitTaskDto } from '../../types';
+import { relativeTime } from '../../notificationDisplay';
 import { taskLabel } from '../../threads/taskLabel';
 
 const MAX_ROWS = 4;
 // ponytail: a flat cap per bucket rather than a "+N more" overflow affordance —
 // bump this (or add overflow UI) if a bucket routinely needs more room.
 const TODAY_BUCKET_MAX = 5;
+
+type RecentStop = FootprintStopDto & {
+  recentRepo?: string;
+  recentNumber?: number | null;
+};
 
 function isToday(iso: string): boolean {
   const d = new Date(iso);
@@ -107,7 +113,7 @@ export function TodayGroupRows({ label, prs, onOpen }: {
  * already use, and swap it in. A lookup failure (task/thread since
  * deleted, offline) is non-fatal — that row just keeps its placeholder.
  */
-export async function enrichTitles(stops: FootprintStopDto[]): Promise<FootprintStopDto[]> {
+export async function enrichTitles(stops: FootprintStopDto[]): Promise<RecentStop[]> {
   const taskThreadIds = new Set<string>();
   for (const stop of stops) {
     const slash = stop.surfaceId.indexOf('/');
@@ -131,7 +137,12 @@ export async function enrichTitles(stops: FootprintStopDto[]): Promise<Footprint
       const threadId = stop.surfaceId.slice(0, slash);
       const taskId = stop.surfaceId.slice(slash + 1);
       const task = tasksByThread.get(threadId)?.find(t => t.id === taskId);
-      return task === undefined ? stop : { ...stop, title: taskLabel(task) };
+      return task === undefined ? stop : {
+        ...stop,
+        title: taskLabel(task),
+        recentRepo: taskRepo(task),
+        recentNumber: task.prNumber ?? linkedPrNumber(task.linkedPrRef),
+      };
     }
     return stop;
   });
@@ -149,7 +160,7 @@ export function RecentList({ onResume }: {
   /** Open a PR from the Today summary's "Reviewed" line. */
   onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
 }) {
-  const [stops, setStops] = useState<FootprintStopDto[]>([]);
+  const [stops, setStops] = useState<RecentStop[]>([]);
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
 
   // The list is mounted for as long as the rail shows (i.e. across every
@@ -158,19 +169,32 @@ export function RecentList({ onResume }: {
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
-      void window.bridge.getFootprints()
+      const recentStops = window.bridge.getFootprints()
         .then(trail => trail.stops.filter(stop =>
           stop.surfaceType === 'PR'
           || stop.surfaceType === 'TASK'
           || stop.surfaceType === 'THREAD'))
         // The trail arrives oldest-first; the sidebar wants newest on top.
         .then(stops => stops.slice().reverse().slice(0, MAX_ROWS))
-        .then(enrichTitles)
-        .then(enriched => { if (!cancelled) setStops(enriched); })
+        .then(enrichTitles);
+      const dashboardPrs = window.bridge.fetchPrs().catch((): PullRequestDto[] => []);
+      void Promise.all([recentStops, dashboardPrs])
+        .then(async ([enriched, listed]) => {
+          const known = new Set(listed.map(pr => `${pr.repo}#${pr.number}`));
+          const missing = enriched
+            .map(stop => stop.surfaceType === 'PR' ? parsePrRef(stop.surfaceId) : null)
+            .filter((ref): ref is NonNullable<typeof ref> => ref !== null && !known.has(ref.full));
+          const fetched = typeof window.bridge.getRepoPull === 'function'
+            ? await Promise.all(missing.map(ref => window.bridge
+              .getRepoPull(ref.owner, ref.repo, ref.number)
+              .catch((): PullRequestDto | null => null)))
+            : [];
+          if (!cancelled) {
+            setStops(enriched);
+            setPrs([...listed, ...fetched.filter((pr): pr is PullRequestDto => pr !== null)]);
+          }
+        })
         .catch(() => { /* non-fatal — section renders empty */ });
-      void window.bridge.fetchPrs()
-        .then(list => { if (!cancelled) setPrs(list); })
-        .catch(() => { /* summary line just stays hidden */ });
     };
     refresh();
     const id = window.setInterval(refresh, 20_000);
@@ -192,9 +216,10 @@ export function RecentList({ onResume }: {
   // so the row keeps its name across entry points.
   const prTitles = useMemo(() => {
     const m = new Map<string, string>();
-    for (const p of prs) m.set(`${p.repo}#${p.number}`, `${p.title} #${p.number}`);
+    for (const p of prs) m.set(`${p.repo}#${p.number}`, p.title);
     return m;
   }, [prs]);
+  const prsByRef = useMemo(() => new Map(prs.map(pr => [`${pr.repo}#${pr.number}`, pr])), [prs]);
   const rowTitle = (stop: FootprintStopDto): string =>
     (stop.surfaceType === 'PR' ? prTitles.get(stop.surfaceId) : undefined)
     ?? stop.title ?? stop.surfaceId;
@@ -209,27 +234,24 @@ export function RecentList({ onResume }: {
       ) : (
         <div className="sb-recent">
           {stops.map(stop => (
-            <div
+            <button
               key={`${stop.surfaceType}:${stop.surfaceId}`}
-              role="button"
-              tabIndex={0}
+              type="button"
               className="sb-recent__row"
               onClick={() => onResume?.(stop)}
-              onKeyDown={event => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onResume?.(stop);
-                }
-              }}
               title={stop.context ?? stop.surfaceId}
             >
-              <span className="sb-recent__icon" aria-hidden="true">
-                <RecentSurfaceIcon kind={stop.surfaceType} />
+              <span className={`sb-recent__icon sb-recent__icon--${recentState(stop, prsByRef)}`} aria-hidden="true">
+                <RecentSurfaceIcon
+                  kind={stop.surfaceType}
+                  merged={recentState(stop, prsByRef) === 'merged'}
+                />
               </span>
               <span className="sb-recent__meta">
                 <span className="sb-recent__title">{rowTitle(stop)}</span>
+                <span className="sb-recent__sub">{recentSubline(stop)}</span>
               </span>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -237,7 +259,7 @@ export function RecentList({ onResume }: {
   );
 }
 
-function RecentSurfaceIcon({ kind }: { kind: SurfaceType }) {
+function RecentSurfaceIcon({ kind, merged }: { kind: SurfaceType; merged: boolean }) {
   const common = {
     width: 13,
     height: 13,
@@ -248,28 +270,26 @@ function RecentSurfaceIcon({ kind }: { kind: SurfaceType }) {
     strokeLinecap: 'round' as const,
     strokeLinejoin: 'round' as const,
   };
-  if (kind === 'TASK') {
+  if (kind === 'TASK' || kind === 'THREAD') {
     return (
       <svg {...common}>
-        <circle cx="18" cy="18" r="2.6" />
-        <circle cx="6" cy="6" r="2.6" />
-        <path d="M13 6h3a2 2 0 0 1 2 2v7" />
-        <path d="M6 9v12" />
-      </svg>
-    );
-  }
-  if (kind === 'THREAD') {
-    return (
-      <svg {...common}>
-        <circle cx="6" cy="6" r="2.4" />
-        <circle cx="6" cy="18" r="2.4" />
-        <circle cx="18" cy="12" r="2.4" />
-        <path d="M8.3 7.2 15.7 11M8.3 16.8 15.7 13" />
+        <rect x="4.5" y="4.5" width="15" height="15" rx="2" />
+        <path d="m8.4 12.3 2.4 2.4 4.8-5.2" />
       </svg>
     );
   }
   if (kind === 'PR') {
-    return <svg {...common}><circle cx="12" cy="12" r="8.5" /></svg>;
+    return merged ? (
+      <svg {...common}>
+        <circle cx="6" cy="5.5" r="2.3" /><circle cx="6" cy="18.5" r="2.3" /><circle cx="18" cy="12" r="2.3" />
+        <path d="M6 7.8v8.4M6 8a7.6 7.6 0 0 0 7.6 4h2.1" />
+      </svg>
+    ) : (
+      <svg {...common}>
+        <circle cx="6" cy="5.5" r="2.3" /><circle cx="6" cy="18.5" r="2.3" /><circle cx="18" cy="18.5" r="2.3" />
+        <path d="M6 7.8v8.4M11.3 5.5H15a3 3 0 0 1 3 3v7.7" />
+      </svg>
+    );
   }
   return (
     <svg {...common}>
@@ -279,4 +299,45 @@ function RecentSurfaceIcon({ kind }: { kind: SurfaceType }) {
       <rect x="14" y="14" width="7" height="7" rx="1.6" />
     </svg>
   );
+}
+
+function linkedPrNumber(ref: string | null): number | null {
+  if (!ref) return null;
+  const number = Number(ref.slice(ref.lastIndexOf('#') + 1));
+  return Number.isInteger(number) && number > 0 ? number : null;
+}
+
+function parsePrRef(ref: string): { owner: string; repo: string; number: number; full: string } | null {
+  const hash = ref.lastIndexOf('#');
+  const slash = ref.indexOf('/');
+  const number = Number(ref.slice(hash + 1));
+  if (slash < 1 || hash <= slash || !Number.isInteger(number) || number < 1) return null;
+  return {
+    owner: ref.slice(0, slash),
+    repo: ref.slice(slash + 1, hash),
+    number,
+    full: ref,
+  };
+}
+
+function taskRepo(task: WorkUnitTaskDto): string {
+  if (task.linkedPrRef) return task.linkedPrRef.split('#')[0];
+  const path = task.workingDir?.replace(/\/$/, '');
+  return path?.slice(path.lastIndexOf('/') + 1) || 'task';
+}
+
+function recentState(stop: RecentStop, prs: Map<string, PullRequestDto>): 'open' | 'merged' | 'task' {
+  if (stop.surfaceType !== 'PR') return 'task';
+  return prs.get(stop.surfaceId)?.mergedAt ? 'merged' : 'open';
+}
+
+function recentSubline(stop: RecentStop): string {
+  const time = relativeTime(stop.latestVisitAt).replace(' ago', '');
+  if (stop.surfaceType === 'PR') {
+    const hash = stop.surfaceId.lastIndexOf('#');
+    const repo = hash > 0 ? stop.surfaceId.slice(0, hash) : stop.context ?? 'pull request';
+    const number = hash > 0 ? stop.surfaceId.slice(hash) : '';
+    return [repo, number, time].filter(Boolean).join(' · ');
+  }
+  return [stop.recentRepo ?? 'task', stop.recentNumber ? `#${stop.recentNumber}` : 'task', time].join(' · ');
 }

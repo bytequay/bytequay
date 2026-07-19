@@ -15,6 +15,7 @@ import { useState } from 'react';
 
 type Props = {
   login: string;
+  avatarUrl?: string | null;
   size?: number;
   className?: string;
 };
@@ -41,7 +42,7 @@ function avatarHandle(login: string): string {
  * surrounding CSS Grid/Flex would re-place the sibling into the avatar
  * slot and its text would wrap at 3 chars per line.
  */
-function Avatar({ login, size = 20, className }: Props) {
+function Avatar({ login, avatarUrl, size = 20, className }: Props) {
   const [failed, setFailed] = useState(false);
   const classes = ['avatar', className].filter(Boolean).join(' ');
   const hasLogin = login.trim().length > 0;
@@ -67,7 +68,8 @@ function Avatar({ login, size = 20, className }: Props) {
   return (
     <img
       className={classes}
-      src={`https://github.com/${encodeURIComponent(avatarHandle(login))}.png?size=${size * 2}`}
+      src={avatarUrl?.trim()
+        || `https://github.com/${encodeURIComponent(avatarHandle(login))}.png?size=${size * 2}`}
       alt={login}
       width={size}
       height={size}

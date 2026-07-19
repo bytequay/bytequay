@@ -15,6 +15,8 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.RecentEvent;
 
+import java.util.List;
+
 class GitHubEventMapper
 {
     private GitHubEventMapper() {}
@@ -24,10 +26,16 @@ class GitHubEventMapper
         GitHubEventItem.Payload payload = e.payload();
         int commitCount = payload != null && payload.size() != null ? payload.size() : 0;
         String action = payload != null ? payload.action() : null;
-        String prTitle = payload != null && payload.pullRequest() != null ? payload.pullRequest().title() : null;
-        int prNumber = payload != null && payload.pullRequest() != null ? payload.pullRequest().number() : 0;
+        GitHubEventItem.PrPayload pullRequest = payload != null ? payload.pullRequest() : null;
+        GitHubEventItem.IssuePayload issue = payload != null ? payload.issue() : null;
+        String prTitle = pullRequest != null ? pullRequest.title() : issue != null ? issue.title() : null;
+        int prNumber = pullRequest != null ? pullRequest.number() : issue != null ? issue.number() : 0;
         String refType = payload != null ? payload.refType() : null;
         String actorLogin = e.actor() != null ? e.actor().login() : null;
+        String actorAvatarUrl = e.actor() != null ? e.actor().avatarUrl() : null;
+        String detail = payload == null ? null : eventDetail(payload.commits(), commitCount);
+        String ref = payload != null ? payload.ref() : null;
+        String reviewState = payload != null && payload.review() != null ? payload.review().state() : null;
         return new RecentEvent(
                 e.type(),
                 e.repo() != null ? e.repo().name() : "",
@@ -37,6 +45,30 @@ class GitHubEventMapper
                 prTitle,
                 prNumber,
                 refType,
-                actorLogin);
+                actorLogin,
+                actorAvatarUrl,
+                detail,
+                ref,
+                reviewState);
+    }
+
+    private static String eventDetail(
+            List<GitHubEventItem.CommitPayload> commits,
+            int commitCount)
+    {
+        if (commits == null || commits.isEmpty()) {
+            return null;
+        }
+        String first = commits.stream()
+                .map(GitHubEventItem.CommitPayload::message)
+                .filter(message -> message != null && !message.isBlank())
+                .findFirst()
+                .orElse(null);
+        if (first == null) {
+            return null;
+        }
+        String headline = first.lines().findFirst().orElse(first);
+        int remaining = Math.max(commitCount, commits.size()) - 1;
+        return remaining == 0 ? headline : headline + " · +" + remaining + " more";
     }
 }

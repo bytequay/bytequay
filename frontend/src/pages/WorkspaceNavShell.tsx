@@ -18,6 +18,7 @@ import type { TaskNavRow, WsNavKey } from '../ui/workspace';
 import type { FootprintStopDto } from '../types';
 import { useWorkspaceNav } from './useWorkspaceNav';
 import { useState, type ReactNode } from 'react';
+import { TrunkWorkspaceSidebar } from './TrunkWorkspaceSidebar';
 
 /**
  * The live workspace navigation sidebar: top nav + either the
@@ -56,7 +57,7 @@ export function WorkspaceNavShell({
   forwardEnabled?: boolean;
   onNavigate?: (key: WsNavKey) => void;
   onOpenThread?: (id: string) => void;
-  onOpenTask?: (id: string) => void;
+  onOpenTask?: (threadId: string, taskId: string) => void;
   /** The switcher ▾ — lateral switch / back to the overview. */
   onSwitchWorkspace?: () => void;
   onNewThread?: () => void;
@@ -87,6 +88,33 @@ export function WorkspaceNavShell({
       flow: thread.kind === 'review' ? 'review' as const : 'build' as const,
     }));
   const showingSelectedTrunk = selectedThreadId !== undefined;
+
+  if (activeWorkspaceId !== null) {
+    return (
+      <TrunkWorkspaceSidebar
+        workspaceName={ws?.name ?? 'Workspace'}
+        repository={data.overview?.repository?.fullName
+          ?? ws?.repository?.fullName
+          ?? workspaceSlug(ws?.name ?? 'Workspace', ws?.repos[0])}
+        threads={data.rawThreads.filter(thread => thread.flow !== 'review')}
+        selectedThreadId={selectedThreadId}
+        selectedTasks={tasks ?? []}
+        counts={data.overview?.sidebarCounts}
+        notificationCount={notificationCount ?? data.overview?.sidebarCounts.notifications}
+        collapsed={collapsed}
+        onToggleCollapse={onToggleCollapse}
+        onBack={onBack}
+        onForward={onForward}
+        backEnabled={backEnabled}
+        forwardEnabled={forwardEnabled}
+        onNavigate={onNavigate}
+        onOpenThread={onOpenThread}
+        onOpenTask={onOpenTask}
+        onSwitchWorkspace={onSwitchWorkspace}
+        onNewThread={onNewThread}
+      />
+    );
+  }
 
   const body = ws === null
     ? <RecentList onResume={onResumeVisit} onOpenPr={onOpenPr} />
@@ -123,7 +151,9 @@ export function WorkspaceNavShell({
                   tasks={tasks}
                   selectedTaskId={selectedTaskId}
                   onOpen={onOpenThread}
-                  onOpenTask={onOpenTask}
+                  onOpenTask={taskId => {
+                    if (selectedThreadId !== undefined) onOpenTask?.(selectedThreadId, taskId);
+                  }}
                   heading=""
                   showActions={false}
                 />
@@ -199,7 +229,9 @@ export function WorkspaceNavShell({
             tasks={tasks}
             selectedTaskId={selectedTaskId}
             onOpen={onOpenThread}
-            onOpenTask={onOpenTask}
+            onOpenTask={taskId => {
+              if (selectedThreadId !== undefined) onOpenTask?.(selectedThreadId, taskId);
+            }}
             onNewThread={onNewThread}
             heading={sourceUsesThreadCopy ? 'Pinned threads' : 'Pinned trunks'}
             showActions={false}

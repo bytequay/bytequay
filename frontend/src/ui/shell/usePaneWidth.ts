@@ -14,22 +14,20 @@
 import { useCallback, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 
-const MIN = 360;
-// Generous on purpose — the PR/Changes pane (esp. the embedded Changes tab's
-// file-tree + diff) benefits from real width. The drag itself is bounded by
-// the body's actual rect, so this ceiling only matters on very wide windows.
-const MAX = 1600;
-const DEFAULT = 520;
+// Locked Pull Requests detail-pane contract.
+const MIN = 460;
+const MAX = 1150;
+const DEFAULT = 940;
 
 /**
  * Drives the draggable boundary between the conversation column and the
  * right pane on the brain / stage surfaces. Returns a width (persisted to
- * {@code localStorage} under {@code key}), a ref to put on the grid body,
+ * {@code localStorage} under {@code key}), a ref to put on the split body,
  * and an {@code onResize(clientX)} for a {@link ResizeHandle} sitting just
  * left of the pane. The pane is right-anchored, so its width is the body's
  * right edge minus the pointer, clamped to a sane range.
  */
-export function usePaneWidth(key = 'bq.brainPaneWidth', defaultWidth = DEFAULT): {
+export function usePaneWidth(key = 'bq.taskPrPaneWidth', defaultWidth = DEFAULT): {
   paneWidth: number;
   bodyRef: RefObject<HTMLDivElement>;
   onResize: (clientX: number) => void;

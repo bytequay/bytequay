@@ -30,12 +30,17 @@ import { useSidebarWidth } from './useSidebarWidth';
  * order. `.shell` is the single V3 styling root, so all V3 structural
  * CSS is scoped beneath it.
  */
-export function Shell({ collapsed = false, fullWidth = false, sidebarWidthKey, sidebarWidthDefault, children }: {
+export function Shell({
+  collapsed = false, fullWidth = false, fixedSidebarWidth,
+  sidebarWidthKey, sidebarWidthDefault, children,
+}: {
   collapsed?: boolean;
   /** When true the shell drops its own sidebar column and the main column
    *  spans the full width — used when the single global rail provides the
    *  navigation instead of a per-surface sidebar. */
   fullWidth?: boolean;
+  /** Locked-design surfaces use a fixed sidebar column and no resize handle. */
+  fixedSidebarWidth?: number;
   sidebarWidthKey?: string;
   sidebarWidthDefault?: number;
   children: ReactNode;
@@ -44,12 +49,13 @@ export function Shell({ collapsed = false, fullWidth = false, sidebarWidthKey, s
   const classes = ['shell'];
   if (fullWidth) classes.push('full-width');
   else if (collapsed) classes.push('sidebar-collapsed');
-  const resizable = !fullWidth && !collapsed;
+  const resizable = !fullWidth && !collapsed && fixedSidebarWidth === undefined;
+  const columns = fixedSidebarWidth === undefined ? sidebarWidth : fixedSidebarWidth;
   return (
     <div
       ref={shellRef}
       className={classes.join(' ')}
-      style={resizable ? { gridTemplateColumns: `${sidebarWidth}px minmax(0, 1fr)` } : undefined}
+      style={!fullWidth && !collapsed ? { gridTemplateColumns: `${columns}px minmax(0, 1fr)` } : undefined}
     >
       {children}
       {resizable && (

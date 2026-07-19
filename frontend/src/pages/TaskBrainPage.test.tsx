@@ -15,99 +15,107 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TaskBrainPage } from './TaskBrainPage';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.localStorage.clear();
+});
 
-function renderBrain(overrides: Partial<Parameters<typeof TaskBrainPage>[0]> = {}) {
-  return render(
+function brain(overrides: Partial<Parameters<typeof TaskBrainPage>[0]> = {}) {
+  return (
     <TaskBrainPage
-      task={{ pillLabel: 'TASK #142', title: 'Add cost-meter card', branch: 'feat/cost' }}
+      task={{
+        pillLabel: 'TASK #142', taskNumber: 142,
+        title: 'Add cost-meter card', branch: 'feat/cost', finished: true,
+      }}
       sidebar={<aside data-testid="sidebar" />}
       conversation={<div data-testid="conv">brain feed</div>}
-      composer={{ value: '', onChange: () => {}, onSubmit: () => {}, modePill: <span>Dev → claude</span> }}
-      tabs={{
-        pr: <div data-testid="pr-tab">pr content</div>,
+      composer={{
+        value: '', onChange: () => {}, onSubmit: () => {},
+        modePill: <span>Claude Opus</span>, meta: 'Task #142 · 23m · $0.42',
       }}
+      pr={{ number: 1234, status: 'merged', onOpen: () => {} }}
+      changes={{ additions: 7, deletions: 3 }}
+      tabs={{ pr: <div data-testid="pr-body">real PR body</div> }}
       {...overrides}
-    />,
+    />
   );
 }
 
-describe('TaskBrainPage', () => {
-  it('renders the task pill, title, branch, and the model pill', () => {
-    renderBrain();
-    expect(screen.getByText('TASK #142')).toBeTruthy();
+describe('TaskBrainPage locked frame', () => {
+  it('uses the 216px shell, brain badge, task header and composer metadata', () => {
+    const { container } = render(brain());
+    expect((container.querySelector('.shell') as HTMLElement).style.gridTemplateColumns)
+      .toBe('216px minmax(0, 1fr)');
+    expect(container.querySelector('.workspace-task-header__badge')?.textContent).toBe('BRAIN');
     expect(screen.getByText('Add cost-meter card')).toBeTruthy();
     expect(screen.getByText('feat/cost')).toBeTruthy();
-    expect(screen.getByText('Dev → claude')).toBeTruthy();
+    expect(screen.getByText('Claude Opus')).toBeTruthy();
+    expect(screen.getByText('Task #142 · 23m · $0.42')).toBeTruthy();
   });
 
-  it('renders a clickable PR chip when the task is shipped', () => {
-    const onOpen = vi.fn();
-    renderBrain({ pr: { number: 1234, status: 'draft', onOpen } });
-    const chip = screen.getByText('#1234').closest('button') as HTMLButtonElement;
-    expect(chip.textContent).toContain('draft');
-    fireEvent.click(chip);
-    expect(onOpen).toHaveBeenCalledOnce();
+  it('mounts one resizable PR column with no legacy tab strip', () => {
+    const { container } = render(brain());
+    expect(screen.getByTestId('pr-body')).toBeTruthy();
+    expect(container.querySelector('.workspace-task-v2__body.with-pr')).toBeTruthy();
+    expect(container.querySelector('.workspace-task-v2__pr')).toBeTruthy();
+    expect(screen.getByRole('separator', { name: 'Resize pull request panel' })).toBeTruthy();
+    expect(container.querySelector('.pane-tab')).toBeNull();
   });
 
-  it('shows the PR pane without a tab strip', () => {
-    renderBrain();
-    expect(screen.getByTestId('pr-tab')).toBeTruthy();
-    expect(document.querySelector('.pane-tab')).toBeNull();
-    expect(document.querySelector('.pane-content--flush')).not.toBeNull();
+  it('uses the Pull Requests pane width and clamps drag resizing', () => {
+    const { container } = render(brain());
+    const body = container.querySelector('.workspace-task-v2__body') as HTMLElement;
+    const pane = container.querySelector('.workspace-task-v2__pr') as HTMLElement;
+    vi.spyOn(body, 'getBoundingClientRect').mockReturnValue({ right: 1600 } as DOMRect);
+
+    expect(pane.style.width).toBe('940px');
+    const handle = screen.getByRole('separator', { name: 'Resize pull request panel' });
+    fireEvent.mouseDown(handle);
+    fireEvent.mouseMove(window, { clientX: 1500 });
+    expect(pane.style.width).toBe('460px');
+    fireEvent.mouseMove(window, { clientX: 0 });
+    expect(pane.style.width).toBe('1150px');
+    fireEvent.mouseUp(window);
+    expect(window.localStorage.getItem('bq.taskPrPaneWidth')).toBe('1150');
   });
 
-  it('shows no side pane when no PR tab is provided', () => {
-    renderBrain({ tabs: {} });
-    expect(document.querySelector('.body.with-pane')).toBeNull();
-    expect(document.querySelector('.pane-tab')).toBeNull();
+  it('starts an asynchronously arriving PR pane open', () => {
+    const view = render(brain({ tabs: {}, pr: undefined }));
+    expect(view.container.querySelector('.workspace-task-v2__body.with-pr')).toBeNull();
+    view.rerender(brain());
+    expect(screen.getByTestId('pr-body')).toBeTruthy();
   });
 
-  it('top bar exposes Close (confirmed); pane chips include PR and Code', () => {
-    const onClose = vi.fn();
-    renderBrain({
-      run: { onClose, onPause: () => {} },
-      tabs: { pr: <div data-testid="pr-tab">pr content</div>, code: <div data-testid="code-tab">code content</div> },
-    });
-    // Close is a direct top-bar button now, with a confirm step.
-    fireEvent.click(screen.getByRole('button', { name: 'Close task' }));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close task' }));
-    expect(onClose).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole('button', { name: 'Toggle right pane' }));
-    expect(document.querySelector('.inline-chips')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'PR' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Code' })).toBeTruthy();
+  it('collapses and restores the PR column from the header control', () => {
+    const { container } = render(brain());
+    const toggle = screen.getByRole('button', { name: 'Toggle PR panel' });
+    fireEvent.click(toggle);
+    expect(container.querySelector('.workspace-task-v2__body.with-pr')).toBeNull();
+    expect(screen.queryByRole('separator', { name: 'Resize pull request panel' })).toBeNull();
+    fireEvent.click(toggle);
+    expect(container.querySelector('.workspace-task-v2__body.with-pr')).toBeTruthy();
   });
 
-  it('the inline pane chips switch to Code and fold the active pane', () => {
-    renderBrain({
-      tabs: { pr: <div data-testid="pr-tab">pr content</div>, code: <div data-testid="code-tab">code content</div> },
-    });
-    const inlineChips = document.querySelector('.inline-chips') as HTMLElement;
-    fireEvent.click(within(inlineChips).getByRole('button', { name: 'Code' }));
-    expect(screen.getByTestId('code-tab')).toBeTruthy();
-    expect(document.querySelector('.pane-content--flush')).not.toBeNull();
-    fireEvent.click(within(inlineChips).getByRole('button', { name: 'Code' }));
-    expect(document.querySelector('.body.with-pane')).toBeNull();
-    fireEvent.click(within(inlineChips).getByRole('button', { name: 'PR' }));
-    expect(screen.getByTestId('pr-tab')).toBeTruthy();
+  it('renders task-only Changes and PR pills', () => {
+    render(brain());
+    expect(screen.getByRole('button', { name: /Changes/ }).textContent).toContain('+7');
+    expect(screen.getByRole('button', { name: /Changes/ }).textContent).toContain('−3');
+    expect(screen.getByRole('button', { name: /PR #1234/ })).toBeTruthy();
   });
 
-  it('hides the mark-ready reminder pill when there is no Changes tab to open', () => {
-    renderBrain({ markReadyReminder: true });
-    expect(screen.queryByText('Mark ready for review')).toBeNull();
+  it('uses the locked closed-task composer copy verbatim', () => {
+    render(brain({
+      composer: {
+        value: '', onChange: () => {}, onSubmit: () => {},
+        closedNote: 'This task is closed — ask the brain, or reopen to continue…',
+      },
+    }));
+    expect(screen.getByPlaceholderText('This task is closed — ask the brain, or reopen to continue…')).toBeTruthy();
   });
 
-  it('hides the mark-ready reminder pill when not pending', () => {
-    renderBrain({ markReadyReminder: false });
-    expect(screen.queryByText('Mark ready for review')).toBeNull();
-  });
-
-  it('the top-bar Submit review button opens the drawer; submitting it fires onSubmitReview', async () => {
-    renderBrain();
-    expect(screen.queryByRole('button', { name: 'Submit review' })).toBeNull();
+  it('opens and submits the review drawer', async () => {
     const onSubmitReview = vi.fn();
-    renderBrain({ onSubmitReview });
+    render(brain({ onSubmitReview }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit review' }));
     const dialog = screen.getByRole('dialog', { name: 'Submit review' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Submit review' }));

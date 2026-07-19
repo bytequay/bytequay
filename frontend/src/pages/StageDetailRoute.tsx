@@ -15,20 +15,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStageDetailData } from '../threads/brain/useStageDetailData';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
-import { PRView } from '../pr/localpr/PRView';
-import { LocalPrReviewScreen } from '../pr/localpr/LocalPrReviewScreen';
-import { PushDialog } from '../pr/localpr/PushDialog';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { useThreadStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
-import { CiStatusPanel } from './CiStatusPanel';
-import { PRTabContent } from '../ui/pane/tabs';
-import type { CommentThreadData, PRMetaChip } from '../ui/pane/tabs';
 import type { DiffFileDto, UserProfileDto } from '../types';
 import { getCached } from '../dataCache';
 import type { AgentRunDto, StageType, TaskPhase } from '../types/brainView';
-import { Conv, EventRow, QueuedMessages, RoundEpisode, RunEpisode, Working } from '../ui/conv';
+import {
+  Conv, EventRow, EventTimestamp, QueuedMessages, RoundEpisode, RunEpisode, Spine, Working,
+} from '../ui/conv';
 import { useTaskRuns } from '../threads/brain/useTaskRuns';
 import { useTaskRounds } from '../threads/brain/useTaskRounds';
 import { useMessageQueue } from '../threads/useMessageQueue';
@@ -44,9 +40,14 @@ import { PlanOverlay } from './PlanOverlay';
 import { buildTaskAgentReviewTrack, TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
 import { makeIdCache } from '../threads/brain/idCache';
-import { AgentReviewHeaderAction } from '../review/AgentReviewHeaderAction';
 import { useAgentReviewState } from '../review/useAgentReviewState';
 import { ConvIndex } from '../threads/ConvIndex';
+import { PullDetailBody } from '../pulls/PullDetailPane';
+import { pullRowFromLocal } from '../pulls/localRow';
+import type { PullRow } from '../pulls/model';
+import { derivePRCapabilities } from '../pr/prCapabilities';
+import { formatDuration } from '../threads/brain/format';
+import { TaskChangedFilesCard } from './TaskChangedFilesCard';
 
 /** Last-known cumulative diff per thread+task, so switching stages within a
  *  task paints the diff at once (the diff is task-wide, identical across the
@@ -73,6 +74,17 @@ const KIND: Partial<Record<StageType, StageKind>> = {
   CLEANUP_STAGE: 'cleanup',
 };
 
+function stageKindLabel(kind: StageKind): string {
+  switch (kind) {
+    case 'plan': return 'PLAN STAGE';
+    case 'dev': return 'DEV STAGE';
+    case 'remote-dev': return 'REMOTE DEV STAGE';
+    case 'ci-fix': return 'CI FIX STAGE';
+    case 'comments': return 'COMMENTS STAGE';
+    case 'cleanup': return 'CLEANUP STAGE';
+  }
+}
+
 /**
  * Data adapter mounting the V3 {@link StageDetailPage} on the live stage
  * detail data. Maps the stage transcript → conversation (agent turns,
@@ -85,7 +97,9 @@ const KIND: Partial<Record<StageType, StageKind>> = {
  */
 export function StageDetailRoute({
   threadId, taskId, stageId, onOpenCode, onOpenStage, onOpenRun,
-  onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse, onOpenBrain,
+  onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, onToggleCollapse, onOpenBrain,
+  trunkLabel, workspaceName, workspaceRepository,
+  onNavigateGlobal, onSwitchWorkspace, onNotifications, notificationCount,
   onOpenAgentReview,
 }: {
   threadId: string;
@@ -99,15 +113,23 @@ export function StageDetailRoute({
   /** Navigate to a live run's own log — the rail's Remote CI / comments rows
    *  and the stage feed's run/round episodes use this. */
   onOpenRun?: (runId: string) => void;
-  /** Global nav-history back/forward, forwarded to the task sidebar's
-   *  TrafficLights — same as the main Sidebar uses. */
+  /** Open the task's owning trunk from the plain trunk row and breadcrumb. */
   onBack?: () => void;
+  /** Browser-style history back for the traffic-light row. */
+  onHistoryBack?: () => void;
   onForward?: () => void;
   backEnabled?: boolean;
   forwardEnabled?: boolean;
   onToggleCollapse?: () => void;
   /** Navigate to this task's brain page — the live plan's Plan node. */
   onOpenBrain?: () => void;
+  trunkLabel?: string;
+  workspaceName?: string;
+  workspaceRepository?: string;
+  onNavigateGlobal?: (destination: 'home' | 'workspaces') => void;
+  onSwitchWorkspace?: () => void;
+  onNotifications?: () => void;
+  notificationCount?: number;
   /** Open the task-owned full review-round surface at the selected round. */
   onOpenAgentReview?: (roundId: string) => void;
 }) {
@@ -121,25 +143,10 @@ export function StageDetailRoute({
   const [text, setText] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
-  // The PR-tab Add-comment box (frame 7). Per the no-auto-post rule, a typed
-  // comment is handed to the dev agent to post — it parks the publish for the
-  // user's approval through the normal gate rather than posting directly.
-  const [prComment, setPrComment] = useState('');
-  // Force-opens the PR tab's own Checks sub-tab — the Remote CI row's
-  // click target. Declared ahead of `localPrNode` below, which reads it.
-  const [prSubTabRequest, setPrSubTabRequest] = useState<{ subTab: 'checks' | 'changes'; token: number } | undefined>(undefined);
-  // The task's local PR — the primary artifact this milestone renders. Null
-  // until Dev records its first commit; then the PR tab shows <PRView>
-  // instead of the remote-GitHub PRTabContent. The bundle poll + the
-  // user-gated push/merge/comment actions are shared with the brain page.
   const {
-    bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, capabilities: prCapabilities,
-    localComment, setLocalComment, submitLocalComment,
-    confirmPush, confirmMerge, dequeuePr, deleteBranch,
-    addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, deleteLocalComment,
-    pushOpen, setPushOpen,
-    reviewOpen, setReviewOpen, prBusy,
-    runLocalTests, testsBusy,
+    bundle: localPrBundle,
+    refresh: refreshLocalPr,
+    deleteLocalComment,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
 
   // Publishes the Submit-review drawer's body/verdict and this task's
@@ -166,11 +173,8 @@ export function StageDetailRoute({
     const selected = roundId ?? agentReview.latestRound?.id;
     if (selected !== undefined && onOpenAgentReview !== undefined) {
       onOpenAgentReview(selected);
-      return;
     }
-    setReviewOpen(true);
-    setPrSubTabRequest(prev => ({ subTab: 'changes', token: (prev?.token ?? 0) + 1 }));
-  }, [agentReview.latestRound?.id, onOpenAgentReview, setReviewOpen]);
+  }, [agentReview.latestRound?.id, onOpenAgentReview]);
   const pendingReviewComments = useMemo(
     () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
     [localPrBundle],
@@ -182,11 +186,8 @@ export function StageDetailRoute({
   // the tab that's already open.
   const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr' | 'ci'; token: number } | undefined>(
     undefined);
-  const openTab = useCallback((tab: 'pr', subTab?: 'checks' | 'changes') => {
+  const openTab = useCallback((tab: 'pr', _subTab?: 'checks' | 'changes') => {
     setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
-    if (subTab !== undefined) {
-      setPrSubTabRequest(prev => ({ subTab, token: (prev?.token ?? 0) + 1 }));
-    }
   }, []);
 
   // The ready-for-review callout's inline gate — same semantics as the
@@ -251,7 +252,6 @@ export function StageDetailRoute({
   const taskTerminal = brain.task.terminal;
   const realtimeCi = data?.realtimeCi ?? null;
   const prNumber = data?.task.prNumber ?? null;
-  const branch = data?.task.branch;
   const repoFullName = data?.task.repoFullName;
 
   // Changes / PR tabs only apply to the work stages — the Plan stage is a
@@ -311,17 +311,6 @@ export function StageDetailRoute({
     />
   ) : null;
 
-  const postPrComment = useCallback(() => {
-    const body = prComment.trim();
-    if (body.length === 0) return;
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.steerStage(
-      stageId,
-      `Please post this comment on the pull request (park it for my approval as usual):\n\n${body}`)
-      .then(() => { setPrComment(''); refresh(); })
-      .catch(() => { /* poll reconciles */ });
-  }, [prComment, stageId, refresh]);
-
   const sendNow = useCallback((body: string, sendImages: string[] = []) => {
     setBusy(true);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -330,17 +319,6 @@ export function StageDetailRoute({
       .catch(() => { /* poll reconciles */ })
       .finally(() => setBusy(false));
   }, [stageId, refresh]);
-
-  // ── Local PR actions (user-gated; never auto-posted) ────────────────────
-  const repoLabel = data?.task.repoFullName ?? undefined;
-
-  const askAgentToAddress = useCallback(() => {
-    setText('Please address my review comments on the PR, then I\'ll push. ');
-    // Land the cursor in the composer so the user can elaborate and send.
-    requestAnimationFrame(() => {
-      document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus();
-    });
-  }, []);
 
   // Live stream of the agent working this stage: its text appears
   // token-by-token (and a non-delta event refreshes the canonical
@@ -430,8 +408,8 @@ export function StageDetailRoute({
   // `liveText`. Without this, every keystroke re-maps + re-renders the whole
   // feed, which makes typing crawl on a long conversation.
   const transcriptRows = useMemo(
-    () => (data !== null ? stageFeed(data.conversation, onDecide, threadId, working) : undefined),
-    [data, onDecide, threadId, working],
+    () => (data !== null ? stageFeed(data.conversation, onDecide, threadId, false, true) : undefined),
+    [data, onDecide, threadId],
   );
   // Dev feed: the flat transcript, with any ci_fix runs folded in as episodes
   // (a live one flashes). Comments feed: the round list replaces the flat
@@ -466,194 +444,95 @@ export function StageDetailRoute({
     [data?.conversation]);
   const conversation = (
     <Conv scrollRef={conversationRef}>
-      {feedRows}
-      {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
-      {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
-        ? <MarkReadyPrompt onReview={onOpenCode} />
-        : (
-          <ShipReviewPrompt
-            onReview={onOpenCode}
-            onApprove={() => { void approveShip(); }}
-            onReviewChanges={() => openTab('pr', 'changes')}
-            busy={shipBusy}
-            note={shipNote}
+      <Spine>
+        {data !== null && (
+          <div className="workspace-task-stage-log__stamp">
+            {stageKindLabel(stageKind)} · <EventTimestamp iso={data.stage.openedAt} />
+          </div>
+        )}
+        {feedRows}
+        {files !== null && files.length > 0 && (
+          <TaskChangedFilesCard files={files} onReview={onOpenCode} />
+        )}
+        {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
+        {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
+          ? <MarkReadyPrompt onReview={onOpenCode} />
+          : (
+            <ShipReviewPrompt
+              onReview={onOpenCode}
+              onApprove={() => { void approveShip(); }}
+              onReviewChanges={() => openTab('pr', 'changes')}
+              busy={shipBusy}
+              note={shipNote}
+            />
+          ))}
+        <QueuedMessages
+          messages={queue}
+          onEdit={id => setText(takeForEdit(id))}
+          onRemove={remove}
+        />
+        {working && liveText.length === 0 && (
+          <Working
+            label={workingLabel}
+            detail={workingDetail}
+            since={workingSince ?? undefined}
+            activities={liveActivities}
+            onStop={() => {
+              const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+              void bridge?.interruptTask(threadId).then(refresh).catch(() => { /* poll reconciles */ });
+            }}
           />
-        ))}
-      <QueuedMessages
-        messages={queue}
-        onEdit={id => setText(takeForEdit(id))}
-        onRemove={remove}
-      />
-      {working && liveText.length === 0 && (
-        <Working
-          label={workingLabel}
-          detail={workingDetail}
-          since={workingSince ?? undefined}
-          activities={liveActivities}
-          onStop={() => {
-            const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-            void bridge?.interruptTask(threadId).then(refresh).catch(() => { /* poll reconciles */ });
-          }}
-        />
-      )}
+        )}
+      </Spine>
       <PlanOverlay open={planOpen} card={planCard} onClose={closePlan} />
-      {pushOpen && localPrBundle != null && (
-        <PushDialog
-          bundle={localPrBundle}
-          repoLabel={repoLabel}
-          busy={prBusy}
-          onPush={confirmPush}
-          onCancel={() => setPushOpen(false)}
-        />
-      )}
     </Conv>
   );
 
-  // ── Right-pane tab nodes ────────────────────────────────────────────────
-  // The CI-fix stage's own tab for the live CI run — separate from the
-  // Changes tab so the stage keeps its checks focus without displacing the
-  // diff.
-  const ciNode = useMemo(() => (
-    realtimeCi !== null
-      ? <CiStatusPanel ci={realtimeCi} onOpenGitHub={openPr} />
-      : <div className="pane-empty">No CI run yet.</div>
-  ), [realtimeCi, openPr]);
-
-  // PR tab content — built from the stage-detail `pr` block (status, branch
-  // flow, reviewers, labels, CI check summary, and the per-line review
-  // threads with the reviewer's root comment + the agent's reply).
+  // Normal stage pages reuse the locked Pull Requests detail body. The local
+  // bundle is the source of truth; before it has a remote number there is no
+  // real PR page to embed, so the fixed column is omitted.
   const pr = data?.pr ?? null;
-  const threads: CommentThreadData[] = useMemo(() => (pr?.threads ?? []).map(t => {
-    const root = t.messages[0];
-    const reply = t.messages.length > 1 ? t.messages[t.messages.length - 1] : undefined;
-    return {
-      id: t.id,
-      author: root?.author ?? 'reviewer',
-      file: t.file === null ? undefined : (t.line !== null ? `${t.file}:${t.line}` : t.file),
-      status: t.resolved ? 'resolved' as const : 'open' as const,
-      body: root?.body ?? '',
-      reply: reply !== undefined ? { src: reply.author, text: reply.body } : undefined,
-    };
-  }), [pr]);
-  const openThreadCount = useMemo(() => threads.filter(t => t.status === 'open').length, [threads]);
-  const prMetaChips: PRMetaChip[] = useMemo(() => {
-    if (pr === null) return [];
-    const chips: PRMetaChip[] = [];
-    if (pr.reviewers.length > 0) chips.push({ icon: '👥', label: 'Reviewers', count: pr.reviewers.length });
-    for (const label of pr.labels) chips.push({ label });
-    return chips;
-  }, [pr]);
-
-  // A completed task's PR has landed — show it merged even if the cached PR
-  // detail (no longer polled once terminal) still reads open/queued.
   const taskCompleted = data?.task.currentPhase === 'COMPLETED';
-  const prStatus = taskCompleted ? 'merged' : pr?.status;
-  const prNode = pr !== null ? (
-    <PRTabContent
-      title={data?.task.title}
-      prNumber={pr.number}
-      status={prStatus}
-      statusLabel={prStatus === 'merged'
-        ? 'Merged'
-        : prStatus === 'queued'
-          ? `Queued for merge${pr.queueState !== null ? ` · ${pr.queueState.toLowerCase().replace(/_/g, ' ')}` : ''}`
-          : prStatus === 'draft'
-            ? 'Draft'
-            : 'Open · ready for review'}
-      headBranch={pr.headRef ?? branch}
-      baseBranch={pr.baseRef ?? undefined}
-      metaChips={prMetaChips}
-      checks={pr.checks.total > 0 ? pr.checks : undefined}
-      threads={threads}
-      threadsHeader={threads.length > 0 ? `Open threads · ${openThreadCount}` : undefined}
-      commentValue={prComment}
-      onCommentChange={setPrComment}
-      onAddComment={state !== 'CLOSED' ? postPrComment : undefined}
-    />
-  ) : null;
-
-  // Prefer the unified <PRView> once the task has a local PR; fall back to the
-  // remote PRTabContent until then. Push/merge open their user-gated dialogs;
-  // the action bar's secondary focuses the composer with an address-comments
-  // starter (never auto-posts).
   const displayedLocalPrBundle = agentReview.displayedBundle ?? localPrBundle;
-  const agentReviewHeader = (
-    <AgentReviewHeaderAction
-      state={agentReview.headerState}
-      round={agentReview.latestRoundNumber}
-      spendCents={agentReview.latestRound?.cost_cents ?? 0}
-      comments={agentReview.pendingComments}
-      excluded={agentReview.excludedFindings}
-      error={agentReview.error}
-      onStart={agentReview.startReview}
-      onOpenRound={() => openAgentRound()}
-      onToggle={agentReview.toggleFinding}
-      onEdit={agentReview.updateComment}
-      onRemove={commentId => {
-        if (agentReview.hasAgentComment(commentId)) agentReview.dismissComment(commentId);
-        else deleteLocalComment(commentId);
-      }}
-      onSubmit={agentReview.submitReview}
-    />
-  );
-  const localPrNode = displayedLocalPrBundle !== null && displayedLocalPrBundle !== undefined && prCapabilities !== null ? (
-    <PRView
+  const stageRemotePrNumber = displayedLocalPrBundle?.pr.remotePrNumber ?? null;
+  const stagePullRow = displayedLocalPrBundle !== null && displayedLocalPrBundle !== undefined
+      && stageRemotePrNumber !== null
+    ? ((): PullRow => {
+        const base = pullRowFromLocal(
+          displayedLocalPrBundle.pr,
+          data?.task.repoFullName ?? brain.task.repoFullName,
+          stageRemotePrNumber,
+        );
+        const reviewState = agentReview.headerState === 'never' ? 'none' : agentReview.headerState;
+        return {
+          ...base,
+          hasAgent: reviewState !== 'none',
+          dto: { ...base.dto, reviewState },
+        };
+      })()
+    : null;
+  const onStagePrComment = async (body: string) => {
+    if (displayedLocalPrBundle === null || displayedLocalPrBundle === undefined) return;
+    const localPr = displayedLocalPrBundle.pr;
+    if (derivePRCapabilities(localPr, 'details').postRemoteComment) {
+      await window.bridge.postRemotePrComment(localPr.id, body);
+    }
+    else {
+      await window.bridge.addLocalPrComment(localPr.id, { scope: 'pr', body });
+    }
+    refreshLocalPr();
+  };
+  const stagePullDetail = stagePullRow !== null && displayedLocalPrBundle !== null
+      && displayedLocalPrBundle !== undefined ? (
+    <PullDetailBody
+      key={stagePullRow.id}
+      row={stagePullRow}
       bundle={displayedLocalPrBundle}
-      capabilities={prCapabilities}
-      commentValue={localComment}
-      onCommentChange={setLocalComment}
-      onAddComment={taskTerminal && !prCapabilities.postRemoteComment ? undefined : submitLocalComment}
-      onPush={() => setPushOpen(true)}
-      onAskAgent={taskTerminal ? undefined : askAgentToAddress}
-      onMerge={confirmMerge}
-      onDequeue={dequeuePr}
-      onDeleteBranch={deleteBranch}
-      onReviewChanges={() => setReviewOpen(true)}
-      changesContent={(
-        <LocalPrReviewScreen
-          embedded
-          title={`Review · ${displayedLocalPrBundle.pr.title}`}
-          files={reviewOpen ? files : null}
-          comments={displayedLocalPrBundle.comments}
-          commits={displayedLocalPrBundle.commits}
-          allowLocalComments={prCapabilities?.draftLocalComments === true && !taskTerminal}
-          fetchFileBlob={(path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)}
-          onAddComment={addLocalLineComment}
-          onReplyComment={replyLocalLineComment}
-          onResolveComment={resolveLocalComment}
-          onDismissComment={(commentId) => {
-            if (agentReview.hasAgentComment(commentId)) agentReview.dismissComment(commentId);
-            else deleteLocalComment(commentId);
-          }}
-          onAnswerFinding={agentReview.answerFinding}
-          onSetFindingResolved={agentReview.setFindingResolved}
-          onBack={() => setReviewOpen(false)}
-          onSubmitReview={onSubmitReview}
-          submittingReview={submittingReview}
-          reviewData={agentReview.data ?? undefined}
-          onStartAgentReview={agentReview.startReview}
-        />
-      )}
-      onRunTests={runLocalTests}
-      runTestsBusy={testsBusy}
-      onResolveThread={taskTerminal ? undefined : resolveLocalComment}
-      onDismissThread={taskTerminal ? undefined : (commentId) => {
-        if (agentReview.hasAgentComment(commentId)) agentReview.dismissComment(commentId);
-        else deleteLocalComment(commentId);
-      }}
-      onReplyThread={taskTerminal ? undefined : replyLocalPrComment}
-      onReplyLineThread={taskTerminal ? undefined : replyLocalLineComment}
-      onOpenStage={onOpenStage}
-      syncedAt={displayedLocalPrBundle.pr.syncedAt}
-      syncing={prSyncing}
-      onRefresh={refreshLocalPr}
-      openSubTabRequest={prSubTabRequest}
-      headerAction={agentReviewHeader}
-      reviewData={agentReview.data ?? undefined}
-      onAnswerFinding={agentReview.answerFinding}
-      onReviewRoundAction={agentReview.roundAction}
-      onSetFindingResolved={agentReview.setFindingResolved}
-      onToggleFindingPromotion={agentReview.toggleFinding}
+      refresh={refreshLocalPr}
+      onComment={onStagePrComment}
+      onAssignAgent={() => { void agentReview.startReview(); }}
+      onWorkWithAgent={() => openAgentRound()}
+      onOpenInWorkspace={onOpenBrain}
     />
   ) : null;
 
@@ -707,17 +586,26 @@ export function StageDetailRoute({
       task={{
         title: sidebarTitle,
         branch: sidebarBranch,
+        taskNumber: data?.task.taskNumber ?? brain.task.taskNumber,
+        repository: workspaceRepository ?? data?.task.repoFullName ?? brain.task.repoFullName,
+        workspaceName,
         metaLine: sidebarPhase.replace(/_/g, ' ').toLowerCase(),
         finished: sidebarFinished,
       }}
       nodes={livePlanNodes}
       guard={buildGuardChip(planGuard, taskTerminal)}
-      onBack={onBack}
+      onBack={onHistoryBack}
+      onOpenTrunk={onBack}
       onForward={onForward}
       backEnabled={backEnabled}
       forwardEnabled={forwardEnabled}
       onToggleCollapse={onToggleCollapse}
+      threadLabel={trunkLabel}
       user={getCached<UserProfileDto>('home:profile')?.login}
+      onNavigateGlobal={onNavigateGlobal}
+      onSwitchWorkspace={onSwitchWorkspace}
+      onNotifications={onNotifications}
+      notificationCount={notificationCount}
       onOpenStage={onOpenStage}
       onOpenCode={onOpenCode}
       onOpenPr={pr !== null ? openPr : undefined}
@@ -735,12 +623,38 @@ export function StageDetailRoute({
     />
   );
 
+  const activeStageLabel = livePlanNodes.find(node => node.activeView)?.label
+    ?? (stageKind === 'plan' ? 'Planning'
+      : stageKind === 'remote-dev' ? 'Remote Development'
+        : stageKind === 'ci-fix' ? 'CI Fixing'
+          : stageKind === 'comments' ? 'Review Comments'
+            : stageKind === 'cleanup' ? 'Cleanup'
+              : 'Local Development');
+  const topLevelStages = planStages.filter(stage => stage.callerStageId === null);
+  const stagePosition = Math.max(1, topLevelStages.findIndex(stage => stage.id === stageId) + 1);
+  const stageDurationSec = data?.stage.metrics.activeTimeSec
+    ?? data?.stage.metrics.wallTimeSec
+    ?? (data === null ? 0 : Math.max(0, Math.round((Date.parse(data.stage.closedAt ?? new Date().toISOString())
+      - Date.parse(data.stage.openedAt)) / 1000)));
+  const stageContext = data?.context ?? brain.rightRail.context;
+  const embeddedPr = stagePullDetail !== null && stageRemotePrNumber !== null ? {
+    number: stageRemotePrNumber,
+    status: taskCompleted ? 'merged' : (pr?.status ?? displayedLocalPrBundle?.pr.status ?? 'open'),
+    onOpen: openPr,
+  } : undefined;
+
   return (
     <StageDetailPage
       stageKind={stageKind}
       sidebar={sidebar}
       openTabRequest={openTabRequest}
-      stage={{ title: data?.task.title ?? 'Stage', branch: data?.task.branch }}
+      stage={{ title: activeStageLabel, branch: data?.task.branch ?? brain.task.branch }}
+      taskTitle={data?.task.title ?? brain.task.title}
+      taskNumber={data?.task.taskNumber ?? brain.task.taskNumber}
+      trunkLabel={trunkLabel}
+      onOpenTrunk={onBack}
+      onOpenTask={onOpenBrain}
+      pr={embeddedPr}
       conversation={conversation}
       conversationIndex={data?.conversationThreadId != null ? (
         <ConvIndex
@@ -756,31 +670,25 @@ export function StageDetailRoute({
         busy: working,
         queueWhenBusy: true,
         placeholder: 'Steer this stage…',
-        closedNote: state === 'CLOSED' ? 'This stage is closed.' : undefined,
+        closedNote: state === 'CLOSED'
+          ? 'This stage is closed — ask about what happened here…'
+          : undefined,
         images,
         onImagesChange: setImages,
-        modePill: <WorkModelPill scope={{ kind: 'stage', stageId }} />,
+        modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'stage', stageId }} />,
+        usage: {
+          planPercent: stageContext.tokensLimit > 0
+            ? Math.round((stageContext.tokensUsed / stageContext.tokensLimit) * 100)
+            : 0,
+          sessionLabel: `${stageContext.tokensUsed.toLocaleString('en-US')} AI credits`,
+        },
+        meta: `Stage ${stagePosition} of ${Math.max(1, topLevelStages.length)} · ${formatDuration(stageDurationSec)}`,
       }}
       run={{ paused: state === 'PAUSED', terminal: state === 'CLOSED', statusLabel: state ?? 'Running' }}
-      tabCounts={{
-        pr: prNumber !== null ? { count: prNumber, countColor: 'muted' } : undefined,
-      }}
-      paneMeta={stageKind === 'ci-fix' ? {
-        left: `CI fix · iter ${data?.stage.iterationCount ?? 0}`
-          + (data?.stage.config.autoPushBudget != null
-            ? ` · auto-push ${data.stage.config.autoPushBudget.used}/${data.stage.config.autoPushBudget.limit}`
-            : ''),
-        right: (
-          <>
-            {`+${totalAdds} −${totalDels} · `}
-            <span style={{ color: 'var(--accent)', cursor: 'pointer' }} onClick={openPr}>View on GitHub</span>
-          </>
-        ),
-      } : undefined}
       tabs={{
-        pr: localPrNode ?? prNode ?? undefined,
-        ci: stageKind === 'ci-fix' ? ciNode : undefined,
+        pr: stagePullDetail ?? undefined,
       }}
+      changes={hasDiff ? { additions: totalAdds, deletions: totalDels, onOpen: onOpenCode } : undefined}
       onSubmitReview={onSubmitReview}
       submittingReview={submittingReview}
       pendingReviewComments={pendingReviewComments}

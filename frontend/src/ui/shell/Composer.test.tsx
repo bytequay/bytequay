@@ -93,4 +93,28 @@ describe('Composer', () => {
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.queryByLabelText('Send')).toBeNull();
   });
+
+  it('keeps the locked task composer chrome and usage popover when closed', () => {
+    render(
+      <Composer
+        variant="workspace-v2"
+        value=""
+        onChange={() => {}}
+        onSubmit={() => {}}
+        closedNote="Stage is closed — ask about its work…"
+        modePill={<button type="button">Claude Opus 4.8</button>}
+        toolbar={<button type="button">Changes +0 −331</button>}
+        meta="Stage 2 of 4 · 15m 23s"
+        usage={{ planPercent: 4, sessionLabel: '827 AI credits' }}
+      />,
+    );
+
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).disabled).toBe(false);
+    expect(screen.getByPlaceholderText('Stage is closed — ask about its work…')).toBeTruthy();
+    expect(screen.getByText('Changes +0 −331')).toBeTruthy();
+    expect(screen.getByText('Medium')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Usage' }));
+    expect(screen.getByText('4% used')).toBeTruthy();
+    expect(screen.getByText('827 AI credits')).toBeTruthy();
+  });
 });

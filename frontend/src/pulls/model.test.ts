@@ -13,6 +13,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { DashboardPR } from '../types/dashboardPr';
+import type { LocalPR } from '../types/localPr';
+import { pullRowFromLocal } from './localRow';
 import { rowsForTab, toRow } from './model';
 
 function pr(overrides: Partial<DashboardPR>): DashboardPR {
@@ -90,5 +92,29 @@ describe('toRow', () => {
     expect(row.chips[0].bg).toBe('rgba(9,105,218,0.14)');
     const fallback = toRow(pr({ labels: ['ui'], labelColors: null }));
     expect(fallback.chips[0].fg).toBe('#0f766e');
+  });
+});
+
+describe('pullRowFromLocal', () => {
+  it('keeps the standalone deep-link mapping available to embedded PR panes', () => {
+    const localPr: LocalPR = {
+      id: 'task-pr', taskId: 'task-1', branchName: 'codex/fix', baseBranch: 'master',
+      title: 'Fix it', description: '', status: 'remote-drafted', createdAt: 1000,
+      pushedAt: null, remotePrNumber: 42, remotePrUrl: 'https://github.com/trinodb/trino/pull/42',
+      mergedAt: null, closedAt: null, origin: 'task', repo: 'trinodb/trino', author: '@octocat',
+      syncedAt: 2000, syncedAdditions: 7, syncedDeletions: 3, syncedMergeable: true,
+      syncedMergeableState: 'clean', syncedMergeQueueEnabled: false, syncedMergeQueueState: null,
+      branchDeletedAt: null,
+    };
+
+    const row = pullRowFromLocal(localPr, 'trinodb/trino', 42);
+
+    expect(row).toMatchObject({
+      id: 'task-pr', repo: 'trinodb/trino', num: 42, title: 'Fix it', author: 'octocat',
+      kind: 'pr', add: 7, del: 3,
+    });
+    expect(row.dto).toMatchObject({
+      id: 'task-pr', number: 42, draft: true, state: 'open', mergeable: true,
+    });
   });
 });

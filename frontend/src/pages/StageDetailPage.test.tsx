@@ -17,168 +17,82 @@ import { StageDetailPage, type StageKind } from './StageDetailPage';
 
 afterEach(cleanup);
 
-function renderStage(stageKind: StageKind, overrides: Partial<Parameters<typeof StageDetailPage>[0]> = {}) {
-  return render(
+function stage(stageKind: StageKind, overrides: Partial<Parameters<typeof StageDetailPage>[0]> = {}) {
+  return (
     <StageDetailPage
       stageKind={stageKind}
-      stage={{ title: 'Implement the meter', branch: 'feat/cost' }}
+      stage={{ title: 'Local Development', branch: 'feat/cost' }}
+      taskNumber={142}
+      taskTitle="Implement the meter"
       sidebar={<aside data-testid="sidebar" />}
-      conversation={<div data-testid="conv">feed</div>}
-      composer={{ value: '', onChange: () => {}, onSubmit: () => {}, modePill: <span>Dev → claude-code · CLI</span> }}
-      tabs={{
-        pr: <div data-testid="pr-tab">pr threads</div>,
+      conversation={<div data-testid="conv">stage feed</div>}
+      composer={{
+        value: '', onChange: () => {}, onSubmit: () => {},
+        modePill: <span>Claude Opus</span>, meta: 'Stage 2 of 4 · 15m 23s',
       }}
+      pr={{ number: 1234, status: 'open' }}
+      changes={{ additions: 8, deletions: 2 }}
+      tabs={{ pr: <div data-testid="pr-body">real PR body</div> }}
       {...overrides}
-    />,
+    />
   );
 }
 
-describe('StageDetailPage', () => {
-  it('shows the stage pill and the composer agent pill', () => {
-    renderStage('dev');
-    expect(document.querySelector('.v3-pill--stage')?.textContent).toBe('DEV');
-    expect(screen.getByText('Dev → claude-code · CLI')).toBeTruthy();
+describe('StageDetailPage locked frame', () => {
+  it('renders the task breadcrumb, stage badge, title, and stage metadata', () => {
+    const { container } = render(stage('dev'));
+    expect(container.querySelector('.workspace-task-header__badge')?.textContent).toBe('DEV STAGE');
+    expect(screen.getByRole('button', { name: 'Task #142' })).toBeTruthy();
+    expect(screen.getByText('Local Development')).toBeTruthy();
+    expect(screen.getByText('Stage 2 of 4 · 15m 23s')).toBeTruthy();
   });
 
-  it('Dev leads with the PR tab (PR is the primary artifact)', () => {
-    renderStage('dev', { tabs: {
-      code: <div data-testid="code-tab">changes</div>,
-      pr: <div data-testid="pr-tab">pr</div>,
-    } });
-    expect(screen.getByTestId('pr-tab')).toBeTruthy();
-    expect(screen.queryByTestId('code-tab')).toBeNull();
+  it('uses the resizable PR column and ignores legacy code/CI pane nodes', () => {
+    const { container } = render(stage('ci-fix', {
+      tabs: {
+        pr: <div data-testid="pr-body">real PR body</div>,
+        ci: <div data-testid="ci-body">legacy CI</div>,
+        code: <div data-testid="code-body">legacy code</div>,
+      },
+    }));
+    expect(screen.getByTestId('pr-body')).toBeTruthy();
+    expect(screen.queryByTestId('ci-body')).toBeNull();
+    expect(screen.queryByTestId('code-body')).toBeNull();
+    expect(container.querySelector('.pane-tab')).toBeNull();
+    expect(screen.getByRole('separator', { name: 'Resize pull request panel' })).toBeTruthy();
   });
 
-  it('does not expose Changes as a standalone pane tab', () => {
-    renderStage('dev', { tabs: {
-      code: <div data-testid="code-tab">changes</div>,
-    } });
-    expect(screen.queryByTestId('code-tab')).toBeNull();
-    expect(document.querySelector('.body.with-pane')).toBeNull();
+  it('shows Changes, PR, and Stage task-page pills', () => {
+    render(stage('dev'));
+    expect(screen.getByRole('button', { name: /Changes/ }).textContent).toContain('+8');
+    expect(screen.getByRole('button', { name: /PR #1234/ })).toBeTruthy();
+    expect(screen.getByText('dev', { selector: '.workspace-task-artifact-pill .is-muted' })).toBeTruthy();
   });
 
-  it('Comments leads with the PR tab', () => {
-    renderStage('comments');
-    expect(screen.getByTestId('pr-tab')).toBeTruthy();
+  it('omits the panel and toggle when no real PR body is supplied', () => {
+    const { container } = render(stage('plan', { tabs: {}, pr: undefined }));
+    expect(container.querySelector('.workspace-task-v2__body.with-pr')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Toggle PR panel' })).toBeNull();
   });
 
-  it('shows no side pane when a stage has no PR/diff/CI content yet', () => {
-    renderStage('plan', { tabs: {} });
-    expect(document.querySelector('.body.with-pane')).toBeNull();
-    expect(document.querySelector('.pane-tab')).toBeNull();
+  it('keeps the plan reminder in the task-pill toolbar', () => {
+    render(stage('dev', { planReminder: 'locked', onRevealPlan: vi.fn() }));
+    expect(screen.getByRole('button', { name: /Plan finalized/ })).toBeTruthy();
   });
 
-  it('CI Fix surfaces the CI Status entry', () => {
-    const onOpenCi = vi.fn();
-    renderStage('ci-fix', { onOpenCi });
-    // CI Status appears twice now: the top-bar button and the always-on
-    // inline chip above the composer. Either fires onOpenCi.
-    fireEvent.click(screen.getAllByRole('button', { name: 'CI Status' })[0]);
-    expect(onOpenCi).toHaveBeenCalledOnce();
+  it('uses the locked closed-stage composer copy verbatim', () => {
+    render(stage('dev', {
+      composer: {
+        value: '', onChange: () => {}, onSubmit: () => {},
+        closedNote: 'This stage is closed — ask about what happened here…',
+      },
+    }));
+    expect(screen.getByPlaceholderText('This stage is closed — ask about what happened here…')).toBeTruthy();
   });
 
-  it('Cleanup leads with PR like every stage and has no CI Status entry', () => {
-    renderStage('cleanup', { stageKind: 'cleanup', onOpenCi: vi.fn() });
-    expect(screen.getByTestId('pr-tab')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'CI Status' })).toBeNull();
-  });
-
-  it('pill label can be overridden (e.g. a stage number)', () => {
-    renderStage('dev', { stage: { title: 'x', pillLabel: 'STAGE 3 · DEV' } });
-    expect(document.querySelector('.v3-pill--stage')?.textContent).toBe('STAGE 3 · DEV');
-  });
-
-  const fullTabs = {
-    pr: <div data-testid="pr-tab">pr threads</div>,
-    ci: <div data-testid="ci-tab">ci run</div>,
-    code: <div data-testid="code-tab">changes review</div>,
-  };
-
-  it('renders only PR · CI in the pane strip', () => {
-    renderStage('ci-fix', { tabs: fullTabs });
-    const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
-    expect(labels).toEqual(['PR', 'CI']);
-  });
-
-  it('renders no pane strip when PR is the only pane', () => {
-    renderStage('comments', { tabs: { pr: <div data-testid="pr-tab">pr threads</div> } });
-    expect(screen.getByTestId('pr-tab')).toBeTruthy();
-    expect(document.querySelector('.pane-tab')).toBeNull();
-  });
-
-  it('CI Fix leads with the PR tab; the CI run has its own tab', () => {
-    renderStage('ci-fix', { tabs: fullTabs });
-    expect(screen.getByTestId('pr-tab')).toBeTruthy();
-    const ciTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent === 'CI');
-    fireEvent.click(ciTab as Element);
-    expect(screen.getByTestId('ci-tab')).toBeTruthy();
-  });
-
-  it('shows the pane meta-row on the CI tab only', () => {
-    renderStage('ci-fix', { tabs: fullTabs, paneMeta: { left: 'CI fix · iter 2', right: 'View on GitHub' } });
-    // Starts on PR — no meta row there.
-    expect(screen.queryByText('CI fix · iter 2')).toBeNull();
-    const tab = (label: string) =>
-      Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent?.startsWith(label)) as Element;
-    fireEvent.click(tab('CI'));
-    expect(screen.getByText('CI fix · iter 2')).toBeTruthy();
-    fireEvent.click(tab('PR'));
-    expect(screen.queryByText('CI fix · iter 2')).toBeNull();
-  });
-
-  it('renders per-tab count badges', () => {
-    renderStage('dev', { tabs: fullTabs, tabCounts: { pr: { count: 145, countColor: 'muted' } } });
-    const prTab = Array.from(document.querySelectorAll('.pane-tab')).find(b => b.textContent?.startsWith('PR'));
-    expect(prTab?.querySelector('.count')?.textContent).toBe('145');
-  });
-
-  it('labels the CI-fix run tab "CI", distinct from Changes', () => {
-    renderStage('ci-fix', { tabs: fullTabs });
-    const labels = Array.from(document.querySelectorAll('.pane-tab')).map(b => b.textContent);
-    expect(labels).toContain('CI');
-    expect(labels.some(label => label?.startsWith('Changes'))).toBe(false);
-  });
-
-  it('inline pill closes the pane when clicked on the already-active tab', () => {
-    renderStage('ci-fix', { tabs: fullTabs });
-    const inlineCi = () => within(document.querySelector('.inline-chips') as HTMLElement)
-      .getByRole('button', { name: 'CI' });
-    // Pane starts open on the PR tab; the CI pill jumps to the CI tab.
-    expect(document.querySelector('.body.with-pane')).toBeTruthy();
-    fireEvent.click(inlineCi());
-    expect(screen.getByTestId('ci-tab')).toBeTruthy();
-    // Clicking the now-active tab's inline pill closes the pane…
-    fireEvent.click(inlineCi());
-    expect(document.querySelector('.body.with-pane')).toBeNull();
-    // …and clicking it again reopens on that tab.
-    fireEvent.click(inlineCi());
-    expect(document.querySelector('.body.with-pane')).toBeTruthy();
-  });
-
-  it('hides the mark-ready reminder pill because Changes lives inside PR', () => {
-    renderStage('dev', {
-      markReadyReminder: true,
-      tabs: { pr: <div data-testid="pr-tab" />, code: <div data-testid="code-tab">changes review</div> },
-    });
-    expect(screen.queryByText('Mark ready for review')).toBeNull();
-    expect(screen.queryByTestId('code-tab')).toBeNull();
-  });
-
-  it('hides the mark-ready reminder pill when not pending', () => {
-    renderStage('dev', { markReadyReminder: false });
-    expect(screen.queryByText('Mark ready for review')).toBeNull();
-  });
-
-  it('hides the mark-ready reminder pill when there is no Changes tab to open', () => {
-    renderStage('dev', { markReadyReminder: true });
-    expect(screen.queryByText('Mark ready for review')).toBeNull();
-  });
-
-  it('the top-bar Submit review button opens the drawer; submitting it fires onSubmitReview', async () => {
-    renderStage('dev');
-    expect(screen.queryByRole('button', { name: 'Submit review' })).toBeNull();
+  it('opens and submits the review drawer', async () => {
     const onSubmitReview = vi.fn();
-    renderStage('dev', { onSubmitReview });
+    render(stage('dev', { onSubmitReview }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit review' }));
     const dialog = screen.getByRole('dialog', { name: 'Submit review' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Submit review' }));

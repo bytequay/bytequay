@@ -104,6 +104,17 @@ describe('PullOverview', () => {
     }
   });
 
+  it('renders comment-only reviews without calling them changes requested', () => {
+    const items: TimelineItem[] = [
+      { kind: 'review', id: 'r', at: 1, time: 'now', author: 'reviewer', bot: false, verdict: 'commented', body: null },
+    ];
+
+    render(<PullTimeline items={items} repo="trinodb/trino" />);
+
+    expect(screen.getByText('Commented')).toBeTruthy();
+    expect(screen.queryByText('Changes requested')).toBeNull();
+  });
+
   it('selects reviewers, assignees, and labels from the searchable popovers', async () => {
     const getPullRequestMetadataChoices = vi.fn().mockResolvedValue({
       users: [

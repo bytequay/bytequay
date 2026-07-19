@@ -93,14 +93,6 @@ export function followingNarrativeSegments(e: RecentEventDto): NarrativeSegment[
   const prSeg = (): NarrativeSegment | null => hasNumber
     ? { text: `#${e.prNumber}`, url: prUrl(e.repo, e.prNumber), emphasized: true }
     : null;
-  const prObject = (): NarrativeSegment | null => {
-    if (!e.prTitle && !hasNumber) return null;
-    return {
-      text: e.prTitle ?? `PR #${e.prNumber}`,
-      url: hasNumber ? prUrl(e.repo, e.prNumber) : undefined,
-      emphasized: true,
-    };
-  };
   const issueSeg = (): NarrativeSegment | null => hasNumber
     ? { text: `#${e.prNumber}`, url: issueUrl(e.repo, e.prNumber), emphasized: true }
     : null;
@@ -108,13 +100,13 @@ export function followingNarrativeSegments(e: RecentEventDto): NarrativeSegment[
   switch (e.type) {
     case 'PullRequestEvent': {
       const verb = e.action === 'opened' ? 'opened' : e.action === 'closed' ? 'closed' : 'updated';
-      const pr = prObject();
+      const pr = prSeg();
       return pr
         ? [{ text: `${verb} ` }, pr, { text: ' in ' }, repoSeg]
         : [{ text: verb + ' ' }, { text: 'a PR', emphasized: true }, { text: ' in ' }, repoSeg];
     }
     case 'PullRequestReviewEvent': {
-      const pr = prObject();
+      const pr = prSeg();
       const state = e.reviewState?.toLowerCase().replace('_', ' ');
       const outcome = state ? [{ text: ` · ${state}` }] : [];
       return pr
@@ -122,7 +114,7 @@ export function followingNarrativeSegments(e: RecentEventDto): NarrativeSegment[
         : [{ text: 'reviewed ' }, { text: 'a PR', emphasized: true }, ...outcome, { text: ' in ' }, repoSeg];
     }
     case 'PullRequestReviewCommentEvent': {
-      const pr = prObject();
+      const pr = prSeg();
       // Merged rows (multiple consecutive comments on the same PR) count
       // comments — "commented on PR #4043 3 times".
       const countPhrase = e.commentCount && e.commentCount > 1 ? ` ${e.commentCount} times` : '';
@@ -139,7 +131,7 @@ export function followingNarrativeSegments(e: RecentEventDto): NarrativeSegment[
         : `${n} commit${n !== 1 ? 's' : ''}`;
       const pr = prSeg();
       if (pr) {
-        return [{ text: `pushed ${countPhrase} to PR ` }, pr, { text: ' in ' }, repoSeg];
+        return [{ text: `pushed ${countPhrase} to ` }, pr, { text: ' in ' }, repoSeg];
       }
       const branch = branchName(e.ref);
       // No PR: link the count phrase to the repo's commits page since the

@@ -89,8 +89,10 @@ describe('InboxCard', () => {
       workspaceForRepo: () => ({ workspaceId: 'ws-1', name: 'ByteQuay' }),
     });
     const item = notificationToInboxItem(notif({ payload: MERGE_GATE }));
-    render(<InboxCard item={item} handlers={handlers} />);
+    const { container } = render(<InboxCard item={item} handlers={handlers} />);
     expect(screen.getByText('ByteQuay')).toBeTruthy();
+    expect(container.querySelector('.home-inbox-card__scope img')?.getAttribute('src'))
+      .toBe('https://github.com/chenjian2664.png?size=32');
     expect(screen.getByText('Review')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Awaiting your review/ }));
     expect(handlers.openWorkspacePr).toHaveBeenCalledWith('ws-1', 29);

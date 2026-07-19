@@ -13,7 +13,9 @@
  */
 import type { DashboardPR } from '../types/dashboardPr';
 import { relativeTime } from '../notificationDisplay';
+import { RepoAv } from '../pulls/atoms';
 import { prRefFromNotification } from '../threads/notificationNav';
+import RepoAvatar from '../threads/RepoAvatar';
 import type { InboxItem } from './inboxItems';
 
 export type WorkspaceInboxTarget = {
@@ -34,6 +36,7 @@ export type InboxHandlers = {
   opened?: (item: InboxItem) => void;
   prTitle?: (owner: string, repo: string, prNumber: number) => string | null;
   taskTitle?: (taskId: string) => string | null;
+  taskWorkingDir?: (taskId: string) => string | null;
 };
 
 /**
@@ -47,6 +50,10 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
     : handlers.workspaceForRepo?.(ref.owner, ref.repo) ?? null;
   const title = itemTitle(item, ref, handlers);
   const repoLabel = ref?.repo ?? workspace?.name ?? 'bytequay';
+  const taskWorkingDir = item.source.kind === 'notification'
+    && item.source.notification.taskId !== null
+    ? handlers.taskWorkingDir?.(item.source.notification.taskId) ?? null
+    : null;
   const icon = item.icon ?? legacyIcon(item.type);
   const actionRequired = item.actionRequired
     ?? (item.type === 'review' || item.type === 'approval' || item.type === 'blocked');
@@ -101,7 +108,13 @@ function InboxCard({ item, handlers }: { item: InboxItem; handlers: InboxHandler
           <small className="home-inbox-card__sub">{item.sub}</small>
         </span>
         <span className="home-inbox-card__scope" title={ref === null ? repoLabel : `${ref.owner}/${ref.repo}`}>
-          <span className="home-inbox-card__repo-initial" aria-hidden="true">{repoLabel.charAt(0).toUpperCase()}</span>
+          {ref !== null ? (
+            <RepoAv repo={`${ref.owner}/${ref.repo}`} size={16} />
+          ) : taskWorkingDir !== null ? (
+            <RepoAvatar workingDir={taskWorkingDir} size={16} fallbackGradient="#0969da" />
+          ) : (
+            <span className="home-inbox-card__repo-initial" aria-hidden="true">{repoLabel.charAt(0).toUpperCase()}</span>
+          )}
           {repoLabel}
         </span>
         {actionRequired ? (

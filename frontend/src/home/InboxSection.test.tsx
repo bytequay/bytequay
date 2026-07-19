@@ -104,6 +104,37 @@ describe('InboxSection', () => {
     expect(container.querySelector('.home-inbox__badge')?.textContent).toBe('1');
   });
 
+  it('resolves a task notification to its repository logo', async () => {
+    const bridge = mockBridge([
+      notif({
+        kind: 'AUTO_FIX_DONE',
+        threadId: 'thread-1',
+        taskId: 'task-1',
+        payload: { message: 'Task done' },
+      }),
+    ]);
+    Object.assign(bridge, {
+      listTasksForThread: vi.fn().mockResolvedValue([{
+        id: 'task-1', name: 'Task done', branchName: 'dev/task-done',
+        workingDir: '/repos/ByteQuay',
+      }]),
+      listLocalRepos: vi.fn().mockResolvedValue([{
+        owner: 'chenjian2664', repo: 'ByteQuay', localClonePath: '/repos/ByteQuay',
+      }]),
+      getRepoMeta: vi.fn().mockResolvedValue({
+        ownerAvatarUrl: 'https://avatars.githubusercontent.com/u/1?v=4',
+      }),
+    });
+
+    const { container } = render(
+      <InboxSection prs={[]} onOpenPr={() => {}} onPrsChanged={() => {}} />,
+    );
+
+    await waitFor(() => expect(
+      container.querySelector('.home-inbox-card__scope img')?.getAttribute('src'),
+    ).toBe('https://avatars.githubusercontent.com/u/1?v=4'));
+  });
+
   it('opens a publish gate without clearing its approval state', async () => {
     const bridge = mockBridge([
       notif({ payload: { action: 'merge_pr', pr: { owner: 'chenjian2664', repo: 'ByteQuay', number: 29 } } }),

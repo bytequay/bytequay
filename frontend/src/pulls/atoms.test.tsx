@@ -13,7 +13,7 @@
  */
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Av } from './atoms';
+import { Av, RepoAv } from './atoms';
 
 afterEach(cleanup);
 
@@ -30,5 +30,15 @@ describe('Av', () => {
     rerender(<Av login="octocat" size={24} />);
     expect(container.querySelector('img')?.getAttribute('src'))
       .toBe('https://avatars.githubusercontent.com/octocat?s=48');
+  });
+
+  it('resolves repository owners through GitHub current-avatar redirects', () => {
+    const { container, rerender } = render(<RepoAv repo="trinodb/trino" size={16} />);
+    expect(container.querySelector('img')?.getAttribute('src'))
+      .toBe('https://github.com/trinodb.png?size=32');
+
+    rerender(<RepoAv repo="acme/widget" size={16} />);
+    expect(container.querySelector('img')?.getAttribute('src'))
+      .toBe('https://github.com/acme.png?size=32');
   });
 });

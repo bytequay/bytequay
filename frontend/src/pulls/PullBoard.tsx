@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Av, RobotIcon } from './atoms';
+import { Av, RepoAv, RobotIcon } from './atoms';
 import type { PullChip, PullRow } from './model';
 import type { Bucket } from './workspaceModel';
 
@@ -44,7 +44,7 @@ function BoardCard({ row, onPick }: { row: PullRow; onPick: () => void }) {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
         <span style={{ fontFamily: "'SF Mono',ui-monospace,Menlo,monospace", fontSize: 11.5, color: '#8b949e', flexShrink: 0 }}>#{row.num}</span>
-        <Av login={row.repo.split('/')[0] ?? row.repo} size={16} square />
+        <RepoAv repo={row.repo} size={16} />
         <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', color: '#59636e', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {(row.repo.split('/')[1] ?? row.repo).toUpperCase()}
         </span>

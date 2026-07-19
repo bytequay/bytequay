@@ -18,6 +18,7 @@ import {
   CommentBubbleIcon,
   PrMergedIcon,
   PrOpenIcon,
+  RepoAv,
   RobotIcon,
   shortCount,
 } from './atoms';
@@ -54,7 +55,7 @@ function WideRow({ row }: { row: PullRow }) {
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 24, fontSize: 12.5, color: '#8b949e', minWidth: 0 }}>
-          <Av login={row.repo.split('/')[0] ?? row.repo} size={16} square />
+          <RepoAv repo={row.repo} size={16} />
           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.repo}</span>
           <span>·</span>
           <Av login={row.author} size={16} />
@@ -126,7 +127,7 @@ function NarrowRow({ row }: { row: PullRow }) {
         )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 5, paddingLeft: 23, fontSize: 12, color: '#8b949e', minWidth: 0 }}>
-        <Av login={row.repo.split('/')[0] ?? row.repo} size={16} square />
+        <RepoAv repo={row.repo} size={16} />
         <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.repo}</span>
         <span>·</span>
         <Av login={row.author} size={16} />

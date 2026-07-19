@@ -64,21 +64,39 @@ function avatarHandle(login: string): string {
  * 6px-radius rounded square = bot. Falls back to the deterministic
  * initials-gradient badge from the prototype when loading fails.
  */
-export function Av({ login, size, square = false }: { login: string; size: number; square?: boolean }) {
-  const [failedLogin, setFailedLogin] = useState<string | null>(null);
-  if (failedLogin === login || login.trim().length === 0) {
+export function Av({ login, size, square = false, src }: {
+  login: string;
+  size: number;
+  square?: boolean;
+  src?: string;
+}) {
+  const avatarSrc = src
+    ?? `https://avatars.githubusercontent.com/${encodeURIComponent(avatarHandle(login))}?s=${size * 2}`;
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  if (failedSrc === avatarSrc || login.trim().length === 0) {
     return <span style={avFallbackStyle(login, size, square)}>{avInit(login)}</span>;
   }
   return (
     <img
-      src={`https://avatars.githubusercontent.com/${encodeURIComponent(avatarHandle(login))}?s=${size * 2}`}
+      src={avatarSrc}
       alt={login}
       width={size}
       height={size}
       style={{ width: size, height: size, borderRadius: square ? 6 : '50%', flexShrink: 0, objectFit: 'cover' }}
-      onError={() => setFailedLogin(login)}
+      onError={() => setFailedSrc(avatarSrc)}
     />
   );
+}
+
+/** Repository rows show the owner's current GitHub avatar. GitHub's raw
+ * username CDN path can retain the account's old/default image, while this
+ * profile image route redirects to the current numeric avatar URL. */
+export function RepoAv({ repo, size }: { repo: string; size: number }) {
+  const owner = repo.split('/')[0]?.trim() ?? '';
+  const src = owner === ''
+    ? undefined
+    : `https://github.com/${encodeURIComponent(owner)}.png?size=${size * 2}`;
+  return <Av login={owner} size={size} square src={src} />;
 }
 
 const LABEL_COLORS: Record<string, [string, string]> = {

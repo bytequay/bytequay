@@ -47,25 +47,25 @@ describe('followingNarrativeSegments', () => {
 
   it('PullRequestEvent (opened) → only the PR is linked, repo is plain text', () => {
     const segs = followingNarrativeSegments(event({ type: 'PullRequestEvent', action: 'opened', prNumber: 7 }));
-    expect(segs.map(s => s.text).join('')).toBe('opened PR #7 in trinodb/trino');
+    expect(segs.map(s => s.text).join('')).toBe('opened #7 in trinodb/trino');
     expect(links(segs)).toEqual(['https://github.com/trinodb/trino/pull/7']);
   });
 
-  it('uses the PR title as the linked object when GitHub supplies it', () => {
+  it('keeps the compact PR number in the sentence when a title is available', () => {
     const segs = followingNarrativeSegments(event({
       type: 'PullRequestReviewEvent',
       prNumber: 30384,
       prTitle: 'Improve exchange source memory accounting',
     }));
     expect(segs.map(s => s.text).join('')).toBe(
-      'reviewed Improve exchange source memory accounting in trinodb/trino',
+      'reviewed #30384 in trinodb/trino',
     );
     expect(links(segs)).toEqual(['https://github.com/trinodb/trino/pull/30384']);
   });
 
   it('PullRequestEvent (closed) uses "closed" verb', () => {
     const segs = followingNarrativeSegments(event({ type: 'PullRequestEvent', action: 'closed', prNumber: 9 }));
-    expect(segs.map(s => s.text).join('')).toBe('closed PR #9 in trinodb/trino');
+    expect(segs.map(s => s.text).join('')).toBe('closed #9 in trinodb/trino');
   });
 
   it('PullRequestEvent without prNumber has no link at all', () => {
@@ -76,11 +76,11 @@ describe('followingNarrativeSegments', () => {
 
   it('PullRequestReviewEvent / PullRequestReviewCommentEvent link only the PR', () => {
     const review = followingNarrativeSegments(event({ type: 'PullRequestReviewEvent', prNumber: 11 }));
-    expect(review.map(s => s.text).join('')).toBe('reviewed PR #11 in trinodb/trino');
+    expect(review.map(s => s.text).join('')).toBe('reviewed #11 in trinodb/trino');
     expect(links(review)).toEqual(['https://github.com/trinodb/trino/pull/11']);
 
     const comment = followingNarrativeSegments(event({ type: 'PullRequestReviewCommentEvent', prNumber: 12 }));
-    expect(comment.map(s => s.text).join('')).toBe('commented on PR #12 in trinodb/trino');
+    expect(comment.map(s => s.text).join('')).toBe('commented on #12 in trinodb/trino');
     expect(links(comment)).toEqual(['https://github.com/trinodb/trino/pull/12']);
   });
 
@@ -110,17 +110,17 @@ describe('followingNarrativeSegments', () => {
     expect(links(merged)).toEqual(['https://github.com/trinodb/trino/commits']);
 
     const withPr = followingNarrativeSegments(event({ type: 'PushEvent', prNumber: 2342, pushCount: 4 }));
-    expect(withPr.map(s => s.text).join('')).toBe('pushed 4 times to PR #2342 in trinodb/trino');
+    expect(withPr.map(s => s.text).join('')).toBe('pushed 4 times to #2342 in trinodb/trino');
     expect(links(withPr)).toEqual(['https://github.com/trinodb/trino/pull/2342']);
   });
 
   it('merged PullRequestReviewCommentEvent (commentCount>1) counts comments', () => {
     const merged = followingNarrativeSegments(event({ type: 'PullRequestReviewCommentEvent', prNumber: 4043, commentCount: 3 }));
-    expect(merged.map(s => s.text).join('')).toBe('commented on PR #4043 3 times in trinodb/trino');
+    expect(merged.map(s => s.text).join('')).toBe('commented on #4043 3 times in trinodb/trino');
     expect(links(merged)).toEqual(['https://github.com/trinodb/trino/pull/4043']);
 
     const single = followingNarrativeSegments(event({ type: 'PullRequestReviewCommentEvent', prNumber: 4043, commentCount: 1 }));
-    expect(single.map(s => s.text).join('')).toBe('commented on PR #4043 in trinodb/trino');
+    expect(single.map(s => s.text).join('')).toBe('commented on #4043 in trinodb/trino');
   });
 
   it('IssueCommentEvent + IssuesEvent link only the issue, not the repo', () => {

@@ -940,7 +940,7 @@ export type RecentEventDto = {
   actorLogin: string | null;
   /** GitHub event actor.avatar_url. Older cached rows may omit it. */
   actorAvatarUrl?: string | null;
-  /** Commit subject or PR/issue title supplied by the event payload. */
+  /** Concrete secondary payload such as a commit subject. */
   detail?: string | null;
   /** Created branch/tag name for CreateEvent. */
   ref?: string | null;

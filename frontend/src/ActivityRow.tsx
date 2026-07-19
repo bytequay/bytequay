@@ -155,31 +155,11 @@ function ActivityRow({ event, actor, showActorName, formatTime, onOpenUrl }: Pro
   );
 }
 
-function activityDetail(event: RecentEventDto): string {
-  if (event.detail) return event.detail;
-  switch (event.type) {
-    case 'PushEvent':
-      return `${event.commitCount || 1} commit${event.commitCount === 1 ? '' : 's'}`;
-    case 'CreateEvent':
-      return event.ref ? `Branch ${event.ref}` : 'Repository created';
-    case 'PullRequestEvent':
-      return event.prNumber > 0
-        ? `PR #${event.prNumber} ${event.action ?? 'updated'}`
-        : event.prTitle ?? 'Pull request updated';
-    case 'PullRequestReviewEvent':
-      return event.prNumber > 0 ? `Review submitted on PR #${event.prNumber}` : 'Pull request review submitted';
-    case 'PullRequestReviewCommentEvent':
-      return event.prNumber > 0 ? `Review comment on PR #${event.prNumber}` : 'Pull request review comment';
-    case 'IssueCommentEvent':
-    case 'IssuesEvent':
-      return event.prTitle ?? (event.prNumber > 0 ? `Issue #${event.prNumber}` : 'Issue updated');
-    case 'WatchEvent':
-      return 'Repository starred';
-    case 'ForkEvent':
-      return 'Repository forked';
-    default:
-      return event.prTitle ?? event.type.replace(/Event$/, '').replace(/([a-z])([A-Z])/g, '$1 $2');
-  }
+function activityDetail(event: RecentEventDto): string | null {
+  if (event.type.startsWith('PullRequest')) return event.prTitle;
+  if (event.type === 'IssueCommentEvent' || event.type === 'IssuesEvent') return event.prTitle;
+  if (!event.detail || /^\d+ commits?$/.test(event.detail)) return null;
+  return event.detail;
 }
 
 function activityUrl(event: RecentEventDto): string {

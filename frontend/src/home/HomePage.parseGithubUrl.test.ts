@@ -11,8 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { describe, expect, it } from 'vitest';
-import { parseGithubUrl } from './HomePage';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { RecentEventDto } from '../types';
+import { enrichActivityPrTitles, parseGithubUrl } from './HomePage';
+
+afterEach(() => {
+  delete (window as unknown as { bridge?: unknown }).bridge;
+});
 
 describe('parseGithubUrl', () => {
   it('parses a plain repo URL', () => {
@@ -52,5 +57,26 @@ describe('parseGithubUrl', () => {
     // /pull/42/files, /pull/42/commits — still navigate to the PR.
     expect(parseGithubUrl('https://github.com/trinodb/trino/pull/42/files'))
       .toEqual({ owner: 'trinodb', repo: 'trino', prNumber: 42 });
+  });
+});
+
+describe('enrichActivityPrTitles', () => {
+  it('looks up each missing PR title once', async () => {
+    const getRepoPull = vi.fn(async () => ({ title: 'Fix memory accounting' }));
+    window.bridge = { getRepoPull } as unknown as typeof window.bridge;
+    const review: RecentEventDto = {
+      type: 'PullRequestReviewEvent', repo: 'trinodb/trino', createdAt: '2026-07-19T00:00:00Z',
+      commitCount: 0, action: 'created', prTitle: null, prNumber: 30384,
+      refType: null, actorLogin: 'octocat',
+    };
+
+    const enriched = await enrichActivityPrTitles([review, { ...review }]);
+
+    expect(getRepoPull).toHaveBeenCalledOnce();
+    expect(getRepoPull).toHaveBeenCalledWith('trinodb', 'trino', 30384);
+    expect(enriched.map(event => event.prTitle)).toEqual([
+      'Fix memory accounting',
+      'Fix memory accounting',
+    ]);
   });
 });

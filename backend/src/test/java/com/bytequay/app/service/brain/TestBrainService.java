@@ -175,6 +175,10 @@ class TestBrainService
         verify(scheduler).enqueueTurn(eq(saved.getValue()), prompt.capture(), any());
         assertThat(prompt.getValue())
                 .contains("fix the flaky retry test")
+                .contains("at most two")
+                .contains("read-only")
+                .contains("Do not delegate trivial tasks")
+                .contains("synthesize")
                 .contains("record_plan");
     }
 

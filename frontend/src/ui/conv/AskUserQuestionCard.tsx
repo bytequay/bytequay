@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
+import { MarkdownProse } from '../../threads/MarkdownProse';
 
 export type AskQuestionOption = { id: string; label: string; extra?: string | null };
 
@@ -50,7 +51,9 @@ export function AskUserQuestionCard({
       </div>
       <div className="ask-question-card__q">{question}</div>
       {context != null && context.length > 0 && (
-        <div className="ask-question-card__ctx">{context}</div>
+        <div className="ask-question-card__ctx">
+          <MarkdownProse text={context.replaceAll('\\n', '\n')} />
+        </div>
       )}
       {options.length > 0 && (
         <div className="ask-question-card__options">

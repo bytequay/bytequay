@@ -41,56 +41,63 @@
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  font-family: var(--left-nav-font);
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
+  letter-spacing: normal;
+  -webkit-font-smoothing: auto;
   min-height: 0;
 }
-.shell .sb-traffic {
+.sb-traffic {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 11px 14px 9px;
+  height: 40px;
+  padding: 0 14px;
+  box-sizing: border-box;
 }
-.shell .sb-traffic .dots {
+.sb-traffic .dots {
   display: flex;
   gap: 6px;
 }
-.shell .sb-traffic .dots span {
+.sb-traffic .dots span {
   width: 11px;
   height: 11px;
   border-radius: 50%;
   display: inline-block;
 }
-.shell .sb-traffic .dots .r {
+.sb-traffic .dots .r {
   background: #ff5f57;
 }
-.shell .sb-traffic .dots .y {
+.sb-traffic .dots .y {
   background: #febc2e;
 }
-.shell .sb-traffic .dots .g {
+.sb-traffic .dots .g {
   background: #28c840;
 }
-.shell .sb-traffic .nav-arrows {
+.sb-traffic .nav-arrows {
   margin-left: auto;
   display: flex;
   gap: 22px;
   color: var(--text-3);
 }
-.shell .sb-traffic .nav-arrows span {
+.sb-traffic .nav-arrows span {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
 }
-.shell .sb-traffic .nav-arrows span:hover {
+.sb-traffic .nav-arrows span:hover {
   color: var(--text-1);
 }
-.shell .sb-traffic .nav-arrows span[aria-disabled='true'] {
+.sb-traffic .nav-arrows span[aria-disabled='true'] {
   opacity: 0.35;
   cursor: default;
 }
-.shell .sb-traffic .nav-arrows span[aria-disabled='true']:hover {
+.sb-traffic .nav-arrows span[aria-disabled='true']:hover {
   color: var(--text-3);
 }
-.shell .sb-traffic .nav-arrows svg {
+.sb-traffic .nav-arrows svg {
   display: block;
 }
 /* The sidebar-collapse toggle sits in the left group, just after the
@@ -98,37 +105,39 @@
    divider), matching the window-chrome row. Named `sb-toggle`, NOT
    `toggle`: the global `.toggle` is a switch with a `::after` knob that
    would otherwise paint over this icon. */
-.shell .sb-traffic .sb-toggle {
+.sb-traffic .sb-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 4px;
+  margin-left: 12px;
   padding: 0;
   border: 0;
   background: transparent;
   color: var(--text-4);
   cursor: pointer;
 }
-.shell .sb-traffic .sb-toggle:hover {
+.sb-traffic .sb-toggle:hover {
   color: var(--text-2);
 }
-.shell .sb-traffic .sb-toggle svg {
+.sb-traffic .sb-toggle svg {
   display: block;
 }
 
 .shell .sb-nav {
-  padding: 6px 8px;
+  padding: var(--left-nav-group-padding);
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--left-nav-group-gap);
 }
 .shell .sb-nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border-radius: 7px;
-  font-size: var(--font-size-md);
+  gap: var(--left-nav-row-gap);
+  padding: var(--left-nav-row-padding);
+  border-radius: var(--left-nav-row-radius);
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: var(--left-nav-row-line-height);
   color: var(--text-2);
   cursor: pointer;
   border: 0;
@@ -138,12 +147,12 @@
   width: 100%;
 }
 .shell .sb-nav-item:hover {
-  background: var(--bg-hover);
+  background: var(--left-nav-hover-bg);
 }
 .shell .sb-nav-item.active {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--left-nav-active-bg);
   color: var(--text-1);
-  font-weight: 500;
+  font-weight: var(--left-nav-font-weight);
 }
 .shell .sb-nav-item.disabled,
 .shell .sb-nav-item.disabled:hover {
@@ -178,9 +187,9 @@
   padding: 4px 10px 6px;
 }
 .shell .sb-section-h .nm {
-  font-size: 11px;
+  font-size: var(--left-nav-meta-font-size);
   color: var(--text-3);
-  font-weight: 600;
+  font-weight: var(--left-nav-font-weight);
   letter-spacing: 0.02em;
 }
 .shell .sb-section-h .actions {
@@ -212,15 +221,17 @@
 .shell .session-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--left-nav-group-gap);
 }
 .shell .session-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
-  border-radius: 7px;
-  font-size: var(--font-size-md);
+  gap: var(--left-nav-row-gap);
+  padding: var(--left-nav-row-padding);
+  border-radius: var(--left-nav-row-radius);
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: var(--left-nav-row-line-height);
   color: var(--text-2);
   cursor: pointer;
   border: 0;
@@ -230,12 +241,12 @@
   width: 100%;
 }
 .shell .session-item:hover {
-  background: var(--bg-hover);
+  background: var(--left-nav-hover-bg);
 }
 .shell .session-item.active {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--left-nav-active-bg);
   color: var(--text-1);
-  font-weight: 500;
+  font-weight: var(--left-nav-font-weight);
 }
 .shell .session-item .ic {
   font-size: 12px;
@@ -257,17 +268,15 @@
   gap: 1px;
 }
 .shell .session-item.nested {
-  font-size: 12.5px;
-  padding-top: 4px;
-  padding-bottom: 4px;
+  font-size: var(--left-nav-nested-font-size);
 }
 .shell .session-item.current {
   color: var(--text-1);
-  font-weight: 500;
+  font-weight: var(--left-nav-font-weight);
 }
 .shell .session-item .ts {
   margin-left: auto;
-  font-size: 10.5px;
+  font-size: var(--left-nav-meta-font-size);
   color: var(--text-4);
 }
 
@@ -289,10 +298,12 @@
 .shell .closed-folder .folder-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 7px;
-  font-size: 12.5px;
+  gap: var(--left-nav-row-gap);
+  padding: var(--left-nav-row-padding);
+  border-radius: var(--left-nav-row-radius);
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: var(--left-nav-row-line-height);
   color: var(--text-3);
   cursor: pointer;
   border: 0;
@@ -302,7 +313,7 @@
   text-align: left;
 }
 .shell .closed-folder .folder-row:hover {
-  background: var(--bg-hover);
+  background: var(--left-nav-hover-bg);
   color: var(--text-2);
 }
 .shell .closed-folder .folder-row .ic {
@@ -310,9 +321,9 @@
 }
 .shell .closed-folder .folder-row .count {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--left-nav-meta-font-size);
   color: var(--text-4);
-  font-family: var(--mono);
+  font-family: inherit;
 }
 .shell .closed-folder .folder-row .chev {
   font-size: 9px;
@@ -328,7 +339,8 @@
   gap: 8px;
 }
 .shell .sb-footer .name {
-  font-size: 12.5px;
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
   color: var(--text-2);
 }
 .shell .sb-footer .actions {

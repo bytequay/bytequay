@@ -39,27 +39,20 @@
   min-width: 200px;
 }
 
-.workspace-redesign .shell.shell-rail.global-mode {
-  /* Global destinations keep the same rail typography as Home. The live
-     width still comes from WorkspaceNavSidebar, including its persisted
-     drag-resize value. */
-  font-family: var(--font);
+.workspace-redesign .shell.shell-rail {
+  /* One rail shell is shared by Home and every workspace surface. */
+  font-family: var(--left-nav-font);
   letter-spacing: normal;
   -webkit-font-smoothing: auto;
 }
 
 .workspace-redesign .shell.shell-rail > .sidebar {
-  background: var(--bq-rail);
-  border-right-color: var(--bq-line-soft);
+  background: var(--bg-sidebar);
+  border-right-color: var(--border);
 }
 
 .workspace-redesign .shell {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-}
-
-.workspace-redesign .shell.shell-rail.global-mode > .sidebar {
-  background: var(--bg-sidebar);
-  border-right-color: var(--border);
+  font-family: var(--left-nav-font);
 }
 
 .workspace-redesign .workspace-landing {
@@ -538,33 +531,33 @@
 }
 
 .workspace-redesign .shell.shell-rail .sb-traffic {
-  height: 32px;
-  padding: 12px 14px 8px;
+  height: 40px;
+  padding: 0 14px;
   box-sizing: border-box;
 }
 
 .workspace-redesign .shell.shell-rail .sb-traffic .dots {
-  gap: 8px;
+  gap: 6px;
 }
 
 .workspace-redesign .shell.shell-rail .sb-traffic .dots span {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
 }
 
 .workspace-redesign .shell.shell-rail.workspace-mode .sb-traffic .sb-toggle {
-  display: none;
+  display: inline-flex;
 }
 
 .workspace-redesign .shell.shell-rail.workspace-mode .sb-traffic .nav-arrows {
-  gap: 2px;
-  color: #8c959f;
+  gap: 22px;
+  color: var(--text-3);
 }
 
 .workspace-redesign .shell.shell-rail.workspace-mode .sb-traffic .nav-arrows > span {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  width: auto;
+  height: auto;
+  border-radius: 0;
 }
 
 .workspace-redesign .shell.shell-rail.global-mode .sb-traffic {
@@ -597,36 +590,39 @@
   border-radius: 0;
 }
 
-.workspace-redesign .shell.shell-rail.global-mode > .sidebar > .sb-nav:not(.sb-nav--bottom) {
+.workspace-redesign .shell > .sidebar > .sb-nav:not(.sb-nav--bottom) {
   padding: 6px 8px;
 }
 
 .workspace-redesign .shell .sb-nav {
-  padding: 2px 8px;
-  gap: 1px;
+  padding: var(--left-nav-group-padding);
+  gap: var(--left-nav-group-gap);
 }
 
 .workspace-redesign .shell .sb-nav-item {
-  min-height: 28px;
-  padding: 5px 10px;
-  gap: 10px;
-  border-radius: 7px;
+  min-height: 0;
+  padding: var(--left-nav-row-padding);
+  gap: var(--left-nav-row-gap);
+  border-radius: var(--left-nav-row-radius);
   color: var(--bq-text-2);
-  font-size: 12.5px;
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: var(--left-nav-row-line-height);
 }
 
-.workspace-redesign .shell.global-mode > .sidebar > .sb-nav:not(.sb-nav--bottom) .sb-nav-item {
+.workspace-redesign .shell > .sidebar > .sb-nav:not(.sb-nav--bottom) .sb-nav-item {
   min-height: 0;
-  padding: 6px 10px;
-  gap: 10px;
-  border-radius: 7px;
+  padding: var(--left-nav-row-padding);
+  gap: var(--left-nav-row-gap);
+  border-radius: var(--left-nav-row-radius);
   color: var(--text-2);
   font-family: inherit;
-  font-size: var(--font-size-md);
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
   letter-spacing: normal;
 }
 
-.workspace-redesign .shell.global-mode > .sidebar > .sb-nav:not(.sb-nav--bottom) .sb-nav-item .ic {
+.workspace-redesign .shell > .sidebar > .sb-nav:not(.sb-nav--bottom) .sb-nav-item .ic {
   display: inline;
   width: 17px;
   justify-content: normal;
@@ -635,9 +631,9 @@
   text-align: center;
 }
 
-.workspace-redesign .shell.global-mode > .sidebar > .sb-nav:not(.sb-nav--bottom) .sb-nav-item.active {
+.workspace-redesign .shell > .sidebar > .sb-nav:not(.sb-nav--bottom) .sb-nav-item.active {
   color: var(--text-1);
-  font-weight: 500;
+  font-weight: var(--left-nav-font-weight);
 }
 
 .workspace-redesign .shell .sb-nav-item .ic {
@@ -653,8 +649,8 @@
 
 .workspace-redesign .shell .sb-nav-item.active {
   color: var(--bq-text);
-  background: rgba(0, 0, 0, 0.06);
-  font-weight: 600;
+  background: var(--left-nav-active-bg);
+  font-weight: var(--left-nav-font-weight);
 }
 
 .workspace-redesign .shell .sb-nav-item .kbd {
@@ -672,25 +668,24 @@
 
 .workspace-redesign .shell .ws-switcher {
   display: flex;
-  width: calc(100% - 20px);
+  width: calc(100% - 16px);
   min-height: 0;
-  margin: 4px 10px 8px;
-  padding: 8px 10px;
+  margin: 4px 8px;
+  padding: var(--left-nav-row-padding);
   align-items: center;
-  gap: 9px;
-  border: 1px solid var(--bq-line);
-  border-radius: 9px;
-  background: #fff;
+  gap: var(--left-nav-row-gap);
+  border: 0;
+  border-radius: var(--left-nav-row-radius);
+  background: transparent;
   color: var(--bq-text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+  box-shadow: none;
   cursor: pointer;
   font-family: inherit;
   text-align: left;
 }
 
 .workspace-redesign .shell .ws-switcher:hover {
-  background: #fff;
-  border-color: rgba(9, 105, 218, 0.32);
+  background: var(--left-nav-hover-bg);
 }
 
 .workspace-redesign .ws-switcher-avatar {
@@ -719,9 +714,9 @@
 .workspace-redesign .shell .ws-switcher .ws-name {
   overflow: hidden;
   color: var(--bq-text);
-  font-size: 12.5px;
-  font-weight: 700;
-  line-height: normal;
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: var(--left-nav-row-line-height);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -729,9 +724,10 @@
 .workspace-redesign .shell .ws-switcher .ws-sub {
   overflow: hidden;
   color: var(--bq-text-4);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 10px;
-  line-height: normal;
+  font-family: inherit;
+  font-size: var(--left-nav-meta-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: var(--left-nav-row-line-height);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -758,22 +754,22 @@
 .workspace-redesign .ws-destinations {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 2px 8px 0;
+  gap: var(--left-nav-group-gap);
+  padding: var(--left-nav-group-padding);
 }
 
 .workspace-redesign .ws-destination-group {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--left-nav-group-gap);
   margin-top: 0;
 }
 
 .workspace-redesign .ws-destination-group__label {
-  padding: 12px 10px 4px;
+  padding: 14px 10px 6px;
   color: var(--bq-text-4);
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: var(--left-nav-meta-font-size);
+  font-weight: var(--left-nav-font-weight);
   letter-spacing: 0.045em;
   text-transform: uppercase;
 }
@@ -782,27 +778,29 @@
   display: flex;
   width: 100%;
   min-height: 0;
-  padding: 5.5px 10px;
+  padding: var(--left-nav-row-padding);
   align-items: center;
-  gap: 10px;
+  gap: var(--left-nav-row-gap);
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--left-nav-row-radius);
   background: transparent;
   color: var(--bq-text-2);
   cursor: pointer;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: var(--left-nav-row-line-height);
   text-align: left;
 }
 
 .workspace-redesign .ws-destination:hover {
-  background: var(--bq-hover);
+  background: var(--left-nav-hover-bg);
 }
 
 .workspace-redesign .ws-destination.active {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--left-nav-active-bg);
   color: var(--bq-text);
-  font-weight: 600;
+  font-weight: var(--left-nav-font-weight);
 }
 
 .workspace-redesign .ws-destination.disabled,
@@ -825,20 +823,20 @@
 .workspace-redesign .ws-destination__count {
   margin-left: auto;
   color: var(--bq-text-4);
-  font-size: 11px;
+  font-size: var(--left-nav-meta-font-size);
   font-variant-numeric: tabular-nums;
 }
 
 .workspace-redesign .ws-destination__count.attention {
-  min-width: 17px;
-  height: 15px;
+  min-width: 18px;
+  height: 18px;
   padding: 0 5px;
   border-radius: 999px;
   background: var(--bq-amber-bg);
   color: var(--bq-amber);
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 15px;
+  font-size: var(--left-nav-meta-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: 18px;
   text-align: center;
 }
 
@@ -886,18 +884,18 @@
 }
 
 .workspace-redesign .shell.workspace-mode .sb-section {
-  margin-top: 2px;
-  padding: 12px 8px 0;
+  margin-top: 0;
+  padding: 14px 8px 0;
 }
 
 .workspace-redesign .shell.workspace-mode .sb-section-h {
-  padding: 3px 6px 6.5px;
+  padding: 4px 10px 6px;
 }
 
 .workspace-redesign .shell.workspace-mode .sb-section-h .nm {
   color: var(--bq-text-4);
-  font-size: 10.5px;
-  font-weight: 700;
+  font-size: var(--left-nav-meta-font-size);
+  font-weight: var(--left-nav-font-weight);
   letter-spacing: 0.045em;
   text-transform: uppercase;
 }
@@ -905,14 +903,14 @@
 .workspace-redesign .shell .thread-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--left-nav-group-gap);
 }
 
 .workspace-redesign .shell .thread-item {
   min-height: 0;
-  padding: 5px 10px;
-  gap: 8px;
-  border-radius: 7px;
+  padding: var(--left-nav-row-padding);
+  gap: var(--left-nav-row-gap);
+  border-radius: var(--left-nav-row-radius);
 }
 
 .workspace-redesign .shell .thread-item .trunk-tile {
@@ -929,7 +927,8 @@
 
 .workspace-redesign .shell .thread-item .nm {
   color: var(--bq-text-2);
-  font-size: 12.5px;
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
 }
 
 .workspace-redesign .shell .thread-item .v3-dot {
@@ -947,8 +946,8 @@
 
 .workspace-redesign .shell .thread-attention-count {
   display: inline-flex;
-  min-width: 15px;
-  height: 14px;
+  min-width: 18px;
+  height: 18px;
   margin-left: auto;
   padding: 0 4px;
   align-items: center;
@@ -957,8 +956,8 @@
   background: #fff8c5;
   color: #9a6700;
   box-sizing: border-box;
-  font-size: 9.5px;
-  font-weight: 700;
+  font-size: var(--left-nav-meta-font-size);
+  font-weight: var(--left-nav-font-weight);
 }
 
 .workspace-redesign .ws-selected-trunks > .sb-section {
@@ -969,7 +968,7 @@
 .workspace-redesign .ws-selected-trunks {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--left-nav-group-gap);
 }
 
 .workspace-redesign .ws-selected-trunks .sb-section-h {
@@ -977,24 +976,24 @@
 }
 
 .workspace-redesign .ws-selected-trunks .thread-list {
-  gap: 0;
+  gap: var(--left-nav-group-gap);
 }
 
 .workspace-redesign .ws-selected-trunks .thread-item {
   width: auto;
   min-height: 0;
   margin-left: 12px;
-  padding: 4.5px 10px;
+  padding: var(--left-nav-row-padding);
 }
 
 .workspace-redesign .ws-selected-trunks .thread-item.active {
-  gap: 7px;
-  background: rgba(9, 105, 218, .10);
+  gap: var(--left-nav-row-gap);
+  background: var(--left-nav-active-bg);
 }
 
 .workspace-redesign .ws-selected-trunks .thread-item.active .nm {
-  color: #0a3f78;
-  font-weight: 600;
+  color: var(--bq-text);
+  font-weight: var(--left-nav-font-weight);
 }
 
 .workspace-redesign .ws-selected-trunks .thread-item .v3-chev {
@@ -1011,10 +1010,10 @@
 
 .workspace-redesign .ws-selected-trunks .task-subhead {
   width: auto;
-  min-height: 20.5px;
+  min-height: 0;
   margin-left: 24px;
-  padding: 3.5px 10px;
-  gap: 7px;
+  padding: var(--left-nav-row-padding);
+  gap: var(--left-nav-row-gap);
   color: #57606a;
 }
 
@@ -1045,7 +1044,8 @@
 
 .workspace-redesign .ws-selected-trunks .task-subhead .nm {
   overflow: hidden;
-  font-size: 11.5px;
+  font-size: var(--left-nav-nested-font-size);
+  font-weight: var(--left-nav-font-weight);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1053,56 +1053,62 @@
 .workspace-redesign .ws-trunks-more {
   display: flex;
   width: calc(100% - 12px);
-  min-height: 22.5px;
+  min-height: 0;
   margin-left: 12px;
-  padding: 4.5px 10px;
+  padding: var(--left-nav-row-padding);
   align-items: center;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--left-nav-row-radius);
   background: transparent;
   color: #8c959f;
   cursor: pointer;
   font-family: inherit;
-  font-size: 11.5px;
+  font-size: var(--left-nav-meta-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: var(--left-nav-row-line-height);
   text-align: left;
 }
 
 .workspace-redesign .ws-trunks-more:hover {
-  background: rgba(9, 105, 218, .06);
+  background: var(--left-nav-hover-bg);
   color: #57606a;
 }
 
 .workspace-redesign .ws-review-trunks {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--left-nav-group-gap);
 }
 
 .workspace-redesign .ws-review-trunks__heading {
   margin-left: 12px;
   padding: 9px 10px 3px;
   color: #8c959f;
-  font-size: 9.5px;
-  font-weight: 700;
+  font-size: var(--left-nav-meta-font-size);
+  font-weight: var(--left-nav-font-weight);
   letter-spacing: .05em;
   text-transform: uppercase;
 }
 
 .workspace-redesign .ws-review-trunk {
   display: flex;
-  min-height: 22px;
+  min-height: 0;
   margin-left: 12px;
-  padding: 4.5px 10px;
+  padding: var(--left-nav-row-padding);
   align-items: center;
-  gap: 7px;
+  gap: var(--left-nav-row-gap);
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--left-nav-row-radius);
   background: transparent;
   color: #454c54;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--left-nav-nested-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: var(--left-nav-row-line-height);
   text-align: left;
 }
+
+.workspace-redesign .ws-review-trunk:hover { background: var(--left-nav-hover-bg); }
 
 .workspace-redesign .ws-review-trunk > svg {
   flex: 0 0 auto;
@@ -1129,7 +1135,7 @@
   margin-left: 12px;
   padding: 3px 10px;
   color: #8c959f;
-  font-size: 11px;
+  font-size: var(--left-nav-meta-font-size);
   white-space: nowrap;
 }
 
@@ -1138,19 +1144,15 @@
 }
 
 .workspace-redesign .shell .sb-nav--bottom {
-  padding-bottom: 5px;
-  border-top: 1px solid var(--bq-line-soft);
-}
-
-.workspace-redesign .shell .sb-nav--bottom {
-  padding: 6px 8px;
+  padding: var(--left-nav-group-padding);
+  border-top: 0;
 }
 
 .workspace-redesign .shell .sb-nav--bottom .sb-nav-item {
-  min-height: 27px;
-  height: 27px;
-  padding: 6px 10px;
-  font-size: 12.5px;
+  min-height: 0;
+  height: auto;
+  padding: var(--left-nav-row-padding);
+  font-size: var(--left-nav-font-size);
 }
 
 .workspace-redesign .shell .sb-nav--bottom .sb-nav-item .kbd {
@@ -1170,24 +1172,24 @@
 
 /* The Workspaces landing keeps the global rail from Home. Do not let the
    workspace visual system restyle its bottom destinations. */
-.workspace-redesign .shell.shell-rail.global-mode .sb-nav--bottom {
+.workspace-redesign .shell.shell-rail:is(.global-mode, .workspace-mode) .sb-nav--bottom {
   border-top: 0;
 }
 
-.workspace-redesign .shell.shell-rail.global-mode .sb-nav--bottom .sb-nav-item {
+.workspace-redesign .shell.shell-rail:is(.global-mode, .workspace-mode) .sb-nav--bottom .sb-nav-item {
   min-height: 0;
   height: auto;
-  padding: 6px 10px;
+  padding: var(--left-nav-row-padding);
   color: var(--text-2);
-  font-size: var(--font-size-md);
+  font-size: var(--left-nav-font-size);
 }
 
-.workspace-redesign .shell.shell-rail.global-mode .sb-nav--bottom .sb-nav-item.active {
+.workspace-redesign .shell.shell-rail:is(.global-mode, .workspace-mode) .sb-nav--bottom .sb-nav-item.active {
   color: var(--text-1);
-  font-weight: 500;
+  font-weight: var(--left-nav-font-weight);
 }
 
-.workspace-redesign .shell.shell-rail.global-mode .sb-nav--bottom .sb-nav-item .ic {
+.workspace-redesign .shell.shell-rail:is(.global-mode, .workspace-mode) .sb-nav--bottom .sb-nav-item .ic {
   display: inline;
   width: 17px;
   justify-content: normal;
@@ -1196,8 +1198,8 @@
   text-align: center;
 }
 
-.workspace-redesign .shell.shell-rail.global-mode .sb-nav--bottom .sb-nav-item .kbd,
-.workspace-redesign .shell.shell-rail.global-mode .sb-nav--bottom .sb-nav-item.active .kbd {
+.workspace-redesign .shell.shell-rail:is(.global-mode, .workspace-mode) .sb-nav--bottom .sb-nav-item .kbd,
+.workspace-redesign .shell.shell-rail:is(.global-mode, .workspace-mode) .sb-nav--bottom .sb-nav-item.active .kbd {
   display: inline;
   min-width: 0;
   height: auto;
@@ -1224,7 +1226,7 @@
   min-height: 45px;
   padding: 9px 12px;
   align-items: center;
-  gap: 8px;
+  gap: var(--left-nav-row-gap);
   border-top: 1px solid var(--bq-line-soft);
   box-sizing: border-box;
 }
@@ -1241,7 +1243,8 @@
   min-width: 0;
   overflow: hidden;
   color: var(--bq-text-2);
-  font-size: 12.5px;
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
   text-overflow: ellipsis;
 }
 

@@ -14,9 +14,11 @@
 import type { ReactNode } from 'react';
 import type { AgentReviewData } from '../../review/agentReviewTypes';
 import {
-  CheckCircleIcon, ChevronIcon, TrunkLineIcon, WorkspaceChromeRow,
-  WorkspaceGlobalRows, WorkspaceSidebarFooter, WorkspaceSwitcherCard,
+  CheckCircleIcon, ChevronIcon, TrunkLineIcon, WorkspaceBottomNav,
+  WorkspacePrimaryNav, WorkspaceSwitcherCard,
 } from '../workspace';
+import type { WsNavKey } from '../workspace';
+import { TrafficLights } from './Sidebar';
 import type { GuardChipData, LivePlanNav, LivePlanNode, LivePlanPhaseNode } from './livePlanModel';
 
 export type TaskAgentReviewTrack = {
@@ -72,15 +74,14 @@ type TaskSidebarTask = {
 };
 
 /**
- * Locked task-page navigation shared by the brain and every stage page.
- * Lifecycle derivation stays in buildLivePlan; this component only translates
- * those nodes into the four design cards and dispatches their existing nav.
+ * Task-page navigation shared by the brain and every stage page. It uses the
+ * same flat row hierarchy as the workspace rail; only the row labels differ.
  */
 export function TaskSidebar({
   task, threadLabel = 'Trunk', nodes, highlightActiveStage = true,
   onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse, onOpenTrunk,
   onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun,
-  onNavigateGlobal, onSwitchWorkspace, onNotifications, notificationCount, user,
+  onNavigateGlobal, onSwitchWorkspace,
 }: {
   task: TaskSidebarTask;
   threadLabel?: string;
@@ -131,28 +132,28 @@ export function TaskSidebar({
   };
 
   return (
-    <aside className="task-sidebar workspace-task-sidebar-v2">
-      <WorkspaceChromeRow
+    <aside className="sidebar task-sidebar workspace-task-sidebar-v2">
+      <TrafficLights
         onBack={onBack}
         onForward={onForward}
         backEnabled={backEnabled}
         forwardEnabled={forwardEnabled}
-        onToggleSidebar={onToggleCollapse}
+        onToggleCollapse={onToggleCollapse}
       />
-      <WorkspaceGlobalRows onNavigate={onNavigateGlobal} />
+      <WorkspacePrimaryNav activeNav="trunks"
+        onNavigate={onNavigateGlobal as ((destination: WsNavKey) => void) | undefined} />
       <WorkspaceSwitcherCard name={workspaceName} repository={repository || workspaceName}
         onSwitch={onSwitchWorkspace} />
 
       <div className="workspace-task-sidebar-v2__trunk-wrap">
         <button type="button" className="workspace-task-sidebar-v2__trunk" onClick={onOpenTrunk ?? onBack}>
-          <ChevronIcon direction="left" size={13} />
           <span className="workspace-task-sidebar-v2__trunk-icon"><TrunkLineIcon size={14} /></span>
           <span>{threadLabel}</span>
           <small>trunk</small>
         </button>
       </div>
 
-      <TaskIdentityCard task={task} done={doneCount} total={totalCount} />
+      <TaskIdentityRow task={task} />
 
       <div className="workspace-task-sidebar-v2__stages-heading">
         <span>STAGES</span>
@@ -164,38 +165,18 @@ export function TaskSidebar({
         onNavigate={navigate}
       />
 
-      <WorkspaceSidebarFooter
-        user={user}
-        notificationCount={notificationCount}
-        onNotifications={onNotifications}
-      />
+      <WorkspaceBottomNav activeNav="trunks" onNavigate={onNavigateGlobal} />
     </aside>
   );
 }
 
-function TaskIdentityCard({ task, done, total }: {
-  task: TaskSidebarTask;
-  done: number;
-  total: number;
-}) {
-  const status = task.finished === true ? 'COMPLETED'
-    : typeof task.metaLine === 'string' ? task.metaLine.toUpperCase()
-      : task.statusPill ?? 'IN PROGRESS';
+function TaskIdentityRow({ task }: { task: TaskSidebarTask }) {
   return (
-    <div className="workspace-task-card-wrap">
-      <div className="workspace-task-card">
-        <div className="workspace-task-card__heading">
-          <span className="workspace-task-card__brain" aria-hidden><BrainIcon /></span>
-          <strong>TASK #{task.taskNumber ?? 1}</strong>
-          <span className={task.finished === true ? 'is-complete' : ''}>
-            {task.finished === true && <SmallCheckIcon />}{status}
-          </span>
-        </div>
-        <div className="workspace-task-card__title">{task.title}</div>
-        <div className="workspace-task-card__meta">
-          <code>{task.branch}</code>
-          <small>{done} / {total}</small>
-        </div>
+    <div className="workspace-task-row-wrap">
+      <div className="workspace-task-row" title={task.title}
+        aria-label={`Task ${task.taskNumber ?? 1}: ${task.title}`}>
+        <span aria-hidden><BrainIcon /></span>
+        <span>{task.title}</span>
       </div>
     </div>
   );
@@ -214,29 +195,30 @@ export function StagesList({ nodes, highlightActive = true, onNavigate }: {
         const disabled = cleanup || node.nav.kind === 'none';
         const title = cleanup ? 'Runs automatically — no agent page' : 'Open agent page';
         return (
-          <button
-            type="button"
-            key={node.key}
-            className={`workspace-task-stage tone-${stageTone(node)}${active ? ' is-active' : ''}${cleanup ? ' is-automatic' : ''}`}
-            title={title}
-            disabled={disabled}
-            onClick={() => onNavigate(node.nav)}
-          >
-            <span className="workspace-task-stage__top">
+          <div className="workspace-task-stage-group" key={node.key}>
+            <button
+              type="button"
+              className={`workspace-task-stage tone-${stageTone(node)}${active ? ' is-active' : ''}${cleanup ? ' is-automatic' : ''}`}
+              title={title}
+              disabled={disabled}
+              onClick={() => onNavigate(node.nav)}
+            >
               <StageStatusIcon node={node} />
-              <strong>{node.label}</strong>
+              <span className="workspace-task-stage__copy">
+                <strong>{node.label}</strong>
+                <span>{stageMetric(node)}</span>
+              </span>
               <small className={`is-${node.status}`}>{stageStatusLabel(node)}</small>
               {!cleanup && <ChevronIcon size={11} />}
-            </span>
-            <span className="workspace-task-stage__metric">{stageMetric(node)}</span>
+            </button>
             {active && node.phases !== undefined && node.phases.length > 0 && (
-              <span className="workspace-task-stage__plan">
+              <div className="workspace-task-stage__plan">
                 {node.phases.map(phase => (
                   <StagePlanRow key={phase.key} phase={phase} onNavigate={onNavigate} />
                 ))}
-              </span>
+              </div>
             )}
-          </button>
+          </div>
         );
       })}
     </div>
@@ -247,27 +229,18 @@ function StagePlanRow({ phase, onNavigate }: {
   phase: LivePlanPhaseNode;
   onNavigate: (nav: LivePlanNav) => void;
 }) {
+  const disabled = phase.nav.kind === 'none';
   return (
-    <span
+    <button
+      type="button"
       className="workspace-task-stage__plan-row"
-      role={phase.nav.kind === 'none' ? undefined : 'button'}
-      tabIndex={phase.nav.kind === 'none' ? undefined : 0}
-      onClick={event => {
-        if (phase.nav.kind === 'none') return;
-        event.stopPropagation();
-        onNavigate(phase.nav);
-      }}
-      onKeyDown={event => {
-        if (phase.nav.kind === 'none' || (event.key !== 'Enter' && event.key !== ' ')) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onNavigate(phase.nav);
-      }}
+      disabled={disabled}
+      onClick={() => { if (!disabled) onNavigate(phase.nav); }}
     >
       <span aria-hidden><SmallCheckIcon /></span>
       <span>{phase.label}</span>
       {phase.meta !== undefined && <small>{phase.meta}</small>}
-    </span>
+    </button>
   );
 }
 

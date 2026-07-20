@@ -57,7 +57,7 @@ describe('WorkspaceNavSidebar', () => {
       .toBeLessThan(items.findIndex(t => t?.includes('Notifications')));
     expect(container.querySelector('.ws-user-footer')).toBeNull();
     expect(container.querySelector('.sb-nav-item.active')?.textContent).toContain('Workspaces');
-    expect(screen.getByText('Pull requests').closest('.sb-nav-item')?.getAttribute('style')).toContain('font-weight: 400');
+    expect(screen.getByText('Pull requests').closest('.sb-nav-item')).toBeTruthy();
     const notifications = screen.getByText('Notifications').closest('.sb-nav-item');
     expect(notifications?.getAttribute('aria-disabled')).toBe('true');
     fireEvent.click(screen.getByText('Notifications'));
@@ -66,17 +66,6 @@ describe('WorkspaceNavSidebar', () => {
     expect(onNavigate).toHaveBeenCalledWith('home');
     fireEvent.click(screen.getByText('Report a bug'));
     expect(onNavigate).toHaveBeenCalledWith('bug-report');
-  });
-
-  it('shows the back hint on Workspaces only when backHint is set', () => {
-    const { rerender, queryByText } = render(
-      <WorkspaceNavSidebar><div /></WorkspaceNavSidebar>,
-    );
-    expect(queryByText('← back')).toBeNull();
-    rerender(
-      <WorkspaceNavSidebar backHint><div /></WorkspaceNavSidebar>,
-    );
-    expect(queryByText('← back')).toBeTruthy();
   });
 
   it('flags fullscreen on the rail so the traffic-light dots show', async () => {
@@ -134,7 +123,7 @@ describe('WorkspaceNavSidebar', () => {
     expect(onNavigate).toHaveBeenCalledWith('settings');
   });
 
-  it('keeps Home and Workspaces above a single workspace', () => {
+  it('keeps the complete Home navigation above a single workspace', () => {
     const onNavigate = vi.fn();
     render(
       <WorkspaceNavSidebar workspaceMode onNavigate={onNavigate}>
@@ -145,7 +134,7 @@ describe('WorkspaceNavSidebar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Home' }));
     fireEvent.click(screen.getByRole('button', { name: 'Workspaces' }));
     expect(onNavigate.mock.calls).toEqual([['home'], ['workspaces']]);
-    expect(screen.queryByRole('button', { name: 'Pull requests' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Pull requests' })).toBeTruthy();
   });
 
   it('folds to the chrome row when collapsed and the toggle fires onToggleCollapse', () => {

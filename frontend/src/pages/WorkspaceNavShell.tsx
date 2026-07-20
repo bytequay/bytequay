@@ -101,6 +101,7 @@ export function WorkspaceNavShell({
         selectedTasks={tasks ?? []}
         counts={data.overview?.sidebarCounts}
         notificationCount={notificationCount ?? data.overview?.sidebarCounts.notifications}
+        activeNav={activeNav}
         collapsed={collapsed}
         onToggleCollapse={onToggleCollapse}
         onBack={onBack}
@@ -239,7 +240,6 @@ export function WorkspaceNavShell({
     <WorkspaceNavSidebar
       activeNav={activeNav}
       onNavigate={onNavigate}
-      backHint={activeWorkspaceId !== null}
       notificationCount={notificationCount}
       collapsed={collapsed}
       onToggleCollapse={onToggleCollapse}

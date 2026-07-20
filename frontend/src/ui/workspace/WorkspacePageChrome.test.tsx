@@ -13,38 +13,20 @@
  */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  WorkspaceGlobalRows, WorkspaceSidebarFooter, WorkspaceSwitcherCard,
-} from './WorkspacePageChrome';
+import { WorkspaceSwitcherCard } from './WorkspacePageChrome';
 
 afterEach(cleanup);
 
-describe('locked workspace page chrome', () => {
-  it('shares the exact global rows and workspace switcher behavior', () => {
-    const onNavigate = vi.fn();
+describe('workspace switcher card', () => {
+  it('opens the active workspace', () => {
     const onSwitch = vi.fn();
     render(
-      <>
-        <WorkspaceGlobalRows onNavigate={onNavigate} />
-        <WorkspaceSwitcherCard name="ByteQuay" repository="chenjian2664/ByteQuay" onSwitch={onSwitch} />
-      </>,
+      <WorkspaceSwitcherCard name="ByteQuay" repository="chenjian2664/ByteQuay" onSwitch={onSwitch} />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Home' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Workspaces' }));
     const workspace = screen.getByRole('button', { name: 'ByteQuaychenjian2664/ByteQuay' });
     expect(workspace.getAttribute('title')).toBe('Open ByteQuay Today');
     fireEvent.click(workspace);
-    expect(onNavigate.mock.calls.map(call => call[0])).toEqual(['home', 'workspaces']);
     expect(onSwitch).toHaveBeenCalledOnce();
-  });
-
-  it('lets trunk and task pages choose whether Settings is present', () => {
-    const { rerender } = render(<WorkspaceSidebarFooter user="chenjian2664" notificationCount={26} />);
-    expect((screen.getByRole('button', { name: 'Notifications' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull();
-
-    rerender(<WorkspaceSidebarFooter user="chenjian2664" showSettings />);
-    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
   });
 });

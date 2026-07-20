@@ -25,7 +25,7 @@ const nodes = buildLivePlan({
 });
 
 describe('TaskSidebar', () => {
-  it('renders the task identity and locked STAGES cards', () => {
+  it('renders task context and stages as flat navigation rows', () => {
     render(
       <TaskSidebar
         task={{ title: 'Add cost-meter card', branch: 'feat/cost-meter' }}
@@ -33,23 +33,24 @@ describe('TaskSidebar', () => {
       />,
     );
     expect(screen.getByText('Add cost-meter card')).toBeTruthy();
-    expect(screen.getByText('feat/cost-meter')).toBeTruthy();
+    expect(screen.queryByText(/feat\/cost-meter/)).toBeNull();
     expect(screen.getByText('STAGES')).toBeTruthy();
     expect(screen.getByText('Plan')).toBeTruthy();
     expect(screen.getByText('Remote Development')).toBeTruthy();
     expect(screen.getByText('Cleanup')).toBeTruthy();
   });
 
-  it('shows the done-count over the plan leaves and the footer user', () => {
+  it('shows the done-count with the same bottom navigation as Home', () => {
     render(
       <TaskSidebar
         task={{ title: 'x', branch: 'b' }}
         nodes={nodes}
-        user="chenjian2664"
       />,
     );
     expect(screen.getByText(/^\d+ of \d+ done$/)).toBeTruthy();
-    expect(screen.getByText('chenjian2664')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Report a bug' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
+    expect(screen.queryByText('chenjian2664')).toBeNull();
   });
 
   it('fires onBack from the traffic-lights back arrow', () => {
@@ -103,7 +104,7 @@ describe('TaskSidebar', () => {
     expect(cleanupButton.disabled).toBe(true);
     expect(cleanupButton.title).toBe('Runs automatically — no agent page');
     expect(cleanupButton.classList.contains('is-automatic')).toBe(true);
-    expect(cleanupButton.querySelector('.workspace-task-stage__top > svg')).toBeNull();
+    expect(cleanupButton.querySelector(':scope > svg')).toBeNull();
     expect(container.querySelector('.workspace-task-sidebar-v2__trunk')).toBeTruthy();
   });
 
@@ -112,7 +113,6 @@ describe('TaskSidebar', () => {
     const onOpenTrunk = vi.fn();
     const onNavigateGlobal = vi.fn();
     const onSwitchWorkspace = vi.fn();
-    const onNotifications = vi.fn();
     render(
       <TaskSidebar
         task={{
@@ -124,21 +124,20 @@ describe('TaskSidebar', () => {
         onOpenTrunk={onOpenTrunk}
         onNavigateGlobal={onNavigateGlobal}
         onSwitchWorkspace={onSwitchWorkspace}
-        onNotifications={onNotifications}
-        notificationCount={26}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     fireEvent.click(screen.getByText('Clean code v2'));
     fireEvent.click(screen.getByRole('button', { name: 'Home' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pull requests' }));
     fireEvent.click(screen.getByTitle('Open ByteQuay Today'));
     fireEvent.click(screen.getByRole('button', { name: /Notifications/ }));
     expect(onHistoryBack).toHaveBeenCalledOnce();
     expect(onOpenTrunk).toHaveBeenCalledOnce();
     expect(onNavigateGlobal).toHaveBeenCalledWith('home');
+    expect(onNavigateGlobal).toHaveBeenCalledWith('pulls');
     expect(onSwitchWorkspace).toHaveBeenCalledOnce();
-    expect(onNotifications).toHaveBeenCalledOnce();
+    expect(onNavigateGlobal).not.toHaveBeenCalledWith('notifications');
     expect(screen.getByText('owner/bytequay')).toBeTruthy();
-    expect(screen.getByText('26')).toBeTruthy();
   });
 });

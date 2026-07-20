@@ -13,7 +13,6 @@
  */
 import { useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
-import CurrentUserAvatar from '../../CurrentUserAvatar';
 import { TrafficLights } from '../shell';
 import {
   SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_WIDTH_KEY,
@@ -76,23 +75,65 @@ const BOTTOM_NAV: { key: WsNavKey; ic: ReactNode; label: string }[] = [
   { key: 'settings', ic: <SidebarIcon kind="settings" />, label: 'Settings' },
 ];
 
+function WorkspaceNavRows({ items, activeNav, onNavigate, bottom = false }: {
+  items: typeof TOP_NAV;
+  activeNav?: WsNavKey;
+  onNavigate?: (key: WsNavKey) => void;
+  bottom?: boolean;
+}) {
+  return (
+    <div className={`sb-nav${bottom ? ' sb-nav--bottom' : ''}`}>
+      {items.map(item => {
+        const disabled = item.key === 'notifications';
+        return (
+          <div
+            key={item.key}
+            className={`sb-nav-item${item.key === activeNav ? ' active' : ''}${disabled ? ' disabled' : ''}`}
+            role="button"
+            aria-disabled={disabled}
+            tabIndex={disabled ? -1 : 0}
+            title={disabled ? 'Still in progress' : item.label}
+            aria-label={item.label}
+            onClick={() => { if (!disabled) onNavigate?.(item.key); }}
+            onKeyDown={event => {
+              if (!disabled && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault();
+                onNavigate?.(item.key);
+              }
+            }}
+          >
+            <span className="ic" aria-hidden>{item.ic}</span>
+            <span className="lbl">{item.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Shared Home / Workspaces / Pull requests rows used by every left rail. */
+export function WorkspacePrimaryNav(props: Pick<Parameters<typeof WorkspaceNavRows>[0], 'activeNav' | 'onNavigate'>) {
+  return <WorkspaceNavRows items={TOP_NAV} {...props} />;
+}
+
+/** Shared Report a bug / Notifications / Settings rows used by every left rail. */
+export function WorkspaceBottomNav(props: Pick<Parameters<typeof WorkspaceNavRows>[0], 'activeNav' | 'onNavigate'>) {
+  return <WorkspaceNavRows items={BOTTOM_NAV} bottom {...props} />;
+}
+
 /**
  * The workspace-model sidebar shell: traffic lights, the fixed top nav
  * (Home / Workspaces / Pull requests), a body that swaps between the workspace
  * list and a workspace's threads, and a compact secondary nav.
- * Identical across every frame — built once. When a workspace is open the
- * Workspaces item shows a "← back" hint (it's the way back to the
- * overview).
+ * Identical across every frame — built once.
  */
 export function WorkspaceNavSidebar({
-  activeNav, onNavigate, backHint = false, children,
+  activeNav, onNavigate, children,
   collapsed = false, onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
   workspaceMode = false, hideBottomNav = false,
 }: {
   activeNav?: WsNavKey;
   onNavigate?: (key: WsNavKey) => void;
-  /** Show the "← back" hint on the Workspaces item (inside a workspace). */
-  backHint?: boolean;
   /** The body: a WorkspaceList, or a WorkspaceSwitcher + ThreadList. */
   children: ReactNode;
   /** Unread badge on the bottom Notifications item. */
@@ -144,33 +185,6 @@ export function WorkspaceNavSidebar({
     }
   };
 
-  const navItem = (n: { key: WsNavKey; ic: ReactNode; label: string }) => {
-    const disabled = n.key === 'notifications';
-    return (
-      <div
-        key={n.key}
-        className={`sb-nav-item${n.key === activeNav ? ' active' : ''}${disabled ? ' disabled' : ''}`}
-        style={n.key === 'pulls' ? { fontWeight: 400 } : undefined}
-        role="button"
-        aria-disabled={disabled}
-        tabIndex={disabled ? -1 : 0}
-        title={disabled ? 'Still in progress' : n.label}
-        aria-label={n.label}
-        onClick={() => { if (!disabled) onNavigate?.(n.key); }}
-        onKeyDown={event => {
-          if (!disabled && (event.key === 'Enter' || event.key === ' ')) {
-            event.preventDefault();
-            onNavigate?.(n.key);
-          }
-        }}
-      >
-        <span className="ic" aria-hidden>{n.ic}</span>
-        <span className="lbl">{n.label}</span>
-        {n.key === 'workspaces' && backHint && <span className="kbd">← back</span>}
-      </div>
-    );
-  };
-
   return (
     // The `.shell` class is what scopes every sidebar-chrome rule
     // (.sb-nav, .ws-list, .thread-item, …). This nav is the app's single
@@ -192,28 +206,17 @@ export function WorkspaceNavSidebar({
           backEnabled={backEnabled}
           forwardEnabled={forwardEnabled}
           onToggleCollapse={onToggleCollapse}
-          hideNavArrows={workspaceMode && (activeNav !== 'trunks' || hideBottomNav)}
         />
         {/* Folded, the primary destinations stay reachable as an icon-only
             column (title attr carries the label as a tooltip); the
             workspace body, secondary nav, and footer drop out. */}
-        <div className="sb-nav">
-          {(workspaceMode ? TOP_NAV.slice(0, 2) : TOP_NAV).map(navItem)}
-        </div>
+        <WorkspacePrimaryNav activeNav={activeNav} onNavigate={onNavigate} />
         {!collapsed && (
           <>
             {children}
-            <div className="sb-spacer" />
+            {!workspaceMode && <div className="sb-spacer" />}
             {!hideBottomNav && (
-              <div className="sb-nav sb-nav--bottom">
-                {BOTTOM_NAV.map(navItem)}
-              </div>
-            )}
-            {workspaceMode && (
-              <div className="ws-user-footer">
-                <CurrentUserAvatar size={26} className="ws-user-avatar" />
-                <span className="ws-user-name">chenjian2664</span>
-              </div>
+              <WorkspaceBottomNav activeNav={activeNav} onNavigate={onNavigate} />
             )}
           </>
         )}

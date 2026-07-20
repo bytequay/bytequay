@@ -56,7 +56,8 @@ public class BudgetStep
     @Override
     public ApprovalStepResult apply(ApprovalContext ctx)
     {
-        OptionalInt remaining = threads.tryConsumeToolBudget(ctx.threadId(), ctx.toolName());
+        OptionalInt remaining = threads.tryConsumeToolBudget(
+                ctx.threadId(), ctx.agentKey(), ctx.toolName());
         if (remaining.isEmpty()) {
             return ApprovalStepResult.cont();
         }

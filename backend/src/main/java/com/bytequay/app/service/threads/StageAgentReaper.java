@@ -22,6 +22,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
+import java.util.List;
+
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -66,7 +68,7 @@ public class StageAgentReaper
         // releases its worktree lease. Best-effort — a close must never
         // throw back into the phase machine's listeners.
         try {
-            registry.findStage(stageId).ifPresent(agent -> {
+            registry.findStages(List.of(stageId)).forEach(agent -> {
                 try {
                     agent.stop();
                 }

@@ -40,18 +40,21 @@ class TestBudgetStep
     @Test
     void consumesAPreApprovedBudgetAndAutoAllows()
     {
-        when(threads.tryConsumeToolBudget("thread-1", "Bash")).thenReturn(OptionalInt.of(3));
+        when(threads.tryConsumeToolBudget("thread-1", "stage-1", "Bash"))
+                .thenReturn(OptionalInt.of(3));
 
         assertThat(step.apply(ctx("Bash")))
                 .isInstanceOf(ApprovalStepResult.Resolve.class);
         // The auto-allow is surfaced to the user with the remaining count.
-        verify(threads).notifyPermissionAutoAllowed("thread-1", null, "call-1", "Bash", 3);
+        verify(threads).notifyPermissionAutoAllowed(
+                "thread-1", "stage-1", "call-1", "Bash", 3);
     }
 
     @Test
     void fallsThroughWhenNoBudgetIsGranted()
     {
-        when(threads.tryConsumeToolBudget("thread-1", "Bash")).thenReturn(OptionalInt.empty());
+        when(threads.tryConsumeToolBudget("thread-1", "stage-1", "Bash"))
+                .thenReturn(OptionalInt.empty());
 
         assertThat(step.apply(ctx("Bash")))
                 .isInstanceOf(ApprovalStepResult.Continue.class);
@@ -62,7 +65,7 @@ class TestBudgetStep
     private ApprovalContext ctx(String toolName)
     {
         return new ApprovalContext(
-                "thread-1", JsonNodeFactory.instance.numberNode(1),
+                "thread-1", "task-1", "stage-1", JsonNodeFactory.instance.numberNode(1),
                 toolName, "call-1", mapper.createObjectNode(), Set.of());
     }
 }

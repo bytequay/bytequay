@@ -149,7 +149,7 @@ public class ApprovalPromptHandler
         // visible in the gate. Register first, then re-check before
         // showing the prompt; a hit completes through the same
         // response future.
-        OptionalInt remaining = threads.tryConsumeToolBudget(threadId, toolName);
+        OptionalInt remaining = threads.tryConsumeToolBudget(threadId, ctx.agentKey(), toolName);
         if (remaining.isPresent()) {
             notePermissionAutoAllowed(threadId, ctx.agentKey(), callId, toolName, remaining.getAsInt());
             gate.decide(callId, PermissionDecision.ALLOW);

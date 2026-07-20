@@ -114,7 +114,7 @@ public class SessionControlService
     private Optional<ThreadAgent> activeAgent(AgentRun run)
     {
         if (run.stageId() != null && !run.stageId().isBlank()) {
-            return registry.findStage(run.stageId());
+            return registry.findStage(run.threadId(), run.stageId());
         }
         if (run.taskId() != null && !run.taskId().isBlank()) {
             return registry.find(run.threadId());

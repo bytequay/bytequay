@@ -30,7 +30,7 @@ import type { AgentReviewData } from '../../review/agentReviewTypes';
 
 /** Read-only commit list for the Review tab's Commits view — this page's
  *  diff is always the cumulative local PR (no per-commit scoping), so unlike
- *  {@link CommitsColumn} there's no selection state to wire, just the list. */
+ *  the Changes sidebar there's no selection state to wire, just the list. */
 function LocalCommitsList({ commits }: { commits: LocalPRCommit[] }) {
   if (commits.length === 0) {
     return <div className="diff-viewer__empty">No commits yet.</div>;
@@ -327,7 +327,7 @@ export function LocalPrReviewScreen({
   files: DiffFileDto[] | null;
   comments: LocalPRComment[];
   /** Read-only — this page's diff is always the cumulative local PR, no
-   *  per-commit scoping (unlike the task code-diff page's Commits tab). */
+   *  per-commit scoping. */
   commits?: LocalPRCommit[];
   allowLocalComments?: boolean;
   fetchFileBlob?: (path: string) => Promise<{ lines: string[] }>;

@@ -153,13 +153,12 @@ function GuardChip({ guard, onToggle }: { guard: GuardChipData; onToggle?: (enab
  */
 export function LivePlan({
   nodes, guard, defaultExpandPhases = false,
-  onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun, onToggleGuard,
+  onOpenStage, onOpenPr, onOpenTab, onOpenBrain, onOpenRun, onToggleGuard,
 }: {
   nodes: LivePlanNode[];
   guard?: GuardChipData;
   defaultExpandPhases?: boolean;
   onOpenStage?: (stageId: string) => void;
-  onOpenCode?: () => void;
   onOpenPr?: () => void;
   /** Force-switch the host page's own right-pane tab (e.g. Local review /
    *  Remote pull request / Merge-Close all open the PR tab in place, R27).
@@ -176,7 +175,6 @@ export function LivePlan({
   const navigate = (nav: LivePlanNode['nav']) => {
     switch (nav.kind) {
       case 'stage': onOpenStage?.(nav.stageId); break;
-      case 'code': onOpenCode?.(); break;
       case 'pr': onOpenPr?.(); break;
       case 'tab': onOpenTab?.(nav.tab, nav.subTab); break;
       case 'brain': onOpenBrain?.(); break;

@@ -158,7 +158,6 @@ export default function ThreadZoomModal({
               threadId={thread.id}
               taskId={taskId}
               onOpenStage={() => {}}
-              onOpenCode={() => {}}
               onClosed={() => setTaskId(null)}
             />
           )}

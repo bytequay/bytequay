@@ -1518,7 +1518,7 @@ public class ReviewPassService
     }
 
     /** Latest non-published review pass for a PR, with its full detail.
-     *  Powers the code-diff page's inline panel-findings overlay: it looks
+     *  Powers the PR Changes page's inline panel-findings overlay: it looks
      *  the pass up by {@code owner/repo} + number so the diff viewer can
      *  surface the AGREED findings at their line positions regardless of
      *  how the user opened the diff. Empty when the PR was never reviewed. */

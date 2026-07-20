@@ -35,7 +35,7 @@ describe('TaskBrainRoute', () => {
       getTaskAutoApprove,
       setTaskAutoApprove,
     };
-    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} onClosed={() => {}} />);
+    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onClosed={() => {}} />);
     // The new task inherits the thread default (on) and persists it to the backend.
     await waitFor(() => expect(setTaskAutoApprove).toHaveBeenCalledWith('t1', 'task-1', true));
   });
@@ -47,7 +47,7 @@ describe('TaskBrainRoute', () => {
       getBrainView: vi.fn(() => new Promise(() => {})),
       sendBrainMessage,
     };
-    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} onClosed={() => {}} />);
+    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onClosed={() => {}} />);
 
     // The locked shell + BRAIN badge render from the fixture.
     expect(document.querySelector('.shell')).toBeTruthy();
@@ -88,8 +88,8 @@ describe('TaskBrainRoute', () => {
       sha: `current-${index}`, shortSha: `current-${index}`, authorName: 'Jack', authorEmail: 'jack@example.com',
       authoredAt: '2026-01-01T00:00:00Z', subject: `Current commit ${index + 1}`,
     }));
-    const onOpenCode = vi.fn();
     const getLocalPrBundle = vi.fn().mockResolvedValue(bundle);
+    const fetchPrDiffFiles = vi.fn().mockResolvedValue([file]);
     (window as unknown as { bridge: unknown }).bridge = {
       getBrainView: vi.fn().mockResolvedValue(buildMockBrainView(0)),
       getPrForTask: vi.fn().mockResolvedValue(bundle.pr),
@@ -98,7 +98,8 @@ describe('TaskBrainRoute', () => {
       listTaskCommits: vi.fn().mockResolvedValue(branchCommits),
       getAgentReview: vi.fn().mockResolvedValue(null),
       fetchPullRequestDetail: vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] }),
-      fetchPrDiffFiles: vi.fn().mockResolvedValue([file]),
+      fetchPrDiffFiles,
+      fetchTaskFileBlob: vi.fn().mockResolvedValue({ lines: [] }),
     };
 
     render(
@@ -107,7 +108,6 @@ describe('TaskBrainRoute', () => {
         taskId="task-pr-changes"
         initialPrSubTab="changes"
         onOpenStage={() => {}}
-        onOpenCode={onOpenCode}
         onClosed={() => {}}
       />,
     );
@@ -121,7 +121,7 @@ describe('TaskBrainRoute', () => {
       .find(button => button.closest('.workspace-task-v2__pr') !== null) as HTMLButtonElement;
     await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
     expect(screen.getByRole('button', { name: 'Toggle PR panel' }).getAttribute('aria-pressed')).toBe('true');
-    expect(onOpenCode).not.toHaveBeenCalled();
+    expect(fetchPrDiffFiles).not.toHaveBeenCalled();
 
     const fetchesBeforeReview = getLocalPrBundle.mock.calls.length;
     fireEvent.click(reviewButton);
@@ -136,12 +136,14 @@ describe('TaskBrainRoute', () => {
     fireEvent.click(changesPill);
     await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
     await waitFor(() => expect(getLocalPrBundle.mock.calls.length).toBeGreaterThan(fetchesBeforePill));
-    expect(onOpenCode).not.toHaveBeenCalled();
 
     const prPill = screen.getAllByRole('button', { name: /PR #5680/ })
       .find(button => button.classList.contains('workspace-task-artifact-pill')) as HTMLButtonElement;
     fireEvent.click(prPill);
     await waitFor(() => expect(overviewTab.style.fontWeight).toBe('600'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open in workspace' }));
+    await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
   });
 
   it('shows the root-node plan with the review bar when the plan awaits the user', async () => {
@@ -162,7 +164,7 @@ describe('TaskBrainRoute', () => {
       approvePlan,
     };
     const onOpenStage = vi.fn();
-    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={onOpenStage} onOpenCode={() => {}} onClosed={() => {}} />);
+    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={onOpenStage} onClosed={() => {}} />);
 
     // The plan renders inline as the root node → its step + the review bar's
     // "Approve & start dev" action show.
@@ -189,7 +191,7 @@ describe('TaskBrainRoute', () => {
       getTaskAutoApprove: vi.fn().mockResolvedValue({ enabled: false }),
       setTaskAutoApprove: vi.fn().mockResolvedValue({ enabled: true }),
     };
-    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} onClosed={() => {}} />);
+    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onClosed={() => {}} />);
 
     await screen.findByText('Build the meter');
     // Auto-approve lives in the plan card's policy toolbar, not the top bar.
@@ -208,7 +210,7 @@ describe('StageDetailRoute', () => {
       getStageDetail: vi.fn(() => new Promise(() => {})),
       steerStage,
     };
-    render(<StageDetailRoute threadId="t1" taskId="task-1" stageId="stage-1" onOpenCode={() => {}} />);
+    render(<StageDetailRoute threadId="t1" taskId="task-1" stageId="stage-1" />);
 
     expect(document.querySelector('.shell')).toBeTruthy();
     expect(document.querySelector('.workspace-task-header__badge')?.textContent).toBe('DEV STAGE');

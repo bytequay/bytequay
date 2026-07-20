@@ -23,7 +23,7 @@ describe('ShipReviewPrompt', () => {
     const onReview = vi.fn();
     render(<ShipReviewPrompt onReview={onReview} />);
     expect(screen.getByText('Ready for review')).toBeTruthy();
-    fireEvent.click(screen.getByText(/diff and the drafted PR description/));
+    fireEvent.click(screen.getByText('changes'));
     expect(onReview).toHaveBeenCalledOnce();
   });
 
@@ -60,7 +60,7 @@ function notif(over: Record<string, unknown> = {}) {
 }
 
 function Harness({ threadId = 't1', taskId = 'task-1' }: { threadId?: string; taskId?: string }) {
-  const proposal = usePendingShipProposal(threadId, taskId);
+  const { proposal } = usePendingShipProposal(threadId, taskId);
   return <div>{proposal !== null ? `proposal:${proposal.id}` : 'none'}</div>;
 }
 

@@ -134,7 +134,7 @@ public class ReviewController
     }
 
     /** The active review pass for a PR (by {@code owner/repo} + number),
-     *  with its findings. The code-diff page calls this to overlay the
+     *  with its findings. The PR Changes page calls this to overlay the
      *  panel's AGREED findings on the diff at their line positions; 404
      *  when the PR has no review pass. */
     @GetMapping("/for-pr")

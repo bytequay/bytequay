@@ -16,7 +16,7 @@ import { commitSubject, formatShortSha } from '../../diff/commitDisplay';
 import { formatRelativeTime } from '../utils';
 
 /** The Commits tab's content — a plain read-only list (sha, message,
- *  author, +/- stats, relative time), unlike `diff/CommitsColumn.tsx`'s
+ *  author, +/- stats, relative time), unlike the compact Changes sidebar's
  *  interactive range-picker sidebar (built for the diff view's selection
  *  model, which doesn't apply here). */
 export function CommitsList({ commits, author }: { commits: LocalPRCommit[]; author: string | null }) {

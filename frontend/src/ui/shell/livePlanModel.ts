@@ -36,7 +36,6 @@ export type LivePlanPlacement = 'full' | 'sub';
 export type LivePlanNav =
   | { kind: 'stage'; stageId: string }
   | { kind: 'run'; runId: string }
-  | { kind: 'code' }
   | { kind: 'pr' }
   /** `subTab: 'checks'` also forces the PR tab's own Checks sub-tab open
    *  (the Remote CI row) — see PRView's `openSubTabRequest`. */

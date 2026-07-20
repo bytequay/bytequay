@@ -45,9 +45,8 @@ export function PendingApprovalToast({ threadId, onResolved, onReview }: {
   threadId: string;
   /** Called after the proposal is approved/discarded so the host can refresh. */
   onResolved?: () => void;
-  /** When set and the proposal is a ship_task, "Review & approve" routes to
-   *  the task code-diff page (the full review surface) instead of expanding
-   *  the inline gate here. */
+  /** When set and the proposal is a ship_task, "Review & approve" opens the
+   *  owning PR's Changes tab instead of expanding the inline gate here. */
   onReview?: () => void;
 }) {
   const [pending, setPending] = useState<NotificationDto | null>(null);
@@ -73,9 +72,7 @@ export function PendingApprovalToast({ threadId, onResolved, onReview }: {
 
   if (pending === null) return null;
 
-  // A ship_task proposal is reviewed on the code-diff page (diff + PR
-  // description + inline comments), and the mark_ready gate's reviewers +
-  // Mark-ready control lives on that page's PR pane — route both there.
+  // Ship and mark-ready proposals are reviewed on the owning PR's Changes tab.
   // Other proposals keep the lightweight inline gate.
   let action = '';
   try { action = String(JSON.parse(pending.payloadJson)?.action ?? ''); }
@@ -94,7 +91,7 @@ export function PendingApprovalToast({ threadId, onResolved, onReview }: {
           className="approval-toast__btn"
           onClick={() => { if (routeToReview) onReview!(); else setOpen(o => !o); }}
         >
-          {routeToReview ? 'Review on the code-diff page →' : open ? 'Hide' : 'Review & approve'}
+          {routeToReview ? 'Review changes →' : open ? 'Hide' : 'Review & approve'}
         </button>
       </div>
       {open && !routeToReview && (

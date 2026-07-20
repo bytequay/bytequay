@@ -3752,7 +3752,7 @@ export type Bridge = {
    *  lives on uses the thread id, this resolves the pass for it. */
   getReviewPassByThread: (threadId: string) => Promise<ReviewPassDetailDto | null>;
   /** Read the active review pass for a PR (by {@code owner/repo} + number)
-   *  so the code-diff page can overlay its AGREED findings at their line
+   *  so the PR Changes page can overlay its AGREED findings at their line
    *  positions. Null when the PR has no review pass. */
   getReviewPassForPr: (repo: string, number: number) => Promise<ReviewPassDetailDto | null>;
   /** Read the scheduled-reviews opt-in toggle. */

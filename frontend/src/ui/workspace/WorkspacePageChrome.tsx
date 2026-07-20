@@ -99,7 +99,7 @@ export function WorkspaceSwitcherCard({ name, repository, onSwitch }: {
 }
 
 export function WorkspaceSidebarFooter({
-  user = 'chenjian2664', avatarInitials, notificationCount, showSettings = false,
+  user = 'chenjian2664', avatarInitials, showSettings = false,
   onNotifications, onSettings,
 }: {
   user?: string;
@@ -114,10 +114,9 @@ export function WorkspaceSidebarFooter({
     .map(part => part.charAt(0).toUpperCase()).join('') || 'CJ');
   return (
     <div className="workspace-page-footer">
-      <button type="button" onClick={onNotifications}>
+      <button type="button" disabled title="Still in progress" onClick={onNotifications}>
         <span aria-hidden><NotificationsIcon /></span>
         Notifications
-        {notificationCount !== undefined && notificationCount > 0 && <small>{notificationCount}</small>}
       </button>
       {showSettings && (
         <button type="button" onClick={onSettings}>

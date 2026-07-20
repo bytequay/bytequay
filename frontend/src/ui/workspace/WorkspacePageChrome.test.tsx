@@ -41,7 +41,7 @@ describe('locked workspace page chrome', () => {
 
   it('lets trunk and task pages choose whether Settings is present', () => {
     const { rerender } = render(<WorkspaceSidebarFooter user="chenjian2664" notificationCount={26} />);
-    expect(screen.getByRole('button', { name: 'Notifications26' })).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Notifications' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull();
 
     rerender(<WorkspaceSidebarFooter user="chenjian2664" showSettings />);

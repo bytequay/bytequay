@@ -58,6 +58,10 @@ describe('WorkspaceNavSidebar', () => {
     expect(container.querySelector('.ws-user-footer')).toBeNull();
     expect(container.querySelector('.sb-nav-item.active')?.textContent).toContain('Workspaces');
     expect(screen.getByText('Pull requests').closest('.sb-nav-item')?.getAttribute('style')).toContain('font-weight: 400');
+    const notifications = screen.getByText('Notifications').closest('.sb-nav-item');
+    expect(notifications?.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(screen.getByText('Notifications'));
+    expect(onNavigate).not.toHaveBeenCalledWith('notifications');
     fireEvent.click(screen.getByText('Home'));
     expect(onNavigate).toHaveBeenCalledWith('home');
     fireEvent.click(screen.getByText('Report a bug'));

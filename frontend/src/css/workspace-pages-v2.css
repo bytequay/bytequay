@@ -66,7 +66,13 @@
   cursor: default;
   opacity: 0.5;
 }
-.workspace-page-row:disabled:hover { background: transparent; }
+.workspace-page-row:disabled:hover,
+.workspace-page-footer > button:disabled:hover { background: transparent; }
+.workspace-page-footer > button:disabled {
+  color: #9aa1a9;
+  cursor: default;
+  opacity: 0.5;
+}
 .workspace-page-global-rows button > span,
 .workspace-page-row > span:first-child,
 .workspace-page-footer > button > span {

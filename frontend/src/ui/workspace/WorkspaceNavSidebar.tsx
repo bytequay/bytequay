@@ -88,7 +88,7 @@ const BOTTOM_NAV: { key: WsNavKey; ic: ReactNode; label: string }[] = [
  * overview).
  */
 export function WorkspaceNavSidebar({
-  activeNav, onNavigate, backHint = false, children, notificationCount,
+  activeNav, onNavigate, backHint = false, children,
   collapsed = false, onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
   workspaceMode = false, hideBottomNav = false,
 }: {
@@ -147,31 +147,32 @@ export function WorkspaceNavSidebar({
     }
   };
 
-  const navItem = (n: { key: WsNavKey; ic: ReactNode; label: string }) => (
-    <div
-      key={n.key}
-      className={n.key === activeNav ? 'sb-nav-item active' : 'sb-nav-item'}
-      style={n.key === 'pulls' ? { fontWeight: 400 } : undefined}
-      role="button"
-      tabIndex={0}
-      title={n.label}
-      aria-label={n.label}
-      onClick={() => onNavigate?.(n.key)}
-      onKeyDown={event => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          onNavigate?.(n.key);
-        }
-      }}
-    >
-      <span className="ic" aria-hidden>{n.ic}</span>
-      <span className="lbl">{n.label}</span>
-      {n.key === 'workspaces' && backHint && <span className="kbd">← back</span>}
-      {n.key === 'notifications' && notificationCount !== undefined && notificationCount > 0 && (
-        <span className="kbd">{notificationCount > 99 ? '99+' : notificationCount}</span>
-      )}
-    </div>
-  );
+  const navItem = (n: { key: WsNavKey; ic: ReactNode; label: string }) => {
+    const disabled = n.key === 'notifications';
+    return (
+      <div
+        key={n.key}
+        className={`sb-nav-item${n.key === activeNav ? ' active' : ''}${disabled ? ' disabled' : ''}`}
+        style={n.key === 'pulls' ? { fontWeight: 400 } : undefined}
+        role="button"
+        aria-disabled={disabled}
+        tabIndex={disabled ? -1 : 0}
+        title={disabled ? 'Still in progress' : n.label}
+        aria-label={n.label}
+        onClick={() => { if (!disabled) onNavigate?.(n.key); }}
+        onKeyDown={event => {
+          if (!disabled && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault();
+            onNavigate?.(n.key);
+          }
+        }}
+      >
+        <span className="ic" aria-hidden>{n.ic}</span>
+        <span className="lbl">{n.label}</span>
+        {n.key === 'workspaces' && backHint && <span className="kbd">← back</span>}
+      </div>
+    );
+  };
 
   return (
     // The `.shell` class is what scopes every sidebar-chrome rule

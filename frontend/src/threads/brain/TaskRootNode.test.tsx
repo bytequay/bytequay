@@ -11,10 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BrainFeedRow, PlanCardDto } from '../../types/brainView';
-import { planStepComments, TaskRootNode } from './TaskRootNode';
+import { PlanCard, planStepComments, TaskRootNode } from './TaskRootNode';
 
 afterEach(cleanup);
 
@@ -24,8 +24,10 @@ function plan(over: Partial<PlanCardDto> = {}): PlanCardDto {
     goal: 'Add one canonical parse() and route all sites through it',
     understandingSummary: 'eight copies disagree on validation', intentSummary: 'fullName already renders the string',
     steps: [
-      { ordinal: 1, action: 'Add parse(String ref) to PullRequestRef: null-tolerant validation.' },
-      { ordinal: 2, action: 'Replace 8 sites, preserving each bail value.' },
+      { ordinal: 1, action: 'Check out the PR branch', files: ['domain/PullRequestRef.java'] },
+      { ordinal: 2, action: 'Add parse(String ref) to PullRequestRef, route all sites through it' },
+      { ordinal: 3, action: 'Run mvn verify' },
+      { ordinal: 4, action: 'Commit and push, watch CI' },
     ],
     validationStrategy: 'Round-trip parse(fullName()) + mvn verify',
     pushStrategy: 'await_approval',
@@ -35,104 +37,97 @@ function plan(over: Partial<PlanCardDto> = {}): PlanCardDto {
   };
 }
 
-describe('TaskRootNode', () => {
-  it('renders the typed plan: goal, steps, signals, confidence', () => {
-    const { container } = render(<TaskRootNode plan={plan()} />);
-    expect(screen.getByText(/route all sites through it/)).toBeTruthy();
-    expect(container.querySelectorAll('.plan-step').length).toBe(2);
-    expect(container.querySelector('.plan-card__rev')?.textContent).toBe('rev 1');
-    expect(container.querySelector('.plan-conf--high')).toBeTruthy();
-    // Risk/Effort/Value signals row.
-    expect(container.querySelectorAll('.plan-sig').length).toBe(3);
+function noop() { /* not under test */ }
+
+describe('PlanCard (pipeline adapter)', () => {
+  it('renders goal, the four phases, and buckets steps by keyword', () => {
+    render(<PlanCard plan={plan()} onApprove={noop} />);
+    expect(screen.getByText(/one canonical parse/)).toBeTruthy();
+    for (const name of ['Prepare', 'Implement', 'Verify', 'Ship & monitor']) {
+      expect(screen.getByText(name)).toBeTruthy();
+    }
+    // "Check out the PR branch" → Prepare; "Run mvn verify" → Verify;
+    // "Commit and push, watch CI" → Ship; the parse step → Implement.
+    expect(screen.getAllByText('1 step').length).toBe(4);
+    // First file of a step becomes its mono code chip.
+    expect(screen.getByText('domain/PullRequestRef.java')).toBeTruthy();
   });
 
-  it('shows the review bar with scope guard + trigger note + actions', () => {
+  it('maps rev + effort onto the header pills', () => {
+    render(<PlanCard plan={plan()} onApprove={noop} />);
+    expect(screen.getByText('REV 1')).toBeTruthy();
+    expect(screen.getByText('Medium effort')).toBeTruthy(); // estimatedComplexity=medium
+  });
+
+  it('decomposes a policy change into the task-specific handlers', () => {
+    const onSetMinApprovals = vi.fn();
+    const onToggleAutoApprove = vi.fn();
+    render(
+      <PlanCard
+        plan={plan()} onApprove={noop}
+        minApprovals={0} onSetMinApprovals={onSetMinApprovals}
+        autoApprove={false} onToggleAutoApprove={onToggleAutoApprove}
+      />,
+    );
+    fireEvent.click(screen.getByText('2', { selector: '.ppc-seg-cell' }));
+    expect(onSetMinApprovals).toHaveBeenCalledWith(2);
+    fireEvent.click(screen.getAllByText('On', { selector: '.ppc-seg-cell' })[0]);
+    expect(onToggleAutoApprove).toHaveBeenCalledOnce();
+  });
+
+  it('approves and sends typed revision feedback', () => {
     const onApprove = vi.fn();
     const onRequestRevision = vi.fn();
-    const { container } = render(<TaskRootNode plan={plan()} onApprove={onApprove} onRequestRevision={onRequestRevision} />);
-    expect(container.querySelector('.scope-guard')?.textContent).toContain('2 steps in scope');
-    expect(container.querySelector('.trigger-note')?.textContent).toContain('Development → Review → Push');
-    fireEvent.click(screen.getByText(/Approve & start dev/));
-    expect(onApprove).toHaveBeenCalled();
+    render(<PlanCard plan={plan()} onApprove={onApprove} onRequestRevision={onRequestRevision} />);
+    fireEvent.click(screen.getByText('Approve & start dev'));
+    expect(onApprove).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByText('Request revision'));
-    expect(onRequestRevision).toHaveBeenCalled();
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'keep step 2, redo step 3' } });
+    fireEvent.click(screen.getByText('Send revision request'));
+    expect(onRequestRevision).toHaveBeenCalledWith('keep step 2, redo step 3');
   });
 
-  it('extracts seed chips and reveals the raw markdown on expand', () => {
-    const seed = 'Refactor: collapse the parsers. Gate before committing: mvn verify. Do not push.';
-    const { container } = render(<TaskRootNode plan={plan()} seed={seed} />);
-    expect(container.querySelector('.seed-chip')).toBeTruthy();
-    expect(container.querySelector('.seed__full')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Planning seed/ }));
-    expect(container.querySelector('.seed__full')?.textContent).toContain('collapse the parsers');
-  });
-
-  it('never auto-approves the plan: manual actions show even with auto-approve + high confidence', () => {
-    vi.useFakeTimers();
-    try {
-      const onApprove = vi.fn();
-      const { container } = render(
-        <TaskRootNode plan={plan()} autoApprove autoConfidenceHigh onApprove={onApprove} />);
-      // No countdown banner, and the plan is not approved for the user.
-      expect(container.querySelector('.auto-banner')).toBeNull();
-      expect(container.querySelector('.actions-row')).toBeTruthy();
-      act(() => { vi.advanceTimersByTime(10000); });
-      expect(onApprove).not.toHaveBeenCalled();
-    }
-    finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('renders typed steps: file chips, per-step risk, and out-of-scope', () => {
-    const { container } = render(
-      <TaskRootNode plan={plan({
-        steps: [
-          { ordinal: 1, action: 'Add parse() to PullRequestRef', detail: 'null-tolerant validation', files: ['domain/PullRequestRef.java'], risk: 'low' },
-          { ordinal: 2, action: 'Hoist the duplicated set', risk: 'opt' },
-        ],
-        outOfScope: ['stream/Optional rewrites', 'inline-helper hints'],
-      })} />,
+  it('seeds an empty Prepare phase with the default main-branch-sync step', () => {
+    render(
+      <PlanCard
+        plan={plan({ steps: [
+          { ordinal: 1, action: 'Rewrite the payloads to use ObjectMapper' }, // → implement
+          { ordinal: 2, action: 'Run mvn verify and push if green' }, // → verify (not ship)
+        ] })}
+        onApprove={noop}
+      />,
     );
-    // Step 1 (open by default) shows its detail + file chip.
-    expect(container.querySelector('.plan-step__files .fref')?.textContent).toBe('domain/PullRequestRef.java');
-    expect(container.textContent).toContain('null-tolerant validation');
-    // Per-step risk pills, including the optional pill.
-    const risks = [...container.querySelectorAll('.plan-step .risk')].map(r => r.textContent);
-    expect(risks).toEqual(['low', 'opt']);
-    // Out-of-scope mini-card.
-    expect(container.querySelector('.plan-mini__oos')?.textContent).toContain('stream/Optional rewrites');
+    expect(screen.getByText(/Ensure the main branch is synced/)).toBeTruthy();
+    expect(screen.getByText('Run mvn verify and push if green')).toBeTruthy();
+    // Verify won the mvn-vs-push tie, so it is not the skipped column.
+    expect(screen.getAllByText('Skipped').length).toBe(1); // only Ship & monitor
   });
 
-  it('shows comments entered from a plan step on that step', () => {
+  it('a locked plan shows the approved footer, not the action row', () => {
+    render(<PlanCard plan={plan({ state: 'locked' })} onApprove={noop} onRequestRevision={noop} />);
+    expect(screen.queryByText('Approve & start dev')).toBeNull();
+    expect(screen.getByText(/development under way/)).toBeTruthy();
+  });
+
+  it('does not surface per-step comment affordances (dropped in the pipeline design)', () => {
     const feed: BrainFeedRow[] = [{
       id: 'comment-1', messageSeq: 4, type: 'USER_MESSAGE', stageId: null, stageType: null,
       ts: '2026-01-01T00:00:00Z', body: 'Re: step 2 — Why leave it?', referencedStageId: null,
       images: [], managedSkills: [],
     }];
-    render(<TaskRootNode plan={plan()} stepComments={planStepComments(feed)} />);
-
-    expect(screen.getByText('1 comment')).toBeTruthy();
-    fireEvent.click(screen.getByText('Replace 8 sites, preserving each bail value'));
-    expect(screen.getByText('Why leave it?')).toBeTruthy();
+    render(<PlanCard plan={plan()} onApprove={noop} stepComments={planStepComments(feed)} onCommentStep={noop} />);
+    expect(screen.queryByText('Comment on this step')).toBeNull();
   });
+});
 
-  it('a locked plan is read-only (no review bar)', () => {
-    const { container } = render(<TaskRootNode plan={plan({ state: 'locked' })} />);
-    expect(container.querySelector('.review-bar')).toBeNull();
-    expect(container.querySelector('.review-locked')).toBeTruthy();
-  });
-
-  it('the auto-merge switch is always clickable, even for a risky/large plan', () => {
-    // Risk/effort is a hint the plan card already surfaces elsewhere
-    // (the Risk/Effort signal chips) — it's the user's call whether to
-    // turn auto-merge on, not a system-enforced gate.
-    const onToggleAutoMerge = vi.fn();
-    const { container } = render(
-      <TaskRootNode plan={plan()} onToggleAutoMerge={onToggleAutoMerge} />); // default fixture: effort=medium
-    const input = container.querySelector('.plan-auto .plan-auto__sw input') as HTMLInputElement;
-    expect(input.disabled).toBe(false);
-    fireEvent.click(input);
-    expect(onToggleAutoMerge).toHaveBeenCalled();
+describe('TaskRootNode', () => {
+  it('renders the planning seed chips above the plan card and expands on click', () => {
+    const seed = 'Refactor: collapse the parsers. Gate before committing: mvn verify. Do not push.';
+    const { container } = render(<TaskRootNode plan={plan()} seed={seed} onApprove={noop} />);
+    expect(container.querySelector('.seed-chip')).toBeTruthy();
+    expect(container.querySelector('.seed__full')).toBeNull();
+    expect(container.querySelector('.plan-pipeline-card')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Planning seed/ }));
+    expect(container.querySelector('.seed__full')?.textContent).toContain('collapse the parsers');
   });
 });

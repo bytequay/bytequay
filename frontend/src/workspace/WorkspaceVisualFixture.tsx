@@ -814,6 +814,15 @@ function lockedStageRows(): StageConversationRow[] {
     toolResult: tool?.result ?? null, toolError: false, toolDiff: null, iterationNumber: null, callId: null,
   });
   return [
+    row('stage-kickoff', 'user', `The plan for this task has been approved — implement it now.
+
+Intent: Remove the unused daily quote feature end-to-end.
+Steps:
+1. Delete the unused backend service and endpoint
+2. Remove the Electron bridge and renderer types
+3. Run clean backend and frontend verification
+Validation: Run the frontend checks, a clean Spring context smoke test, and the sandbox-safe backend suite.
+Push strategy: await_approval`, -1_000),
     row('stage-intro', 'agent',
       'Frontend validation is clean. I’m doing one clean backend build plus the context smoke test so removed Java classes cannot be masked by stale compiled output.', 0),
     row('stage-tsc', 'tool_call', null, 1_000,

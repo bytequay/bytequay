@@ -29,6 +29,28 @@ function row(over: Partial<StageConversationRow>): StageConversationRow {
 }
 
 describe('stageRow tool_call', () => {
+  it('renders the approved-plan kickoff as a collapsed runtime card, not a user message', () => {
+    const text = `The plan for this task has been approved — implement it now.
+
+Intent: Remove the unused effort picker.
+Steps:
+1. Delete the picker
+Validation: Run frontend checks
+Push strategy: await_approval`;
+    const { container } = render(<>{stageRow(row({ kind: 'user', text }))}</>);
+
+    const card = container.querySelector('.runtime-kickoff-card') as HTMLDetailsElement;
+    expect(card).toBeTruthy();
+    expect(card.open).toBe(false);
+    expect(container.querySelector('.ev--user')).toBeNull();
+    expect(screen.getByText('Approved plan')).toBeTruthy();
+    expect(screen.getByText('Remove the unused effort picker.')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Approved plan'));
+    expect(card.open).toBe(true);
+    expect(container.querySelector('.runtime-kickoff-card__prompt')?.textContent).toBe(text);
+  });
+
   it('shows runtime-managed skills on user rows', () => {
     render(<>{stageRow(row({
       kind: 'user',

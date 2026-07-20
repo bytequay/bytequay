@@ -77,6 +77,35 @@ class TestClaudeCodeCliThreadAgent
 
         assertThat(agent.buildCommand("cut a task").command())
                 .containsSubsequence("--tools", "Read,Glob,Grep,WebFetch,WebSearch")
+                .containsSubsequence("--allowed-tools",
+                        "Read(/" + ChatAttachmentStore.attachmentsRoot().toAbsolutePath().normalize() + "/**)")
+                .containsSubsequence("--setting-sources", "")
+                .containsSubsequence("--settings", "{\"autoMemoryEnabled\":false}")
+                .contains("--disable-slash-commands", "--no-chrome")
+                .contains("--strict-mcp-config", "--permission-prompt-tool")
+                .doesNotContain("--safe-mode")
                 .doesNotContain("Bash", "Edit", "Write", "Task");
+    }
+
+    @Test
+    void onlyMissingByteQuayPermissionToolIsAutomaticallyRecoverable()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        Thread thread = new Thread(
+                "thread-1", ThreadKind.CLI_AGENT, "claude-code", null,
+                "Claude trunk test", ThreadStatus.IDLE, "claude-sonnet-4-6",
+                0L, 0L, 0L, NOW, NOW, null, null,
+                ThreadFlow.BUILD, "ws-default", null, null);
+        ClaudeCodeCliThreadAgent agent = new ClaudeCodeCliThreadAgent(
+                thread, threadStore, taskStore, new StreamJsonParser(mapper), mapper,
+                mock(McpPermissionGate.class), mock(ExecutorService.class),
+                mock(CheckpointTrigger.class), () -> "", null, null, CWD,
+                ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+
+        assertThat(agent.shouldAutomaticallyRecover("claude exited with code 1:\n"
+                + "MCP tool mcp__bytequay__approval_prompt (passed via --permission-prompt-tool) "
+                + "not found. Available MCP tools: none")).isTrue();
+        assertThat(agent.shouldAutomaticallyRecover("claude exited with code 1: authentication failed"))
+                .isFalse();
     }
 }

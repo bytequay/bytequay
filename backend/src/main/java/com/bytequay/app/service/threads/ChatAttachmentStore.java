@@ -133,7 +133,9 @@ public class ChatAttachmentStore
         return attachmentsRoot().resolve(threadId);
     }
 
-    private static Path attachmentsRoot()
+    /** Package-visible so provider adapters can grant read-only agents access
+     *  to the same managed root without duplicating its location. */
+    static Path attachmentsRoot()
     {
         String home = System.getProperty("user.home");
         return Path.of(home, "Library", "Application Support", "ByteQuay", "attachments");

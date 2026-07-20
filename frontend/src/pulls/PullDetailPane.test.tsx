@@ -171,18 +171,20 @@ describe('PullDetailPane', () => {
     );
 
     const quickButton = screen.getByRole('button', { name: 'Run quick review' });
-    const watchButton = screen.getByRole('button', { name: 'Watch repo · Full review' });
     expect(quickButton.classList.contains('pl-review-action')).toBe(true);
-    expect(watchButton.classList.contains('pl-review-action')).toBe(true);
+    expect(screen.queryByRole('menuitem', { name: 'Watch repo · Full review' })).toBeNull();
 
     fireEvent.click(quickButton);
     expect(quickReview).toHaveBeenCalledOnce();
     expect(openAgent).not.toHaveBeenCalled();
     expect(watchForFullReview).not.toHaveBeenCalled();
 
+    fireEvent.click(screen.getByRole('button', { name: 'More review options' }));
+    const watchButton = screen.getByRole('menuitem', { name: 'Watch repo · Full review' });
     fireEvent.click(watchButton);
     expect(watchForFullReview).toHaveBeenCalledOnce();
     expect(openAgent).not.toHaveBeenCalled();
+    expect(screen.queryByRole('menuitem', { name: 'Watch repo · Full review' })).toBeNull();
   });
 
   it('keeps completed quick review non-navigable and renders its diff-only findings inline', () => {
@@ -220,8 +222,9 @@ describe('PullDetailPane', () => {
       />,
     );
 
-    const done = screen.getByRole('button', { name: 'Quick review ✓' }) as HTMLButtonElement;
+    const done = screen.getByRole('button', { name: 'Run quick review' }) as HTMLButtonElement;
     expect(done.disabled).toBe(true);
+    expect(done.title).toBe('Quick review completed');
     fireEvent.click(done);
     expect(quickReview).not.toHaveBeenCalled();
     expect(openAgent).not.toHaveBeenCalled();
@@ -255,8 +258,11 @@ describe('PullDetailPane', () => {
       />,
     );
 
-    expect((screen.getByRole('button', { name: 'Quick review • running' }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole('button', { name: 'Preparing repo…' }) as HTMLButtonElement).disabled).toBe(true);
+    const running = screen.getByRole('button', { name: 'Run quick review' }) as HTMLButtonElement;
+    expect(running.disabled).toBe(true);
+    expect(running.title).toBe('Quick review is running');
+    fireEvent.click(screen.getByRole('button', { name: 'More review options' }));
+    expect((screen.getByRole('menuitem', { name: 'Preparing repo…' }) as HTMLButtonElement).disabled).toBe(true);
 
     rerender(
       <PullDetailBody
@@ -266,7 +272,9 @@ describe('PullDetailPane', () => {
       />,
     );
     expect(screen.getByRole('alert').textContent).toContain('Diff is too large');
-    fireEvent.click(screen.getByRole('button', { name: 'Retry quick review' }));
+    const retryButton = screen.getByRole('button', { name: 'Run quick review' });
+    expect(retryButton.title).toBe('Retry quick review');
+    fireEvent.click(retryButton);
     expect(retry).toHaveBeenCalledOnce();
     expect(openAgent).not.toHaveBeenCalled();
   });

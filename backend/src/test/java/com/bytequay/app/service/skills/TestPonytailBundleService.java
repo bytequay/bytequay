@@ -47,7 +47,11 @@ class TestPonytailBundleService
                 .satisfies(skill -> assertThat(skill.body()).contains("Respond terse like smart caveman"));
         assertThat(bundle.select(List.of("trunk-planner")))
                 .singleElement()
-                .satisfies(skill -> assertThat(skill.body()).contains("Trunk Planner"));
+                .satisfies(skill -> assertThat(skill.body())
+                        .contains("Trunk Planner")
+                        .contains("ask_user_question")
+                        .contains("Go ahead")
+                        .contains("never ask a question only in prose"));
         assertThat(bundle.select(List.of("codegraph-first")))
                 .singleElement()
                 .satisfies(skill -> assertThat(skill.body()).contains("CodeGraph First"));

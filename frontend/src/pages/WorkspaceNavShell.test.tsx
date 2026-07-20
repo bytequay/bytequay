@@ -187,6 +187,21 @@ describe('WorkspaceNavShell', () => {
     expect(onSwitchWorkspace).toHaveBeenCalledOnce();
   });
 
+  it('shares the saved rail width with Home and lets the workspace rail be dragged', () => {
+    localStorage.setItem('bq.rail-width', '320');
+    mockBridge();
+    const { container } = render(<WorkspaceNavShell activeWorkspaceId="bq" />);
+    const rail = container.querySelector('.trunk-page-v2-nav') as HTMLElement;
+    expect(rail.style.width).toBe('320px');
+
+    fireEvent.mouseDown(screen.getByRole('separator', { name: 'Resize sidebar' }));
+    fireEvent.mouseMove(window, { clientX: 360 });
+    fireEvent.mouseUp(window);
+
+    expect(rail.style.width).toBe('360px');
+    expect(localStorage.getItem('bq.rail-width')).toBe('360');
+  });
+
   it('remembers whether the workspace navigation group is folded', async () => {
     mockBridge();
     const { unmount } = render(<WorkspaceNavShell activeWorkspaceId="bq" />);

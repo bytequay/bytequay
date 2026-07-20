@@ -12,8 +12,10 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import ResizeHandle from '../ResizeHandle';
 import { FolderIcon } from '../diffTreeIcons';
 import type { ThreadDto, WorkUnitTaskDto } from '../types';
+import { useSidebarWidth } from '../ui/shell/useSidebarWidth';
 import type { TaskNavRow, WsNavKey } from '../ui/workspace';
 import {
   ChevronIcon,
@@ -84,6 +86,7 @@ export function TrunkWorkspaceSidebar({
   const [expanded, setExpanded] = useState<Record<string, boolean> | null>(() => readExpansion().b ?? null);
   const [workspaceOpen, setWorkspaceOpen] = useState(() => readExpansion().workspaceOpen ?? false);
   const [tasksByThread, setTasksByThread] = useState<Record<string, WorkUnitTaskDto[]>>({});
+  const { sidebarWidth, shellRef, onResize } = useSidebarWidth<HTMLElement>();
 
   const effectiveExpanded = useMemo(() => {
     const selected = threads.find(thread => thread.id === selectedThreadId);
@@ -139,7 +142,16 @@ export function TrunkWorkspaceSidebar({
   };
 
   return (
-    <aside className={`trunk-page-v2-nav${collapsed ? ' is-collapsed' : ''}`}>
+    <aside
+      ref={shellRef}
+      className={`trunk-page-v2-nav${collapsed ? ' is-collapsed' : ''}`}
+      style={collapsed ? undefined : {
+        width: sidebarWidth,
+        minWidth: sidebarWidth,
+        maxWidth: sidebarWidth,
+        flexBasis: sidebarWidth,
+      }}
+    >
       <WorkspaceChromeRow
         onBack={onBack}
         onForward={onForward}
@@ -246,6 +258,13 @@ export function TrunkWorkspaceSidebar({
             onSettings={() => onNavigate?.('settings')}
           />
         </>
+      )}
+      {!collapsed && (
+        <ResizeHandle
+          className="trunk-page-v2-nav__resize"
+          ariaLabel="Resize sidebar"
+          onResize={onResize}
+        />
       )}
     </aside>
   );

@@ -16,8 +16,24 @@ set -m
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_PORT=53123
+DEV_RESET_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bytequay-dev-reset.XXXXXX")" || {
+  echo "[dev] error: could not create reset control directory"
+  exit 1
+}
+chmod 700 "$DEV_RESET_DIR"
+DEV_RESET_MARKER="$DEV_RESET_DIR/requested"
+
+# Electron may request a fresh-start reset by creating this run-specific
+# marker and quitting. The launcher owns the destructive half so the app's
+# SQLite database and Chromium profile are never removed while still open.
+export BYTEQUAY_DEV_RESET_MARKER="$DEV_RESET_MARKER"
 
 pids=()
+
+process_group_alive() {
+  local pid="$1"
+  kill -0 -- "-$pid" 2>/dev/null || kill -0 "$pid" 2>/dev/null
+}
 
 cleanup() {
   # Guard against the trap firing twice (INT then EXIT).
@@ -41,13 +57,13 @@ cleanup() {
   while (( SECONDS < deadline )); do
     local alive=0
     for pid in "${pids[@]:-}"; do
-      kill -0 "$pid" 2>/dev/null && { alive=1; break; }
+      process_group_alive "$pid" && { alive=1; break; }
     done
     [[ "$alive" == "0" ]] && break
     sleep 0.2
   done
   for pid in "${pids[@]:-}"; do
-    if kill -0 "$pid" 2>/dev/null; then
+    if process_group_alive "$pid"; then
       echo "[dev] $pid did not honour SIGTERM — forcing"
       kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
     fi
@@ -80,7 +96,32 @@ cleanup() {
   # any child should be unstuck by now.
   wait 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+
+cleanup_reset_control() {
+  rm -f -- "$DEV_RESET_MARKER"
+  rmdir -- "$DEV_RESET_DIR" 2>/dev/null || true
+}
+
+on_exit() {
+  cleanup
+  cleanup_reset_control
+}
+trap on_exit EXIT INT TERM
+
+wait_for_processes_stopped() {
+  local deadline=$((SECONDS + 2))
+  while (( SECONDS < deadline )); do
+    local alive=0
+    for pid in "${pids[@]:-}"; do
+      process_group_alive "$pid" && { alive=1; break; }
+    done
+    if [[ "$alive" == "0" ]] && ! lsof -ti ":$BACKEND_PORT" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.1
+  done
+  return 1
+}
 
 wait_for_backend() {
   # 60s total — enough headroom for a cold mvn that still compiles + runs
@@ -166,4 +207,29 @@ echo "[dev] starting frontend (Electron + Vite)..."
 ( cd "$ROOT/frontend" && npm start ) &
 frontend_pid=$!
 pids+=("$frontend_pid")
-wait "$frontend_pid"
+frontend_status=0
+wait "$frontend_pid" || frontend_status=$?
+
+reset_requested=0
+[[ -f "$DEV_RESET_MARKER" ]] && reset_requested=1
+
+# Stop and reap the backend, Electron, agents, and their subprocesses before
+# touching any persistent files. cleanup() is idempotent, so the EXIT trap is
+# still safe after this explicit call.
+cleanup
+cleanup_reset_control
+
+if [[ "$reset_requested" == "1" ]]; then
+  if ! wait_for_processes_stopped; then
+    echo "[dev] error: reset aborted because a ByteQuay process is still running"
+    exit 1
+  fi
+  echo "[dev] clearing local ByteQuay user data..."
+  if BYTEQUAY_DEV_RESET_CONFIRMED=1 "$ROOT/scripts/reset-dev-data.sh"; then
+    echo "[dev] reset complete — restarting with first-run state"
+    exec "$ROOT/dev.sh"
+  fi
+  exit 1
+fi
+
+exit "$frontend_status"

@@ -13,6 +13,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { invalidate } from '../dataCache';
 import type { LocalPRBundle } from '../types/localPr';
 import type { DashboardPR } from '../types/dashboardPr';
 import type { TimelineItem } from './detailModel';
@@ -22,6 +23,7 @@ import PullTimeline from './PullTimeline';
 
 afterEach(() => {
   cleanup();
+  invalidate('home:profile');
   delete (globalThis as { bridge?: unknown }).bridge;
 });
 
@@ -86,6 +88,22 @@ describe('PullOverview', () => {
     }
     expect(container.querySelector('.pl-pr-description')?.classList.contains('md-body')).toBe(true);
     expect(screen.getByText('octocat').getAttribute('style')).toContain('font-weight: 600');
+  });
+
+  it('uses the signed-in GitHub avatar when a task PR has no stored author', async () => {
+    window.bridge = {
+      getUserProfile: vi.fn().mockResolvedValue({
+        login: 'octocat', avatarUrl: 'https://avatars.example/octocat.png',
+      }),
+    } as unknown as typeof window.bridge;
+    const taskRow = row([]);
+    taskRow.author = '';
+    const taskBundle = { ...bundle, pr: { ...bundle.pr, author: null } } as LocalPRBundle;
+
+    render(<PullOverview row={taskRow} bundle={taskBundle} isMerged={false} />);
+
+    const avatar = await screen.findByRole('img', { name: 'octocat' });
+    expect(avatar.getAttribute('src')).toBe('https://avatars.example/octocat.png');
   });
 
   it('uses regular weight for every timeline username', () => {

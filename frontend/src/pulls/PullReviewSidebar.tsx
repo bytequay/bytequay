@@ -21,7 +21,7 @@ import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
 import { assocLabel, lastTwoSegments, snippetRowFor } from './changesModel';
 import { buildOpenedCard, isBotActor } from './detailModel';
 import type { PullRow } from './model';
-import { Av } from './atoms';
+import { Av, PullAuthorAv } from './atoms';
 import { AiReplyButton, EmojiPlusPill } from './PullDiffCommentRows';
 
 /**
@@ -216,7 +216,7 @@ export default function PullReviewSidebar({
         ) : (
           <div style={{ padding: '12px 0 14px', borderBottom: '1px solid #eef1f4' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Av login={opened.author} size={24} square={opened.bot} />
+              <PullAuthorAv login={opened.author} size={24} square={opened.bot} />
               <span style={{ minWidth: 0 }}>
                 <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: '#17191c' }}>{opened.author}</span>
                 <span style={{ display: 'block', fontSize: 11.5, color: '#8b949e' }}>opened pull request · {opened.time}</span>

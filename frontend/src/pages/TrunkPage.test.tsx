@@ -19,6 +19,7 @@ import type {
   DeepSeekBalanceDto,
   PlanUsageDto,
   TrunkActivityDto,
+  WorkspaceBacklogItemDto,
   WorkspaceSessionDto,
 } from '../workspace/workspaceApi';
 import { TrunkPage } from './TrunkPage';
@@ -56,10 +57,41 @@ function question(): AgentQuestionDto {
   };
 }
 
+function backlogItem(overrides: Partial<WorkspaceBacklogItemDto> = {}): WorkspaceBacklogItemDto {
+  return {
+    id: 'b1',
+    threadId: 't1',
+    workspaceId: 'ws-1',
+    key: 'BQ-1',
+    title: 'Remove legacy endpoint',
+    body: 'The endpoint has no callers.',
+    summary: 'The endpoint has no callers.',
+    detail: null,
+    impactRisk: null,
+    links: [],
+    tags: ['cleanup'],
+    priority: 'medium',
+    source: 'agent',
+    status: 'open',
+    createdBy: 'trunk-agent',
+    origin: 'agent',
+    createdAt: 1,
+    inProgressAt: null,
+    startedAt: null,
+    resolvedAt: null,
+    rejectedAt: null,
+    rejectionReason: null,
+    linkedTaskId: null,
+    relatedBacklogIds: [],
+    ...overrides,
+  };
+}
+
 function mockBridge({
   trunkActivity = EMPTY_ACTIVITY,
   questions = [],
   sessions = [],
+  backlog = [],
   planUsage = { providers: [] },
   refreshedPlanUsage = planUsage,
   apiUsage = null,
@@ -68,6 +100,7 @@ function mockBridge({
   trunkActivity?: TrunkActivityDto;
   questions?: AgentQuestionDto[];
   sessions?: WorkspaceSessionDto[];
+  backlog?: WorkspaceBacklogItemDto[];
   planUsage?: PlanUsageDto;
   refreshedPlanUsage?: PlanUsageDto;
   apiUsage?: ApiUsageDto | null;
@@ -88,6 +121,7 @@ function mockBridge({
         });
       }
       if (path.endsWith('/sessions')) return Promise.resolve(sessions);
+      if (path.endsWith('/backlog')) return Promise.resolve(backlog);
       if (path === '/api/ai/plan-usage') return Promise.resolve(planUsage);
       if (path === '/api/ai/plan-usage/claude/refresh') return Promise.resolve(refreshedPlanUsage);
       if (path === '/api/ai/api-usage') return Promise.resolve(apiUsage ?? []);
@@ -226,6 +260,25 @@ describe('TrunkPage', () => {
     await screen.findByText('Tests running');
     fireEvent.click(screen.getByRole('button', { name: 'Watch' }));
     expect(onOpenTask).toHaveBeenCalledWith('task-9');
+  });
+
+  it('opens actionable backlog items from the workspace overview', async () => {
+    window.location.hash = '#/workspace/ws-1/trunks/t1';
+    mockBridge({
+      backlog: [
+        backlogItem(),
+        backlogItem({ id: 'b2', key: 'BQ-2', title: 'Already shipped', status: 'resolved' }),
+        backlogItem({ id: 'b3', key: 'BQ-3', title: 'Already underway', status: 'in-progress' }),
+      ],
+    });
+    renderTrunk();
+
+    const item = await screen.findByRole('button', { name: 'Open backlog item Remove legacy endpoint' });
+    expect(screen.queryByText('Already shipped')).toBeNull();
+    expect(screen.queryByText('Already underway')).toBeNull();
+
+    fireEvent.click(item);
+    expect(window.location.hash).toBe('#/workspace/ws-1/backlog/BQ-1');
   });
 
   it('keeps unresolved agent questions pinned in the conversation', async () => {

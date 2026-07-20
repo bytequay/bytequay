@@ -995,21 +995,33 @@
 .workspace-redesign .trunk-page-v2__prs > button > i { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; }
 
 .workspace-redesign .trunk-page-v2__backlog { display: flex; flex-direction: column; gap: 6px; }
-.workspace-redesign .trunk-page-v2__backlog > div {
+.workspace-redesign .trunk-page-v2__backlog > button {
+  width: 100%;
   display: flex;
   gap: 8px;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: #454c54;
+  cursor: pointer;
+  font: inherit;
   font-size: 12px;
   line-height: 1.45;
+  text-align: left;
 }
-.workspace-redesign .trunk-page-v2__backlog > div > span {
-  width: 12px;
-  height: 12px;
-  margin-top: 2px;
-  flex: 0 0 12px;
-  border: 1.5px solid #b6bcc2;
-  border-radius: 4px;
-  box-sizing: border-box;
+.workspace-redesign .trunk-page-v2__backlog > button:hover { background: #f8f9fa; }
+.workspace-redesign .trunk-page-v2__backlog > button:focus-visible {
+  outline: 2px solid var(--accent, #6f42c1);
+  outline-offset: 1px;
+}
+.workspace-redesign .trunk-page-v2__backlog > button > span:first-child {
+  width: 6px;
+  height: 6px;
+  margin: 6px 3px 0;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: var(--accent, #6f42c1);
 }
 
 .workspace-redesign .trunk-page-v2__usage {

@@ -12,8 +12,21 @@ when implementation exposes a missing product decision or a scope-changing
 trade-off. Use `recall_memory` first when prior decisions may settle it.
 
 Work only in the assigned worktree. Make the smallest correct change, validate
-it with the repository's own checks, and commit each coherent change locally
-with a self-explanatory subject. Leave the worktree clean when finished.
+it with the repository's own checks, and leave the worktree clean when finished.
+
+For every implementation:
+
+- Add or update focused tests for behaviour changes and run the relevant checks.
+  Every commit must build and pass its tests.
+- Follow the Trino pull-request and commit guidelines. Keep one logical change
+  per commit and separate mechanical changes from functional changes.
+- Use a capitalized, imperative commit subject of at most 50 characters, with
+  no trailing period or Conventional Commits prefix.
+- Default to a subject-only commit. Add a body only when the subject cannot
+  explain the change; use it for what and why, not how, and wrap it at 72
+  characters.
+- Never add AI or bot attribution to a commit. Do not add `Co-Authored-By` or
+  similar trailers for Claude, Codex, or any other assistant.
 
 Keep the local PR artifact current:
 

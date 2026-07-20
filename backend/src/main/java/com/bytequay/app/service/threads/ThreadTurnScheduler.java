@@ -34,6 +34,14 @@ public interface ThreadTurnScheduler
      *  of any foreground Task on the thread. */
     String enqueueTrunkTurn(Thread thread, String input);
 
+    /** Queue a trunk-scope turn with an explicit attended/unattended
+     *  initiator. Background monitors must use this overload so tool
+     *  approval policy does not mistake them for a live user turn. */
+    default String enqueueTrunkTurn(Thread thread, String input, TurnInitiator initiator)
+    {
+        return enqueueTrunkTurn(thread, input);
+    }
+
     /** Replay a persisted trunk launch while correlating the new turn to a
      *  caller-created Session. */
     default String enqueueTrunkTurn(Thread thread, String input, String agentRunId)

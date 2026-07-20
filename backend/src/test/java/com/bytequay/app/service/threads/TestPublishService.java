@@ -13,8 +13,10 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
+import com.bytequay.app.domain.IssueOrigin;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
@@ -24,6 +26,7 @@ import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
+import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
@@ -33,6 +36,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.IssueOriginService;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
@@ -83,6 +87,7 @@ class TestPublishService
     private GitRunner git;
     private PullRequestRepository pullRequests;
     private PatResolver patResolver;
+    private IssueOriginService issueOrigins;
     private ObjectMapper mapper;
     private ParkedProposalService parkedProposals;
     private TaskService taskService;
@@ -100,6 +105,7 @@ class TestPublishService
         git = mock(GitRunner.class);
         pullRequests = mock(PullRequestRepository.class);
         patResolver = mock(PatResolver.class);
+        issueOrigins = mock(IssueOriginService.class);
         mapper = new ObjectMapper();
         parkedProposals = mock(ParkedProposalService.class);
         taskService = mock(TaskService.class);
@@ -108,7 +114,8 @@ class TestPublishService
         prService = mock(PRService.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         service = new PublishService(
-                notifications, taskStore, git, pullRequests, patResolver, mapper, parkedProposals, taskService,
+                notifications, taskStore, git, pullRequests, patResolver, issueOrigins, mapper,
+                parkedProposals, taskService,
                 mock(ReviewPassResolver.class), phaseMachine, stageStore, prService, eventPublisher);
         when(notifications.claimResolution(anyString())).thenReturn(true);
         when(stageStore.findUnresolvedComments(anyString())).thenReturn(List.of());
@@ -217,6 +224,84 @@ class TestPublishService
                 eq("ghp_secret"), eq(new PullRequestRef("acme", "widget", 42)), eq(edited));
         verify(notifications).claimResolution("notif-3");
         verify(parkedProposals).finishApproved(parked, false);
+    }
+
+    @Test
+    void approveCreateIssuePublishesMarkedBodyAndPersistsQualityOrigin()
+    {
+        Notification parked = parkedCreateIssue(
+                "notif-create-issue", "task-create-issue", "acme", "widget",
+                "Avoid repeated allocation", "The hot path allocates on every call.");
+        when(notifications.find(parked.id())).thenReturn(Optional.of(parked));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        RepoIssue created = new RepoIssue(
+                41L, 7, "Avoid repeated allocation", "automation", "open",
+                "https://github.com/acme/widget/issues/7", Instant.EPOCH, List.of(), 0);
+        when(pullRequests.createIssue(anyString(), any(), anyString(), anyString()))
+                .thenReturn(created);
+
+        PublishResult result = service.approve(
+                parked.id(), "Use a cached value on the hot path.", "create_issue");
+
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(pullRequests).createIssue(
+                eq("ghp_secret"), eq(RepoRef.of("acme", "widget")),
+                eq("Avoid repeated allocation"), body.capture());
+        assertThat(body.getValue()).isEqualTo(
+                "Use a cached value on the hot path.\n\n" + IssueOrigin.QUALITY_SCAN_MARKER);
+        verify(issueOrigins).recordCreated(created, IssueOrigin.QUALITY_SCAN);
+        verify(phaseMachine).transition(
+                "task-create-issue", TaskPhase.COMPLETED,
+                "quality_issue_published", Actor.HUMAN);
+        assertThat(result.action()).isEqualTo("create_issue");
+        assertThat(result.message()).contains("acme/widget#7");
+        verify(parkedProposals).finishApproved(parked, false);
+    }
+
+    @Test
+    void createIssuePreflightRejectsIncompleteRepoTitleAndBodyBeforeClaiming()
+    {
+        Notification badRepo = parkedCreateIssue(
+                "bad-repo", "task-bad-repo", "", "widget", "Finding", "Details");
+        Notification badTitle = parkedCreateIssue(
+                "bad-title", "task-bad-title", "acme", "widget", " ", "Details");
+        Notification badBody = parkedCreateIssue(
+                "bad-body", "task-bad-body", "acme", "widget", "Finding", " ");
+        when(notifications.find(badRepo.id())).thenReturn(Optional.of(badRepo));
+        when(notifications.find(badTitle.id())).thenReturn(Optional.of(badTitle));
+        when(notifications.find(badBody.id())).thenReturn(Optional.of(badBody));
+
+        assertThatThrownBy(() -> service.approve(badRepo.id(), null, "create_issue"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("incomplete repo ref");
+        assertThatThrownBy(() -> service.approve(badTitle.id(), null, "create_issue"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no title");
+        assertThatThrownBy(() -> service.approve(badBody.id(), null, "create_issue"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("body is blank");
+
+        verify(notifications, never()).claimResolution(anyString());
+        verify(pullRequests, never()).createIssue(anyString(), any(), anyString(), anyString());
+    }
+
+    @Test
+    void discardCreateIssueMakesNoRemoteCall()
+    {
+        Notification parked = parkedCreateIssue(
+                "discard-create-issue", "task-discard-create-issue", "acme", "widget",
+                "Avoid repeated allocation", "The hot path allocates on every call.");
+        when(notifications.find(parked.id())).thenReturn(Optional.of(parked));
+
+        PublishResult result = service.discard(parked.id(), "create_issue");
+
+        assertThat(result.resolution()).isEqualTo("discarded");
+        verify(pullRequests, never()).createIssue(anyString(), any(), anyString(), anyString());
+        verify(issueOrigins, never()).recordCreated(any(), anyString());
+        verify(parkedProposals).finishDiscarded(parked, false);
+        verify(phaseMachine).transition(
+                "task-discard-create-issue", TaskPhase.COMPLETED,
+                "quality_issue_discarded", Actor.HUMAN);
     }
 
     @Test
@@ -1269,6 +1354,22 @@ class TestPublishService
                 + "\"pr\":{\"owner\":" + quote(owner) + ",\"repo\":" + quote(repo)
                 + ",\"number\":" + number + "},"
                 + "\"source\":\"mcp:post_comment\""
+                + "}";
+        return new Notification(
+                notificationId, NotificationKind.AWAITING_REVIEW, "thread-" + taskId, taskId,
+                NotificationStatus.UNREAD, json, Instant.now(), null);
+    }
+
+    private static Notification parkedCreateIssue(
+            String notificationId, String taskId,
+            String owner, String repo, String title, String body)
+    {
+        String json = "{"
+                + "\"action\":\"create_issue\","
+                + "\"title\":" + quote(title) + ","
+                + "\"body\":" + quote(body) + ","
+                + "\"repo\":{\"owner\":" + quote(owner) + ",\"repo\":" + quote(repo) + "},"
+                + "\"source\":\"automation:quality-scan\""
                 + "}";
         return new Notification(
                 notificationId, NotificationKind.AWAITING_REVIEW, "thread-" + taskId, taskId,

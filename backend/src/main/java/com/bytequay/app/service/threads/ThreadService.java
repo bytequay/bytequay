@@ -31,6 +31,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadGroupStore;
@@ -592,7 +593,8 @@ public class ThreadService
                 /* errorMessage */ null,
                 taskName,
                 roleSkillText,
-                /* workModel */ null);
+                /* workModel */ null,
+                request.origin());
         taskStore.saveTask(task);
         // Successful materialisation consumes this planning cycle. Null is
         // now the only refresh signal, so the next trunk turn fetches a new
@@ -762,6 +764,14 @@ public class ThreadService
     public String sendTrunk(String threadId, String input)
     {
         return scheduler.enqueueTrunkTurn(requireTask(threadId), input);
+    }
+
+    /** Background counterpart to {@link #sendTrunk}; the durable initiator
+     *  keeps approval policy in unattended mode. */
+    public String sendTrunkUnattended(String threadId, String input, String source)
+    {
+        return scheduler.enqueueTrunkTurn(
+                requireTask(threadId), input, TurnInitiator.unattended(source));
     }
 
     public void interrupt(String threadId)
@@ -1544,8 +1554,15 @@ public class ThreadService
              *  planning — the scheduler fires the kickoff when it promotes the
              *  task to {@link TaskPhase#PLANNING}. Direct creations leave it
              *  false and plan immediately. */
-            boolean deferPlanKickoff)
+            boolean deferPlanKickoff,
+            /** Immutable creator provenance copied to the Task row. */
+            String origin)
     {
+        public NewTaskRequest
+        {
+            origin = origin == null || origin.isBlank() ? Task.ORIGIN_USER : origin.strip();
+        }
+
         /** Backwards-compatible constructor for the common no-trunk-plan
          *  path — leaves {@code trunkPlan} null so existing callers (and
          *  request bodies that omit it) are unchanged. */
@@ -1558,7 +1575,7 @@ public class ThreadService
         {
             this(kind, provider, model, title, workingDir, branchName, initialPrompt,
                     initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
-                    workspaceId, workModel, null, false);
+                    workspaceId, workModel, null, false, Task.ORIGIN_USER);
         }
 
         /** Constructor for callers that supply a trunk plan but plan
@@ -1573,7 +1590,28 @@ public class ThreadService
         {
             this(kind, provider, model, title, workingDir, branchName, initialPrompt,
                     initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
-                    workspaceId, workModel, trunkPlan, false);
+                    workspaceId, workModel, trunkPlan, false, Task.ORIGIN_USER);
+        }
+
+        /** Backwards-compatible full constructor predating provenance. */
+        public NewTaskRequest(
+                ThreadKind kind, String provider, String model, String title,
+                String workingDir, String branchName, String initialPrompt,
+                List<String> initialGroupIds, String taskType, Integer linkedPrNumber,
+                Integer linkedIssueNumber, ThreadFlow flow, String workspaceId,
+                WorkModel workModel, JsonNode trunkPlan, boolean deferPlanKickoff)
+        {
+            this(kind, provider, model, title, workingDir, branchName, initialPrompt,
+                    initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
+                    workspaceId, workModel, trunkPlan, deferPlanKickoff, Task.ORIGIN_USER);
+        }
+
+        public NewTaskRequest withOrigin(String origin)
+        {
+            return new NewTaskRequest(
+                    kind, provider, model, title, workingDir, branchName, initialPrompt,
+                    initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
+                    workspaceId, workModel, trunkPlan, deferPlanKickoff, origin);
         }
     }
 

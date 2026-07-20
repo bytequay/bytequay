@@ -40,6 +40,31 @@ export type WorkspaceSettingsDto = {
   providers: Record<string, string>;
   notifyCi: boolean;
   notifyCompletions: boolean;
+  /** Missing on settings rows written before workspace automation existed. */
+  qualityScanEnabled?: boolean;
+  remoteIssueIntakeEnabled?: boolean;
+};
+
+type WorkspaceAutomationJobStatusDto = {
+  enabled: boolean;
+  eligible: boolean;
+  reason: string | null;
+  running: boolean;
+  lastRunAt: string | null;
+  expectedNextRunAt: string | null;
+  lastOutcome: 'SUCCESS' | 'PAUSED' | 'FAILED' | null;
+  lastError: string | null;
+};
+
+export type WorkspaceAutomationStatusDto = {
+  qualityScan: WorkspaceAutomationJobStatusDto & {
+    findingsProposed: number;
+  };
+  remoteIssueIntake: WorkspaceAutomationJobStatusDto & {
+    issuesExamined: number;
+    tasksQueued: number;
+    implementationsStarted: number;
+  };
 };
 
 export type WorkspaceOnboardingDto = {
@@ -556,6 +581,10 @@ export const workspaceApi = {
   settings: (workspaceId: string) =>
     window.bridge.workspaceApi<WorkspaceSettingsDto>({
       path: `/api/workspaces/${enc(workspaceId)}/settings`,
+    }),
+  automation: (workspaceId: string) =>
+    window.bridge.workspaceApi<WorkspaceAutomationStatusDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/automation`,
     }),
   saveSettings: (workspaceId: string, settings: WorkspaceSettingsDto) =>
     window.bridge.workspaceApi<WorkspaceSettingsDto>({

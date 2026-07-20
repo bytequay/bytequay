@@ -109,4 +109,26 @@ describe('WorkspaceThreadsSurface', () => {
     expect(screen.getByText('agent running')).toBeTruthy();
     expect(listTasksForThread).toHaveBeenCalledWith('t1');
   });
+
+  it('filters automated tasks without attributing their parent thread', async () => {
+    const listTasksForThread = vi.fn(async (threadId: string) => threadId === 'auto'
+      ? [{ id: 'k1', threadId, status: 'RUNNING', origin: 'issue-monitor' }]
+      : [{ id: 'k2', threadId, status: 'IDLE', origin: 'user' }]);
+    (window as unknown as { bridge: unknown }).bridge = { listTasksForThread };
+    render(
+      <WorkspaceThreadsSurface
+        threads={[
+          thread({ id: 'auto', title: 'Issue triage' }),
+          thread({ id: 'human', title: 'Manual cleanup', status: 'IDLE' }),
+        ]}
+        loading={false}
+      />,
+    );
+
+    expect(await screen.findAllByText('1 task')).toHaveLength(2);
+    expect(screen.queryByText('Issue monitor')).toBeNull();
+    fireEvent.click(screen.getByText('Automated'));
+    expect(screen.getByText('Issue triage')).toBeTruthy();
+    expect(screen.queryByText('Manual cleanup')).toBeNull();
+  });
 });

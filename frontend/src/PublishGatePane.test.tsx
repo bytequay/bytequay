@@ -457,6 +457,75 @@ describe('PublishGatePane', () => {
     expect(textarea.value).toBe('Initial cache implementation.');
   });
 
+  it('renders an editable approval gate for a quality-scan issue', async () => {
+    const approveNotification = vi.fn(async () => ({
+      ok: true,
+      resolution: 'approved' as const,
+      message: 'Created acme/widget#14.',
+      action: 'create_issue',
+    }));
+    installBridge({ approveNotification });
+
+    render(
+      <PublishGatePane
+        notification={awaitingReview({
+          id: 'notif-issue-1',
+          payloadJson: JSON.stringify({
+            action: 'create_issue',
+            title: 'Avoid repeated full-table scans',
+            body: 'The repository scan found a repeated query.',
+            repo: { owner: 'acme', repo: 'widget' },
+            source: 'automation:quality-scan',
+          }),
+        })}
+        onResolved={() => {}}
+      />);
+
+    expect(screen.getByText('acme/widget')).toBeTruthy();
+    expect(screen.getByText(/Avoid repeated full-table scans/)).toBeTruthy();
+    const textarea = screen.getByLabelText('create_issue-body') as HTMLTextAreaElement;
+    expect(textarea.value).toContain('repeated query');
+    fireEvent.change(textarea, { target: { value: 'Edited evidence for the issue.' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Create issue' }));
+    });
+    expect(approveNotification).toHaveBeenCalledWith(
+      'notif-issue-1',
+      'Edited evidence for the issue.',
+      'create_issue',
+    );
+  });
+
+  it('rejects malformed or blank quality-scan issue proposals in the pane', () => {
+    installBridge({});
+    const { rerender } = render(
+      <PublishGatePane
+        notification={awaitingReview({
+          payloadJson: JSON.stringify({
+            action: 'create_issue', title: '', body: 'Evidence',
+            repo: { owner: 'acme', repo: 'widget' },
+          }),
+        })}
+        onResolved={() => {}}
+      />,
+    );
+    expect(screen.getByText(/doesn't carry a supported review payload/i)).toBeTruthy();
+
+    rerender(
+      <PublishGatePane
+        notification={awaitingReview({
+          payloadJson: JSON.stringify({
+            action: 'create_issue', title: 'Valid title', body: '',
+            repo: { owner: 'acme', repo: 'widget' },
+          }),
+        })}
+        onResolved={() => {}}
+      />,
+    );
+    expect((screen.getByRole('button', { name: 'Create issue' }) as HTMLButtonElement).disabled)
+      .toBe(true);
+  });
+
   it('surfaces the file/line anchor for a create_review_comment proposal', () => {
     // The reviewer must see where the inline comment lands before
     // authorizing the publish — not just the PR ref and the body.

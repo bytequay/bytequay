@@ -68,6 +68,9 @@ class BacklogItemEntity
     @Column(name = "created_by", nullable = false)
     private String createdBy;
 
+    @Column(name = "origin", nullable = false, updatable = false)
+    private String origin;
+
     @Column(name = "in_progress_at_ms")
     private Long inProgressAtMs;
 
@@ -137,6 +140,9 @@ class BacklogItemEntity
 
     String getCreatedBy() { return createdBy; }
     void setCreatedBy(String createdBy) { this.createdBy = createdBy; }
+
+    String getOrigin() { return origin; }
+    void setOrigin(String origin) { this.origin = origin; }
 
     Long getInProgressAtMs() { return inProgressAtMs; }
     void setInProgressAtMs(Long inProgressAtMs) { this.inProgressAtMs = inProgressAtMs; }

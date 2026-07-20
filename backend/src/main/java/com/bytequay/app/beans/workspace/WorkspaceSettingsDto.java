@@ -27,7 +27,9 @@ public record WorkspaceSettingsDto(
         List<String> kbAudiences,
         Map<String, String> providers,
         boolean notifyCi,
-        boolean notifyCompletions)
+        boolean notifyCompletions,
+        boolean qualityScanEnabled,
+        boolean remoteIssueIntakeEnabled)
 {
     public static WorkspaceSettingsDto defaults()
     {
@@ -41,6 +43,8 @@ public record WorkspaceSettingsDto(
                 List.of("plan", "dev", "review", "ci-fix"),
                 Map.of(),
                 true,
+                false,
+                false,
                 false);
     }
 }

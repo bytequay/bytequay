@@ -889,7 +889,8 @@ public class TaskService
                 /* endedAt */ null, /* errorMessage */ null,
                 task.name(), task.roleSkill(), task.workModel(),
                 task.pushedAt(), task.phase(), task.agendaJson(),
-                task.consecutiveAutoPushes(), task.linkedPrRef(), task.openingPrompt());
+                task.consecutiveAutoPushes(), task.linkedPrRef(), task.openingPrompt(),
+                task.origin());
     }
 
     private static Thread revivedThread(Thread thread)

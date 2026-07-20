@@ -30,5 +30,20 @@ public record RepoIssue(
         String htmlUrl,
         Instant updatedAt,
         List<String> labels,
-        int commentCount)
-{}
+        int commentCount,
+        String origin)
+{
+    public RepoIssue(
+            long id, int number, String title, String author, String state,
+            String htmlUrl, Instant updatedAt, List<String> labels, int commentCount)
+    {
+        this(id, number, title, author, state, htmlUrl, updatedAt, labels,
+                commentCount, IssueOrigin.USER);
+    }
+
+    public RepoIssue withOrigin(String nextOrigin)
+    {
+        return new RepoIssue(id, number, title, author, state, htmlUrl, updatedAt,
+                labels, commentCount, nextOrigin);
+    }
+}

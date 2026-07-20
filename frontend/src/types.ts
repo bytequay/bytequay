@@ -663,6 +663,15 @@ export type UserCommitDto = {
   authoredAt: string | null;
 };
 
+export type CreationOriginDto =
+  | 'unknown'
+  | 'user'
+  | 'user-report'
+  | 'agent'
+  | 'automation'
+  | 'issue-monitor'
+  | 'quality-scan';
+
 export type IssueDto = {
   id: number;
   number: number;
@@ -676,15 +685,10 @@ export type IssueDto = {
   updatedAt: string;
   labels: string[];
   commentCount?: number;
+  origin: CreationOriginDto;
   /** Workspace linkage supplied by the workspace-scoped issue facade. */
   linkedTrunkId?: string | null;
   linkedTrunkTitle?: string | null;
-};
-
-export type ProductIssueMonitorStatusDto = {
-  enabled: boolean;
-  eligible: boolean;
-  reason: string | null;
 };
 
 export type IssueLabelDto = { name: string; color: string };
@@ -725,6 +729,7 @@ export type IssueDetailDto = {
   /** True iff the viewer has explicitly subscribed to the issue. Drives
    *  the Subscribe / Unsubscribe button in the header. */
   subscribed: boolean;
+  origin: CreationOriginDto;
   /** Compact workspace-only relationships rendered beside the GitHub issue. */
   linkedWork?: Array<{
     kind: 'trunk' | 'pull-request';
@@ -2118,6 +2123,7 @@ export type WorkUnitTaskDto = {
   taskType: string;
   linkedPrNumber: number | null;
   linkedIssueNumber: number | null;
+  origin: CreationOriginDto;
   /** ISO instant the task's branch first reached the remote, or null if
    *  it hasn't been pushed yet. Set on a push approval and on the
    *  implicit push an open_pr approval performs. Drives the "on remote"
@@ -2195,12 +2201,14 @@ export type BacklogItemDto = {
   tags: string[];
   /** low | medium | high. */
   priority: string;
-  /** manual | trunk-split | external. */
+  /** Broad source category retained for compatibility: manual | agent. */
   source: string;
   /** created | in-progress | resolved | not-to-proceed. */
   status: string;
   /** user | trunk-agent. */
   createdBy: string;
+  /** Immutable server-stamped creation path; never derived from editable tags. */
+  origin: CreationOriginDto;
   createdAt: number;
   inProgressAt: number | null;
   startedAt: number | null;
@@ -2674,6 +2682,7 @@ export type GenericPublishAction =
   | 'request_reviewer'
   | 'comment_on_issue'
   | 'set_issue_state'
+  | 'create_issue'
   | 'open_pr'
   | 'publish_review';
 
@@ -2690,7 +2699,7 @@ export type GenericParkedPayload = {
   pr?: { owner: string; repo: string; number: number };
   issue?: { owner: string; repo: string; number: number };
   repo?: { owner: string; repo: string };
-  /** open_pr metadata. Populated only when action === 'open_pr'. */
+  /** Proposed remote title (open_pr or create_issue). */
   title?: string;
   head?: string;
   base?: string;
@@ -2730,6 +2739,7 @@ export const PUBLISH_GATE_ACTIONS = [
   'request_reviewer',
   'comment_on_issue',
   'set_issue_state',
+  'create_issue',
   'open_pr',
   'publish_review',
   'mark_ready',
@@ -3083,10 +3093,8 @@ export type Bridge = {
    *  aren't in the 30 most-recent open PRs returned by getRepoPulls. */
   searchRepoPulls: (owner: string, repo: string, query: string) => Promise<PullRequestDto[]>;
   getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed') => Promise<IssueDto[]>;
-  /** Files a product bug in bytequay/bytequay regardless of watched repos. */
+  /** Files a product bug in chenjian2664/ByteQuay regardless of watched repos. */
   reportByteQuayIssue: (title: string, body: string) => Promise<IssueDto>;
-  getByteQuayIssueMonitor: () => Promise<ProductIssueMonitorStatusDto>;
-  setByteQuayIssueMonitor: (enabled: boolean) => Promise<ProductIssueMonitorStatusDto>;
   getIssueDetail: (owner: string, repo: string, number: number) => Promise<IssueDetailDto>;
   createIssueComment: (owner: string, repo: string, number: number, body: string) => Promise<IssueCommentDto>;
   setIssueState: (owner: string, repo: string, number: number, state: 'open' | 'closed') => Promise<IssueDetailDto>;

@@ -118,8 +118,7 @@
 }
 
 .product-issue-form__success,
-.product-issue-form__error,
-.product-issue-monitor__status {
+.product-issue-form__error {
   margin: 0;
   font-size: var(--font-size-sm);
   color: var(--text-3);

@@ -13,8 +13,10 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
+import com.bytequay.app.domain.IssueOrigin;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
@@ -24,6 +26,7 @@ import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
+import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.Task;
@@ -33,6 +36,7 @@ import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.IssueOriginService;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
@@ -127,6 +131,7 @@ public class PublishService
     private final GitRunner git;
     private final PullRequestRepository pullRequests;
     private final PatResolver patResolver;
+    private final IssueOriginService issueOrigins;
     private final ObjectMapper mapper;
     private final ParkedProposalService parkedProposals;
     private final TaskPhaseMachine phaseMachine;
@@ -147,6 +152,7 @@ public class PublishService
             GitRunner git,
             PullRequestRepository pullRequests,
             PatResolver patResolver,
+            IssueOriginService issueOrigins,
             ObjectMapper mapper,
             ParkedProposalService parkedProposals,
             @Lazy TaskService taskService,
@@ -161,6 +167,7 @@ public class PublishService
         this.git = requireNonNull(git, "git is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
+        this.issueOrigins = requireNonNull(issueOrigins, "issueOrigins is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.parkedProposals = requireNonNull(parkedProposals, "parkedProposals is null");
         this.taskService = requireNonNull(taskService, "taskService is null");
@@ -188,7 +195,7 @@ public class PublishService
         // discriminator the fresh-approve path uses to guard a button
         // rendered against a since-changed payload.
         if (original.status() == NotificationStatus.RESOLVING) {
-            return finishInterruptedApproval(original, action);
+            return finishInterruptedApproval(original, proposal);
         }
         requireExpectedAction(expectedAction, action);
         ApprovedAction approvedAction = approvedActionFor(proposal, original);
@@ -310,6 +317,10 @@ public class PublishService
         if (taskId == null) {
             return;
         }
+        if (proposal instanceof ParkedProposal.CreateIssue) {
+            completePlanningProposal(taskId, "quality_issue_published");
+            return;
+        }
         TaskPhase target = switch (proposal) {
             case ParkedProposal.Push ignored -> TaskPhase.PUSHED_AWAITING_CI;
             case ParkedProposal.OpenPr ignored -> TaskPhase.PUSHED_AWAITING_CI;
@@ -386,6 +397,9 @@ public class PublishService
             case ParkedProposal.RequestReviewer requestReviewer -> action(
                     editedBody -> preflightRequestReviewer(requestReviewer),
                     editedBody -> doRequestReviewer(requestReviewer));
+            case ParkedProposal.CreateIssue createIssue -> action(
+                    editedBody -> preflightCreateIssue(createIssue, editedBody),
+                    editedBody -> doCreateIssue(createIssue, editedBody));
             case ParkedProposal.CommentOnIssue commentOnIssue -> action(
                     editedBody -> preflightCommentOnIssue(commentOnIssue, editedBody),
                     editedBody -> doCommentOnIssue(commentOnIssue, editedBody));
@@ -545,6 +559,22 @@ public class PublishService
         requireEditableBody(commentOnIssue.body(), editedBody, "comment body is blank — nothing to post");
     }
 
+    private static void preflightCreateIssue(ParkedProposal.CreateIssue createIssue, String editedBody)
+    {
+        ParkedProposal.RepoRef repo = createIssue.repo();
+        if (repo == null
+                || nullToEmpty(repo.owner()).isBlank()
+                || nullToEmpty(repo.repo()).isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked create_issue notification has incomplete repo ref");
+        }
+        if (nullToEmpty(createIssue.title()).isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked create_issue notification has no title");
+        }
+        requireEditableBody(createIssue.body(), editedBody, "issue body is blank — nothing to post");
+    }
+
     private static void preflightSetIssueState(ParkedProposal.SetIssueState setIssueState)
     {
         requireIssueRef(setIssueState.issue(), setIssueState.action());
@@ -665,9 +695,15 @@ public class PublishService
         return legacyCount + prCount;
     }
 
-    private PublishResult finishInterruptedApproval(Notification original, String action)
+    private PublishResult finishInterruptedApproval(
+            Notification original,
+            ParkedProposal proposal)
     {
+        String action = proposal.action();
         parkedProposals.finishInterruptedApproval(original, action);
+        if (proposal instanceof ParkedProposal.CreateIssue) {
+            completePlanningProposal(original.taskId(), "quality_issue_publish_recovered");
+        }
         String message = "Closed the interrupted approval locally without repeating "
                 + "its publish action. Check the remote state before proposing it again.";
         writeAuditRow(original, RESOLUTION_RECOVERED, action, message);
@@ -719,9 +755,13 @@ public class PublishService
         //      Resuming could let the agent re-edit work that already
         //      shipped, and (when the advance produced a successor)
         //      revive the prior task into a second active sibling.
-        boolean resumeTask = !interrupted
-                || ACTION_REQUEST_REVIEW.equals(action);
+        boolean resumeTask = (!interrupted
+                && !(proposal instanceof ParkedProposal.CreateIssue))
+                || (interrupted && ACTION_REQUEST_REVIEW.equals(action));
         parkedProposals.finishDiscarded(original, resumeTask);
+        if (proposal instanceof ParkedProposal.CreateIssue) {
+            completePlanningProposal(original.taskId(), "quality_issue_discarded");
+        }
         String auditResolution = interrupted ? RESOLUTION_DISCARDED_AFTER_INTERRUPT : RESOLUTION_DISCARDED;
         // For an interrupted discard we deliberately don't reassert
         // the remote outcome here — the prior `interrupted_unconfirmed`
@@ -736,6 +776,24 @@ public class PublishService
         writeAuditRow(original, auditResolution, action, auditMessage);
         return new PublishResult(true, RESOLUTION_DISCARDED,
                 "Discarded.", action);
+    }
+
+    /** Close the read-only planning lifecycle behind a quality-scan issue
+     * proposal. Publish proposals normally arise during development; this
+     * one deliberately arises from PlanStage, so its approval/discard must
+     * also close that stage instead of leaving a completed task in PLANNING. */
+    private void completePlanningProposal(String taskId, String reason)
+    {
+        if (taskId == null || taskId.isBlank()) {
+            return;
+        }
+        try {
+            phaseMachine.transition(taskId, TaskPhase.COMPLETED, reason, Actor.HUMAN);
+        }
+        catch (RuntimeException e) {
+            log.warn("completing quality proposal phase for task {} failed: {}",
+                    taskId, e.getMessage());
+        }
     }
 
     /**
@@ -1185,6 +1243,19 @@ public class PublishService
         return new PublishResult(true, RESOLUTION_APPROVED,
                 "Posted comment on " + issue.owner() + "/" + issue.repo() + "#" + issue.number() + ".",
                 commentOnIssue.action());
+    }
+
+    private PublishResult doCreateIssue(ParkedProposal.CreateIssue createIssue, String editedBody)
+    {
+        ParkedProposal.RepoRef target = createIssue.repo();
+        RepoRef repo = RepoRef.of(target.owner(), target.repo());
+        String body = IssueOrigin.markQualityScan(effectiveBody(createIssue.body(), editedBody));
+        String pat = patResolver.resolve(repo.fullName());
+        RepoIssue created = pullRequests.createIssue(pat, repo, createIssue.title(), body);
+        issueOrigins.recordCreated(created, IssueOrigin.QUALITY_SCAN);
+        return new PublishResult(true, RESOLUTION_APPROVED,
+                "Created " + repo.fullName() + "#" + created.number() + ".",
+                createIssue.action());
     }
 
     private PublishResult doSetIssueState(ParkedProposal.SetIssueState setIssueState)

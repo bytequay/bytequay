@@ -53,6 +53,10 @@ interface TaskJpaRepository
      *  scan cap bounds only in-flight tasks, never the full linked-PR set. */
     List<TaskEntity> findByPhaseInOrderByCreatedAtMsDesc(List<String> phases, Pageable pageable);
 
+    /** Workspace automations reconcile every matching task, oldest first,
+     *  rather than sharing the global lifecycle driver's capped window. */
+    List<TaskEntity> findByPhaseAndOriginOrderByCreatedAtMsAsc(String phase, String origin);
+
     /** All tasks linked to a PR number (across repos — the caller
      *  narrows by repo). Drives completion when that PR merges. */
     List<TaskEntity> findByLinkedPrNumber(Integer linkedPrNumber);

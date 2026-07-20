@@ -247,6 +247,14 @@ public class AgentScheduler
     }
 
     @Override
+    public String enqueueTrunkTurn(Thread thread, String input, TurnInitiator initiator)
+    {
+        return enqueueTurnInternal(
+                thread, input, /* taskId */ null, /* stageId */ null,
+                requireNonNull(initiator, "initiator is null"), /* agentRunId */ null);
+    }
+
+    @Override
     public String enqueueTrunkTurn(Thread thread, String input, String agentRunId)
     {
         return enqueueTurnInternal(

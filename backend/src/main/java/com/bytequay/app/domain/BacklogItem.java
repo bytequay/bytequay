@@ -26,7 +26,7 @@ import java.util.List;
  * creator provenance, a workspace pointer for the workspace-wide view, and
  * the {@code relatedBacklogIds} sibling linkage trunk-split sets. Lifecycle
  * transitions go through the {@code with*} / {@code mark*} copy helpers so
- * the 18-field record never gets reconstructed positionally at call sites.
+ * the record never gets reconstructed positionally at call sites.
  */
 public record BacklogItem(
         String id,
@@ -39,6 +39,7 @@ public record BacklogItem(
         String source,
         String status,
         String createdBy,
+        String origin,
         Instant createdAt,
         Instant inProgressAt,
         Instant startedAt,
@@ -65,6 +66,10 @@ public record BacklogItem(
     public static final String STATUS_NOT_TO_PROCEED = STATUS_DISCARDED;
     public static final String CREATED_BY_USER = "user";
     public static final String CREATED_BY_TRUNK_AGENT = "trunk-agent";
+    public static final String ORIGIN_USER = "user";
+    public static final String ORIGIN_AGENT = "agent";
+    public static final String ORIGIN_ISSUE_MONITOR = "issue-monitor";
+    public static final String ORIGIN_QUALITY_SCAN = "quality-scan";
 
     public BacklogItem
     {
@@ -98,7 +103,8 @@ public record BacklogItem(
             List<String> relatedBacklogIds)
     {
         this(id, threadId, workspaceId, title, body, tags, priority, source,
-                status, createdBy, createdAt, inProgressAt, startedAt,
+                status, createdBy, originFor(source, createdBy, tags), createdAt,
+                inProgressAt, startedAt,
                 resolvedAt, rejectedAt, rejectionReason, linkedTaskId,
                 relatedBacklogIds, null, title, body, null, List.of());
     }
@@ -119,7 +125,8 @@ public record BacklogItem(
     {
         return new BacklogItem(
                 id, threadId, workspaceId, title, body, tags,
-                priority, source, STATUS_CREATED, createdBy, createdAt,
+                priority, source, STATUS_CREATED, createdBy,
+                originFor(source, createdBy, tags), createdAt,
                 /* inProgressAt */ null, /* startedAt */ null, /* resolvedAt */ null,
                 /* rejectedAt */ null, /* rejectionReason */ null, /* linkedTaskId */ null,
                 relatedBacklogIds, null, title, body, null, List.of());
@@ -130,7 +137,7 @@ public record BacklogItem(
     {
         return new BacklogItem(
                 id, threadId, workspaceId, title, body, tags,
-                priority, source, status, createdBy, createdAt,
+                priority, source, status, createdBy, origin, createdAt,
                 inProgressAt, startedAt, resolvedAt, rejectedAt, rejectionReason,
                 linkedTaskId, relatedBacklogIds, itemKey, title, body,
                 impactRisk, links);
@@ -151,7 +158,7 @@ public record BacklogItem(
         return new BacklogItem(
                 id, threadId, workspaceId, title,
                 nextDetail == null ? "" : nextDetail, tags, priority, source,
-                status, createdBy, createdAt, inProgressAt, startedAt,
+                status, createdBy, origin, createdAt, inProgressAt, startedAt,
                 resolvedAt, rejectedAt, rejectionReason, linkedTaskId,
                 relatedBacklogIds,
                 newItemKey == null ? itemKey : newItemKey,
@@ -163,7 +170,7 @@ public record BacklogItem(
     {
         return new BacklogItem(
                 id, newThreadId, workspaceId, title, body, tags, priority,
-                source, status, createdBy, createdAt, inProgressAt, startedAt,
+                source, status, createdBy, origin, createdAt, inProgressAt, startedAt,
                 resolvedAt, rejectedAt, rejectionReason, linkedTaskId,
                 relatedBacklogIds, itemKey, summary, detail, impactRisk, links);
     }
@@ -174,7 +181,7 @@ public record BacklogItem(
     {
         return new BacklogItem(
                 id, threadId, workspaceId, title, body, tags,
-                priority, source, STATUS_IN_PROGRESS, createdBy, createdAt,
+                priority, source, STATUS_IN_PROGRESS, createdBy, origin, createdAt,
                 when, when, resolvedAt, rejectedAt, rejectionReason, linkedTaskId,
                 relatedBacklogIds, itemKey, summary, detail, impactRisk, links);
     }
@@ -184,7 +191,7 @@ public record BacklogItem(
     {
         return new BacklogItem(
                 id, threadId, workspaceId, title, body, tags,
-                priority, source, STATUS_RESOLVED, createdBy, createdAt,
+                priority, source, STATUS_RESOLVED, createdBy, origin, createdAt,
                 inProgressAt == null ? when : inProgressAt, startedAt == null ? when : startedAt,
                 when, rejectedAt, rejectionReason, taskId, relatedBacklogIds,
                 itemKey, summary, detail, impactRisk, links);
@@ -195,7 +202,7 @@ public record BacklogItem(
     {
         return new BacklogItem(
                 id, threadId, workspaceId, title, body, tags,
-                priority, source, STATUS_NOT_TO_PROCEED, createdBy, createdAt,
+                priority, source, STATUS_NOT_TO_PROCEED, createdBy, origin, createdAt,
                 inProgressAt, startedAt, resolvedAt, when, reason, linkedTaskId,
                 relatedBacklogIds, itemKey, summary, detail, impactRisk, links);
     }
@@ -206,7 +213,7 @@ public record BacklogItem(
     {
         return new BacklogItem(
                 id, threadId, workspaceId, title, body, tags,
-                priority, source, STATUS_CREATED, createdBy, createdAt,
+                priority, source, STATUS_CREATED, createdBy, origin, createdAt,
                 /* inProgressAt */ null, startedAt, resolvedAt,
                 /* rejectedAt */ null, /* rejectionReason */ null, linkedTaskId,
                 relatedBacklogIds, itemKey, summary, detail, impactRisk, links);
@@ -216,6 +223,26 @@ public record BacklogItem(
     public boolean isStarted()
     {
         return startedAt != null;
+    }
+
+    /** Stamp immutable provenance once, from server-controlled creator fields.
+     *  Special tags only refine items actually created by the trunk agent; a
+     *  manual item carrying the same editable tag remains user-originated. */
+    private static String originFor(String source, String createdBy, List<String> tags)
+    {
+        boolean agent = SOURCE_AGENT.equals(source) || CREATED_BY_TRUNK_AGENT.equals(createdBy)
+                || "agent".equals(createdBy);
+        if (!agent) {
+            return ORIGIN_USER;
+        }
+        if (tags != null && tags.contains(ORIGIN_QUALITY_SCAN)) {
+            return ORIGIN_QUALITY_SCAN;
+        }
+        if (tags != null && (tags.contains("remote-intake")
+                || tags.contains("bytequay-intake"))) {
+            return ORIGIN_ISSUE_MONITOR;
+        }
+        return ORIGIN_AGENT;
     }
 
     public record Link(String type, String id) {}

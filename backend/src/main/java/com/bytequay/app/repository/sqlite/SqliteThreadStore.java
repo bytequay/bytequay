@@ -203,7 +203,8 @@ class SqliteThreadStore
                     thread.errorMessage() != null ? thread.errorMessage() : task.errorMessage(),
                     task.name(),
                     task.roleSkill(),
-                    task.workModel());
+                    task.workModel(),
+                    task.origin());
             taskStore.saveTask(next);
         });
     }

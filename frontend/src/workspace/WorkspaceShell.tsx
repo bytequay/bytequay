@@ -244,7 +244,7 @@ function isRepoSection(section: WorkspaceSection): section is WorkspaceRepoSecti
 
 function isSettingsSection(value: string | undefined): value is WorkspaceSettingsSection {
   return value === 'general' || value === 'agents' || value === 'notifications'
-    || value === 'sync' || value === 'memory' || value === 'danger';
+    || value === 'sync' || value === 'automation' || value === 'memory' || value === 'danger';
 }
 
 export default WorkspaceShell;

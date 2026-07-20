@@ -11,18 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Ds4StateDto, WorkspaceCardDto, WorkModelOptionsDto } from '../types';
 import {
   workspaceApi,
+  type WorkspaceAutomationStatusDto,
   type WorkspaceCreationDto,
   type WorkspaceMemoryDto,
   type WorkspaceRepositoryDto,
   type WorkspaceSettingsDto,
 } from './workspaceApi';
 
+const AUTOMATION_REFRESH_MS = 30_000;
+
 export type WorkspaceSettingsSection =
-  | 'general' | 'agents' | 'notifications' | 'sync' | 'memory' | 'danger';
+  | 'general' | 'agents' | 'notifications' | 'sync' | 'automation' | 'memory' | 'danger';
 
 type StoredSettings = {
   planModel: string;
@@ -39,6 +42,8 @@ type StoredSettings = {
   notifyReviews: boolean;
   notifyCi: boolean;
   notifyCompletions: boolean;
+  qualityScanEnabled: boolean;
+  remoteIssueIntakeEnabled: boolean;
 };
 
 const defaults: StoredSettings = {
@@ -56,6 +61,8 @@ const defaults: StoredSettings = {
   notifyReviews: true,
   notifyCi: true,
   notifyCompletions: false,
+  qualityScanEnabled: false,
+  remoteIssueIntakeEnabled: false,
 };
 
 export default function WorkspaceSettingsPage({
@@ -74,11 +81,17 @@ export default function WorkspaceSettingsPage({
   const [modelOptions, setModelOptions] = useState<WorkModelOptionsDto | null>(null);
   const [localAiState, setLocalAiState] = useState<Ds4StateDto | null>(null);
   const [memory, setMemory] = useState<WorkspaceMemoryDto | null>(null);
+  const [automation, setAutomation] = useState<WorkspaceAutomationStatusDto | null>(null);
   const [saved, setSaved] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [refreshingModels, setRefreshingModels] = useState(false);
   const [reclone, setReclone] = useState<WorkspaceCreationDto | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const activeWorkspaceId = useRef(workspaceId);
+
+  useEffect(() => {
+    activeWorkspaceId.current = workspaceId;
+  }, [workspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -115,6 +128,32 @@ export default function WorkspaceSettingsPage({
   }, [memory, section, workspaceId]);
 
   useEffect(() => {
+    if (section !== 'automation') return;
+    let cancelled = false;
+    setAutomation(null);
+    void workspaceApi.automation(workspaceId)
+      .then(next => { if (!cancelled) setAutomation(next); })
+      .catch(reason => {
+        if (!cancelled) setActionMessage(reason instanceof Error ? reason.message : String(reason));
+      });
+    return () => { cancelled = true; };
+  }, [section, workspaceId]);
+
+  useEffect(() => {
+    if (section !== 'automation') return;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void workspaceApi.automation(workspaceId)
+        .then(next => { if (!cancelled) setAutomation(next); })
+        .catch(() => { /* keep the last known health snapshot */ });
+    }, AUTOMATION_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [section, workspaceId]);
+
+  useEffect(() => {
     if (reclone === null || reclone.state === 'ready' || reclone.state === 'failed') return;
     const timer = window.setTimeout(() => {
       void workspaceApi.creation(reclone.id)
@@ -147,6 +186,11 @@ export default function WorkspaceSettingsPage({
       }
       const persisted = await workspaceApi.saveSettings(workspaceId, toDto(settings));
       setSettings(fromDto(persisted));
+      if (section === 'automation') {
+        void workspaceApi.automation(workspaceId).then(next => {
+          if (activeWorkspaceId.current === workspaceId) setAutomation(next);
+        }).catch(() => {});
+      }
       setSaved(true);
       window.setTimeout(() => setSaved(false), 1400);
     }
@@ -190,6 +234,7 @@ export default function WorkspaceSettingsPage({
             ['agents', 'Agents'],
             ['notifications', 'Notifications'],
             ['sync', 'Sync'],
+            ['automation', 'Automation'],
             ['memory', 'Memory'],
             ['danger', 'Danger zone'],
           ] as const).map(([key, label]) => (
@@ -291,6 +336,38 @@ export default function WorkspaceSettingsPage({
                   }}>{syncing ? 'Refreshing…' : 'Refresh'}</button>
               </SettingRow>
             </SettingsCard>
+          )}
+          {section === 'automation' && (
+            <>
+              <SettingsCard title="Local quality scan" subtitle="clean code and performance">
+                <ToggleRow
+                  label="Scan this workspace"
+                  detail="Periodically inspects the verified local checkout. Confident findings become approval-gated GitHub issue proposals; uncertain findings ask before entering the local backlog."
+                  checked={settings.qualityScanEnabled}
+                  disabled={!settings.qualityScanEnabled
+                    && (automation === null || !automation.qualityScan.eligible)}
+                  onChange={value => update('qualityScanEnabled', value)} />
+                <AutomationHealth
+                  status={automation?.qualityScan ?? null}
+                  metrics={[['Findings proposed', automation?.qualityScan.findingsProposed ?? 0]]} />
+              </SettingsCard>
+              <SettingsCard title="Remote issue intake" subtitle="triage and safe implementation">
+                <ToggleRow
+                  label="Watch new GitHub issues"
+                  detail="Triages new issues through the Agent Scheduler. High-confidence, low-risk, small fixes start locally; every push and pull request remains approval-gated."
+                  checked={settings.remoteIssueIntakeEnabled}
+                  disabled={!settings.remoteIssueIntakeEnabled
+                    && (automation === null || !automation.remoteIssueIntake.eligible)}
+                  onChange={value => update('remoteIssueIntakeEnabled', value)} />
+                <AutomationHealth
+                  status={automation?.remoteIssueIntake ?? null}
+                  metrics={[
+                    ['Issues examined', automation?.remoteIssueIntake.issuesExamined ?? 0],
+                    ['Tasks queued', automation?.remoteIssueIntake.tasksQueued ?? 0],
+                    ['Implementations started', automation?.remoteIssueIntake.implementationsStarted ?? 0],
+                  ]} />
+              </SettingsCard>
+            </>
           )}
           {section === 'memory' && (
             <SettingsCard title="Brain and distillation">
@@ -552,12 +629,64 @@ function ToggleRow({ label, detail, checked, onChange, disabled = false }: {
   return (
     <SettingRow label={label} detail={detail}>
       <button type="button" role="switch" aria-checked={checked}
+        aria-label={label}
         disabled={disabled}
         className={`wu-switch${checked ? ' on' : ''}`} onClick={() => onChange(!checked)}>
         <i />
       </button>
     </SettingRow>
   );
+}
+
+type AutomationJobStatus = WorkspaceAutomationStatusDto['qualityScan']
+  | WorkspaceAutomationStatusDto['remoteIssueIntake'];
+
+function AutomationHealth({ status, metrics }: {
+  status: AutomationJobStatus | null;
+  metrics: Array<readonly [string, number]>;
+}) {
+  if (status === null) {
+    return <SettingRow label="Run status"><span role="status">Loading…</span></SettingRow>;
+  }
+  return (
+    <>
+      <SettingRow label="Run status" detail={status.reason ?? undefined}>
+        <span role="status">{status.running ? 'Running' : status.enabled ? 'Enabled' : 'Disabled'}</span>
+      </SettingRow>
+      <SettingRow label="Last run">
+        <span>{status.lastRunAt === null
+          ? 'Not run yet'
+          : `${formatAutomationTime(status.lastRunAt, 'Unknown')} · ${formatOutcome(status.lastOutcome)}`}</span>
+      </SettingRow>
+      <SettingRow label="Next run">
+        <span>{status.running
+          ? 'In progress'
+          : status.enabled
+            ? formatAutomationTime(status.expectedNextRunAt, 'Scheduling…')
+            : 'Disabled'}</span>
+      </SettingRow>
+      {metrics.map(([label, value]) => (
+        <SettingRow key={label} label={label}><span>{value}</span></SettingRow>
+      ))}
+      {status.lastError !== null && (
+        <SettingRow label="Last error"><span role="alert">{status.lastError}</span></SettingRow>
+      )}
+    </>
+  );
+}
+
+function formatAutomationTime(value: string | null, fallback: string): string {
+  if (value === null) return fallback;
+  const time = new Date(value);
+  if (Number.isNaN(time.getTime())) return fallback;
+  return time.toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  });
+}
+
+function formatOutcome(value: AutomationJobStatus['lastOutcome']): string {
+  if (value === null) return 'Unknown';
+  return value.charAt(0) + value.slice(1).toLowerCase();
 }
 
 function DangerRow({ title, detail, action, destructive = false, disabled = false, onClick }: {
@@ -594,6 +723,8 @@ function fromDto(value: WorkspaceSettingsDto): StoredSettings {
     notifyReviews: true,
     notifyCi: value.notifyCi,
     notifyCompletions: value.notifyCompletions,
+    qualityScanEnabled: value.qualityScanEnabled ?? false,
+    remoteIssueIntakeEnabled: value.remoteIssueIntakeEnabled ?? false,
   };
 }
 
@@ -614,5 +745,7 @@ function toDto(value: StoredSettings): WorkspaceSettingsDto {
     },
     notifyCi: value.notifyCi,
     notifyCompletions: value.notifyCompletions,
+    qualityScanEnabled: value.qualityScanEnabled,
+    remoteIssueIntakeEnabled: value.remoteIssueIntakeEnabled,
   };
 }

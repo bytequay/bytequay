@@ -132,8 +132,25 @@ public record Task(
          *  input on the QUEUED → IMPLEMENTING promotion. Null on tasks
          *  not born from the queue. Entity-managed (not mapped by
          *  {@code saveTask}); the row mapper populates it. */
-        String openingPrompt)
+        String openingPrompt,
+        /** Immutable creator provenance. Values are the {@code ORIGIN_*}
+         *  constants below; custom internal producers may use another stable
+         *  lowercase identifier. */
+        String origin)
 {
+    public static final String ORIGIN_USER = "user";
+    public static final String ORIGIN_AGENT = "agent";
+    public static final String ORIGIN_AUTOMATION = "automation";
+    public static final String ORIGIN_ISSUE_MONITOR = "issue-monitor";
+    public static final String ORIGIN_QUALITY_SCAN = "quality-scan";
+    public static final String TYPE_WORKSPACE_ISSUE_TRIAGE = "WORKSPACE_ISSUE_TRIAGE";
+    public static final String TYPE_LOCAL_QUALITY_SCAN = "LOCAL_QUALITY_SCAN";
+
+    public Task
+    {
+        origin = origin == null || origin.isBlank() ? ORIGIN_USER : origin.strip();
+    }
+
     /**
      * Back-compat constructor for the 26-field shape that predates the
      * {@code pushedAt} (V105), {@code phase} + agenda/auto-push/link
@@ -174,7 +191,44 @@ public record Task(
                 processPid, logPath, prNumber, prState, ciState, taskType, linkedPrNumber,
                 linkedIssueNumber, costUsdMilli, tokensIn, tokensOut, agentSessionId, createdAt,
                 endedAt, errorMessage, name, roleSkill, workModel, null, TaskPhase.IMPLEMENTING,
-                null, 0, null, null);
+                null, 0, null, null, ORIGIN_USER);
+    }
+
+    /** Fresh-construction shape for an explicitly attributed task. */
+    public Task(
+            String id,
+            String threadId,
+            long seq,
+            TaskStatus status,
+            String branchName,
+            String worktreePath,
+            String baseBranch,
+            String workingDir,
+            Integer processPid,
+            String logPath,
+            Integer prNumber,
+            String prState,
+            String ciState,
+            String taskType,
+            Integer linkedPrNumber,
+            Integer linkedIssueNumber,
+            long costUsdMilli,
+            long tokensIn,
+            long tokensOut,
+            String agentSessionId,
+            Instant createdAt,
+            Instant endedAt,
+            String errorMessage,
+            String name,
+            String roleSkill,
+            WorkModel workModel,
+            String origin)
+    {
+        this(id, threadId, seq, status, branchName, worktreePath, baseBranch, workingDir,
+                processPid, logPath, prNumber, prState, ciState, taskType, linkedPrNumber,
+                linkedIssueNumber, costUsdMilli, tokensIn, tokensOut, agentSessionId, createdAt,
+                endedAt, errorMessage, name, roleSkill, workModel, null, TaskPhase.IMPLEMENTING,
+                null, 0, null, null, origin);
     }
 
     /**
@@ -221,7 +275,49 @@ public record Task(
                 processPid, logPath, prNumber, prState, ciState, taskType, linkedPrNumber,
                 linkedIssueNumber, costUsdMilli, tokensIn, tokensOut, agentSessionId, createdAt,
                 endedAt, errorMessage, name, roleSkill, workModel, pushedAt, phase, agendaJson,
-                consecutiveAutoPushes, linkedPrRef, null);
+                consecutiveAutoPushes, linkedPrRef, null, ORIGIN_USER);
+    }
+
+    /** Back-compat constructor for the pre-provenance canonical shape. */
+    public Task(
+            String id,
+            String threadId,
+            long seq,
+            TaskStatus status,
+            String branchName,
+            String worktreePath,
+            String baseBranch,
+            String workingDir,
+            Integer processPid,
+            String logPath,
+            Integer prNumber,
+            String prState,
+            String ciState,
+            String taskType,
+            Integer linkedPrNumber,
+            Integer linkedIssueNumber,
+            long costUsdMilli,
+            long tokensIn,
+            long tokensOut,
+            String agentSessionId,
+            Instant createdAt,
+            Instant endedAt,
+            String errorMessage,
+            String name,
+            String roleSkill,
+            WorkModel workModel,
+            Instant pushedAt,
+            TaskPhase phase,
+            String agendaJson,
+            int consecutiveAutoPushes,
+            String linkedPrRef,
+            String openingPrompt)
+    {
+        this(id, threadId, seq, status, branchName, worktreePath, baseBranch, workingDir,
+                processPid, logPath, prNumber, prState, ciState, taskType, linkedPrNumber,
+                linkedIssueNumber, costUsdMilli, tokensIn, tokensOut, agentSessionId, createdAt,
+                endedAt, errorMessage, name, roleSkill, workModel, pushedAt, phase, agendaJson,
+                consecutiveAutoPushes, linkedPrRef, openingPrompt, ORIGIN_USER);
     }
 
     /**
@@ -281,7 +377,8 @@ public record Task(
                 agendaJson,
                 consecutiveAutoPushes,
                 linkedPrRef,
-                openingPrompt);
+                openingPrompt,
+                origin);
     }
 
     /** Copy with this task's own accumulated usage; all other fields
@@ -321,7 +418,8 @@ public record Task(
                 agendaJson,
                 consecutiveAutoPushes,
                 linkedPrRef,
-                openingPrompt);
+                openingPrompt,
+                origin);
     }
 
     /** Copy with a new user-supplied {@code name}; all other fields unchanged. */
@@ -359,7 +457,8 @@ public record Task(
                 agendaJson,
                 consecutiveAutoPushes,
                 linkedPrRef,
-                openingPrompt);
+                openingPrompt,
+                origin);
     }
 
     /** Copy with a new {@code workModel} override; all other fields unchanged. */
@@ -397,7 +496,8 @@ public record Task(
                 agendaJson,
                 consecutiveAutoPushes,
                 linkedPrRef,
-                openingPrompt);
+                openingPrompt,
+                origin);
     }
 
     /** Copy with a new {@code worktreePath}; all other fields unchanged. */
@@ -435,7 +535,8 @@ public record Task(
                 agendaJson,
                 consecutiveAutoPushes,
                 linkedPrRef,
-                openingPrompt);
+                openingPrompt,
+                origin);
     }
 
     /** Copy with a new {@code processPid}; all other fields unchanged. */
@@ -473,7 +574,8 @@ public record Task(
                 agendaJson,
                 consecutiveAutoPushes,
                 linkedPrRef,
-                openingPrompt);
+                openingPrompt,
+                origin);
     }
 
     /** Copy with a new {@code prNumber}; all other fields unchanged. */
@@ -511,7 +613,8 @@ public record Task(
                 agendaJson,
                 consecutiveAutoPushes,
                 linkedPrRef,
-                openingPrompt);
+                openingPrompt,
+                origin);
     }
 
     /** Copy with a new {@code linkedPrNumber}; all other fields unchanged. */
@@ -549,7 +652,8 @@ public record Task(
                 agendaJson,
                 consecutiveAutoPushes,
                 linkedPrRef,
-                openingPrompt);
+                openingPrompt,
+                origin);
     }
 
     /** Copy with a new {@code endedAt}; all other fields unchanged. */
@@ -587,7 +691,8 @@ public record Task(
                 agendaJson,
                 consecutiveAutoPushes,
                 linkedPrRef,
-                openingPrompt);
+                openingPrompt,
+                origin);
     }
 
     /** Copy with a new {@code errorMessage}; all other fields unchanged. */
@@ -625,7 +730,8 @@ public record Task(
                 agendaJson,
                 consecutiveAutoPushes,
                 linkedPrRef,
-                openingPrompt);
+                openingPrompt,
+                origin);
     }
 
     /** Copy with a new {@code agentSessionId}; all other fields unchanged. */
@@ -663,6 +769,7 @@ public record Task(
                 agendaJson,
                 consecutiveAutoPushes,
                 linkedPrRef,
-                openingPrompt);
+                openingPrompt,
+                origin);
     }
 }

@@ -59,6 +59,11 @@ class SqliteTaskStore
     public void saveTask(Task task)
     {
         TaskEntity entity = tasks.findById(task.id()).orElseGet(TaskEntity::new);
+        boolean creating = entity.getId() == null;
+        if (!creating && !entity.getOrigin().equals(task.origin())) {
+            throw new IllegalArgumentException(
+                    "task origin is immutable: " + entity.getOrigin() + " -> " + task.origin());
+        }
         entity.setId(task.id());
         entity.setThreadId(task.threadId());
         entity.setSeq(task.seq());
@@ -75,6 +80,9 @@ class SqliteTaskStore
         entity.setTaskType(task.taskType());
         entity.setLinkedPrNumber(task.linkedPrNumber());
         entity.setLinkedIssueNumber(task.linkedIssueNumber());
+        if (creating) {
+            entity.setOrigin(task.origin());
+        }
         entity.setCostUsdMilli(task.costUsdMilli());
         entity.setTokensIn(task.tokensIn());
         entity.setTokensOut(task.tokensOut());
@@ -493,6 +501,14 @@ class SqliteTaskStore
     }
 
     @Override
+    public List<Task> listByPhaseAndOrigin(TaskPhase phase, String origin)
+    {
+        return tasks.findByPhaseAndOriginOrderByCreatedAtMsAsc(phase.name(), origin).stream()
+                .map(this::toTask)
+                .toList();
+    }
+
+    @Override
     @Transactional
     public void recordFile(TaskFile file)
     {
@@ -550,7 +566,8 @@ class SqliteTaskStore
                 e.getAgendaJson(),
                 e.getConsecutiveAutoPushes(),
                 e.getLinkedPrRef(),
-                e.getOpeningPrompt());
+                e.getOpeningPrompt(),
+                e.getOrigin());
     }
 
     /** Tolerant parse: an unknown / null phase string falls back to

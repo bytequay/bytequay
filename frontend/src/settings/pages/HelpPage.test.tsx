@@ -13,7 +13,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { IssueDto, ProductIssueMonitorStatusDto } from '../../types';
+import type { IssueDto } from '../../types';
 import HelpPage from './HelpPage';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -33,15 +33,14 @@ it('submits a product issue without consulting watched repositories', async () =
     title: 'Toolbar freezes',
     author: 'reporter',
     state: 'open',
-    htmlUrl: 'https://github.com/bytequay/bytequay/issues/19',
+    htmlUrl: 'https://github.com/chenjian2664/ByteQuay/issues/19',
     updatedAt: '2026-07-19T00:00:00Z',
     labels: [],
+    origin: 'user-report',
   };
   const reportByteQuayIssue = vi.fn(async () => created);
-  const monitor: ProductIssueMonitorStatusDto = { enabled: false, eligible: false, reason: null };
   window.bridge = {
     reportByteQuayIssue,
-    getByteQuayIssueMonitor: vi.fn(async () => monitor),
   } as unknown as typeof window.bridge;
   render(<HelpPage />);
 
@@ -56,10 +55,8 @@ it('submits a product issue without consulting watched repositories', async () =
 
 it('captures pasted screenshots and never silently drops them on submit', async () => {
   const reportByteQuayIssue = vi.fn();
-  const monitor: ProductIssueMonitorStatusDto = { enabled: false, eligible: false, reason: null };
   window.bridge = {
     reportByteQuayIssue,
-    getByteQuayIssueMonitor: vi.fn(async () => monitor),
   } as unknown as typeof window.bridge;
   render(<HelpPage />);
 

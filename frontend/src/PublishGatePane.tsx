@@ -373,10 +373,11 @@ function GenericReview({ parsed, editedBody, onBodyChange, disabled }: {
           {parsed.side !== undefined && <> ({parsed.side})</>}
         </div>
       )}
-      {/* open_pr carries metadata the user needs to see before approving:
+      {/* New PR / issue proposals carry metadata the user needs to see before approving:
           the proposed title and the head→base ref. Keep this read-only
-          for now (the editable body for open_pr lands below). */}
-      {parsed.action === 'open_pr' && (parsed.title !== undefined || parsed.head !== undefined) && (
+          for now (the editable body lands below). */}
+      {(parsed.action === 'open_pr' || parsed.action === 'create_issue')
+          && (parsed.title !== undefined || parsed.head !== undefined) && (
         <div style={summaryLineStyle}>
           {parsed.title !== undefined && parsed.title.length > 0 && (
             <>Title: <strong>{parsed.title}</strong>{' · '}</>
@@ -409,6 +410,7 @@ function describeAction(action: GenericPublishAction): string {
     case 'request_reviewer':      return 'Request a reviewer';
     case 'comment_on_issue':      return 'Comment on issue';
     case 'set_issue_state':       return 'Set issue state';
+    case 'create_issue':          return 'Create GitHub issue';
     case 'open_pr':               return 'Open PR';
     case 'publish_review':        return 'Publish review';
   }
@@ -420,7 +422,8 @@ function requiresEditedBody(action: GenericPublishAction): boolean {
   return action === 'reply_review_thread'
       || action === 'create_review_comment'
       || action === 'update_pr_body'
-      || action === 'comment_on_issue';
+      || action === 'comment_on_issue'
+      || action === 'create_issue';
 }
 
 /** Actions whose backend handler accepts an editable body — either
@@ -430,6 +433,7 @@ function hasEditableBody(parsed: ParkedPublishPayload): parsed is GenericParkedP
   if (!isGenericAction(parsed)) return false;
   return requiresEditedBody(parsed.action)
       || parsed.action === 'approve_pr'
+      || parsed.action === 'create_issue'
       || parsed.action === 'open_pr'
       || parsed.action === 'publish_review';
 }
@@ -458,6 +462,7 @@ function labelForAction(parsed: ParkedPublishPayload): string {
     case 'merge_pr':         return 'Approve & merge';
     case 'approve_pr':       return 'Approve PR';
     case 'set_issue_state':  return 'Apply state change';
+    case 'create_issue':     return 'Create issue';
     case 'open_pr':          return 'Open PR';
     case 'publish_review':   return 'Publish review';
     default:                 return 'Approve';
@@ -475,6 +480,15 @@ function parsePayload(json: string | null): ParkedPublishPayload | null {
   }
   if (typeof raw !== 'object' || raw === null) return null;
   const obj = raw as Record<string, unknown>;
+  if (obj.action === 'create_issue') {
+    const repo = parseRepoRef(obj.repo);
+    if (repo === undefined
+        || typeof obj.title !== 'string'
+        || obj.title.trim().length === 0
+        || typeof obj.body !== 'string') {
+      return null;
+    }
+  }
   if (obj.action === 'push' && typeof obj.worktreePath === 'string') {
     return normalizedDiffPayload(obj) as PushParkedPayload;
   }
@@ -538,6 +552,7 @@ const GENERIC_PUBLISH_ACTIONS = new Set<GenericPublishAction>([
   'request_reviewer',
   'comment_on_issue',
   'set_issue_state',
+  'create_issue',
   'open_pr',
   'publish_review',
 ]);
@@ -559,8 +574,9 @@ function parseRef(raw: unknown): { owner: string; repo: string; number: number }
 function parseRepoRef(raw: unknown): { owner: string; repo: string } | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const ref = raw as { owner?: unknown; repo?: unknown };
-  if (typeof ref.owner === 'string' && typeof ref.repo === 'string') {
-    return { owner: ref.owner, repo: ref.repo };
+  if (typeof ref.owner === 'string' && typeof ref.repo === 'string'
+      && ref.owner.trim().length > 0 && ref.repo.trim().length > 0) {
+    return { owner: ref.owner.trim(), repo: ref.repo.trim() };
   }
   return undefined;
 }

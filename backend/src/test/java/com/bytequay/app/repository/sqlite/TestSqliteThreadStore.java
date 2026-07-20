@@ -280,6 +280,39 @@ class TestSqliteThreadStore
     }
 
     @Test
+    void taskOriginIsPersistedOnce()
+    {
+        Thread thread = newTask(ThreadKind.CLI_AGENT, ThreadStatus.IDLE);
+        store.saveThread(thread);
+        Instant created = Instant.parse("2026-07-20T00:00:00Z");
+        Task monitored = new Task(
+                UUID.randomUUID().toString(), thread.id(), 1L, TaskStatus.PENDING,
+                "issue-12", null, "main", "/tmp", null, null,
+                null, null, null, "BYTEQUAY_ISSUE_TRIAGE", null, 12,
+                0L, 0L, 0L, null, created, null, null,
+                "Triage issue", null, null, Task.ORIGIN_ISSUE_MONITOR);
+        taskStore.saveTask(monitored);
+
+        Task loaded = taskStore.findTaskById(monitored.id()).orElseThrow();
+        assertThat(loaded.origin()).isEqualTo(Task.ORIGIN_ISSUE_MONITOR);
+
+        Task attemptedRewrite = new Task(
+                loaded.id(), loaded.threadId(), loaded.seq(), TaskStatus.IDLE,
+                loaded.branchName(), loaded.worktreePath(), loaded.baseBranch(), loaded.workingDir(),
+                loaded.processPid(), loaded.logPath(), loaded.prNumber(), loaded.prState(),
+                loaded.ciState(), loaded.taskType(), loaded.linkedPrNumber(), loaded.linkedIssueNumber(),
+                loaded.costUsdMilli(), loaded.tokensIn(), loaded.tokensOut(), loaded.agentSessionId(),
+                loaded.createdAt(), loaded.endedAt(), loaded.errorMessage(), loaded.name(),
+                loaded.roleSkill(), loaded.workModel(), Task.ORIGIN_USER);
+        assertThatThrownBy(() -> taskStore.saveTask(attemptedRewrite))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("task origin is immutable: issue-monitor -> user");
+
+        assertThat(taskStore.findTaskById(monitored.id()).orElseThrow().origin())
+                .isEqualTo(Task.ORIGIN_ISSUE_MONITOR);
+    }
+
+    @Test
     void roundtripsAThreadWorkModelOverride()
     {
         // The same JSON shape the workspace round-trip exercises;

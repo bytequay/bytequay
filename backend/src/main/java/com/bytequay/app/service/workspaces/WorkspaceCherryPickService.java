@@ -327,7 +327,8 @@ public class WorkspaceCherryPickService
                 null,
                 title,
                 null,
-                null);
+                null,
+                Task.ORIGIN_AUTOMATION);
         tasks.saveTask(task);
         StageInstance stage = stages.openStage(
                 task.id(), StageType.CI_FIXING_STAGE, null);

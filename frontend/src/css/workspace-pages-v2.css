@@ -246,46 +246,7 @@
 }
 .shell .composer--workspace-v2 .plus:hover,
 .shell .workspace-composer-mic:hover,
-.shell .workspace-composer-usage > button:hover,
-.shell .workspace-composer-effort:hover { background: #f6f8fa; }
-.shell .workspace-composer-effort {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: #454c54;
-  cursor: pointer;
-  font: 400 12.5px/normal -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-.shell .workspace-composer-effort-wrap { position: relative; display: inline-flex; }
-.shell .workspace-composer-effort-menu {
-  position: absolute;
-  left: 0;
-  bottom: 32px;
-  z-index: 6;
-  width: 104px;
-  padding: 4px;
-  border: 1px solid #e1e5e9;
-  border-radius: 9px;
-  background: #fff;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-}
-.shell .workspace-composer-effort-menu button {
-  width: 100%;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #454c54;
-  cursor: pointer;
-  font: 400 12.5px/normal -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  text-align: left;
-}
-.shell .workspace-composer-effort-menu button:hover,
-.shell .workspace-composer-effort-menu button[aria-selected="true"] { background: #f6f8fa; }
+.shell .workspace-composer-usage > button:hover { background: #f6f8fa; }
 .workspace-work-model-pill { background: transparent; }
 .workspace-work-model-pill:hover { background: #f6f8fa; }
 .shell .workspace-composer-usage { position: relative; display: inline-flex; }

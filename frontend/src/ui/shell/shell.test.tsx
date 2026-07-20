@@ -45,6 +45,8 @@ function sampleSidebar(collapsed = false) {
 }
 
 describe('Shell', () => {
+  beforeEach(() => localStorage.removeItem('bq.rail-width'));
+
   it('toggles the collapsed modifier class', () => {
     const { container, rerender } = render(sampleSidebar(false));
     expect(container.querySelector('.shell')?.className).toBe('shell');
@@ -60,16 +62,25 @@ describe('Shell', () => {
     expect(collapsed).toMatchSnapshot('collapsed');
   });
 
-  it('locks design sidebars to 216px without a resize handle', () => {
+  it('restores and updates the shared left-navigation width', () => {
+    localStorage.setItem('bq.rail-width', '330');
     const { container } = render(
-      <Shell fixedSidebarWidth={216}>
+      <Shell>
         <aside />
         <main />
       </Shell>,
     );
     expect((container.querySelector('.shell') as HTMLElement).style.gridTemplateColumns)
-      .toBe('216px minmax(0, 1fr)');
-    expect(container.querySelector('.sidebar-resize')).toBeNull();
+      .toBe('330px minmax(0, 1fr)');
+
+    const handle = screen.getByRole('separator', { name: 'Resize the sidebar' });
+    fireEvent.mouseDown(handle);
+    fireEvent.mouseMove(window, { clientX: 360 });
+    fireEvent.mouseUp(window);
+
+    expect((container.querySelector('.shell') as HTMLElement).style.gridTemplateColumns)
+      .toBe('360px minmax(0, 1fr)');
+    expect(localStorage.getItem('bq.rail-width')).toBe('360');
   });
 });
 

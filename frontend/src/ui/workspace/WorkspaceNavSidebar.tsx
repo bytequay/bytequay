@@ -15,21 +15,18 @@ import { useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import CurrentUserAvatar from '../../CurrentUserAvatar';
 import { TrafficLights } from '../shell';
+import {
+  SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_WIDTH_KEY,
+} from '../shell/useSidebarWidth';
 import { useFullScreen } from '../../useFullScreen';
 
-/** Drag-to-resize bounds + the persisted-width storage key. */
-const MIN_RAIL_WIDTH = 200;
-const MAX_RAIL_WIDTH = 460;
-const DEFAULT_RAIL_WIDTH = 250;
-const RAIL_WIDTH_KEY = 'bq.rail-width';
-
-const clampWidth = (w: number) => Math.min(MAX_RAIL_WIDTH, Math.max(MIN_RAIL_WIDTH, w));
+const clampWidth = (w: number) => Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, w));
 
 function readStoredWidth(): number {
-  if (typeof window === 'undefined') return DEFAULT_RAIL_WIDTH;
-  const raw = window.localStorage.getItem(RAIL_WIDTH_KEY);
+  if (typeof window === 'undefined') return SIDEBAR_DEFAULT_WIDTH;
+  const raw = window.localStorage.getItem(SIDEBAR_WIDTH_KEY);
   const n = raw === null ? NaN : Number(raw);
-  return Number.isFinite(n) ? clampWidth(n) : DEFAULT_RAIL_WIDTH;
+  return Number.isFinite(n) ? clampWidth(n) : SIDEBAR_DEFAULT_WIDTH;
 }
 
 /** Nav destinations. No Search (removed in this model). The first four
@@ -136,14 +133,14 @@ export function WorkspaceNavSidebar({
     const nextWidth = drag.current.width;
     drag.current = null;
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(RAIL_WIDTH_KEY, String(nextWidth));
+      window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(nextWidth));
     }
   };
   const resizeWithKeyboard = (delta: number) => {
     const nextWidth = clampWidth(width + delta);
     setWidth(nextWidth);
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(RAIL_WIDTH_KEY, String(nextWidth));
+      window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(nextWidth));
     }
   };
 
@@ -227,8 +224,8 @@ export function WorkspaceNavSidebar({
           role="separator"
           aria-orientation="vertical"
           aria-label="Resize sidebar"
-          aria-valuemin={MIN_RAIL_WIDTH}
-          aria-valuemax={MAX_RAIL_WIDTH}
+          aria-valuemin={SIDEBAR_MIN_WIDTH}
+          aria-valuemax={SIDEBAR_MAX_WIDTH}
           aria-valuenow={width}
           tabIndex={0}
           onPointerDown={onResizeDown}

@@ -89,6 +89,23 @@ describe('TrunkFeed', () => {
     expect(screen.queryByText(/Approval needed/)).toBeNull();
   });
 
+  it('keeps a terminal process error visible in focused density', () => {
+    const { container } = render(
+      <TrunkFeed
+        messages={[
+          msg('u', 'user', 'text', { text: 'inspect this' }, '2026-01-01T00:00:00Z'),
+          msg('err', 'system', 'error', { message: 'permission MCP unavailable' }, '2026-01-01T00:00:05Z'),
+        ]}
+        tasks={[]}
+        density="focused"
+        onOpenTask={() => {}}
+      />,
+    );
+
+    expect(screen.getByRole('alert').textContent).toContain('permission MCP unavailable');
+    expect(container.querySelector('.sp-badge--fail')?.textContent).toContain('1 failed');
+  });
+
   it('keeps the newest cut expanded without losing an older concurrent task', () => {
     // Regression: task2 and task3 both start (and task3's own cut lands)
     // BEFORE task2's own completion summary is finally recorded — tasks run
@@ -126,7 +143,10 @@ describe('TrunkFeed', () => {
     expect(latestCut?.textContent).toContain('Task four');
   });
 
-  it('curves the newest completed task back into the trunk', () => {
+  it('folds a finished task out of the feed instead of expanding it', () => {
+    // Once a task finishes it collapses into TrunkPage's compact top history —
+    // it no longer lingers expanded on the branch rail. With every task done,
+    // the feed keeps nothing open.
     const messages = [
       msg('sum1', 'assistant', 'task_summary', { text: 'First shipped.', taskId: 't1', taskSeq: 1 },
         '2026-01-01T01:00:00Z'),
@@ -142,20 +162,14 @@ describe('TrunkFeed', () => {
       <TrunkFeed messages={messages} tasks={tasks} density="focused" onOpenTask={() => {}} />,
     );
 
-    expect(container.querySelector('.trunk-page-v2__branch-row--cut')?.textContent).toContain('Task two');
-    expect(container.querySelector('.trunk-page-v2__branch-row--detail')?.textContent).toContain('Second shipped.');
-    expect(container.querySelector('.trunk-page-v2__branch-row--merge')?.textContent).toContain('Merged into trunk');
+    expect(container.querySelector('.trunk-page-v2__branch-row')).toBeNull();
     expect(container.textContent).not.toContain('Task one');
+    expect(container.textContent).not.toContain('Task two');
   });
 
-  it('keeps the newest task artifacts on its branch in the locked order', () => {
+  it('keeps the newest active task artifacts on its branch in the locked order', () => {
     const onReview = vi.fn();
     const onUndo = vi.fn();
-    const messages = [
-      msg('sum', 'assistant', 'task_summary', {
-        text: 'Removed the stale pages and verified every route.', taskId: 't1', taskSeq: 1,
-      }, '2026-01-01T00:04:00Z'),
-    ];
     const files: DiffFileDto[] = Array.from({ length: 5 }, (_, index): DiffFileDto => ({
       filename: `frontend/src/file-${index + 1}.tsx`, status: 'modified', additions: index + 1,
       deletions: index, patch: null,
@@ -167,8 +181,8 @@ describe('TrunkFeed', () => {
     const artifactsByTaskId = new Map([['t1', { files, commits, onReview, onUndo }]]);
     const { container } = render(
       <TrunkFeed
-        messages={messages}
-        tasks={[task('t1', 1, 'Task one', 'COMPLETED', '2026-01-01T00:00:00Z', 'MERGED')]}
+        messages={[]}
+        tasks={[task('t1', 1, 'Task one', 'IN_REVIEW', '2026-01-01T00:00:00Z')]}
         density="focused"
         onOpenTask={() => {}}
         artifactsByTaskId={artifactsByTaskId}
@@ -178,11 +192,9 @@ describe('TrunkFeed', () => {
     const branchText = Array.from(container.querySelectorAll('.trunk-page-v2__branch-row'))
       .map(row => row.textContent ?? '');
     expect(branchText[0]).toContain('Task one');
-    expect(branchText[1]).toContain('Worked for 4m');
-    expect(branchText[2]).toContain('Removed the stale pages');
-    expect(branchText[3]).toContain('Edited 5 files');
-    expect(branchText[4]).toContain('d4aae82f');
-    expect(branchText[5]).toContain('Merged into trunk');
+    expect(branchText[1]).toContain('Worked for');
+    expect(branchText[2]).toContain('Edited 5 files');
+    expect(branchText[3]).toContain('d4aae82f');
     expect(container.querySelector('.sp-work__inner')).toBeNull();
     expect(container.querySelectorAll('.workspace-task-files-card__file')).toHaveLength(3);
     fireEvent.click(screen.getByRole('button', { name: 'Show 2 more files' }));
@@ -191,19 +203,5 @@ describe('TrunkFeed', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
     expect(onReview).toHaveBeenCalledOnce();
     expect(onUndo).toHaveBeenCalledOnce();
-  });
-
-  it('does not draw a merge curve for a completed but unmerged task', () => {
-    const { container } = render(
-      <TrunkFeed
-        messages={[msg('sum', 'assistant', 'task_summary', {
-          text: 'Closed without merging.', taskId: 't1', taskSeq: 1,
-        }, '2026-01-01T01:00:00Z')]}
-        tasks={[task('t1', 1, 'Closed task', 'COMPLETED', '2026-01-01T00:00:00Z', 'CLOSED')]}
-        density="focused"
-        onOpenTask={() => {}}
-      />,
-    );
-    expect(container.querySelector('.trunk-page-v2__branch-row--merge')).toBeNull();
   });
 });

@@ -18,6 +18,13 @@ import type { PrGlyphState } from '../ui/primitives';
 import { taskLabel } from './taskLabel';
 import { relativeTime } from '../notificationDisplay';
 
+/** Terminal work-unit statuses — the task has landed (COMPLETED/merged) or been
+ *  closed/reaped (CANCELED / ARCHIVED). A terminal task folds into the trunk's
+ *  compact top history rather than staying live in the feed. IN_REVIEW is NOT
+ *  terminal (a shipped task is still in-flight: CI-fixing / addressing comments
+ *  / awaiting merge); PENDING is the Queued folder. */
+export const TERMINAL_TASK_STATUSES = new Set(['COMPLETED', 'CANCELED', 'ARCHIVED']);
+
 /** Map a work-unit status to the task card's status pill. */
 export function cardStatus(status: string): TaskStatus {
   switch (status) {

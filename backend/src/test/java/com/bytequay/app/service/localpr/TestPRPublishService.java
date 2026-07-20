@@ -14,6 +14,7 @@
 package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.domain.CreateReviewCommand;
+import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCheck;
@@ -624,6 +625,13 @@ class TestPRPublishService
                 PR.ORIGIN_EXTERNAL, "acme/widget", "@octocat", null, null, null);
     }
 
+    private PR dashboardPr(PullRequest.Origin watchReason)
+    {
+        return externalPr().withGithubSync(new PR.PRSyncSnapshot(
+                watchReason, NOW, List.of(), Map.of(), false, null, 0, 0, 0,
+                null, null, null, null, Map.of(), List.of(), false, null));
+    }
+
     private static PRComment draft(String id, String scope, String filePath, Integer lineNumber, String body)
     {
         return new PRComment(id, "pr-ext", PRComment.ORIGIN_LOCAL, scope,
@@ -751,6 +759,47 @@ class TestPRPublishService
                 eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), command.capture());
         assertThat(command.getValue().event()).isEqualTo("APPROVE");
         assertThat(command.getValue().body()).contains("Looks good to me.");
+    }
+
+    @Test
+    void publishedReviewsClearTheDashboardReviewRequestWithTheirVerdict()
+    {
+        when(prService.findById("pr-ext"))
+                .thenReturn(Optional.of(dashboardPr(PullRequest.Origin.REVIEW_REQUESTED)));
+        when(prService.comments("pr-ext")).thenReturn(List.of());
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.publishReview("pr-ext", "APPROVE", List.of(), List.of(), "Looks good.");
+        service.publishReview("pr-ext", "COMMENT", List.of(), List.of(), "Please check this.");
+        service.publishReview("pr-ext", "REQUEST_CHANGES", List.of(), List.of(), "Please revise this.");
+
+        verify(prService).markHandled("pr-ext", HandledAction.APPROVED);
+        verify(prService).markHandled("pr-ext", HandledAction.COMMENTED);
+        verify(prService).markHandled("pr-ext", HandledAction.CHANGES_REQUESTED);
+    }
+
+    @Test
+    void topLevelCommentClearsOnlyADashboardReviewRequest()
+    {
+        when(prService.findById("pr-ext"))
+                .thenReturn(Optional.of(dashboardPr(PullRequest.Origin.REVIEW_REQUESTED)));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.postComment("pr-ext", "Thanks!");
+
+        verify(prService).markHandled("pr-ext", HandledAction.COMMENTED);
+    }
+
+    @Test
+    void commentOnAnAuthoredPrDoesNotChangeDashboardTriage()
+    {
+        when(prService.findById("pr-ext"))
+                .thenReturn(Optional.of(dashboardPr(PullRequest.Origin.AUTHORED)));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.postComment("pr-ext", "Thanks!");
+
+        verify(prService, never()).markHandled(anyString(), any());
     }
 
     @Test

@@ -128,7 +128,8 @@ describe('TaskBrainRoute', () => {
     await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
     await waitFor(() => expect(getLocalPrBundle.mock.calls.length).toBeGreaterThan(fetchesBeforeReview));
 
-    fireEvent.click(screen.getByRole('button', { name: /Overview/ }));
+    const overviewTab = screen.getByRole('button', { name: /Overview/ });
+    fireEvent.click(overviewTab);
     const changesPill = screen.getAllByRole('button', { name: /Changes/ })
       .find(button => button.classList.contains('workspace-task-artifact-pill')) as HTMLButtonElement;
     const fetchesBeforePill = getLocalPrBundle.mock.calls.length;
@@ -136,6 +137,11 @@ describe('TaskBrainRoute', () => {
     await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
     await waitFor(() => expect(getLocalPrBundle.mock.calls.length).toBeGreaterThan(fetchesBeforePill));
     expect(onOpenCode).not.toHaveBeenCalled();
+
+    const prPill = screen.getAllByRole('button', { name: /PR #5680/ })
+      .find(button => button.classList.contains('workspace-task-artifact-pill')) as HTMLButtonElement;
+    fireEvent.click(prPill);
+    await waitFor(() => expect(overviewTab.style.fontWeight).toBe('600'));
   });
 
   it('shows the root-node plan with the review bar when the plan awaits the user', async () => {

@@ -200,10 +200,18 @@ export function StageDetailRoute({
   const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr' | 'ci'; token: number } | undefined>(
     undefined);
   const [openChangesToken, setOpenChangesToken] = useState<number>();
-  const openTab = useCallback((tab: 'pr', subTab?: 'checks' | 'changes') => {
+  const [openOverviewToken, setOpenOverviewToken] = useState<number>();
+  const openTab = useCallback((tab: 'pr', subTab?: 'overview' | 'checks' | 'changes') => {
     refreshLocalPr();
     setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
-    if (subTab === 'changes') setOpenChangesToken(token => (token ?? 0) + 1);
+    if (subTab === 'overview') {
+      setOpenChangesToken(undefined);
+      setOpenOverviewToken(token => (token ?? 0) + 1);
+    }
+    if (subTab === 'changes') {
+      setOpenOverviewToken(undefined);
+      setOpenChangesToken(token => (token ?? 0) + 1);
+    }
   }, [refreshLocalPr]);
 
   // The ready-for-review callout's inline gate — same semantics as the
@@ -556,6 +564,7 @@ export function StageDetailRoute({
       row={stagePullRow}
       bundle={displayedLocalPrBundle}
       refresh={refreshLocalPr}
+      openOverviewToken={openOverviewToken}
       openChangesToken={openChangesToken}
       onComment={onStagePrComment}
       onAssignAgent={() => { void agentReview.startReview(); }}
@@ -668,7 +677,7 @@ export function StageDetailRoute({
   const embeddedPr = stagePullDetail !== null && stageRemotePrNumber !== null ? {
     number: stageRemotePrNumber,
     status: taskCompleted ? 'merged' : (pr?.status ?? displayedLocalPrBundle?.pr.status ?? 'open'),
-    onOpen: openPr,
+    onOpen: () => openTab('pr', 'overview'),
   } : undefined;
 
   return (

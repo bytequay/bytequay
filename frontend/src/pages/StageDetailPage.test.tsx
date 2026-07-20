@@ -69,6 +69,13 @@ describe('StageDetailPage locked frame', () => {
     expect(screen.getByText('dev', { selector: '.workspace-task-artifact-pill .is-muted' })).toBeTruthy();
   });
 
+  it('requests the pull request overview from the PR pill', () => {
+    const onOpen = vi.fn();
+    render(stage('dev', { pr: { number: 1234, status: 'open', onOpen } }));
+    fireEvent.click(screen.getByRole('button', { name: /PR #1234/ }));
+    expect(onOpen).toHaveBeenCalledOnce();
+  });
+
   it('omits the panel and toggle when no real PR body is supplied', () => {
     const { container } = render(stage('plan', { tabs: {}, pr: undefined }));
     expect(container.querySelector('.workspace-task-v2__body.with-pr')).toBeNull();

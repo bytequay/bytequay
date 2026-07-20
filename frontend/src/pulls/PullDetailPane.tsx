@@ -38,6 +38,8 @@ const statePillStyle = { display: 'inline-flex', alignItems: 'center', gap: 6, c
 const tabBtnStyle = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 4px 10px', border: 0, background: 'transparent', fontSize: 13, cursor: 'pointer' } as const;
 
 export type PullDetailActions = {
+  /** A changed token selects Overview without remounting the PR detail pane. */
+  openOverviewToken?: number;
   /** A changed token selects Changes without remounting the PR detail pane. */
   openChangesToken?: number;
   /** Opens the agent-review column for an agent-assigned PR. */
@@ -228,7 +230,7 @@ function QuickReviewInline({
   );
 }
 
-export function PullDetailBody({ row, bundle, refresh, onComment, openChangesToken, ...actions }: PullDetailBodyProps) {
+export function PullDetailBody({ row, bundle, refresh, onComment, openOverviewToken, openChangesToken, ...actions }: PullDetailBodyProps) {
   const [subTab, setSubTab] = useState<'overview' | 'changes'>('overview');
   const [submitOpen, setSubmitOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -238,6 +240,9 @@ export function PullDetailBody({ row, bundle, refresh, onComment, openChangesTok
   useEffect(() => {
     if (openChangesToken !== undefined) setSubTab('changes');
   }, [openChangesToken]);
+  useEffect(() => {
+    if (openOverviewToken !== undefined) setSubTab('overview');
+  }, [openOverviewToken]);
   const pending = (bundle?.comments ?? []).filter(isPendingLocalComment);
   const canPublish = bundle !== null && bundle !== undefined
     && derivePRCapabilities(bundle.pr, 'details').publishReview;

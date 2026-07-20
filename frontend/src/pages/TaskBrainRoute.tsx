@@ -101,6 +101,7 @@ export function TaskBrainRoute({
   // click target. Declared ahead of the <PRView> construction below, which
   // reads it.
   const [prSubTabRequest, setPrSubTabRequest] = useState<{ subTab: 'conversation' | 'checks' | 'changes'; token: number } | undefined>(undefined);
+  const [openOverviewToken, setOpenOverviewToken] = useState<number>();
   const [reviewTabRequest, setReviewTabRequest] = useState<{ tab: 'files' | 'review'; token: number }>();
   // The task's local PR — rendered in the right pane's PR tab through the
   // same unified <PRView> + user-gated actions the stage pages use.
@@ -168,10 +169,15 @@ export function TaskBrainRoute({
   // callout's View PR — a fresh token re-fires even for a repeat click on
   // the tab that's already open.
   const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr'; token: number } | undefined>(undefined);
-  const openTab = useCallback((tab: 'pr', subTab?: 'checks' | 'changes') => {
+  const openTab = useCallback((tab: 'pr', subTab?: 'overview' | 'checks' | 'changes') => {
     refreshLocalPr();
     setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
-    if (subTab !== undefined) {
+    if (subTab === 'overview') {
+      setPrSubTabRequest(undefined);
+      setOpenOverviewToken(token => (token ?? 0) + 1);
+    }
+    else if (subTab !== undefined) {
+      setOpenOverviewToken(undefined);
       setPrSubTabRequest(prev => ({ subTab, token: (prev?.token ?? 0) + 1 }));
     }
   }, [refreshLocalPr]);
@@ -539,9 +545,8 @@ export function TaskBrainRoute({
 
   const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
 
-  // Once shipped, the linked PR shows as a clickable chip that opens it on
-  // GitHub. The brain view doesn't carry the PR's html URL, so build the
-  // canonical one from the repo + number.
+  // Once shipped, the linked PR shows as a clickable chip that opens the
+  // right-panel overview.
   // A completed task's PR has landed (merged, or the queue merged it) — show
   // it merged + flag the task finished, rather than the stale "open"/draft.
   const finished = task.currentPhase === 'COMPLETED';
@@ -550,10 +555,7 @@ export function TaskBrainRoute({
     ? {
         number: task.prNumber,
         status: finished ? 'merged' : (linkedPr?.status ?? (task.prDraft ? 'draft' : 'open')),
-        onOpen: () => {
-          void bridge?.openInAppBrowser(
-            `https://github.com/${task.repoFullName}/pull/${task.prNumber}`);
-        },
+        onOpen: () => openTab('pr', 'overview'),
       }
     : undefined;
 
@@ -653,6 +655,7 @@ export function TaskBrainRoute({
       row={taskPullRow}
       bundle={displayedTaskBundle}
       refresh={refreshLocalPr}
+      openOverviewToken={openOverviewToken}
       openChangesToken={prSubTabRequest?.subTab === 'changes' ? prSubTabRequest.token : undefined}
       onComment={onTaskPrComment}
       onAssignAgent={() => { void agentReview.startReview(); }}

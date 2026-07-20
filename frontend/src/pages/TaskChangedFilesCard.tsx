@@ -15,12 +15,14 @@ import { useState } from 'react';
 import type { DiffFileDto } from '../types';
 
 /** The changed-files artifact shared by the trunk, brain milestone feed, and stage log. */
-export function TaskChangedFilesCard({ files, onReview, onUndo, verb = 'Changed' }: {
+export function TaskChangedFilesCard({ files, commitCount, onReview, onUndo, verb = 'Changed' }: {
   files: DiffFileDto[];
+  commitCount?: number;
   onReview?: () => void;
   onUndo?: () => void;
   verb?: 'Changed' | 'Edited';
 }) {
+  const [folded, setFolded] = useState(false);
   const [expanded, setExpanded] = useState(false);
   if (files.length === 0) return null;
 
@@ -34,6 +36,11 @@ export function TaskChangedFilesCard({ files, onReview, onUndo, verb = 'Changed'
       <div className="workspace-task-files-card__header">
         <span className="workspace-task-files-card__icon"><FileIcon edited={verb === 'Edited'} /></span>
         <strong>{verb} {files.length} {files.length === 1 ? 'file' : 'files'}</strong>
+        {commitCount !== undefined && (
+          <span className="workspace-task-files-card__commits">
+            {commitCount} {commitCount === 1 ? 'commit' : 'commits'}
+          </span>
+        )}
         <span className="workspace-task-files-card__totals">
           <span>+{additions}</span> <span>−{deletions}</span>
         </span>
@@ -46,8 +53,17 @@ export function TaskChangedFilesCard({ files, onReview, onUndo, verb = 'Changed'
         {onReview !== undefined && (
           <button type="button" onClick={onReview}>Review</button>
         )}
+        <button
+          type="button"
+          className="workspace-task-files-card__fold"
+          aria-label={folded ? 'Expand changed files' : 'Collapse changed files'}
+          aria-expanded={!folded}
+          onClick={() => setFolded(value => !value)}
+        >
+          <ChevronDownIcon open={!folded} />
+        </button>
       </div>
-      {visible.map(file => {
+      {!folded && visible.map(file => {
         const split = file.filename.lastIndexOf('/');
         const directory = split < 0 ? '' : file.filename.slice(0, split + 1);
         const name = split < 0 ? file.filename : file.filename.slice(split + 1);
@@ -62,7 +78,7 @@ export function TaskChangedFilesCard({ files, onReview, onUndo, verb = 'Changed'
           </div>
         );
       })}
-      {hiddenCount > 0 && (
+      {!folded && hiddenCount > 0 && (
         <button
           type="button"
           className="workspace-task-files-card__more"

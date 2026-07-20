@@ -17,8 +17,8 @@ import { TaskBrainRoute } from './TaskBrainRoute';
 import { StageDetailRoute } from './StageDetailRoute';
 import { buildMockBrainView } from '../threads/brain/brainViewFixture';
 import type { PlanCardDto } from '../types/brainView';
-import type { DiffFileDto } from '../types';
-import type { LocalPRBundle } from '../types/localPr';
+import type { DiffFileDto, ThreadCommitDto } from '../types';
+import type { LocalPRBundle, LocalPRCommit } from '../types/localPr';
 
 // jsdom lacks scrollIntoView; the shared conversation may call it.
 beforeAll(() => { Element.prototype.scrollIntoView = vi.fn(); });
@@ -78,8 +78,16 @@ describe('TaskBrainRoute', () => {
         syncedMergeableState: null, syncedMergeQueueEnabled: false, syncedMergeQueueState: null,
         branchDeletedAt: null,
       },
-      commits: [], timeline: [], checks: [], comments: [],
+      commits: Array.from({ length: 4 }, (_, index): LocalPRCommit => ({
+        id: `stale-${index}`, localPrId: 'task-pr', sha: `stale-${index}`, message: 'superseded',
+        additions: 0, deletions: 0, authoredAt: 0, pushedAt: null,
+      })),
+      timeline: [], checks: [], comments: [],
     } as LocalPRBundle;
+    const branchCommits: ThreadCommitDto[] = Array.from({ length: 2 }, (_, index) => ({
+      sha: `current-${index}`, shortSha: `current-${index}`, authorName: 'Jack', authorEmail: 'jack@example.com',
+      authoredAt: '2026-01-01T00:00:00Z', subject: `Current commit ${index + 1}`,
+    }));
     const onOpenCode = vi.fn();
     const getLocalPrBundle = vi.fn().mockResolvedValue(bundle);
     (window as unknown as { bridge: unknown }).bridge = {
@@ -87,6 +95,7 @@ describe('TaskBrainRoute', () => {
       getPrForTask: vi.fn().mockResolvedValue(bundle.pr),
       getLocalPrBundle,
       getTaskCumulativeDiff: vi.fn().mockResolvedValue([file]),
+      listTaskCommits: vi.fn().mockResolvedValue(branchCommits),
       getAgentReview: vi.fn().mockResolvedValue(null),
       fetchPullRequestDetail: vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] }),
       fetchPrDiffFiles: vi.fn().mockResolvedValue([file]),
@@ -105,6 +114,8 @@ describe('TaskBrainRoute', () => {
 
     const changedFilesCard = (await screen.findByText('Changed 1 file'))
       .closest('.workspace-task-files-card') as HTMLElement;
+    expect(await within(changedFilesCard).findByText('2 commits')).toBeTruthy();
+    expect(within(changedFilesCard).queryByText('4 commits')).toBeNull();
     const reviewButton = within(changedFilesCard).getByRole('button', { name: 'Review' });
     const changesTab = (await screen.findAllByRole('button', { name: /Changes/ }))
       .find(button => button.closest('.workspace-task-v2__pr') !== null) as HTMLButtonElement;

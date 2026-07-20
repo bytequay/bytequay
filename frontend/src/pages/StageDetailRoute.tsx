@@ -281,9 +281,11 @@ export function StageDetailRoute({
   // task, and each task's cumulative diff is its own.
   const diffCacheKey = `${threadId}:${taskId}`;
   const [files, setFiles] = useState<DiffFileDto[] | null>(() => diffCache.get(diffCacheKey) ?? null);
+  const [commitCount, setCommitCount] = useState<number>();
 
   useEffect(() => {
     if (!hasDiff) return;
+    setCommitCount(undefined);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     if (bridge?.getTaskCumulativeDiff === undefined) return;
     let cancelled = false;
@@ -294,6 +296,9 @@ export function StageDetailRoute({
         setFiles(list);
       })
       .catch(() => { if (!cancelled) setFiles(prev => prev ?? []); });
+    void bridge.listTaskCommits(threadId, taskId)
+      .then(commits => { if (!cancelled) setCommitCount(commits.length); })
+      .catch(() => { /* omit the count when git history is unavailable */ });
     return () => { cancelled = true; };
   }, [threadId, taskId, diffCacheKey, hasDiff]);
 
@@ -468,7 +473,11 @@ export function StageDetailRoute({
         )}
         {feedRows}
         {files !== null && files.length > 0 && (
-          <TaskChangedFilesCard files={files} onReview={() => openTab('pr', 'changes')} />
+          <TaskChangedFilesCard
+            files={files}
+            commitCount={commitCount}
+            onReview={() => openTab('pr', 'changes')}
+          />
         )}
         {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
         {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'

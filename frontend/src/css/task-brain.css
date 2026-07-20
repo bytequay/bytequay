@@ -1611,6 +1611,124 @@
 
 /* ── Stage transcript (Task/Stage Conversation design) ────────────────── */
 
+/* Runtime-generated approved-plan kickoff. It remains in the transcript for
+   auditability, but reads as workflow chrome rather than a human message. */
+.task-brain .shell .runtime-kickoff-card {
+  margin: 3px 0 13px;
+  overflow: hidden;
+  border: 1px solid #e1e5e9;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.task-brain .shell .runtime-kickoff-card__summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  list-style: none;
+  cursor: pointer;
+}
+
+.task-brain .shell .runtime-kickoff-card__summary::-webkit-details-marker { display: none; }
+.task-brain .shell .runtime-kickoff-card__summary:hover { background: #fafbfc; }
+
+.task-brain .shell .runtime-kickoff-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 1px solid #eceef0;
+  border-radius: 7px;
+  background: #f6f8fa;
+  color: #57606a;
+}
+
+.task-brain .shell .runtime-kickoff-card__copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.task-brain .shell .runtime-kickoff-card__title {
+  color: #17191c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.task-brain .shell .runtime-kickoff-card__preview {
+  overflow: hidden;
+  color: #8b949e;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-brain .shell .runtime-kickoff-card__badge {
+  padding: 2px 7px;
+  flex-shrink: 0;
+  border: 1px solid #e7e9ec;
+  border-radius: 5px;
+  background: #f6f8fa;
+  color: #6e7781;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.task-brain .shell .runtime-kickoff-card__time {
+  flex-shrink: 0;
+  color: #a5abb2;
+  font-size: 10.5px;
+}
+
+.task-brain .shell .runtime-kickoff-card__chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: #b6bcc2;
+  transition: transform .15s;
+}
+
+.task-brain .shell .runtime-kickoff-card[open] .runtime-kickoff-card__chevron {
+  transform: rotate(90deg);
+}
+
+.task-brain .shell .runtime-kickoff-card__body {
+  padding: 11px 14px 12px;
+  border-top: 1px solid #f0f2f4;
+  background: #f6f8fa;
+}
+
+.task-brain .shell .runtime-kickoff-card__body-label {
+  margin-bottom: 6px;
+  color: #8b949e;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.task-brain .shell .runtime-kickoff-card__prompt {
+  color: #454c54;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.task-brain .shell .runtime-kickoff-card__skills {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid #e7e9ec;
+  color: #8b949e;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
 /* User rows: right-aligned bubble, time above-right, no "You" glyph. */
 .task-brain .shell .ev--user {
   align-items: flex-end;

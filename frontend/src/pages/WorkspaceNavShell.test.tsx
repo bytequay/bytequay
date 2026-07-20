@@ -11,10 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceNavShell } from './WorkspaceNavShell';
-import { logoColorFor, monogram, threadStatusDot } from './useWorkspaceNav';
+import { logoColorFor, monogram, threadStatusDot, useWorkspaceNav } from './useWorkspaceNav';
+import type { ThreadDto } from '../types';
 
 afterEach(() => {
   cleanup();
@@ -53,6 +54,21 @@ function mockBridge(over: Record<string, unknown> = {}) {
   return bridge;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+function thread(id: string, title: string, workspaceId: string): ThreadDto {
+  return {
+    id, title, workspaceId, status: 'IDLE', kind: 'CLI_AGENT', flow: 'build', provider: 'codex',
+    agentSessionId: null, model: 'default', costUsdMilli: 0, tokensIn: 0, tokensOut: 0,
+    createdAt: '', updatedAt: '', endedAt: null, errorMessage: null, workModel: null,
+    parallelSlots: 1,
+  };
+}
+
 describe('useWorkspaceNav helpers', () => {
   it('logoColorFor is deterministic', () => {
     expect(logoColorFor('web')).toBe(logoColorFor('web'));
@@ -66,6 +82,53 @@ describe('useWorkspaceNav helpers', () => {
     expect(threadStatusDot('AWAITING_REVIEW')).toBe('planning');
     expect(threadStatusDot('COMPLETED')).toBe('done');
     expect(threadStatusDot('IDLE')).toBe('sleep');
+  });
+
+  it('keeps workspace data together when an earlier refresh finishes after a switch', async () => {
+    const oldThreads = deferred<Awaited<ReturnType<typeof window.bridge.listTasks>>>();
+    const oldOverview = deferred<Record<string, unknown>>();
+    const newThreads = deferred<Awaited<ReturnType<typeof window.bridge.listTasks>>>();
+    const newOverview = deferred<Record<string, unknown>>();
+    const listTasks = vi.fn()
+      .mockResolvedValueOnce([thread('tr-thread', 'Trino trunk', 'tr')])
+      .mockReturnValueOnce(oldThreads.promise)
+      .mockReturnValueOnce(newThreads.promise);
+    const workspaceApi = vi.fn()
+      .mockResolvedValueOnce({ sidebarCounts: { pullRequests: 47 } })
+      .mockReturnValueOnce(oldOverview.promise)
+      .mockReturnValueOnce(newOverview.promise);
+    mockBridge({ listTasks, workspaceApi });
+
+    const { result, rerender } = renderHook(
+      ({ workspaceId }) => useWorkspaceNav(workspaceId),
+      { initialProps: { workspaceId: 'tr' } },
+    );
+    await waitFor(() => expect(result.current.rawThreads[0]?.title).toBe('Trino trunk'));
+    expect(result.current.activeWorkspace?.name).toBe('Trino');
+
+    act(() => result.current.refresh());
+    await waitFor(() => expect(listTasks).toHaveBeenCalledTimes(2));
+    rerender({ workspaceId: 'bq' });
+    await waitFor(() => expect(listTasks).toHaveBeenCalledTimes(3));
+    expect(result.current.activeWorkspace?.name).toBe('ByteQuay');
+    expect(result.current.rawThreads).toEqual([]);
+    expect(result.current.overview).toBeNull();
+
+    await act(async () => {
+      newThreads.resolve([thread('bq-thread', 'ByteQuay trunk', 'bq')]);
+      newOverview.resolve({ sidebarCounts: { pullRequests: 3 } });
+      await newThreads.promise;
+    });
+    await waitFor(() => expect(result.current.rawThreads[0]?.title).toBe('ByteQuay trunk'));
+    expect(result.current.overview?.sidebarCounts.pullRequests).toBe(3);
+
+    await act(async () => {
+      oldThreads.resolve([thread('late-tr-thread', 'Late Trino trunk', 'tr')]);
+      oldOverview.resolve({ sidebarCounts: { pullRequests: 47 } });
+      await oldThreads.promise;
+    });
+    expect(result.current.rawThreads[0]?.title).toBe('ByteQuay trunk');
+    expect(result.current.overview?.sidebarCounts.pullRequests).toBe(3);
   });
 });
 

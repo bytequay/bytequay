@@ -18,6 +18,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -123,13 +124,17 @@ public class WorkspaceInsightsService
                 .atStartOfDay(ZoneId.systemDefault())
                 .toInstant();
 
-        List<Thread> recent = workspaceId == null
+        List<Thread> recent = (workspaceId == null
                 ? threadStore.listThreadsUpdatedSince(windowStart)
                 : threadStore.listThreadsByWorkspaceUpdatedSince(
-                        workspaceId, windowStart);
-        List<Thread> workspaceThreads = workspaceId == null
+                        workspaceId, windowStart)).stream()
+                .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
+                .toList();
+        List<Thread> workspaceThreads = (workspaceId == null
                 ? recent
-                : threadStore.listThreadsByWorkspace(workspaceId);
+                : threadStore.listThreadsByWorkspace(workspaceId)).stream()
+                .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
+                .toList();
         Set<String> workspaceThreadIds = workspaceThreads.stream()
                 .map(Thread::id)
                 .collect(Collectors.toSet());
@@ -163,15 +168,15 @@ public class WorkspaceInsightsService
                 }
             }
         }
-        if (workspaceId == null) {
-            for (InvestigationReviewStore.TaskReviewSpend spend
-                    : reviewStore.taskReviewSpendSince(windowStart)) {
-                spendInWindowMilli += spend.costMilli();
-                LocalDate day = LocalDate.ofInstant(spend.occurredAt(), zone);
-                spendByDay.merge(day, spend.costMilli(), Long::sum);
-                if (!spend.occurredAt().isBefore(today)) {
-                    spendTodayMilli += spend.costMilli();
-                }
+        List<InvestigationReviewStore.TaskReviewSpend> reviewSpend = workspaceId == null
+                ? reviewStore.reviewSpendSince(windowStart)
+                : reviewStore.reviewSpendSince(workspaceId, windowStart);
+        for (InvestigationReviewStore.TaskReviewSpend spend : reviewSpend) {
+            spendInWindowMilli += spend.costMilli();
+            LocalDate day = LocalDate.ofInstant(spend.occurredAt(), zone);
+            spendByDay.merge(day, spend.costMilli(), Long::sum);
+            if (!spend.occurredAt().isBefore(today)) {
+                spendTodayMilli += spend.costMilli();
             }
         }
 

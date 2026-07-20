@@ -15,8 +15,9 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.beans.session.SessionDto;
 import com.bytequay.app.domain.AgentRun;
-import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.runs.SessionControlService;
+import com.bytequay.app.service.runs.SessionProjectionService;
+import com.bytequay.app.service.runs.SessionProjectionService.SessionProjection;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,7 +28,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
-import java.util.NoSuchElementException;
 
 import static java.util.Objects.requireNonNull;
 
@@ -37,12 +37,14 @@ public class SessionController
 {
     private static final long STREAM_TIMEOUT_MS = 30 * 60 * 1_000L;
 
-    private final AgentRunService runs;
+    private final SessionProjectionService sessions;
     private final SessionControlService controls;
 
-    public SessionController(AgentRunService runs, SessionControlService controls)
+    public SessionController(
+            SessionProjectionService sessions,
+            SessionControlService controls)
     {
-        this.runs = requireNonNull(runs, "runs is null");
+        this.sessions = requireNonNull(sessions, "sessions is null");
         this.controls = requireNonNull(controls, "controls is null");
     }
 
@@ -50,40 +52,43 @@ public class SessionController
     public List<SessionDto> list(@PathVariable String workspaceId)
     {
         Instant now = Instant.now();
-        return runs.findByWorkspace(workspaceId).stream()
-                .filter(SessionDto::isPublic)
-                .map(run -> SessionDto.from(run, now))
+        return sessions.list(workspaceId).stream()
+                .map(session -> dto(session, now))
                 .toList();
     }
 
     @GetMapping("/api/sessions/{sessionId}")
     public SessionDto get(@PathVariable String sessionId)
     {
-        return dto(requireRun(sessionId));
+        return dto(sessions.require(sessionId), Instant.now());
     }
 
     @PostMapping("/api/sessions/{sessionId}/pause")
     public SessionDto pause(@PathVariable String sessionId)
     {
-        return dto(controls.pause(sessionId));
+        SessionProjection session = requireControllableSession(sessionId);
+        return SessionDto.from(session.id(), controls.pause(session.run().id()), Instant.now());
     }
 
     @PostMapping("/api/sessions/{sessionId}/resume")
     public SessionDto resume(@PathVariable String sessionId)
     {
-        return dto(controls.resume(sessionId));
+        SessionProjection session = requireControllableSession(sessionId);
+        return SessionDto.from(session.id(), controls.resume(session.run().id()), Instant.now());
     }
 
     @PostMapping("/api/sessions/{sessionId}/stop")
     public SessionDto stop(@PathVariable String sessionId)
     {
-        return dto(controls.stop(sessionId));
+        SessionProjection session = requireControllableSession(sessionId);
+        return SessionDto.from(session.id(), controls.stop(session.run().id()), Instant.now());
     }
 
     @PostMapping("/api/sessions/{sessionId}/restart")
     public SessionDto restart(@PathVariable String sessionId)
     {
-        return dto(controls.restart(sessionId));
+        SessionProjection session = requireControllableSession(sessionId);
+        return SessionDto.from(controls.restart(session.run().id()), Instant.now());
     }
 
     @GetMapping(
@@ -91,7 +96,7 @@ public class SessionController
             produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@PathVariable String sessionId)
     {
-        requireRun(sessionId);
+        sessions.require(sessionId);
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
         Thread.startVirtualThread(() -> streamUntilTerminal(sessionId, emitter));
         return emitter;
@@ -102,8 +107,9 @@ public class SessionController
         SessionDto previous = null;
         try {
             while (true) {
-                AgentRun run = requireRun(id);
-                SessionDto current = dto(run);
+                SessionProjection session = sessions.require(id);
+                AgentRun run = session.run();
+                SessionDto current = dto(session, Instant.now());
                 if (!current.equals(previous)) {
                     emitter.send(SseEmitter.event()
                             .name("session")
@@ -127,15 +133,19 @@ public class SessionController
         }
     }
 
-    private AgentRun requireRun(String id)
+    private SessionProjection requireControllableSession(String id)
     {
-        return runs.findById(id)
-                .filter(SessionDto::isPublic)
-                .orElseThrow(() -> new NoSuchElementException("no session: " + id));
+        SessionProjection session = sessions.require(id);
+        if (session.durableReview()) {
+            throw new IllegalStateException(
+                    "review sessions are controlled from the pull request review panel");
+        }
+        return session;
     }
 
-    private static SessionDto dto(AgentRun run)
+    private static SessionDto dto(SessionProjection session, Instant now)
     {
-        return SessionDto.from(run, Instant.now());
+        return SessionDto.from(
+                session.id(), session.run(), now, session.durableReview());
     }
 }

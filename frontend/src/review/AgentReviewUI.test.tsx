@@ -81,7 +81,7 @@ describe('agent review UI', () => {
     const onRemove = vi.fn();
     const onSubmit = vi.fn();
     render(<SubmitReviewPopover comments={data.pr_comments} excluded={new Set()} onToggle={onToggle} onEdit={onEdit} onRemove={onRemove} onSubmit={onSubmit} />);
-    fireEvent.click(screen.getByRole('button', { name: /Submit review/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review • 2 ▾' }));
     const textareas = screen.getAllByRole('textbox');
     fireEvent.change(textareas[0], { target: { value: 'Edited finding' } });
     expect(onEdit).toHaveBeenCalledWith('fixture-comment-1', 'Edited finding');
@@ -210,15 +210,16 @@ describe('agent review UI', () => {
       onToggle: vi.fn(), onEdit: vi.fn(), onRemove: vi.fn(), onSubmit: vi.fn(),
     };
     const { rerender } = render(<AgentReviewHeaderAction state="never" {...props} />);
-    expect(screen.getByRole('button', { name: /Review with agent/ })).toBeTruthy();
-    rerender(<AgentReviewHeaderAction state="running" {...props} />);
-    expect(screen.getByRole('button', { name: /reviewing/ })).toBeTruthy();
-    rerender(<AgentReviewHeaderAction state="stale" {...props} />);
-    expect(screen.getByRole('button', { name: /Continue review/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Full review$/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Customize agent review' }));
     fireEvent.click(screen.getByRole('radio', { name: /CLI runner/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Re-review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start review' }));
     expect(props.onStart).toHaveBeenLastCalledWith({ runner: 'cli' });
+    rerender(<AgentReviewHeaderAction state="running" {...props} />);
+    expect(screen.getByRole('button', { name: /Full review • running/ })).toBeTruthy();
+    rerender(<AgentReviewHeaderAction state="stale" {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: /Full review · update available/ }));
+    expect(props.onOpenRound).toHaveBeenCalledOnce();
   });
 
   it('keeps the round right panel supplied by the shared PRView owner and jumps timeline findings by anchor', () => {

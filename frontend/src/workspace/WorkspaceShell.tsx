@@ -22,7 +22,7 @@ import WorkspaceBacklogPage from './WorkspaceBacklogPage';
 import NewThreadDialog from './NewThreadDialog';
 import WorkspaceInsightsPage from './WorkspaceInsightsPage';
 import WorkspaceRepoPage, { type WorkspaceRepoSection } from './WorkspaceRepoPage';
-import WorkspaceSessionsPage from './WorkspaceSessionsPage';
+import WorkspaceSessionsPage, { type WorkspaceReviewSessionTarget } from './WorkspaceSessionsPage';
 import WorkspaceThreadsSurface from './WorkspaceThreadsSurface';
 import WorkspaceTodayPage from './WorkspaceTodayPage';
 import WorkspaceNotificationsPage from './WorkspaceNotificationsPage';
@@ -81,6 +81,8 @@ type Props = {
   /** Canonical workspace issue-detail route. */
   onOpenIssue?: (issueNumber: number) => void;
   prNumber?: number;
+  /** Unified PR identity for local-before-push review routes. */
+  prId?: string;
   /** Open the pull-requests section with the agent-review column showing. */
   agentColumn?: boolean;
   issueNumber?: number;
@@ -88,6 +90,7 @@ type Props = {
   onOpenBranch?: (branchName: string) => void;
   sessionId?: string;
   onOpenSession?: (sessionId: string) => void;
+  onOpenReview?: (target: WorkspaceReviewSessionTarget) => void;
   backlogKey?: string;
   onOpenBacklog?: (key?: string) => void;
   settingsSection?: string;
@@ -112,8 +115,8 @@ type Props = {
  *  and Insights are the other two tabs. */
 function WorkspaceShell({
   section, onSelectSection, workspaceId, onOpenThread, onOpenPr,
-  onOpenIssue, prNumber, agentColumn, issueNumber, branchName, onOpenBranch,
-  sessionId, onOpenSession,
+  onOpenIssue, prNumber, prId, agentColumn, issueNumber, branchName, onOpenBranch,
+  sessionId, onOpenSession, onOpenReview,
   backlogKey, onOpenBacklog,
   settingsSection, onSelectSettingsSection,
 }: Props) {
@@ -158,6 +161,7 @@ function WorkspaceShell({
             onOpenBranch={onOpenBranch}
             onOpenTrunk={onOpenThread}
             selectedNumber={activeSection === 'pull-requests' ? prNumber : issueNumber}
+            selectedPrId={activeSection === 'pull-requests' ? prId : undefined}
             initialAgentView={activeSection === 'pull-requests' ? agentColumn : undefined}
             selectedBranch={activeSection === 'branches' ? branchName : undefined}
             onBackToList={() => onSelectSection(activeSection)}
@@ -169,6 +173,7 @@ function WorkspaceShell({
             onOpenThread={onOpenThread}
             selectedSessionId={sessionId}
             onOpenSession={onOpenSession}
+            onOpenReview={onOpenReview}
             onBackToList={() => onSelectSection('sessions')}
           />
         )}

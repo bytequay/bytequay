@@ -13,7 +13,8 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { LocalPRBundle } from '../types/localPr';
+import type { AiReviewDraftDto } from '../types';
+import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
 import type { DashboardPR } from '../types/dashboardPr';
 import PullDetailPane, { PullDetailBody } from './PullDetailPane';
 import { toRow } from './model';
@@ -28,6 +29,7 @@ describe('PullDetailPane', () => {
     const url = 'https://github.com/trinodb/trino/pull/1';
     window.bridge = {
       getLocalPrBundle: vi.fn().mockResolvedValue(null),
+      fetchPrDiffFiles: vi.fn().mockResolvedValue([]),
     } as unknown as typeof window.bridge;
     const dto: DashboardPR = {
       id: 'pr-github-link', repo: 'trinodb/trino', number: 1, title: 'A change', author: 'octocat', htmlUrl: url,
@@ -38,15 +40,26 @@ describe('PullDetailPane', () => {
       snoozedUntil: null, snoozeWakeReason: null,
     };
 
-    render(<PullDetailPane row={toRow(dto)} />);
+    const view = render(<PullDetailPane row={toRow(dto)} />);
 
     expect(screen.getByText('A change')).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'Open pull request on GitHub' })).toBeNull();
+
+    const changes = screen.getByRole('button', { name: /Changes/ });
+    expect(changes.style.fontWeight).toBe('500');
+    view.rerender(<PullDetailPane row={toRow(dto)} openChangesToken={1} />);
+    expect(changes.style.fontWeight).toBe('600');
   });
 
-  it('renders an already-loaded task bundle and delegates comments to its host', async () => {
+  it('keeps one counted submit action in the shared PR header across tabs', async () => {
     const getLocalPrBundle = vi.fn();
-    window.bridge = { getLocalPrBundle } as unknown as typeof window.bridge;
+    const publishLocalPrReview = vi.fn().mockResolvedValue({});
+    window.bridge = {
+      getLocalPrBundle,
+      publishLocalPrReview,
+      fetchPrDiffFiles: vi.fn().mockResolvedValue([]),
+      fetchPullRequestDetail: vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] }),
+    } as unknown as typeof window.bridge;
     const dto: DashboardPR = {
       id: 'task-pr', repo: 'trinodb/trino', number: 42, title: 'Dashboard title', author: 'octocat',
       htmlUrl: '', createdAt: null, updatedAt: null, origin: 'AUTHORED', labels: [], labelColors: null,
@@ -57,22 +70,30 @@ describe('PullDetailPane', () => {
     };
     const bundle = {
       pr: {
-        id: 'task-pr', taskId: 'task-1', branchName: 'codex/fix-it', baseBranch: 'master',
-        title: 'Task bundle title', description: 'Loaded by the task route', status: 'local-open',
-        createdAt: 0, pushedAt: null, remotePrNumber: null, remotePrUrl: null, mergedAt: null,
-        closedAt: null, origin: 'task', repo: 'trinodb/trino', author: 'octocat', syncedAt: null,
+        id: 'task-pr', taskId: null, branchName: 'codex/fix-it', baseBranch: 'master',
+        title: 'Task bundle title', description: 'Loaded by the task route', status: 'remote-open',
+        createdAt: 0, pushedAt: 0, remotePrNumber: 42, remotePrUrl: 'https://example.test/42', mergedAt: null,
+        closedAt: null, origin: 'external', repo: 'trinodb/trino', author: 'octocat', syncedAt: null,
         syncedAdditions: null, syncedDeletions: null, syncedMergeable: null, syncedMergeableState: null,
         syncedMergeQueueEnabled: false, syncedMergeQueueState: null, branchDeletedAt: null,
       },
-      commits: [], timeline: [], checks: [], comments: [],
+      commits: [], timeline: [], checks: [],
+      comments: Array.from({ length: 8 }, (_, index): LocalPRComment => ({
+        id: `comment-${index}`, localPrId: 'task-pr', origin: 'local' as const,
+        scope: 'file-line' as const, filePath: 'src/Foo.java', lineNumber: index + 1,
+        side: 'RIGHT' as const, startLine: null, startSide: null, author: 'agent',
+        body: `Finding ${index + 1}`, createdAt: index, resolvedAt: null, dismissedAt: null,
+        strippedOnPushAt: null, parentCommentId: null, publishedAt: null,
+      })),
     } as LocalPRBundle;
     const onComment = vi.fn().mockResolvedValue(undefined);
+    const refresh = vi.fn();
 
     render(
       <PullDetailBody
         row={toRow(dto)}
         bundle={bundle}
-        refresh={vi.fn()}
+        refresh={refresh}
         onComment={onComment}
       />,
     );
@@ -84,5 +105,188 @@ describe('PullDetailPane', () => {
     fireEvent.change(screen.getByPlaceholderText('Add a comment'), { target: { value: 'Looks good' } });
     fireEvent.click(screen.getByRole('button', { name: /Comment/ }));
     await waitFor(() => expect(onComment).toHaveBeenCalledWith('Looks good'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review • 8' }));
+    expect(screen.getByRole('dialog', { name: 'Submit review' }).textContent).toContain('8 pending');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    fireEvent.click(screen.getByRole('button', { name: /Changes/ }));
+    expect(screen.getAllByRole('button', { name: 'Submit review • 8' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Submit comments' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review • 8' }));
+    fireEvent.click(screen.getByRole('radio', { name: /Approve/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review' }));
+
+    expect((await screen.findByRole('status')).textContent).toContain(
+      'Review approved on GitHub. The timeline may take a moment to update.',
+    );
+    expect(screen.queryByRole('dialog', { name: 'Submit review' })).toBeNull();
+    expect(publishLocalPrReview).toHaveBeenCalledWith('task-pr', {
+      verdict: 'APPROVE', findingIds: [], comments: [], body: null,
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it('offers non-navigating quick review and watch-plus-full-review actions for an unwatched repo', () => {
+    const quickReview = vi.fn();
+    const watchForFullReview = vi.fn();
+    const openAgent = vi.fn();
+    const dto: DashboardPR = {
+      id: 'external-pr', repo: 'external/project', number: 7, title: 'External change', author: 'octocat',
+      htmlUrl: '', createdAt: null, updatedAt: null, origin: 'REVIEW_REQUESTED', labels: [], labelColors: null,
+      draft: false, viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [],
+      ciStatus: null, additions: 2, deletions: 1, commentCount: 0, attentionReason: null,
+      state: 'open', closedAt: null, mergedAt: null, mergeable: null, mergeableState: null,
+      headPushedAt: null, reviewerVerdicts: null, snoozedUntil: null, snoozeWakeReason: null,
+      reviewState: 'none',
+    };
+
+    render(
+      <PullDetailBody
+        row={toRow(dto)}
+        bundle={null}
+        refresh={vi.fn()}
+        noWorkspace
+        onRunQuickReview={quickReview}
+        onWatchRepoForFullReview={watchForFullReview}
+        onWorkWithAgent={openAgent}
+      />,
+    );
+
+    const quickButton = screen.getByRole('button', { name: 'Run quick review' });
+    const watchButton = screen.getByRole('button', { name: 'Watch repo · Full review' });
+    expect(quickButton.classList.contains('pl-review-action')).toBe(true);
+    expect(watchButton.classList.contains('pl-review-action')).toBe(true);
+
+    fireEvent.click(quickButton);
+    expect(quickReview).toHaveBeenCalledOnce();
+    expect(openAgent).not.toHaveBeenCalled();
+    expect(watchForFullReview).not.toHaveBeenCalled();
+
+    fireEvent.click(watchButton);
+    expect(watchForFullReview).toHaveBeenCalledOnce();
+    expect(openAgent).not.toHaveBeenCalled();
+  });
+
+  it('keeps completed quick review non-navigable and renders its diff-only findings inline', () => {
+    const openAgent = vi.fn();
+    const quickReview = vi.fn();
+    const dto: DashboardPR = {
+      id: 'quick-pr', repo: 'external/project', number: 8, title: 'Quick change', author: 'octocat',
+      htmlUrl: '', createdAt: null, updatedAt: null, origin: 'REVIEW_REQUESTED', labels: [], labelColors: null,
+      draft: false, viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [],
+      ciStatus: null, additions: 2, deletions: 1, commentCount: 0, attentionReason: null,
+      state: 'open', closedAt: null, mergedAt: null, mergeable: null, mergeableState: null,
+      headPushedAt: null, reviewerVerdicts: null, snoozedUntil: null, snoozeWakeReason: null,
+      reviewState: 'none',
+    };
+    const result: AiReviewDraftDto = {
+      id: 2, prId: 1, summary: 'The supplied diff changes retry behavior.', providerId: 'openai',
+      model: 'review-model', headSha: 'abc', status: 'DRAFT', createdAt: '2026-07-19T00:00:00Z',
+      updatedAt: '2026-07-19T00:00:00Z',
+      comments: [{
+        id: 3, filePath: 'src/retry.ts', lineNumber: 21, body: 'This retry can loop forever.',
+        editedBody: null, severity: 'warning', dismissed: false, source: 'AI', side: 'RIGHT',
+        startLine: null, startSide: null,
+      }],
+    };
+
+    render(
+      <PullDetailBody
+        row={toRow(dto)}
+        bundle={null}
+        refresh={vi.fn()}
+        noWorkspace
+        onRunQuickReview={quickReview}
+        onWorkWithAgent={openAgent}
+        quickReview={{ state: 'done', result, error: null }}
+      />,
+    );
+
+    const done = screen.getByRole('button', { name: 'Quick review ✓' }) as HTMLButtonElement;
+    expect(done.disabled).toBe(true);
+    fireEvent.click(done);
+    expect(quickReview).not.toHaveBeenCalled();
+    expect(openAgent).not.toHaveBeenCalled();
+    expect(screen.getByText('Diff only · no repository exploration')).not.toBeNull();
+    expect(screen.getByText(result.summary as string)).not.toBeNull();
+    expect(screen.getByText('src/retry.ts:21')).not.toBeNull();
+    expect(screen.getByText('This retry can loop forever.')).not.toBeNull();
+  });
+
+  it('shows running, retry, and repository-preparation button states without opening an agent window', () => {
+    const retry = vi.fn();
+    const openAgent = vi.fn();
+    const dto: DashboardPR = {
+      id: 'quick-state-pr', repo: 'external/project', number: 9, title: 'State change', author: 'octocat',
+      htmlUrl: '', createdAt: null, updatedAt: null, origin: 'REVIEW_REQUESTED', labels: [], labelColors: null,
+      draft: false, viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [],
+      ciStatus: null, additions: 2, deletions: 1, commentCount: 0, attentionReason: null,
+      state: 'open', closedAt: null, mergedAt: null, mergeable: null, mergeableState: null,
+      headPushedAt: null, reviewerVerdicts: null, snoozedUntil: null, snoozeWakeReason: null,
+      reviewState: 'none',
+    };
+    const base = {
+      row: toRow(dto), bundle: null as LocalPRBundle | null, refresh: vi.fn(), noWorkspace: true,
+      onRunQuickReview: retry, onWatchRepoForFullReview: vi.fn(), onWorkWithAgent: openAgent,
+    };
+    const { rerender } = render(
+      <PullDetailBody
+        {...base}
+        quickReview={{ state: 'running', result: null, error: null }}
+        fullReviewPreparation={{ state: 'preparing', error: null }}
+      />,
+    );
+
+    expect((screen.getByRole('button', { name: 'Quick review • running' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Preparing repo…' }) as HTMLButtonElement).disabled).toBe(true);
+
+    rerender(
+      <PullDetailBody
+        {...base}
+        quickReview={{ state: 'failed', result: null, error: 'Diff is too large for quick review.' }}
+        fullReviewPreparation={{ state: 'idle', error: null }}
+      />,
+    );
+    expect(screen.getByRole('alert').textContent).toContain('Diff is too large');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry quick review' }));
+    expect(retry).toHaveBeenCalledOnce();
+    expect(openAgent).not.toHaveBeenCalled();
+  });
+
+  it('starts an idle full review and opens the agent window for running or completed reviews', () => {
+    const assignAgent = vi.fn();
+    const openAgent = vi.fn();
+    const base: DashboardPR = {
+      id: 'watched-pr', repo: 'trinodb/trino', number: 42, title: 'Watched change', author: 'octocat',
+      htmlUrl: '', createdAt: null, updatedAt: null, origin: 'REVIEW_REQUESTED', labels: [], labelColors: null,
+      draft: false, viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [],
+      ciStatus: null, additions: 2, deletions: 1, commentCount: 0, attentionReason: null,
+      state: 'open', closedAt: null, mergedAt: null, mergeable: null, mergeableState: null,
+      headPushedAt: null, reviewerVerdicts: null, snoozedUntil: null, snoozeWakeReason: null,
+    };
+    const props = {
+      bundle: null as LocalPRBundle | null,
+      refresh: vi.fn(),
+      onAssignAgent: assignAgent,
+      onWorkWithAgent: openAgent,
+    };
+    const { rerender } = render(
+      <PullDetailBody row={toRow({ ...base, reviewState: 'none' })} {...props} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Full review' }));
+    expect(assignAgent).toHaveBeenCalledOnce();
+    expect(openAgent).not.toHaveBeenCalled();
+
+    rerender(<PullDetailBody row={toRow({ ...base, reviewState: 'running' })} {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Full review • running' }));
+    expect(openAgent).toHaveBeenCalledOnce();
+
+    rerender(<PullDetailBody row={toRow({ ...base, reviewState: 'done' })} {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Full review • completed' }));
+    expect(openAgent).toHaveBeenCalledTimes(2);
+    expect(assignAgent).toHaveBeenCalledOnce();
   });
 });

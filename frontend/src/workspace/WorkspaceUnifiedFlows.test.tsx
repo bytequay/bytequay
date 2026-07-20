@@ -72,6 +72,86 @@ describe('workspace unified interaction flows', () => {
     expect(onOpenThread).toHaveBeenCalledWith('t1');
   });
 
+  it('opens a review session through its owning pull request without a synthetic trunk', async () => {
+    const session: WorkspaceSessionDto = {
+      ...sessionFixture(),
+      kind: 'review',
+      trunkId: null,
+      taskId: null,
+      stageId: null,
+      reviewRoundId: 'round-1',
+      durableReview: true,
+    };
+    const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
+      if (request.path === '/api/workspaces/w1/sessions') return [session];
+      throw new Error(`Unexpected request: ${request.path}`);
+    });
+    const getAgentReviewRoundLog = vi.fn().mockResolvedValue({
+      review: { pr_id: 'pr-42' },
+    });
+    const getLocalPrBundle = vi.fn().mockResolvedValue({
+      pr: {
+        id: 'pr-42',
+        repo: 'acme/widget',
+        remotePrNumber: 42,
+        title: 'Keep session navigation PR-owned',
+      },
+    });
+    setBridge(workspaceApi, { getAgentReviewRoundLog, getLocalPrBundle });
+    const onOpenReview = vi.fn();
+
+    render(
+      <WorkspaceSessionsPage
+        workspaceId="w1"
+        selectedSessionId="s1"
+        onOpenThread={vi.fn()}
+        onOpenReview={onOpenReview}
+      />,
+    );
+
+    expect(await screen.findByRole('link', { name: 'acme/widget#42' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Open thread/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Open pull request' }));
+    expect(getAgentReviewRoundLog).toHaveBeenCalledWith('round-1');
+    expect(getLocalPrBundle).toHaveBeenCalledWith('pr-42');
+    expect(onOpenReview).toHaveBeenCalledWith({
+      workspaceId: 'w1',
+      prId: 'pr-42',
+      prNumber: 42,
+      roundId: 'round-1',
+    });
+  });
+
+  it('keeps task review session controls and thread navigation', async () => {
+    const session: WorkspaceSessionDto = {
+      ...sessionFixture(),
+      kind: 'review',
+      durableReview: false,
+    };
+    const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
+      if (request.path === '/api/workspaces/w1/sessions') return [session];
+      if (request.path === '/api/sessions/s1/pause') return { ...session, status: 'paused' };
+      throw new Error(`Unexpected request: ${request.path}`);
+    });
+    const getAgentReviewRoundLog = vi.fn();
+    setBridge(workspaceApi, { getAgentReviewRoundLog });
+    const onOpenThread = vi.fn();
+
+    render(
+      <WorkspaceSessionsPage
+        workspaceId="w1"
+        selectedSessionId="s1"
+        onOpenThread={onOpenThread}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Pause' }));
+    fireEvent.click(screen.getByRole('button', { name: /Open thread/ }));
+    expect(onOpenThread).toHaveBeenCalledWith('t1');
+    expect(screen.queryByRole('button', { name: 'Open pull request' })).toBeNull();
+    expect(getAgentReviewRoundLog).not.toHaveBeenCalled();
+  });
+
   it('follows canonical notification links, marks all read, and edits mute rules', async () => {
     const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
       if (request.path === '/api/workspaces/w1/notifications') {
@@ -352,6 +432,7 @@ function sessionFixture(): WorkspaceSessionDto {
     model: 'sonnet',
     taskId: 't1.k1',
     stageId: 'stage-1',
+    durableReview: false,
     costUsdMilli: 250,
     tokensIn: 1_000,
     tokensOut: 250,

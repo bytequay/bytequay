@@ -434,7 +434,9 @@ public class PRPublishService
         List<ReviewLineComment> lineComments = drafts.stream()
                 .filter(c -> PRComment.SCOPE_FILE_LINE.equals(c.scope()))
                 .map(c -> new ReviewLineComment(
-                        c.filePath(), Optional.empty(), Optional.of(c.lineNumber()), "RIGHT", c.body()))
+                        c.filePath(), Optional.empty(), Optional.of(c.lineNumber()),
+                        c.side() == null ? "RIGHT" : c.side(), c.body(),
+                        Optional.ofNullable(c.startLine()), Optional.ofNullable(c.startSide())))
                 .toList();
         pullRequests.createReview(pat, ref, new CreateReviewCommand(
                 Optional.empty(), body.isBlank() ? Optional.empty() : Optional.of(body), event, lineComments));

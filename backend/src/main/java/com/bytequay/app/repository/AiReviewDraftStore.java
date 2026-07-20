@@ -26,8 +26,17 @@ public interface AiReviewDraftStore
      *  path doesn't need a second lookup against pull_requests. */
     AiReviewDraft save(long prId, String repo, int number, String headSha, ReviewOutput output);
 
+    /** Stores a quick review against the unified UUID-style PR aggregate. */
+    AiReviewDraft saveForUnifiedPr(String prId, String repo, int number, String headSha, ReviewOutput output);
+
     /** Returns the most recent draft for a PR, or empty if none. */
     Optional<AiReviewDraft> latestForPr(long prId);
+
+    /** Most recent quick-review draft for the unified PR, if any. */
+    Optional<AiReviewDraft> latestForUnifiedPr(String prId);
+
+    /** Moves quick-review drafts when an external PR is folded into its task-owned survivor. */
+    void reparentUnifiedPr(String fromPrId, String toPrId);
 
     /** All drafts for a PR, newest first. */
     List<AiReviewDraft> historyForPr(long prId);

@@ -17,7 +17,7 @@ package com.bytequay.app.domain;
  * One choice on the model & provider axis — the unit a scope (workspace,
  * thread, task, or review seat) carries on the work-model cascade.
  *
- * <p>The four fields:
+ * <p>The five fields:
  * <ul>
  *   <li>{@code kind} — CLI subprocess vs API call. Same surface, two lanes.</li>
  *   <li>{@code agentOrProvider} — id of the CLI agent ({@code "claude-code"},
@@ -29,6 +29,8 @@ package com.bytequay.app.domain;
  *       instance to use. {@code null} means "use the ★ default account
  *       for this provider". Ignored for CLI agents because they manage
  *       their own auth outside ByteQuay.</li>
+ *   <li>{@code reasoningEffort} — CLI reasoning level. {@code null}
+ *       leaves the choice to the selected model's CLI default.</li>
  * </ul>
  *
  * <p>The cascade itself (workspace → thread → task → seat,
@@ -39,4 +41,11 @@ public record WorkModel(
         WorkModelKind kind,
         String agentOrProvider,
         String model,
-        String account) {}
+        String account,
+        String reasoningEffort)
+{
+    public WorkModel(WorkModelKind kind, String agentOrProvider, String model, String account)
+    {
+        this(kind, agentOrProvider, model, account, null);
+    }
+}

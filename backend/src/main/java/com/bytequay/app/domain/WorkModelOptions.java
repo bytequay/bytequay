@@ -52,7 +52,21 @@ public record WorkModelOptions(
             String id,
             String displayName,
             /** True iff this is the agent/provider's default model. */
-            boolean isDefault) {}
+            boolean isDefault,
+            /** CLI-supplied explanation of the model's intended use. */
+            String description,
+            /** CLI-supplied default effort for this model, if supported. */
+            String defaultReasoningEffort,
+            /** Effort choices accepted by this specific model. */
+            List<WorkModelReasoningEffort> supportedReasoningEfforts)
+    {
+        public WorkModelEntry(String id, String displayName, boolean isDefault)
+        {
+            this(id, displayName, isDefault, null, null, List.of());
+        }
+    }
+
+    public record WorkModelReasoningEffort(String id, String description) {}
 
     public record WorkModelAccount(
             String name,

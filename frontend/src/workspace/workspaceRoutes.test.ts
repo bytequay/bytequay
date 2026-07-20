@@ -24,6 +24,8 @@ describe('workspaceRoutes', () => {
     { kind: 'trunks', workspaceId: 'w1', trunkId: 'trunk/one' },
     { kind: 'pull-request', workspaceId: 'w1' },
     { kind: 'pull-request', workspaceId: 'w1', number: 148 },
+    { kind: 'pull-request', workspaceId: 'w1', number: 148, prId: 'pr/148', agentColumn: true },
+    { kind: 'pull-request', workspaceId: 'w1', prId: 'local pr', agentColumn: true },
     { kind: 'issue', workspaceId: 'w1' },
     { kind: 'issue', workspaceId: 'w1', number: 482 },
     { kind: 'session', workspaceId: 'w1' },
@@ -49,6 +51,11 @@ describe('workspaceRoutes', () => {
       .toEqual({ kind: 'pull-request', workspaceId: 'w1' });
     expect(parseWorkspaceRoute('#/workspace/w1/sessions'))
       .toEqual({ kind: 'session', workspaceId: 'w1' });
+  });
+
+  it('keeps legacy numbered PR hashes unchanged', () => {
+    expect(workspaceRouteHash({ kind: 'pull-request', workspaceId: 'w1', number: 148 }))
+      .toBe('#/workspace/w1/prs/148');
   });
 
   it('recognizes legacy repo routes for workspace resolution', () => {

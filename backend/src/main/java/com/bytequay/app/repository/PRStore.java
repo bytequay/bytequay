@@ -48,7 +48,7 @@ public interface PRStore
      *  lets the sync reuse a task's own PR row instead of minting a twin. */
     Optional<PR> findTaskByRepoAndRemotePrNumber(String repo, int remotePrNumber);
 
-    /** True while an AgentReview round is still writing against this PR id. */
+    /** True while an AgentReview is starting or a round is still writing against this PR id. */
     boolean hasRunningAgentReview(String prId);
 
     /**

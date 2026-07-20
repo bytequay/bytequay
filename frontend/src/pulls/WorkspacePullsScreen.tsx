@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { PullRequestDto } from '../types';
+import type { AgentReviewData } from '../review/agentReviewTypes';
 import { workspaceApi, type WorkspaceRepositoryDto } from '../workspace/workspaceApi';
 import { PaneToggleIcon } from './atoms';
 import type { PullRow } from './model';
@@ -26,6 +27,7 @@ import {
   type WorkspaceFilter,
 } from './workspaceModel';
 import AgentColumn from './AgentColumn';
+import { pullRowFromLocal } from './localRow';
 import PullBoard from './PullBoard';
 import PullDetailPane from './PullDetailPane';
 import PullRowItem from './PullRowItem';
@@ -45,6 +47,14 @@ const DETAIL_MAX = 1150;
 const DETAIL_DEFAULT = 940;
 
 const VIEW_SEGS: ['board' | 'list', string][] = [['board', 'Board'], ['list', 'List']];
+
+function reviewState(review: AgentReviewData | null): 'none' | 'running' | 'done' | 'stale' {
+  if (review === null) return 'none';
+  if (review.rounds.some(round => round.status === 'QUEUED' || round.status === 'RUNNING')) {
+    return 'running';
+  }
+  return review.review.status === 'STALE' ? 'stale' : 'done';
+}
 
 async function loadPullRequests(workspaceId: string, selectedNumber?: number): Promise<PullRequestDto[]> {
   const rows = await workspaceApi.pullRequests(workspaceId);
@@ -66,9 +76,11 @@ function RefreshIcon() {
   );
 }
 
-export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, initialAgentView, onOpenPr, onBackToList }: {
+export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, initialPrId, initialAgentView, onOpenPr, onBackToList }: {
   workspaceId: string;
   initialPrNumber?: number;
+  /** Stable unified PR id; supports task PRs before a GitHub number exists. */
+  initialPrId?: string;
   /** Open with the agent column already replacing the work list (deep link
    *  from the standalone Pulls screen's "Work with agent" button). */
   initialAgentView?: boolean;
@@ -82,10 +94,12 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
   // review-first default proves better in daily use.
   const [filter, setFilter] = useState<WorkspaceFilter>('all');
   const [sel, setSel] = useState<number | null>(initialPrNumber ?? null);
+  const [directPrId, setDirectPrId] = useState<string | null>(initialPrId ?? null);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detW, setDetW] = useState(DETAIL_DEFAULT);
   const [paneRow, setPaneRow] = useState<PullRow | null>(null);
   const [agentView, setAgentView] = useState(initialAgentView === true);
+  const [pendingAgentStarts, setPendingAgentStarts] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -103,17 +117,16 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
     return () => { cancelled = true; };
   }, [workspaceId, initialPrNumber]);
 
-  // Deep links: the App nav sets selectedNumber; mirror it into local state.
+  // Deep links mirror the App route in both directions. Clearing the route
+  // must also close a previously selected PR/AgentColumn because this screen
+  // stays mounted while the workspace sidebar changes sections.
   useEffect(() => {
-    if (initialPrNumber !== undefined) {
-      setSel(initialPrNumber);
-      setPaneOpen(true);
-    }
-  }, [initialPrNumber]);
-
-  useEffect(() => {
-    if (initialAgentView === true) setAgentView(true);
-  }, [initialAgentView]);
+    const targeted = initialPrNumber !== undefined || initialPrId !== undefined;
+    setSel(initialPrNumber ?? null);
+    setDirectPrId(initialPrId ?? null);
+    setPaneOpen(targeted);
+    setAgentView(targeted && initialAgentView === true);
+  }, [initialAgentView, initialPrId, initialPrNumber]);
 
   const counts = useMemo(() => filterCounts(prs), [prs]);
   const visible = useMemo(() => visibleRows(prs, filter), [prs, filter]);
@@ -131,7 +144,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
     () => (sel === null ? null : prs.find(pr => pr.number === sel) ?? null),
     [prs, sel],
   );
-  const paneShown = selDto !== null && paneOpen;
+  const paneShown = paneRow !== null && paneOpen;
   const wide = !paneShown;
 
   // Record a footprint for the opened PR (selection is local state plus a
@@ -155,16 +168,43 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
   // usePR call needs it).
   useEffect(() => {
     setPaneRow(null);
-    if (selDto === null || repo === null) return;
+    if (repo === null) return;
     let cancelled = false;
-    void window.bridge.getPrForRepoPull(repo.owner, repo.repo, selDto.number)
-      .then(pr => {
+    if (directPrId !== null) {
+      void Promise.all([
+        window.bridge.getLocalPrBundle(directPrId),
+        window.bridge.getAgentReview(directPrId).catch((): null => null),
+      ]).then(([bundle, review]) => {
         if (cancelled) return;
-        setPaneRow({ ...pullRowFromDto(selDto), id: pr.id, dto: { ...toDashboardPr(selDto), id: pr.id } });
+        if (bundle === null) return;
+        const fullName = `${repo.owner}/${repo.repo}`;
+        const row = pullRowFromLocal(bundle.pr, fullName, bundle.pr.remotePrNumber ?? 0);
+        setPaneRow({
+          ...row,
+          hasAgent: review !== null,
+          dto: { ...row.dto, reviewState: reviewState(review) },
+        });
+      })
+      .catch(() => { /* transient; next selection retries */ });
+      return () => { cancelled = true; };
+    }
+    if (selDto === null) return;
+    void window.bridge.getPrForRepoPull(repo.owner, repo.repo, selDto.number)
+      .then(async pr => {
+        const review = await window.bridge.getAgentReview(pr.id).catch((): null => null);
+        if (cancelled) return;
+        const row = pullRowFromDto(selDto);
+        const state = review === null && row.hasAgent ? 'done' : reviewState(review);
+        setPaneRow({
+          ...row,
+          id: pr.id,
+          hasAgent: state !== 'none',
+          dto: { ...toDashboardPr(selDto), id: pr.id, reviewState: state },
+        });
       })
       .catch(() => { /* transient; next selection retries */ });
     return () => { cancelled = true; };
-  }, [selDto, repo]);
+  }, [directPrId, selDto, repo]);
 
   const refresh = () => {
     void loadPullRequests(workspaceId, sel ?? undefined)
@@ -173,6 +213,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
   };
 
   const pick = (num: number) => {
+    setDirectPrId(null);
     setSel(num);
     setPaneOpen(true);
     onOpenPr(num);
@@ -185,7 +226,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
     }
     else {
       setPaneOpen(true);
-      if (sel !== null) onOpenPr(sel);
+      if (directPrId === null && sel !== null) onOpenPr(sel);
     }
   };
 
@@ -207,13 +248,34 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
     window.addEventListener('mouseup', up);
   };
 
-  // GitHub-first: start the review, then re-pull the façade list so the
-  // pane's agent buttons flip to the assigned state.
+  // Full review is workspace-bound. Flip the selected row immediately so a
+  // second click opens the canonical AgentColumn while the round is running.
   const assignAgent = () => {
     if (paneRow === null) return;
-    void window.bridge.startAgentReview(paneRow.id, { workspaceId })
-      .catch(() => { /* transient; the buttons stay unassigned */ })
-      .finally(refresh);
+    const previous = paneRow;
+    const prId = paneRow.id;
+    setPendingAgentStarts(current => new Set(current).add(prId));
+    setPaneRow({
+      ...paneRow,
+      hasAgent: true,
+      dto: { ...paneRow.dto, reviewState: 'running' },
+    });
+    void window.bridge.startAgentReview(prId, { workspaceId })
+      .then(() => {
+        setPendingAgentStarts(current => {
+          const next = new Set(current);
+          next.delete(prId);
+          return next;
+        });
+      })
+      .catch(() => {
+        setPendingAgentStarts(current => {
+          const next = new Set(current);
+          next.delete(prId);
+          return next;
+        });
+        setPaneRow(current => current?.id === previous.id ? previous : current);
+      });
   };
 
   const tabs: [WorkspaceFilter, string][] = [
@@ -228,7 +290,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
     <div style={{ display: 'flex', minWidth: 0, minHeight: 0, height: '100%', background: '#fff' }}>
       {/* ═══ Agent review column — swaps in for the work list ═══ */}
       {agentShown && paneRow !== null && (
-        <AgentColumn prId={paneRow.id} workspaceId={workspaceId} onBack={() => setAgentView(false)} />
+        <AgentColumn prId={paneRow.id} workspaceId={workspaceId} onBack={() => setAgentView(false)} onTogglePanel={togglePane} />
       )}
       {/* ═══ Work list ═══ */}
       {!agentShown && (
@@ -348,7 +410,9 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
             <PullDetailPane
               key={paneRow.id}
               row={paneRow}
-              onWorkWithAgent={() => setAgentView(true)}
+              onWorkWithAgent={pendingAgentStarts.has(paneRow.id)
+                ? undefined
+                : () => setAgentView(true)}
               onAssignAgent={assignAgent}
             />
           )}

@@ -648,6 +648,30 @@ class TestPRPublishService
     }
 
     @Test
+    void publishReviewPreservesMultiLineCommentRanges()
+    {
+        when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));
+        PRComment ranged = new PRComment(
+                "cm-range", "pr-ext", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java", 42, "agent", "Guard this range.", NOW,
+                null, null, null, null, null, "RIGHT", 40, "RIGHT");
+        when(prService.comments("pr-ext")).thenReturn(List.of(ranged));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.publishReview("pr-ext");
+
+        ArgumentCaptor<CreateReviewCommand> command = ArgumentCaptor.forClass(CreateReviewCommand.class);
+        verify(pullRequests).createReview(
+                eq("ghp"), eq(new PullRequestRef("acme", "widget", 99)), command.capture());
+        assertThat(command.getValue().comments()).singleElement().satisfies(comment -> {
+            assertThat(comment.path()).isEqualTo("src/Foo.java");
+            assertThat(comment.line()).contains(42);
+            assertThat(comment.startLine()).contains(40);
+            assertThat(comment.startSide()).contains("RIGHT");
+        });
+    }
+
+    @Test
     void publishReviewSkipsResolvedLocalDrafts()
     {
         when(prService.findById("pr-ext")).thenReturn(Optional.of(externalPr()));

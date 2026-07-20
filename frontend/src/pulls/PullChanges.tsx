@@ -14,8 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { getCached } from '../dataCache';
-import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
-import { SubmitReviewDrawer, type ReviewVerdict } from '../pages/SubmitReviewDrawer';
+import { isPendingLocalComment } from '../diff/DiffInlineComments';
 import { derivePRCapabilities } from '../pr/prCapabilities';
 import { useGitHubActivityFeed } from '../pr/useGitHubActivityFeed';
 import type { DiffFileDto, ReviewThreadDto, UserProfileDto } from '../types';
@@ -72,8 +71,6 @@ export default function PullChanges({ row, bundle, refresh, onComment }: {
   const [sideW, setSideW] = useState(272);
   const [selFile, setSelFile] = useState<string | null>(null);
   const [openCards, setOpenCards] = useState<Record<string, boolean>>({});
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [publishBusy, setPublishBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -124,17 +121,6 @@ export default function PullChanges({ row, bundle, refresh, onComment }: {
       };
   const resolvePending = (id: string) => { void window.bridge.resolveLocalPrComment(id).then(refresh).catch(() => { /* poll reconciles */ }); };
   const deletePending = (id: string) => { void window.bridge.deleteLocalPrComment(id).then(refresh).catch(() => { /* poll reconciles */ }); };
-  const publish = async (body: string, verdict: ReviewVerdict) => {
-    if (bundle === null || bundle === undefined) return;
-    setPublishBusy(true);
-    try {
-      await window.bridge.publishLocalPrReview(bundle.pr.id, {
-        verdict, findingIds: [], comments: [], body: body.trim().length > 0 ? body : null,
-      });
-      refresh();
-    }
-    finally { setPublishBusy(false); }
-  };
 
   const scrollToFile = (path: string) => {
     setSelFile(path);
@@ -157,7 +143,6 @@ export default function PullChanges({ row, bundle, refresh, onComment }: {
     window.setTimeout(() => cells.forEach(td => { td.style.background = ''; }), 1400);
   };
 
-  const canPublish = capabilities?.publishReview === true;
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       {/* ── Toolbar ── */}
@@ -172,18 +157,16 @@ export default function PullChanges({ row, bundle, refresh, onComment }: {
         </button>
         <span style={{ flex: 1 }} />
         <button
-          className="pl-hov-green"
-          onClick={canPublish ? () => setDrawerOpen(true) : undefined}
-          disabled={!canPublish}
-          title={canPublish ? undefined : 'Publishing a review is only available for GitHub-synced PRs'}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 13px', border: '1px solid #1a7f37', background: '#1f883d', borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: canPublish ? 'pointer' : 'default', flexShrink: 0, opacity: canPublish ? 1 : 0.6 }}
+          type="button"
+          className="pl-hov-ic8"
+          onClick={() => setSideOpen(o => !o)}
+          title={`${pending.length} pending review ${pending.length === 1 ? 'comment' : 'comments'}`}
+          aria-label={`Toggle review comments panel (${pending.length} pending)`}
+          style={{ position: 'relative', width: 26, height: 26, padding: 0, border: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 6, color: sideOpen ? '#17191c' : '#8b949e', background: sideOpen ? '#e7e9ec' : 'transparent', flexShrink: 0 }}
         >
-          Submit comments
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-        </button>
-        <span className="pl-hov-ic8" onClick={() => setSideOpen(o => !o)} title="Toggle review comments panel" style={{ width: 26, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 6, color: sideOpen ? '#17191c' : '#8b949e', background: sideOpen ? '#e7e9ec' : 'transparent', flexShrink: 0 }}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="13" rx="2.2" /><path d="m9.5 8-2.5 2.5 2.5 2.5" /><path d="m14.5 8 2.5 2.5-2.5 2.5" /><path d="M7.5 17v3.5l3.5-3.5" /></svg>
-        </span>
+          {pending.length > 0 && <span className="pl-review-toggle-count">{pending.length}</span>}
+        </button>
       </div>
       {/* ── Panes ── */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex' }}>
@@ -242,17 +225,6 @@ export default function PullChanges({ row, bundle, refresh, onComment }: {
           </>
         )}
       </div>
-      <SubmitReviewDrawer
-        open={drawerOpen}
-        submitting={publishBusy}
-        pendingComments={pending.map(c => diffInlineCommentFromLocalPr(c))}
-        onRemovePending={deletePending}
-        onClose={() => setDrawerOpen(false)}
-        onSubmit={async (body, verdict) => {
-          await publish(body, verdict);
-          setDrawerOpen(false);
-        }}
-      />
     </div>
   );
 }

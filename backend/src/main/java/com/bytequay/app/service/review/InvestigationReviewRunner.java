@@ -131,6 +131,10 @@ public class InvestigationReviewRunner
                 First record_assignment. Work cheap-first: at most 6 hypotheses, triage to 3 active,
                 at most 11 investigation steps and 5 findings. Every finding must have SUPPORTS evidence and you must
                 actively seek REFUTES evidence before finishing. Observations come only from read tools.
+                Every publishable finding must name the exact changed file and inclusive RIGHT-side start/end line
+                range where its review comment belongs (use start_line=end_line for one line). Cite a SUPPORTS
+                read_file observation that covers that range. If there is no credible changed-line anchor, keep the
+                concern as an observation or coverage question and do not call record_finding.
                 Keep each finding concise: at most two sentences for the claim and one for the requested action.
                 In those fields, wrap code identifiers in backticks and bold only the key broken behavior or risk.
                 Do not post, edit, push, or call external services.

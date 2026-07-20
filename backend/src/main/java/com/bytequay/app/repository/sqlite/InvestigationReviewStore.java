@@ -142,6 +142,36 @@ public class InvestigationReviewStore
                 since.toEpochMilli());
     }
 
+    /** PR-owned AgentReview spend, regardless of whether the review is linked
+     * to a development task. Synthetic review-thread cost is deliberately not
+     * part of this projection. */
+    @Transactional(readOnly = true)
+    public List<TaskReviewSpend> reviewSpendSince(Instant since)
+    {
+        return reviewSpendSince(null, since);
+    }
+
+    /** Workspace-scoped PR-owned AgentReview spend. */
+    @Transactional(readOnly = true)
+    public List<TaskReviewSpend> reviewSpendSince(String workspaceId, Instant since)
+    {
+        String workspaceClause = workspaceId == null ? "" : " AND s.workspace_id = ?";
+        Object[] arguments = workspaceId == null
+                ? new Object[] {since.toEpochMilli()}
+                : new Object[] {since.toEpochMilli(), workspaceId};
+        return jdbc.query("""
+                SELECT r.cost_cents,
+                       COALESCE(r.finished_at_ms, r.created_at_ms) AS occurred_at_ms
+                FROM review_round r
+                JOIN review_session s ON s.id = r.session_id
+                WHERE r.cost_cents > 0
+                  AND COALESCE(r.finished_at_ms, r.created_at_ms) >= ?
+                """ + workspaceClause, (rs, row) -> new TaskReviewSpend(
+                        rs.getLong("cost_cents") * 10L,
+                        Instant.ofEpochMilli(rs.getLong("occurred_at_ms"))),
+                arguments);
+    }
+
     /** AgentReview runs do not write synthetic conversation messages, so
      * the monthly ledger reads their authoritative round rows separately. */
     @Transactional(readOnly = true)
@@ -222,6 +252,18 @@ public class InvestigationReviewStore
                 WHERE owner_thread_id = ?
                 ORDER BY created_at_ms
                 """, this::review, threadId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AgentReviewRow> reviewsByWorkspace(String workspaceId)
+    {
+        return jdbc.query("""
+                SELECT id, repo_id, pr_id, base_commit, reviewed_head_commit, status,
+                       workspace_id, owner_thread_id, owner_task_id
+                FROM review_session
+                WHERE workspace_id = ?
+                ORDER BY created_at_ms
+                """, this::review, workspaceId);
     }
 
     @Transactional
@@ -923,11 +965,13 @@ public class InvestigationReviewStore
         jdbc.update("""
                 INSERT INTO finding
                 (id, session_id, round_id, objective_id, hypothesis_id, criterion_kind,
+                 path, start_line, end_line,
                  claim, severity, confidence_class, verification_status, requested_action,
                  lifecycle_status, last_checked_commit)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, row.id(), row.reviewId(), row.roundId(), row.objectiveId(),
-                row.hypothesisId(), row.criterionKind(), row.claim(), row.severity(),
+                row.hypothesisId(), row.criterionKind(), row.path(), row.startLine(), row.endLine(),
+                row.claim(), row.severity(),
                 row.confidenceClass(), row.verificationStatus(), row.requestedAction(),
                 row.lifecycleStatus(), row.lastCheckedCommit());
     }
@@ -1302,6 +1346,7 @@ public class InvestigationReviewStore
         return new FindingRow(rs.getString("id"), rs.getString("session_id"),
                 rs.getString("round_id"), rs.getString("objective_id"),
                 rs.getString("hypothesis_id"), rs.getString("criterion_kind"),
+                rs.getString("path"), integer(rs, "start_line"), integer(rs, "end_line"),
                 rs.getString("claim"), rs.getInt("severity"), rs.getString("confidence_class"),
                 rs.getString("verification_status"), rs.getString("requested_action"),
                 rs.getString("lifecycle_status"), rs.getString("last_checked_commit"));

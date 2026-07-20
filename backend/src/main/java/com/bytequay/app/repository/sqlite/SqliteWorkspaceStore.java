@@ -169,6 +169,7 @@ class SqliteWorkspaceStore
         Object raw = entityManager.createNativeQuery(
                         "SELECT COUNT(*) FROM threads "
                                 + "WHERE workspace_id = :workspaceId "
+                                + "AND flow <> 'review' "
                                 + "AND status IN (:statuses)")
                 .setParameter("workspaceId", workspaceId)
                 .setParameter("statuses", ACTIVE_THREAD_STATUSES)
@@ -209,7 +210,8 @@ class SqliteWorkspaceStore
         // activity yet" instead of rendering epoch zero.
         Object raw = entityManager.createNativeQuery(
                         "SELECT MAX(updated_at_ms) FROM threads "
-                                + "WHERE workspace_id = :workspaceId")
+                                + "WHERE workspace_id = :workspaceId "
+                                + "AND flow <> 'review'")
                 .setParameter("workspaceId", workspaceId)
                 .getSingleResult();
         return raw instanceof Number n ? n.longValue() : null;

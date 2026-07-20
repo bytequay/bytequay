@@ -46,6 +46,8 @@ type Props = {
   onOpenBranch?: (branchName: string) => void;
   onOpenTrunk?: (trunkId: string) => void;
   selectedNumber?: number;
+  /** Stable PR id for an AgentReview whose PR may still be local-only. */
+  selectedPrId?: string;
   /** Open the pull-requests surface with the agent-review column showing. */
   initialAgentView?: boolean;
   selectedBranch?: string;
@@ -65,6 +67,7 @@ export default function WorkspaceRepoPage({
   onOpenBranch,
   onOpenTrunk,
   selectedNumber,
+  selectedPrId,
   initialAgentView,
   selectedBranch,
   onBackToList,
@@ -89,6 +92,7 @@ export default function WorkspaceRepoPage({
       <WorkspacePullsScreen
         workspaceId={workspaceId}
         initialPrNumber={selectedNumber}
+        initialPrId={selectedPrId}
         initialAgentView={initialAgentView}
         onOpenPr={onOpenPr}
         onBackToList={onBackToList}

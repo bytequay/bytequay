@@ -47,6 +47,7 @@ import WorkspaceSessionsPage from './WorkspaceSessionsPage';
 import WorkspaceSettingsPage from './WorkspaceSettingsPage';
 import WorkspaceShell, { type WorkspaceSection } from './WorkspaceShell';
 import { WorkModelPill } from './WorkModelPill';
+import AgentReviewConversationVisualFixture from './AgentReviewConversationVisualFixture';
 import {
   VISUAL_BACKLOG_KEY,
   VISUAL_BRANCH_NAME,
@@ -68,7 +69,7 @@ type Props = {
   frame: string;
 };
 
-const LOCKED_PAGE_FRAMES = new Set(['7a', '7b', '7c']);
+const LOCKED_PAGE_FRAMES = new Set(['7a', '7b', '7c', 'rr-2a', 'rr-1a']);
 
 const STUDY_WIDTH: Record<string, number> = {
   '3a': 1060,
@@ -162,6 +163,10 @@ export default function WorkspaceVisualFixture({ frame }: Props) {
 
 function renderFrame(frame: string): ReactNode {
   switch (frame) {
+    case 'rr-2a':
+      return <AgentReviewConversationVisualFixture state="running" />;
+    case 'rr-1a':
+      return <AgentReviewConversationVisualFixture state="finished" />;
     case '1c':
       return <FullWorkspaceFrame section="trunks" activeNav="trunks" />;
     case '2a':

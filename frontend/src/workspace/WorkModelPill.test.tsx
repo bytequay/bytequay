@@ -58,15 +58,52 @@ const PINNED: ResolvedWorkModelDto = {
   },
 };
 
+const CODEX: ResolvedWorkModelDto = {
+  override: {
+    kind: 'CLI',
+    agentOrProvider: 'codex',
+    model: 'gpt-5.6-sol',
+    account: null,
+    reasoningEffort: null,
+  },
+  effective: {
+    kind: 'CLI',
+    agentOrProvider: 'codex',
+    model: 'gpt-5.6-sol',
+    account: null,
+    reasoningEffort: null,
+  },
+  provenance: {
+    source: 'THREAD',
+    scopeId: 'thread-1',
+    scopeLabel: 'thread thread-1',
+  },
+};
+
 const OPTIONS: WorkModelOptionsDto = {
-  cliAgents: [{
-    id: 'claude-code', displayName: 'Claude Code', installed: true, authed: true,
-    defaultModel: 'claude-opus-4-8',
-    models: [
-      { id: 'claude-opus-4-8', displayName: 'Claude Opus 4.8', isDefault: true },
-      { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', isDefault: false },
-    ],
-  }],
+  cliAgents: [
+    {
+      id: 'claude-code', displayName: 'Claude Code', installed: true, authed: true,
+      defaultModel: 'claude-opus-4-8',
+      models: [
+        { id: 'claude-opus-4-8', displayName: 'Claude Opus 4.8', isDefault: true },
+        { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', isDefault: false },
+      ],
+    },
+    {
+      id: 'codex', displayName: 'Codex', installed: true, authed: true,
+      defaultModel: 'gpt-5.6-sol',
+      models: [{
+        id: 'gpt-5.6-sol', displayName: 'GPT-5.6 Sol', isDefault: true,
+        description: 'Frontier coding model',
+        defaultReasoningEffort: 'low',
+        supportedReasoningEfforts: [
+          { id: 'low', description: 'Fast answers' },
+          { id: 'max', description: 'Maximum reasoning depth' },
+        ],
+      }],
+    },
+  ],
   apiProviders: [{
     id: 'anthropic', displayName: 'Anthropic', defaultModel: 'claude-opus-4-8',
     models: [
@@ -203,6 +240,30 @@ describe('WorkModelPill', () => {
     await act(async () => { fireEvent.mouseDown(auto); });
 
     expect(setStageWorkModel).toHaveBeenCalledWith('stage-1', null);
+  });
+
+  it('shows Codex-reported effort choices and persists the selected effort', async () => {
+    const updated: ResolvedWorkModelDto = {
+      ...CODEX,
+      override: { ...CODEX.effective, reasoningEffort: 'max' },
+      effective: { ...CODEX.effective, reasoningEffort: 'max' },
+    };
+    const setThreadWorkModel = vi.fn(async () => updated);
+    installBridge({
+      getThreadWorkModel: vi.fn(async () => CODEX),
+      setThreadWorkModel,
+    });
+
+    render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
+
+    const effort = await waitFor(() => screen.getByLabelText('Reasoning effort')) as HTMLSelectElement;
+    expect(effort.value).toBe('low');
+    await act(async () => { fireEvent.change(effort, { target: { value: 'max' } }); });
+
+    expect(setThreadWorkModel).toHaveBeenCalledWith('thread-1', {
+      ...CODEX.effective,
+      reasoningEffort: 'max',
+    });
   });
 });
 

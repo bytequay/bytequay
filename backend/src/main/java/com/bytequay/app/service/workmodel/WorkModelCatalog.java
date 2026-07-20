@@ -20,11 +20,12 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Curated source-of-truth for the work-model axis: the CLI agents and
- * API providers ByteQuay knows about, plus a baseline model list for
- * each one with a friendly display name and a marked default. The
- * upstream list-models APIs don't carry ordering / cost / friendly-name
- * hints, so we keep this in code and evolve it as new models ship.
+ * Curated fallback for the work-model axis: the CLI agents and API
+ * providers ByteQuay knows about, plus a baseline model list for each.
+ * Codex models are replaced at runtime by {@code codex app-server}'s
+ * {@code model/list} response; its entries here are used only when that
+ * machine-readable catalog is unavailable. Providers without such a CLI
+ * catalog continue to use these entries directly.
  *
  * <p>An "Other…" free-text affordance on the picker lets a brand-new
  * model id be used immediately without waiting for the catalog to

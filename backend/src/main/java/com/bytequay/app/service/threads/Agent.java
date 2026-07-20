@@ -19,6 +19,7 @@ import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.skills.ManagedSkill;
 import com.bytequay.app.service.skills.ManagedSkillBundle;
@@ -43,6 +44,11 @@ public interface Agent
     String provider();
 
     String model();
+
+    /** Update the model used by the next provider subprocess turn. */
+    default void updateWorkModel(WorkModel workModel)
+    {
+    }
 
     String workingDir();
 

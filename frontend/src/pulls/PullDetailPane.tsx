@@ -280,7 +280,7 @@ export function PullDetailBody({ row, bundle, refresh, onComment, openChangesTok
                 className="pl-hov-green"
                 onClick={!submitting ? () => setSubmitOpen(true) : undefined}
                 disabled={submitting}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 13px', marginBottom: 4, border: '1px solid #1a7f37', background: '#1f883d', borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: submitting ? 'default' : 'pointer', flexShrink: 0 }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 13px', marginBottom: 4, border: '1px solid #1a7f37', background: '#1f883d', borderRadius: 7, fontSize: 12.5, fontWeight: 400, color: '#fff', cursor: submitting ? 'default' : 'pointer', flexShrink: 0 }}
               >
                 {submitting ? 'Submitting…' : `Submit review • ${pending.length}`}
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>

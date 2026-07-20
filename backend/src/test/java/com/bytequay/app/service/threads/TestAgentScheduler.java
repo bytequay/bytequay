@@ -208,15 +208,15 @@ class TestAgentScheduler
     }
 
     @Test
-    void trunkPlanningTurnActivatesTrunkPlannerAndCavemanWithoutChangingUserInput()
+    void everyTrunkTurnActivatesTrunkPlannerAndCavemanWithoutChangingUserInput()
     {
         TestHarness harness = new TestHarness(1, 4);
         Thread thread = thread("thread-1", CLI_AGENT);
         RecordingSession session = harness.register(thread);
 
-        harness.scheduler.enqueueTrunkTurn(thread, "go ahead and implement this");
+        harness.scheduler.enqueueTrunkTurn(thread, "what did you find?");
 
-        assertThat(session.inputs).containsExactly("go ahead and implement this");
+        assertThat(session.inputs).containsExactly("what did you find?");
         assertThat(session.skillNames).containsExactly(List.of(
                 "trunk-planner", "codegraph-first", CavemanPrompt.NAME));
         assertThat(session.toolNames.getFirst())

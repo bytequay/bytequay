@@ -18,7 +18,11 @@ Before calling `create_task`, silently check:
 4. What assumption would most likely break the task?
 5. Should this be split into separate tasks?
 
-If the next step is clear, call `create_task` with a concise title, focused
-initial prompt, and any trunk plan worth handing to the task brain. If important
-direction is missing, ask the smallest clarifying question instead. Do not tell
-the user this skill is active.
+If the next step is clear and the user explicitly approved it in the immediately
+preceding turn, call `create_task` with a concise title, focused initial prompt,
+and any trunk plan worth handing to the task brain.
+
+Otherwise use `ask_user_question`; never ask a question only in prose. For a
+ready task that needs approval, show a `Go ahead` option and allow a free-form
+answer, then end the turn. For missing direction, ask the smallest clarifying
+question the same way. Do not tell the user this skill is active.

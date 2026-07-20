@@ -112,7 +112,8 @@ export function TaskPageFrame({
       <strong className="workspace-task-header__title">{pageTitle}</strong>
       {branch !== undefined && <code className="workspace-task-header__branch">{branch}</code>}
       {pr !== undefined && (
-        <button type="button" className="workspace-task-header__pr" onClick={() => setPrOpen(true)}>
+        <button type="button" className="workspace-task-header__pr" title="Open pull request overview"
+          onClick={pr.onOpen ?? (() => setPrOpen(true))}>
           <PullRequestBranchIcon size={10} />#{pr.number} {displayPrStatus(pr.status)}
         </button>
       )}
@@ -145,8 +146,8 @@ export function TaskPageFrame({
         </button>
       )}
       {pr !== undefined && (
-        <button type="button" className="workspace-task-artifact-pill" title="Open pull request page"
-          onClick={() => setPrOpen(true)}>
+        <button type="button" className="workspace-task-artifact-pill" title="Open pull request overview"
+          onClick={pr.onOpen ?? (() => setPrOpen(true))}>
           <span className="workspace-task-artifact-pill__pr"><PullRequestBranchIcon size={12} /></span>
           PR <span className="is-muted">#{pr.number}</span>
         </button>

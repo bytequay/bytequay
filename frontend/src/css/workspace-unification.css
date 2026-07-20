@@ -1164,6 +1164,48 @@
   font-weight: 700;
 }
 
+/* The Workspaces landing keeps the global rail from Home. Do not let the
+   workspace visual system restyle its bottom destinations. */
+.workspace-redesign .shell.shell-rail.global-mode .sb-nav--bottom {
+  border-top: 0;
+}
+
+.workspace-redesign .shell.shell-rail.global-mode .sb-nav--bottom .sb-nav-item {
+  min-height: 0;
+  height: auto;
+  padding: 6px 10px;
+  color: var(--text-2);
+  font-size: var(--font-size-md);
+}
+
+.workspace-redesign .shell.shell-rail.global-mode .sb-nav--bottom .sb-nav-item.active {
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+.workspace-redesign .shell.shell-rail.global-mode .sb-nav--bottom .sb-nav-item .ic {
+  display: inline;
+  width: 17px;
+  justify-content: normal;
+  color: var(--text-3);
+  font-size: 16px;
+  text-align: center;
+}
+
+.workspace-redesign .shell.shell-rail.global-mode .sb-nav--bottom .sb-nav-item .kbd,
+.workspace-redesign .shell.shell-rail.global-mode .sb-nav--bottom .sb-nav-item.active .kbd {
+  display: inline;
+  min-width: 0;
+  height: auto;
+  padding: 1px 5px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-4);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+}
+
 .workspace-redesign .ws-user-footer {
   display: flex;
   min-height: 45px;

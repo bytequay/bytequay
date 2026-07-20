@@ -725,6 +725,56 @@
   box-sizing: border-box;
 }
 
+.workspace-redesign .trunk-page-v2__error {
+  display: flex;
+  width: min(calc(100% - 56px), 780px);
+  margin: 10px auto 0;
+  padding: 10px 12px;
+  align-items: flex-start;
+  gap: 10px;
+  box-sizing: border-box;
+  border: 1px solid #ff818266;
+  border-radius: 8px;
+  background: #fff1f0;
+  color: #82071e;
+}
+.workspace-redesign .trunk-page-v2__error-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+  border-radius: 50%;
+  background: #cf222e;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.workspace-redesign .trunk-page-v2__error-copy { display: grid; min-width: 0; gap: 2px; }
+.workspace-redesign .trunk-page-v2__error-copy > strong { font-size: 12.5px; }
+.workspace-redesign .trunk-page-v2__error-copy > small {
+  max-height: 72px;
+  overflow: auto;
+  color: #a40e26;
+  font-size: 11.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.workspace-redesign .trunk-page-v2__error > button {
+  margin-left: auto;
+  padding: 5px 10px;
+  flex-shrink: 0;
+  border: 1px solid #cf222e55;
+  border-radius: 6px;
+  background: #fff;
+  color: #82071e;
+  cursor: pointer;
+  font: 600 11.5px/1.2 inherit;
+}
+.workspace-redesign .trunk-page-v2__error > button:disabled { cursor: default; opacity: .6; }
+
 .workspace-redesign .trunk-page-v2 .composer-wrap--workspace-v2 > * { width: min(100%, 780px); }
 
 /* ── Workspace overview (318px) ────────────────────────────── */
@@ -1014,6 +1064,21 @@
   margin-left: auto;
   color: #6e7781;
   font-size: 10.5px;
+}
+.workspace-redesign .trunk-page-v2__provider-head > button {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #0969da;
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.workspace-redesign .trunk-page-v2__provider-head > small + button { margin-left: 0; }
+.workspace-redesign .trunk-page-v2__provider-head > button:disabled {
+  color: #8b949e;
+  cursor: default;
 }
 .workspace-redesign .trunk-page-v2__provider-usage > p {
   margin: 0;

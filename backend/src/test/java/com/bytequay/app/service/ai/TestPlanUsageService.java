@@ -20,6 +20,9 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -49,12 +52,12 @@ class TestPlanUsageService
                 new ObjectMapper(), codex, claude, cache).current();
 
         assertThat(usage.providers()).hasSize(2);
-        assertThat(usage.providers().get(0).label()).isEqualTo("Codex");
+        assertThat(usage.providers().get(0).label()).isEqualTo("Codex CLI");
         assertThat(usage.providers().get(0).plan()).isEqualTo("plus");
         assertThat(usage.providers().get(0).limits())
                 .extracting(PlanUsageService.LimitWindow::label)
                 .containsExactly("5-hour", "Weekly");
-        assertThat(usage.providers().get(1).label()).isEqualTo("Claude");
+        assertThat(usage.providers().get(1).label()).isEqualTo("Claude CLI");
         assertThat(usage.providers().get(1).limits())
                 .extracting(PlanUsageService.LimitWindow::usedPercent)
                 .containsExactly(12.5, 98.0);
@@ -71,10 +74,88 @@ class TestPlanUsageService
         PlanUsageService.PlanUsage usage = new PlanUsageService(
                 new ObjectMapper(), codex, claude, tempDir.resolve("missing-cache.json")).current();
 
-        assertThat(usage.providers()).singleElement().satisfies(provider -> {
-            assertThat(provider.label()).isEqualTo("Claude");
+        assertThat(usage.providers()).filteredOn(provider -> provider.provider().equals("anthropic"))
+                .singleElement().satisfies(provider -> {
+            assertThat(provider.label()).isEqualTo("Claude CLI");
             assertThat(provider.limits()).isEmpty();
-            assertThat(provider.message()).contains("Enable Claude usage sync");
+            assertThat(provider.message()).contains("Refresh Claude CLI usage");
         });
+    }
+
+    @Test
+    void reportsMissingCliExecutables()
+    {
+        PlanUsageService.PlanUsage usage = new PlanUsageService(
+                new ObjectMapper(),
+                tempDir.resolve("codex"),
+                tempDir.resolve("claude"),
+                tempDir.resolve("claude-statusline.json"),
+                tempDir.resolve("claude-plan-usage.json"),
+                null,
+                null).current();
+
+        assertThat(usage.providers())
+                .extracting(PlanUsageService.ProviderUsage::message)
+                .containsExactly("Codex CLI is not available.", "Claude CLI is not available.");
+    }
+
+    @Test
+    void parsesLiveCodexCliBuckets()
+            throws IOException
+    {
+        String response = """
+                {"id":1,"result":{"rateLimits":{"limitId":"codex","limitName":null,"primary":{"usedPercent":27,"windowDurationMins":10080,"resetsAt":1785127148},"secondary":null,"planType":"prolite"},"rateLimitsByLimitId":{"codex_bengalfox":{"limitId":"codex_bengalfox","limitName":"GPT-5.3-Codex-Spark","primary":{"usedPercent":0,"windowDurationMins":10080,"resetsAt":1785138246},"secondary":null,"planType":"prolite"},"codex":{"limitId":"codex","limitName":null,"primary":{"usedPercent":27,"windowDurationMins":10080,"resetsAt":1785127148},"secondary":null,"planType":"prolite"}}}}
+                """;
+
+        PlanUsageService.ProviderUsage usage = PlanUsageService.parseCodexUsage(
+                new ObjectMapper().readTree(response), Instant.ofEpochMilli(1234));
+
+        assertThat(usage.label()).isEqualTo("Codex CLI");
+        assertThat(usage.plan()).isEqualTo("prolite");
+        assertThat(usage.source()).isEqualTo("Codex CLI app-server");
+        assertThat(usage.limits())
+                .extracting(PlanUsageService.LimitWindow::usedPercent)
+                .containsExactly(27.0, 0.0);
+        assertThat(usage.limits().get(1).model()).isEqualTo("GPT-5.3-Codex-Spark");
+    }
+
+    @Test
+    void parsesInteractiveClaudeUsageIncludingModelLimit()
+    {
+        Instant capturedAt = ZonedDateTime.of(
+                2026, 7, 20, 13, 30, 0, 0, ZoneId.of("Asia/Singapore")).toInstant();
+        String output = """
+                Opus 4.8 (1M context) with xhigh effort · Claude Max · account
+                Current session
+                2% 2% used
+                Resets 7:59pm (Asia/Singapore)
+                Current week (all models)
+                55% 55% used
+                Resets Jul 24 at 7:59am (Asia/Singapore)
+                +50% weekly limits promo through Aug 19
+                Current week (Fable)
+                98% 98% used
+                Resets Jul 24 at 7:59am (Asia/Singapore)
+                Usage credits
+                """;
+
+        PlanUsageService.ProviderUsage usage = PlanUsageService.parseClaudeUsage(output, capturedAt);
+
+        assertThat(usage.plan()).isEqualTo("Max");
+        assertThat(usage.label()).isEqualTo("Claude CLI");
+        assertThat(usage.source()).isEqualTo("Claude CLI /usage");
+        assertThat(usage.limits())
+                .extracting(PlanUsageService.LimitWindow::id)
+                .containsExactly("current_session", "all_models", "model:fable");
+        assertThat(usage.limits())
+                .extracting(PlanUsageService.LimitWindow::usedPercent)
+                .containsExactly(2.0, 55.0, 98.0);
+        assertThat(usage.limits().get(2).model()).isEqualTo("Fable");
+        assertThat(Instant.ofEpochMilli(usage.limits().get(0).resetsAt()))
+                .isEqualTo(ZonedDateTime.of(
+                        2026, 7, 20, 19, 59, 0, 0, ZoneId.of("Asia/Singapore")).toInstant());
+        assertThat(Instant.ofEpochMilli(usage.limits().get(1).resetsAt()))
+                .isEqualTo(ZonedDateTime.of(
+                        2026, 7, 24, 7, 59, 0, 0, ZoneId.of("Asia/Singapore")).toInstant());
     }
 }

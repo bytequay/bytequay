@@ -2063,14 +2063,14 @@ export function installWorkspaceVisualBridge(frame: string): void {
 
 function workspaceResponse(frame: string, request: WorkspaceApiRequest): unknown {
   const path = request.path;
-  if (path === '/api/ai/plan-usage') {
+  if (path === '/api/ai/plan-usage' || path === '/api/ai/plan-usage/claude/refresh') {
     return {
       providers: [{
         provider: 'openai',
-        label: 'Codex',
+        label: 'Codex CLI',
         plan: 'prolite',
         updatedAt: now,
-        source: 'Codex local session',
+        source: 'Codex CLI app-server',
         message: null,
         limits: [{
           id: 'primary:10080',
@@ -2078,26 +2078,38 @@ function workspaceResponse(frame: string, request: WorkspaceApiRequest): unknown
           usedPercent: 3,
           resetsAt: now + 6 * day,
           model: null,
+        }, {
+          id: 'codex_bengalfox:primary:10080',
+          label: 'Weekly',
+          usedPercent: 0,
+          resetsAt: now + 6 * day,
+          model: 'GPT-5.3-Codex-Spark',
         }],
       }, {
         provider: 'anthropic',
-        label: 'Claude',
-        plan: null,
+        label: 'Claude CLI',
+        plan: 'Max',
         updatedAt: now,
-        source: 'Claude Code status line',
+        source: 'Claude CLI /usage',
         message: null,
         limits: [{
-          id: 'five_hour',
-          label: '5-hour',
-          usedPercent: 54,
+          id: 'current_session',
+          label: 'Current session',
+          usedPercent: 2,
           resetsAt: now + 88 * minute,
           model: null,
         }, {
-          id: 'seven_day',
-          label: 'Weekly',
+          id: 'all_models',
+          label: 'All models',
           usedPercent: 55,
           resetsAt: now + 4 * day,
           model: null,
+        }, {
+          id: 'model:fable',
+          label: 'Weekly',
+          usedPercent: 98,
+          resetsAt: now + 4 * day,
+          model: 'Fable',
         }],
       }],
     } satisfies PlanUsageDto;

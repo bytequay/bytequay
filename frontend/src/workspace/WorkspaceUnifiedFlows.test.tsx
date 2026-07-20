@@ -43,6 +43,47 @@ afterEach(() => {
 });
 
 describe('workspace unified interaction flows', () => {
+  it('pins CLI usage on Today and explains missing CLIs', async () => {
+    const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
+      if (request.path === '/api/workspaces/w1/onboarding') {
+        return {
+          workspaceId: 'w1', cloneComplete: true, syncState: 'ready', syncCurrent: 1, syncTotal: 1,
+          memorySeedComplete: true, firstTrunkComplete: true, memoryImported: false,
+          dismissedAt: Date.now(), updatedAt: Date.now(),
+        } satisfies WorkspaceOnboardingDto;
+      }
+      if (request.path === '/api/ai/plan-usage') {
+        return { providers: [{
+          provider: 'openai', label: 'Codex CLI', plan: null, updatedAt: 0,
+          source: null, message: 'Codex CLI is not available.', limits: [],
+        }, {
+          provider: 'anthropic', label: 'Claude CLI', plan: null, updatedAt: 0,
+          source: null, message: 'Claude CLI is not available.', limits: [],
+        }] };
+      }
+      throw new Error(`Unexpected request: ${request.path}`);
+    });
+    setBridge(workspaceApi, { listActiveTaskTurns: vi.fn().mockResolvedValue([]) });
+
+    const { container } = render(
+      <WorkspaceTodayPage
+        workspace={workspaceFixture()}
+        threads={[]}
+        onNewThread={() => {}}
+        onOpenInsights={() => {}}
+        onOpenMemory={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText('Codex CLI')).toBeTruthy();
+    expect(screen.getByText('Claude CLI')).toBeTruthy();
+    expect(screen.getByText('Codex CLI is not available.')).toBeTruthy();
+    expect(screen.getByText('Claude CLI is not available.')).toBeTruthy();
+    const labels = [...container.querySelectorAll('.wu-section-label > span:first-child')]
+      .map(element => element.textContent);
+    expect(labels.slice(0, 4)).toEqual(['Usage', 'Needs you', 'Running', 'Landed today']);
+  });
+
   it('controls a live session and opens its owning trunk', async () => {
     const session = sessionFixture();
     const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {

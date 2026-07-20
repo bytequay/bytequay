@@ -1755,6 +1755,11 @@
   gap: 8px;
 }
 
+.workspace-redesign .wu-today__usage-pinned .trunk-page-v2__plan-usage {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .workspace-redesign .wu-today-card {
   display: flex;
   min-height: 0;

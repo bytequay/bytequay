@@ -6176,6 +6176,7 @@ button.workspace-redesign .wu-table-row,
 }
 
 .workspace-redesign .wu-commit-history__list {
+  flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid rgba(0, 0, 0, .1);
   border-radius: 11px;

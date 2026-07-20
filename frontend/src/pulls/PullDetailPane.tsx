@@ -95,15 +95,17 @@ function ReviewAction({ children, onClick, title }: {
 }
 
 function AgentButtons({ det, actions }: { det: ReturnType<typeof buildHeader>; actions: PullDetailActions }) {
+  const [reviewMenuOpen, setReviewMenuOpen] = useState(false);
+
   if (actions.noWorkspace === true) {
     const quick = actions.quickReview;
-    const quickLabel = quick?.state === 'running'
-      ? 'Quick review • running'
+    const quickTitle = quick?.state === 'running'
+      ? 'Quick review is running'
       : quick?.state === 'done'
-        ? 'Quick review ✓'
+        ? 'Quick review completed'
         : quick?.state === 'failed'
           ? 'Retry quick review'
-          : 'Run quick review';
+          : undefined;
     const quickAction = quick?.state === 'running' || quick?.state === 'done'
       ? undefined
       : actions.onRunQuickReview;
@@ -117,10 +119,42 @@ function AgentButtons({ det, actions }: { det: ReturnType<typeof buildHeader>; a
       ? undefined
       : actions.onWatchRepoForFullReview;
     return (
-      <>
-        <ReviewAction onClick={quickAction}>{quickLabel}</ReviewAction>
-        <ReviewAction onClick={watchAction}>{watchLabel}</ReviewAction>
-      </>
+      <span style={{ position: 'relative', display: 'inline-flex', marginBottom: 4, flexShrink: 0 }}>
+        <button
+          type="button"
+          className="pl-review-action"
+          onClick={quickAction}
+          disabled={quickAction === undefined}
+          title={quickTitle}
+          style={{ margin: 0, borderRadius: '8px 0 0 8px' }}
+        >
+          Run quick review
+        </button>
+        <button
+          type="button"
+          className="pl-review-action"
+          aria-label="More review options"
+          aria-haspopup="menu"
+          aria-expanded={reviewMenuOpen}
+          onClick={() => setReviewMenuOpen(open => !open)}
+          style={{ margin: 0, marginLeft: -1, paddingInline: 7, borderRadius: '0 8px 8px 0' }}
+        >
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+        </button>
+        {reviewMenuOpen && (
+          <span role="menu" style={{ position: 'absolute', zIndex: 20, top: 'calc(100% + 6px)', right: 0, minWidth: 190, padding: 4, border: '1px solid #d5dbe1', borderRadius: 8, background: '#fff', boxShadow: '0 8px 24px rgba(31,35,40,.16)' }}>
+            <button
+              type="button"
+              role="menuitem"
+              disabled={watchAction === undefined}
+              onClick={() => { setReviewMenuOpen(false); watchAction?.(); }}
+              style={{ width: '100%', padding: '7px 9px', border: 0, borderRadius: 6, background: 'transparent', color: '#17191c', font: 'inherit', fontSize: 12, textAlign: 'left', whiteSpace: 'nowrap', cursor: watchAction === undefined ? 'default' : 'pointer' }}
+            >
+              {watchLabel}
+            </button>
+          </span>
+        )}
+      </span>
     );
   }
 

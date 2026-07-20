@@ -360,10 +360,11 @@ export function TaskBrainRoute({
       .then(result => onOpenStage(result.devStageId))
       .catch(() => { /* poll reconciles */ });
   };
-  // Ask the brain to revise — a fresh planning turn that supersedes the draft.
-  const requestRevision = () => {
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    bridge?.replan?.(taskId).then(() => pollFast()).catch(() => { /* poll reconciles */ });
+  // Ask the brain to revise — the typed feedback goes to the brain as a
+  // message, which supersedes the draft with a fresh planning turn that has the
+  // user's concerns in hand (richer than a blind replan).
+  const requestRevision = (feedback: string) => {
+    sendNow(feedback);
   };
   // The reminder pill opens the original execution plan card in an overlay.
   const [planOpen, setPlanOpen] = useState(false);

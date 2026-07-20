@@ -163,8 +163,9 @@ describe('TaskBrainRoute', () => {
     render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} onClosed={() => {}} />);
 
     await screen.findByText('Build the meter');
-    // The switch lives inside the plan card's header, top-right.
-    expect(document.querySelector('.plan-card__hd .plan-auto')).toBeTruthy();
+    // Auto-approve lives in the plan card's policy toolbar, not the top bar.
+    expect(document.querySelector('.plan-pipeline-card')).toBeTruthy();
+    expect(screen.getByText('Auto-approve')).toBeTruthy();
     // The old top-bar button (with its dynamic "Auto-approve on/off" label) is gone.
     expect(screen.queryByText(/^Auto-approve (on|off)$/)).toBeNull();
   });

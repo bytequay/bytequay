@@ -15,7 +15,7 @@ import type { ReactNode } from 'react';
 import type { StageConversationRow } from '../types/brainView';
 import { EventRow, EventTimestamp, ToolBlock, UserMsg, WorkFold } from '../ui/conv';
 import {
-  ClockIcon, McpCubeIcon, PenIcon, SearchIcon, TerminalRunIcon,
+  ChevronRightIcon, ClockIcon, McpCubeIcon, PenIcon, PlanIcon, SearchIcon, TerminalRunIcon,
 } from '../ui/TaskBrainDesignIcons';
 import { formatDuration } from '../threads/brain/format';
 import { PermissionCard, type PermissionDecideHandler } from '../threads/PermissionCard';
@@ -49,6 +49,54 @@ function toolDesc(label: string | null, detail: string | null): ReactNode {
   return <>{name} <span className="tool-arg">{arg}</span></>;
 }
 
+const PLAN_KICKOFF_PREFIX = 'The plan for this task has been approved — implement it now.';
+
+/** The approved plan is sent to the dev agent as a user-role model input,
+ *  but it is runtime-generated UI history rather than something the person
+ *  typed. Keep the exact prompt available for audit without presenting it as
+ *  a human message. The fixed prefix is the wire contract emitted by
+ *  PlanStageService; older stored turns have no separate origin field. */
+function isPlanKickoff(r: StageConversationRow): boolean {
+  return r.kind === 'user' && r.text?.startsWith(PLAN_KICKOFF_PREFIX) === true;
+}
+
+function kickoffIntent(text: string): string {
+  const start = text.indexOf('\nIntent:');
+  const end = text.indexOf('\nSteps:', start + 1);
+  if (start === -1 || end === -1) return 'Development instructions sent automatically';
+  return text.slice(start + '\nIntent:'.length, end).trim()
+    || 'Development instructions sent automatically';
+}
+
+function PlanKickoffCard({ row }: { row: StageConversationRow }) {
+  const text = row.text ?? '';
+  return (
+    <details className="runtime-kickoff-card" data-seq={row.messageSeq ?? undefined}>
+      <summary className="runtime-kickoff-card__summary">
+        <span className="runtime-kickoff-card__icon" aria-hidden><PlanIcon size={14} /></span>
+        <span className="runtime-kickoff-card__copy">
+          <span className="runtime-kickoff-card__title">Approved plan</span>
+          <span className="runtime-kickoff-card__preview">{kickoffIntent(text)}</span>
+        </span>
+        <span className="runtime-kickoff-card__badge">Runtime</span>
+        <span className="runtime-kickoff-card__time"><EventTimestamp iso={row.ts} /></span>
+        <span className="runtime-kickoff-card__chevron" aria-hidden>
+          <ChevronRightIcon size={13} strokeWidth={2} />
+        </span>
+      </summary>
+      <div className="runtime-kickoff-card__body">
+        <div className="runtime-kickoff-card__body-label">Development kickoff prompt</div>
+        <div className="runtime-kickoff-card__prompt">{text}</div>
+        {row.managedSkills.length > 0 && (
+          <div className="runtime-kickoff-card__skills">
+            Managed skills: {row.managedSkills.join(', ')}
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
 /**
  * Renders one stage-transcript row into a V3 conversation element. Shared
  * by the stage detail page and the code-diff page's conversation column so
@@ -59,6 +107,9 @@ function toolDesc(label: string | null, detail: string | null): ReactNode {
  */
 export function stageRow(
   r: StageConversationRow, onDecide?: PermissionDecideHandler, threadId?: string): ReactNode {
+  if (isPlanKickoff(r)) {
+    return <PlanKickoffCard key={r.id} row={r} />;
+  }
   switch (r.kind) {
     case 'user':
       return (

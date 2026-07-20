@@ -693,10 +693,10 @@ export function StageDetailRoute({
         onImagesChange: setImages,
         modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'stage', stageId }} />,
         usage: {
-          planPercent: stageContext.tokensLimit > 0
+          contextPercent: stageContext.tokensLimit > 0
             ? Math.round((stageContext.tokensUsed / stageContext.tokensLimit) * 100)
             : 0,
-          sessionLabel: `${stageContext.tokensUsed.toLocaleString('en-US')} AI credits`,
+          sessionLabel: `${stageContext.tokensUsed.toLocaleString('en-US')} tokens`,
         },
         meta: `Stage ${stagePosition} of ${Math.max(1, topLevelStages.length)} · ${formatDuration(stageDurationSec)}`,
       }}

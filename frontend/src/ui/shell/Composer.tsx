@@ -21,6 +21,10 @@ import { pasteClipboardImages } from './pasteClipboardImages';
 /** Grow the textarea to fit its content, up to this many px (then scroll). */
 const MAX_INPUT_HEIGHT = 160;
 
+export type ComposerUsage =
+  | { contextPercent: number; sessionLabel: string }
+  | { tokensIn: number; tokensOut: number };
+
 /**
  * The composer pinned to the bottom of every conversation column. One
  * mode pill (the model selector, passed in as `modePill`) and a send
@@ -60,8 +64,8 @@ export function Composer({
   toolbar?: ReactNode;
   /** Right-aligned task/thread metrics above the input. */
   meta?: ReactNode;
-  /** Usage-ring values. Omit only when the host deliberately hides usage. */
-  usage?: { planPercent: number; sessionLabel: string };
+  /** Provider-reported token usage, or context-window usage when available. */
+  usage?: ComposerUsage;
 }) {
   const workspaceVariant = variant === 'workspace-v2';
   const [usageOpen, setUsageOpen] = useState(false);
@@ -69,6 +73,9 @@ export function Composer({
   // Spinner only when we're blocked (busy with nothing queueable); when a
   // message can be queued mid-run the button stays active.
   const spinning = busy && !canSend;
+  const contextPercent = usage !== undefined && 'contextPercent' in usage
+    ? Math.max(0, Math.min(100, usage.contextPercent))
+    : null;
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-grow to fit the text (up to MAX_INPUT_HEIGHT, then scroll) so a
@@ -174,22 +181,34 @@ export function Composer({
             <span className="workspace-composer-usage">
               <button type="button" aria-label="Usage" title="Usage"
                 aria-expanded={usageOpen} onClick={() => setUsageOpen(open => !open)}>
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-                  <circle cx="10" cy="10" r="7.5" stroke="#e1e5e9" strokeWidth="2.5" />
-                  <circle cx="10" cy="10" r="7.5" stroke="#2da44e" strokeWidth="2.5"
-                    strokeLinecap="round" strokeDasharray={`${Math.max(0, Math.min(100, usage.planPercent)) * 0.471} ${47.1 - Math.max(0, Math.min(100, usage.planPercent)) * 0.471}`}
-                    transform="rotate(-90 10 10)" />
-                </svg>
+                {contextPercent === null ? <TokenUsageIcon /> : (
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
+                    <circle cx="10" cy="10" r="7.5" stroke="#e1e5e9" strokeWidth="2.5" />
+                    <circle cx="10" cy="10" r="7.5" stroke="#2da44e" strokeWidth="2.5"
+                      strokeLinecap="round" strokeDasharray={`${contextPercent * 0.471} ${47.1 - contextPercent * 0.471}`}
+                      transform="rotate(-90 10 10)" />
+                  </svg>
+                )}
               </button>
               {usageOpen && (
                 <div className="workspace-composer-usage__popover" role="dialog" aria-label="Usage details">
-                  <div>
-                    <span>Plan</span>
-                    <i><i style={{ width: `${Math.max(0, Math.min(100, usage.planPercent))}%` }} /></i>
-                    <strong>{usage.planPercent}% used</strong>
-                  </div>
-                  <hr />
-                  <div><span>Session</span><strong>{usage.sessionLabel}</strong></div>
+                  {'tokensIn' in usage ? (
+                    <>
+                      <div><span>Input</span><strong>{formatTokens(usage.tokensIn)}</strong></div>
+                      <hr />
+                      <div><span>Output</span><strong>{formatTokens(usage.tokensOut)}</strong></div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <span>Context</span>
+                        <i><i style={{ width: `${contextPercent}%` }} /></i>
+                        <strong>{contextPercent}% used</strong>
+                      </div>
+                      <hr />
+                      <div><span>Session</span><strong>{usage.sessionLabel}</strong></div>
+                    </>
+                  )}
                 </div>
               )}
             </span>
@@ -220,4 +239,17 @@ export function Composer({
       </div>
     </div>
   );
+}
+
+function TokenUsageIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor"
+      strokeWidth="1.7" strokeLinecap="round" aria-hidden>
+      <path d="M5 14V9M10 14V5M15 14v-7" />
+    </svg>
+  );
+}
+
+function formatTokens(tokens: number): string {
+  return `${tokens.toLocaleString('en-US')} tokens`;
 }

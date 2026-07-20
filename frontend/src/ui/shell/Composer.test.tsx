@@ -105,7 +105,7 @@ describe('Composer', () => {
         modePill={<button type="button">Claude Opus 4.8</button>}
         toolbar={<button type="button">Changes +0 −331</button>}
         meta="Stage 2 of 4 · 15m 23s"
-        usage={{ planPercent: 4, sessionLabel: '827 AI credits' }}
+        usage={{ contextPercent: 4, sessionLabel: '827 tokens' }}
       />,
     );
 
@@ -114,6 +114,23 @@ describe('Composer', () => {
     expect(screen.getByText('Changes +0 −331')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Usage' }));
     expect(screen.getByText('4% used')).toBeTruthy();
-    expect(screen.getByText('827 AI credits')).toBeTruthy();
+    expect(screen.getByText('827 tokens')).toBeTruthy();
+  });
+
+  it('shows provider-reported input and output tokens without a made-up quota', () => {
+    render(
+      <Composer
+        variant="workspace-v2"
+        value=""
+        onChange={() => {}}
+        onSubmit={() => {}}
+        usage={{ tokensIn: 1_234, tokensOut: 56 }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Usage' }));
+    expect(screen.getByText('1,234 tokens')).toBeTruthy();
+    expect(screen.getByText('56 tokens')).toBeTruthy();
+    expect(screen.queryByText(/AI credits|% used/)).toBeNull();
   });
 });

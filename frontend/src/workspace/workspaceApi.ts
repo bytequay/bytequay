@@ -248,6 +248,28 @@ export type WorkspaceSessionDto = {
   changes?: WorkspaceSessionChangesDto;
 };
 
+export type PlanUsageDto = {
+  providers: ProviderPlanUsageDto[];
+};
+
+export type ProviderPlanUsageDto = {
+  provider: string;
+  label: string;
+  plan: string | null;
+  updatedAt: number;
+  source: string | null;
+  message: string | null;
+  limits: PlanLimitDto[];
+};
+
+export type PlanLimitDto = {
+  id: string;
+  label: string;
+  usedPercent: number;
+  resetsAt: number;
+  model: string | null;
+};
+
 export type WorkspaceSessionTimelineItemDto = {
   id: string;
   title: string;
@@ -512,6 +534,10 @@ export const workspaceApi = {
   sessions: (workspaceId: string) =>
     window.bridge.workspaceApi<WorkspaceSessionDto[]>({
       path: `/api/workspaces/${enc(workspaceId)}/sessions`,
+    }),
+  planUsage: () =>
+    window.bridge.workspaceApi<PlanUsageDto>({
+      path: '/api/ai/plan-usage',
     }),
   session: (sessionId: string) =>
     window.bridge.workspaceApi<WorkspaceSessionDto>({

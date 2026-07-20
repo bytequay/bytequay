@@ -14,7 +14,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import type { DiffInlineComment } from '../diff/DiffInlineComments';
 import ResizeHandle from '../ResizeHandle';
-import { Composer, Main, Shell } from '../ui/shell';
+import { Composer, Main, Shell, type ComposerUsage } from '../ui/shell';
 import { usePaneWidth } from '../ui/shell/usePaneWidth';
 import { CheckIcon } from '../ui/TaskBrainDesignIcons';
 import { ChevronIcon, PullRequestBranchIcon, TrunkLineIcon } from '../ui/workspace';
@@ -31,7 +31,7 @@ export type TaskPageComposer = {
   images?: string[];
   onImagesChange?: (next: string[]) => void;
   closedNote?: string;
-  usage?: { planPercent: number; sessionLabel: string };
+  usage?: ComposerUsage;
   /** Compact run context shown at the right edge of the locked toolbar. */
   meta?: ReactNode;
 };

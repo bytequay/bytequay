@@ -11,10 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Ds4StatusDto, WorkspaceApiRequest, WorkspaceCardDto, WorkModelOptionsDto } from '../types';
 import WorkspaceSettingsPage from './WorkspaceSettingsPage';
+import type { WorkspaceAutomationStatusDto } from './workspaceApi';
 
 afterEach(() => {
   cleanup();
@@ -63,7 +64,45 @@ const options: WorkModelOptionsDto = {
   }],
 };
 
-function installBridge(localAiState: 'DISABLED' | 'RUNNING' = 'DISABLED') {
+function automationStatus(overrides: {
+  qualityScan?: Partial<WorkspaceAutomationStatusDto['qualityScan']>;
+  remoteIssueIntake?: Partial<WorkspaceAutomationStatusDto['remoteIssueIntake']>;
+} = {}): WorkspaceAutomationStatusDto {
+  return {
+    qualityScan: {
+      enabled: false,
+      eligible: true,
+      reason: null,
+      running: false,
+      lastRunAt: null,
+      expectedNextRunAt: null,
+      lastOutcome: null,
+      findingsProposed: 0,
+      lastError: null,
+      ...overrides.qualityScan,
+    },
+    remoteIssueIntake: {
+      enabled: false,
+      eligible: true,
+      reason: null,
+      running: false,
+      lastRunAt: null,
+      expectedNextRunAt: null,
+      lastOutcome: null,
+      issuesExamined: 0,
+      tasksQueued: 0,
+      implementationsStarted: 0,
+      lastError: null,
+      ...overrides.remoteIssueIntake,
+    },
+  };
+}
+
+function installBridge(
+  localAiState: 'DISABLED' | 'RUNNING' = 'DISABLED',
+  automation = automationStatus(),
+  automationFailures = 0,
+) {
   const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
     if (request.path === '/api/workspaces/w1/repository') {
       return {
@@ -86,6 +125,8 @@ function installBridge(localAiState: 'DISABLED' | 'RUNNING' = 'DISABLED') {
         providers: { plan: 'claude-sonnet-4.5', dev: 'cli:codex' },
         notifyCi: true,
         notifyCompletions: false,
+        qualityScanEnabled: automation.qualityScan.enabled,
+        remoteIssueIntakeEnabled: automation.remoteIssueIntake.enabled,
       };
     }
     if (request.path === '/api/workspaces/w1/settings' && request.method === 'PUT') {
@@ -111,6 +152,13 @@ function installBridge(localAiState: 'DISABLED' | 'RUNNING' = 'DISABLED') {
         knowledge: [],
         distillRuns: [],
       };
+    }
+    if (request.path === '/api/workspaces/w1/automation') {
+      if (automationFailures > 0) {
+        automationFailures -= 1;
+        throw new Error('Automation status unavailable');
+      }
+      return automation;
     }
     throw new Error(`Unexpected request: ${request.path}`);
   });
@@ -182,7 +230,7 @@ describe('WorkspaceSettingsPage', () => {
     const numbers = screen.getAllByRole('textbox') as HTMLInputElement[];
     fireEvent.change(numbers[0], { target: { value: '2.50' } });
     fireEvent.change(numbers[1], { target: { value: '15.00' } });
-    fireEvent.click(screen.getByRole('switch', { name: '' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'Pause at cap' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
     await waitFor(() => expect(workspaceApi).toHaveBeenCalledWith({
@@ -217,5 +265,83 @@ describe('WorkspaceSettingsPage', () => {
     expect(await screen.findByText(/24 \/ 8,000 characters/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'View memory' }));
     expect(onOpenMemory).toHaveBeenCalled();
+  });
+
+  it('saves workspace automation opt-ins through the existing settings endpoint', async () => {
+    const workspaceApi = installBridge();
+    render(<WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="automation" />);
+
+    const qualityScan = await screen.findByRole('switch', { name: 'Scan this workspace' });
+    const issueIntake = screen.getByRole('switch', { name: 'Watch new GitHub issues' });
+    await waitFor(() => {
+      expect((qualityScan as HTMLButtonElement).disabled).toBe(false);
+      expect((issueIntake as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    fireEvent.click(qualityScan);
+    fireEvent.click(issueIntake);
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(workspaceApi).toHaveBeenCalledWith({
+      path: '/api/workspaces/w1/settings',
+      method: 'PUT',
+      body: expect.objectContaining({
+        qualityScanEnabled: true,
+        remoteIssueIntakeEnabled: true,
+      }),
+    }));
+    expect(screen.getByText(/approval-gated GitHub issue proposals/i)).toBeTruthy();
+    expect(screen.getByText(/every push and pull request remains approval-gated/i)).toBeTruthy();
+  });
+
+  it('shows automation health, disables ineligible opt-ins, and polls enabled jobs', async () => {
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    installBridge('DISABLED', automationStatus({
+      qualityScan: {
+        enabled: true,
+        lastRunAt: '2026-07-20T01:00:00Z',
+        expectedNextRunAt: '2026-07-21T01:00:00Z',
+        lastOutcome: 'SUCCESS',
+        findingsProposed: 4,
+      },
+      remoteIssueIntake: {
+        eligible: false,
+        reason: 'GitHub write access is required.',
+        lastError: 'GitHub timed out',
+      },
+    }));
+    render(<WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="automation" />);
+
+    expect(await screen.findByText('GitHub write access is required.')).toBeTruthy();
+    expect((screen.getByRole('switch', { name: 'Watch new GitHub issues' }) as HTMLButtonElement).disabled)
+      .toBe(true);
+    expect(screen.getByText('Findings proposed').closest('.wu-setting-row')?.textContent).toContain('4');
+    expect(screen.getByRole('alert').textContent).toContain('GitHub timed out');
+    await waitFor(() => expect(setIntervalSpy)
+      .toHaveBeenCalledWith(expect.any(Function), 30_000));
+    setIntervalSpy.mockRestore();
+  });
+
+  it('keeps an enabled job switch-off-able and retries after status failure', async () => {
+    const setIntervalSpy = vi.spyOn(window, 'setInterval');
+    const workspaceApi = installBridge('DISABLED', automationStatus({
+      qualityScan: { enabled: true },
+    }), 1);
+    render(<WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="automation" />);
+
+    const qualityScan = await screen.findByRole('switch', { name: 'Scan this workspace' });
+    await waitFor(() => {
+      expect(qualityScan.getAttribute('aria-checked')).toBe('true');
+      expect((qualityScan as HTMLButtonElement).disabled).toBe(false);
+    });
+    fireEvent.click(qualityScan);
+    expect(qualityScan.getAttribute('aria-checked')).toBe('false');
+
+    await waitFor(() => expect(setIntervalSpy).toHaveBeenCalled());
+    const refresh = setIntervalSpy.mock.calls[0][0] as () => void;
+    await act(async () => { refresh(); });
+    await waitFor(() => expect(workspaceApi.mock.calls.filter(([request]) =>
+      request.path === '/api/workspaces/w1/automation')).toHaveLength(2));
+    setIntervalSpy.mockRestore();
   });
 });

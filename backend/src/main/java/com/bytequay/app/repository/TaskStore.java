@@ -22,6 +22,7 @@ import com.bytequay.app.domain.TaskStatus;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -367,6 +368,17 @@ public interface TaskStore
      *  spine" — so the {@code limit} bounds in-flight tasks, not every
      *  task that ever linked a PR. */
     List<Task> listByPhases(Collection<TaskPhase> phases, int limit);
+
+    /** Automation tasks in one phase/origin, oldest-first. Unlike the
+     *  bounded global lifecycle sweep, this cannot starve an older
+     *  workspace-owned task behind unrelated planning work. */
+    default List<Task> listByPhaseAndOrigin(TaskPhase phase, String origin)
+    {
+        return listByPhases(List.of(phase), 10_000).stream()
+                .filter(task -> origin.equals(task.origin()))
+                .sorted(Comparator.comparing(Task::createdAt))
+                .toList();
+    }
 
     // ── files ────────────────────────────────────────────────────────
 

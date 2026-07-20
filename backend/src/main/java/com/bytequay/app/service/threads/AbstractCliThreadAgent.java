@@ -665,7 +665,8 @@ public abstract class AbstractCliThreadAgent
                                 /* errorMessage */ null,
                                 task.name(), task.roleSkill(), task.workModel(),
                                 task.pushedAt(), task.phase(), task.agendaJson(),
-                                task.consecutiveAutoPushes(), task.linkedPrRef(), task.openingPrompt()));
+                                task.consecutiveAutoPushes(), task.linkedPrRef(), task.openingPrompt(),
+                                task.origin()));
                     }
                 });
             }
@@ -1259,7 +1260,7 @@ public abstract class AbstractCliThreadAgent
                             task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
                             capturedSession,
                             task.createdAt(), task.endedAt(), task.errorMessage(),
-                            task.name(), task.roleSkill(), task.workModel()));
+                            task.name(), task.roleSkill(), task.workModel(), task.origin()));
                 }
             });
         }

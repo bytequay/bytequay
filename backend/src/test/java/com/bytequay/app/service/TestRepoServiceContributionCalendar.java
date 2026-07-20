@@ -84,6 +84,7 @@ class TestRepoServiceContributionCalendar
                 mock(GithubHomeCacheStore.class),
                 mock(AppSettingsStore.class),
                 patResolver,
+                mock(IssueOriginService.class),
                 Runnable::run);
     }
 

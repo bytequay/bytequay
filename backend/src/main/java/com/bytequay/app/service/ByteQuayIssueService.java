@@ -14,6 +14,7 @@
 package com.bytequay.app.service;
 
 import com.bytequay.app.domain.IssueDetail;
+import com.bytequay.app.domain.IssueOrigin;
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.repository.PullRequestRepository;
@@ -28,34 +29,45 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class ByteQuayIssueService
 {
-    public static final String OWNER = "bytequay";
-    public static final String REPO = "bytequay";
+    public static final String OWNER = "chenjian2664";
+    public static final String REPO = "ByteQuay";
     public static final String FULL_NAME = OWNER + "/" + REPO;
 
     private static final RepoRef REF = RepoRef.of(OWNER, REPO);
 
     private final PullRequestRepository gitHub;
     private final PatResolver pats;
+    private final IssueOriginService origins;
 
-    public ByteQuayIssueService(PullRequestRepository gitHub, PatResolver pats)
+    public ByteQuayIssueService(
+            PullRequestRepository gitHub,
+            PatResolver pats,
+            IssueOriginService origins)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pats = requireNonNull(pats, "pats is null");
+        this.origins = requireNonNull(origins, "origins is null");
     }
 
     public RepoIssue report(String title, String body)
     {
-        return gitHub.createIssue(pats.resolve(), REF, title, body);
+        RepoIssue created = gitHub.createIssue(
+                pats.resolve(), REF, title, IssueOrigin.markUserReport(body));
+        return origins.recordCreated(created, IssueOrigin.USER_REPORT);
     }
 
     public List<RepoIssue> listAll()
     {
-        return gitHub.fetchRepoIssues(pats.resolve(FULL_NAME), REF, "all");
+        return gitHub.fetchRepoIssues(pats.resolve(FULL_NAME), REF, "all").stream()
+                .map(issue -> origins.attribute(REF, issue))
+                .toList();
     }
 
     public IssueDetail detail(int number)
     {
-        return gitHub.fetchIssueDetail(pats.resolve(FULL_NAME), REF, number);
+        return origins.attributeDetail(
+                REF,
+                gitHub.fetchIssueDetail(pats.resolve(FULL_NAME), REF, number));
     }
 
     public boolean viewerCanMaintain()

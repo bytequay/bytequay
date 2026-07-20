@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import type { WorkUnitTaskDto } from '../types';
+import { CreationOriginBadge } from '../ui/CreationOriginBadge';
 import { useThreadTasks } from './useThreadTasks';
 
 type Props = {
@@ -114,6 +115,7 @@ export function TasksInThreadSection({ threadId }: Props) {
                 {showSeqBadge && (
                   <span style={seqBadgeStyle}>Task {task.seq}</span>
                 )}
+                <CreationOriginBadge origin={task.origin} />
               </span>
               {task.branchName !== null
                   && humanizeBranch(task.branchName) !== task.branchName

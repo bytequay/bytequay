@@ -41,6 +41,7 @@ function item(overrides: Partial<WorkspaceBacklogItemDto> = {}): WorkspaceBacklo
     source: 'manual',
     status: 'open',
     createdBy: 'user',
+    origin: 'user',
     createdAt: 0,
     inProgressAt: null,
     startedAt: null,
@@ -93,6 +94,8 @@ describe('WorkspaceBacklogPage', () => {
         summary: 'Aggregate cost by provider',
         status: 'in-progress',
         source: 'agent',
+        createdBy: 'trunk-agent',
+        origin: 'agent',
         threadId: 't2',
         links: [{ type: 'trunk', id: 't2' }],
       }),
@@ -107,10 +110,25 @@ describe('WorkspaceBacklogPage', () => {
 
     expect(await screen.findByText('Reply templates')).toBeTruthy();
     expect(screen.getByText(/BQ-1/)).toBeTruthy();
-    expect(screen.getByText('manual')).toBeTruthy();
+    expect(screen.getByText('User')).toBeTruthy();
+    expect(screen.getByText('Agent')).toBeTruthy();
     expect(screen.getByText('from Cost-meter telemetry')).toBeTruthy();
     expect(screen.getByText('trunk exploring')).toBeTruthy();
     expect(workspaceApi).toHaveBeenCalledWith({ path: '/api/workspaces/w1/backlog' });
+  });
+
+  it('renders the persisted origin instead of inferring it from editable tags', async () => {
+    mockBridge([item({
+      tags: ['quality-scan'],
+      source: 'agent',
+      createdBy: 'trunk-agent',
+      origin: 'issue-monitor',
+    })]);
+
+    render(<WorkspaceBacklogPage workspaceId="w1" />);
+
+    expect(await screen.findByText('Issue monitor')).toBeTruthy();
+    expect(screen.queryByText('Quality scan')).toBeNull();
   });
 
   it('filters the loaded workspace backlog without another request', async () => {

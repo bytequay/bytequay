@@ -52,6 +52,7 @@ function detail(over: Partial<IssueDetailDto> = {}): IssueDetailDto {
     ],
     timeline: [],
     subscribed: false,
+    origin: 'user',
     ...over,
   };
 }

@@ -174,6 +174,23 @@ class TestParkedProposalSerialization
     }
 
     @Test
+    void createIssueRoundTripsWithAutomationSource()
+            throws Exception
+    {
+        ParkedProposal.CreateIssue original = new ParkedProposal.CreateIssue(
+                "Avoid repeated allocation", "The hot path allocates on every call.",
+                new ParkedProposal.RepoRef("acme", "widget"));
+
+        JsonNode tree = mapper.valueToTree(original);
+        assertThat(tree.path("action").asText()).isEqualTo("create_issue");
+        assertThat(tree.path("source").asText()).isEqualTo("automation:quality-scan");
+        assertThat(tree.path("repo").path("owner").asText()).isEqualTo("acme");
+
+        ParkedProposal back = mapper.readValue(tree.toString(), ParkedProposal.class);
+        assertThat(back).isEqualTo(original);
+    }
+
+    @Test
     void commentOnIssueRoundTripsWithIssueRef()
             throws Exception
     {

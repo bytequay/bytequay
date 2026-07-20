@@ -66,7 +66,8 @@ class TestBacklogService
         when(trunk.workspaceId()).thenReturn("ws-1");
         when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(trunk));
 
-        BacklogItem saved = service.create("thread-1", "Add a cost meter", "body text", List.of("ui"), null);
+        BacklogItem saved = service.create(
+                "thread-1", "Add a cost meter", "body text", List.of("ui", "quality-scan"), null);
 
         ArgumentCaptor<BacklogItem> captor = ArgumentCaptor.forClass(BacklogItem.class);
         verify(store).save(captor.capture());
@@ -74,7 +75,7 @@ class TestBacklogService
         assertThat(persisted.threadId()).isEqualTo("thread-1");
         assertThat(persisted.title()).isEqualTo("Add a cost meter");
         assertThat(persisted.body()).isEqualTo("body text");
-        assertThat(persisted.tags()).containsExactly("ui");
+        assertThat(persisted.tags()).containsExactly("ui", "quality-scan");
         assertThat(persisted.startedAt()).isNull();
         assertThat(persisted.linkedTaskId()).isNull();
         assertThat(persisted.id()).isNotBlank();
@@ -83,6 +84,7 @@ class TestBacklogService
         assertThat(persisted.status()).isEqualTo("open");
         assertThat(persisted.source()).isEqualTo("manual");
         assertThat(persisted.createdBy()).isEqualTo("user");
+        assertThat(persisted.origin()).isEqualTo("user");
         assertThat(persisted.priority()).isEqualTo("medium");
         assertThat(saved).isSameAs(persisted);
     }
@@ -202,12 +204,45 @@ class TestBacklogService
         assertThat(saved).allSatisfy(it -> {
             assertThat(it.source()).isEqualTo("agent");
             assertThat(it.createdBy()).isEqualTo("trunk-agent");
+            assertThat(it.origin()).isEqualTo("agent");
             assertThat(it.status()).isEqualTo("open");
         });
         // Each item references its sibling; priority is carried through.
         assertThat(saved.get(0).relatedBacklogIds()).containsExactly(saved.get(1).id());
         assertThat(saved.get(1).relatedBacklogIds()).containsExactly(saved.get(0).id());
         assertThat(saved.get(0).priority()).isEqualTo("high");
+    }
+
+    @Test
+    void createBatchStampsSpecialAgentOriginsOnce()
+    {
+        service.createBatch("thread-1", List.of(
+                new BacklogService.NewBacklogItem(
+                        "Triage issue", "body", List.of("issue", "remote-intake"), null),
+                new BacklogService.NewBacklogItem(
+                        "Legacy triage", "body", List.of("issue", "bytequay-intake"), null),
+                new BacklogService.NewBacklogItem(
+                        "Review hotspot", "body", List.of("quality-scan"), null)));
+
+        ArgumentCaptor<BacklogItem> captor = ArgumentCaptor.forClass(BacklogItem.class);
+        verify(store, times(3)).save(captor.capture());
+        assertThat(captor.getAllValues()).extracting(BacklogItem::origin)
+                .containsExactly("issue-monitor", "issue-monitor", "quality-scan");
+    }
+
+    @Test
+    void editingTagsDoesNotRewriteOrigin()
+    {
+        BacklogItem monitored = BacklogItem.create(
+                "b1", "thread-1", "ws-1", "Title", "Body",
+                List.of("issue", "bytequay-intake"), BacklogItem.PRIORITY_MEDIUM,
+                BacklogItem.SOURCE_AGENT, BacklogItem.CREATED_BY_TRUNK_AGENT, NOW, List.of());
+        when(store.findById("b1")).thenReturn(Optional.of(monitored));
+
+        BacklogItem updated = service.update("b1", null, null, List.of("edited"), null);
+
+        assertThat(updated.tags()).containsExactly("edited");
+        assertThat(updated.origin()).isEqualTo("issue-monitor");
     }
 
     @Test

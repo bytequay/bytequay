@@ -46,13 +46,14 @@ vi.mock('../repos/AddRepoModal', () => ({
 }));
 
 vi.mock('./PullDetailPane', () => ({
-  default: ({ row, noWorkspace, onAssignAgent, onRunQuickReview, onWatchRepoForFullReview, onWorkWithAgent, quickReview, fullReviewPreparation }: {
+  default: ({ row, noWorkspace, onAssignAgent, onRunQuickReview, onWatchRepoForFullReview, onWorkWithAgent, onOpenInWorkspace, quickReview, fullReviewPreparation }: {
     row: PullRow;
     noWorkspace?: boolean;
     onAssignAgent?: () => void;
     onRunQuickReview?: () => void;
     onWatchRepoForFullReview?: () => void;
     onWorkWithAgent?: () => void;
+    onOpenInWorkspace?: () => void;
     quickReview?: { state: string; result: AiReviewDraftDto | null };
     fullReviewPreparation?: { state: string };
   }) => (
@@ -69,6 +70,7 @@ vi.mock('./PullDetailPane', () => ({
       <button onClick={onRunQuickReview} disabled={onRunQuickReview === undefined}>quick-hook</button>
       <button onClick={onWatchRepoForFullReview} disabled={onWatchRepoForFullReview === undefined}>watch-hook</button>
       <button onClick={onWorkWithAgent} disabled={onWorkWithAgent === undefined}>open-hook</button>
+      <button onClick={onOpenInWorkspace} disabled={onOpenInWorkspace === undefined}>workspace-hook</button>
     </div>
   ),
 }));
@@ -261,6 +263,13 @@ describe('PullsScreen', () => {
     );
 
     await waitFor(() => expect((screen.getByRole('button', { name: 'full-hook' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'workspace-hook' }));
+    expect(openWorkspacePr).toHaveBeenCalledWith(pr.repo, pr.number, {
+      agent: false,
+      prId: pr.id,
+    });
+    openWorkspacePr.mockClear();
+
     fireEvent.click(screen.getByRole('button', { name: 'full-hook' }));
     expect(startAgentReview).toHaveBeenCalledWith(pr.id, { workspaceId: 'ws-1' });
 

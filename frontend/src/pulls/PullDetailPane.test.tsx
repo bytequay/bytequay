@@ -87,20 +87,24 @@ describe('PullDetailPane', () => {
       })),
     } as LocalPRBundle;
     const onComment = vi.fn().mockResolvedValue(undefined);
+    const onOpenInWorkspace = vi.fn();
     const refresh = vi.fn();
 
-    render(
+    const view = render(
       <PullDetailBody
         row={toRow(dto)}
         bundle={bundle}
         refresh={refresh}
         onComment={onComment}
+        onOpenInWorkspace={onOpenInWorkspace}
       />,
     );
 
     expect(screen.getByText(/Task bundle title/)).not.toBeNull();
     expect(screen.getByText('Loaded by the task route')).not.toBeNull();
     expect(getLocalPrBundle).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Open in workspace' }));
+    expect(onOpenInWorkspace).toHaveBeenCalledOnce();
 
     fireEvent.change(screen.getByPlaceholderText('Add a comment'), { target: { value: 'Looks good' } });
     fireEvent.click(screen.getByRole('button', { name: /Comment/ }));
@@ -126,6 +130,18 @@ describe('PullDetailPane', () => {
       verdict: 'APPROVE', findingIds: [], comments: [], body: null,
     });
     expect(refresh).toHaveBeenCalledOnce();
+
+    view.rerender(
+      <PullDetailBody
+        row={toRow(dto)}
+        bundle={{ ...bundle, comments: [] }}
+        refresh={refresh}
+        onComment={onComment}
+        onOpenInWorkspace={onOpenInWorkspace}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Submit review' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Submit review • 0' })).toBeNull();
   });
 
   it('offers non-navigating quick review and watch-plus-full-review actions for an unwatched repo', () => {

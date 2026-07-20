@@ -35,6 +35,8 @@ function AccountPage({ onClearPat }: Props) {
   const [editing, setEditing] = useState<EditField | null>(null);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
+  const [resetAvailable, setResetAvailable] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const load = async (manual = false) => {
     if (manual) {
@@ -58,7 +60,30 @@ function AccountPage({ onClearPat }: Props) {
     }
   };
 
-  useEffect(() => { void load(false); }, []);
+  useEffect(() => {
+    void load(false);
+    void window.bridge.isDevLocalDataResetAvailable()
+      .then(setResetAvailable)
+      .catch(() => setResetAvailable(false));
+  }, []);
+
+  const resetLocalData = async () => {
+    const confirmed = window.confirm(
+      'Reset ByteQuay to first-run state?\n\n'
+      + 'This permanently deletes credentials, workspaces, tasks, conversations, drafts, settings, browser sign-ins, and ByteQuay-managed repository copies. Repositories outside ByteQuay and data on GitHub are not changed.\n\n'
+      + 'Bundled system prompts and required managed tools and skills are kept. ByteQuay will quit and restart.',
+    );
+    if (!confirmed) return;
+
+    setError(null);
+    setResetting(true);
+    try {
+      await window.bridge.requestDevLocalDataReset();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setResetting(false);
+    }
+  };
 
   const startEdit = (field: EditField) => {
     if (!profile) return;
@@ -193,13 +218,24 @@ function AccountPage({ onClearPat }: Props) {
         </>
       )}
 
-      <SettingCard title="Danger zone">
-        <SettingRow
-          title="Delete all local data"
-          description="Clears your cached PRs, drafts, and stats. Doesn't affect anything on GitHub. Coming soon."
-          control={<button className="button button--danger" type="button" disabled title="Not implemented yet.">Clear local data</button>}
-        />
-      </SettingCard>
+      {resetAvailable && (
+        <SettingCard title="Danger zone">
+          <SettingRow
+            title="Reset local test data"
+            description="Development only. Restarts ByteQuay at first-run setup while keeping bundled system prompts and required managed tools and skills."
+            control={
+              <button
+                className="button button--danger"
+                type="button"
+                disabled={resetting}
+                onClick={() => void resetLocalData()}
+              >
+                {resetting ? 'Resetting…' : 'Reset and restart'}
+              </button>
+            }
+          />
+        </SettingCard>
+      )}
     </>
   );
 }

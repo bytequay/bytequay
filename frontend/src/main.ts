@@ -520,6 +520,24 @@ function registerIpc(): void {
     else if (action === 'zoom') mainWindow.setFullScreen(!mainWindow.isFullScreen());
   });
 
+  ipcMain.handle('dev:local-data-reset-available', () => {
+    const marker = process.env.BYTEQUAY_DEV_RESET_MARKER;
+    return !app.isPackaged && typeof marker === 'string' && path.isAbsolute(marker);
+  });
+
+  ipcMain.handle('dev:reset-local-data', () => {
+    const marker = process.env.BYTEQUAY_DEV_RESET_MARKER;
+    if (app.isPackaged || typeof marker !== 'string' || !path.isAbsolute(marker)) {
+      throw new Error('Local data reset is only available when ByteQuay is started with ./dev.sh');
+    }
+
+    // dev.sh observes this marker only after Electron exits. It then stops the
+    // backend and all agent subprocesses before removing persistent user data.
+    fs.writeFileSync(marker, 'reset\n', { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    setImmediate(() => app.quit());
+    return true;
+  });
+
   // SSE broker for per-thread live event streams. Renderer subscribes via
   // window.bridge.subscribeTaskStream(); main opens the upstream SSE
   // connection and forwards parsed events. Replaces the 1s poll while

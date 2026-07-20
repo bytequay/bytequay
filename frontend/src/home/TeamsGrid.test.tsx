@@ -11,15 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-function TeamsGrid() {
-  return (
-    <div className="home-section">
-      <div className="home-section__header">
-        <span className="home-section__title">Teams you track</span>
-      </div>
-      <div className="hp-empty">This feature is still in progress.</div>
-    </div>
-  );
-}
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import TeamsGrid from './TeamsGrid';
 
-export default TeamsGrid;
+afterEach(cleanup);
+
+describe('TeamsGrid', () => {
+  it('shows that Teams is unavailable without an action', () => {
+    render(<TeamsGrid />);
+
+    expect(screen.getByText('This feature is still in progress.')).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+});

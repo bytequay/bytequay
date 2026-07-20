@@ -1060,8 +1060,6 @@ function App() {
               view: 'pulls', initialPr: { repo: `${owner}/${repo}`, number: prNumber },
             })}
             onGoToMyPrs={() => setNav({ view: 'pulls' })}
-            onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
-            onGoToTeams={() => setNav({ view: 'teams' })}
             onOpenTask={(threadId, taskId) => setNav(lastTaskNav(threadId, taskId))}
             onOpenNotifications={() => setNav({ view: 'notifications' })}
           />

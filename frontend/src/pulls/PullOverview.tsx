@@ -65,7 +65,7 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
   const opened = buildOpenedCard(row, bundle);
   const items = bundle !== null && bundle !== undefined ? buildTimeline(bundle) : [];
   const remotePrNumber = bundle?.pr.remotePrNumber ?? null;
-  const { activity, reviewThreads } = useGitHubActivityFeed(row.repo, remotePrNumber);
+  const { activity, reviewThreads, refresh: refreshGitHubFeed } = useGitHubActivityFeed(row.repo, remotePrNumber);
   const reviewThreadsByRemoteId = useMemo(() => {
     const byEvent = new Map<number, typeof reviewThreads>();
     for (const entry of buildRawTimelineEntries(activity, reviewThreads)) {
@@ -195,6 +195,18 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
               prHtmlUrl={row.dto.htmlUrl || `https://github.com/${row.repo}/pull/${remotePrNumber}`}
               reviewThreadsByRemoteId={reviewThreadsByRemoteId}
               onCommentReaction={(commentId, content) => window.bridge.addIssueCommentReaction(row.repo, commentId, content)}
+              onThreadReply={remotePrNumber === null ? undefined : async (rootGithubId, body) => {
+                await window.bridge.replyToReviewThread(row.repo, remotePrNumber, rootGithubId, body);
+                refreshGitHubFeed(true);
+              }}
+              onThreadReact={async (commentGithubId, content) => {
+                await window.bridge.addReviewCommentReaction(row.repo, commentGithubId, content);
+                refreshGitHubFeed(true);
+              }}
+              onThreadSetResolved={async (rootGithubId, resolved) => {
+                await window.bridge.setReviewThreadResolved(row.repo, Number(row.dto.id) || 0, rootGithubId, resolved);
+                refreshGitHubFeed(true);
+              }}
             />
             {checks !== null && <PullChecksCard model={checks} />}
           </>

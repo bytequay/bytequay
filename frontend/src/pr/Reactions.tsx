@@ -85,11 +85,13 @@ export function ReactionAddButton({ onPick, disabled, icon }: {
 export function ReactionChips({
   reactions,
   onAddReaction,
+  addIcon,
 }: {
   reactions: ReactionsDto | null | undefined;
   /** When provided, renders a smiley-add button next to the chips
    *  (always visible — even with zero existing reactions). */
   onAddReaction?: (content: ReactionContent) => void;
+  addIcon?: ReactNode;
 }) {
   const entries = reactions
     ? (Object.keys(REACTION_EMOJI) as (keyof ReactionsDto)[])
@@ -123,7 +125,7 @@ export function ReactionChips({
           </span>
         )
       ))}
-      {onAddReaction && <ReactionAddButton onPick={onAddReaction} />}
+      {onAddReaction && <ReactionAddButton onPick={onAddReaction} icon={addIcon} />}
     </div>
   );
 }

@@ -11,6 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { parseUnifiedDiff } from '../diffParse';
+import { highlightToHtml, languageForPath } from '../highlight';
 import { MarkdownWithPermalinks } from './GithubPermalinkCard';
 import { lastTouchedLine } from './utils';
 
@@ -23,8 +25,9 @@ import { lastTouchedLine } from './utils';
  * When a `range` is provided, only the lines whose target-side line
  * number falls within {startLine, endLine} are rendered, with a gutter
  * showing the actual line numbers and a "Comment on line +X" header —
- * matches GitHub's web UI for multi-line review comments. Without a
- * range the hunk renders verbatim (used by code-suggestion blocks).
+ * matches GitHub's web UI for multi-line review comments. A
+ * {@code contextFilePath} renders the complete hunk with old/new gutters and
+ * syntax highlighting; without either option the hunk renders verbatim.
  */
 type Range = {
   startLine: number;
@@ -32,7 +35,31 @@ type Range = {
   side: 'LEFT' | 'RIGHT';
 };
 
-export function DiffHunk({ hunk, range }: { hunk: string; range?: Range }) {
+export function DiffHunk({ hunk, range, contextFilePath }: {
+  hunk: string;
+  range?: Range;
+  /** Render the complete hunk with old/new gutters and syntax highlighting. */
+  contextFilePath?: string;
+}) {
+  if (contextFilePath !== undefined) {
+    const language = languageForPath(contextFilePath);
+    return (
+      <div className="prc-review-thread__context-hunk">
+        {parseUnifiedDiff(hunk).flatMap(diff => diff.rows
+          .filter(row => row.kind !== 'hunk-header')
+          .map((row, index) => (
+            <div key={`${diff.header}:${index}`} className={`diff-row diff-row--${row.kind}`}>
+              <span className="diff-row__gutter">{row.oldLine ?? ''}</span>
+              <span className="diff-row__gutter">{row.newLine ?? ''}</span>
+              <span className="diff-row__content">
+                <span className="diff-row__sigil">{row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' '}</span>
+                <span className="hljs" dangerouslySetInnerHTML={{ __html: highlightToHtml(row.content, language) }} />
+              </span>
+            </div>
+          ))) }
+      </div>
+    );
+  }
   if (range) {
     const sliced = sliceHunkToRange(hunk, range);
     if (sliced.length === 0) {

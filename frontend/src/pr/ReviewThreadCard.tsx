@@ -47,6 +47,7 @@ export function ReviewThreadCard({
   renderMessageBody,
   renderMessageBadges,
   footerActions,
+  compact = false,
 }: {
   thread: ReviewThreadDto;
   prAuthor: string | null;
@@ -85,6 +86,8 @@ export function ReviewThreadCard({
   renderMessageBadges?: (message: ReviewMessageDto, index: number) => ReactNode;
   /** Extra local actions beside Resolve, without changing remote threads. */
   footerActions?: ReactNode;
+  /** Compact desktop timeline treatment: full hunk, flat messages, action footer. */
+  compact?: boolean;
 }) {
   const [resolving, setResolving] = useState(false);
   // Which message is in edit mode (by GitHub id), so the per-message
@@ -110,6 +113,7 @@ export function ReviewThreadCard({
   // explicitly expanded.
   const [foldOverride, setFoldOverride] = useState<boolean | null>(null);
   const folded = foldOverride ?? (thread.resolved === true);
+  const visibleFolded = folded;
 
   const submit = async () => {
     const trimmed = body.trim();
@@ -144,9 +148,75 @@ export function ReviewThreadCard({
   const lastMsg = thread.messages[thread.messages.length - 1];
   const summary = lastMsg?.body ? lastMsg.body.replace(/\s+/g, ' ').trim() : '';
   const summaryClipped = summary.length > 80 ? `${summary.slice(0, 80)}…` : summary;
+  const replyCount = Math.max(0, thread.messages.length - 1);
+
+  const resolveButton = (shortLabel: boolean) => onSetResolved && thread.resolved != null ? (
+    <button
+      type="button"
+      className={`prc-review-thread__resolve-btn${thread.resolved ? ' prc-review-thread__resolve-btn--unresolve' : ''}`}
+      onClick={async () => {
+        if (resolving) return;
+        setResolving(true);
+        try {
+          await onSetResolved(thread.rootGithubId, !thread.resolved);
+        } finally {
+          setResolving(false);
+        }
+      }}
+      disabled={resolving}
+      title={thread.resolved ? 'Mark this conversation unresolved' : 'Mark this conversation resolved'}
+    >
+      {shortLabel && !thread.resolved && (
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16Zm3.78-9.72-4.25 4.25a.75.75 0 0 1-1.06 0L4.22 8.28a.75.75 0 0 1 1.06-1.06L7 8.94l3.72-3.72a.75.75 0 1 1 1.06 1.06Z" />
+        </svg>
+      )}
+      {resolving ? '…' : shortLabel
+        ? (thread.resolved ? 'Unresolve' : 'Resolve')
+        : (thread.resolved ? 'Unresolve conversation' : 'Resolve conversation')}
+    </button>
+  ) : null;
+
+  const replyEditor = (
+    <>
+      <MarkdownComposer
+        value={body}
+        onChange={setBody}
+        placeholder="Write a reply"
+        rows={4}
+        disabled={pending}
+        autoFocus
+        textareaClassName="prc-review-thread__reply-input"
+      />
+      <div className="prc-review-thread__reply-actions">
+        <button
+          type="button"
+          className="button button--primary"
+          onClick={submit}
+          disabled={pending || !body.trim()}
+        >
+          {pending ? 'Sending…' : 'Reply'}
+        </button>
+        <PolishButtons
+          value={body}
+          onChange={setBody}
+          onError={setError}
+          disabled={pending}
+        />
+        <button
+          type="button"
+          className="pr-comment-box__cancel"
+          onClick={cancelReply}
+          disabled={pending}
+        >
+          Cancel
+        </button>
+      </div>
+    </>
+  );
 
   return (
-    <article className={`prc-review-thread${thread.resolved === true ? ' prc-review-thread--resolved' : ''}`}>
+    <article className={`prc-review-thread${thread.resolved === true ? ' prc-review-thread--resolved' : ''}${compact ? ' prc-review-thread--compact' : ''}`}>
       <header className="prc-review-thread__head">
         <button
           type="button"
@@ -170,15 +240,24 @@ export function ReviewThreadCard({
         {thread.resolved === true && (
           <span className="prc-review-thread__resolved-pill">resolved</span>
         )}
-        {folded && (
+        {visibleFolded && !compact && (
           <span className="prc-review-thread__summary">
             {thread.messages.length} comment{thread.messages.length === 1 ? '' : 's'}
             {lastMsg?.author ? ` · last by ${lastMsg.author}` : ''}
             {summaryClipped ? ` — ${summaryClipped}` : ''}
           </span>
         )}
+        {compact && (
+          <span className="prc-review-thread__reply-count">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M1.75 1h8.5A1.75 1.75 0 0 1 12 2.75v5.5A1.75 1.75 0 0 1 10.25 10H6.81l-2.28 2.28A.75.75 0 0 1 3.25 11.75V10h-1.5A1.75 1.75 0 0 1 0 8.25v-5.5A1.75 1.75 0 0 1 1.75 1Zm0 1.5a.25.25 0 0 0-.25.25v5.5c0 .14.11.25.25.25H4a.75.75 0 0 1 .75.75v.69l1.22-1.22a.75.75 0 0 1 .53-.22h3.75a.25.25 0 0 0 .25-.25v-5.5a.25.25 0 0 0-.25-.25h-8.5Z" />
+              <path d="M14.5 5.75a.75.75 0 0 1 1.5 0v5.5A1.75 1.75 0 0 1 14.25 13H13v1.25a.75.75 0 0 1-1.28.53L9.94 13H7.75a.75.75 0 0 1 0-1.5h2.5c.2 0 .39.08.53.22l.72.72v-.19a.75.75 0 0 1 .75-.75h2a.25.25 0 0 0 .25-.25v-5.5Z" />
+            </svg>
+            {replyCount} {replyCount === 1 ? 'reply' : 'replies'}
+          </span>
+        )}
       </header>
-      {!folded && thread.diffHunk && (() => {
+      {!visibleFolded && thread.diffHunk && (() => {
         // Prefer the original-line coordinates (V38). They match the
         // diff_hunk verbatim. Fall back to the current line on legacy
         // rows where the original fields are null.
@@ -187,8 +266,9 @@ export function ReviewThreadCard({
         return (
           <DiffHunk
             hunk={thread.diffHunk}
+            contextFilePath={compact ? (thread.filePath ?? '') : undefined}
             range={
-              endLine != null
+              !compact && endLine != null
                 ? {
                     startLine,
                     endLine,
@@ -199,7 +279,7 @@ export function ReviewThreadCard({
           />
         );
       })()}
-      {!folded && (
+      {!visibleFolded && (
         <div className="prc-review-thread__msgs">
           {thread.messages.map((msg, index) => {
             // GitHub-style head row: author + timestamp on the left,
@@ -212,7 +292,7 @@ export function ReviewThreadCard({
             const isPrAuthor = !!msg.author && prAuthor === msg.author;
             return (
               <div key={msg.githubId} className="prc-review-thread__msg">
-                <Avatar login={msg.author ?? ''} size={20} className="prc-review-thread__avatar" />
+                <Avatar login={msg.author ?? ''} size={compact ? 24 : 20} className="prc-review-thread__avatar" />
                 <div className="prc-review-thread__msg-body">
                   <div className="prc-review-thread__msg-head">
                     <span className="prc-review-thread__msg-head-left">
@@ -222,16 +302,16 @@ export function ReviewThreadCard({
                       )}
                     </span>
                     <span className="prc-review-thread__msg-head-right">
-                      {associationLabel && (
+                      {!compact && associationLabel && (
                         <span className="prc-comment-role prc-comment-role--association">
                           {associationLabel}
                         </span>
                       )}
-                      {isPrAuthor && (
+                      {!compact && isPrAuthor && (
                         <span className="prc-comment-role">AUTHOR</span>
                       )}
-                      {renderMessageBadges?.(msg, index)}
-                      {msg.githubId > 0 && (
+                      {!compact && renderMessageBadges?.(msg, index)}
+                      {!compact && msg.githubId > 0 && (
                         <CommentActionsMenu
                           linkHref={reviewCommentLink(prHtmlUrl, msg.githubId)}
                           onQuote={msg.body ? () => quoteMessage(msg.body!) : undefined}
@@ -261,6 +341,12 @@ export function ReviewThreadCard({
                   <ReactionChips
                     reactions={msg.reactions}
                     onAddReaction={onReact ? (content) => { void onReact(msg.githubId, content); } : undefined}
+                    addIcon={compact ? (
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+                        <circle cx="7" cy="8" r="5" />
+                        <path d="M5 9.5c.8 1 3.2 1 4 0M5.2 6.5h.01M8.8 6.5h.01M12.5 1.5v3M11 3h3" />
+                      </svg>
+                    ) : undefined}
                   />
                 </div>
               </div>
@@ -274,7 +360,21 @@ export function ReviewThreadCard({
           full Write/Preview composer (with PolishButtons + Send) once
           the user clicks into it. The Resolve / Unresolve button lives
           on its own row underneath, matching github.com's placement. */}
-      {!folded && (onReply !== undefined || onSetResolved !== undefined || footerActions !== undefined) && (
+      {!visibleFolded && compact && (onReply !== undefined || onSetResolved !== undefined || footerActions !== undefined) && (
+        <div className="prc-review-thread__compact-footer">
+          {onReply !== undefined && (!replyExpanded && body.length === 0 ? (
+            <button type="button" className="prc-review-thread__compact-reply" onClick={() => setReplyExpanded(true)}>
+              Reply
+            </button>
+          ) : (
+            <div className="prc-review-thread__compact-editor">{replyEditor}</div>
+          ))}
+          {!replyExpanded && resolveButton(true)}
+          {!replyExpanded && footerActions}
+          {error && <div className="pr-comment-box__error">{error}</div>}
+        </div>
+      )}
+      {!visibleFolded && !compact && (onReply !== undefined || onSetResolved !== undefined || footerActions !== undefined) && (
         <div className="prc-review-thread__reply prc-review-thread__reply--inline">
           {onReply !== undefined && (!replyExpanded && body.length === 0 ? (
             <input
@@ -286,41 +386,7 @@ export function ReviewThreadCard({
               readOnly
             />
           ) : (
-            <>
-              <MarkdownComposer
-                value={body}
-                onChange={setBody}
-                placeholder="Write a reply"
-                rows={4}
-                disabled={pending}
-                autoFocus
-                textareaClassName="prc-review-thread__reply-input"
-              />
-              <div className="prc-review-thread__reply-actions">
-                <button
-                  type="button"
-                  className="button button--primary"
-                  onClick={submit}
-                  disabled={pending || !body.trim()}
-                >
-                  {pending ? 'Sending…' : 'Reply'}
-                </button>
-                <PolishButtons
-                  value={body}
-                  onChange={setBody}
-                  onError={setError}
-                  disabled={pending}
-                />
-                <button
-                  type="button"
-                  className="pr-comment-box__cancel"
-                  onClick={cancelReply}
-                  disabled={pending}
-                >
-                  Cancel
-                </button>
-              </div>
-            </>
+            replyEditor
           ))}
           {error && <div className="pr-comment-box__error">{error}</div>}
           {/* Resolve / Unresolve toggle. Only renders when the backend
@@ -330,23 +396,7 @@ export function ReviewThreadCard({
               "Resolve conversation" / "Unresolve conversation". */}
           {(footerActions !== undefined || (onSetResolved && thread.resolved != null)) && (
             <div className="prc-review-thread__resolve-row">
-              {onSetResolved && thread.resolved != null && <button
-                type="button"
-                className={`prc-review-thread__resolve-btn${thread.resolved ? ' prc-review-thread__resolve-btn--unresolve' : ''}`}
-                onClick={async () => {
-                  if (resolving) return;
-                  setResolving(true);
-                  try {
-                    await onSetResolved(thread.rootGithubId, !thread.resolved);
-                  } finally {
-                    setResolving(false);
-                  }
-                }}
-                disabled={resolving}
-                title={thread.resolved ? 'Mark this conversation unresolved' : 'Mark this conversation resolved'}
-              >
-                {resolving ? '…' : thread.resolved ? 'Unresolve conversation' : 'Resolve conversation'}
-              </button>}
+              {resolveButton(false)}
               {footerActions}
             </div>
           )}

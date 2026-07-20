@@ -170,6 +170,20 @@ class TestAutomationCoordinatorAutoFix
     }
 
     @Test
+    void shippedTaskKeepsTheLiveRunOpenWhileCiIsPending()
+    {
+        Task task = newShippedTask("ship-4", "thread-4");
+        when(taskStore.listWithLinkedPr(200)).thenReturn(List.of(task));
+        when(pullRequests.refreshPullRequestDetail(REPO, PR_NUMBER)).thenReturn(liveDetailPending());
+        AutomationCoordinator coordinator = newCoordinator();
+
+        coordinator.scanForFailingCi();
+
+        verify(ciFixRunExecutor, never()).closeIfGreen(any());
+        verify(ciFixRunExecutor, never()).driveShippedCiFix(any(), anyString(), any());
+    }
+
+    @Test
     void shippedTaskDoesNotCrashWhenTheLiveFetchFails()
     {
         Task task = newShippedTask("ship-3", "thread-3");
@@ -238,6 +252,18 @@ class TestAutomationCoordinatorAutoFix
                 PullRequestDetail.CiStatus.PASSING, List.of(), List.of(),
                 List.of(new PullRequestDetail.CheckRun(
                         null, "backend-tests", "completed", "success", null, null, null)),
+                List.of(), List.of(), false,
+                null, null, null, null, null, "open", false, false);
+    }
+
+    private static PullRequestDetail liveDetailPending()
+    {
+        return new PullRequestDetail(
+                REPO, PR_NUMBER, null, List.of(), false,
+                null, null, 0, 0, 0, 0, 0, 0, 0, List.of(),
+                PullRequestDetail.CiStatus.PENDING, List.of(), List.of(),
+                List.of(new PullRequestDetail.CheckRun(
+                        null, "backend-tests", "in_progress", null, null, null, null)),
                 List.of(), List.of(), false,
                 null, null, null, null, null, "open", false, false);
     }

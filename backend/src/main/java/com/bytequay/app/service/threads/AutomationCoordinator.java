@@ -276,11 +276,17 @@ public class AutomationCoordinator
                     ref, task.id(), e.getMessage());
             return false;
         }
-        CiAggregate ci = aggregateChecks(toCheckRunStates(detail.checkRuns()));
-        if (!ci.isFailing()) {
+        if (detail.ciStatus() == PullRequestDetail.CiStatus.PASSING) {
             ciFixRunExecutor.closeIfGreen(task);
             return false;
         }
+        // Queued/in-progress/absent checks are not green. Leave the live run
+        // open and wait for the next poll instead of recording a false
+        // success and preventing the eventual failure from being addressed.
+        if (detail.ciStatus() != PullRequestDetail.CiStatus.FAILING) {
+            return false;
+        }
+        CiAggregate ci = aggregateChecks(toCheckRunStates(detail.checkRuns()));
         return ciFixRunExecutor.driveShippedCiFix(task, repoFullName, ci);
     }
 

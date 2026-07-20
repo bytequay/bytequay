@@ -114,7 +114,7 @@ class TestTaskLifecycleDriver
     {
         Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
         PullRequestDetail greenDraft = detail(CiStatus.PASSING, true);
-        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenDraft);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenDraft);
         when(taskStore.markReadyGateSentIfUnset(eq("t1.k2"), any())).thenReturn(true);
 
         driver.reconcileTask(task);
@@ -132,7 +132,7 @@ class TestTaskLifecycleDriver
     {
         Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
         PullRequestDetail greenDraft = detail(CiStatus.PASSING, true);
-        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenDraft);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenDraft);
         // Sentinel already set (a prior sweep offered the gate) → not the winner.
         when(taskStore.markReadyGateSentIfUnset(eq("t1.k2"), any())).thenReturn(false);
 
@@ -146,7 +146,7 @@ class TestTaskLifecycleDriver
     {
         Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_READY);
         PullRequestDetail greenReady = detail(CiStatus.PASSING, false);
-        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenReady);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenReady);
 
         driver.reconcileTask(task);
 
@@ -162,7 +162,7 @@ class TestTaskLifecycleDriver
         Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
         PullRequestDetail merged = mock(PullRequestDetail.class);
         when(merged.merged()).thenReturn(true);
-        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(merged);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(merged);
 
         driver.reconcileTask(task);
 
@@ -186,7 +186,7 @@ class TestTaskLifecycleDriver
         PullRequestDetail closed = mock(PullRequestDetail.class);
         when(closed.merged()).thenReturn(false);
         when(closed.state()).thenReturn("closed");
-        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(closed);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(closed);
 
         driver.reconcileTask(task);
 
@@ -214,7 +214,7 @@ class TestTaskLifecycleDriver
         // The phase narrowing happens in SQL — the driver asks the store
         // only for the remote-spine phases, not the whole linked-PR set.
         verify(taskStore).listByPhases(eq(TaskLifecycleDriver.REMOTE_SPINE), anyInt());
-        verify(pullRequests, never()).getPullRequestDetail(any(), anyInt());
+        verify(pullRequests, never()).refreshPullRequestDetail(any(), anyInt());
     }
 
     @Test
@@ -222,7 +222,7 @@ class TestTaskLifecycleDriver
     {
         Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
         PullRequestDetail ready = detail(CiStatus.PASSING, /* draft */ false);
-        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(ready);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(ready);
 
         driver.reconcileTask(task);
 
@@ -238,10 +238,14 @@ class TestTaskLifecycleDriver
     {
         Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
         PullRequestDetail pending = detail(CiStatus.PENDING, false);
-        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(pending);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(pending);
 
         driver.reconcileTask(task);
 
+        verify(pullRequests).refreshPullRequestDetail("trinodb/trino", 29897);
+        verify(pullRequests, never()).getPullRequestDetail(any(), anyInt());
+        verify(taskStore).updateCiState("t1.k2", "PENDING");
+        verify(phaseMachine).observe("t1.k2", TaskPhase.PUSHED_AWAITING_CI, "pr_state_observed");
         verify(reviewRounds, never()).reconcile(any());
     }
 

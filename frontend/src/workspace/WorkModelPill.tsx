@@ -43,6 +43,9 @@ type Props = {
    *  the page. */
   onChange?: (resolved: ResolvedWorkModelDto) => void;
   variant?: 'default' | 'workspace-v2';
+  /** Locks immediately while the first turn is being dispatched, before the
+   *  persisted response has had a chance to report agentLocked=true. */
+  agentLockPending?: boolean;
 };
 
 /**
@@ -59,7 +62,9 @@ type Props = {
  * picker writes go through the same bridge as the workspace settings
  * page so the per-scope cascade stays consistent across surfaces.
  */
-export function WorkModelPill({ scope, onChange, variant = 'default' }: Props) {
+export function WorkModelPill({
+  scope, onChange, variant = 'default', agentLockPending = false,
+}: Props) {
   const workspaceVariant = variant === 'workspace-v2';
   const [resolved, setResolved] = useState<ResolvedWorkModelDto | null>(null);
   const [options, setOptions] = useState<WorkModelOptionsDto | null>(null);
@@ -106,7 +111,7 @@ export function WorkModelPill({ scope, onChange, variant = 'default' }: Props) {
     }
   }, [scope]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [load, agentLockPending]);
 
   // Options give the effective model's human name for the pill label and
   // feed the picker. Non-refresh read — served from the backend's cached
@@ -277,6 +282,7 @@ export function WorkModelPill({ scope, onChange, variant = 'default' }: Props) {
                 options={options}
                 override={resolved.override}
                 effective={resolved.effective}
+                agentLocked={resolved.agentLocked || agentLockPending}
                 onChange={(next) => { void commit(next); }}
               />
             )}

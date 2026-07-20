@@ -23,10 +23,12 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailService;
 import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
+import com.bytequay.app.service.workmodel.WorkModelAgentLock;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -59,6 +61,7 @@ public class StageController
     private final PlanStageService planStageService;
     private final StageStore stageStore;
     private final TaskStore taskStore;
+    private final ThreadStore threadStore;
     private final WorkModelResolver workModelResolver;
 
     public StageController(
@@ -68,6 +71,7 @@ public class StageController
             PlanStageService planStageService,
             StageStore stageStore,
             TaskStore taskStore,
+            ThreadStore threadStore,
             WorkModelResolver workModelResolver)
     {
         this.service = requireNonNull(service, "service is null");
@@ -76,6 +80,7 @@ public class StageController
         this.planStageService = requireNonNull(planStageService, "planStageService is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
     }
 
@@ -154,7 +159,9 @@ public class StageController
         Task task = requireTaskForStage(stage);
         WorkModelResolver.Resolved resolved =
                 workModelResolver.resolveForStage(task.threadId(), task.id(), stageId);
-        return new ResolvedWorkModelResponse(stage.workModel(), resolved.choice(), resolved.provenance());
+        return new ResolvedWorkModelResponse(
+                stage.workModel(), resolved.choice(), resolved.provenance(),
+                !threadStore.listStageMessages(stageId).isEmpty());
     }
 
     public record WorkModelBody(WorkModel workModel) {}
@@ -172,11 +179,17 @@ public class StageController
         UUID id = parseStageId(stageId);
         StageInstance stage = requireStage(id);
         Task task = requireTaskForStage(stage);
-        stageStore.updateWorkModel(id, body == null ? null : body.workModel());
+        WorkModel requested = body == null ? null : body.workModel();
+        boolean agentLocked = !threadStore.listStageMessages(stageId).isEmpty();
+        WorkModelAgentLock.requireSameAgent(
+                agentLocked,
+                workModelResolver.resolveForStage(task.threadId(), task.id(), stageId).choice(),
+                requested);
+        stageStore.updateWorkModel(id, requested);
         WorkModelResolver.Resolved resolved =
                 workModelResolver.resolveForStage(task.threadId(), task.id(), stageId);
         return new ResolvedWorkModelResponse(
-                body == null ? null : body.workModel(), resolved.choice(), resolved.provenance());
+                requested, resolved.choice(), resolved.provenance(), agentLocked);
     }
 
     private StageInstance requireStage(UUID stageId)

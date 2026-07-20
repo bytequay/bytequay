@@ -304,6 +304,15 @@ public class TaskService
         return next;
     }
 
+    /** Task-scoped agent selection seals when task execution first emits a
+     *  stage message. A legacy task-level CLI session also seals it. */
+    public boolean isWorkModelAgentLocked(String threadId, String taskId)
+    {
+        Task task = requireTask(threadId, taskId);
+        return (task.agentSessionId() != null && !task.agentSessionId().isBlank())
+                || !threadStore.listStageMessagesByTask(taskId).isEmpty();
+    }
+
     /** Rename a task. Trims the supplied label; an empty string clears
      *  the override so the auto-derived humanised branch name takes over
      *  again. Returns the updated row so the caller can refresh its UI

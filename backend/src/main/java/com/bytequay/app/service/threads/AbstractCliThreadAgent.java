@@ -392,6 +392,13 @@ public abstract class AbstractCliThreadAgent
         return agentSessionId.get();
     }
 
+    /** Drop provider-native resume state after a startup-only rejection so
+     *  the same scheduler turn can retry as a fresh session. */
+    protected final void clearResumeSessionId()
+    {
+        agentSessionId.set(null);
+    }
+
     /** True for a trunk or task-brain session, which has no bound Task and
      *  must never receive provider-native write or execution capabilities. */
     protected final boolean isReadOnlySession()

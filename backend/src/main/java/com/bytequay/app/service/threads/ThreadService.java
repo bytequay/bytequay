@@ -714,6 +714,15 @@ public class ThreadService
         return store.listMessages(threadId);
     }
 
+    /** A provider-native trunk conversation cannot move to another agent
+     *  after its first user message; model changes within that agent remain
+     *  valid. */
+    public boolean isWorkModelAgentLocked(String threadId)
+    {
+        requireTask(threadId);
+        return store.countUserMessages(threadId) > 0;
+    }
+
     /** Recent scheduler turns for one thread, newest first. */
     public List<ThreadTurn> turns(String threadId)
     {

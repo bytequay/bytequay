@@ -836,7 +836,8 @@ export function TaskBrainRoute({
         closedNote: task.terminal
           ? 'This task is closed — ask the brain, or reopen to continue…'
           : undefined,
-        modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'task', threadId, taskId }} />,
+        modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'task', threadId, taskId }}
+          agentLockPending={working} />,
         usage: {
           contextPercent: data.rightRail.context.tokensLimit > 0
             ? Math.round((data.rightRail.context.tokensUsed / data.rightRail.context.tokensLimit) * 100)

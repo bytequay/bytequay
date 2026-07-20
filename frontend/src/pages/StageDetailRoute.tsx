@@ -133,6 +133,7 @@ export function StageDetailRoute({
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
 }) {
   const { data, refresh } = useStageDetailData(stageId);
+  const conversationThreadId = data?.conversationThreadId ?? threadId;
   const { proposal: shipProposal, refresh: refreshShipProposal } = usePendingShipProposal(threadId, taskId);
   const { data: brain, pollFast } = useBrainViewData(taskId);
   const conversationRef = useRef<HTMLDivElement | null>(null);
@@ -353,7 +354,7 @@ export function StageDetailRoute({
   // transcript, which clears the live buffer). This is what makes the stage
   // feel alive between the periodic poll snapshots.
   const { liveText, liveActivities } = useThreadStream(
-    threadId, state === 'CLOSED' ? 'COMPLETED' : 'RUNNING', refresh);
+    conversationThreadId, state === 'CLOSED' ? 'COMPLETED' : 'RUNNING', refresh);
 
   // Poll the thread's run state. This is the signal that stays true through a
   // long, quiet tool call (e.g. a multi-minute build) where no text streams
@@ -426,18 +427,18 @@ export function StageDetailRoute({
     if (!bridge) {
       return;
     }
-    void bridge.decideTaskPermission(threadId, callId, decision, preApprove)
+    void bridge.decideTaskPermission(conversationThreadId, callId, decision, preApprove)
       .then(() => refresh())
       .catch(() => { /* the next data refresh re-reflects the gate state */ });
-  }, [threadId, refresh]);
+  }, [conversationThreadId, refresh]);
 
   // Memoize the canonical transcript rows (each renders markdown) on the
   // conversation data alone — NOT on the composer's `text` or the streaming
   // `liveText`. Without this, every keystroke re-maps + re-renders the whole
   // feed, which makes typing crawl on a long conversation.
   const transcriptRows = useMemo(
-    () => (data !== null ? stageFeed(data.conversation, onDecide, threadId, false, true) : undefined),
-    [data, onDecide, threadId],
+    () => (data !== null ? stageFeed(data.conversation, onDecide, conversationThreadId, false, true) : undefined),
+    [data, onDecide, conversationThreadId],
   );
   // Dev feed: the flat transcript, with any ci_fix runs folded in as episodes
   // (a live one flashes). Comments feed: the round list replaces the flat

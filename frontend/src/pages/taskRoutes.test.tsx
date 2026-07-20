@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TaskBrainRoute } from './TaskBrainRoute';
 import { StageDetailRoute } from './StageDetailRoute';
@@ -64,7 +64,7 @@ describe('TaskBrainRoute', () => {
     expect(await screen.findByText('Brain is thinking…')).toBeTruthy();
   });
 
-  it('opens the embedded PR Changes tab from the changed-files controls', async () => {
+  it('opens the embedded PR Changes tab from a route request and the changed-files controls', async () => {
     const file: DiffFileDto = {
       filename: 'frontend/src/App.tsx', status: 'modified', additions: 3, deletions: 1, patch: null,
     };
@@ -95,17 +95,24 @@ describe('TaskBrainRoute', () => {
       <TaskBrainRoute
         threadId="t1"
         taskId="task-pr-changes"
+        initialPrSubTab="changes"
         onOpenStage={() => {}}
         onOpenCode={onOpenCode}
         onClosed={() => {}}
       />,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Review' }));
-    const changesTab = screen.getAllByRole('button', { name: /Changes/ })
+    const changedFilesCard = (await screen.findByText('Changed 1 file'))
+      .closest('.workspace-task-files-card') as HTMLElement;
+    const reviewButton = within(changedFilesCard).getByRole('button', { name: 'Review' });
+    const changesTab = (await screen.findAllByRole('button', { name: /Changes/ }))
       .find(button => button.closest('.workspace-task-v2__pr') !== null) as HTMLButtonElement;
     await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
+    expect(screen.getByRole('button', { name: 'Toggle PR panel' }).getAttribute('aria-pressed')).toBe('true');
     expect(onOpenCode).not.toHaveBeenCalled();
+
+    fireEvent.click(reviewButton);
+    await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
 
     fireEvent.click(screen.getByRole('button', { name: /Overview/ }));
     const changesPill = screen.getAllByRole('button', { name: /Changes/ })

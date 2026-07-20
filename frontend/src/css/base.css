@@ -342,6 +342,21 @@
   --font-size-xl:  18px; /* page titles */
   --font-size-2xl: 24px; /* hero numbers (KPI cards) */
 
+  /* One visual contract for every app left navigation. */
+  --left-nav-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --left-nav-font-weight: 400;
+  --left-nav-font-size: 14px;
+  --left-nav-nested-font-size: 13px;
+  --left-nav-meta-font-size: 12px;
+  --left-nav-row-padding: 6px 10px;
+  --left-nav-row-gap: 10px;
+  --left-nav-row-radius: 7px;
+  --left-nav-row-line-height: normal;
+  --left-nav-group-padding: 6px 8px;
+  --left-nav-group-gap: 1px;
+  --left-nav-hover-bg: rgba(0, 0, 0, 0.05);
+  --left-nav-active-bg: rgba(0, 0, 0, 0.06);
+
   /* Spacing scale — 4 px grid */
   --space-0: 0;
   --space-1: 4px;

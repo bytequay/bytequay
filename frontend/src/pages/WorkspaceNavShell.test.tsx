@@ -166,13 +166,16 @@ describe('WorkspaceNavShell', () => {
     expect(onOpenThread).toHaveBeenCalledWith('t2');
   });
 
-  it('uses the locked trunk-first navigation for an active workspace', async () => {
+  it('uses the Home rail shell with trunk-first content for an active workspace', async () => {
     mockBridge();
     const onSwitchWorkspace = vi.fn();
     const { container } = render(
       <WorkspaceNavShell activeWorkspaceId="bq" onSwitchWorkspace={onSwitchWorkspace} />,
     );
-    expect(container.querySelector('.trunk-page-v2-nav')).toBeTruthy();
+    expect(container.querySelector('.shell.shell-rail.workspace-mode')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Home' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Workspaces' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Pull requests' })).toBeTruthy();
     await waitFor(() => expect(container.querySelector('.workspace-page-switcher')).toBeTruthy());
 
     const text = container.textContent ?? '';
@@ -191,12 +194,14 @@ describe('WorkspaceNavShell', () => {
     localStorage.setItem('bq.rail-width', '320');
     mockBridge();
     const { container } = render(<WorkspaceNavShell activeWorkspaceId="bq" />);
-    const rail = container.querySelector('.trunk-page-v2-nav') as HTMLElement;
+    const rail = container.querySelector('.shell.shell-rail.workspace-mode') as HTMLElement;
     expect(rail.style.width).toBe('320px');
 
-    fireEvent.mouseDown(screen.getByRole('separator', { name: 'Resize sidebar' }));
-    fireEvent.mouseMove(window, { clientX: 360 });
-    fireEvent.mouseUp(window);
+    const handle = screen.getByRole('separator', { name: 'Resize sidebar' });
+    Object.defineProperty(handle, 'setPointerCapture', { value: vi.fn() });
+    fireEvent.pointerDown(handle, { clientX: 0, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 40, pointerId: 1 });
+    fireEvent.pointerUp(handle, { pointerId: 1 });
 
     expect(rail.style.width).toBe('360px');
     expect(localStorage.getItem('bq.rail-width')).toBe('360');
@@ -209,14 +214,15 @@ describe('WorkspaceNavShell', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'WORKSPACE' }));
     expect(screen.getByRole('button', { name: 'WORKSPACE' }).getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByText('Pull requests')).toBeTruthy();
+    expect(document.querySelector('.trunk-page-v2-nav__workspace-items')?.textContent)
+      .toContain('Pull requests');
 
     unmount();
     render(<WorkspaceNavShell activeWorkspaceId="bq" />);
     expect(screen.getByRole('button', { name: 'WORKSPACE' }).getAttribute('aria-expanded')).toBe('true');
 
     fireEvent.click(screen.getByRole('button', { name: 'WORKSPACE' }));
-    expect(screen.queryByText('Pull requests')).toBeNull();
+    expect(document.querySelector('.trunk-page-v2-nav__workspace-items')).toBeNull();
   });
 
   it('opens a nested task with its owning trunk from a workspace page', async () => {
@@ -276,10 +282,10 @@ describe('WorkspaceNavShell', () => {
 
     expect(await screen.findByText('Implement parser')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'WORKSPACE' }));
-    expect(screen.getByText('Pull requests').closest('.workspace-page-row')?.textContent)
-      .toContain('4');
-    expect(screen.getByText('Issues').closest('.workspace-page-row')?.textContent)
-      .toContain('5');
+    const workspaceItems = document.querySelector('.trunk-page-v2-nav__workspace-items');
+    const workspaceRows = Array.from(workspaceItems?.querySelectorAll('.workspace-page-row') ?? []);
+    expect(workspaceRows.find(row => row.textContent?.includes('Pull requests'))?.textContent).toContain('4');
+    expect(workspaceRows.find(row => row.textContent?.includes('Issues'))?.textContent).toContain('5');
     expect((screen.getByRole('button', { name: /Sessions/ }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Memory' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByText('Review PR #42')).toBeNull();

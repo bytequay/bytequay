@@ -11,15 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { LocalPRBundle } from '../../types/localPr';
 import { makeIdCache } from './idCache';
 import { usePR } from '../../pr/usePR';
 
-/** A task's PR id never changes once assigned, so resolving it once per
- *  task and caching forever is safe (unlike the bundle itself, which is
- *  re-polled by {@link usePR}). */
-const prIdCache = makeIdCache<string | null>();
+/** A task's PR id never changes once assigned, so cache assigned ids forever.
+ *  A missing id is not cached because the task can create its PR later. */
+const prIdCache = makeIdCache<string>();
 
 type LocalPrState = {
   /** The task's PR bundle, or null when it has none yet (the common case
@@ -39,6 +38,7 @@ type LocalPrState = {
  */
 export function useLocalPr(taskId: string): LocalPrState {
   const [prId, setPrId] = useState<string | null | undefined>(() => prIdCache.get(taskId));
+  const [resolveToken, setResolveToken] = useState(0);
 
   useEffect(() => {
     const cached = prIdCache.get(taskId);
@@ -55,13 +55,17 @@ export function useLocalPr(taskId: string): LocalPrState {
       .then(pr => {
         if (cancelled) return;
         const resolved = pr?.id ?? null;
-        prIdCache.set(taskId, resolved);
+        if (resolved !== null) prIdCache.set(taskId, resolved);
         setPrId(resolved);
       })
       .catch(() => { /* transient; effect re-runs on next mount/taskId change */ });
     return () => { cancelled = true; };
-  }, [taskId]);
+  }, [taskId, resolveToken]);
 
-  const { bundle, refresh, syncing } = usePR(prId ?? null);
+  const { bundle, refresh: refreshBundle, syncing } = usePR(prId ?? null);
+  const refresh = useCallback(() => {
+    if (prId == null) setResolveToken(token => token + 1);
+    else refreshBundle();
+  }, [prId, refreshBundle]);
   return { bundle: prId === null ? null : bundle, refresh, syncing };
 }

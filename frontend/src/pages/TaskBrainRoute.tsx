@@ -169,11 +169,12 @@ export function TaskBrainRoute({
   // the tab that's already open.
   const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr'; token: number } | undefined>(undefined);
   const openTab = useCallback((tab: 'pr', subTab?: 'checks' | 'changes') => {
+    refreshLocalPr();
     setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
     if (subTab !== undefined) {
       setPrSubTabRequest(prev => ({ subTab, token: (prev?.token ?? 0) + 1 }));
     }
-  }, []);
+  }, [refreshLocalPr]);
 
   // The ready-for-review callout's inline gate. Approve ships the parked
   // proposal exactly as drafted (the agent's stored PR title + body); the
@@ -612,7 +613,7 @@ export function TaskBrainRoute({
   // Normal task pages reuse the locked Pull Requests detail body. Keep the
   // legacy PRView below exclusively for the review-round drill-in, whose
   // finding APIs do not exist on PullDetailBody.
-  const taskRemotePrNumber = displayedTaskBundle?.pr.remotePrNumber ?? null;
+  const taskRemotePrNumber = displayedTaskBundle?.pr.remotePrNumber ?? task.prNumber;
   const taskPullRow = displayedTaskBundle !== null && displayedTaskBundle !== undefined
       && taskRemotePrNumber !== null
     ? ((): PullRow => {

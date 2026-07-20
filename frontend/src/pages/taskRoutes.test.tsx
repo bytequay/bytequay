@@ -71,8 +71,8 @@ describe('TaskBrainRoute', () => {
     const bundle = {
       pr: {
         id: 'task-pr', taskId: 'task-pr-changes', branchName: 'jack/cost-meter', baseBranch: 'master',
-        title: 'Cost-meter widget', description: 'Add task usage to the workspace.', status: 'remote-open',
-        createdAt: 0, pushedAt: 0, remotePrNumber: 5680, remotePrUrl: 'https://example.test/5680',
+        title: 'Cost-meter widget', description: 'Add task usage to the workspace.', status: 'local-drafted',
+        createdAt: 0, pushedAt: null, remotePrNumber: null, remotePrUrl: null,
         mergedAt: null, closedAt: null, origin: 'task', repo: 'trinodb/trino', author: 'octocat',
         syncedAt: null, syncedAdditions: 3, syncedDeletions: 1, syncedMergeable: null,
         syncedMergeableState: null, syncedMergeQueueEnabled: false, syncedMergeQueueState: null,
@@ -81,10 +81,11 @@ describe('TaskBrainRoute', () => {
       commits: [], timeline: [], checks: [], comments: [],
     } as LocalPRBundle;
     const onOpenCode = vi.fn();
+    const getLocalPrBundle = vi.fn().mockResolvedValue(bundle);
     (window as unknown as { bridge: unknown }).bridge = {
       getBrainView: vi.fn().mockResolvedValue(buildMockBrainView(0)),
       getPrForTask: vi.fn().mockResolvedValue(bundle.pr),
-      getLocalPrBundle: vi.fn().mockResolvedValue(bundle),
+      getLocalPrBundle,
       getTaskCumulativeDiff: vi.fn().mockResolvedValue([file]),
       getAgentReview: vi.fn().mockResolvedValue(null),
       fetchPullRequestDetail: vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] }),
@@ -111,14 +112,18 @@ describe('TaskBrainRoute', () => {
     expect(screen.getByRole('button', { name: 'Toggle PR panel' }).getAttribute('aria-pressed')).toBe('true');
     expect(onOpenCode).not.toHaveBeenCalled();
 
+    const fetchesBeforeReview = getLocalPrBundle.mock.calls.length;
     fireEvent.click(reviewButton);
     await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
+    await waitFor(() => expect(getLocalPrBundle.mock.calls.length).toBeGreaterThan(fetchesBeforeReview));
 
     fireEvent.click(screen.getByRole('button', { name: /Overview/ }));
     const changesPill = screen.getAllByRole('button', { name: /Changes/ })
       .find(button => button.classList.contains('workspace-task-artifact-pill')) as HTMLButtonElement;
+    const fetchesBeforePill = getLocalPrBundle.mock.calls.length;
     fireEvent.click(changesPill);
     await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
+    await waitFor(() => expect(getLocalPrBundle.mock.calls.length).toBeGreaterThan(fetchesBeforePill));
     expect(onOpenCode).not.toHaveBeenCalled();
   });
 

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useLocalPr } from './useLocalPr';
 import type { LocalPR, LocalPRBundle } from '../../types/localPr';
@@ -72,5 +72,24 @@ describe('useLocalPr', () => {
     const before = getLocalPrBundle.mock.calls.length;
     result.current.refresh();
     await waitFor(() => expect(getLocalPrBundle.mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it('refresh() discovers a PR created after the task initially had none', async () => {
+    const pr = prFor('t4');
+    const bundle = bundleFor('t4');
+    const getPrForTask = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(pr);
+    const getLocalPrBundle = vi.fn().mockResolvedValue(bundle);
+    (globalThis as { bridge?: unknown }).bridge = { getPrForTask, getLocalPrBundle };
+
+    const { result } = renderHook(() => useLocalPr('t4'));
+    await waitFor(() => expect(result.current.bundle).toBeNull());
+
+    act(() => result.current.refresh());
+
+    await waitFor(() => expect(result.current.bundle).toEqual(bundle));
+    expect(getPrForTask).toHaveBeenCalledTimes(2);
+    expect(getLocalPrBundle).toHaveBeenCalledWith('pr-t4');
   });
 });

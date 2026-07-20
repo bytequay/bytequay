@@ -1962,7 +1962,7 @@
   background: rgba(130, 80, 223, 0.16);
 }
 
-/* Per-file header bar above a single-file diff (task code-diff page) —
+/* Per-file header bar above a single-file diff —
    filename + change status + line counts, like the PR viewer's file head. */
 .diff-viewer__pane-file-bar {
   position: sticky; top: 0; z-index: 1;

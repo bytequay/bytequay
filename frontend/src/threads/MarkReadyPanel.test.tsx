@@ -13,7 +13,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MarkReadyPanel, parseReviewers } from './MarkReadyPanel';
+import { MarkReadyPanel, markReadyPrRef, parseReviewers } from './MarkReadyPanel';
 import { MarkReadyPrompt } from './MarkReadyPrompt';
 import { proposalAction } from './usePendingShipProposal';
 
@@ -33,6 +33,15 @@ describe('proposalAction', () => {
     expect(proposalAction({ payloadJson: JSON.stringify({ action: 'mark_ready' }) } as never)).toBe('mark_ready');
     expect(proposalAction(null)).toBeNull();
     expect(proposalAction({ payloadJson: 'not json' } as never)).toBeNull();
+  });
+});
+
+describe('markReadyPrRef', () => {
+  it('reads a valid pull-request target and rejects malformed payloads', () => {
+    expect(markReadyPrRef({
+      payloadJson: JSON.stringify({ pr: { owner: 'me', repo: 'proj', number: 7 } }),
+    } as never)).toEqual({ owner: 'me', repo: 'proj', number: 7 });
+    expect(markReadyPrRef({ payloadJson: '{}' } as never)).toBeNull();
   });
 });
 

@@ -174,7 +174,7 @@ export function isPublishGateNotification(n: NotificationDto): boolean {
  *  hasn't been resolved yet. Viewing a gate flips its status UNREAD → READ;
  *  that must not hide the prompt, or a gate the user merely glanced at
  *  (e.g. from the inbox) becomes permanently un-actionable on the page
- *  that's supposed to let them act on it. Shared so `TaskCodePage`'s review
+ *  that's supposed to let them act on it. Shared so the PR Changes review
  *  toolbar and `usePendingShipProposal`'s prompt cards agree on what's
  *  still pending. */
 export function isPendingProposal(n: NotificationDto, taskId: string): boolean {

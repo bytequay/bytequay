@@ -1045,8 +1045,8 @@
    Right-side slide-over mirroring github.com's "Finish your review"
    panel — a pending-comment list, a body composer, three verdict radios,
    Cancel/Submit footer. Not scoped under .shell: it's also mounted directly
-   by the full-page diff takeovers (LocalPrReviewScreen, TaskCodePage's
-   standalone route), which render outside the app shell. */
+   by the full-page LocalPrReviewScreen route, which renders outside the app
+   shell. */
 .submit-review-drawer-backdrop {
   position: fixed;
   inset: 0;

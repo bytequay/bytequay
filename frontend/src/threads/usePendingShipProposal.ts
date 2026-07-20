@@ -31,12 +31,12 @@ export function proposalAction(notification: NotificationDto | null): string | n
  * Polls for a pending `ship_task` proposal on a task — the AWAITING_REVIEW
  * notification the dev agent parks when development finishes and the diff
  * is ready for the user to review + approve. Returns the proposal (or
- * null). The full review surface (diff, PR description, Approve & ship)
- * lives on {@code TaskCodePage}; this hook lets the stage and brain pages
- * surface a prompt that routes there. Mirrors {@code TaskCodePage}'s own
- * poll so both stay in sync.
+ * null) together with an explicit refresh for resolving gates immediately.
  */
-export function usePendingShipProposal(threadId: string, taskId: string): NotificationDto | null {
+export function usePendingShipProposal(threadId: string, taskId: string): {
+  proposal: NotificationDto | null;
+  refresh: () => Promise<void>;
+} {
   const [proposal, setProposal] = useState<NotificationDto | null>(null);
 
   const refresh = useCallback(async () => {
@@ -62,5 +62,5 @@ export function usePendingShipProposal(threadId: string, taskId: string): Notifi
     return () => clearInterval(t);
   }, [refresh]);
 
-  return proposal;
+  return { proposal, refresh };
 }

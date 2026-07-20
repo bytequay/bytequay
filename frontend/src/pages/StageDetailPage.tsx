@@ -13,7 +13,7 @@
  */
 import type { ReactNode } from 'react';
 import type { DiffInlineComment } from '../diff/DiffInlineComments';
-import { PlanReminderTab } from './PlanOverlay';
+import { MarkReadyReminderTab, PlanReminderTab } from './PlanOverlay';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
 import {
   TaskPageFrame,
@@ -38,7 +38,8 @@ const STAGE_KEY: Record<StageKind, string> = {
 /** Locked stage/agent page. Its work folds are supplied expanded by the route. */
 export function StageDetailPage({
   stageKind, stage, sidebar, conversation, composer, run = {}, tabs, changes, pr,
-  planReminder, onRevealPlan, onSubmitReview, submittingReview = false,
+  planReminder, onRevealPlan, markReadyReminder, onOpenMarkReady,
+  onSubmitReview, submittingReview = false,
   openTabRequest, pendingReviewComments = [], onRemovePendingReviewComment,
   conversationIndex, taskNumber, trunkLabel, taskTitle, onOpenTrunk, onOpenTask,
 }: {
@@ -57,8 +58,7 @@ export function StageDetailPage({
     onResume?: () => void;
     onClose?: () => void;
   };
-  /** CI/code are retained for route compatibility; the fixed column is PR. */
-  tabs: { pr?: ReactNode; ci?: ReactNode; code?: ReactNode };
+  tabs: { pr?: ReactNode; ci?: ReactNode };
   pr?: TaskPagePr;
   changes?: TaskPageChanges;
   tabCounts?: Partial<Record<StageTab, { count?: number; countColor?: 'red' | 'acc' | 'muted' }>>;
@@ -67,6 +67,7 @@ export function StageDetailPage({
   planReminder?: 'awaiting' | 'locked';
   onRevealPlan?: () => void;
   markReadyReminder?: boolean;
+  onOpenMarkReady?: () => void;
   onSubmitReview?: (body: string, verdict: ReviewVerdict) => void;
   submittingReview?: boolean;
   pendingReviewComments?: DiffInlineComment[];
@@ -79,8 +80,15 @@ export function StageDetailPage({
   onOpenTask?: () => void;
 }) {
   const reminder = planReminder !== undefined && onRevealPlan !== undefined
-    ? <PlanReminderTab state={planReminder} onClick={onRevealPlan} />
-    : undefined;
+    ? <PlanReminderTab state={planReminder} onClick={onRevealPlan} /> : null;
+  const reminders = reminder !== null || (markReadyReminder === true && onOpenMarkReady !== undefined) ? (
+    <>
+      {markReadyReminder === true && onOpenMarkReady !== undefined && (
+        <MarkReadyReminderTab onClick={onOpenMarkReady} />
+      )}
+      {reminder}
+    </>
+  ) : undefined;
 
   return (
     <TaskPageFrame
@@ -106,7 +114,7 @@ export function StageDetailPage({
       pendingReviewComments={pendingReviewComments}
       onRemovePendingReviewComment={onRemovePendingReviewComment}
       openPrToken={openTabRequest?.tab === 'pr' ? openTabRequest.token : undefined}
-      leadingToolbar={reminder}
+      leadingToolbar={reminders}
     />
   );
 }

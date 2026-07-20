@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { DiffInlineComment } from '../diff/DiffInlineComments';
 import { MarkReadyReminderTab, PlanReminderTab } from './PlanOverlay';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
@@ -21,7 +21,7 @@ import {
   type TaskPageComposer,
 } from './TaskPageFrame';
 
-type BrainTab = 'pr' | 'code';
+type BrainTab = 'pr';
 
 /** Locked task-brain frame. Data and live actions remain owned by the route. */
 export function TaskBrainPage({
@@ -54,8 +54,7 @@ export function TaskBrainPage({
     onResume?: () => void;
     onClose?: () => void;
   };
-  /** `code` is retained for older hosts; Changes now navigates via `changes`. */
-  tabs: { pr?: ReactNode; code?: ReactNode };
+  tabs: { pr?: ReactNode };
   changes?: TaskPageChanges;
   planReminder?: 'awaiting' | 'locked';
   onRevealPlan?: () => void;
@@ -69,10 +68,6 @@ export function TaskBrainPage({
   openTabRequest?: { tab: BrainTab; token: number };
   onOpenTrunk?: () => void;
 }) {
-  useEffect(() => {
-    if (openTabRequest?.tab === 'code') changes?.onOpen?.();
-  }, [changes, openTabRequest]);
-
   const parsedTaskNumber = task.taskNumber
     ?? Number.parseInt(task.pillLabel.match(/\d+/)?.[0] ?? '1', 10);
   const revealPlan = () => {

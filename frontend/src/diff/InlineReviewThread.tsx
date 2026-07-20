@@ -56,7 +56,7 @@ function ThreadReactions({ reactions }: { reactions: ReviewThreadDto['messages']
 /**
  * Renders one existing per-line GitHub review thread directly under the diff
  * row it anchors to. Shared by the standalone remote-PR diff and the unified
- * PR / task code-diff pages so all three get identical, GitHub-faithful
+ * PR review surfaces so they get identical, GitHub-faithful
  * behaviour: fold, reply, resolve / unresolve, resolved attribution, reactions.
  *
  * Layout follows docs/mockups/v2/codereview/comment-layout.png:

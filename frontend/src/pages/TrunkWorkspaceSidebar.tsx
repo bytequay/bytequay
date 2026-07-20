@@ -12,19 +12,15 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import ResizeHandle from '../ResizeHandle';
 import { FolderIcon } from '../diffTreeIcons';
 import type { ThreadDto, WorkUnitTaskDto } from '../types';
-import { useSidebarWidth } from '../ui/shell/useSidebarWidth';
+import { WorkspaceNavSidebar } from '../ui/workspace';
 import type { TaskNavRow, WsNavKey } from '../ui/workspace';
 import {
   ChevronIcon,
   PullRequestBranchIcon,
   SidebarRow,
   TrunkLineIcon,
-  WorkspaceChromeRow,
-  WorkspaceGlobalRows,
-  WorkspaceSidebarFooter,
   WorkspaceSwitcherCard,
 } from '../ui/workspace/WorkspacePageChrome';
 import { taskLabel } from '../threads/taskLabel';
@@ -45,6 +41,7 @@ export function TrunkWorkspaceSidebar({
   selectedTasks,
   counts,
   notificationCount,
+  activeNav,
   collapsed,
   onToggleCollapse,
   onBack,
@@ -71,6 +68,7 @@ export function TrunkWorkspaceSidebar({
     sessions: number;
   };
   notificationCount?: number;
+  activeNav?: WsNavKey;
   collapsed: boolean;
   onToggleCollapse?: () => void;
   onBack?: () => void;
@@ -86,7 +84,6 @@ export function TrunkWorkspaceSidebar({
   const [expanded, setExpanded] = useState<Record<string, boolean> | null>(() => readExpansion().b ?? null);
   const [workspaceOpen, setWorkspaceOpen] = useState(() => readExpansion().workspaceOpen ?? false);
   const [tasksByThread, setTasksByThread] = useState<Record<string, WorkUnitTaskDto[]>>({});
-  const { sidebarWidth, shellRef, onResize } = useSidebarWidth<HTMLElement>();
 
   const effectiveExpanded = useMemo(() => {
     const selected = threads.find(thread => thread.id === selectedThreadId);
@@ -142,131 +139,108 @@ export function TrunkWorkspaceSidebar({
   };
 
   return (
-    <aside
-      ref={shellRef}
-      className={`trunk-page-v2-nav${collapsed ? ' is-collapsed' : ''}`}
-      style={collapsed ? undefined : {
-        width: sidebarWidth,
-        minWidth: sidebarWidth,
-        maxWidth: sidebarWidth,
-        flexBasis: sidebarWidth,
-      }}
+    <WorkspaceNavSidebar
+      activeNav={activeNav}
+      onNavigate={onNavigate}
+      notificationCount={notificationCount}
+      collapsed={collapsed}
+      onToggleCollapse={onToggleCollapse}
+      onBack={onBack}
+      onForward={onForward}
+      backEnabled={backEnabled}
+      forwardEnabled={forwardEnabled}
+      workspaceMode
     >
-      <WorkspaceChromeRow
-        onBack={onBack}
-        onForward={onForward}
-        backEnabled={backEnabled}
-        forwardEnabled={forwardEnabled}
-        onToggleSidebar={onToggleCollapse}
-      />
-      {!collapsed && (
-        <>
-          <WorkspaceGlobalRows onNavigate={destination => onNavigate?.(destination)} />
-          <WorkspaceSwitcherCard name={workspaceName} repository={repository} onSwitch={onSwitchWorkspace} />
-          <div className="trunk-page-v2-nav__today">
-            <SidebarRow
-              icon={<TodayIcon />}
-              trailing={counts !== undefined && counts.todayNeedsYou > 0
-                ? <span className="trunk-page-v2-nav__attention">{counts.todayNeedsYou}</span>
-                : undefined}
-              onClick={() => onNavigate?.('today')}
-            >Today</SidebarRow>
-          </div>
+      <WorkspaceSwitcherCard name={workspaceName} repository={repository} onSwitch={onSwitchWorkspace} />
+      <div className="trunk-page-v2-nav__today">
+        <SidebarRow
+          icon={<TodayIcon />}
+          trailing={counts !== undefined && counts.todayNeedsYou > 0
+            ? <span className="trunk-page-v2-nav__attention">{counts.todayNeedsYou}</span>
+            : undefined}
+          onClick={() => onNavigate?.('today')}
+        >Today</SidebarRow>
+      </div>
 
-          <div className="trunk-page-v2-nav__section-head">
-            <strong>TRUNKS</strong>
-            <span>{threads.length}</span>
-            <button type="button" aria-label="New trunk" title="New trunk" onClick={onNewThread}>
-              <PlusIcon />
-            </button>
-          </div>
-          <div className="trunk-page-v2-nav__tree">
-            {threads.map(thread => {
-              const liveTasks = tasksByThread[thread.id];
-              const fallbackTasks = thread.id === selectedThreadId ? selectedTasks : [];
-              const taskCount = liveTasks?.length ?? thread.taskCount ?? fallbackTasks.length;
-              const hasTasks = taskCount > 0;
-              const open = effectiveExpanded[thread.title] === true && hasTasks;
-              const active = thread.id === selectedThreadId;
-              return (
-                <div className="trunk-page-v2-nav__trunk" key={thread.id}>
-                  <button
-                    type="button"
-                    className={active ? 'is-active' : ''}
-                    onClick={() => toggleThread(thread, hasTasks)}
-                    aria-expanded={hasTasks ? open : undefined}
-                  >
-                    <span className="trunk-page-v2-nav__directory">
-                      <FolderIcon open={open} />
-                    </span>
-                    <span className={`trunk-page-v2-nav__trunk-icon${thread.status === 'RUNNING' ? ' is-running' : ''}`}>
-                      <TrunkLineIcon />
-                    </span>
-                    <span className="trunk-page-v2-nav__trunk-name">{thread.title}</span>
-                    {!open && thread.unread === true && <i title="Needs you" />}
-                    {!open && thread.unread !== true && taskCount > 0 && <small>{taskCount}</small>}
-                  </button>
-                  {open && (
-                    <div className="trunk-page-v2-nav__tasks">
-                      {liveTasks !== undefined
-                        ? liveTasks.map(task => (
-                            <TaskRow key={task.id} task={task} onOpen={() => onOpenTask?.(thread.id, task.id)} />
-                          ))
-                        : fallbackTasks.map(task => (
-                            <FallbackTaskRow key={task.id} task={task} onOpen={() => onOpenTask?.(thread.id, task.id)} />
-                          ))}
-                    </div>
-                  )}
+      <div className="trunk-page-v2-nav__section-head">
+        <strong>TRUNKS</strong>
+        <span>{threads.length}</span>
+        <button type="button" aria-label="New trunk" title="New trunk" onClick={onNewThread}>
+          <PlusIcon />
+        </button>
+      </div>
+      <div className="trunk-page-v2-nav__tree">
+        {threads.map(thread => {
+          const liveTasks = tasksByThread[thread.id];
+          const fallbackTasks = thread.id === selectedThreadId ? selectedTasks : [];
+          const taskCount = liveTasks?.length ?? thread.taskCount ?? fallbackTasks.length;
+          const hasTasks = taskCount > 0;
+          const open = effectiveExpanded[thread.title] === true && hasTasks;
+          const active = thread.id === selectedThreadId;
+          return (
+            <div className="trunk-page-v2-nav__trunk" key={thread.id}>
+              <button
+                type="button"
+                className={active ? 'is-active' : ''}
+                onClick={() => toggleThread(thread, hasTasks)}
+                aria-expanded={hasTasks ? open : undefined}
+              >
+                <span className="trunk-page-v2-nav__directory">
+                  <FolderIcon open={open} />
+                </span>
+                <span className={`trunk-page-v2-nav__trunk-icon${thread.status === 'RUNNING' ? ' is-running' : ''}`}>
+                  <TrunkLineIcon />
+                </span>
+                <span className="trunk-page-v2-nav__trunk-name">{thread.title}</span>
+                {!open && thread.unread === true && <i title="Needs you" />}
+                {!open && thread.unread !== true && taskCount > 0 && <small>{taskCount}</small>}
+              </button>
+              {open && (
+                <div className="trunk-page-v2-nav__tasks">
+                  {liveTasks !== undefined
+                    ? liveTasks.map(task => (
+                        <TaskRow key={task.id} task={task} onOpen={() => onOpenTask?.(thread.id, task.id)} />
+                      ))
+                    : fallbackTasks.map(task => (
+                        <FallbackTaskRow key={task.id} task={task} onOpen={() => onOpenTask?.(thread.id, task.id)} />
+                      ))}
                 </div>
-              );
-            })}
-          </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
 
-          <div className="trunk-page-v2-nav__workspace">
-            <button type="button" className="trunk-page-v2-nav__workspace-toggle"
-              aria-expanded={workspaceOpen} onClick={() => setWorkspaceOpen(open => {
-                const next = !open;
-                writeExpansion({ workspaceOpen: next });
-                return next;
-              })}>
-              <span className={workspaceOpen ? 'is-open' : ''}><ChevronIcon size={11} /></span>
-              <strong>WORKSPACE</strong>
-            </button>
-            {workspaceOpen && (
-              <div className="trunk-page-v2-nav__workspace-items">
-                <WorkspaceItem icon={<PullRequestsIcon />} label="Pull requests" count={counts?.pullRequests}
-                  onClick={() => onNavigate?.('pull-requests')} />
-                <WorkspaceItem icon={<IssueIcon />} label="Issues" count={counts?.issues ?? undefined}
-                  onClick={() => onNavigate?.('issues')} />
-                <WorkspaceItem icon={<BacklogIcon />} label="Backlog" count={counts?.backlog}
-                  onClick={() => onNavigate?.('backlog')} />
-                <WorkspaceItem icon={<BranchIcon />} label="Branches" count={counts?.branches ?? undefined}
-                  onClick={() => onNavigate?.('branches')} />
-                <WorkspaceItem icon={<CommitIcon />} label="Commits" onClick={() => onNavigate?.('commits')} />
-                <WorkspaceItem icon={<SessionIcon />} label="Sessions" disabled
-                  onClick={() => onNavigate?.('sessions')} />
-                <WorkspaceItem icon={<MemoryIcon />} label="Memory" disabled
-                  onClick={() => onNavigate?.('memory')} />
-                <WorkspaceItem icon={<InsightsIcon />} label="Insights" onClick={() => onNavigate?.('insights')} />
-              </div>
-            )}
+      <div className="trunk-page-v2-nav__workspace">
+        <button type="button" className="trunk-page-v2-nav__workspace-toggle"
+          aria-expanded={workspaceOpen} onClick={() => setWorkspaceOpen(open => {
+            const next = !open;
+            writeExpansion({ workspaceOpen: next });
+            return next;
+          })}>
+          <span className={workspaceOpen ? 'is-open' : ''}><ChevronIcon size={11} /></span>
+          <strong>WORKSPACE</strong>
+        </button>
+        {workspaceOpen && (
+          <div className="trunk-page-v2-nav__workspace-items">
+            <WorkspaceItem icon={<PullRequestsIcon />} label="Pull requests" count={counts?.pullRequests}
+              onClick={() => onNavigate?.('pull-requests')} />
+            <WorkspaceItem icon={<IssueIcon />} label="Issues" count={counts?.issues ?? undefined}
+              onClick={() => onNavigate?.('issues')} />
+            <WorkspaceItem icon={<BacklogIcon />} label="Backlog" count={counts?.backlog}
+              onClick={() => onNavigate?.('backlog')} />
+            <WorkspaceItem icon={<BranchIcon />} label="Branches" count={counts?.branches ?? undefined}
+              onClick={() => onNavigate?.('branches')} />
+            <WorkspaceItem icon={<CommitIcon />} label="Commits" onClick={() => onNavigate?.('commits')} />
+            <WorkspaceItem icon={<SessionIcon />} label="Sessions" disabled
+              onClick={() => onNavigate?.('sessions')} />
+            <WorkspaceItem icon={<MemoryIcon />} label="Memory" disabled
+              onClick={() => onNavigate?.('memory')} />
+            <WorkspaceItem icon={<InsightsIcon />} label="Insights" onClick={() => onNavigate?.('insights')} />
           </div>
-          <WorkspaceSidebarFooter
-            notificationCount={notificationCount}
-            showSettings
-            onNotifications={() => onNavigate?.('notifications')}
-            onSettings={() => onNavigate?.('settings')}
-          />
-        </>
-      )}
-      {!collapsed && (
-        <ResizeHandle
-          className="trunk-page-v2-nav__resize"
-          ariaLabel="Resize sidebar"
-          onResize={onResize}
-        />
-      )}
-    </aside>
+        )}
+      </div>
+    </WorkspaceNavSidebar>
   );
 }
 

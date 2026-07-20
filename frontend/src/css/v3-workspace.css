@@ -137,7 +137,7 @@
 .shell .ws-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--left-nav-group-gap);
 }
 /* The row wrapper hosts the drill-in button + an absolutely-placed delete
    button, so the delete isn't nested inside the row button. */
@@ -147,9 +147,9 @@
 .shell .ws-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
-  border-radius: 8px;
+  gap: var(--left-nav-row-gap);
+  padding: var(--left-nav-row-padding);
+  border-radius: var(--left-nav-row-radius);
   cursor: pointer;
   border: 0;
   background: transparent;
@@ -158,7 +158,7 @@
   width: 100%;
 }
 .shell .ws-item:hover {
-  background: var(--bg-hover);
+  background: var(--left-nav-hover-bg);
 }
 /* Delete affordance on a workspace row — revealed on row hover (a list row is
    obviously hoverable, unlike the landing card), full strength on its own
@@ -195,7 +195,7 @@
   border-color: #fca5a5;
 }
 .shell .ws-item.active {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--left-nav-active-bg);
 }
 .shell .ws-item .ws-meta {
   min-width: 0;
@@ -204,20 +204,21 @@
   gap: 1px;
 }
 .shell .ws-item .ws-name {
-  font-size: var(--font-size-md);
-  font-weight: 600;
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
   color: var(--text-1);
   line-height: 1.2;
 }
 .shell .ws-item .ws-sub {
-  font-size: 10.5px;
+  font-size: var(--left-nav-meta-font-size);
   color: var(--text-3);
   line-height: 1.2;
 }
 .shell .ws-item .ws-count {
   margin-left: auto;
-  font-size: 10px;
-  font-family: var(--mono);
+  font-size: var(--left-nav-meta-font-size);
+  font-family: inherit;
+  font-weight: var(--left-nav-font-weight);
   color: var(--text-4);
   padding: 1px 6px;
   background: var(--bg-elev);
@@ -229,19 +230,19 @@
 .shell .ws-switcher {
   display: flex;
   align-items: center;
-  gap: 9px;
-  margin: 4px 8px 2px;
-  padding: 8px 9px;
-  background: rgba(0, 0, 0, 0.035);
-  border: 1px solid var(--border);
-  border-radius: 9px;
+  gap: var(--left-nav-row-gap);
+  margin: 4px 8px;
+  padding: var(--left-nav-row-padding);
+  background: transparent;
+  border: 0;
+  border-radius: var(--left-nav-row-radius);
   cursor: pointer;
   font-family: inherit;
   text-align: left;
   width: calc(100% - 16px);
 }
 .shell .ws-switcher:hover {
-  border-color: var(--border-mid);
+  background: var(--left-nav-hover-bg);
 }
 .shell .ws-switcher .ws-meta {
   min-width: 0;
@@ -251,12 +252,13 @@
   flex: 1;
 }
 .shell .ws-switcher .ws-name {
-  font-size: var(--font-size-md);
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
   color: var(--text-1);
   line-height: 1.2;
 }
 .shell .ws-switcher .ws-sub {
-  font-size: 10.5px;
+  font-size: var(--left-nav-meta-font-size);
   color: var(--text-3);
   line-height: 1.2;
 }
@@ -269,10 +271,12 @@
 .shell .thread-item {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 6px 10px;
-  border-radius: 7px;
-  font-size: var(--font-size-md);
+  gap: var(--left-nav-row-gap);
+  padding: var(--left-nav-row-padding);
+  border-radius: var(--left-nav-row-radius);
+  font-size: var(--left-nav-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: var(--left-nav-row-line-height);
   color: var(--text-2);
   cursor: pointer;
   border: 0;
@@ -282,12 +286,12 @@
   width: 100%;
 }
 .shell .thread-item:hover {
-  background: var(--bg-hover);
+  background: var(--left-nav-hover-bg);
 }
 .shell .thread-item.active {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--left-nav-active-bg);
   color: var(--text-1);
-  font-weight: 500;
+  font-weight: var(--left-nav-font-weight);
 }
 .shell .thread-item .nm {
   min-width: 0;
@@ -317,23 +321,25 @@
   align-items: center;
   width: 100%;
   margin-left: 19px;
-  padding: 7px 9px;
+  gap: var(--left-nav-row-gap);
+  padding: var(--left-nav-row-padding);
   border: 0;
   background: transparent;
   font-family: inherit;
   text-align: left;
-  font-size: var(--font-size-md);
-  font-weight: 400;
+  font-size: var(--left-nav-nested-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: var(--left-nav-row-line-height);
   color: var(--text-2);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--left-nav-row-radius);
 }
 .shell .task-subhead + .task-subhead {
   margin-top: 4px;
 }
-.shell .task-subhead:hover { background: var(--bg-hover); color: var(--text-1); }
+.shell .task-subhead:hover { background: var(--left-nav-hover-bg); color: var(--text-1); }
 .shell .task-subhead.active {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--left-nav-active-bg);
   color: var(--text-1);
 }
 .shell .task-subhead .nm {
@@ -346,7 +352,7 @@
 /* The lifecycle mark leads the row, before the task name. */
 .shell .task-subhead .v3-dot {
   flex-shrink: 0;
-  margin-right: 7px;
+  margin-right: 0;
 }
 
 .shell .stage-sublist {
@@ -363,10 +369,12 @@
 .shell .stage-subitem {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 9px;
-  border-radius: 6px;
-  font-size: 12px;
+  gap: var(--left-nav-row-gap);
+  padding: var(--left-nav-row-padding);
+  border-radius: var(--left-nav-row-radius);
+  font-size: var(--left-nav-nested-font-size);
+  font-weight: var(--left-nav-font-weight);
+  line-height: var(--left-nav-row-line-height);
   color: var(--text-3);
   cursor: pointer;
   border: 0;
@@ -376,13 +384,13 @@
   width: 100%;
 }
 .shell .stage-subitem:hover {
-  background: var(--bg-hover);
+  background: var(--left-nav-hover-bg);
   color: var(--text-2);
 }
 .shell .stage-subitem.active {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--left-nav-active-bg);
   color: var(--text-1);
-  font-weight: 500;
+  font-weight: var(--left-nav-font-weight);
 }
 /* A stage shown before its row exists — dimmed and not clickable. */
 .shell .stage-subitem.pending {
@@ -775,9 +783,9 @@
 .shell .sb-recent__row {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 7px;
+  gap: var(--left-nav-row-gap);
+  padding: var(--left-nav-row-padding);
+  border-radius: var(--left-nav-row-radius);
   cursor: pointer;
   border: 0;
   background: transparent;
@@ -787,7 +795,7 @@
   min-width: 0;
 }
 .shell .sb-recent__row:hover {
-  background: var(--bg-hover);
+  background: var(--left-nav-hover-bg);
 }
 .shell .sb-recent__icon {
   flex-shrink: 0;
@@ -804,7 +812,8 @@
   gap: 1px;
 }
 .shell .sb-recent__title {
-  font-size: 12.5px;
+  font-size: var(--left-nav-nested-font-size);
+  font-weight: var(--left-nav-font-weight);
   color: #454c54;
   line-height: 1.35;
   overflow: hidden;
@@ -815,21 +824,21 @@
   color: #454c54;
 }
 .shell .sb-recent__sub {
-  font-size: 11px;
+  font-size: var(--left-nav-meta-font-size);
   color: #a0a6ad;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .shell .sb-recent__empty {
-  font-size: 11px;
+  font-size: var(--left-nav-meta-font-size);
   color: var(--text-4);
   padding: 4px 10px;
   margin: 0;
 }
 .shell .sb-recent__label {
-  font-size: 9px;
-  font-weight: 600;
+  font-size: var(--left-nav-meta-font-size);
+  font-weight: var(--left-nav-font-weight);
   color: var(--text-4);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -839,8 +848,8 @@
    (which share the same .sb-recent__* classes) stay at their own size. */
 .shell .sb-section--recent .sb-section-h .nm {
   color: #8b949e;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--left-nav-meta-font-size);
+  font-weight: var(--left-nav-font-weight);
   letter-spacing: .05em;
   text-transform: uppercase;
 }

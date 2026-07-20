@@ -185,41 +185,6 @@
   overflow: hidden;
 }
 
-.task-brain .shell .task-sidebar .sb-traffic {
-  padding: 11px 16px 0;
-  background: transparent;
-}
-
-.task-brain .shell .task-sidebar .sb-traffic .dots {
-  gap: 8px;
-}
-
-.task-brain .shell .task-sidebar .sb-traffic .dots span {
-  width: 12px;
-  height: 12px;
-}
-
-.task-brain .shell .task-sidebar .sb-traffic .sb-toggle,
-.task-brain .shell .task-sidebar .sb-traffic .nav-arrows span {
-  width: 26px;
-  height: 26px;
-  border: 1px solid rgba(0, 0, 0, 0.10);
-  border-radius: 7px;
-  background: #ffffff;
-  color: #767068;
-}
-
-.task-brain .shell .task-sidebar .sb-traffic .sb-toggle:hover,
-.task-brain .shell .task-sidebar .sb-traffic .nav-arrows span:hover {
-  border-color: #7c3aed;
-  color: #7c3aed;
-  background: #ffffff;
-}
-
-.task-brain .shell .task-sidebar .sb-traffic .nav-arrows {
-  display: none;
-}
-
 .task-brain .shell .task-thread-row {
   display: flex;
   align-items: center;

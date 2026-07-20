@@ -13,11 +13,11 @@
  */
 
 /** Workspace-model navigation shell. */
-export { WorkspaceNavSidebar } from './WorkspaceNavSidebar';
+export { WorkspaceBottomNav, WorkspaceNavSidebar, WorkspacePrimaryNav } from './WorkspaceNavSidebar';
 export type { WsNavKey } from './WorkspaceNavSidebar';
 export {
   CheckCircleIcon, ChevronIcon, PullRequestBranchIcon, SidebarRow, TrunkLineIcon,
-  WorkspaceChromeRow, WorkspaceGlobalRows, WorkspaceSidebarFooter, WorkspaceSwitcherCard,
+  WorkspaceSwitcherCard,
 } from './WorkspacePageChrome';
 export { RecentList } from './RecentList';
 export { WorkspaceSwitcher } from './WorkspaceSwitcher';

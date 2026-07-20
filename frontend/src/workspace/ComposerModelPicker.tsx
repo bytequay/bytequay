@@ -27,23 +27,29 @@ import type { WorkModelDto, WorkModelOptionsDto } from '../types';
  * passed in so the pill's label and this list share one read.
  */
 export function ComposerModelPicker({
-  options, override, effective, onChange,
+  options, override, effective, agentLocked = false, onChange,
 }: {
   options: WorkModelOptionsDto;
   /** The override set directly on this scope; null = inheriting (Auto). */
   override: WorkModelDto | null;
   /** The resolved effective pick — drives the checkmark. */
   effective: WorkModelDto;
+  /** Once the first turn starts, keep the provider-native conversation on
+   *  its original agent while still offering that agent's other models. */
+  agentLocked?: boolean;
   onChange: (next: WorkModelDto | null) => void;
 }) {
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
 
   const rows = useMemo(() => flatten(options), [options]);
+  const availableRows = agentLocked
+    ? rows.filter(r => r.kind === effective.kind && r.agentId === effective.agentOrProvider)
+    : rows;
   const q = query.trim().toLowerCase();
   const shown = q.length === 0
-    ? rows
-    : rows.filter(r => `${r.modelDisplay} ${r.agentName} ${r.description ?? ''}`.toLowerCase().includes(q));
+    ? availableRows
+    : availableRows.filter(r => `${r.modelDisplay} ${r.agentName} ${r.description ?? ''}`.toLowerCase().includes(q));
 
   const isActive = (r: Row) =>
     effective.kind === r.kind
@@ -62,14 +68,21 @@ export function ComposerModelPicker({
         // Portaled popover already traps Esc to close; let it bubble.
         autoFocus
       />
+      {agentLocked && (
+        <div style={lockHintStyle}>
+          Agent locked after the first message. You can still choose another model from this agent.
+        </div>
+      )}
       <div style={listStyle}>
-        <Item
-          icon={<AutoIcon />}
-          label="Auto"
-          sub="Inherit the default"
-          checked={override === null}
-          onClick={() => onChange(null)}
-        />
+        {!agentLocked && (
+          <Item
+            icon={<AutoIcon />}
+            label="Auto"
+            sub="Inherit the default"
+            checked={override === null}
+            onClick={() => onChange(null)}
+          />
+        )}
         {shown.map(r => (
           <Item
             key={r.key}
@@ -194,6 +207,15 @@ const searchStyle: CSSProperties = {
   color: 'var(--text-1)',
   fontFamily: 'inherit',
   boxSizing: 'border-box',
+};
+
+const lockHintStyle: CSSProperties = {
+  padding: '6px 8px',
+  borderRadius: 7,
+  background: 'var(--bg-elev, rgba(0,0,0,0.04))',
+  color: 'var(--text-3)',
+  fontSize: 11,
+  lineHeight: 1.35,
 };
 
 const listStyle: CSSProperties = {

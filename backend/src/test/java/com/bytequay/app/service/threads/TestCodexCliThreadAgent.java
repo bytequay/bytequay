@@ -91,6 +91,20 @@ class TestCodexCliThreadAgent
     }
 
     @Test
+    void missingRolloutRetriesAsAFreshCodexSession()
+    {
+        CodexCliThreadAgent agent = agent("gpt-5", "claude-session-id", "ROLE BRIEF");
+
+        assertThat(agent.shouldAutomaticallyRecover(
+                "codex exited with code 1: no rollout found for thread id claude-session-id"))
+                .isTrue();
+
+        List<String> retry = agent.buildCommand("next step").command();
+        assertThat(retry).doesNotContain("resume", "claude-session-id");
+        assertThat(retry).containsSubsequence("exec", "--json", "--skip-git-repo-check");
+    }
+
+    @Test
     void aStageTurnStartsAFreshSessionInsteadOfResumingTheTask()
     {
         // The task carries a session, but entering a work stage must start a

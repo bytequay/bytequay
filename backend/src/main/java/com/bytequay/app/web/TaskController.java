@@ -21,6 +21,7 @@ import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.inspector.AssembledContext;
 import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.threads.TaskService;
+import com.bytequay.app.service.workmodel.WorkModelAgentLock;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -267,7 +268,9 @@ public class TaskController
     {
         Task task = taskService.requireTask(threadId, taskId);
         WorkModelResolver.Resolved resolved = workModelResolver.resolveForTask(threadId, taskId);
-        return new ResolvedWorkModelResponse(task.workModel(), resolved.choice(), resolved.provenance());
+        return new ResolvedWorkModelResponse(
+                task.workModel(), resolved.choice(), resolved.provenance(),
+                taskService.isWorkModelAgentLocked(threadId, taskId));
     }
 
     /**
@@ -283,9 +286,14 @@ public class TaskController
             @PathVariable String taskId,
             @RequestBody(required = false) WorkModelBody body)
     {
-        Task updated = taskService.setWorkModel(threadId, taskId, body == null ? null : body.workModel());
+        WorkModel requested = body == null ? null : body.workModel();
+        boolean agentLocked = taskService.isWorkModelAgentLocked(threadId, taskId);
+        WorkModelAgentLock.requireSameAgent(
+                agentLocked, workModelResolver.resolveForTask(threadId, taskId).choice(), requested);
+        Task updated = taskService.setWorkModel(threadId, taskId, requested);
         WorkModelResolver.Resolved resolved = workModelResolver.resolveForTask(threadId, taskId);
-        return new ResolvedWorkModelResponse(updated.workModel(), resolved.choice(), resolved.provenance());
+        return new ResolvedWorkModelResponse(
+                updated.workModel(), resolved.choice(), resolved.provenance(), agentLocked);
     }
 
     /** Body for {@link #setWorkModel} — wraps the optional

@@ -329,7 +329,9 @@ function WorkspaceOverviewPanel({
   const needsTrunk = overview?.today.needsYou[0];
   const runningTrunk = overview?.today.running[0];
   const openPullRequests = pullRequests.filter(pr => pr.state !== 'closed' && pr.state !== 'merged').slice(0, 3);
-  const backlog = workspaceBacklog.length > 0 ? workspaceBacklog.slice(0, 2) : trunkBacklog.slice(0, 2);
+  const backlog = (workspaceBacklog.length > 0 ? workspaceBacklog : trunkBacklog)
+    .filter(item => READY_BACKLOG_STATUSES.has(item.status))
+    .slice(0, 2);
   const pullRequestTotal = overview?.sidebarCounts.pullRequests ?? openPullRequests.length;
   const runningSessionId = runningSession?.sessionId;
   const midnight = new Date();
@@ -421,7 +423,18 @@ function WorkspaceOverviewPanel({
           {backlog.length > 0 ? (
             <div className="trunk-page-v2__backlog">
               {backlog.map(item => (
-                <div key={item.id}><span />{item.title}</div>
+                <button
+                  type="button"
+                  key={item.id}
+                  aria-label={`Open backlog item ${item.title}`}
+                  disabled={workspaceId === undefined}
+                  onClick={() => openPath(item.key === null || item.key === undefined
+                    ? 'backlog'
+                    : `backlog/${encodeURIComponent(item.key)}`)}
+                >
+                  <span aria-hidden="true" />
+                  <span>{item.title}</span>
+                </button>
               ))}
             </div>
           ) : <p className="trunk-page-v2__overview-empty">Backlog is clear.</p>}

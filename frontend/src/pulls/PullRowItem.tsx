@@ -12,12 +12,12 @@
  * limitations under the License.
  */
 import {
-  Av,
   CiFailIcon,
   CiPassIcon,
   CommentBubbleIcon,
   PrMergedIcon,
   PrOpenIcon,
+  PullAuthorAv,
   RepoAv,
   RobotIcon,
   shortCount,
@@ -58,7 +58,7 @@ function WideRow({ row }: { row: PullRow }) {
           <RepoAv repo={row.repo} size={16} />
           <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.repo}</span>
           <span>·</span>
-          <Av login={row.author} size={16} />
+          <PullAuthorAv login={row.author} size={16} />
           <span style={{ whiteSpace: 'nowrap' }}>{row.author}</span>
           <span>·</span>
           <span style={{ whiteSpace: 'nowrap' }}>{row.time}</span>
@@ -130,7 +130,7 @@ function NarrowRow({ row }: { row: PullRow }) {
         <RepoAv repo={row.repo} size={16} />
         <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.repo}</span>
         <span>·</span>
-        <Av login={row.author} size={16} />
+        <PullAuthorAv login={row.author} size={16} />
         <span style={{ whiteSpace: 'nowrap' }}>{row.author}</span>
         <span>·</span>
         <span style={{ whiteSpace: 'nowrap' }}>{row.time}</span>

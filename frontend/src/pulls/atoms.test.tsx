@@ -11,11 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
-import { Av, RepoAv } from './atoms';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { invalidate } from '../dataCache';
+import { Av, PullAuthorAv, RepoAv } from './atoms';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  invalidate('home:profile');
+  Reflect.deleteProperty(window, 'bridge');
+});
 
 describe('Av', () => {
   it('loads directly from GitHub avatars and retries when the login changes', () => {
@@ -40,5 +45,18 @@ describe('Av', () => {
     rerender(<RepoAv repo="starburstdata/cork" size={16} />);
     expect(container.querySelector('img')?.getAttribute('src'))
       .toBe('https://github.com/starburstdata.png?size=32');
+  });
+
+  it('uses the signed-in GitHub avatar for a PR without a stored author', async () => {
+    window.bridge = {
+      getUserProfile: vi.fn().mockResolvedValue({
+        login: 'octocat', avatarUrl: 'https://avatars.example/octocat.png',
+      }),
+    } as unknown as typeof window.bridge;
+
+    render(<PullAuthorAv login=" " size={24} />);
+
+    const avatar = await screen.findByRole('img', { name: 'octocat' });
+    expect(avatar.getAttribute('src')).toBe('https://avatars.example/octocat.png');
   });
 });

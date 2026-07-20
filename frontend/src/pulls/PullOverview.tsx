@@ -20,7 +20,7 @@ import { EditableMarkdownBody } from '../pr/EditableMarkdownBody';
 import { buildRawTimelineEntries } from '../pr/localpr/githubActivityRows';
 import { ReactionAddButton } from '../pr/Reactions';
 import { useGitHubActivityFeed } from '../pr/useGitHubActivityFeed';
-import { Av } from './atoms';
+import { PullAuthorAv } from './atoms';
 import { buildChecks, buildOpenedCard, buildTimeline } from './detailModel';
 import type { PullRow } from './model';
 import PullChecksCard from './PullChecksCard';
@@ -128,7 +128,7 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
       {/* opened card */}
       <div style={{ position: 'relative', border: '1px solid #d5dbe1', borderRadius: 10, background: '#fff', marginTop: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 16px', borderBottom: '1px solid #eef1f4' }}>
-          <Av login={opened.author} size={24} square={opened.bot} />
+          <PullAuthorAv login={opened.author} size={24} square={opened.bot} />
           <span style={{ fontSize: 13, color: '#57606a' }}>
             <span style={{ color: '#17191c', fontWeight: 600 }}>{opened.author}</span> opened pull request
           </span>

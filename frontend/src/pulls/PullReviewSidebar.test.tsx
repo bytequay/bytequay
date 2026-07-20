@@ -13,6 +13,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { invalidate } from '../dataCache';
 import type { LocalPR, LocalPRBundle, LocalPRComment } from '../types/localPr';
 import PullChanges from './PullChanges';
 import PullReviewSidebar from './PullReviewSidebar';
@@ -20,6 +21,7 @@ import type { PullRow } from './model';
 
 afterEach(() => {
   cleanup();
+  invalidate('home:profile');
   delete (globalThis as { bridge?: unknown }).bridge;
 });
 
@@ -59,6 +61,29 @@ function bundle(comments: LocalPRComment[]): LocalPRBundle {
 }
 
 describe('PullReviewSidebar', () => {
+  it('uses the signed-in GitHub avatar in History when a task PR has no stored author', async () => {
+    window.bridge = {
+      getUserProfile: vi.fn().mockResolvedValue({
+        login: 'octocat', avatarUrl: 'https://avatars.example/octocat.png',
+      }),
+    } as unknown as typeof window.bridge;
+    const taskRow = row();
+    taskRow.author = '';
+    const taskBundle = bundle([]);
+    taskBundle.pr.author = null;
+
+    render(
+      <PullReviewSidebar
+        row={taskRow} bundle={taskBundle} files={null} pending={[]} activity={[]}
+        width={320} login="you" onJump={vi.fn()} onResolve={vi.fn()} onDelete={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'History' }));
+
+    const avatar = await screen.findByRole('img', { name: 'octocat' });
+    expect(avatar.getAttribute('src')).toBe('https://avatars.example/octocat.png');
+  });
+
   it('renders every pending body as markdown and jumps from its exact file range', () => {
     const first = comment();
     const second = comment({

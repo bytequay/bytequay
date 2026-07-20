@@ -179,15 +179,18 @@ export function PullRequestBranchIcon({ size = 12 }: { size?: number }) {
   );
 }
 
-export function SidebarRow({ icon, children, trailing, onClick, className = '' }: {
+export function SidebarRow({ icon, children, trailing, onClick, className = '', disabled = false, title }: {
   icon: ReactNode;
   children: ReactNode;
   trailing?: ReactNode;
   onClick?: () => void;
   className?: string;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
-    <button type="button" className={`workspace-page-row ${className}`.trim()} onClick={onClick}>
+    <button type="button" className={`workspace-page-row ${className}`.trim()} disabled={disabled}
+      title={title} onClick={onClick}>
       <span aria-hidden>{icon}</span>
       <span>{children}</span>
       {trailing !== undefined && <small>{trailing}</small>}

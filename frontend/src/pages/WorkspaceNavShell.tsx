@@ -208,16 +208,11 @@ export function WorkspaceNavShell({
             <WorkspaceDestination navKey="commits" label="Commits" icon={<WorkspaceIcon kind="commits" />}
               active={activeNav === 'commits'} onNavigate={onNavigate} />
             <WorkspaceDestination navKey="sessions" label="Sessions" icon={<WorkspaceIcon kind="sessions" />}
-              active={activeNav === 'sessions'} count={sourceSync ? undefined : counts?.sessions ?? ws.tasksInFlight}
-              running={!sourceSync && (counts?.sessions ?? ws.tasksInFlight) > 0}
-              trailing={sourceSync ? <WorkspaceCount>0</WorkspaceCount> : undefined}
-              onNavigate={onNavigate} />
+              active={activeNav === 'sessions'} disabled onNavigate={onNavigate} />
           </WorkspaceGroup>
           <WorkspaceGroup label="Brain">
             <WorkspaceDestination navKey="memory" label="Memory" icon={<WorkspaceIcon kind="memory" />}
-              active={activeNav === 'memory'}
-              trailing={sourceSync ? <WorkspaceCount>empty</WorkspaceCount> : undefined}
-              onNavigate={onNavigate} />
+              active={activeNav === 'memory'} disabled onNavigate={onNavigate} />
             <WorkspaceDestination navKey="insights" label="Insights" icon={<WorkspaceIcon kind="insights" />}
               active={activeNav === 'insights'} onNavigate={onNavigate} />
           </WorkspaceGroup>
@@ -301,7 +296,7 @@ function WorkspaceGroup({ label, children }: { label: string; children: ReactNod
 
 function WorkspaceDestination({
   navKey, label, icon, active, count, attention = false, warning = false,
-  running = false, trailing, onNavigate,
+  running = false, trailing, disabled = false, onNavigate,
 }: {
   navKey: WsNavKey;
   label: string;
@@ -312,16 +307,19 @@ function WorkspaceDestination({
   warning?: boolean;
   running?: boolean;
   trailing?: ReactNode;
+  disabled?: boolean;
   onNavigate?: (key: WsNavKey) => void;
 }) {
   return (
     <div
-      className={`ws-destination${active ? ' active' : ''}`}
+      className={`ws-destination${active ? ' active' : ''}${disabled ? ' disabled' : ''}`}
       role="button"
-      tabIndex={0}
-      onClick={() => onNavigate?.(navKey)}
+      aria-disabled={disabled}
+      title={disabled ? 'Still in progress' : undefined}
+      tabIndex={disabled ? -1 : 0}
+      onClick={() => { if (!disabled) onNavigate?.(navKey); }}
       onKeyDown={event => {
-        if (event.key === 'Enter' || event.key === ' ') {
+        if (!disabled && (event.key === 'Enter' || event.key === ' ')) {
           event.preventDefault();
           onNavigate?.(navKey);
         }

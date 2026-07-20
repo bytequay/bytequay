@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { RecentEventDto, TeamSummaryDto, UserProfileDto, WatchedRepoDto } from '../types';
+import type { RecentEventDto, UserProfileDto, WatchedRepoDto } from '../types';
 import type { DashboardPR } from '../types/dashboardPr';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
@@ -34,7 +34,6 @@ import WatchedReposGrid from './WatchedReposGrid';
 // move — keeping their localStorage cache preserves the instant-paint UX.
 const KEY_WATCHED = 'home:watchedRepos';
 const KEY_PRS = 'prs:list';
-const KEY_TEAMS = 'home:teams';
 
 type Props = {
   /** Navigate into the repo page in-app. {@code prNumber} is honoured by
@@ -43,10 +42,6 @@ type Props = {
   onOpenWorkspacePr?: (workspaceId: string, prNumber: number) => void;
   onOpenRemoteReview?: (owner: string, repo: string, prNumber: number) => void;
   onGoToMyPrs: () => void;
-  /** Set by App.tsx — opens the team detail page for the given id. */
-  onOpenTeam?: (teamId: number) => void;
-  /** Set by App.tsx — jumps to Settings → Teams (to create a new team). */
-  onGoToTeams?: () => void;
   /** Inbox "View task" — opens the task detail page. */
   onOpenTask?: (threadId: string, taskId: string) => void;
   /** Inbox "See all" — opens the notification center. */
@@ -114,8 +109,6 @@ function HomePage({
   onOpenWorkspacePr,
   onOpenRemoteReview,
   onGoToMyPrs,
-  onOpenTeam,
-  onGoToTeams,
   onOpenTask,
 }: Props) {
   /** Smart router for activity-row link clicks: keep github.com repo and
@@ -131,20 +124,18 @@ function HomePage({
     openUrl(url);
   };
 
-  // Seed the still-client-cached state (watched repos, teams, PR list) from
+  // Seed the still-client-cached state (watched repos and PR list) from
   // the module cache so a return to this tab renders instantly. The
   // GitHub-sourced flows below (profile, events, following) start empty
   // and populate from the backend's DB cache on the load() call.
   const cachedWatched = getCached<WatchedRepoDto[]>(KEY_WATCHED);
   const cachedPrs = getCached<DashboardPR[]>(KEY_PRS);
-  const cachedTeams = getCached<TeamSummaryDto[]>(KEY_TEAMS);
 
   const [profile, setProfile] = useState<UserProfileDto | null>(null);
   const [repos, setRepos] = useState<WatchedRepoDto[]>(cachedWatched ?? []);
   const [events, setEvents] = useState<RecentEventDto[]>([]);
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
   const [prs, setPrs] = useState<DashboardPR[] | null>(cachedPrs ?? null);
-  const [teams, setTeams] = useState<TeamSummaryDto[]>(cachedTeams ?? []);
   // Only show the first-load spinner when we have nothing to paint yet.
   const [loading, setLoading] = useState(cachedWatched === undefined);
   const [showModal, setShowModal] = useState(false);
@@ -179,11 +170,8 @@ function HomePage({
         .then(setFollowingEvents)
         .catch(() => {});
     }
-    // Teams + PR list still live in localStorage (DB-backed on the backend
+    // The PR list still lives in localStorage (DB-backed on the backend
     // already, but reads aren't free; the cache makes tab return instant).
-    window.bridge.listTeams()
-      .then(v => { setTeams(v); setCached(KEY_TEAMS, v); })
-      .catch(() => {});
     window.bridge.fetchDashboardPrs()
       .then(v => { setPrs(v); setCached(KEY_PRS, v); })
       .catch(() => {});
@@ -277,7 +265,7 @@ function HomePage({
       />
 
       {/* ── Teams you track ── */}
-      <TeamsGrid teams={teams} onOpenTeam={onOpenTeam} onGoToTeams={onGoToTeams} />
+      <TeamsGrid />
 
       </main>
 

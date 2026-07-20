@@ -810,6 +810,15 @@
   font-weight: 600;
 }
 
+.workspace-redesign .ws-destination.disabled,
+.workspace-redesign .ws-destination.disabled:hover {
+  background: transparent;
+  color: var(--bq-text-4);
+  cursor: default;
+  opacity: 0.5;
+  font-weight: 400;
+}
+
 .workspace-redesign .ws-destination__icon {
   display: inline-flex;
   width: 17px;

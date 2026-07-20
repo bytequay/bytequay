@@ -13,10 +13,14 @@
  */
 package com.bytequay.app.service;
 
+import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.service.credentials.PatResolver;
 import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+import java.util.List;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -29,12 +33,25 @@ class TestByteQuayIssueService
     {
         PullRequestRepository gitHub = mock(PullRequestRepository.class);
         PatResolver pats = mock(PatResolver.class);
+        IssueOriginService origins = mock(IssueOriginService.class);
         when(pats.resolve()).thenReturn("account-pat");
+        RepoIssue created = new RepoIssue(
+                41L, 7, "Broken button", "chenjian2664", "open",
+                "https://github.com/chenjian2664/ByteQuay/issues/7",
+                Instant.EPOCH, List.of(), 0);
+        when(gitHub.createIssue(
+                "account-pat", RepoRef.of("chenjian2664", "ByteQuay"),
+                "Broken button", "Steps to reproduce\n\n"
+                        + "<!-- bytequay-origin:v1 kind=user-report -->"))
+                .thenReturn(created);
 
-        new ByteQuayIssueService(gitHub, pats).report("Broken button", "Steps to reproduce");
+        new ByteQuayIssueService(gitHub, pats, origins)
+                .report("Broken button", "Steps to reproduce");
 
         verify(gitHub).createIssue(
-                "account-pat", RepoRef.of("bytequay", "bytequay"),
-                "Broken button", "Steps to reproduce");
+                "account-pat", RepoRef.of("chenjian2664", "ByteQuay"),
+                "Broken button", "Steps to reproduce\n\n"
+                        + "<!-- bytequay-origin:v1 kind=user-report -->");
+        verify(origins).recordCreated(created, "user-report");
     }
 }

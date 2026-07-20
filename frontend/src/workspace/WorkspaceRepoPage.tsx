@@ -35,6 +35,7 @@ import {
 } from './workspaceApi';
 import PullRequestBoardList from './PullRequestBoardList';
 import WorkspacePullsScreen from '../pulls/WorkspacePullsScreen';
+import { CreationOriginBadge } from '../ui/CreationOriginBadge';
 
 export type WorkspaceRepoSection = 'pull-requests' | 'issues' | 'branches' | 'commits';
 
@@ -523,6 +524,7 @@ function IssuesPage({
               <span className="wu-table-row__main">
                 <strong>
                   {issue.title}
+                  <CreationOriginBadge origin={issue.origin} />
                   {issue.labels.map(label => (
                     <i className={`wu-inline-label ${issueLabelTone(label)}`} key={label}>{label}</i>
                   ))}
@@ -676,6 +678,7 @@ function IssueDetailPage({
               <span className={`wu-open-pill ${detail.state}`}>
                 <IssueIcon state={detail.state} /> {detail.state.toUpperCase()}
               </span>
+              <CreationOriginBadge origin={detail.origin} />
               {detail.labels.map(label => (
                 <i className={`wu-inline-label ${issueLabelTone(label.name)}`} key={label.name}>{label.name}</i>
               ))}

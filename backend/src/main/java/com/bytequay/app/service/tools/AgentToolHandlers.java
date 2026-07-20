@@ -201,6 +201,7 @@ public class AgentToolHandlers
             Integer linkedPrNumber,
             Integer linkedIssueNumber,
             String taskType,
+            String origin,
             String createdAt,
             String endedAt,
             String errorMessage,
@@ -221,6 +222,7 @@ public class AgentToolHandlers
                     t.linkedPrNumber(),
                     t.linkedIssueNumber(),
                     t.taskType(),
+                    t.origin(),
                     t.createdAt() == null ? null : t.createdAt().toString(),
                     t.endedAt() == null ? null : t.endedAt().toString(),
                     t.errorMessage(),
@@ -851,7 +853,7 @@ public class AgentToolHandlers
                 thread.workspaceId(),
                 /* workModel — inherit thread's override */ thread.workModel(),
                 /* trunkPlan — seeds the PlanStage when the trunk hands off a plan */
-                args.trunkPlan());
+                args.trunkPlan()).withOrigin(Task.ORIGIN_AGENT);
         try {
             Task created = threads.materialiseTask(threadId, request);
             resolveBacklogItemIfGiven(args.backlogItemId(), created.id());

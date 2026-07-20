@@ -572,6 +572,7 @@ export const visualIssues: IssueDto[] = [
     updatedAt: agoIso(40 * minute),
     labels: [],
     commentCount: 5,
+    origin: 'user',
   },
   {
     id: VISUAL_ISSUE_NUMBER,
@@ -583,6 +584,7 @@ export const visualIssues: IssueDto[] = [
     updatedAt: agoIso(4 * day),
     labels: ['RELEASE-BLOCKER'],
     commentCount: 8,
+    origin: 'user',
     linkedTrunkId: VISUAL_TRUNK_ID,
     linkedTrunkTitle: 'Fix $partitions regression',
   },
@@ -596,6 +598,7 @@ export const visualIssues: IssueDto[] = [
     updatedAt: agoIso(3 * hour),
     labels: ['enhancement', 'roadmap'],
     commentCount: 12,
+    origin: 'quality-scan',
   },
   {
     id: 21373,
@@ -607,6 +610,7 @@ export const visualIssues: IssueDto[] = [
     updatedAt: agoIso(3 * day),
     labels: [],
     commentCount: 2,
+    origin: 'user',
   },
   {
     id: 19620,
@@ -618,6 +622,7 @@ export const visualIssues: IssueDto[] = [
     updatedAt: agoIso(4 * day),
     labels: ['iceberg'],
     commentCount: 4,
+    origin: 'user',
   },
   {
     id: 28052,
@@ -629,6 +634,7 @@ export const visualIssues: IssueDto[] = [
     updatedAt: agoIso(5 * day),
     labels: [],
     commentCount: 1,
+    origin: 'user',
   },
   ...Array.from({ length: 8 }, (_, index): IssueDto => ({
     id: 29000 + index,
@@ -640,6 +646,7 @@ export const visualIssues: IssueDto[] = [
     updatedAt: agoIso((6 + index) * day),
     labels: [],
     commentCount: 0,
+    origin: 'user',
   })),
 ];
 
@@ -689,6 +696,7 @@ export const visualIssueDetail: IssueDetailDto = cast<IssueDetailDto>({
   ],
   timeline: [],
   subscribed: true,
+  origin: 'user',
   participants: ['mderoy', 'guyco33', 'skyglass'],
   linkedWork: [
     {

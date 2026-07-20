@@ -52,6 +52,7 @@ import java.util.List;
         @JsonSubTypes.Type(value = ParkedProposal.CreateReviewComment.class, name = "create_review_comment"),
         @JsonSubTypes.Type(value = ParkedProposal.UpdatePrBody.class, name = "update_pr_body"),
         @JsonSubTypes.Type(value = ParkedProposal.RequestReviewer.class, name = "request_reviewer"),
+        @JsonSubTypes.Type(value = ParkedProposal.CreateIssue.class, name = "create_issue"),
         @JsonSubTypes.Type(value = ParkedProposal.CommentOnIssue.class, name = "comment_on_issue"),
         @JsonSubTypes.Type(value = ParkedProposal.SetIssueState.class, name = "set_issue_state"),
         @JsonSubTypes.Type(value = ParkedProposal.OpenPr.class, name = "open_pr"),
@@ -66,7 +67,7 @@ public sealed interface ParkedProposal
                 ParkedProposal.ReplyReviewThread, ParkedProposal.ResolveReviewThread,
                 ParkedProposal.ApprovePr, ParkedProposal.MergePr,
                 ParkedProposal.CreateReviewComment, ParkedProposal.UpdatePrBody,
-                ParkedProposal.RequestReviewer, ParkedProposal.CommentOnIssue,
+                ParkedProposal.RequestReviewer, ParkedProposal.CreateIssue, ParkedProposal.CommentOnIssue,
                 ParkedProposal.SetIssueState, ParkedProposal.OpenPr, ParkedProposal.PublishReview,
                 ParkedProposal.NextTask, ParkedProposal.ShipTask, ParkedProposal.MarkReady
 {
@@ -211,6 +212,14 @@ public sealed interface ParkedProposal
     {
         @Override public String action() { return "request_reviewer"; }
         @Override @JsonProperty("source") public String source() { return "mcp:request_reviewer"; }
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record CreateIssue(String title, String body, RepoRef repo)
+            implements ParkedProposal
+    {
+        @Override public String action() { return "create_issue"; }
+        @Override @JsonProperty("source") public String source() { return "automation:quality-scan"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

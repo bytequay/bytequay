@@ -71,6 +71,9 @@ class TaskEntity
     @Column(name = "linked_issue_number")
     private Integer linkedIssueNumber;
 
+    @Column(name = "origin", nullable = false, updatable = false)
+    private String origin = "user";
+
     @Column(name = "cost_usd_milli", nullable = false)
     private long costUsdMilli;
 
@@ -212,6 +215,9 @@ class TaskEntity
 
     Integer getLinkedIssueNumber() { return linkedIssueNumber; }
     void setLinkedIssueNumber(Integer linkedIssueNumber) { this.linkedIssueNumber = linkedIssueNumber; }
+
+    String getOrigin() { return origin; }
+    void setOrigin(String origin) { this.origin = origin; }
 
     long getCostUsdMilli() { return costUsdMilli; }
     void setCostUsdMilli(long costUsdMilli) { this.costUsdMilli = costUsdMilli; }

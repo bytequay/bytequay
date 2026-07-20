@@ -51,8 +51,29 @@ public record IssueDetail(
         Milestone milestone,
         List<Comment> comments,
         List<IssueTimelineEvent> timeline,
-        boolean subscribed)
+        boolean subscribed,
+        String origin)
 {
+    public IssueDetail(
+            long id, int number, String title, String body, String author,
+            String authorAvatarUrl, String state, String htmlUrl, Instant createdAt,
+            Instant updatedAt, Instant closedAt, List<Label> labels,
+            List<Assignee> assignees, Milestone milestone, List<Comment> comments,
+            List<IssueTimelineEvent> timeline, boolean subscribed)
+    {
+        this(id, number, title, body, author, authorAvatarUrl, state, htmlUrl,
+                createdAt, updatedAt, closedAt, labels, assignees, milestone,
+                comments, timeline, subscribed, IssueOrigin.detect(body));
+    }
+
+    public IssueDetail withOrigin(String nextOrigin)
+    {
+        return new IssueDetail(
+                id, number, title, body, author, authorAvatarUrl, state, htmlUrl,
+                createdAt, updatedAt, closedAt, labels, assignees, milestone,
+                comments, timeline, subscribed, nextOrigin);
+    }
+
     public record Label(String name, String color) {}
 
     public record Assignee(String login, String avatarUrl) {}

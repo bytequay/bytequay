@@ -45,7 +45,6 @@ import type {
   IssueCommentDto,
   IssueDetailDto,
   IssueDto,
-  ProductIssueMonitorStatusDto,
   PullRequestDetailDto,
   PrLinksDto,
   PullRequestDto,
@@ -337,10 +336,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:issues', owner, repo, state),
   reportByteQuayIssue: (title: string, body: string): Promise<IssueDto> =>
     ipcRenderer.invoke('productIssues:report', title, body),
-  getByteQuayIssueMonitor: (): Promise<ProductIssueMonitorStatusDto> =>
-    ipcRenderer.invoke('productIssues:monitorStatus'),
-  setByteQuayIssueMonitor: (enabled: boolean): Promise<ProductIssueMonitorStatusDto> =>
-    ipcRenderer.invoke('productIssues:setMonitor', enabled),
   getIssueDetail: (owner: string, repo: string, number: number): Promise<IssueDetailDto> =>
     ipcRenderer.invoke('repos:issueDetail', owner, repo, number),
   createIssueComment: (owner: string, repo: string, number: number, body: string): Promise<IssueCommentDto> =>

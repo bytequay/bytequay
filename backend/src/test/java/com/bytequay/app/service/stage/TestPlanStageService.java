@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.stage;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
@@ -37,6 +38,9 @@ import com.bytequay.app.service.brain.BrainServiceImpl;
 import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -45,6 +49,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -104,6 +109,50 @@ class TestPlanStageService
                 });
         assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
                 .isEqualTo(TaskPhase.IMPLEMENTING);
+    }
+
+    @Test
+    void automationApprovalIsAuditedAsSchedulerPolicy()
+    {
+        String taskId = seedTask(
+                Task.TYPE_WORKSPACE_ISSUE_TRIAGE, 17, Task.ORIGIN_ISSUE_MONITOR);
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        JsonNode expected = recordPlan(plan, taskId, "finalized", "rev-auto");
+
+        planStageService.approveByAutomation(plan.id(), expected);
+
+        assertThat(stageStore.findEventsByStage(plan.id()))
+                .filteredOn(event -> event.eventType() == StageEventType.PLAN_APPROVED)
+                .singleElement()
+                .satisfies(event -> assertThat(event.payloadJson())
+                        .contains("workspace-issue-intake"));
+        assertThat(taskStore.listPhaseEvents(taskId))
+                .filteredOn(event -> event.toPhase() == TaskPhase.IMPLEMENTING)
+                .singleElement()
+                .satisfies(event -> assertThat(event.actor()).isEqualTo(Actor.SCHEDULER));
+    }
+
+    @Test
+    void automationApprovalRejectsWrongProvenanceAndChangedRevision()
+    {
+        String manualTask = seedTask();
+        StageInstance manualPlan = stageStore.openStage(
+                manualTask, StageType.PLAN_STAGE, null);
+        JsonNode safe = recordPlan(manualPlan, manualTask, "finalized", "rev-manual");
+        assertThatThrownBy(() -> planStageService.approveByAutomation(manualPlan.id(), safe))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("restricted to issue-intake");
+
+        String intakeTask = seedTask(
+                Task.TYPE_WORKSPACE_ISSUE_TRIAGE, 18, Task.ORIGIN_ISSUE_MONITOR);
+        StageInstance intakePlan = stageStore.openStage(
+                intakeTask, StageType.PLAN_STAGE, null);
+        JsonNode recorded = recordPlan(intakePlan, intakeTask, "finalized", "rev-intake");
+        JsonNode stale = recorded.deepCopy();
+        ((ObjectNode) stale).put("goal", "stale revision");
+        assertThatThrownBy(() -> planStageService.approveByAutomation(intakePlan.id(), stale))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("plan changed");
     }
 
     @Test
@@ -260,6 +309,21 @@ class TestPlanStageService
     }
 
     @Test
+    void automatedDevKickoffGetsTheSameCompletionSafetyNudge()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        recordPlan(plan, taskId, "finalized", "rev-automation-kickoff");
+        planStageService.approveByStage(plan.id());
+        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        String turnId = saveKickoffTurn(taskId, devThread, "automation-plan-approved");
+
+        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
+
+        verify(scheduler).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
+    }
+
+    @Test
     void aFailedDevKickoffTurnDoesNotNudgeToShip()
     {
         String taskId = seedTask();
@@ -324,19 +388,30 @@ class TestPlanStageService
         return turnId;
     }
 
-    private void recordPlan(StageInstance plan, String taskId, String status, String revId)
+    private JsonNode recordPlan(StageInstance plan, String taskId, String status, String revId)
     {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("id", revId);
         payload.put("status", status);
         Map<String, Object> intent = new LinkedHashMap<>();
         intent.put("summary", "bump the retry default");
+        intent.put("steps", List.of(Map.of("ordinal", 1, "action", "Change it")));
         intent.put("pushStrategy", "await_approval");
         payload.put("intent", intent);
+        payload.put("signals", Map.of(
+                "confidence", "high",
+                "riskLevel", "low",
+                "estimatedComplexity", "small"));
         stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_RECORDED, payload);
+        return new ObjectMapper().valueToTree(payload);
     }
 
     private String seedTask()
+    {
+        return seedTask("DEVELOP", null, Task.ORIGIN_USER);
+    }
+
+    private String seedTask(String taskType, Integer issueNumber, String origin)
     {
         Instant now = Instant.parse("2026-06-20T09:00:00Z");
         Thread thread = new Thread(
@@ -347,8 +422,8 @@ class TestPlanStageService
         String taskId = UUID.randomUUID().toString();
         taskStore.saveTask(new Task(
                 taskId, thread.id(), 1L, TaskStatus.RUNNING, "feature", null, "main", "/tmp",
-                null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, null, now, null, null, null, null, null));
+                null, null, null, null, null, taskType, null, issueNumber,
+                0L, 0L, 0L, null, now, null, null, null, null, null, origin));
         return taskId;
     }
 }

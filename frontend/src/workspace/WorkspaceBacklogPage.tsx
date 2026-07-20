@@ -18,6 +18,7 @@ import {
   type WorkspaceBacklogItemDto,
   type WorkspaceTrunkDto,
 } from './workspaceApi';
+import { CreationOriginBadge } from '../ui/CreationOriginBadge';
 
 type BacklogFilter = 'all' | 'open' | 'in-progress' | 'resolved';
 
@@ -217,6 +218,7 @@ function BacklogRow({
         {item.summary.length > 0 && <p>{item.summary}</p>}
         <div className="wu-backlog-row__meta">
           {item.tags.map(tag => <Tag key={tag} value={tag} />)}
+          <CreationOriginBadge origin={item.origin} />
           {item.status === 'resolved'
             ? (
               <span>
@@ -226,10 +228,12 @@ function BacklogRow({
             )
             : (
               <>
-                <span className="wu-backlog-row__source">
-                  {item.source === 'agent' && <BranchSourceIcon />}
-                  {sourceLabel(item.source, threadName)}
-                </span>
+                {item.source === 'agent' && (
+                  <span className="wu-backlog-row__source">
+                    <BranchSourceIcon />
+                    {sourceLabel(item.source, threadName)}
+                  </span>
+                )}
                 <span>· {relativeTime(item.createdAt)}</span>
               </>
             )}
@@ -578,7 +582,10 @@ function BacklogEditor({
 
             {item !== null && (
               <div className="wu-backlog-editor__audit">
-                <span>Source: {item.source} · {threadNames.get(item.threadId) ?? 'trunk'}</span>
+                <span>
+                  Created by <CreationOriginBadge origin={item.origin} />
+                  {' · '}{threadNames.get(item.threadId) ?? 'trunk'}
+                </span>
                 <span>Created {relativeTime(item.createdAt)} ago</span>
               </div>
             )}

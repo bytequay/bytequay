@@ -17,6 +17,8 @@ import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.threads.ThreadService;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,17 +38,20 @@ public class WorkspaceIssueService
     private final WorkspaceRepositoryResolver resolver;
     private final RepoService repos;
     private final ThreadService threads;
+    private final WorkspaceService workspaces;
     private final JdbcTemplate jdbc;
 
     public WorkspaceIssueService(
             WorkspaceRepositoryResolver resolver,
             RepoService repos,
             ThreadService threads,
+            WorkspaceService workspaces,
             JdbcTemplate jdbc)
     {
         this.resolver = requireNonNull(resolver, "resolver is null");
         this.repos = requireNonNull(repos, "repos is null");
         this.threads = requireNonNull(threads, "threads is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
     }
 
@@ -125,10 +130,14 @@ public class WorkspaceIssueService
     private Thread createTrunk(String workspaceId, int number)
     {
         IssueDetail issue = readFresh(workspaceId, number);
+        WorkModel workModel = workspaces.require(workspaceId).workModel();
+        ThreadKind kind = workModel != null && workModel.kind() == WorkModelKind.API
+                ? ThreadKind.LOGIC_LOOP
+                : ThreadKind.CLI_AGENT;
         return threads.create(new ThreadService.NewTaskRequest(
-                ThreadKind.CLI_AGENT,
-                "claude-code",
-                null,
+                kind,
+                workModel == null ? "claude-code" : workModel.agentOrProvider(),
+                workModel == null ? null : workModel.model(),
                 issue.title(),
                 null,
                 null,
@@ -139,7 +148,7 @@ public class WorkspaceIssueService
                 number,
                 ThreadFlow.BUILD,
                 workspaceId,
-                null));
+                workModel));
     }
 
     public record StartIssueResult(

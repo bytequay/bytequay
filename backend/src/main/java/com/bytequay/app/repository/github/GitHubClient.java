@@ -19,6 +19,7 @@ import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.IssueDetail;
+import com.bytequay.app.domain.IssueOrigin;
 import com.bytequay.app.domain.IssueTimelineEvent;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.MergePullRequestCommand;
@@ -38,6 +39,7 @@ import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.RepoActivityItem;
 import com.bytequay.app.domain.RepoIssue;
+import com.bytequay.app.domain.RepoIssueIntakePage;
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
@@ -2267,6 +2269,42 @@ public class GitHubClient
     }
 
     @Override
+    public RepoIssueIntakePage fetchRepoIssueIntakePage(
+            String pat, RepoRef repo, int page, int perPage)
+    {
+        if (page < 1 || perPage < 1 || perPage > 100) {
+            throw new IllegalArgumentException("invalid GitHub issue page request");
+        }
+        try {
+            List<GitHubIssueItem> items = gitHubRestClient.get()
+                    .uri(u -> u.path("/repos/{owner}/{repo}/issues")
+                            .queryParam("state", "all")
+                            .queryParam("sort", "created")
+                            .queryParam("direction", "desc")
+                            .queryParam("page", page)
+                            .queryParam("per_page", perPage)
+                            .build(repo.owner(), repo.repo()))
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            if (items == null || items.isEmpty()) {
+                return new RepoIssueIntakePage(List.of(), 0, 0, false);
+            }
+            List<RepoIssue> openIssues = items.stream()
+                    .filter(item -> item.pullRequest() == null)
+                    .filter(item -> "open".equalsIgnoreCase(item.state()))
+                    .map(GitHubClient::toRepoIssue)
+                    .toList();
+            int newest = items.stream().mapToInt(GitHubIssueItem::number).max().orElse(0);
+            int oldest = items.stream().mapToInt(GitHubIssueItem::number).min().orElse(0);
+            return new RepoIssueIntakePage(openIssues, newest, oldest, items.size() == perPage);
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
     public RepoIssue createIssue(String pat, RepoRef repo, String title, String body)
     {
         try {
@@ -2761,7 +2799,8 @@ public class GitHubClient
                 item.htmlUrl(),
                 item.updatedAt(),
                 labels,
-                item.comments());
+                item.comments(),
+                IssueOrigin.detect(item.body()));
     }
 
     @Override

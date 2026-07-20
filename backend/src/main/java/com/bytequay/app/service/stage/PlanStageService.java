@@ -49,6 +49,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -130,7 +131,8 @@ public class PlanStageService
         if ("plan-kickoff".equals(source) || "plan-followup".equals(source)) {
             onPlanningTurnFinished(event, turn, source);
         }
-        else if ("plan-approved".equals(source)) {
+        else if ("plan-approved".equals(source)
+                || "automation-plan-approved".equals(source)) {
             // The development kickoff turn (enqueued by enqueueDevKickoff with
             // source "plan-approved"). If it ended still implementing without
             // proposing a push, nudge it once to ship.
@@ -280,6 +282,15 @@ public class PlanStageService
     @Transactional
     public StageInstance approve(String taskId, String approvedRevisionId)
     {
+        return approve(taskId, approvedRevisionId, Actor.HUMAN, null);
+    }
+
+    private StageInstance approve(
+            String taskId,
+            String approvedRevisionId,
+            Actor actor,
+            String approvalSource)
+    {
         StageInstance plan = stageStore.findActiveStage(taskId)
                 .filter(stage -> stage.type() == StageType.PLAN_STAGE)
                 .orElseThrow(() -> new IllegalStateException(
@@ -288,6 +299,9 @@ public class PlanStageService
         Map<String, Object> payload = new LinkedHashMap<>();
         if (approvedRevisionId != null) {
             payload.put("approvedRevisionId", approvedRevisionId);
+        }
+        if (approvalSource != null) {
+            payload.put("approvalSource", approvalSource);
         }
         payload.put("approvedAt", Instant.now().toString());
         stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_APPROVED, payload);
@@ -300,7 +314,7 @@ public class PlanStageService
         // PLANNING ▶ IMPLEMENTING: StageLifecycle's reconcile opens the
         // DevelopmentStage off this transition; the PLAN_APPROVED event we
         // just wrote is what lets it past the plan guard.
-        phaseMachine.transition(taskId, TaskPhase.IMPLEMENTING, "plan_approved", Actor.HUMAN);
+        phaseMachine.transition(taskId, TaskPhase.IMPLEMENTING, "plan_approved", actor);
 
         StageInstance dev = stageStore.findActiveStage(taskId)
                 .orElseThrow(() -> new IllegalStateException(
@@ -325,6 +339,38 @@ public class PlanStageService
     @Transactional
     public ApproveResult approveByStage(UUID planStageId)
     {
+        return approveByStage(
+                planStageId, Actor.HUMAN, null, "plan-approved", null, false);
+    }
+
+    /**
+     * Applies the standing policy granted by enabling workspace issue intake.
+     * The expected plan binds classification to the exact revision being
+     * approved. This boundary independently verifies task provenance and the
+     * high-confidence/low-risk/small policy; callers cannot opt around it.
+     * The scheduler actor keeps the phase audit honest: this is local
+     * automation, not a click masquerading as a human action.
+     */
+    @Transactional
+    public ApproveResult approveByAutomation(UUID planStageId, JsonNode expectedPlan)
+    {
+        return approveByStage(
+                planStageId,
+                Actor.SCHEDULER,
+                "workspace-issue-intake",
+                "automation-plan-approved",
+                requireNonNull(expectedPlan, "expectedPlan is null"),
+                true);
+    }
+
+    private ApproveResult approveByStage(
+            UUID planStageId,
+            Actor actor,
+            String approvalSource,
+            String initiatorSource,
+            JsonNode expectedPlan,
+            boolean enforceIssueIntakePolicy)
+    {
         StageInstance plan = stageStore.findStageById(planStageId)
                 .orElseThrow(() -> status(404, "no such stage: " + planStageId));
         if (plan.type() != StageType.PLAN_STAGE) {
@@ -338,15 +384,43 @@ public class PlanStageService
         if (!"finalized".equals(latest.path("status").asText(null))) {
             throw status(400, "the latest plan is not finalized — the brain must finalize it first");
         }
+        if (expectedPlan != null && !latest.equals(expectedPlan)) {
+            throw status(409, "the plan changed after workspace issue intake classified it");
+        }
+        if (enforceIssueIntakePolicy) {
+            assertIssueIntakePolicy(plan.taskId(), latest);
+        }
 
-        approve(plan.taskId(), latest.path("id").asText(null));
+        approve(plan.taskId(), latest.path("id").asText(null), actor, approvalSource);
         StageInstance dev = stageStore.findActiveStage(plan.taskId())
                 .filter(stage -> stage.type() == StageType.DEVELOPMENT_STAGE)
                 .orElseThrow(() -> status(500, "DevelopmentStage did not open on approval"));
 
-        enqueueDevKickoff(plan.taskId(), latest);
+        enqueueDevKickoff(plan.taskId(), latest, initiatorSource);
         return new ApproveResult(
                 dev.id().toString(), "/tasks/" + plan.taskId() + "/stages/" + dev.id());
+    }
+
+    private void assertIssueIntakePolicy(String taskId, JsonNode plan)
+    {
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> status(404, "no such task: " + taskId));
+        if (!Task.ORIGIN_ISSUE_MONITOR.equals(task.origin())
+                || !Task.TYPE_WORKSPACE_ISSUE_TRIAGE.equals(task.taskType())
+                || task.linkedIssueNumber() == null) {
+            throw status(400, "automated approval is restricted to issue-intake triage tasks");
+        }
+        JsonNode signals = plan.path("signals");
+        if (!"high".equals(normalized(signals.path("confidence").asText()))
+                || !"low".equals(normalized(signals.path("riskLevel").asText()))
+                || !"small".equals(normalized(signals.path("estimatedComplexity").asText()))) {
+            throw status(400, "issue-intake plan is not high-confidence, low-risk, and small");
+        }
+    }
+
+    private static String normalized(String value)
+    {
+        return value == null ? "" : value.strip().toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -420,7 +494,7 @@ public class PlanStageService
                 .map(e -> parse(e.payloadJson()));
     }
 
-    private void enqueueDevKickoff(String taskId, JsonNode plan)
+    private void enqueueDevKickoff(String taskId, JsonNode plan, String initiatorSource)
     {
         Task task = taskStore.findTaskById(taskId).orElse(null);
         if (task == null) {
@@ -431,7 +505,7 @@ public class PlanStageService
             return;
         }
         scheduler.enqueueTaskTurn(
-                dev, devKickoffPrompt(plan), task.id(), TurnInitiator.unattended("plan-approved"));
+                dev, devKickoffPrompt(plan), task.id(), TurnInitiator.unattended(initiatorSource));
     }
 
     private static String devKickoffPrompt(JsonNode plan)
@@ -448,7 +522,7 @@ public class PlanStageService
         String validation = plan.path("intent").path("validationStrategy").asText("");
         String push = plan.path("intent").path("pushStrategy").asText("await_approval");
         return """
-                Your plan for this task has been approved — implement it now.
+                The plan for this task has been approved — implement it now.
 
                 Intent: %s
                 Steps:%s

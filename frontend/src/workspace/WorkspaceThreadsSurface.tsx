@@ -13,9 +13,10 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import { TrunkIcon } from '../ui/primitives';
+import { isAutomatedOrigin } from '../ui/CreationOriginBadge';
 import type { ThreadDto, WorkUnitTaskDto } from '../types';
 
-type TrunkFilter = 'all' | 'active' | 'needs-you' | 'idle';
+type TrunkFilter = 'all' | 'active' | 'needs-you' | 'automated' | 'idle';
 
 /** Exact frame-1c list, backed by live trunk/task data. */
 export function WorkspaceThreadsSurface({
@@ -49,10 +50,12 @@ export function WorkspaceThreadsSurface({
     return openThreads.filter(thread => {
       if (filter === 'active' && thread.status !== 'RUNNING') return false;
       if (filter === 'needs-you' && !isNeedsYou(thread)) return false;
+      if (filter === 'automated'
+          && !(tasksByThread.get(thread.id) ?? []).some(task => isAutomatedOrigin(task.origin))) return false;
       if (filter === 'idle' && !isIdle(thread)) return false;
       return needle === '' || thread.title.toLowerCase().includes(needle);
     });
-  }, [filter, openThreads, query]);
+  }, [filter, openThreads, query, tasksByThread]);
   const shown = showAll ? filtered : filtered.slice(0, 6);
   const hidden = Math.max(0, filtered.length - shown.length);
 
@@ -129,6 +132,7 @@ export function WorkspaceThreadsSurface({
                 ['all', 'All'],
                 ['active', 'Active'],
                 ['needs-you', 'Needs you'],
+                ['automated', 'Automated'],
                 ['idle', 'Idle'],
               ] as const).map(([value, label]) => (
                 <span

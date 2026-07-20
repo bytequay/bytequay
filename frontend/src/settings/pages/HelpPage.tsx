@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
-import type { IssueDto, ProductIssueMonitorStatusDto } from '../../types';
+import { useState } from 'react';
+import type { IssueDto } from '../../types';
 import { pasteClipboardImages } from '../../ui/shell/pasteClipboardImages';
 import SettingCard from '../shared/SettingCard';
 
@@ -23,16 +23,6 @@ function HelpPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<IssueDto | null>(null);
-  const [monitor, setMonitor] = useState<ProductIssueMonitorStatusDto | null>(null);
-  const [updatingMonitor, setUpdatingMonitor] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    void window.bridge.getByteQuayIssueMonitor()
-      .then(status => { if (!cancelled) setMonitor(status); })
-      .catch(() => { /* reporting still works when the maintainer probe fails */ });
-    return () => { cancelled = true; };
-  }, []);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -58,21 +48,6 @@ function HelpPage() {
     }
   };
 
-  const toggleMonitor = async () => {
-    if (!monitor) return;
-    setUpdatingMonitor(true);
-    setError(null);
-    try {
-      setMonitor(await window.bridge.setByteQuayIssueMonitor(!monitor.enabled));
-    }
-    catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-    }
-    finally {
-      setUpdatingMonitor(false);
-    }
-  };
-
   return (
     <>
       <div className="settings-shell-page__head">
@@ -86,7 +61,7 @@ function HelpPage() {
 
       <SettingCard
         title="Report a bug"
-        hint={<>This always creates an issue in <code>bytequay/bytequay</code>. The repository does not need to be watched.</>}
+        hint={<>This always creates an issue in <code>chenjian2664/ByteQuay</code>. The repository does not need to be watched.</>}
       >
         <form className="product-issue-form" onSubmit={event => { void submit(event); }}>
           <label className="product-issue-form__field">
@@ -153,27 +128,6 @@ function HelpPage() {
         </form>
       </SettingCard>
 
-      {monitor && (monitor.eligible || monitor.enabled) && (
-        <SettingCard
-          title="Maintainer issue intake"
-          hint="Poll new ByteQuay issues, plan them through the Agent Scheduler, and auto-merge only high-confidence, low-risk, small fixes."
-          action={
-            <button
-              type="button"
-              className={`ai-skills__toggle${monitor.enabled ? '' : ' ai-skills__toggle--off'}`}
-              aria-label="Toggle maintainer issue intake"
-              aria-pressed={monitor.enabled}
-              disabled={updatingMonitor || !monitor.eligible}
-              onClick={() => { void toggleMonitor(); }}
-            />
-          }
-        >
-          <p className="product-issue-monitor__status">
-            {monitor.enabled ? 'Monitoring is on.' : 'Monitoring is off.'}
-            {monitor.reason && ` ${monitor.reason}`}
-          </p>
-        </SettingCard>
-      )}
     </>
   );
 }

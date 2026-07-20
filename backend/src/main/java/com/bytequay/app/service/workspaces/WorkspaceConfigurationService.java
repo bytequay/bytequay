@@ -236,7 +236,9 @@ public class WorkspaceConfigurationService
                 value.providers() == null ? Map.of()
                         : Map.copyOf(value.providers()),
                 value.notifyCi(),
-                value.notifyCompletions());
+                value.notifyCompletions(),
+                value.qualityScanEnabled(),
+                value.remoteIssueIntakeEnabled());
     }
 
     private static Long nullableLong(Object value)

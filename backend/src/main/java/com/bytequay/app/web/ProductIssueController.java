@@ -14,12 +14,9 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.RepoIssue;
-import com.bytequay.app.scheduler.ByteQuayIssueMonitor;
 import com.bytequay.app.service.ByteQuayIssueService;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,7 +26,7 @@ import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.bytequay.app.web.RequestValidation.requireBody;
 import static java.util.Objects.requireNonNull;
 
-/** Public product-feedback surface plus maintainer-only monitor controls. */
+/** Public product-feedback surface for reporting ByteQuay itself. */
 @RestController
 @RequestMapping("/api/product-issues")
 public class ProductIssueController
@@ -38,12 +35,10 @@ public class ProductIssueController
     private static final int MAX_BODY_LENGTH = 65_536;
 
     private final ByteQuayIssueService issues;
-    private final ByteQuayIssueMonitor monitor;
 
-    public ProductIssueController(ByteQuayIssueService issues, ByteQuayIssueMonitor monitor)
+    public ProductIssueController(ByteQuayIssueService issues)
     {
         this.issues = requireNonNull(issues, "issues is null");
-        this.monitor = requireNonNull(monitor, "monitor is null");
     }
 
     @PostMapping
@@ -61,20 +56,5 @@ public class ProductIssueController
         return issues.report(request.title().strip(), request.body().strip());
     }
 
-    @GetMapping("/monitor")
-    public ByteQuayIssueMonitor.MonitorStatus monitorStatus()
-    {
-        return monitor.status();
-    }
-
-    @PutMapping("/monitor")
-    public ByteQuayIssueMonitor.MonitorStatus setMonitor(@RequestBody MonitorRequest request)
-    {
-        request = requireBody(request);
-        return monitor.setEnabled(request.enabled());
-    }
-
     public record ReportIssueRequest(String title, String body) {}
-
-    public record MonitorRequest(boolean enabled) {}
 }

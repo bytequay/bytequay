@@ -145,6 +145,23 @@ class TestAgentScheduler
     }
 
     @Test
+    void automatedTrunkTurnRetainsItsUnattendedInitiator()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-1", CLI_AGENT);
+        harness.register(thread);
+
+        String turnId = harness.scheduler.enqueueTrunkTurn(
+                thread, "ask for backlog permission",
+                TurnInitiator.unattended("quality-scan-backlog-permission"));
+
+        ThreadTurn turn = harness.turns.findTurnById(turnId).orElseThrow();
+        assertThat(turn.taskId()).isNull();
+        assertThat(turn.initiator()).isEqualTo(
+                TurnInitiator.unattended("quality-scan-backlog-permission"));
+    }
+
+    @Test
     void codingStageActivatesPonytailAndCavemanWithoutChangingUserInput()
     {
         TestHarness harness = new TestHarness(1, 4);

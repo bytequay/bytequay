@@ -42,13 +42,6 @@ public interface AppSettingsStore
          *  app never silently burns LLM budget on a fresh install. */
         public static final String SCHEDULED_REVIEWS_ENABLED = "scheduled_reviews.enabled";
 
-        /** Maintainer-only opt-in for polling and triaging new issues in the
-         * canonical ByteQuay repository. Off by default on every install. */
-        public static final String BYTEQUAY_ISSUE_MONITOR_ENABLED = "bytequay.issue_monitor.enabled";
-
-        /** Highest canonical ByteQuay issue number considered by the monitor. */
-        public static final String BYTEQUAY_ISSUE_MONITOR_CURSOR = "bytequay.issue_monitor.cursor";
-
         // Workspace Settings → Behavior toggles. Persistence only —
         // enforcement (actually archiving idle threads, auto-proposing
         // tasks, promoting decisions, nudging new topics) lands as

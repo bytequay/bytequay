@@ -24,6 +24,7 @@ import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.RepoActivityItem;
 import com.bytequay.app.domain.RepoIssue;
+import com.bytequay.app.domain.RepoIssueIntakePage;
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StoredRepoMeta;
@@ -52,7 +53,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -69,6 +72,15 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class RepoService
 {
+    public record IssueIntakeBatch(List<RepoIssue> openIssues, int cursor)
+    {
+        public IssueIntakeBatch
+        {
+            openIssues = List.copyOf(openIssues);
+        }
+    }
+
+    private static final int ISSUE_INTAKE_PAGE_SIZE = 100;
     private static final Logger log = LoggerFactory.getLogger(RepoService.class);
     /** Window inside which a {@link RepoMeta} row in {@link RepoMetaStore}
      *  is treated as fresh enough to skip a background refresh. Picked at
@@ -93,6 +105,7 @@ public class RepoService
     private final GithubHomeCacheStore homeCache;
     private final AppSettingsStore settingsStore;
     private final PatResolver patResolver;
+    private final IssueOriginService issueOrigins;
     private final Executor ioExecutor;
     private final Map<String, CachedContributionCalendar> contributionCalendarCache = new ConcurrentHashMap<>();
 
@@ -105,6 +118,7 @@ public class RepoService
             GithubHomeCacheStore homeCache,
             AppSettingsStore settingsStore,
             PatResolver patResolver,
+            IssueOriginService issueOrigins,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
@@ -115,6 +129,7 @@ public class RepoService
         this.homeCache = requireNonNull(homeCache, "homeCache is null");
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
+        this.issueOrigins = requireNonNull(issueOrigins, "issueOrigins is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
 
@@ -337,7 +352,49 @@ public class RepoService
         String pat = patResolver.resolve(owner + "/" + repo);
         RepoRef ref = RepoRef.of(owner, repo);
         String normalized = (state == null || state.isBlank()) ? "open" : state;
-        return repoListCache.getIssues(ref, normalized, () -> gitHub.fetchRepoIssues(pat, ref, normalized));
+        return repoListCache.getIssues(ref, normalized, () -> gitHub.fetchRepoIssues(pat, ref, normalized)).stream()
+                .map(issue -> issueOrigins.attribute(ref, issue))
+                .toList();
+    }
+
+    /**
+     * Returns every open issue created after {@code cursor}, oldest first,
+     * plus a safe watermark that also advances over closed issues and PRs.
+     * A null cursor is a first-enable baseline and intentionally returns no
+     * work. This path bypasses the UI list cache and paginates until it has
+     * crossed the prior creation watermark.
+     */
+    public IssueIntakeBatch getOpenRepoIssuesAfter(
+            String owner, String repo, Integer cursor)
+    {
+        String pat = patResolver.resolve(owner + "/" + repo);
+        RepoRef ref = RepoRef.of(owner, repo);
+        RepoIssueIntakePage first = gitHub.fetchRepoIssueIntakePage(
+                pat, ref, 1, ISSUE_INTAKE_PAGE_SIZE);
+        int nextCursor = Math.max(cursor == null ? 0 : cursor, first.newestNumber());
+        if (cursor == null || first.newestNumber() == 0) {
+            return new IssueIntakeBatch(List.of(), nextCursor);
+        }
+
+        List<RepoIssue> unseen = new ArrayList<>();
+        RepoIssueIntakePage page = first;
+        int pageNumber = 1;
+        while (true) {
+            page.openIssues().stream()
+                    .filter(issue -> issue.number() > cursor)
+                    .map(issue -> issueOrigins.attribute(ref, issue))
+                    .forEach(unseen::add);
+            if (!page.hasMore() || page.oldestNumber() <= cursor) {
+                break;
+            }
+            page = gitHub.fetchRepoIssueIntakePage(
+                    pat, ref, ++pageNumber, ISSUE_INTAKE_PAGE_SIZE);
+            if (page.newestNumber() == 0) {
+                break;
+            }
+        }
+        unseen.sort(Comparator.comparingInt(RepoIssue::number));
+        return new IssueIntakeBatch(unseen, nextCursor);
     }
 
     /**
@@ -357,7 +414,7 @@ public class RepoService
         List<IssueDetail.Comment> comments = gitHub.fetchIssueDetailComments(pat, ref, number);
         List<IssueTimelineEvent> timeline = gitHub.fetchIssueTimeline(pat, ref, number);
         boolean subscribed = gitHub.fetchIssueSubscription(pat, ref, number);
-        return new IssueDetail(
+        IssueDetail detail = new IssueDetail(
                 base.id(),
                 base.number(),
                 base.title(),
@@ -375,6 +432,7 @@ public class RepoService
                 comments,
                 timeline,
                 subscribed);
+        return issueOrigins.attributeDetail(ref, detail);
     }
 
     /**
@@ -412,7 +470,7 @@ public class RepoService
         List<IssueDetail.Comment> comments = gitHub.fetchIssueDetailComments(pat, ref, number);
         List<IssueTimelineEvent> timeline = gitHub.fetchIssueTimeline(pat, ref, number);
         boolean subscribed = gitHub.fetchIssueSubscription(pat, ref, number);
-        return new IssueDetail(
+        IssueDetail detail = new IssueDetail(
                 flipped.id(),
                 flipped.number(),
                 flipped.title(),
@@ -430,6 +488,7 @@ public class RepoService
                 comments,
                 timeline,
                 subscribed);
+        return issueOrigins.attributeDetail(ref, detail);
     }
 
     /**

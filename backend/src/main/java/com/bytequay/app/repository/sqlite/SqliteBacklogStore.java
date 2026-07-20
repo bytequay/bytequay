@@ -62,6 +62,7 @@ class SqliteBacklogStore
         entity.setSource(item.source());
         entity.setStatus(item.status());
         entity.setCreatedBy(item.createdBy());
+        entity.setOrigin(item.origin());
         entity.setInProgressAtMs(epochOrNull(item.inProgressAt()));
         entity.setResolvedAtMs(epochOrNull(item.resolvedAt()));
         entity.setRejectedAtMs(epochOrNull(item.rejectedAt()));
@@ -149,6 +150,7 @@ class SqliteBacklogStore
                 e.getSource(),
                 e.getStatus(),
                 e.getCreatedBy(),
+                e.getOrigin(),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
                 instantOrNull(e.getInProgressAtMs()),
                 instantOrNull(e.getStartedAtMs()),

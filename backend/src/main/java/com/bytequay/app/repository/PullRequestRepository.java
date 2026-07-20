@@ -37,6 +37,7 @@ import com.bytequay.app.domain.PullRequestReview;
 import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.RepoActivityItem;
 import com.bytequay.app.domain.RepoIssue;
+import com.bytequay.app.domain.RepoIssueIntakePage;
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
@@ -715,6 +716,17 @@ public interface PullRequestRepository
     default List<RepoIssue> fetchRepoIssues(String pat, RepoRef repo, String state)
     {
         throw new UnsupportedOperationException("fetchRepoIssues not implemented");
+    }
+
+    /**
+     * Lists a creation-ordered page for the workspace issue-intake cursor.
+     * Page boundaries include PRs and closed issues, while {@code openIssues}
+     * excludes both. Maps to one GitHub issues-list request.
+     */
+    default RepoIssueIntakePage fetchRepoIssueIntakePage(
+            String pat, RepoRef repo, int page, int perPage)
+    {
+        throw new UnsupportedOperationException("fetchRepoIssueIntakePage not implemented");
     }
 
     /**

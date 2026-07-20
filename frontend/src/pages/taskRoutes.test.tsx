@@ -54,7 +54,7 @@ describe('TaskBrainRoute', () => {
     expect(document.querySelector('.workspace-task-header__badge')?.textContent).toBe('BRAIN');
 
     fireEvent.click(screen.getByTitle('Usage'));
-    expect(screen.getByText(/AI credits$/)).toBeTruthy();
+    expect(screen.getByText(/tokens$/)).toBeTruthy();
 
     const box = screen.getByRole('textbox');
     fireEvent.change(box, { target: { value: 'what next?' } });

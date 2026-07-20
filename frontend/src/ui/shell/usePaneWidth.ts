@@ -14,9 +14,8 @@
 import { useCallback, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 
-// Locked Pull Requests detail-pane contract.
-const MIN = 460;
-const MAX = 1150;
+const DEFAULT_MIN = 460;
+const DEFAULT_MAX = 1150;
 const DEFAULT = 940;
 
 /**
@@ -27,7 +26,12 @@ const DEFAULT = 940;
  * left of the pane. The pane is right-anchored, so its width is the body's
  * right edge minus the pointer, clamped to a sane range.
  */
-export function usePaneWidth(key = 'bq.taskPrPaneWidth', defaultWidth = DEFAULT): {
+export function usePaneWidth(
+  key = 'bq.taskPrPaneWidth',
+  defaultWidth = DEFAULT,
+  minWidth = DEFAULT_MIN,
+  maxWidth = DEFAULT_MAX,
+): {
   paneWidth: number;
   bodyRef: RefObject<HTMLDivElement>;
   onResize: (clientX: number) => void;
@@ -35,7 +39,7 @@ export function usePaneWidth(key = 'bq.taskPrPaneWidth', defaultWidth = DEFAULT)
   const [paneWidth, setPaneWidth] = useState<number>(() => {
     try {
       const stored = typeof localStorage !== 'undefined' ? Number(localStorage.getItem(key)) : NaN;
-      return Number.isFinite(stored) && stored >= MIN && stored <= MAX ? stored : defaultWidth;
+      return Number.isFinite(stored) && stored >= minWidth && stored <= maxWidth ? stored : defaultWidth;
     }
     catch {
       return defaultWidth;
@@ -48,7 +52,7 @@ export function usePaneWidth(key = 'bq.taskPrPaneWidth', defaultWidth = DEFAULT)
     if (!rect) {
       return;
     }
-    const next = Math.max(MIN, Math.min(MAX, rect.right - clientX));
+    const next = Math.max(minWidth, Math.min(maxWidth, rect.right - clientX));
     setPaneWidth(next);
     try {
       localStorage.setItem(key, String(Math.round(next)));
@@ -56,7 +60,7 @@ export function usePaneWidth(key = 'bq.taskPrPaneWidth', defaultWidth = DEFAULT)
     catch {
       /* storage unavailable — in-memory only */
     }
-  }, [key]);
+  }, [key, maxWidth, minWidth]);
 
   return { paneWidth, bodyRef, onResize };
 }

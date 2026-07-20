@@ -42,6 +42,7 @@ import type {
   DistillRunDto,
   KnowledgeEntryDto,
   NotificationMuteDto,
+  PlanUsageDto,
   WorkspaceBacklogItemDto,
   WorkspaceBranchDto,
   WorkspaceCreationDto,
@@ -2062,6 +2063,45 @@ export function installWorkspaceVisualBridge(frame: string): void {
 
 function workspaceResponse(frame: string, request: WorkspaceApiRequest): unknown {
   const path = request.path;
+  if (path === '/api/ai/plan-usage') {
+    return {
+      providers: [{
+        provider: 'openai',
+        label: 'Codex',
+        plan: 'prolite',
+        updatedAt: now,
+        source: 'Codex local session',
+        message: null,
+        limits: [{
+          id: 'primary:10080',
+          label: 'Weekly',
+          usedPercent: 3,
+          resetsAt: now + 6 * day,
+          model: null,
+        }],
+      }, {
+        provider: 'anthropic',
+        label: 'Claude',
+        plan: null,
+        updatedAt: now,
+        source: 'Claude Code status line',
+        message: null,
+        limits: [{
+          id: 'five_hour',
+          label: '5-hour',
+          usedPercent: 54,
+          resetsAt: now + 88 * minute,
+          model: null,
+        }, {
+          id: 'seven_day',
+          label: 'Weekly',
+          usedPercent: 55,
+          resetsAt: now + 4 * day,
+          model: null,
+        }],
+      }],
+    } satisfies PlanUsageDto;
+  }
   if (path === '/api/workspaces') {
     return frame === '6a' ? [visualSyncWorkspace] : visualWorkspaces;
   }

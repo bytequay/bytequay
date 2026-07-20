@@ -345,6 +345,7 @@ export function AgentReviewConversation({ bundle, data, round, roundNumber, trun
   const pr = bundle.pr;
   const prStatus = pr.status === 'merged' ? 'MERGED' : pr.status === 'closed' ? 'CLOSED' : 'OPEN';
   const displayTrunkLabel = trunkLabel ?? (pr.branchName || pr.repo?.split('/').at(-1) || 'Pull requests');
+  const usage = reviewTokenUsage(data, round.id);
 
   const triggerNextRound = () => {
     setMode('new-round');
@@ -417,11 +418,11 @@ export function AgentReviewConversation({ bundle, data, round, roundNumber, trun
               <button type="button" className="agent-review-v2__control" title="Effort picker" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: '#454c54', padding: '4px 9px', border: 0, background: 'transparent', borderRadius: 7, cursor: 'pointer' }}>Medium<span style={{ color: '#8b949e', display: 'inline-flex' }}><Chevron down /></span></button>
               <span style={{ flex: 1 }} />
               <span style={{ position: 'relative', display: 'inline-flex' }}>
-                <button type="button" className="agent-review-v2__usage" onClick={() => setUsageOpen(open => !open)} title="Usage" aria-expanded={usageOpen} style={{ width: 26, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: 0, background: 'transparent', borderRadius: '50%' }}><svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7.5" stroke="#e1e5e9" strokeWidth="2.5" /><circle cx="10" cy="10" r="7.5" stroke="#2da44e" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="1.9 45.2" transform="rotate(-90 10 10)" /></svg></button>
+                <button type="button" className="agent-review-v2__usage" onClick={() => setUsageOpen(open => !open)} title="Usage" aria-expanded={usageOpen} style={{ width: 26, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', border: 0, background: 'transparent', borderRadius: '50%' }}><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M5 14V9M10 14V5M15 14v-7" /></svg></button>
                 {usageOpen && <div style={{ position: 'absolute', bottom: 34, right: -40, width: 240, background: '#fff', border: '1px solid #e1e5e9', borderRadius: 11, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', padding: '4px 0', zIndex: 5 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px' }}><span style={{ fontSize: 12.5, color: '#57606a' }}>Plan</span><span style={{ flex: 1, height: 5, background: '#eceef0', borderRadius: 999, overflow: 'hidden' }}><span style={{ display: 'block', width: '4%', height: '100%', background: '#2da44e', borderRadius: 999 }} /></span><span style={{ fontSize: 12.5, fontWeight: 600, color: '#17191c', whiteSpace: 'nowrap' }}>4% used</span></div>
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '9px 14px' }}><span style={{ fontSize: 12.5, color: '#57606a' }}>Input</span><span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: '#17191c' }}>{formatTokens(usage.tokensIn)}</span></div>
                   <div style={{ height: 1, background: '#f0f2f4' }} />
-                  <div style={{ display: 'flex', alignItems: 'center', padding: '9px 14px' }}><span style={{ fontSize: 12.5, color: '#57606a' }}>Session</span><span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: '#17191c' }}>827 AI credits</span></div>
+                  <div style={{ display: 'flex', alignItems: 'center', padding: '9px 14px' }}><span style={{ fontSize: 12.5, color: '#57606a' }}>Output</span><span style={{ marginLeft: 'auto', fontSize: 12.5, fontWeight: 600, color: '#17191c' }}>{formatTokens(usage.tokensOut)}</span></div>
                 </div>}
               </span>
               <button type="button" className="agent-review-v2__send" onClick={() => { void send(); }} disabled={text.trim().length === 0 || sending || (mode === 'steer' && !canSteer)} aria-label={mode === 'new-round' ? `Start round ${data.rounds.length + 1}` : 'Send'} style={{ width: 30, height: 30, borderRadius: '50%', border: 0, background: '#24292f', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', marginLeft: 4 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg></button>
@@ -431,6 +432,25 @@ export function AgentReviewConversation({ bundle, data, round, roundNumber, trun
       </div>
     </div>
   );
+}
+
+function reviewTokenUsage(data: AgentReviewData, roundId: string): { tokensIn: number; tokensOut: number } {
+  const metricsJson = data.runs.find(run => run.reviewRoundId === roundId)?.metricsJson;
+  if (metricsJson === undefined || metricsJson === null) return { tokensIn: 0, tokensOut: 0 };
+  try {
+    const metrics = JSON.parse(metricsJson) as Record<string, unknown>;
+    return {
+      tokensIn: typeof metrics.tokensIn === 'number' ? metrics.tokensIn : 0,
+      tokensOut: typeof metrics.tokensOut === 'number' ? metrics.tokensOut : 0,
+    };
+  }
+  catch {
+    return { tokensIn: 0, tokensOut: 0 };
+  }
+}
+
+function formatTokens(tokens: number): string {
+  return `${tokens.toLocaleString('en-US')} tokens`;
 }
 
 export default function AgentColumn({ prId, workspaceId, trunkLabel, onBack, onTogglePanel }: {

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { FolderIcon } from '../diffTreeIcons';
 import type { ThreadDto, WorkUnitTaskDto } from '../types';
 import type { TaskNavRow, WsNavKey } from '../ui/workspace';
 import {
@@ -183,8 +184,8 @@ export function TrunkWorkspaceSidebar({
                     onClick={() => toggleThread(thread, hasTasks)}
                     aria-expanded={hasTasks ? open : undefined}
                   >
-                    <span className="trunk-page-v2-nav__chevron" style={{ visibility: hasTasks ? 'visible' : 'hidden' }}>
-                      <ChevronIcon size={11} />
+                    <span className="trunk-page-v2-nav__directory">
+                      <FolderIcon open={open} />
                     </span>
                     <span className={`trunk-page-v2-nav__trunk-icon${thread.status === 'RUNNING' ? ' is-running' : ''}`}>
                       <TrunkLineIcon />

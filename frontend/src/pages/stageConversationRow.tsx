@@ -50,15 +50,8 @@ function toolDesc(label: string | null, detail: string | null): ReactNode {
 }
 
 const PLAN_KICKOFF_PREFIX = 'The plan for this task has been approved — implement it now.';
-
-/** The approved plan is sent to the dev agent as a user-role model input,
- *  but it is runtime-generated UI history rather than something the person
- *  typed. Keep the exact prompt available for audit without presenting it as
- *  a human message. The fixed prefix is the wire contract emitted by
- *  PlanStageService; older stored turns have no separate origin field. */
-function isPlanKickoff(r: StageConversationRow): boolean {
-  return r.kind === 'user' && r.text?.startsWith(PLAN_KICKOFF_PREFIX) === true;
-}
+const CI_FIX_CONTEXT_PREFIX = '## Context from prior stages\nYou are a fresh agent for the CI-fixing stage —';
+const CI_FIX_PROMPT_PREFIX = 'CI is failing on the shipped PR ';
 
 function kickoffIntent(text: string): string {
   const start = text.indexOf('\nIntent:');
@@ -68,15 +61,63 @@ function kickoffIntent(text: string): string {
     || 'Development instructions sent automatically';
 }
 
-function PlanKickoffCard({ row }: { row: StageConversationRow }) {
+function ciFixPreview(text: string): string {
+  const lines = text.split('\n');
+  const prLine = lines.find(line => line.startsWith(CI_FIX_PROMPT_PREFIX));
+  const pr = prLine?.slice(CI_FIX_PROMPT_PREFIX.length).replace(/\.$/, '');
+  const checksStart = lines.indexOf('Failing checks:');
+  const checkLines = checksStart === -1 ? [] : lines.slice(checksStart + 1);
+  const checksEnd = checkLines.findIndex(line => line.trim().length === 0);
+  const checks = (checksEnd === -1 ? checkLines : checkLines.slice(0, checksEnd))
+    .map(line => line.replace(/^\s*-\s*/, ''));
+  return [pr, ...checks].filter(Boolean).join(' · ')
+    || 'Failing checks and remediation instructions sent automatically';
+}
+
+type RuntimeKickoff = {
+  title: string;
+  preview: string;
+  bodyLabel: string;
+  icon: ReactNode;
+};
+
+/** Development and CI-fix kickoff prompts are stored as user-role model
+ *  inputs, but they are runtime-generated history rather than messages the
+ *  person typed. Their fixed prefixes are the wire contracts emitted by the
+ *  backend; older stored turns have no separate origin field. */
+function runtimeKickoff(r: StageConversationRow): RuntimeKickoff | null {
+  if (r.kind !== 'user' || r.text === null) return null;
+  if (r.text.startsWith(PLAN_KICKOFF_PREFIX)) {
+    return {
+      title: 'Approved plan',
+      preview: kickoffIntent(r.text),
+      bodyLabel: 'Development kickoff prompt',
+      icon: <PlanIcon size={14} />,
+    };
+  }
+  if (r.text.startsWith(CI_FIX_CONTEXT_PREFIX) || r.text.startsWith(CI_FIX_PROMPT_PREFIX)) {
+    return {
+      title: 'CI fix instructions',
+      preview: ciFixPreview(r.text),
+      bodyLabel: 'CI-fix kickoff prompt',
+      icon: <TerminalRunIcon size={14} />,
+    };
+  }
+  return null;
+}
+
+function RuntimeKickoffCard({ row, kickoff }: {
+  row: StageConversationRow;
+  kickoff: RuntimeKickoff;
+}) {
   const text = row.text ?? '';
   return (
     <details className="runtime-kickoff-card" data-seq={row.messageSeq ?? undefined}>
       <summary className="runtime-kickoff-card__summary">
-        <span className="runtime-kickoff-card__icon" aria-hidden><PlanIcon size={14} /></span>
+        <span className="runtime-kickoff-card__icon" aria-hidden>{kickoff.icon}</span>
         <span className="runtime-kickoff-card__copy">
-          <span className="runtime-kickoff-card__title">Approved plan</span>
-          <span className="runtime-kickoff-card__preview">{kickoffIntent(text)}</span>
+          <span className="runtime-kickoff-card__title">{kickoff.title}</span>
+          <span className="runtime-kickoff-card__preview">{kickoff.preview}</span>
         </span>
         <span className="runtime-kickoff-card__badge">Runtime</span>
         <span className="runtime-kickoff-card__time"><EventTimestamp iso={row.ts} /></span>
@@ -85,7 +126,7 @@ function PlanKickoffCard({ row }: { row: StageConversationRow }) {
         </span>
       </summary>
       <div className="runtime-kickoff-card__body">
-        <div className="runtime-kickoff-card__body-label">Development kickoff prompt</div>
+        <div className="runtime-kickoff-card__body-label">{kickoff.bodyLabel}</div>
         <div className="runtime-kickoff-card__prompt">{text}</div>
         {row.managedSkills.length > 0 && (
           <div className="runtime-kickoff-card__skills">
@@ -107,8 +148,9 @@ function PlanKickoffCard({ row }: { row: StageConversationRow }) {
  */
 export function stageRow(
   r: StageConversationRow, onDecide?: PermissionDecideHandler, threadId?: string): ReactNode {
-  if (isPlanKickoff(r)) {
-    return <PlanKickoffCard key={r.id} row={r} />;
+  const kickoff = runtimeKickoff(r);
+  if (kickoff !== null) {
+    return <RuntimeKickoffCard key={r.id} row={r} kickoff={kickoff} />;
   }
   switch (r.kind) {
     case 'user':

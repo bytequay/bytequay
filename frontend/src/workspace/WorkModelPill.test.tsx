@@ -36,6 +36,7 @@ const INHERITED: ResolvedWorkModelDto = {
     scopeId: 'ws-default',
     scopeLabel: 'workspace ByteQuay',
   },
+  agentLocked: false,
 };
 
 const PINNED: ResolvedWorkModelDto = {
@@ -56,6 +57,7 @@ const PINNED: ResolvedWorkModelDto = {
     scopeId: 'thread-1',
     scopeLabel: 'thread thread-1',
   },
+  agentLocked: false,
 };
 
 const CODEX: ResolvedWorkModelDto = {
@@ -78,6 +80,7 @@ const CODEX: ResolvedWorkModelDto = {
     scopeId: 'thread-1',
     scopeLabel: 'thread thread-1',
   },
+  agentLocked: false,
 };
 
 const OPTIONS: WorkModelOptionsDto = {
@@ -263,6 +266,32 @@ describe('WorkModelPill', () => {
     expect(setThreadWorkModel).toHaveBeenCalledWith('thread-1', {
       ...CODEX.effective,
       reasoningEffort: 'max',
+    });
+  });
+
+  it('locks the agent after the first message but keeps its models selectable', async () => {
+    const locked = { ...INHERITED, agentLocked: true };
+    const setThreadWorkModel = vi.fn(async () => locked);
+    installBridge({
+      getThreadWorkModel: vi.fn(async () => locked),
+      setThreadWorkModel,
+    });
+
+    render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
+    await waitForLoadedPill();
+    await act(async () => { fireEvent.click(screen.getByRole('button')); });
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog').textContent).toContain('Agent locked after the first message');
+    });
+    expect(screen.queryByRole('option', { name: /Auto/i })).toBeNull();
+    expect(screen.queryByRole('option', { name: /GPT-5\.6 Sol/i })).toBeNull();
+    expect(screen.queryByRole('option', { name: /Claude Opus 4\.7/i })).toBeNull();
+
+    const opus48 = screen.getByRole('option', { name: /Claude Opus 4\.8/i });
+    await act(async () => { fireEvent.mouseDown(opus48); });
+    expect(setThreadWorkModel).toHaveBeenCalledWith('thread-1', {
+      kind: 'CLI', agentOrProvider: 'claude-code', model: 'claude-opus-4-8', account: null,
     });
   });
 });

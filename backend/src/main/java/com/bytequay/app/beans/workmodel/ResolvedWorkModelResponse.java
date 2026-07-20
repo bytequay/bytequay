@@ -29,6 +29,7 @@ import com.bytequay.app.service.workmodel.WorkModelResolver;
 public record ResolvedWorkModelResponse(
         WorkModel override,
         WorkModel effective,
-        WorkModelResolver.Provenance provenance)
+        WorkModelResolver.Provenance provenance,
+        boolean agentLocked)
 {
 }

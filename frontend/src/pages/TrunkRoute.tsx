@@ -375,7 +375,8 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
         value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true,
         placeholder: 'Do anything — ask the brain, cut a task, or paste an error…',
         images, onImagesChange: setImages,
-        modePill: <WorkModelPill scope={{ kind: 'thread', threadId }} variant="workspace-v2" />,
+        modePill: <WorkModelPill scope={{ kind: 'thread', threadId }} variant="workspace-v2"
+          agentLockPending={working} />,
       }}
       tasks={{ active, closed }}
       historyTasks={historyTasks}

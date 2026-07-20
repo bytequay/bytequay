@@ -1380,6 +1380,9 @@ export type ResolvedWorkModelDto = {
     scopeId: string | null;
     scopeLabel: string;
   };
+  /** True after this scope has started its first provider-native turn.
+   *  The model may still change, but the agent/provider may not. */
+  agentLocked: boolean;
 };
 
 export type WorkModelEntryDto = {

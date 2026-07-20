@@ -38,6 +38,7 @@ import com.bytequay.app.service.threads.ConvIndexService;
 import com.bytequay.app.service.threads.MessageAttachments;
 import com.bytequay.app.service.threads.PrTaskLinkService;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.service.workmodel.WorkModelAgentLock;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -332,7 +333,9 @@ public class ThreadController
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no thread: " + id));
         WorkModelResolver.Resolved resolved = workModelResolver.resolveForThread(id);
-        return new ResolvedWorkModelResponse(thread.workModel(), resolved.choice(), resolved.provenance());
+        return new ResolvedWorkModelResponse(
+                thread.workModel(), resolved.choice(), resolved.provenance(),
+                threads.isWorkModelAgentLocked(id));
     }
 
     /**
@@ -347,10 +350,15 @@ public class ThreadController
             @PathVariable String id,
             @RequestBody(required = false) WorkModelBody body)
     {
-        Thread updated = threads.setWorkModel(id, body == null ? null : body.workModel());
+        WorkModel requested = body == null ? null : body.workModel();
+        boolean agentLocked = threads.isWorkModelAgentLocked(id);
+        WorkModelAgentLock.requireSameAgent(
+                agentLocked, workModelResolver.resolveForThread(id).choice(), requested);
+        Thread updated = threads.setWorkModel(id, requested);
         WorkModelResolver.Resolved resolved = workModelResolver.resolveForThread(id);
         threads.updateTrunkWorkModel(id, resolved.choice());
-        return new ResolvedWorkModelResponse(updated.workModel(), resolved.choice(), resolved.provenance());
+        return new ResolvedWorkModelResponse(
+                updated.workModel(), resolved.choice(), resolved.provenance(), agentLocked);
     }
 
     /** Request body for {@link #setWorkModel} — wraps the optional

@@ -341,6 +341,19 @@ public class CodexCliThreadAgent
         return pb;
     }
 
+    @Override
+    protected boolean shouldAutomaticallyRecover(String errorDetail)
+    {
+        if (errorDetail != null && errorDetail.contains("no rollout found for thread id")) {
+            // The stored id may belong to a previously-selected CLI agent or
+            // to a locally-pruned Codex rollout. Resume failed before the turn
+            // began, so retrying once with a fresh Codex session is safe.
+            clearResumeSessionId();
+            return true;
+        }
+        return false;
+    }
+
     /** Our per-agent MCP endpoint — matches McpController's stage-scoped
      *  route and the local sidecar port. The agent key scopes role /
      *  capability resolution to this agent's own running turn (the trunk

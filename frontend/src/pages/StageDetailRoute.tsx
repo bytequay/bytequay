@@ -712,7 +712,8 @@ export function StageDetailRoute({
           : undefined,
         images,
         onImagesChange: setImages,
-        modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'stage', stageId }} />,
+        modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'stage', stageId }}
+          agentLockPending={working} />,
         usage: {
           contextPercent: stageContext.tokensLimit > 0
             ? Math.round((stageContext.tokensUsed / stageContext.tokensLimit) * 100)

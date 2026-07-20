@@ -100,15 +100,6 @@ export function TrunkWorkspaceSidebar({
   const taskIdsKey = taskIdsToLoad.join('\u0000');
 
   useEffect(() => {
-    if (expanded !== null) return;
-    const selected = threads.find(thread => thread.id === selectedThreadId);
-    if (selected === undefined) return;
-    const next = { [selected.title]: true };
-    setExpanded(next);
-    writeExpansion({ b: next });
-  }, [expanded, selectedThreadId, threads]);
-
-  useEffect(() => {
     const ids = taskIdsKey.length === 0 ? [] : taskIdsKey.split('\u0000');
     if (ids.length === 0 || window.bridge?.listTasksForThread === undefined) return undefined;
     let cancelled = false;

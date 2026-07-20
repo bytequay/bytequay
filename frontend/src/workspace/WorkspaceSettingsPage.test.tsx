@@ -153,7 +153,10 @@ describe('WorkspaceSettingsPage', () => {
     const workspaceApi = installBridge();
     render(<WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="agents" />);
 
-    const pickers = await screen.findAllByRole('combobox') as HTMLSelectElement[];
+    // Wait for the async settings + model-options load to land before editing;
+    // otherwise it resolves mid-interaction and setSettings clobbers the edits.
+    await screen.findAllByRole('option', { name: /Codex CLI · available/ });
+    const pickers = screen.getAllByRole('combobox') as HTMLSelectElement[];
     fireEvent.change(pickers[0], { target: { value: 'api:openai:work-key' } });
 
     const numbers = screen.getAllByRole('textbox') as HTMLInputElement[];

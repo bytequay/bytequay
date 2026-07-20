@@ -30,7 +30,7 @@ const MAX_INPUT_HEIGHT = 160;
 export function Composer({
   value, onChange, onSubmit, placeholder, modePill, busy = false, disabled = false,
   queueWhenBusy = false, onAddContext, images = [], onImagesChange, closedNote,
-  variant = 'default', toolbar, meta, effortLabel = 'Medium', usage,
+  variant = 'default', toolbar, meta, usage,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -60,15 +60,11 @@ export function Composer({
   toolbar?: ReactNode;
   /** Right-aligned task/thread metrics above the input. */
   meta?: ReactNode;
-  /** The design's effort picker label (there is no backend override yet). */
-  effortLabel?: string;
   /** Usage-ring values. Omit only when the host deliberately hides usage. */
   usage?: { planPercent: number; sessionLabel: string };
 }) {
   const workspaceVariant = variant === 'workspace-v2';
   const [usageOpen, setUsageOpen] = useState(false);
-  const [effortOpen, setEffortOpen] = useState(false);
-  const [effort, setEffort] = useState(effortLabel);
   const canSend = !disabled && (value.trim().length > 0 || images.length > 0) && (!busy || queueWhenBusy);
   // Spinner only when we're blocked (busy with nothing queueable); when a
   // message can be queued mid-run the button stays active.
@@ -89,7 +85,6 @@ export function Composer({
     const el = taRef.current;
     if (el !== null) el.style.height = `${Math.min(el.scrollHeight, MAX_INPUT_HEIGHT)}px`;
   }, []);
-  useEffect(() => { setEffort(effortLabel); }, [effortLabel]);
 
   const submit = () => {
     if (canSend) onSubmit();
@@ -174,27 +169,6 @@ export function Composer({
             {workspaceVariant ? <PlusIcon size={15} strokeWidth={2} /> : <PlusIcon />}
           </button>
           {modePill}
-          {workspaceVariant && (
-            <span className="workspace-composer-effort-wrap">
-              <button type="button" className="workspace-composer-effort" title="Reasoning effort"
-                aria-haspopup="listbox" aria-expanded={effortOpen}
-                onClick={() => setEffortOpen(open => !open)}>
-                {effort}
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8b949e"
-                  strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
-              </button>
-              {effortOpen && (
-                <span className="workspace-composer-effort-menu" role="listbox" aria-label="Reasoning effort">
-                  {['Low', 'Medium', 'High'].map(option => (
-                    <button type="button" role="option" aria-selected={effort === option} key={option}
-                      onClick={() => { setEffort(option); setEffortOpen(false); }}>{option}</button>
-                  ))}
-                </span>
-              )}
-            </span>
-          )}
           <span className="grow" />
           {workspaceVariant && usage !== undefined && (
             <span className="workspace-composer-usage">

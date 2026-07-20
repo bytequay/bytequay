@@ -45,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -149,6 +150,45 @@ class TestThreadRegistryWorkModel
 
         verify(workModelResolver).resolveForStage(THREAD_ID, TASK_ID, "stage-1");
         verify(workModelResolver).resolveForStage(THREAD_ID, TASK_ID, "stage-2");
+    }
+
+    @Test
+    void developmentAndBrainThreadsDoNotShareAnAgentForTheSameStage()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        Task task = task(TASK_ID);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        WorkModel developmentPick = new WorkModel(
+                WorkModelKind.CLI, "claude-code", "claude-sonnet-4-6", null);
+        when(workModelResolver.resolveForStage(THREAD_ID, TASK_ID, "shared-stage"))
+                .thenReturn(new WorkModelResolver.Resolved(developmentPick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.STAGE, "shared-stage", "shared-stage")));
+        WorkModel brainPick = new WorkModel(
+                WorkModelKind.CLI, "claude-code", "claude-opus-4-7", null);
+        when(workModelResolver.resolveForThread("brain-1"))
+                .thenReturn(new WorkModelResolver.Resolved(brainPick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.THREAD, "brain-1", "brain-1")));
+        ThreadRegistry registry = newRegistry();
+
+        ThreadAgent development = registry.getOrCreate(
+                cliThread("claude-code", "claude-sonnet-4-6", null), task, "shared-stage");
+        ThreadAgent brain = registry.getOrCreate(brainThread(), task, "shared-stage");
+
+        assertThat(brain).isNotSameAs(development);
+        assertThat(development.id()).isEqualTo(THREAD_ID);
+        assertThat(brain.id()).isEqualTo("brain-1");
+        assertThat(registry.findStage(THREAD_ID, "shared-stage")).containsSame(development);
+        assertThat(registry.findStage("brain-1", "shared-stage")).containsSame(brain);
+        assertThat(registry.findStages(List.of("shared-stage")))
+                .containsExactlyInAnyOrder(development, brain);
+        verify(workModelResolver).resolveForThread("brain-1");
+        verify(workModelResolver, never()).resolveForStage("brain-1", TASK_ID, "shared-stage");
+
+        registry.evictStage(THREAD_ID, "shared-stage");
+        assertThat(registry.findStage(THREAD_ID, "shared-stage")).isEmpty();
+        assertThat(registry.findStage("brain-1", "shared-stage")).isEmpty();
     }
 
     @Test
@@ -282,7 +322,7 @@ class TestThreadRegistryWorkModel
                 registry.getOrCreateStageAgent(logicLoopThread(), task(TASK_ID), stageId.toString()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("TaskBrainAgent");
-        assertThat(registry.findStage(stageId.toString())).isEmpty();
+        assertThat(registry.findStage(THREAD_ID, stageId.toString())).isEmpty();
     }
 
     @Test
@@ -297,7 +337,7 @@ class TestThreadRegistryWorkModel
                 registry.getOrCreateStageAgent(logicLoopThread(), task(TASK_ID), stageId.toString()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("CleanupStage");
-        assertThat(registry.findStage(stageId.toString())).isEmpty();
+        assertThat(registry.findStage(THREAD_ID, stageId.toString())).isEmpty();
     }
 
     @Test

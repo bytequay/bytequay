@@ -1438,19 +1438,34 @@ public class ThreadService
      *  caller should tell the user their click had no effect. */
     public boolean decide(String threadId, String callId, PermissionDecision decision)
     {
+        return decide(threadId, callId, decision, null, null);
+    }
+
+    /** Applies a decision and, when requested, grants a per-tool budget to
+     *  the same stage agent that raised the prompt. The agent key must be
+     *  captured before {@link ThreadAgent#decide} clears the gate entry. */
+    public boolean decide(
+            String threadId,
+            String callId,
+            PermissionDecision decision,
+            String preApproveToolName,
+            Integer preApproveCount)
+    {
         // The UI sends only the callId; resolve the agent that raised the
         // prompt from the gate so the decision event lands in that stage's
         // feed (not a thread-level "active session" guess).
-        return sessionForAgent(threadId, gate.agentKeyFor(callId)).decide(callId, decision);
-    }
-
-    /** Pre-authorise the next {@code count} invocations of {@code toolName}
-     *  for the given thread. {@code count == -1} means "always". The MCP
-     *  controller calls {@link #tryConsumeToolBudget} to drain this budget
-     *  before surfacing a prompt to the user. */
-    public void grantToolBudget(String threadId, String toolName, int count)
-    {
-        sessionOrThrow(threadId).grantToolBudget(toolName, count);
+        String agentKey = gate.agentKeyFor(callId);
+        ThreadAgent session = sessionForAgent(threadId, agentKey);
+        boolean resolved = session.decide(callId, decision);
+        if (preApproveToolName != null
+                && !preApproveToolName.isBlank()
+                && preApproveCount != null
+                && preApproveCount != 0) {
+            // Keep the historical behaviour: a late click can still grant a
+            // budget for future calls even when this call already timed out.
+            session.grantToolBudget(preApproveToolName, preApproveCount);
+        }
+        return resolved;
     }
 
     /** Called from the MCP hot path — quiet (returns
@@ -1459,10 +1474,10 @@ public class ThreadService
      *  controller. The returned int is the remaining budget after the
      *  consumption ({@code -1} for an ALWAYS grant); empty means the
      *  call should fall through to the normal user prompt. */
-    public OptionalInt tryConsumeToolBudget(String threadId, String toolName)
+    public OptionalInt tryConsumeToolBudget(String threadId, String agentKey, String toolName)
     {
         try {
-            return sessionOrThrow(threadId).tryConsumeToolBudget(toolName);
+            return sessionForAgent(threadId, agentKey).tryConsumeToolBudget(toolName);
         }
         catch (NoSuchElementException ignored) {
             return OptionalInt.empty();
@@ -1499,7 +1514,7 @@ public class ThreadService
      *  raised them instead of a thread-level "active session" guess. */
     private ThreadAgent sessionForAgent(String threadId, String agentKey)
     {
-        return registry.findByAgentKey(agentKey).orElseGet(() -> sessionOrThrow(threadId));
+        return registry.findByAgentKey(threadId, agentKey).orElseGet(() -> sessionOrThrow(threadId));
     }
 
     private ThreadAgent sessionOrThrow(String threadId)

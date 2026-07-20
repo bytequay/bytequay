@@ -704,19 +704,13 @@ public class ThreadController
         if (body.decision() == null) {
             throw new IllegalArgumentException("decision is required");
         }
-        boolean resolved = threads.decide(id, body.callId(), body.decision());
         // Optional pre-approval rider — when the user clicks "Allow next
-        // 5 / 10 / 50 / Always" we record the current decision first,
-        // then grant the budget so subsequent calls of the same tool
-        // skip the prompt. -1 is the "always" sentinel. Still grant the
-        // budget even when the current prompt already expired — future
-        // calls should still skip the gate.
-        if (body.preApproveToolName() != null
-                && !body.preApproveToolName().isBlank()
-                && body.preApproveCount() != null
-                && body.preApproveCount() != 0) {
-            threads.grantToolBudget(id, body.preApproveToolName(), body.preApproveCount());
-        }
+        // 5 / 10 / 50 / Always", the service captures the issuing agent
+        // before resolving the gate, then stores the budget on that same
+        // stage session. -1 is the "always" sentinel.
+        boolean resolved = threads.decide(
+                id, body.callId(), body.decision(),
+                body.preApproveToolName(), body.preApproveCount());
         // "already_resolved" means this specific prompt had already timed
         // out (or was already decided) before the click landed — the
         // frontend surfaces this distinctly instead of a silent no-op.

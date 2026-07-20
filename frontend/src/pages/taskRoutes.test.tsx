@@ -16,7 +16,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TaskBrainRoute } from './TaskBrainRoute';
 import { StageDetailRoute } from './StageDetailRoute';
 import { buildMockBrainView } from '../threads/brain/brainViewFixture';
-import type { PlanCardDto } from '../types/brainView';
+import type { PlanCardDto, StageDetailData } from '../types/brainView';
 import type { DiffFileDto, ThreadCommitDto } from '../types';
 import type { LocalPRBundle, LocalPRCommit } from '../types/localPr';
 
@@ -219,5 +219,65 @@ describe('StageDetailRoute', () => {
     fireEvent.change(box, { target: { value: 'fix the import' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(steerStage).toHaveBeenCalledWith('stage-1', 'fix the import', []));
+  });
+
+  it('routes the stage feed and permission decision through its conversation thread', async () => {
+    const attachment = '/tmp/attachments/brain-thread/permission-route.png';
+    const now = '2026-07-21T00:00:00Z';
+    const detail: StageDetailData = {
+      task: {
+        id: 'task-plan', taskNumber: 1, title: 'Plan task', branch: 'dev/plan-task',
+        repoFullName: 'bytequay/app', prNumber: null, prDraft: false,
+        currentPhase: 'PLANNING', agentRuntime: 'CLI', agentModel: 'claude',
+      },
+      stage: {
+        id: 'stage-plan', type: 'PLAN_STAGE', state: 'CLOSED', openedAt: now, closedAt: now,
+        callerStageId: null, iterationCount: 0, currentIterationNumber: null,
+        config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
+      },
+      allStages: [{
+        id: 'stage-plan', taskId: 'task-plan', type: 'PLAN_STAGE', state: 'CLOSED',
+        openedAt: now, closedAt: now, callerStageId: null, summary: '', loopIteration: 0,
+      }],
+      subStages: [],
+      conversationThreadId: 'brain-thread',
+      iterations: [],
+      conversation: [
+        {
+          id: 'user-1', messageSeq: 1, kind: 'user', text: 'See the attached context',
+          toolTag: null, toolLabel: null, toolDetail: null, toolResult: null, toolError: null,
+          toolDiff: null, iterationNumber: null, ts: now, callId: null,
+          images: [attachment], managedSkills: [],
+        },
+        {
+          id: 'permission-1', messageSeq: null, kind: 'permission', text: '{"command":"git status"}',
+          toolTag: null, toolLabel: 'run_shell', toolDetail: null, toolResult: null, toolError: null,
+          toolDiff: null, iterationNumber: null, ts: now, callId: 'call-1', images: [], managedSkills: [],
+        },
+      ],
+      realtimeCi: null, ciFixHistory: [], pr: null,
+      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
+      scrubber: { userMessages: [] }, liveRuns: [],
+      guard: {
+        taskId: 'task-plan', enabled: false, schedule: 'nightly', state: 'healthy',
+        health: { behindBy: 0, mergeable: true, checksGreen: true },
+        lastRunId: null, lastCheckedAt: null,
+      },
+      liveRound: null, devPhases: [],
+    };
+    const decideTaskPermission = vi.fn().mockResolvedValue({ status: 'recorded' });
+    const readAttachment = vi.fn().mockResolvedValue('data:image/png;base64,aaa');
+    (window as unknown as { bridge: unknown }).bridge = {
+      getStageDetail: vi.fn().mockResolvedValue(detail),
+      decideTaskPermission,
+      readAttachment,
+    };
+
+    render(<StageDetailRoute threadId="development-thread" taskId="task-plan" stageId="stage-plan" />);
+
+    await waitFor(() => expect(readAttachment).toHaveBeenCalledWith('brain-thread', attachment));
+    fireEvent.click(await screen.findByText('Approve once'));
+    await waitFor(() => expect(decideTaskPermission)
+      .toHaveBeenCalledWith('brain-thread', 'call-1', 'ALLOW', undefined));
   });
 });

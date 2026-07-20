@@ -20,6 +20,7 @@ import com.bytequay.app.service.stage.StageClosedEvent;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -45,7 +46,7 @@ class TestStageAgentReaper
     void stopsAndEvictsTheClosedStageAgent()
     {
         ThreadAgent agent = mock(ThreadAgent.class);
-        when(registry.findStage("stage-1")).thenReturn(Optional.of(agent));
+        when(registry.findStages(List.of("stage-1"))).thenReturn(List.of(agent));
         when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task()));
 
         reaper.onStageClosed(new StageClosedEvent("task-1", "stage-1"));
@@ -57,7 +58,7 @@ class TestStageAgentReaper
     @Test
     void evictsByStageIdEvenWhenNoLiveAgentExists()
     {
-        when(registry.findStage("stage-1")).thenReturn(Optional.empty());
+        when(registry.findStages(List.of("stage-1"))).thenReturn(List.of());
         when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task()));
 
         reaper.onStageClosed(new StageClosedEvent("task-1", "stage-1"));

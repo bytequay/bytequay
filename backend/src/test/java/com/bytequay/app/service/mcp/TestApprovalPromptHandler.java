@@ -71,8 +71,9 @@ class TestApprovalPromptHandler
     void whenEveryStepContinuesTheCallIsRegisteredForTheUserPrompt()
     {
         ApprovalStep cont = c -> ApprovalStepResult.cont();
-        when(gate.register("call-1", "Bash", null)).thenReturn(new CompletableFuture<>());
-        when(threads.tryConsumeToolBudget("thread-1", "Bash")).thenReturn(OptionalInt.empty());
+        when(gate.register("call-1", "Bash", "stage-1")).thenReturn(new CompletableFuture<>());
+        when(threads.tryConsumeToolBudget("thread-1", "stage-1", "Bash"))
+                .thenReturn(OptionalInt.empty());
         ApprovalPromptHandler handler = new ApprovalPromptHandler(
                 List.of(cont), threads, gate, responses);
 
@@ -80,7 +81,7 @@ class TestApprovalPromptHandler
         handler.handle(ctx("Bash", "call-1"), deferred);
 
         // Fell through the chain → blocks on the user's decision via the gate.
-        verify(gate).register("call-1", "Bash", null);
+        verify(gate).register("call-1", "Bash", "stage-1");
         assertThat(deferred.getResult()).isNull();
     }
 
@@ -111,7 +112,7 @@ class TestApprovalPromptHandler
         args.set("input", mapper.createObjectNode());
         args.put("tool_use_id", callId);
         return new ToolDispatchContext(
-                "thread-1", JsonNodeFactory.instance.numberNode(1),
+                "thread-1", "task-1", "stage-1", JsonNodeFactory.instance.numberNode(1),
                 new ToolCallParams("approval_prompt", args),
                 /* role */ null, Set.of(), /* spec */ null);
     }

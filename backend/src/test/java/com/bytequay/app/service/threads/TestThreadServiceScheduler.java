@@ -77,6 +77,48 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestThreadServiceScheduler
 {
     @Test
+    void permissionBudgetStaysOnTheStageAgentThatRaisedThePrompt()
+    {
+        McpPermissionGate gate = new McpPermissionGate();
+        gate.register("call-1", "Bash", "stage-1");
+        ThreadRegistry registry = Mockito.mock(ThreadRegistry.class);
+        ThreadAgent stageAgent = Mockito.mock(ThreadAgent.class);
+        Mockito.when(registry.findByAgentKey("brain-1", "stage-1"))
+                .thenReturn(Optional.of(stageAgent));
+        Mockito.when(stageAgent.decide("call-1", PermissionDecision.ALLOW))
+                .thenAnswer(invocation -> gate.decide("call-1", PermissionDecision.ALLOW));
+        Mockito.when(stageAgent.tryConsumeToolBudget("Bash"))
+                .thenReturn(OptionalInt.of(4));
+        ThreadService service = new ThreadService(
+                Mockito.mock(ThreadStore.class),
+                Mockito.mock(TaskStore.class),
+                Mockito.mock(ThreadGroupStore.class),
+                Mockito.mock(ThreadTurnStore.class),
+                Mockito.mock(ThreadTurnEventStore.class),
+                registry,
+                gate,
+                new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class),
+                new GitRunner(),
+                noopWorktreeService(),
+                new RoleSkillService(new ConceptRegistry()),
+                stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+
+        assertThat(service.decide(
+                "brain-1", "call-1", PermissionDecision.ALLOW, "Bash", 5)).isTrue();
+        assertThat(gate.agentKeyFor("call-1")).isNull();
+        Mockito.verify(stageAgent).decide("call-1", PermissionDecision.ALLOW);
+        Mockito.verify(stageAgent).grantToolBudget("Bash", 5);
+
+        assertThat(service.tryConsumeToolBudget("brain-1", "stage-1", "Bash"))
+                .hasValue(4);
+        Mockito.verify(registry, Mockito.times(2))
+                .findByAgentKey("brain-1", "stage-1");
+    }
+
+    @Test
     void createDoesNotEnqueueTrunkTurnFromInitialPrompt()
     {
         InMemoryTaskStore store = new InMemoryTaskStore();

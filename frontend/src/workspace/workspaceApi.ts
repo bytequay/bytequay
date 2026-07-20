@@ -295,6 +295,33 @@ export type PlanLimitDto = {
   model: string | null;
 };
 
+export type ApiUsageDto = {
+  month: string;
+  providers: ApiProviderUsageDto[];
+};
+
+export type ApiProviderUsageDto = {
+  provider: string;
+  label: string;
+  callsCount: number;
+  costUsdMilli: number;
+};
+
+export type DeepSeekBalanceDto = {
+  configured: boolean;
+  available: boolean | null;
+  updatedAt: number;
+  message: string | null;
+  balances: DeepSeekBalanceInfoDto[];
+};
+
+export type DeepSeekBalanceInfoDto = {
+  currency: string;
+  totalBalance: string;
+  grantedBalance: string | null;
+  toppedUpBalance: string | null;
+};
+
 export type WorkspaceSessionTimelineItemDto = {
   id: string;
   title: string;
@@ -568,6 +595,14 @@ export const workspaceApi = {
     window.bridge.workspaceApi<PlanUsageDto>({
       path: '/api/ai/plan-usage/claude/refresh',
       method: 'POST',
+    }),
+  apiUsage: () =>
+    window.bridge.workspaceApi<ApiUsageDto>({
+      path: '/api/ai/api-usage',
+    }),
+  deepSeekBalance: () =>
+    window.bridge.workspaceApi<DeepSeekBalanceDto>({
+      path: '/api/ai/deepseek/balance',
     }),
   session: (sessionId: string) =>
     window.bridge.workspaceApi<WorkspaceSessionDto>({

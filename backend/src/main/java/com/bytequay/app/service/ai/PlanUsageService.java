@@ -89,7 +89,7 @@ public class PlanUsageService
     private static final String CLAUDE_EXPECT_SCRIPT = """
             set timeout 25
             log_user 1
-            spawn -noecho [lindex $argv 0] --ax-screen-reader --safe-mode
+            spawn -noecho $env(BYTEQUAY_CLAUDE_BINARY) --ax-screen-reader --safe-mode
             expect {
               -re {\\$\\x1b\\[4G} {}
               timeout { exit 2 }
@@ -484,11 +484,11 @@ public class PlanUsageService
     {
         Process process = null;
         try {
-            process = new ProcessBuilder(
-                    "/usr/bin/expect", "-c", CLAUDE_EXPECT_SCRIPT, claudeBinary)
+            ProcessBuilder builder = new ProcessBuilder("/usr/bin/expect", "-c", CLAUDE_EXPECT_SCRIPT)
                     .directory(Path.of(System.getProperty("user.home")).toFile())
-                    .redirectErrorStream(true)
-                    .start();
+                    .redirectErrorStream(true);
+            builder.environment().put("BYTEQUAY_CLAUDE_BINARY", claudeBinary);
+            process = builder.start();
             if (!process.waitFor(CLAUDE_PROBE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
                 process.destroyForcibly();
                 throw new IllegalStateException("Claude CLI usage refresh timed out");

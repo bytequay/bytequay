@@ -4016,7 +4016,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     const request = args as { path?: unknown; method?: unknown; body?: unknown };
     if (typeof request.path !== 'string'
-        || !/^\/api\/(?:ai\/plan-usage(?:\/claude\/refresh)?$|workspaces(?:\/|$)|workspace-creations(?:\/|$)|sessions(?:\/|$)|trunks(?:\/|$)|notifications\/workspace(?:\/|$))/.test(request.path)
+        || !/^\/api\/(?:ai\/(?:plan-usage(?:\/claude\/refresh)?|api-usage|deepseek\/balance)$|workspaces(?:\/|$)|workspace-creations(?:\/|$)|sessions(?:\/|$)|trunks(?:\/|$)|notifications\/workspace(?:\/|$))/.test(request.path)
         || request.path.includes('..')) {
       throw new Error('workspace request path is not allowed');
     }

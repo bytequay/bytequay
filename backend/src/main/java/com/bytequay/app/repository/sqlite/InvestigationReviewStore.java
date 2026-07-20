@@ -61,7 +61,7 @@ public class InvestigationReviewStore
     public record TaskReviewSpend(long costMilli, Instant occurredAt) {}
 
     /** One AgentReview round for the monthly AI usage ledger. */
-    public record AgentReviewSpend(String provider, long costMilli, long calls) {}
+    public record AgentReviewSpend(String provider, String runner, long costMilli, long calls) {}
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
@@ -179,6 +179,7 @@ public class InvestigationReviewStore
     {
         return jdbc.query("""
                 SELECT COALESCE(json_extract(a.metrics_json, '$.provider'), 'agent-review') AS provider,
+                       COALESCE(json_extract(a.metrics_json, '$.runner'), '') AS runner,
                        r.cost_cents,
                        COALESCE(CAST(json_extract(a.metrics_json, '$.providerRounds') AS INTEGER), 1) AS calls
                 FROM review_round r
@@ -187,7 +188,8 @@ public class InvestigationReviewStore
                   AND COALESCE(r.finished_at_ms, r.created_at_ms) >= ?
                   AND COALESCE(r.finished_at_ms, r.created_at_ms) < ?
                 """, (rs, row) -> new AgentReviewSpend(
-                        rs.getString("provider"), rs.getLong("cost_cents") * 10L,
+                        rs.getString("provider"), rs.getString("runner"),
+                        rs.getLong("cost_cents") * 10L,
                         Math.max(1L, rs.getLong("calls"))),
                 start.toEpochMilli(), end.toEpochMilli());
     }

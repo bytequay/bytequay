@@ -1755,6 +1755,14 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.workspace-redesign .wu-today__usage-pinned .trunk-page-v2__api-usage {
+  grid-column: 1 / -1;
+}
+
+.workspace-redesign .wu-today__usage-pinned .trunk-page-v2__api-providers {
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+}
+
 .workspace-redesign .wu-today-card {
   display: flex;
   min-height: 0;

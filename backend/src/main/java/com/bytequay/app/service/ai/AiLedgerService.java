@@ -52,7 +52,8 @@ public class AiLedgerService
             long totalCents,
             long totalCalls,
             List<ProviderEntry> byProvider,
-            List<TaskTypeEntry> byTaskType) {}
+            List<TaskTypeEntry> byTaskType,
+            List<ProviderEntry> apiByProvider) {}
 
     public record ProviderEntry(String provider, long callsCount, long costCents) {}
 
@@ -67,11 +68,18 @@ public class AiLedgerService
 
         Map<String, long[]> byProvider = new LinkedHashMap<>(); // provider -> [calls, costMilli]
         Map<String, long[]> byType = new LinkedHashMap<>();
+        Map<String, long[]> apiByProvider = new LinkedHashMap<>();
+        apiByProvider.put("anthropic", new long[2]);
+        apiByProvider.put("deepseek", new long[2]);
         long totalMilli = 0;
         long totalCalls = 0;
         for (AiSpendRow r : threadStore.aggregateAiSpend(start, end)) {
             accumulate(byProvider, canonicalProvider(r.provider()), r.calls(), r.costMilli());
             accumulate(byType, taskType(r.flow(), r.kind()), r.calls(), r.costMilli());
+            String apiProvider = apiProvider(r.provider(), null, r.kind());
+            if (apiProvider != null) {
+                accumulate(apiByProvider, apiProvider, r.calls(), r.costMilli());
+            }
             totalMilli += r.costMilli();
             totalCalls += r.calls();
         }
@@ -79,6 +87,10 @@ public class AiLedgerService
                 : reviewStore.agentReviewSpend(start, end)) {
             accumulate(byProvider, canonicalProvider(r.provider()), r.calls(), r.costMilli());
             accumulate(byType, "review", r.calls(), r.costMilli());
+            String apiProvider = apiProvider(r.provider(), r.runner(), null);
+            if (apiProvider != null) {
+                accumulate(apiByProvider, apiProvider, r.calls(), r.costMilli());
+            }
             totalMilli += r.costMilli();
             totalCalls += r.calls();
         }
@@ -93,6 +105,9 @@ public class AiLedgerService
                 byType.entrySet().stream()
                         .map(e -> new TaskTypeEntry(e.getKey(), e.getValue()[0], e.getValue()[1] / 10))
                         .sorted(Comparator.comparingLong(TaskTypeEntry::costCents).reversed())
+                        .toList(),
+                apiByProvider.entrySet().stream()
+                        .map(e -> new ProviderEntry(e.getKey(), e.getValue()[0], e.getValue()[1] / 10))
                         .toList());
     }
 
@@ -117,6 +132,26 @@ public class AiLedgerService
             return "deepseek";
         }
         return p.isBlank() ? "other" : p;
+    }
+
+    /** API-only subset. CLI sessions and the local DeepSeek model do not
+     * consume provider API credit, so they stay out of this projection. */
+    private static String apiProvider(String provider, String runner, String kind)
+    {
+        String p = provider == null ? "" : provider.trim().toLowerCase(Locale.ROOT);
+        String r = runner == null ? "" : runner.trim().toLowerCase(Locale.ROOT);
+        if ("CLI_AGENT".equals(kind) || "cli".equals(r) || "local".equals(r)
+                || p.contains("claude-code") || p.contains("claude-cli")
+                || p.contains("deepseek-v4-flash")) {
+            return null;
+        }
+        if (p.contains("anthropic") || p.equals("claude") || p.startsWith("claude-")) {
+            return "anthropic";
+        }
+        if (p.contains("deepseek")) {
+            return "deepseek";
+        }
+        return null;
     }
 
     /** Classify a thread's work from its flow (dbValue) + kind (enum name). */

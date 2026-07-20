@@ -2545,6 +2545,8 @@ export type AiLedgerDto = {
   totalCalls: number;
   byProvider: { provider: string; callsCount: number; costCents: number }[];
   byTaskType: { type: string; callsCount: number; costCents: number }[];
+  /** Provider API calls only; excludes CLI and locally served models. */
+  apiByProvider: { provider: string; callsCount: number; costCents: number }[];
 };
 
 export type WorkspaceInsightsDto = {

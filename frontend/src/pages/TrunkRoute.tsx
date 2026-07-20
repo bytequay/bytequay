@@ -21,18 +21,11 @@ import { useThreadStream } from '../threads/useThreadStream';
 import { ConvIndex } from '../threads/ConvIndex';
 import { TrunkFeed } from '../threads/TrunkFeed';
 import { buildTrunkTimeline, parseToolCall } from '../threads/trunkTimeline';
-import { toTaskCard } from '../threads/taskCardData';
+import { TERMINAL_TASK_STATUSES, toTaskCard } from '../threads/taskCardData';
 import { proposalAction } from '../threads/usePendingShipProposal';
 import { TrunkPage } from './TrunkPage';
 import { WorkModelPill } from '../workspace/WorkModelPill';
 import type { PermissionDecideHandler } from '../threads/PermissionCard';
-
-/** Terminal statuses — the task has landed (COMPLETED/merged) or been
- *  closed/reaped (CANCELED / ARCHIVED). These fill the Tasks tab's "Closed"
- *  sub-tab rather than the live "All" list. IN_REVIEW is NOT terminal: a
- *  shipped task is still in-flight (CI-fixing / addressing comments /
- *  awaiting merge). PENDING is the Queued folder. */
-const TERMINAL_TASK_STATUSES = new Set(['COMPLETED', 'CANCELED', 'ARCHIVED']);
 
 /** Parse a server ISO timestamp to epoch-ms, or null when absent/invalid.
  *  Anchors the "working" elapsed counter to server time so it keeps ticking
@@ -349,8 +342,11 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
     .filter(t => !TERMINAL_TASK_STATUSES.has(t.status))
     .map(t => toTaskCard(t, mergeReadyIds.has(t.id)));
   const closed = tasks.filter(t => TERMINAL_TASK_STATUSES.has(t.status)).map(t => toTaskCard(t, false));
+  // Every finished task folds into the compact top history — including the
+  // newest one. The branch rail below stays expanded only for the newest task
+  // still in flight, so a completed task never lingers open in the feed.
   const historyTasks = tasks
-    .filter(task => TERMINAL_TASK_STATUSES.has(task.status) && task.id !== latestTaskId)
+    .filter(task => TERMINAL_TASK_STATUSES.has(task.status))
     .map(task => toTaskCard(task, false));
 
   return (

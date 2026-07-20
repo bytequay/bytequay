@@ -20,7 +20,7 @@ import {
 import type { Density, TaskStatus, ToolGroup } from '../ui/conv';
 import { AskQuestionCard } from './AskQuestionCard';
 import { MarkdownProse } from './MarkdownProse';
-import { cardStatus, toTaskCard } from './taskCardData';
+import { cardStatus, TERMINAL_TASK_STATUSES, toTaskCard } from './taskCardData';
 import { taskLabel } from './taskLabel';
 import {
   buildTrunkTimeline, extractImages, extractText, parsePermissionRequest, parseToolCall, trunkHeadline, trunkWork,
@@ -116,8 +116,13 @@ function renderWork(
     flush();
     const text = extractText(m.contentJson);
     if (text.trim().length === 0) continue;
+    const error = m.type === 'error';
     out.push(
-      <div className={`sp-submsg${m.type === 'thinking' ? ' sp-submsg--think' : ''}`} key={m.id}>
+      <div
+        className={`sp-submsg${m.type === 'thinking' ? ' sp-submsg--think' : ''}${error ? ' sp-submsg--error' : ''}`}
+        key={m.id}
+        role={error ? 'alert' : undefined}
+      >
         <div className="sp-submsg__tx"><MarkdownProse text={text} /></div>
       </div>,
     );
@@ -278,6 +283,7 @@ export function TrunkFeed({
     // visible without un-folding.
     const holdsPendingAsk = ask.pendingId !== null && work.some(m => m.id === ask.pendingId);
     const holdsPendingPermission = work.some(m => m.type === 'permission_request');
+    const failures = work.filter(m => m.type === 'error').length;
     return (
       <Round key={round.id} tag={tag}>
         {round.userTurn !== null && (
@@ -294,7 +300,8 @@ export function TrunkFeed({
         {work.length > 0 && (
           <WorkFold
             label={workedFor(work, headline)}
-            forceOpen={full || holdsPendingAsk || holdsPendingPermission}
+            failed={failures}
+            forceOpen={full || holdsPendingAsk || holdsPendingPermission || failures > 0}
           >
             {renderWork(work, full, ask, onDecidePermission)}
           </WorkFold>
@@ -336,7 +343,12 @@ export function TrunkFeed({
     }
   }
   const cutItems = items.filter(item => item.kind === 'cut');
-  const latestTaskId = cutItems[cutItems.length - 1]?.cut.task.id;
+  // Only the newest task still in flight stays expanded on the branch rail. A
+  // finished task folds into the compact top history instead — so once a task
+  // completes, its whole cut collapses out of the feed. When every task is
+  // finished, nothing stays expanded here.
+  const latestTaskId = [...cutItems].reverse()
+    .find(item => !TERMINAL_TASK_STATUSES.has(item.cut.task.status))?.cut.task.id;
 
   const nodes: ReactNode[] = [];
   let segment: ReactNode[] = [];
@@ -407,9 +419,9 @@ export function TrunkFeed({
       continue;
     }
 
-    // Completed predecessors are already rendered as the compact merged-task
-    // rows immediately below the trunk head by TrunkPage.
-    if (s !== undefined || task.status === 'COMPLETED') {
+    // Finished tasks are already rendered as the compact merged-task rows
+    // immediately below the trunk head by TrunkPage — drop their feed block.
+    if (s !== undefined || TERMINAL_TASK_STATUSES.has(task.status)) {
       segment = [];
       continue;
     }

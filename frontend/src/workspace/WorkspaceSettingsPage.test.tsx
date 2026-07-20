@@ -13,7 +13,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { WorkspaceApiRequest, WorkspaceCardDto, WorkModelOptionsDto } from '../types';
+import type { Ds4StatusDto, WorkspaceApiRequest, WorkspaceCardDto, WorkModelOptionsDto } from '../types';
 import WorkspaceSettingsPage from './WorkspaceSettingsPage';
 
 afterEach(() => {
@@ -63,7 +63,7 @@ const options: WorkModelOptionsDto = {
   }],
 };
 
-function installBridge() {
+function installBridge(localAiState: 'DISABLED' | 'RUNNING' = 'DISABLED') {
   const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
     if (request.path === '/api/workspaces/w1/repository') {
       return {
@@ -118,6 +118,16 @@ function installBridge() {
     workspaceApi,
     getWorkModelOptions: vi.fn(async () => options),
     refreshWorkModelOptions: vi.fn(async () => options),
+    getDs4Status: vi.fn(async (): Promise<Ds4StatusDto> => ({
+      state: localAiState,
+      endpoint: 'http://127.0.0.1:11435',
+      pid: localAiState === 'RUNNING' ? 123 : -1,
+      startedAt: localAiState === 'RUNNING' ? '2026-07-20T00:00:00Z' : null,
+      spawnedByUs: localAiState === 'RUNNING',
+      restartAttempts: 0,
+      uptimeSec: localAiState === 'RUNNING' ? 30 : 0,
+      lastError: null,
+    })),
   };
   return workspaceApi;
 }
@@ -147,6 +157,16 @@ describe('WorkspaceSettingsPage', () => {
     expect(document.body.textContent).not.toContain('sonnet');
     expect((screen.getAllByRole('option', { name: /Claude CLI/ })[0] as HTMLOptionElement).disabled).toBe(true);
     expect(screen.getAllByRole('option', { name: /API · OpenAI · work-key/ })[0]).toBeTruthy();
+    expect((screen.getAllByRole('option', { name: 'Local · not enabled' })[0] as HTMLOptionElement).disabled).toBe(true);
+  });
+
+  it('enables the local model only while the local runtime is running', async () => {
+    installBridge('RUNNING');
+    render(<WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="agents" />);
+
+    const local = await screen.findAllByRole('option', { name: 'Local · available' });
+    expect(local).toHaveLength(4);
+    expect((local[0] as HTMLOptionElement).disabled).toBe(false);
   });
 
   it('saves agent defaults and budget caps from the Agents section', async () => {

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { WorkspaceCardDto, WorkModelOptionsDto } from '../types';
+import type { Ds4StateDto, WorkspaceCardDto, WorkModelOptionsDto } from '../types';
 import {
   workspaceApi,
   type WorkspaceCreationDto,
@@ -72,6 +72,7 @@ export default function WorkspaceSettingsPage({
   const [nameDraft, setNameDraft] = useState(workspace.name);
   const [repo, setRepo] = useState<WorkspaceRepositoryDto | null>(null);
   const [modelOptions, setModelOptions] = useState<WorkModelOptionsDto | null>(null);
+  const [localAiState, setLocalAiState] = useState<Ds4StateDto | null>(null);
   const [memory, setMemory] = useState<WorkspaceMemoryDto | null>(null);
   const [saved, setSaved] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -87,12 +88,14 @@ export default function WorkspaceSettingsPage({
       workspaceApi.repository(workspaceId),
       workspaceApi.settings(workspaceId),
       workspaceApi.workModelOptions(),
+      window.bridge.getDs4Status(),
     ])
-      .then(([repository, persisted, options]) => {
+      .then(([repository, persisted, options, localAi]) => {
         if (cancelled) return;
         setRepo(repository);
-        setSettings(coerceSettingsChoices(fromDto(persisted), choicesFrom(options)));
+        setSettings(coerceSettingsChoices(fromDto(persisted), choicesFrom(options, localAi.state)));
         setModelOptions(options);
+        setLocalAiState(localAi.state);
       })
       .catch(reason => {
         if (!cancelled) setActionMessage(reason instanceof Error ? reason.message : String(reason));
@@ -152,13 +155,17 @@ export default function WorkspaceSettingsPage({
     }
   };
   const repoName = repo?.fullName ?? workspace.name;
-  const agentChoices = useMemo(() => choicesFrom(modelOptions), [modelOptions]);
+  const agentChoices = useMemo(() => choicesFrom(modelOptions, localAiState), [localAiState, modelOptions]);
   const refreshModelOptions = async () => {
     setRefreshingModels(true);
     try {
-      const nextOptions = await workspaceApi.refreshWorkModelOptions();
+      const [nextOptions, localAi] = await Promise.all([
+        workspaceApi.refreshWorkModelOptions(),
+        window.bridge.getDs4Status(),
+      ]);
       setModelOptions(nextOptions);
-      setSettings(current => coerceSettingsChoices(current, choicesFrom(nextOptions)));
+      setLocalAiState(localAi.state);
+      setSettings(current => coerceSettingsChoices(current, choicesFrom(nextOptions, localAi.state)));
     }
     catch (reason) {
       setActionMessage(reason instanceof Error ? reason.message : String(reason));
@@ -403,16 +410,18 @@ function ModelRow({ label, tone, value, choices, refreshing, onRefresh, onChange
   onChange: (value: string) => void;
 }) {
   const selected = selectableChoice(value, choices);
+  const selectedChoice = choices.find(choice => choice.value === selected);
   return (
     <div className="wu-setting-row wu-model-row">
       <span className={`wu-kind-chip ${tone}`}>{tone === 'ci-fix' ? 'ci fix' : tone}</span>
       <span className="wu-model-row__description">{label}</span>
       <label className="wu-model-picker">
-        <span className={choiceClass(selected)}>{choiceGlyph(selected)}</span>
-        <select value={selected} onChange={event => onChange(event.target.value)}>
+        <span className={`wu-model-picker__glyph ${choiceClass(selected)}`}>{choiceGlyph(selected)}</span>
+        <span className="wu-model-picker__value">{selectedChoice === undefined ? selected : choiceText(selectedChoice)}</span>
+        <select aria-label={`${label} model`} value={selected} onChange={event => onChange(event.target.value)}>
           {choices.map(choice => (
             <option key={choice.value} value={choice.value} disabled={choice.disabled}>
-              {choice.label}{choice.disabled ? ' (not available)' : choice.detail.length === 0 ? '' : ` · ${choice.detail}`}
+              {choiceText(choice)}
             </option>
           ))}
         </select>
@@ -425,7 +434,7 @@ function ModelRow({ label, tone, value, choices, refreshing, onRefresh, onChange
   );
 }
 
-function choicesFrom(options: WorkModelOptionsDto | null): AgentChoice[] {
+function choicesFrom(options: WorkModelOptionsDto | null, localAiState: Ds4StateDto | null): AgentChoice[] {
   const choices: AgentChoice[] = [
     { value: 'cli:claude-code', label: 'Claude CLI', detail: cliDetail(options, 'claude-code'), disabled: cliDisabled(options, 'claude-code') },
     { value: 'cli:codex', label: 'Codex CLI', detail: cliDetail(options, 'codex'), disabled: cliDisabled(options, 'codex') },
@@ -439,8 +448,19 @@ function choicesFrom(options: WorkModelOptionsDto | null): AgentChoice[] {
       });
     });
   });
-  choices.push({ value: 'local', label: 'Local', detail: 'local runtime' });
+  choices.push({
+    value: 'local',
+    label: 'Local',
+    detail: localAiState === 'RUNNING'
+      ? 'available'
+      : localAiState === 'DISABLED' ? 'not enabled' : localAiState === null ? 'checking…' : 'not running',
+    disabled: localAiState !== 'RUNNING',
+  });
   return choices;
+}
+
+function choiceText(choice: AgentChoice): string {
+  return `${choice.label}${choice.detail.length === 0 ? '' : ` · ${choice.detail}`}`;
 }
 
 function selectableChoice(value: string, choices: AgentChoice[]): string {

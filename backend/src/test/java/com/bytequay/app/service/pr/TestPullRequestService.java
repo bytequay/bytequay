@@ -61,6 +61,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.app.domain.PullRequestDetail.CiStatus.FAILING;
 import static com.bytequay.app.domain.PullRequestDetail.CiStatus.NONE;
@@ -75,6 +76,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -402,6 +404,46 @@ class TestPullRequestService
         assertThat(result.ciStatus()).isEqualTo(PENDING);
         verify(detailStore).save(eq(7L), argThat(d ->
                 d.checkRuns().size() == 1 && "in_progress".equals(d.checkRuns().get(0).status())));
+    }
+
+    @Test
+    void testRefreshPullRequestDetailRefreshesChecksWhenPrEtagIsUnchanged()
+    {
+        PrRawDetail raw = new PrRawDetail(
+                "body", ImmutableList.of(), false, true, "clean", 10, 0, 0, 0,
+                ImmutableList.of(), "sha",
+                "feat/foo", "owner/repo", "main", "owner/repo");
+        StoredPrDetail stale = new StoredPrDetail(
+                raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(new PrCheckRunState(
+                        1L, "build", "in_progress", null, null, null, null)),
+                ImmutableList.of(), ImmutableList.of());
+        AtomicReference<StoredPrDetail> cached = new AtomicReference<>(stale);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(7L));
+        when(detailStore.find(7L)).thenAnswer(ignored -> Optional.of(cached.get()));
+        doAnswer(invocation -> {
+            cached.set(invocation.getArgument(1, StoredPrDetail.class));
+            return null;
+        }).when(detailStore).save(eq(7L), any(StoredPrDetail.class));
+        when(responseCache.getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "repo")), any()))
+                .thenReturn(true);
+        when(gitHub.probeChangedSinceEtag(eq("pat"), any(PullRequestRef.class), eq((String) null)))
+                .thenReturn(new PullRequestRepository.ProbeResult(true, "etag"));
+        when(gitHub.probeChangedSinceEtag(eq("pat"), any(PullRequestRef.class), eq("etag")))
+                .thenReturn(new PullRequestRepository.ProbeResult(false, "etag"));
+        when(gitHub.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(raw);
+        when(gitHub.fetchPrCheckRuns("pat", "owner", "repo", "sha"))
+                .thenReturn(ImmutableList.of(new PrCheckRunState(
+                        1L, "build", "completed", "failure", null, null, null)));
+
+        // First probe seeds the ETag; the second simulates an unchanged PR
+        // resource whose separate Actions check run has finished.
+        pullRequestService.refreshPullRequestDetail("owner/repo", 7);
+        PullRequestDetail result = pullRequestService.refreshPullRequestDetail("owner/repo", 7);
+
+        assertThat(result.ciStatus()).isEqualTo(FAILING);
+        verify(gitHub).fetchPrCheckRuns("pat", "owner", "repo", "sha");
+        verify(store).updateCiStatus(7L, FAILING);
     }
 
     // ── countApprovals ─────────────────────────────────────────────────────────

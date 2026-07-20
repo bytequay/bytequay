@@ -1611,8 +1611,8 @@
 
 /* ── Stage transcript (Task/Stage Conversation design) ────────────────── */
 
-/* Runtime-generated approved-plan kickoff. It remains in the transcript for
-   auditability, but reads as workflow chrome rather than a human message. */
+/* Runtime-generated stage kickoffs. They remain in the transcript for
+   auditability, but read as workflow chrome rather than human messages. */
 .task-brain .shell .runtime-kickoff-card {
   margin: 3px 0 13px;
   overflow: hidden;

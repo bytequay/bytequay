@@ -51,6 +51,40 @@ Push strategy: await_approval`;
     expect(container.querySelector('.runtime-kickoff-card__prompt')?.textContent).toBe(text);
   });
 
+  it.each([
+    `## Context from prior stages
+You are a fresh agent for the CI-fixing stage — you did NOT do the development work.
+
+What this PR set out to do:
+Remove the effort picker.
+
+---
+
+CI is failing on the shipped PR chenjian2664/ByteQuay #38.
+Failing checks:
+  - CI success – Frontend — unit & component tests
+
+First decide whether these failures are caused by this branch's changes.`,
+    `CI is failing on the shipped PR chenjian2664/ByteQuay #38.
+Failing checks:
+  - Frontend tests
+
+First decide whether these failures are caused by this branch's changes.`,
+  ])('renders a CI-fix kickoff as a collapsed runtime card', text => {
+    const { container } = render(<>{stageRow(row({ kind: 'user', text }))}</>);
+
+    const card = container.querySelector('.runtime-kickoff-card') as HTMLDetailsElement;
+    expect(card).toBeTruthy();
+    expect(card.open).toBe(false);
+    expect(container.querySelector('.ev--user')).toBeNull();
+    expect(screen.getByText('CI fix instructions')).toBeTruthy();
+    expect(screen.getByText(/chenjian2664\/ByteQuay #38 ·/)).toBeTruthy();
+
+    fireEvent.click(screen.getByText('CI fix instructions'));
+    expect(card.open).toBe(true);
+    expect(container.querySelector('.runtime-kickoff-card__prompt')?.textContent).toBe(text);
+  });
+
   it('shows runtime-managed skills on user rows', () => {
     render(<>{stageRow(row({
       kind: 'user',

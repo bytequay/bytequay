@@ -115,7 +115,7 @@ describe('PullOverview', () => {
     expect(screen.queryByText('Changes requested')).toBeNull();
   });
 
-  it('renders inline code comments beneath their GitHub review', async () => {
+  it('renders GitHub review threads as compact actionable desktop cards', async () => {
     const reviewBundle = {
       ...bundle,
       timeline: [{
@@ -124,6 +124,8 @@ describe('PullOverview', () => {
         payload: { verdict: 'COMMENTED', body: null }, remoteEventId: 9001,
       }],
     } as LocalPRBundle;
+    const replyToReviewThread = vi.fn().mockResolvedValue(undefined);
+    const setReviewThreadResolved = vi.fn().mockResolvedValue(undefined);
     window.bridge = {
       fetchPullRequestDetail: vi.fn().mockResolvedValue({
         recentActivity: [{
@@ -141,18 +143,45 @@ describe('PullOverview', () => {
             githubId: 601, author: 'reviewer', body: 'Please keep the current value here.',
             createdAt: '2025-06-20T10:00:00Z', reactions: null, reviewId: 77,
             authorAssociation: 'MEMBER',
+          }, {
+            githubId: 602, author: 'octocat', body: 'Updated as requested.',
+            createdAt: '2025-06-20T11:00:00Z', reactions: null, reviewId: null,
+            authorAssociation: 'OWNER',
           }],
-          resolved: null, outdated: true, startLine: null, startSide: null,
+          resolved: false, outdated: true, startLine: null, startSide: null,
           originalLine: 41, originalStartLine: null,
         }],
       }),
+      refreshPullRequestDetail: vi.fn().mockImplementation(() => new Promise(() => {})),
+      replyToReviewThread,
+      setReviewThreadResolved,
+      addReviewCommentReaction: vi.fn().mockResolvedValue(undefined),
     } as unknown as typeof window.bridge;
 
-    render(<PullOverview row={row([])} bundle={reviewBundle} isMerged={false} />);
+    const { container } = render(<PullOverview row={row([])} bundle={reviewBundle} isMerged={false} />);
 
     expect(await screen.findByText('Please keep the current value here.')).toBeTruthy();
-    expect(screen.getByText('return currentValue;')).toBeTruthy();
+    expect(container.querySelector('.prc-review-thread--compact')).not.toBeNull();
+    expect(container.querySelector('.diff-row--del')?.textContent).toContain('return oldValue;');
+    expect(container.querySelector('.diff-row--add')?.textContent).toContain('return currentValue;');
+    expect(screen.getByText('1 reply')).toBeTruthy();
+    expect(screen.queryByText('Commented')).toBeNull();
     expect(screen.getByText('outdated')).toBeTruthy();
+
+    fireEvent.click(screen.getByTitle('Collapse thread'));
+    expect(screen.queryByText('Please keep the current value here.')).toBeNull();
+    expect(container.querySelector('.diff-row--add')).toBeNull();
+    expect(screen.getByText('1 reply')).toBeTruthy();
+    fireEvent.click(screen.getByTitle('Expand thread'));
+    expect(screen.getByText('Please keep the current value here.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(screen.getByPlaceholderText('Write a reply'), { target: { value: 'Looks good now.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    await waitFor(() => expect(replyToReviewThread).toHaveBeenCalledWith('trinodb/trino', 1, 501, 'Looks good now.'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
+    await waitFor(() => expect(setReviewThreadResolved).toHaveBeenCalledWith('trinodb/trino', 0, 501, true));
   });
 
   it('selects reviewers, assignees, and labels from the searchable popovers', async () => {

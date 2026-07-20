@@ -2888,6 +2888,8 @@ export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
   clearPat: () => Promise<boolean>;
+  isDevLocalDataResetAvailable: () => Promise<boolean>;
+  requestDevLocalDataReset: () => Promise<boolean>;
   fetchHello: () => Promise<string>;
   fetchPrs: () => Promise<PullRequestDto[]>;
   /** Server-side named PR filter — urgent, awaiting_me, stale,

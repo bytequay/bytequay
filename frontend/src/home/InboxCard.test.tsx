@@ -17,7 +17,10 @@ import InboxCard, { type InboxHandlers } from './InboxCard';
 import { notificationToInboxItem } from './inboxItems';
 import type { NotificationDto } from '../types';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.location.hash = '';
+});
 
 function notif(over: Partial<NotificationDto> & { payload: object }): NotificationDto {
   const { payload, ...rest } = over;
@@ -73,6 +76,24 @@ describe('InboxCard', () => {
     expect(handlers.openPr).not.toHaveBeenCalled();
     expect(handlers.openTask).not.toHaveBeenCalled();
     expect(handlers.opened).not.toHaveBeenCalled();
+  });
+
+  it('opens a budget alert at its owning thread instead of the disabled session page', () => {
+    const handlers = makeHandlers();
+    const item = notificationToInboxItem(notif({
+      kind: 'NEEDS_ATTENTION',
+      workspaceId: 'ws-1',
+      threadId: 'trunk-1',
+      taskId: 'task-1',
+      itemPath: '#/workspace/ws-1/sessions/run-1',
+      payload: { sessionId: 'run-1' },
+    }));
+    render(<InboxCard item={item} handlers={handlers} />);
+
+    fireEvent.click(screen.getByText('Review'));
+
+    expect(window.location.hash).toBe('#/workspace/ws-1/trunks/trunk-1');
+    expect(handlers.openTask).not.toHaveBeenCalled();
   });
 
   it('keeps the relative time beside the title', () => {

@@ -20,11 +20,13 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class TestPlanUsageService
 {
@@ -157,5 +159,42 @@ class TestPlanUsageService
         assertThat(Instant.ofEpochMilli(usage.limits().get(1).resetsAt()))
                 .isEqualTo(ZonedDateTime.of(
                         2026, 7, 24, 7, 59, 0, 0, ZoneId.of("Asia/Singapore")).toInstant());
+    }
+
+    @Test
+    void refreshesClaudeUsageThroughExpect()
+            throws IOException
+    {
+        assumeTrue(Files.isExecutable(Path.of("/usr/bin/expect")),
+                "interactive Claude probe requires expect");
+        Path claude = tempDir.resolve("claude");
+        Files.writeString(claude, """
+                #!/bin/sh
+                printf '$\\033[4G'
+                IFS= read -r command
+                [ "$command" = "/usage" ] || exit 1
+                printf 'Claude Max\\nCurrent session\\n2%% used\\nResets 7:59pm (Asia/Singapore)\\nUsage credits\\n'
+                IFS= read -r command
+                """);
+        Files.setPosixFilePermissions(claude, PosixFilePermissions.fromString("rwx------"));
+        Path cache = tempDir.resolve("app/claude-plan-usage.json");
+        PlanUsageService service = new PlanUsageService(
+                new ObjectMapper(),
+                tempDir.resolve("codex"),
+                tempDir.resolve("claude-config"),
+                tempDir.resolve("app/claude-statusline.json"),
+                cache,
+                null,
+                claude.toString());
+
+        PlanUsageService.PlanUsage result = service.refreshClaude();
+
+        assertThat(result.providers()).filteredOn(provider -> provider.provider().equals("anthropic"))
+                .singleElement().satisfies(provider -> {
+            assertThat(provider.plan()).isEqualTo("Max");
+            assertThat(provider.limits()).extracting(PlanUsageService.LimitWindow::usedPercent)
+                    .containsExactly(2.0);
+        });
+        assertThat(cache).isRegularFile();
     }
 }

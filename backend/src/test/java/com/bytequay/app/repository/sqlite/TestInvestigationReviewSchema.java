@@ -211,6 +211,7 @@ class TestInvestigationReviewSchema
         assertThat(reviews.agentReviewSpend(
                 Instant.EPOCH, Instant.now().plusSeconds(60))).anySatisfy(spend -> {
                     assertThat(spend.provider()).isEqualTo("agent-review");
+                    assertThat(spend.runner()).isEmpty();
                     assertThat(spend.costMilli()).isEqualTo(70L);
                     assertThat(spend.calls()).isEqualTo(1L);
                 });

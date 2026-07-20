@@ -36,9 +36,11 @@ import type {
 } from '../types';
 import type { DashboardPR } from '../types/dashboardPr';
 import type {
+  ApiUsageDto,
   BranchComparisonDto,
   BrainBlockDto,
   CanonicalNotificationDto,
+  DeepSeekBalanceDto,
   DistillRunDto,
   KnowledgeEntryDto,
   NotificationMuteDto,
@@ -2121,6 +2123,27 @@ function workspaceResponse(frame: string, request: WorkspaceApiRequest): unknown
         }],
       }],
     } satisfies PlanUsageDto;
+  }
+  if (path === '/api/ai/api-usage') {
+    return {
+      month: new Date(now).toISOString().slice(0, 7),
+      providers: [{
+        provider: 'anthropic', label: 'Anthropic API', callsCount: 18,
+        costUsdMilli: 12_460,
+      }, {
+        provider: 'deepseek', label: 'DeepSeek API', callsCount: 347,
+        costUsdMilli: 6_740,
+      }],
+    } satisfies ApiUsageDto;
+  }
+  if (path === '/api/ai/deepseek/balance') {
+    return {
+      configured: true, available: true, updatedAt: now, message: null,
+      balances: [{
+        currency: 'USD', totalBalance: '18.26000000',
+        grantedBalance: '0.00000000', toppedUpBalance: '18.26000000',
+      }],
+    } satisfies DeepSeekBalanceDto;
   }
   if (path === '/api/workspaces') {
     return frame === '6a' ? [visualSyncWorkspace] : visualWorkspaces;

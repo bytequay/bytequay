@@ -28,6 +28,7 @@ const LEDGER: AiLedgerDto = {
     { type: 'dev', callsCount: 12, costCents: 300 },
     { type: 'review', callsCount: 8, costCents: 200 },
   ],
+  apiByProvider: [],
 };
 
 describe('AiReviewPage', () => {

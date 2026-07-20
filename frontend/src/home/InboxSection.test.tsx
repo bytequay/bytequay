@@ -104,6 +104,29 @@ describe('InboxSection', () => {
     expect(container.querySelector('.home-inbox__badge')?.textContent).toBe('1');
   });
 
+  it('hides read action-required rows when filtering to unread only', async () => {
+    mockBridge([
+      notif({
+        id: 'read-review',
+        status: 'READ',
+        readAt: '2026-07-20T08:00:00Z',
+        payload: { pr: { title: 'Already read review request' } },
+      }),
+      notif({
+        id: 'unread-review',
+        payload: { pr: { title: 'Unread review request' } },
+      }),
+    ]);
+    render(<InboxSection prs={[]} onOpenPr={() => {}} onPrsChanged={() => {}} />);
+
+    expect(await screen.findByText('Unread review request')).toBeTruthy();
+    expect(screen.queryByText('Already read review request')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'See all' }));
+
+    expect(await screen.findByText('Already read review request')).toBeTruthy();
+  });
+
   it('resolves a task notification to its repository logo', async () => {
     const bridge = mockBridge([
       notif({

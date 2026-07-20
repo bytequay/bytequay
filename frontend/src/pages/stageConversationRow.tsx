@@ -140,7 +140,7 @@ function RuntimeKickoffCard({ row, kickoff }: {
 
 /**
  * Renders one stage-transcript row into a V3 conversation element. Shared
- * by the stage detail page and the code-diff page's conversation column so
+ * by the stage detail page and other read-only conversation surfaces so
  * both show an identical transcript. {@code onDecide} wires the Allow / Deny
  * buttons on a pending {@code permission} row; surfaces that pass none (the
  * read-only code-diff column) render it as a static "awaiting approval" note.

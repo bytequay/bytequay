@@ -47,7 +47,7 @@ function escapeHtml(s: string): string {
 
 /** Render a fenced diff as a `<pre class="bq-diff">` of per-line spans
  *  so CSS can paint added / removed / hunk / meta rows the same way the
- *  code-diff page does. Empty lines get a zero-width space so the row
+ *  native diff does. Empty lines get a zero-width space so the row
  *  keeps its height. */
 function renderDiffBlock(code: string): string {
   const rows = code.replace(/\n$/, '').split('\n').map(line => {

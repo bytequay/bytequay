@@ -23,6 +23,7 @@ import { usePendingShipProposal, proposalAction } from '../threads/usePendingShi
 import { useMessageQueue } from '../threads/useMessageQueue';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
+import { MarkReadyPanel, markReadyPrRef } from '../threads/MarkReadyPanel';
 import type { TaskPhase } from '../types/brainView';
 import { Conv, DecisionNode, EventTimestamp, NodeCard, QueuedMessages, Working } from '../ui/conv';
 import { SparkIcon } from '../ui/TaskBrainDesignIcons';
@@ -55,7 +56,7 @@ import { TaskChangedFilesCard } from './TaskChangedFilesCard';
  * surface).
  */
 export function TaskBrainRoute({
-  threadId, taskId, onOpenStage, onOpenCode, onOpenRun, onClosed,
+  threadId, taskId, onOpenStage, onOpenRun, onClosed,
   onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
   trunkLabel, workspaceName, workspaceRepository,
   onNavigateGlobal, onSwitchWorkspace, onNotifications, notificationCount,
@@ -64,8 +65,6 @@ export function TaskBrainRoute({
   threadId: string;
   taskId: string;
   onOpenStage: (stageId: string) => void;
-  onOpenCode: () => void;
-  /** Navigate to a live run's own log — the rail's Remote CI / comments rows use this. */
   onOpenRun?: (runId: string) => void;
   /** Closing a task seals it terminal + reaps its worktree, so the page is
    *  a dead end afterwards — navigate away (back to the thread trunk). */
@@ -93,7 +92,7 @@ export function TaskBrainRoute({
   const { data, pollFast } = useBrainViewData(taskId);
   const { task, brainFeed, stages, subStages } = data;
   const conversationRef = useRef<HTMLDivElement | null>(null);
-  const shipProposal = usePendingShipProposal(threadId, taskId);
+  const { proposal: shipProposal, refresh: refreshShipProposal } = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -116,8 +115,7 @@ export function TaskBrainRoute({
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
 
   // Publishes the Submit-review drawer's body/verdict and this task's
-  // unresolved diff comments to GitHub — the same action as TaskCodePage's
-  // embedded "Submit review" button, surfaced here in the top bar too.
+  // unresolved diff comments to GitHub.
   const [submittingReview, setSubmittingReview] = useState(false);
   const onSubmitReview = useCallback(async (body: string, verdict: ReviewVerdict) => {
     setSubmittingReview(true);
@@ -181,10 +179,10 @@ export function TaskBrainRoute({
       setPrSubTabRequest(prev => ({ subTab, token: (prev?.token ?? 0) + 1 }));
     }
   }, [refreshLocalPr]);
+  const openChanges = useCallback(() => openTab('pr', 'changes'), [openTab]);
 
   // The ready-for-review callout's inline gate. Approve ships the parked
-  // proposal exactly as drafted (the agent's stored PR title + body); the
-  // full editable surface stays on TaskCodePage via the callout's link.
+  // proposal exactly as drafted (the agent's stored PR title + body).
   const [shipBusy, setShipBusy] = useState(false);
   const [shipNote, setShipNote] = useState<string | null>(null);
   const approveShip = useCallback(async () => {
@@ -196,10 +194,11 @@ export function TaskBrainRoute({
         shipProposal.id, null, proposalAction(shipProposal) ?? 'ship_task');
       if (result.resolution !== 'approved') setShipNote(result.message);
       pollFast();
+      void refreshShipProposal();
     }
     catch (e) { setShipNote(e instanceof Error ? e.message : String(e)); }
     finally { setShipBusy(false); }
-  }, [shipBusy, shipProposal, pollFast]);
+  }, [shipBusy, shipProposal, pollFast, refreshShipProposal]);
 
   const askAgentToAddress = useCallback(() => {
     setText('Please address my review comments on the PR, then I\'ll push. ');
@@ -209,8 +208,8 @@ export function TaskBrainRoute({
     });
   }, []);
 
-  // One task-wide diff backs both the locked timeline artifact and the
-  // full-page review takeover.
+  // One task-wide diff backs both the locked timeline artifact and the local
+  // PR's Changes tab before a remote PR number exists.
   const [reviewFiles, setReviewFiles] = useState<DiffFileDto[] | null>(null);
   const [reviewCommitCount, setReviewCommitCount] = useState<number>();
   useEffect(() => {
@@ -503,7 +502,7 @@ export function TaskBrainRoute({
                     {data.rightRail.approval.reasonShort} — {data.rightRail.approval.pendingArtifact}
                   </div>
                   <div className="sp-appr__actions">
-                    <button type="button" className="sp-ab sp-ab--ok" onClick={onOpenCode}>
+                    <button type="button" className="sp-ab sp-ab--ok" onClick={openChanges}>
                       {data.rightRail.approval.primaryAction.label}
                     </button>
                   </div>
@@ -511,10 +510,10 @@ export function TaskBrainRoute({
               </DecisionNode>
             )}
             {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
-              ? <MarkReadyPrompt onReview={onOpenCode} />
+              ? <MarkReadyPrompt onReview={openChanges} />
               : (
                 <ShipReviewPrompt
-                  onReview={onOpenCode}
+                  onReview={openChanges}
                   onApprove={() => { void approveShip(); }}
                   onReviewChanges={() => openTab('pr', 'changes')}
                   busy={shipBusy}
@@ -607,7 +606,6 @@ export function TaskBrainRoute({
       defaultExpandPhases
       highlightActiveStage={false}
       onOpenStage={onOpenStage}
-      onOpenCode={onOpenCode}
       onOpenPr={pr?.onOpen}
       onOpenTab={openTab}
       onOpenRun={onOpenRun}
@@ -621,19 +619,25 @@ export function TaskBrainRoute({
   );
 
   const displayedTaskBundle = agentReview.displayedBundle ?? localPrBundle;
+  const markReadyPr = proposalAction(shipProposal) === 'mark_ready' ? markReadyPrRef(shipProposal) : null;
   // Normal task pages reuse the locked Pull Requests detail body. Keep the
   // legacy PRView below exclusively for the review-round drill-in, whose
   // finding APIs do not exist on PullDetailBody.
-  const taskRemotePrNumber = displayedTaskBundle?.pr.remotePrNumber ?? task.prNumber;
+  const taskPrNumber = displayedTaskBundle?.pr.remotePrNumber ?? task.prNumber ?? 0;
   const taskPullRow = displayedTaskBundle !== null && displayedTaskBundle !== undefined
-      && taskRemotePrNumber !== null
     ? ((): PullRow => {
-        const base = pullRowFromLocal(displayedTaskBundle.pr, task.repoFullName, taskRemotePrNumber);
+        const base = pullRowFromLocal(displayedTaskBundle.pr, task.repoFullName, taskPrNumber);
         const reviewState = agentReview.headerState === 'never' ? 'none' : agentReview.headerState;
+        const additions = displayedTaskBundle.pr.syncedAdditions
+          ?? reviewFiles?.reduce((sum, file) => sum + file.additions, 0) ?? 0;
+        const deletions = displayedTaskBundle.pr.syncedDeletions
+          ?? reviewFiles?.reduce((sum, file) => sum + file.deletions, 0) ?? 0;
         return {
           ...base,
+          add: additions,
+          del: deletions,
           hasAgent: reviewState !== 'none',
-          dto: { ...base.dto, reviewState },
+          dto: { ...base.dto, additions, deletions, reviewState },
         };
       })()
     : null;
@@ -657,10 +661,25 @@ export function TaskBrainRoute({
       refresh={refreshLocalPr}
       openOverviewToken={openOverviewToken}
       openChangesToken={prSubTabRequest?.subTab === 'changes' ? prSubTabRequest.token : undefined}
+      changesFiles={displayedTaskBundle.pr.remotePrNumber === null ? reviewFiles : undefined}
+      fetchChangesBlob={displayedTaskBundle.pr.remotePrNumber === null
+        ? (path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)
+        : undefined}
+      changesBanner={shipProposal !== null && markReadyPr !== null ? (
+        <MarkReadyPanel
+          notificationId={shipProposal.id}
+          pr={markReadyPr}
+          onMarked={() => {
+            pollFast();
+            refreshLocalPr();
+            void refreshShipProposal();
+          }}
+        />
+      ) : undefined}
       onComment={onTaskPrComment}
       onAssignAgent={() => { void agentReview.startReview(); }}
       onWorkWithAgent={() => openAgentRound()}
-      onOpenInWorkspace={onOpenCode}
+      onOpenInWorkspace={openChanges}
     />
   ) : null;
   const openAgentFinding = (
@@ -860,7 +879,7 @@ export function TaskBrainRoute({
         : undefined}
       onRevealPlan={plan !== null ? () => setPlanOpen(true) : undefined}
       markReadyReminder={proposalAction(shipProposal) === 'mark_ready'}
-      onOpenMarkReady={onOpenCode}
+      onOpenMarkReady={openChanges}
       tabs={{
         pr: taskPullDetail ?? undefined,
       }}

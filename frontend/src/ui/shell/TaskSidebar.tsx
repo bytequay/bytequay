@@ -80,7 +80,7 @@ type TaskSidebarTask = {
 export function TaskSidebar({
   task, threadLabel = 'Trunk', nodes, highlightActiveStage = true,
   onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse, onOpenTrunk,
-  onOpenStage, onOpenCode, onOpenPr, onOpenTab, onOpenBrain, onOpenRun,
+  onOpenStage, onOpenPr, onOpenTab, onOpenBrain, onOpenRun,
   onNavigateGlobal, onSwitchWorkspace,
 }: {
   task: TaskSidebarTask;
@@ -97,7 +97,6 @@ export function TaskSidebar({
   /** Opens the owning trunk. Kept separate from the traffic-light history back action. */
   onOpenTrunk?: () => void;
   onOpenStage?: (stageId: string) => void;
-  onOpenCode?: () => void;
   onOpenPr?: () => void;
   onOpenTab?: (tab: 'pr', subTab?: 'checks') => void;
   onOpenBrain?: () => void;
@@ -123,7 +122,6 @@ export function TaskSidebar({
     switch (nav.kind) {
       case 'stage': onOpenStage?.(nav.stageId); break;
       case 'run': onOpenRun?.(nav.runId); break;
-      case 'code': onOpenCode?.(); break;
       case 'pr': onOpenPr?.(); break;
       case 'tab': onOpenTab?.(nav.tab, nav.subTab); break;
       case 'brain': onOpenBrain?.(); break;

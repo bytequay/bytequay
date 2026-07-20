@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { getCached } from '../dataCache';
 import { isPendingLocalComment } from '../diff/DiffInlineComments';
@@ -56,12 +56,17 @@ function dragStart(e: ReactMouseEvent, start: number, apply: (w: number) => void
   window.addEventListener('mouseup', up);
 }
 
-export default function PullChanges({ row, bundle, refresh, onComment }: {
+export default function PullChanges({
+  row, bundle, refresh, onComment, filesOverride, fetchBlobOverride, banner,
+}: {
   row: PullRow;
   bundle: LocalPRBundle | null | undefined;
   refresh: () => void;
   /** PR-level comment action — the same bridge decision the Overview tab makes. */
   onComment?: (body: string) => Promise<void>;
+  filesOverride?: DiffFileDto[] | null;
+  fetchBlobOverride?: (path: string) => Promise<{ lines: string[] }>;
+  banner?: ReactNode;
 }) {
   const [files, setFiles] = useState<DiffFileDto[] | null>(null);
   const [filesError, setFilesError] = useState<string | null>(null);
@@ -74,6 +79,11 @@ export default function PullChanges({ row, bundle, refresh, onComment }: {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (filesOverride !== undefined) {
+      setFiles(filesOverride);
+      setFilesError(null);
+      return;
+    }
     let cancelled = false;
     setFiles(null);
     setFilesError(null);
@@ -81,7 +91,7 @@ export default function PullChanges({ row, bundle, refresh, onComment }: {
       .then(list => { if (!cancelled) setFiles(list); })
       .catch(e => { if (!cancelled) setFilesError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
-  }, [row.repo, row.num]);
+  }, [filesOverride, row.repo, row.num]);
 
   const remoteNumber = bundle?.pr.remotePrNumber ?? null;
   const { activity, reviewThreads, refresh: refreshFeed } = useGitHubActivityFeed(row.repo, remoteNumber);
@@ -93,7 +103,8 @@ export default function PullChanges({ row, bundle, refresh, onComment }: {
 
   const headSha = bundle?.commits[bundle.commits.length - 1]?.sha ?? null;
   const blobRepo = bundle?.pr.repo ?? row.repo;
-  const fetchBlob = headSha === null ? null : (path: string) => window.bridge.fetchFileBlob(blobRepo, path, headSha);
+  const fetchBlob = fetchBlobOverride
+    ?? (headSha === null ? null : (path: string) => window.bridge.fetchFileBlob(blobRepo, path, headSha));
 
   const threadCtx: ThreadRowContext | null = remoteNumber === null ? null : {
     repo: bundle?.pr.repo ?? row.repo,
@@ -145,6 +156,7 @@ export default function PullChanges({ row, bundle, refresh, onComment }: {
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {banner}
       {/* ── Toolbar ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderBottom: '1px solid #e7e9ec', flexShrink: 0, background: '#fff' }}>
         <span className="pl-hov-ic" onClick={() => setTreeOpen(o => !o)} title="Toggle file tree" style={{ width: 26, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 6, color: '#57606a', flexShrink: 0 }}>

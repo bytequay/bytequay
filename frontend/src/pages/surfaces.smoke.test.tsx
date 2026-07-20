@@ -57,14 +57,14 @@ describe('V3 surfaces smoke', () => {
 
   it('TaskBrainRoute mounts', () => {
     const { container } = render(
-      <TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenCode={() => {}} onClosed={() => {}} />,
+      <TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onClosed={() => {}} />,
     );
     expect(container.querySelector('.shell')).toBeTruthy();
   });
 
   it('StageDetailRoute mounts', () => {
     const { container } = render(
-      <StageDetailRoute threadId="t1" taskId="task-1" stageId="s1" onOpenCode={() => {}} />,
+      <StageDetailRoute threadId="t1" taskId="task-1" stageId="s1" />,
     );
     expect(container.querySelector('.shell')).toBeTruthy();
   });

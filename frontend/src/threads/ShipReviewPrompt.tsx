@@ -17,9 +17,8 @@ import { CheckIcon, WarnTriangleIcon } from '../ui/TaskBrainDesignIcons';
  * The in-conversation callout shown when development has finished and a
  * `ship_task` proposal is parked awaiting the user. Two exits: Approve &
  * ship resolves the parked gate inline, Review changes unfolds the PR
- * pane onto its code-diff sub-tab. `onReview` (the inline text link)
- * still routes to the full review surface (diff + editable PR
- * description).
+ * pane onto its Changes tab. Both review actions stay in that one PR-owned
+ * diff surface.
  */
 export function ShipReviewPrompt({ onReview, onApprove, onReviewChanges, busy = false, note }: {
   onReview: () => void;
@@ -36,7 +35,7 @@ export function ShipReviewPrompt({ onReview, onApprove, onReviewChanges, busy = 
         <div className="review-callout__title">Ready for review</div>
         <div className="review-callout__tx">
           Development finished and parked a pull request for your review.
-          Review the <button type="button" className="review-callout__link" onClick={onReview}>diff and the drafted PR description</button>,
+          Review the <button type="button" className="review-callout__link" onClick={onReview}>changes</button>,
           leave any comments, then approve to ship.
         </div>
         <div className="review-callout__actions">

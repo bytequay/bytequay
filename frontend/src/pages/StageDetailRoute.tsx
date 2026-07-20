@@ -19,6 +19,7 @@ import { usePendingShipProposal, proposalAction } from '../threads/usePendingShi
 import { useThreadStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
+import { MarkReadyPanel, markReadyPrRef } from '../threads/MarkReadyPanel';
 import type { DiffFileDto, UserProfileDto } from '../types';
 import { getCached } from '../dataCache';
 import type { AgentRunDto, StageType, TaskPhase } from '../types/brainView';
@@ -97,7 +98,7 @@ function stageKindLabel(kind: StageKind): string {
  * tab (CI-fix stage only) shows the live check run.
  */
 export function StageDetailRoute({
-  threadId, taskId, stageId, onOpenCode, onOpenStage, onOpenRun,
+  threadId, taskId, stageId, onOpenStage, onOpenRun,
   onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, onToggleCollapse, onOpenBrain,
   trunkLabel, workspaceName, workspaceRepository,
   onNavigateGlobal, onSwitchWorkspace, onNotifications, notificationCount,
@@ -106,10 +107,7 @@ export function StageDetailRoute({
   threadId: string;
   taskId: string;
   stageId: string;
-  onOpenCode: () => void;
-  /** Jump to another stage — used after approving the plan, which closes
-   *  this Plan stage and opens the Development stage, and by the live-plan
-   *  diagram in the task sidebar. */
+  /** Jump to another stage after approving the plan or from the task flow. */
   onOpenStage?: (stageId: string) => void;
   /** Navigate to a live run's own log — the rail's Remote CI / comments rows
    *  and the stage feed's run/round episodes use this. */
@@ -135,7 +133,7 @@ export function StageDetailRoute({
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
 }) {
   const { data, refresh } = useStageDetailData(stageId);
-  const shipProposal = usePendingShipProposal(threadId, taskId);
+  const { proposal: shipProposal, refresh: refreshShipProposal } = usePendingShipProposal(threadId, taskId);
   const { data: brain, pollFast } = useBrainViewData(taskId);
   const conversationRef = useRef<HTMLDivElement | null>(null);
   // The plan is the task's; surface it on every stage via the reminder pill +
@@ -151,8 +149,7 @@ export function StageDetailRoute({
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
 
   // Publishes the Submit-review drawer's body/verdict and this task's
-  // unresolved diff comments to GitHub — the same action as TaskCodePage's
-  // embedded "Submit review" button, surfaced here in the top bar too.
+  // unresolved diff comments to GitHub.
   const [submittingReview, setSubmittingReview] = useState(false);
   const onSubmitReview = useCallback(async (body: string, verdict: ReviewVerdict) => {
     setSubmittingReview(true);
@@ -213,6 +210,7 @@ export function StageDetailRoute({
       setOpenChangesToken(token => (token ?? 0) + 1);
     }
   }, [refreshLocalPr]);
+  const openChanges = useCallback(() => openTab('pr', 'changes'), [openTab]);
 
   // The ready-for-review callout's inline gate — same semantics as the
   // task page: approve ships the parked proposal exactly as drafted.
@@ -228,10 +226,11 @@ export function StageDetailRoute({
       if (result.resolution !== 'approved') setShipNote(result.message);
       pollFast();
       refresh();
+      void refreshShipProposal();
     }
     catch (e) { setShipNote(e instanceof Error ? e.message : String(e)); }
     finally { setShipBusy(false); }
-  }, [shipBusy, shipProposal, pollFast, refresh]);
+  }, [shipBusy, shipProposal, pollFast, refresh, refreshShipProposal]);
 
   const stageKind: StageKind = data ? KIND[data.stage.type] ?? 'dev' : 'dev';
   const state = data?.stage.state;
@@ -489,10 +488,10 @@ export function StageDetailRoute({
         )}
         {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
         {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
-          ? <MarkReadyPrompt onReview={onOpenCode} />
+          ? <MarkReadyPrompt onReview={openChanges} />
           : (
             <ShipReviewPrompt
-              onReview={onOpenCode}
+              onReview={openChanges}
               onApprove={() => { void approveShip(); }}
               onReviewChanges={() => openTab('pr', 'changes')}
               busy={shipBusy}
@@ -527,22 +526,29 @@ export function StageDetailRoute({
   const pr = data?.pr ?? null;
   const taskCompleted = data?.task.currentPhase === 'COMPLETED';
   const displayedLocalPrBundle = agentReview.displayedBundle ?? localPrBundle;
+  const markReadyPr = proposalAction(shipProposal) === 'mark_ready' ? markReadyPrRef(shipProposal) : null;
+  const totalAdds = files?.reduce((n, f) => n + f.additions, 0) ?? 0;
+  const totalDels = files?.reduce((n, f) => n + f.deletions, 0) ?? 0;
   const stageRemotePrNumber = displayedLocalPrBundle?.pr.remotePrNumber
     ?? data?.task.prNumber
     ?? brain.task.prNumber;
+  const stagePrNumber = stageRemotePrNumber ?? 0;
   const stagePullRow = displayedLocalPrBundle !== null && displayedLocalPrBundle !== undefined
-      && stageRemotePrNumber !== null
     ? ((): PullRow => {
         const base = pullRowFromLocal(
           displayedLocalPrBundle.pr,
           data?.task.repoFullName ?? brain.task.repoFullName,
-          stageRemotePrNumber,
+          stagePrNumber,
         );
         const reviewState = agentReview.headerState === 'never' ? 'none' : agentReview.headerState;
+        const additions = displayedLocalPrBundle.pr.syncedAdditions ?? totalAdds;
+        const deletions = displayedLocalPrBundle.pr.syncedDeletions ?? totalDels;
         return {
           ...base,
+          add: additions,
+          del: deletions,
           hasAgent: reviewState !== 'none',
-          dto: { ...base.dto, reviewState },
+          dto: { ...base.dto, additions, deletions, reviewState },
         };
       })()
     : null;
@@ -566,23 +572,27 @@ export function StageDetailRoute({
       refresh={refreshLocalPr}
       openOverviewToken={openOverviewToken}
       openChangesToken={openChangesToken}
+      changesFiles={displayedLocalPrBundle.pr.remotePrNumber === null ? files : undefined}
+      fetchChangesBlob={displayedLocalPrBundle.pr.remotePrNumber === null
+        ? (path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)
+        : undefined}
+      changesBanner={shipProposal !== null && markReadyPr !== null ? (
+        <MarkReadyPanel
+          notificationId={shipProposal.id}
+          pr={markReadyPr}
+          onMarked={() => {
+            pollFast();
+            refreshLocalPr();
+            void refreshShipProposal();
+          }}
+        />
+      ) : undefined}
       onComment={onStagePrComment}
       onAssignAgent={() => { void agentReview.startReview(); }}
       onWorkWithAgent={() => openAgentRound()}
       onOpenInWorkspace={onOpenBrain}
     />
   ) : null;
-
-  const totalAdds = files?.reduce((n, f) => n + f.additions, 0) ?? 0;
-  const totalDels = files?.reduce((n, f) => n + f.deletions, 0) ?? 0;
-
-  // The task-scoped sidebar with the live-plan lifecycle diagram, replacing
-  // the global rail while inside a task. The plan diagram is task-level — the
-  // same set of stages regardless of which one you're viewing — so it derives
-  // from the stage detail when present and otherwise from the brain view
-  // (which is keyed by taskId and stays loaded across stage switches). That
-  // keeps the rail on screen when hopping to a not-yet-loaded stage instead of
-  // collapsing the layout for a frame.
   const planStages = data?.allStages ?? brain.stages;
   const planSubStages = data?.subStages ?? brain.subStages;
   const planLiveRuns = data?.liveRuns ?? brain.liveRuns;
@@ -644,7 +654,6 @@ export function StageDetailRoute({
       onNotifications={onNotifications}
       notificationCount={notificationCount}
       onOpenStage={onOpenStage}
-      onOpenCode={onOpenCode}
       onOpenPr={pr !== null ? openPr : undefined}
       onOpenTab={openTab}
       onOpenBrain={onOpenBrain}
@@ -741,6 +750,7 @@ export function StageDetailRoute({
         : undefined}
       onRevealPlan={plan !== null ? () => setPlanOpen(true) : undefined}
       markReadyReminder={proposalAction(shipProposal) === 'mark_ready'}
+      onOpenMarkReady={openChanges}
     />
   );
 }

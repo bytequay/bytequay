@@ -3051,7 +3051,7 @@
   padding: 0;
   border-radius: 0;
 }
-/* Fenced diffs get the code-diff page's treatment: full-width per-line
+/* Fenced diffs get the native diff treatment: full-width per-line
    backgrounds for added / removed / hunk / file-meta rows. The lines own
    the horizontal padding so their colour bleeds edge-to-edge. The block
    keeps the base `pre` background (theme-agnostic), and the meta / hunk

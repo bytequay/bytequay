@@ -29,7 +29,6 @@ import { useThreadTasks } from './pages/useThreadTasks';
 import type { WsNavKey } from './ui/workspace';
 import { TaskBrainRoute } from './pages/TaskBrainRoute';
 import { StageDetailRoute } from './pages/StageDetailRoute';
-import TaskCodePage from './threads/TaskCodePage';
 import WorkspaceShell, { type WorkspaceSection } from './workspace/WorkspaceShell';
 import NewThreadDialog from './workspace/NewThreadDialog';
 import { useWorkspaceNav } from './pages/useWorkspaceNav';
@@ -93,9 +92,6 @@ export type Nav =
   /** Stage drill-in — the detailed per-stage view reached from a brain-
    *  view stage chip or a brain-agent response's drill-in chip. */
   | { view: 'stage-detail'; threadId: string; taskId: string; stageId: string }
-  /** Standalone code page — the task's commit/diff/files viewer, reached
-   *  from a "View code diff" button on the brain view or a stage detail. */
-  | { view: 'task-code'; threadId: string; taskId: string; back?: Nav }
   | { view: 'review-thread'; threadId: string; back?: Nav }
   | { view: 'notifications' }
   | { view: 'repos' }
@@ -299,7 +295,6 @@ function publicRoute(nav: Nav, workspaceId: string | null): WorkspaceRoute | nul
     case 'thread-detail':
     case 'task-brain':
     case 'stage-detail':
-    case 'task-code':
       return workspaceId === null ? null : {
         kind: 'trunks', workspaceId, trunkId: nav.threadId,
       };
@@ -341,15 +336,15 @@ function publicRoute(nav: Nav, workspaceId: string | null): WorkspaceRoute | nul
   }
 }
 
-/** Per-task memory of the last sub-surface the user viewed (brain, a specific
- *  stage, or the code page), so reopening a task lands back where they left
+/** Per-task memory of the last sub-surface the user viewed (brain or a specific
+ *  stage), so reopening a task lands back where they left
  *  off instead of always on the brain. Persisted so it survives a reload. */
 const TASK_VIEW_KEY = (taskId: string) => `bq.task.lastView.${taskId}`;
 
 /** Record the surface for a task nav, so the next open can restore it. */
 function rememberTaskView(nav: Nav): void {
   if (typeof window === 'undefined') return;
-  if (nav.view !== 'task-brain' && nav.view !== 'stage-detail' && nav.view !== 'task-code') {
+  if (nav.view !== 'task-brain' && nav.view !== 'stage-detail') {
     return;
   }
   // Store only view + stageId — never the recursive `back` chain.
@@ -360,8 +355,8 @@ function rememberTaskView(nav: Nav): void {
   catch { /* private browsing — skip */ }
 }
 
-/** The nav target for opening a task: the last surface the user viewed for it
- *  (a stage, the code page), or the brain page as the default/fallback. */
+/** The nav target for opening a task: the last stage the user viewed, or the
+ *  brain page as the default/fallback. Legacy code-page memory opens Changes. */
 function lastTaskNav(threadId: string, taskId: string): Nav {
   const fallback: Nav = { view: 'task-brain', threadId, taskId };
   if (typeof window === 'undefined') return fallback;
@@ -372,7 +367,9 @@ function lastTaskNav(threadId: string, taskId: string): Nav {
     if (v.view === 'stage-detail' && typeof v.stageId === 'string' && v.stageId.length > 0) {
       return { view: 'stage-detail', threadId, taskId, stageId: v.stageId };
     }
-    if (v.view === 'task-code') return { view: 'task-code', threadId, taskId };
+    if (v.view === 'task-code') {
+      return { view: 'task-brain', threadId, taskId, initialPrSubTab: 'changes' };
+    }
     return fallback;
   }
   catch { return fallback; }
@@ -405,18 +402,7 @@ function App() {
   }, []);
   // Left rail fold — the chrome-row panel toggle collapses it to a strip.
   const [railCollapsed, setRailCollapsed] = useState(false);
-  // The code-diff page is wide; fold the rail when it opens so the diff gets
-  // the room, and expand it again when the user leaves. Only acts on the
-  // enter/leave transition, so a manual toggle elsewhere is left alone.
-  const prevViewRef = useRef(nav.view);
-  useEffect(() => {
-    const was = prevViewRef.current;
-    prevViewRef.current = nav.view;
-    if (nav.view === 'task-code' && was !== 'task-code') setRailCollapsed(true);
-    else if (was === 'task-code' && nav.view !== 'task-code') setRailCollapsed(false);
-  }, [nav.view]);
-
-  // Remember the last task sub-surface (brain / stage / code) per task, so
+  // Remember the last task sub-surface (brain / stage) per task, so
   // clicking the task again returns there instead of the brain default.
   useEffect(() => { rememberTaskView(nav); }, [nav]);
 
@@ -863,7 +849,7 @@ function App() {
   // change the hook count between renders and crash the whole app.
   const inWorkspaceFlow = nav.view === 'workspace'
     || nav.view === 'thread-detail' || nav.view === 'task-brain'
-    || nav.view === 'stage-detail' || nav.view === 'task-code';
+    || nav.view === 'stage-detail';
   // The viewed thread's own workspace wins once resolved (e.g. by
   // TrunkRoute) — a thread opened from outside the workspace flow (a PR's
   // linked-task chip, footprint resume) shows ITS workspace's rail instead
@@ -924,7 +910,7 @@ function App() {
       case 'home': return 'home';
       case 'workspaces-landing': return 'workspaces';
       case 'workspace': return workspaceSectionNav(nav.section ?? 'today');
-      case 'thread-detail': case 'task-brain': case 'stage-detail': case 'task-code': return 'trunks';
+      case 'thread-detail': case 'task-brain': case 'stage-detail': return 'trunks';
       case 'pulls': return 'pulls';
       case 'repos': case 'repository': case 'local-repo': return 'repos';
       case 'email': return 'email';
@@ -956,8 +942,7 @@ function App() {
     || nav.view === 'workspace'
     || nav.view === 'thread-detail'
     || nav.view === 'task-brain'
-    || nav.view === 'stage-detail'
-    || nav.view === 'task-code';
+    || nav.view === 'stage-detail';
   const resolvingLegacyRepo = nav.view === 'repos' || nav.view === 'repo'
     || nav.view === 'repository' || nav.view === 'local-repo';
 
@@ -1150,9 +1135,6 @@ function App() {
             onOpenStage={stageId => setNav({
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
-            onOpenCode={() => setNav({
-              view: 'task-code', threadId: nav.threadId, taskId: nav.taskId, back: nav,
-            })}
             onOpenRun={openRun(nav.threadId, nav.taskId)}
             onClosed={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
             onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
@@ -1173,24 +1155,11 @@ function App() {
             notificationCount={unreadNotificationCount}
           />
         )}
-        {nav.view === 'task-code' && (
-          <TaskCodePage
-            threadId={nav.threadId}
-            taskId={nav.taskId}
-            stageId={nav.back?.view === 'stage-detail' ? nav.back.stageId : undefined}
-            onBack={() => setNav(nav.back ?? {
-              view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
-            })}
-          />
-        )}
         {nav.view === 'stage-detail' && (
           <StageDetailRoute
             taskId={nav.taskId}
             stageId={nav.stageId}
             threadId={nav.threadId}
-            onOpenCode={() => setNav({
-              view: 'task-code', threadId: nav.threadId, taskId: nav.taskId, back: nav,
-            })}
             onOpenStage={stageId => setNav({
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}

@@ -182,10 +182,10 @@ export function ThreadDiffPane({
   workingCount?: number | null;
   commitsCount?: number | null;
   /** Drop the outer card border/radius so the pane sits edge-to-edge —
-   *  used by the standalone code-diff page to match the PR diff shell. */
+   *  used by full-height diff hosts to match the PR diff shell. */
   flush?: boolean;
   /** Show only the Commits view (no Working tree tab) — the standalone task
-   *  code-diff page is about the task's commits. */
+   *  commit-oriented diff hosts are about the task's commits. */
   commitsOnly?: boolean;
 }) {
   const internal = useTaskDiffState(threadId);
@@ -948,7 +948,7 @@ const panelStyle: React.CSSProperties = {
   flex: 1, minHeight: 0,
 };
 
-// Edge-to-edge variant for the standalone code-diff page, which supplies
+// Edge-to-edge variant for full-height diff hosts, which supply
 // its own diff shell — no card border/radius.
 const flushPanelStyle: React.CSSProperties = {
   ...panelStyle,

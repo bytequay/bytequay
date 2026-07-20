@@ -47,17 +47,15 @@ describe('StageDetailPage locked frame', () => {
     expect(screen.getByText('Stage 2 of 4 · 15m 23s')).toBeTruthy();
   });
 
-  it('uses the resizable PR column and ignores legacy code/CI pane nodes', () => {
+  it('uses the resizable PR column and ignores the legacy CI pane node', () => {
     const { container } = render(stage('ci-fix', {
       tabs: {
         pr: <div data-testid="pr-body">real PR body</div>,
         ci: <div data-testid="ci-body">legacy CI</div>,
-        code: <div data-testid="code-body">legacy code</div>,
       },
     }));
     expect(screen.getByTestId('pr-body')).toBeTruthy();
     expect(screen.queryByTestId('ci-body')).toBeNull();
-    expect(screen.queryByTestId('code-body')).toBeNull();
     expect(container.querySelector('.pane-tab')).toBeNull();
     expect(screen.getByRole('separator', { name: 'Resize pull request panel' })).toBeTruthy();
   });

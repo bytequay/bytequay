@@ -14,9 +14,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { MarkdownProse } from './MarkdownProse';
 import { useMentions } from '../useMentions';
+import type { NotificationDto } from '../types';
 
 /** A PR reference parsed from the parked `mark_ready` payload. */
 export type MarkReadyPrRef = { owner: string; repo: string; number: number };
+
+export function markReadyPrRef(notification: NotificationDto | null): MarkReadyPrRef | null {
+  if (notification === null) return null;
+  try {
+    const ref = JSON.parse(notification.payloadJson)?.pr as {
+      owner?: unknown; repo?: unknown; number?: unknown;
+    };
+    return typeof ref?.owner === 'string' && typeof ref?.repo === 'string'
+      && typeof ref?.number === 'number'
+      ? { owner: ref.owner, repo: ref.repo, number: ref.number }
+      : null;
+  }
+  catch { return null; }
+}
 
 /** Split a reviewers field (comma/space/newline separated, `@`-prefixed or
  *  not) into distinct GitHub logins — mirrors the backend's own parse so the
@@ -31,7 +46,7 @@ export function parseReviewers(raw: string): string[] {
 }
 
 /**
- * The mark-ready gate hosted in the code page's pull-request pane. The draft
+ * The mark-ready gate hosted above the PR Changes page. The draft
  * PR already exists (CI is green); approving flips it out of draft and — if
  * any reviewers were typed — requests them. Leaving the field empty just
  * marks the PR ready. A link jumps to the live PR on GitHub.

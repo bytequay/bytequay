@@ -17,7 +17,7 @@ import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/Dif
 import { SubmitReviewDrawer, type ReviewVerdict } from '../pages/SubmitReviewDrawer';
 import { usePR } from '../pr/usePR';
 import { derivePRCapabilities } from '../pr/prCapabilities';
-import type { AiReviewDraftDto } from '../types';
+import type { AiReviewDraftDto, DiffFileDto } from '../types';
 import type { LocalPRBundle } from '../types/localPr';
 import { CommentBubbleIcon, PrMergedIcon, PrOpenIcon, RobotIcon } from './atoms';
 import { buildHeader } from './detailModel';
@@ -76,6 +76,13 @@ export type PullDetailBodyProps = {
   refresh: () => void;
   /** User-gated PR-level comment mutation supplied by the host. */
   onComment?: (body: string) => Promise<void>;
+  /** Task-owned PR panes supply their local cumulative diff before GitHub has
+   *  assigned a PR number. Omit to load the remote PR diff normally. */
+  changesFiles?: DiffFileDto[] | null;
+  /** Optional task-worktree blob loader for expanding collapsed local diff context. */
+  fetchChangesBlob?: (path: string) => Promise<{ lines: string[] }>;
+  /** Gate/action content shown above the Changes toolbar. */
+  changesBanner?: ReactNode;
 } & PullDetailActions;
 
 function ReviewAction({ children, onClick, title }: {
@@ -230,7 +237,10 @@ function QuickReviewInline({
   );
 }
 
-export function PullDetailBody({ row, bundle, refresh, onComment, openOverviewToken, openChangesToken, ...actions }: PullDetailBodyProps) {
+export function PullDetailBody({
+  row, bundle, refresh, onComment, changesFiles, fetchChangesBlob, changesBanner,
+  openOverviewToken, openChangesToken, ...actions
+}: PullDetailBodyProps) {
   const [subTab, setSubTab] = useState<'overview' | 'changes'>('overview');
   const [submitOpen, setSubmitOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -352,7 +362,15 @@ export function PullDetailBody({ row, bundle, refresh, onComment, openOverviewTo
           </div>
         </div>
       ) : (
-        <PullChanges row={row} bundle={bundle} refresh={refresh} onComment={onComment} />
+        <PullChanges
+          row={row}
+          bundle={bundle}
+          refresh={refresh}
+          onComment={onComment}
+          filesOverride={changesFiles}
+          fetchBlobOverride={fetchChangesBlob}
+          banner={changesBanner}
+        />
       )}
       <SubmitReviewDrawer
         open={submitOpen}

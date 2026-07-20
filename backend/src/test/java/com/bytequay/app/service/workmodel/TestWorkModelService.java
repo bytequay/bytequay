@@ -23,31 +23,27 @@ import org.mockito.Mockito;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 class TestWorkModelService
 {
     @Test
-    void cliAgentsAlwaysAppearAsInstalledAndAuthed()
+    void cliAgentsAlwaysAppear()
     {
         CredentialService credentials = Mockito.mock(CredentialService.class);
         when(credentials.listByTypeAndName(any(), any())).thenReturn(List.of());
 
-        WorkModelOptions options = new WorkModelService(credentials).options();
+        WorkModelOptions options = service(credentials).options();
 
-        // We dropped per-host CLI probing — the picker reports every CLI
-        // agent as available and discovers a missing binary at use-time.
         assertThat(options.cliAgents())
                 .extracting(WorkModelOptions.WorkModelAgentOption::id)
                 .containsExactly("claude-code", "codex");
-        assertThat(options.cliAgents()).allSatisfy(agent -> {
-            assertThat(agent.installed()).isTrue();
-            assertThat(agent.authed()).isTrue();
-        });
     }
 
     @Test
@@ -56,7 +52,7 @@ class TestWorkModelService
         CredentialService credentials = Mockito.mock(CredentialService.class);
         when(credentials.listByTypeAndName(any(), any())).thenReturn(List.of());
 
-        WorkModelOptions options = new WorkModelService(credentials).options();
+        WorkModelOptions options = service(credentials).options();
 
         // Every provider in the catalog has zero credentials → empty
         // API list. CLI agents always appear regardless because they
@@ -75,7 +71,7 @@ class TestWorkModelService
                         credential(1, "anthropic", "personal", true, now),
                         credential(2, "anthropic", "team", false, now)));
 
-        WorkModelOptions options = new WorkModelService(credentials).options();
+        WorkModelOptions options = service(credentials).options();
 
         assertThat(options.apiProviders())
                 .extracting(WorkModelOptions.WorkModelProviderOption::id)
@@ -97,7 +93,7 @@ class TestWorkModelService
         CredentialService credentials = Mockito.mock(CredentialService.class);
         when(credentials.listByTypeAndName(any(), any())).thenReturn(List.of());
 
-        WorkModelOptions options = new WorkModelService(credentials).options();
+        WorkModelOptions options = service(credentials).options();
 
         for (WorkModelOptions.WorkModelAgentOption agent : options.cliAgents()) {
             assertThat(agent.defaultModel()).isNotBlank();
@@ -108,6 +104,13 @@ class TestWorkModelService
                         assertThat(m.isDefault()).isTrue();
                     });
         }
+    }
+
+    private static WorkModelService service(CredentialService credentials)
+    {
+        CodexModelCatalogProbe codexModels = Mockito.mock(CodexModelCatalogProbe.class);
+        when(codexModels.models(anyBoolean())).thenReturn(Optional.empty());
+        return new WorkModelService(credentials, codexModels);
     }
 
     private static Credential credential(long id, String provider, String instance, boolean isDefault, Instant now)

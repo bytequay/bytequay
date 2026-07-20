@@ -43,7 +43,7 @@ export function ComposerModelPicker({
   const q = query.trim().toLowerCase();
   const shown = q.length === 0
     ? rows
-    : rows.filter(r => `${r.modelDisplay} ${r.agentName}`.toLowerCase().includes(q));
+    : rows.filter(r => `${r.modelDisplay} ${r.agentName} ${r.description ?? ''}`.toLowerCase().includes(q));
 
   const isActive = (r: Row) =>
     effective.kind === r.kind
@@ -75,12 +75,14 @@ export function ComposerModelPicker({
             key={r.key}
             icon={<BrandIcon family={r.family} />}
             label={r.modelDisplay}
-            sub={`${r.agentName} · ${r.kind}`}
+            sub={`${r.agentName} · ${r.kind}${r.description === null ? '' : ` — ${r.description}`}`}
             checked={isActive(r)}
             onClick={() => onChange({
               kind: r.kind,
               agentOrProvider: r.agentId,
-              model: r.isDefault ? null : r.modelId,
+              // Clicking a named row pins that exact CLI model. "Auto" is
+              // the separate inheritance affordance above.
+              model: r.modelId,
               account: null,
             })}
           />
@@ -100,6 +102,7 @@ type Row = {
   modelId: string;
   modelDisplay: string;
   isDefault: boolean;
+  description: string | null;
   family: Family;
 };
 
@@ -109,7 +112,8 @@ function flatten(options: WorkModelOptionsDto): Row[] {
     for (const m of a.models) {
       rows.push({
         key: `CLI:${a.id}:${m.id}`, kind: 'CLI', agentId: a.id, agentName: a.displayName,
-        modelId: m.id, modelDisplay: m.displayName, isDefault: m.isDefault, family: familyOf(a.id, m.id),
+        modelId: m.id, modelDisplay: m.displayName, isDefault: m.isDefault,
+        description: m.description ?? null, family: familyOf(a.id, m.id),
       });
     }
   }
@@ -117,7 +121,8 @@ function flatten(options: WorkModelOptionsDto): Row[] {
     for (const m of p.models) {
       rows.push({
         key: `API:${p.id}:${m.id}`, kind: 'API', agentId: p.id, agentName: p.displayName,
-        modelId: m.id, modelDisplay: m.displayName, isDefault: m.isDefault, family: familyOf(p.id, m.id),
+        modelId: m.id, modelDisplay: m.displayName, isDefault: m.isDefault,
+        description: m.description ?? null, family: familyOf(p.id, m.id),
       });
     }
   }
@@ -142,6 +147,7 @@ function Item({
       type="button"
       role="option"
       aria-selected={checked}
+      title={sub}
       // mousedown so the composer textarea keeps focus/caret.
       onMouseDown={e => { e.preventDefault(); onClick(); }}
       style={itemStyle(checked)}

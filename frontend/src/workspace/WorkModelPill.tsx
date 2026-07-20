@@ -188,6 +188,11 @@ export function WorkModelPill({ scope, onChange, variant = 'default' }: Props) {
 
   const label = useMemo(() => formatLabel(resolved, options), [resolved, options]);
   const hint = useMemo(() => formatHint(resolved), [resolved]);
+  const modelEntry = useMemo(() => findModelEntry(resolved, options), [resolved, options]);
+  const efforts = modelEntry?.supportedReasoningEfforts ?? [];
+  const selectedEffort = resolved?.effective.reasoningEffort
+    ?? modelEntry?.defaultReasoningEffort
+    ?? '';
 
   if (resolved === null && error === null) {
     return (
@@ -237,6 +242,27 @@ export function WorkModelPill({ scope, onChange, variant = 'default' }: Props) {
           </svg>
         ) : <span style={pillChevStyle} aria-hidden>⌄</span>}
       </button>
+      {resolved !== null && efforts.length > 0 && (
+        <select
+          aria-label="Reasoning effort"
+          value={selectedEffort}
+          onChange={(event) => {
+            void commit({
+              ...resolved.effective,
+              reasoningEffort: event.target.value,
+            });
+          }}
+          style={effortSelectStyle(workspaceVariant)}
+          title={efforts.find(e => e.id === selectedEffort)?.description
+            ?? `Reasoning effort: ${selectedEffort}`}
+        >
+          {efforts.map(effort => (
+            <option key={effort.id} value={effort.id} title={effort.description ?? undefined}>
+              {displayEffort(effort.id)}
+            </option>
+          ))}
+        </select>
+      )}
       {open && pos !== null && createPortal(
         <div
           ref={popoverRef}
@@ -295,6 +321,20 @@ function formatLabel(resolved: ResolvedWorkModelDto | null, options: WorkModelOp
   return named?.displayName ?? modelId ?? eff.agentOrProvider;
 }
 
+function findModelEntry(resolved: ResolvedWorkModelDto | null, options: WorkModelOptionsDto | null) {
+  if (resolved === null || options === null) return undefined;
+  const effective = resolved.effective;
+  const owner = effective.kind === 'CLI'
+    ? options.cliAgents.find(agent => agent.id === effective.agentOrProvider)
+    : options.apiProviders.find(provider => provider.id === effective.agentOrProvider);
+  const modelId = effective.model ?? owner?.defaultModel;
+  return owner?.models.find(model => model.id === modelId);
+}
+
+function displayEffort(effort: string): string {
+  return effort.length === 0 ? effort : effort[0].toUpperCase() + effort.slice(1);
+}
+
 function formatHint(resolved: ResolvedWorkModelDto | null): string | null {
   if (resolved === null) return null;
   switch (resolved.provenance.source) {
@@ -318,7 +358,23 @@ function formatHint(resolved: ResolvedWorkModelDto | null): string | null {
 const wrapperStyle: React.CSSProperties = {
   position: 'relative',
   display: 'inline-flex',
+  alignItems: 'center',
+  gap: 2,
 };
+
+function effortSelectStyle(workspaceVariant: boolean): React.CSSProperties {
+  return {
+    height: 26,
+    padding: workspaceVariant ? '4px 7px' : '4px 6px',
+    border: '1px solid transparent',
+    background: 'transparent',
+    color: workspaceVariant ? '#454c54' : 'var(--text-2, #4b5563)',
+    borderRadius: 7,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    fontSize: workspaceVariant ? 12.5 : 12,
+  };
+}
 
 function pillStyle(active: boolean, workspaceVariant = false): React.CSSProperties {
   if (workspaceVariant) {

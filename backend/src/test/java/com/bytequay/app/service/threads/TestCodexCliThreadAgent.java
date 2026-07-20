@@ -83,11 +83,11 @@ class TestCodexCliThreadAgent
         // continues the recorded session — the resume args appear in order.
         assertThat(cmd).containsSubsequence(
                 "exec", "--ignore-user-config", "resume", "--json",
-                "--skip-git-repo-check", "sess-abc");
+                "--skip-git-repo-check", "-m", "gpt-5", "sess-abc");
         assertThat(cmd.get(cmd.size() - 1)).contains("ROLE BRIEF").endsWith("next step");
-        // `exec resume` rejects --sandbox / -C / -m (they were recorded on the
-        // session) — passing them made every resume exit 2. Guard against it.
-        assertThat(cmd).doesNotContain("--sandbox", "-C", "-m");
+        // Resume accepts a model override, but still rejects the fresh-session
+        // sandbox and working-directory flags.
+        assertThat(cmd).doesNotContain("--sandbox", "-C");
     }
 
     @Test

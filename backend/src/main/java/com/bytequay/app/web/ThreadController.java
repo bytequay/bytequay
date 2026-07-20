@@ -349,6 +349,7 @@ public class ThreadController
     {
         Thread updated = threads.setWorkModel(id, body == null ? null : body.workModel());
         WorkModelResolver.Resolved resolved = workModelResolver.resolveForThread(id);
+        threads.updateTrunkWorkModel(id, resolved.choice());
         return new ResolvedWorkModelResponse(updated.workModel(), resolved.choice(), resolved.provenance());
     }
 

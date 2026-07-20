@@ -539,6 +539,11 @@ export const workspaceApi = {
     window.bridge.workspaceApi<PlanUsageDto>({
       path: '/api/ai/plan-usage',
     }),
+  refreshClaudeUsage: () =>
+    window.bridge.workspaceApi<PlanUsageDto>({
+      path: '/api/ai/plan-usage/claude/refresh',
+      method: 'POST',
+    }),
   session: (sessionId: string) =>
     window.bridge.workspaceApi<WorkspaceSessionDto>({
       path: `/api/sessions/${enc(sessionId)}`,

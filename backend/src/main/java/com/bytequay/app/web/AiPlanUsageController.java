@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.service.ai.PlanUsageService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import static java.util.Objects.requireNonNull;
@@ -34,5 +35,11 @@ public class AiPlanUsageController
     public PlanUsageService.PlanUsage current()
     {
         return service.current();
+    }
+
+    @PostMapping("/api/ai/plan-usage/claude/refresh")
+    public PlanUsageService.PlanUsage refreshClaude()
+    {
+        return service.refreshClaude();
     }
 }

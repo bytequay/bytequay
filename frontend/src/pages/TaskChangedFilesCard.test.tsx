@@ -29,8 +29,9 @@ const files: DiffFileDto[] = Array.from({ length: 5 }, (_, index): DiffFileDto =
 describe('TaskChangedFilesCard', () => {
   it('shows real totals and opens the existing review action', () => {
     const onReview = vi.fn();
-    render(<TaskChangedFilesCard files={files} onReview={onReview} />);
+    render(<TaskChangedFilesCard files={files} commitCount={2} onReview={onReview} />);
     expect(screen.getByText('Changed 5 files')).toBeTruthy();
+    expect(screen.getByText('2 commits')).toBeTruthy();
     expect(screen.getByText('+15')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Review' }));
     expect(onReview).toHaveBeenCalledOnce();
@@ -42,6 +43,14 @@ describe('TaskChangedFilesCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show 2 more files' }));
     expect(container.querySelectorAll('.workspace-task-files-card__file')).toHaveLength(5);
     expect(screen.getByRole('button', { name: 'Show fewer files' })).toBeTruthy();
+  });
+
+  it('folds and reopens the file rows', () => {
+    const { container } = render(<TaskChangedFilesCard files={files} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse changed files' }));
+    expect(container.querySelectorAll('.workspace-task-files-card__file')).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Expand changed files' }));
+    expect(container.querySelectorAll('.workspace-task-files-card__file')).toHaveLength(3);
   });
 
   it('translates the trunk variant and opens its undo action', () => {

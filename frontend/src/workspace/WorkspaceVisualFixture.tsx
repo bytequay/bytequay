@@ -709,7 +709,11 @@ function LockedBrainConversation() {
         density="focused"
         foldClosedStages={false}
         onOpenStage={() => {}}
-        developmentArtifact={<TaskChangedFilesCard files={lockedTaskFiles} onReview={() => {}} />}
+        developmentArtifact={<TaskChangedFilesCard
+          files={lockedTaskFiles}
+          commitCount={lockedTrunkCommits.length}
+          onReview={() => {}}
+        />}
         spineTrailer={(
           <>
             <WorkFold label="Worked for 22s" meta="· 2 steps">
@@ -738,7 +742,11 @@ function LockedStageConversation() {
       <Spine>
         <div className="workspace-task-stage-log__stamp">DEV STAGE · 20h ago</div>
         {stageFeed(lockedStageRows(), undefined, undefined, false, true)}
-        <TaskChangedFilesCard files={lockedTaskFiles} onReview={() => {}} />
+        <TaskChangedFilesCard
+          files={lockedTaskFiles}
+          commitCount={lockedTrunkCommits.length}
+          onReview={() => {}}
+        />
         <Headline
           bare
           body="Commit `1c1f4b96` is ready with a clean worktree. Handed to Remote Development for PR #37, CI, and review comments."

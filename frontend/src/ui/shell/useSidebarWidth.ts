@@ -27,9 +27,12 @@ export const SIDEBAR_WIDTH_KEY = 'bq.rail-width';
  * sitting on the sidebar's right edge. The sidebar is left-anchored, so its
  * width is the pointer minus the shell's left edge, clamped to a sane range.
  */
-export function useSidebarWidth(key = SIDEBAR_WIDTH_KEY, defaultWidth = SIDEBAR_DEFAULT_WIDTH): {
+export function useSidebarWidth<T extends HTMLElement = HTMLDivElement>(
+  key = SIDEBAR_WIDTH_KEY,
+  defaultWidth = SIDEBAR_DEFAULT_WIDTH,
+): {
   sidebarWidth: number;
-  shellRef: RefObject<HTMLDivElement>;
+  shellRef: RefObject<T>;
   onResize: (clientX: number) => void;
 } {
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
@@ -43,7 +46,7 @@ export function useSidebarWidth(key = SIDEBAR_WIDTH_KEY, defaultWidth = SIDEBAR_
       return defaultWidth;
     }
   });
-  const shellRef = useRef<HTMLDivElement>(null);
+  const shellRef = useRef<T>(null);
 
   const onResize = useCallback((clientX: number) => {
     const rect = shellRef.current?.getBoundingClientRect();

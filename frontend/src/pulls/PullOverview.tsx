@@ -11,13 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
 import type { LocalPRBundle } from '../types/localPr';
 import { renderMarkdown } from '../markdown';
 import type { MarkdownRepoContext } from '../markdown';
 import { CommentActionsMenu } from '../pr/CommentActionsMenu';
 import { EditableMarkdownBody } from '../pr/EditableMarkdownBody';
+import { buildRawTimelineEntries } from '../pr/localpr/githubActivityRows';
 import { ReactionAddButton } from '../pr/Reactions';
+import { useGitHubActivityFeed } from '../pr/useGitHubActivityFeed';
 import { Av } from './atoms';
 import { buildChecks, buildOpenedCard, buildTimeline } from './detailModel';
 import type { PullRow } from './model';
@@ -63,6 +65,17 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
   const opened = buildOpenedCard(row, bundle);
   const items = bundle !== null && bundle !== undefined ? buildTimeline(bundle) : [];
   const remotePrNumber = bundle?.pr.remotePrNumber ?? null;
+  const { activity, reviewThreads } = useGitHubActivityFeed(row.repo, remotePrNumber);
+  const reviewThreadsByRemoteId = useMemo(() => {
+    const byEvent = new Map<number, typeof reviewThreads>();
+    for (const entry of buildRawTimelineEntries(activity, reviewThreads)) {
+      if (entry.kind === 'activity' && entry.item.eventType === 'reviewed'
+          && entry.item.githubId !== null && entry.attachedThreads !== undefined) {
+        byEvent.set(entry.item.githubId, entry.attachedThreads);
+      }
+    }
+    return byEvent;
+  }, [activity, reviewThreads]);
   const checks = bundle !== null && bundle !== undefined ? buildChecks(bundle.checks) : null;
   const [owner, name] = row.repo.split('/');
   const repoCtx: MarkdownRepoContext = { owner: owner ?? row.repo, repo: name ?? row.repo };
@@ -178,6 +191,9 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
             <PullTimeline
               items={items}
               repo={row.repo}
+              prAuthor={(bundle?.pr.author ?? row.author).replace(/^@/, '')}
+              prHtmlUrl={row.dto.htmlUrl || `https://github.com/${row.repo}/pull/${remotePrNumber}`}
+              reviewThreadsByRemoteId={reviewThreadsByRemoteId}
               onCommentReaction={(commentId, content) => window.bridge.addIssueCommentReaction(row.repo, commentId, content)}
             />
             {checks !== null && <PullChecksCard model={checks} />}

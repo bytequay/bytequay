@@ -55,17 +55,19 @@ function mockBridge({
   questions = [],
   sessions = [],
   planUsage = { providers: [] },
+  refreshedPlanUsage = planUsage,
 }: {
   trunkActivity?: TrunkActivityDto;
   questions?: AgentQuestionDto[];
   sessions?: WorkspaceSessionDto[];
   planUsage?: PlanUsageDto;
+  refreshedPlanUsage?: PlanUsageDto;
 } = {}) {
   const bridge = {
     listBacklog: vi.fn().mockResolvedValue([]),
     listThreadSignals: vi.fn().mockResolvedValue([]),
     listThreadQuestions: vi.fn().mockResolvedValue(questions),
-    workspaceApi: vi.fn(({ path }: { path: string }) => {
+    workspaceApi: vi.fn(({ path }: { path: string; method?: string }) => {
       if (path.endsWith('/activity')) return Promise.resolve(trunkActivity);
       if (path.endsWith('/overview')) {
         return Promise.resolve({
@@ -76,7 +78,8 @@ function mockBridge({
         });
       }
       if (path.endsWith('/sessions')) return Promise.resolve(sessions);
-      if (path.endsWith('/api/ai/plan-usage')) return Promise.resolve(planUsage);
+      if (path === '/api/ai/plan-usage') return Promise.resolve(planUsage);
+      if (path === '/api/ai/plan-usage/claude/refresh') return Promise.resolve(refreshedPlanUsage);
       return Promise.resolve([]);
     }),
     answerQuestion: vi.fn().mockResolvedValue(undefined),
@@ -129,6 +132,27 @@ describe('TrunkPage', () => {
     expect(screen.getByText('OPEN PRS')).toBeTruthy();
     expect(screen.getByText('BACKLOG')).toBeTruthy();
     expect(screen.getByText('USAGE')).toBeTruthy();
+  });
+
+  it('surfaces a terminal agent error and offers recovery', () => {
+    const onResume = vi.fn();
+    render(
+      <TrunkPage
+        threadId="t1"
+        thread={{
+          title: 'Backend cleanup', status: 'ERRORED', workspaceId: 'ws-1',
+          errorMessage: 'Claude permission bridge was unavailable.',
+        }}
+        conversation={<div>conversation</div>}
+        composer={{ value: '', onChange: () => {}, onSubmit: () => {} }}
+        tasks={{ active: [], closed: [] }}
+        onResume={onResume}
+      />,
+    );
+
+    expect(screen.getByRole('alert').textContent).toContain('Claude permission bridge was unavailable.');
+    fireEvent.click(screen.getByRole('button', { name: 'Resume thread' }));
+    expect(onResume).toHaveBeenCalledOnce();
   });
 
   it('pins actionable gates above the canonical timeline', async () => {
@@ -283,15 +307,15 @@ describe('TrunkPage', () => {
     mockBridge({
       planUsage: {
         providers: [{
-          provider: 'openai', label: 'Codex', plan: 'prolite', updatedAt: now,
-          source: 'Codex local session', message: null,
+          provider: 'openai', label: 'Codex CLI', plan: 'prolite', updatedAt: now,
+          source: 'Codex CLI app-server', message: null,
           limits: [{
             id: 'primary:10080', label: 'Weekly', usedPercent: 3, resetsAt: now + 7_200_000,
             model: null,
           }],
         }, {
-          provider: 'anthropic', label: 'Claude', plan: null, updatedAt: now,
-          source: 'Claude Code status line', message: null,
+          provider: 'anthropic', label: 'Claude CLI', plan: null, updatedAt: now,
+          source: 'Claude CLI status line', message: null,
           limits: [{
             id: 'five_hour', label: '5-hour', usedPercent: 98, resetsAt: now + 5_400_000,
             model: null,
@@ -301,13 +325,45 @@ describe('TrunkPage', () => {
     });
     renderTrunk();
 
-    expect(await screen.findByText('Codex')).toBeTruthy();
+    expect(await screen.findByText('Codex CLI')).toBeTruthy();
     expect(screen.getByText('Pro Lite')).toBeTruthy();
     expect(screen.getByText('3% used')).toBeTruthy();
-    expect(screen.getByText('Claude')).toBeTruthy();
+    expect(screen.getByText('Claude CLI')).toBeTruthy();
     expect(screen.getByText('98% used')).toBeTruthy();
     expect(screen.getByLabelText('5-hour 98% used').firstElementChild?.classList.contains('is-critical'))
       .toBe(true);
     expect(screen.getByText('MODEL ACTIVITY')).toBeTruthy();
+  });
+
+  it('refreshes Claude Code interactive usage on demand', async () => {
+    const now = Date.now();
+    const bridge = mockBridge({
+      planUsage: {
+        providers: [{
+          provider: 'anthropic', label: 'Claude CLI', plan: null, updatedAt: 0,
+          source: null, message: 'Refresh Claude CLI usage to read plan limits.', limits: [],
+        }],
+      },
+      refreshedPlanUsage: {
+        providers: [{
+          provider: 'anthropic', label: 'Claude CLI', plan: 'Max', updatedAt: now,
+          source: 'Claude CLI /usage', message: null,
+          limits: [{
+            id: 'model:fable', label: 'Weekly', usedPercent: 98,
+            resetsAt: now + 4 * 24 * 60 * 60_000, model: 'Fable',
+          }],
+        }],
+      },
+    });
+    renderTrunk();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh Claude CLI usage' }));
+
+    expect(await screen.findByText('Fable')).toBeTruthy();
+    expect(screen.getByText('98% used')).toBeTruthy();
+    expect(bridge.workspaceApi).toHaveBeenCalledWith({
+      path: '/api/ai/plan-usage/claude/refresh',
+      method: 'POST',
+    });
   });
 });

@@ -381,6 +381,7 @@ export function TrunkFeed({
           <BranchRailRow key={`files-${task.id}`} kind="detail">
             <TaskChangedFilesCard
               files={artifacts.files}
+              commitCount={artifacts.commits.length}
               verb="Edited"
               onUndo={artifacts.onUndo}
               onReview={artifacts.onReview}

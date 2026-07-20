@@ -206,6 +206,7 @@ export function TaskBrainRoute({
   // One task-wide diff backs both the locked timeline artifact and the
   // full-page review takeover.
   const [reviewFiles, setReviewFiles] = useState<DiffFileDto[] | null>(null);
+  const [reviewCommitCount, setReviewCommitCount] = useState<number>();
   useEffect(() => {
     setAgentRoundId(null);
     setSelectedAgentFinding(null);
@@ -226,12 +227,16 @@ export function TaskBrainRoute({
   }, [threadId, taskId, initialReviewRoundId, initialPrSubTab, setReviewOpen]);
   useEffect(() => {
     setReviewFiles(null);
+    setReviewCommitCount(undefined);
     const b = typeof window !== 'undefined' ? window.bridge : undefined;
     if (b?.getTaskCumulativeDiff === undefined) return;
     let cancelled = false;
     void b.getTaskCumulativeDiff(threadId, taskId)
       .then(list => { if (!cancelled) setReviewFiles(list); })
       .catch(() => { if (!cancelled) setReviewFiles([]); });
+    void b.listTaskCommits(threadId, taskId)
+      .then(commits => { if (!cancelled) setReviewCommitCount(commits.length); })
+      .catch(() => { /* omit the count when git history is unavailable */ });
     return () => { cancelled = true; };
   }, [threadId, taskId]);
   // Auto-approve mode. The backend persists it per-task; a per-thread default
@@ -473,7 +478,11 @@ export function TaskBrainRoute({
         onOpenStage={onOpenStage}
         threadId={threadId}
         developmentArtifact={reviewFiles !== null && reviewFiles.length > 0
-          ? <TaskChangedFilesCard files={reviewFiles} onReview={() => openTab('pr', 'changes')} />
+          ? <TaskChangedFilesCard
+              files={reviewFiles}
+              commitCount={reviewCommitCount}
+              onReview={() => openTab('pr', 'changes')}
+            />
           : undefined}
         spineTrailer={planTimelineNode}
         trailer={(

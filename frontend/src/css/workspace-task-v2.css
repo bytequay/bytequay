@@ -616,6 +616,7 @@
   color: #57606a;
 }
 .workspace-task-files-card__header > strong { color: #17191c; font-size: 13px; font-weight: 600; }
+.workspace-task-files-card__commits { color: #57606a; font-size: 12px; }
 .workspace-task-files-card__totals,
 .workspace-task-files-card__diff {
   font: 400 11.5px/normal "SF Mono", Menlo, ui-monospace, monospace;
@@ -635,6 +636,16 @@
   font: 600 12.5px/normal -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 .workspace-task-files-card__header > button:hover { background: #f6f8fa; }
+.workspace-task-files-card__header > button.workspace-task-files-card__fold {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: #57606a;
+}
+.workspace-task-files-card__fold > svg { transition: transform 0.15s; }
 .workspace-task-files-card__header > button.workspace-task-files-card__undo {
   display: inline-flex;
   align-items: center;

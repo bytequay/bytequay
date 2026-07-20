@@ -41,8 +41,6 @@ import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRCommit;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.ThreadFlow;
-import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -290,8 +288,8 @@ public class InvestigationReviewService
         }
         PR pr = requirePr(prId);
         ReviewOwnership ownership = ownershipFor(pr, options);
-        InvestigationReviewContext.Snapshot snapshot = contexts.load(pr,
-                ownership.workspaceId() != null || ownership.taskId() != null);
+        InvestigationReviewContext.Snapshot snapshot = fullReviewSnapshot(
+                pr, ownership.workspaceId() != null || ownership.taskId() != null);
         PlanDraft plan = cachedPlan(snapshot);
         List<PanelSeat> panel = panel(plan.reviewClass(), options);
         Instant now = Instant.now();
@@ -379,9 +377,35 @@ public class InvestigationReviewService
         for (AgentReviewRow review : store.reviewsByOwnerThread(threadId)) {
             store.rounds(review.id()).stream()
                     .filter(round -> Set.of("QUEUED", "RUNNING").contains(round.status()))
-                    .forEach(round -> stopRound(round, "owning thread was deleted"));
+                    .forEach(this::interruptRoundForPurge);
             store.deleteReview(review.id());
             log.info("deleted agent review {} with owner thread {}", review.id(), threadId);
+        }
+    }
+
+    /** Stop and remove every remaining AgentReview owned directly by a
+     * workspace. Thread-owned reviews are normally removed with their trunk;
+     * this sweep covers PR-owned reviews that deliberately have no trunk. */
+    public void purgeByWorkspace(String workspaceId)
+    {
+        for (AgentReviewRow review : store.reviewsByWorkspace(workspaceId)) {
+            store.rounds(review.id()).stream()
+                    .filter(round -> Set.of("QUEUED", "RUNNING").contains(round.status()))
+                    .forEach(this::interruptRoundForPurge);
+            store.deleteReview(review.id());
+            log.info("deleted agent review {} with owner workspace {}", review.id(), workspaceId);
+        }
+    }
+
+    /** A purge deletes the run rows in the same transaction, so persisting a
+     * cancelled JPA entity first would leave Hibernate trying to flush an
+     * update after the JDBC aggregate delete. Interrupt the worker only; the
+     * aggregate delete is the authoritative terminal action. */
+    private void interruptRoundForPurge(ReviewRoundRow round)
+    {
+        Thread worker = activeRounds.get(round.id());
+        if (worker != null) {
+            worker.interrupt();
         }
     }
 
@@ -396,8 +420,8 @@ public class InvestigationReviewService
             }
             return review;
         }
-        // A remote review intentionally has no thread or workspace. Do not
-        // silently promote it just because the user opened its PR again.
+        // Legacy remote reviews may have no thread or workspace. Do not
+        // silently promote one just because the user opened its PR again.
         if (options == null || blankToNull(options.workspaceId()) == null) {
             return review;
         }
@@ -421,36 +445,15 @@ public class InvestigationReviewService
 
         String workspaceId = options == null ? null : blankToNull(options.workspaceId());
         if (workspaceId == null) {
-            return new ReviewOwnership(null, null, null);
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "full agent review requires a watched repository workspace");
         }
         if (workspaces == null || pr.repo() == null
                 || !workspaces.ownsVerifiedLocalRepo(workspaceId, pr.repo())) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
                     "workspace must be the verified local clone for this PR repository");
         }
-        String provider = options == null ? null : blankToNull(options.providerId());
-        if (provider == null) {
-            provider = "agent-review";
-        }
-        Instant now = Instant.now();
-        String ref = pr.repo() + "#" + pr.remotePrNumber();
-        Optional<com.bytequay.app.domain.Thread> existing =
-                threads.findReviewTrunk(workspaceId, ref);
-        if (existing.isPresent()) {
-            reactivateReviewTrunk(existing.get().id());
-            return new ReviewOwnership(workspaceId, existing.get().id(), null);
-        }
-        String title = pr.title() == null || pr.title().isBlank()
-                ? "Review " + ref
-                : "Review " + ref + " — " + pr.title();
-        com.bytequay.app.domain.Thread thread = new com.bytequay.app.domain.Thread(
-                UUID.randomUUID().toString(), ThreadKind.LOGIC_LOOP, provider,
-                null, title,
-                ThreadStatus.RUNNING, provider,
-                0L, 0L, 0L, now, now, null, null,
-                ThreadFlow.REVIEW, workspaceId, null, null, 1, null, ref);
-        threads.saveThread(thread);
-        return new ReviewOwnership(workspaceId, thread.id(), null);
+        return new ReviewOwnership(workspaceId, null, null);
     }
 
     private void reactivateReviewTrunk(String threadId)
@@ -934,7 +937,7 @@ public class InvestigationReviewService
             List<String> findingIds, String seed)
     {
         String roundId = UUID.randomUUID().toString();
-        AgentRun run = openReviewRun(review, roundId, plan.budget().costCapCents());
+        AgentRun run = openReviewRun(review, pr, roundId, plan.budget().costCapCents());
         ReviewRoundRow proposed = new ReviewRoundRow(
                 roundId, review.id(), run.id(), trigger, scope, snapshot.headCommit(), null,
                 "RUNNING", plan.budget(), 0,
@@ -980,8 +983,9 @@ public class InvestigationReviewService
         }
     }
 
-    /** AgentReview is a task-owned artifact track, not a development stage. */
-    private AgentRun openReviewRun(AgentReviewRow review, String roundId, int budget)
+    /** AgentReview is an artifact track, not a development stage. */
+    private AgentRun openReviewRun(
+            AgentReviewRow review, PR pr, String roundId, int budget)
     {
         AgentRun run;
         if (review.ownerTaskId() != null) {
@@ -992,8 +996,15 @@ public class InvestigationReviewService
             run = runs.openDetached(
                     AgentRun.KIND_PANEL_REVIEW, null, roundId, budget);
         }
-        if (review.workspaceId() == null || review.ownerThreadId() == null) {
+        if (review.workspaceId() == null) {
             return run;
+        }
+        if (review.ownerThreadId() == null) {
+            String ref = pr.repo() == null || pr.remotePrNumber() == null
+                    ? pr.title() : pr.repo() + "#" + pr.remotePrNumber();
+            return runs.attachOwnership(
+                    run.id(), review.workspaceId(), null,
+                    "agent-review", "agent-review", "Review " + ref);
         }
         com.bytequay.app.domain.Thread owner = threads
                 .findThreadById(review.ownerThreadId())
@@ -1012,8 +1023,8 @@ public class InvestigationReviewService
             String seed, Integer costCapCents)
     {
         PR pr = requirePr(review.prId());
-        InvestigationReviewContext.Snapshot snapshot = contexts.load(pr,
-                review.workspaceId() != null || review.ownerTaskId() != null);
+        InvestigationReviewContext.Snapshot snapshot = fullReviewSnapshot(
+                pr, review.workspaceId() != null || review.ownerTaskId() != null);
         PlanDraft plan = cachedPlan(snapshot);
         String cleanSeed = seed == null ? null : requiredText(seed, "seed");
         if (cleanSeed != null) {
@@ -1886,7 +1897,7 @@ public class InvestigationReviewService
             }
             return VerificationOutcome.EMPTY;
         }
-        AgentRun verifierRun = openReviewRun(work.review(), work.round().id(),
+        AgentRun verifierRun = openReviewRun(work.review(), work.pr(), work.round().id(),
                 Math.max(1, remainingBudget(work, priorCost) / 3));
         String verifierAssignment = UUID.randomUUID().toString();
         boolean assignmentInserted = false;
@@ -2200,10 +2211,13 @@ public class InvestigationReviewService
         if (finding.requestedAction() == null || finding.requestedAction().isBlank()
                 || finding.severity() < 1 || finding.severity() > 5
                 || !CRITERION_KINDS.contains(finding.criterionKind())
-                || !work.snapshot().headCommit().equals(finding.lastCheckedCommit())) {
+                || !work.snapshot().headCommit().equals(finding.lastCheckedCommit())
+                || !rightSideRange(
+                        work.snapshot(), finding.path(), finding.startLine(), finding.endLine())) {
             return false;
         }
-        if (!hasRequiredEvidence(evidence)) {
+        if (!hasRequiredEvidence(evidence)
+                || !hasAnchoredSupportingEvidence(finding, evidence, observationsById)) {
             return false;
         }
         List<ObservationRow> observations = evidence.stream()
@@ -2221,10 +2235,27 @@ public class InvestigationReviewService
                 .anyMatch(row -> "SUPPORTS".equals(row.relation()));
     }
 
+    static boolean hasAnchoredSupportingEvidence(
+            FindingRow finding, List<FindingEvidenceRow> evidence,
+            Map<String, ObservationRow> observationsById)
+    {
+        if (finding.path() == null || finding.startLine() == null || finding.endLine() == null
+                || evidence == null || observationsById == null) {
+            return false;
+        }
+        return evidence.stream()
+                .filter(row -> "SUPPORTS".equals(row.relation()))
+                .map(FindingEvidenceRow::observationId)
+                .map(observationsById::get)
+                .filter(Objects::nonNull)
+                .anyMatch(observation -> finding.path().equals(observation.path())
+                        && observation.startLine() != null && observation.endLine() != null
+                        && observation.startLine() <= finding.startLine()
+                        && observation.endLine() >= finding.endLine());
+    }
+
     private void materialiseComments(RoundWork work, List<FindingRow> findings)
     {
-        Map<String, List<FindingEvidenceRow>> evidenceByFinding = evidenceByFinding(work.review().id());
-        Map<String, ObservationRow> observationsById = observationsById(work.review().id());
         Set<String> materialisedFindingIds = new HashSet<>();
         prs.comments(work.pr().id()).stream()
                 .map(PRComment::findingId)
@@ -2245,19 +2276,17 @@ public class InvestigationReviewService
             if (!materialisedFindingIds.add(finding.id())) {
                 continue;
             }
-            ObservationRow anchor = evidenceByFinding.getOrDefault(finding.id(), List.of()).stream()
-                    .filter(row -> "SUPPORTS".equals(row.relation()))
-                    .map(FindingEvidenceRow::observationId)
-                    .map(observationsById::get).filter(Objects::nonNull)
-                    .filter(observation -> rightSideAnchor(work.snapshot(), observation))
-                    .findFirst().orElse(null);
+            if (!rightSideRange(
+                    work.snapshot(), finding.path(), finding.startLine(), finding.endLine())) {
+                continue;
+            }
             String body = renderComment(finding);
+            boolean range = !finding.startLine().equals(finding.endLine());
             PRComment comment = prs.addComment(
                     work.pr().id(), PRComment.ORIGIN_LOCAL,
-                    anchor == null ? PRComment.SCOPE_PR : PRComment.SCOPE_FILE_LINE,
-                    anchor == null ? null : anchor.path(),
-                    anchor == null ? null : anchor.startLine() == null ? 1 : anchor.startLine(),
-                    "RIGHT", null, null, "agent", body, null);
+                    PRComment.SCOPE_FILE_LINE, finding.path(), finding.endLine(),
+                    "RIGHT", range ? finding.startLine() : null,
+                    range ? "RIGHT" : null, "agent", body, null);
             prs.attachFinding(comment.id(), finding.id());
         }
     }
@@ -2485,6 +2514,8 @@ public class InvestigationReviewService
     {
         StringBuilder out = new StringBuilder()
                 .append("finding_id: ").append(finding.id()).append('\n')
+                .append("location: ").append(finding.path()).append(':')
+                .append(finding.startLine()).append('-').append(finding.endLine()).append('\n')
                 .append("claim: ").append(finding.claim()).append('\n')
                 .append("severity: ").append(finding.severity()).append('\n')
                 .append("requested_action: ").append(finding.requestedAction()).append('\n')
@@ -2567,6 +2598,20 @@ public class InvestigationReviewService
     {
         return prs.findById(prId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown PR " + prId));
+    }
+
+    private InvestigationReviewContext.Snapshot fullReviewSnapshot(
+            PR pr, boolean allowWorkspaceSource)
+    {
+        if (allowWorkspaceSource && PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
+            contexts.prepareWatchedPr(pr);
+        }
+        InvestigationReviewContext.Snapshot snapshot = contexts.load(pr, allowWorkspaceSource);
+        if (PR.ORIGIN_EXTERNAL.equals(pr.origin()) && snapshot.repositoryRoot() == null) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                    "watched repository must contain the reviewed commit for full agent review");
+        }
+        return snapshot;
     }
 
     private AgentReviewRow requireReview(String reviewId)
@@ -2772,13 +2817,19 @@ public class InvestigationReviewService
         }
     }
 
-    private static boolean rightSideAnchor(
-            InvestigationReviewContext.Snapshot snapshot, ObservationRow observation)
+    static boolean rightSideRange(
+            InvestigationReviewContext.Snapshot snapshot, String path,
+            Integer startLine, Integer endLine)
     {
-        if (observation.path() == null || observation.startLine() == null) {
+        if (path == null || path.isBlank() || startLine == null || endLine == null
+                || startLine < 1 || endLine < startLine) {
             return false;
         }
-        return rightSideLines(snapshot.diff(), observation.path()).contains(observation.startLine());
+        Set<Integer> lines = rightSideLines(snapshot.diff(), path);
+        long covered = lines.stream()
+                .filter(line -> line >= startLine && line <= endLine)
+                .count();
+        return covered == (long) endLine - startLine + 1;
     }
 
     private static Set<Integer> rightSideLines(String diff, String path)

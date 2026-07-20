@@ -66,7 +66,12 @@ export type Nav =
    *  deep-links a specific PR: the screen resolves it and opens its pane
    *  even when the row isn't in the dashboard list ({@code repo} is the
    *  "owner/name" fullName). */
-  | { view: 'pulls'; initialPr?: { repo: string; number: number } }
+  | { view: 'pulls';
+      initialPr?: { repo: string; number: number };
+      /** Review action handed off from a PR surface that does not own the
+       *  watched-repository setup flow. */
+      initialReviewAction?: 'quick' | 'watch';
+    }
   /** `back` carries the parent screen so the PR-detail breadcrumb
    *  returns the user where they came from — Repository home, Local
    *  repo, Team kanban, or just Home. Defaults to Home when unset. */
@@ -106,6 +111,9 @@ export type Nav =
   | { view: 'workspace';
       section?: WorkspaceSection;
       prNumber?: number;
+      /** Stable unified PR id. Required for local PRs that do not have a
+       * GitHub number yet and for PR-owned AgentReview navigation. */
+      prId?: string;
       /** Open the pull-requests section with the agent-review column
        *  already replacing the work list (deep link from PullsScreen's
        *  "Work with agent" button). */
@@ -224,7 +232,13 @@ function publicNavigation(route: WorkspaceRoute): PublicNavigation {
       };
     case 'pull-request':
       return {
-        nav: { view: 'workspace', section: 'pull-requests', prNumber: route.number },
+        nav: {
+          view: 'workspace',
+          section: 'pull-requests',
+          prNumber: route.number,
+          prId: route.prId,
+          agentColumn: route.agentColumn,
+        },
         workspaceId: route.workspaceId,
       };
     case 'issue':
@@ -297,7 +311,13 @@ function publicRoute(nav: Nav, workspaceId: string | null): WorkspaceRoute | nul
         case 'today': return { kind: 'workspace', workspaceId };
         case 'trunks': return { kind: 'trunks', workspaceId };
         case 'pull-requests':
-          return { kind: 'pull-request', workspaceId, number: nav.prNumber };
+          return {
+            kind: 'pull-request',
+            workspaceId,
+            number: nav.prNumber,
+            prId: nav.prId,
+            agentColumn: nav.agentColumn,
+          };
         case 'issues':
           return { kind: 'issue', workspaceId, number: nav.issueNumber };
         case 'sessions':
@@ -459,24 +479,27 @@ function App() {
       try {
         const review = await window.bridge.getAgentReviewByThread(threadId);
         if (openThreadRequestRef.current !== request) return;
-        if (review !== null && review.review.owner_task_id !== null) {
-          setNav({
-            view: 'task-brain',
-            threadId,
-            taskId: review.review.owner_task_id,
-          });
-          return;
-        }
         if (review !== null) {
           const bundle = await window.bridge.getLocalPrBundle(review.review.pr_id);
           if (openThreadRequestRef.current !== request) return;
-          const prNumber = bundle?.pr.remotePrNumber;
           const workspaceId = review.review.workspace_id;
-          if (prNumber !== null && prNumber !== undefined && workspaceId !== null) {
+          if (bundle !== null && workspaceId !== null) {
             setActiveWorkspaceId(workspaceId);
             writeActiveWorkspaceId(workspaceId);
             setNav({
-              view: 'workspace', section: 'pull-requests', prNumber, agentColumn: true,
+              view: 'workspace',
+              section: 'pull-requests',
+              prId: bundle.pr.id,
+              prNumber: bundle.pr.remotePrNumber ?? undefined,
+              agentColumn: true,
+            });
+            return;
+          }
+          if (review.review.owner_task_id !== null) {
+            setNav({
+              view: 'task-brain',
+              threadId,
+              taskId: review.review.owner_task_id,
             });
             return;
           }
@@ -920,19 +943,11 @@ function App() {
   const openAgentReview = (target: AgentReviewNavTarget) => {
     setActiveWorkspaceId(target.workspaceId);
     writeActiveWorkspaceId(target.workspaceId);
-    if (target.taskId !== null) {
-      setNav({
-        view: 'task-brain',
-        threadId: target.threadId,
-        taskId: target.taskId,
-        initialReviewRoundId: target.roundId,
-      });
-      return;
-    }
     setNav({
       view: 'workspace',
       section: 'pull-requests',
-      prNumber: target.prNumber,
+      prId: target.prId,
+      prNumber: target.prNumber ?? undefined,
       agentColumn: true,
     });
   };
@@ -1054,6 +1069,7 @@ function App() {
         {nav.view === 'pulls' && (
           <PullsScreen
             initialPr={nav.initialPr}
+            initialReviewAction={nav.initialReviewAction}
             onOpenWorkspacePr={(repo, prNumber, opts) => {
               // Same repo → workspace resolution as the legacy-repo redirect
               // effect: the workspace whose repository fullName matches.
@@ -1068,6 +1084,7 @@ function App() {
                   setNav({
                     view: 'workspace',
                     section: 'pull-requests',
+                    prId: opts.prId,
                     prNumber,
                     agentColumn: opts.agent || undefined,
                   });
@@ -1130,6 +1147,7 @@ function App() {
             threadId={nav.threadId}
             taskId={nav.taskId}
             initialReviewRoundId={nav.initialReviewRoundId}
+            onOpenAgentReview={openAgentReview}
             onOpenStage={stageId => setNav({
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
@@ -1186,10 +1204,7 @@ function App() {
             onOpenBrain={() => setNav({
               view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
             })}
-            onOpenAgentReview={roundId => setNav({
-              view: 'task-brain', threadId: nav.threadId, taskId: nav.taskId,
-              initialReviewRoundId: roundId,
-            })}
+            onOpenAgentReview={openAgentReview}
             trunkLabel={selectedTrunkLabel}
             workspaceName={sidebarWorkspace?.name}
             workspaceRepository={taskWorkspaceRepository}
@@ -1238,6 +1253,7 @@ function App() {
             section={nav.section ?? 'today'}
             workspaceId={activeWorkspaceId}
             prNumber={nav.prNumber}
+            prId={nav.prId}
             agentColumn={nav.agentColumn}
             issueNumber={nav.issueNumber}
             branchName={nav.branchName}
@@ -1250,6 +1266,17 @@ function App() {
             onOpenSession={sessionId => setNav({
               view: 'workspace', section: 'sessions', sessionId,
             })}
+            onOpenReview={target => {
+              setActiveWorkspaceId(target.workspaceId);
+              writeActiveWorkspaceId(target.workspaceId);
+              setNav({
+                view: 'workspace',
+                section: 'pull-requests',
+                prId: target.prId,
+                prNumber: target.prNumber ?? undefined,
+                agentColumn: true,
+              });
+            }}
             onOpenBacklog={backlogKey => setNav({
               view: 'workspace', section: 'backlog', backlogKey,
             })}
@@ -1335,6 +1362,11 @@ function App() {
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
             onStartReview={openStartedReview}
             onOpenAgentReview={openAgentReview}
+            onOpenReviewSetup={(action, repo, number) => setNav({
+              view: 'pulls',
+              initialPr: { repo, number },
+              initialReviewAction: action,
+            })}
             workspaceId={activeWorkspaceId}
           />
         )}

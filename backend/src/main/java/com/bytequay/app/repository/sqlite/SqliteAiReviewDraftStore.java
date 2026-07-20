@@ -44,15 +44,39 @@ public class SqliteAiReviewDraftStore
     @Transactional
     public AiReviewDraft save(long prId, String repo, int number, String headSha, ReviewOutput output)
     {
+        return save(prId, null, repo, number, headSha, output);
+    }
+
+    @Override
+    @Transactional
+    public AiReviewDraft saveForUnifiedPr(String prId, String repo, int number, String headSha, ReviewOutput output)
+    {
+        return save(0, requireNonNull(prId, "prId is null"), repo, number, headSha, output);
+    }
+
+    private AiReviewDraft save(
+            long legacyPrId,
+            String unifiedPrId,
+            String repo,
+            int number,
+            String headSha,
+            ReviewOutput output)
+    {
         // Upsert into the active draft so human-staged comments survive a
         // re-run. The active draft is the latest non-PUBLISHED draft for
         // the PR; if the latest is PUBLISHED (or none exists), we start a
         // fresh one.
-        PrReviewDraftEntity draft = draftRepo.findTopByPrIdOrderByCreatedAtDesc(prId)
+        Optional<PrReviewDraftEntity> latest = unifiedPrId == null
+                ? draftRepo.findTopByPrIdOrderByCreatedAtDesc(legacyPrId)
+                : draftRepo.findTopByUnifiedPrIdOrderByCreatedAtDesc(unifiedPrId);
+        PrReviewDraftEntity draft = latest
                 .filter(d -> !"PUBLISHED".equals(d.getStatus()))
                 .orElseGet(() -> {
                     PrReviewDraftEntity fresh = new PrReviewDraftEntity();
-                    fresh.setPrId(prId);
+                    // pr_id predates unified PRs and is NOT NULL. Zero is an
+                    // inert legacy sentinel; unified_pr_id is the real owner.
+                    fresh.setPrId(legacyPrId);
+                    fresh.setUnifiedPrId(unifiedPrId);
                     fresh.setStatus("COMPLETE");
                     return fresh;
                 });
@@ -91,6 +115,20 @@ public class SqliteAiReviewDraftStore
     {
         return draftRepo.findTopByPrIdOrderByCreatedAtDesc(prId)
                 .map(draft -> toDomain(draft, commentRepo.findByDraftIdOrderByIdAsc(draft.getId())));
+    }
+
+    @Override
+    public Optional<AiReviewDraft> latestForUnifiedPr(String prId)
+    {
+        return draftRepo.findTopByUnifiedPrIdOrderByCreatedAtDesc(prId)
+                .map(draft -> toDomain(draft, commentRepo.findByDraftIdOrderByIdAsc(draft.getId())));
+    }
+
+    @Override
+    @Transactional
+    public void reparentUnifiedPr(String fromPrId, String toPrId)
+    {
+        draftRepo.reparentUnifiedPr(fromPrId, toPrId);
     }
 
     @Override

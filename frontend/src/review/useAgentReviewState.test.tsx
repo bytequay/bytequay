@@ -53,6 +53,28 @@ function deferred<T>() {
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('useAgentReviewState', () => {
+  it('keeps polling an expected review until an optimistic start becomes visible', async () => {
+    const live = data();
+    const getAgentReview = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValue(live);
+    let poll: (() => void) | null = null;
+    vi.spyOn(window, 'setInterval').mockImplementation((handler, delay) => {
+      if (delay === 1_000) poll = () => handler(undefined);
+      return 1 as unknown as ReturnType<typeof window.setInterval>;
+    });
+    window.bridge = { getAgentReview } as unknown as typeof window.bridge;
+
+    const { result } = renderHook(() =>
+      useAgentReviewState(bundle(), vi.fn(), undefined, null, true));
+    await waitFor(() => expect(poll).not.toBeNull());
+
+    await act(async () => { poll?.(); });
+
+    await waitFor(() => expect(result.current.data?.review.id).toBe(live.review.id));
+    expect(getAgentReview).toHaveBeenCalledTimes(2);
+  });
+
   it('starts, mutates, and publishes through the persisted review bridge', async () => {
     const live = data();
     const source = bundle();

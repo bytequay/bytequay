@@ -135,6 +135,11 @@ export type FindingRow = {
   objective_id: string;
   hypothesis_id?: string;
   criterion_kind: CriterionKind;
+  /** Exact inclusive RIGHT-side diff range selected for the review comment.
+   * Null only for findings persisted before range anchoring was introduced. */
+  path?: string | null;
+  start_line?: number | null;
+  end_line?: number | null;
   claim: string;
   severity: 1 | 2 | 3 | 4 | 5;
   confidence_class: ConfidenceClass;

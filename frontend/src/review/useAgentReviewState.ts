@@ -53,6 +53,9 @@ export function useAgentReviewState(
   refreshPr: () => void,
   beforePublish?: (verdict: ReviewVerdict, comments: LocalPRComment[]) => Promise<void>,
   workspaceId?: string | null,
+  /** AgentColumn can be opened immediately after an optimistic start. Keep
+   *  looking until the backend-created review becomes visible. */
+  pollWhileMissing = false,
 ) {
   const prId = bundle?.pr.id ?? null;
   const [storedData, setStoredData] = useState<AgentReviewData | null>(null);
@@ -127,11 +130,12 @@ export function useAgentReviewState(
   const running = data?.rounds.some(
     round => round.status === 'RUNNING' || round.status === 'QUEUED',
   ) === true || data?.runs.some(run => run.status === 'running') === true;
+  const waitingForExpectedReview = pollWhileMissing && prId !== null && data === null && !loading;
   useEffect(() => {
-    if (!running) return;
+    if (!running && !waitingForExpectedReview) return;
     const timer = window.setInterval((): void => { void load(); }, 1_000);
     return () => window.clearInterval(timer);
-  }, [load, running]);
+  }, [load, running, waitingForExpectedReview]);
 
   useEffect(() => () => {
     pendingEdits.current.forEach(edit => {

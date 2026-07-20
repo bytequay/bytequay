@@ -147,6 +147,11 @@ class TestPRSchema
         prStore.addCheck(new PRCheck("chk-ext", "fold-ext", PRCheck.KIND_REMOTE, "build",
                 PRCheck.STATUS_PASSED, 1L, t, t, "run-ext"));
         prStore.saveTriage(new PRTriageState("fold-ext", t, null, null, null, null, null));
+        jdbc.update("""
+                INSERT INTO pr_review_draft
+                    (pr_id, unified_pr_id, summary, provider_id, model, status)
+                VALUES (0, 'fold-ext', 'quick result', 'test', 'test', 'COMPLETE')
+                """);
 
         prStore.reparentChildren("fold-ext", "fold-task");
         prStore.deletePr("fold-ext");
@@ -158,6 +163,13 @@ class TestPRSchema
         assertThat(prStore.checksFor("fold-task")).extracting(PRCheck::runId).contains("run-ext");
         // Triage moved (survivor had none).
         assertThat(prStore.findTriage("fold-task")).isPresent();
+        // The one-shot review follows the surviving unified PR identity.
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pr_review_draft WHERE unified_pr_id = 'fold-task'",
+                Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pr_review_draft WHERE unified_pr_id = 'fold-ext'",
+                Integer.class)).isZero();
         // The twin row is gone (its redundant children cascaded away).
         assertThat(prStore.findById("fold-ext")).isEmpty();
     }
@@ -206,8 +218,10 @@ class TestPRSchema
         threadStore.saveThread(reviewThread);
         insertReview("review-session-task", "review-task", taskThreadId, taskId, t);
         insertReview("review-session-ext", "review-ext", reviewThread.id(), null, t);
-        insertRound("review-round-task", "review-session-task", "review-run-task", taskId, t);
-        insertRound("review-round-ext", "review-session-ext", "review-run-ext", null, t);
+        insertRound("review-round-task", "review-session-task", "review-run-task",
+                taskId, taskThreadId, t);
+        insertRound("review-round-ext", "review-session-ext", "review-run-ext",
+                null, reviewThread.id(), t);
 
         prStore.reparentChildren("review-ext", "review-task");
         prStore.deletePr("review-ext");
@@ -221,6 +235,9 @@ class TestPRSchema
         assertThat(jdbc.queryForObject(
                 "SELECT task_id FROM agent_run WHERE id = 'review-run-ext'", String.class))
                 .isEqualTo(taskId);
+        assertThat(jdbc.queryForObject(
+                "SELECT thread_id FROM agent_run WHERE id = 'review-run-ext'", String.class))
+                .isEqualTo(taskThreadId);
         assertThat(threadStore.findThreadById(reviewThread.id())).isEmpty();
     }
 
@@ -329,12 +346,14 @@ class TestPRSchema
     }
 
     private void insertRound(
-            String id, String sessionId, String runId, String taskId, Instant createdAt)
+            String id, String sessionId, String runId, String taskId,
+            String threadId, Instant createdAt)
     {
         jdbc.update("""
-                INSERT INTO agent_run(id, task_id, kind, status, iterations, started_at_ms)
-                VALUES (?, ?, 'panel_review', 'succeeded', 0, ?)
-                """, runId, taskId, createdAt.toEpochMilli());
+                INSERT INTO agent_run(
+                    id, task_id, kind, status, iterations, started_at_ms, workspace_id, thread_id)
+                VALUES (?, ?, 'panel_review', 'succeeded', 0, ?, 'ws-default', ?)
+                """, runId, taskId, createdAt.toEpochMilli(), threadId);
         jdbc.update("""
                 INSERT INTO review_round(
                     id, session_id, agent_run_id, trigger, scope, start_commit,

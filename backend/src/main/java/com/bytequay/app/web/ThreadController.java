@@ -20,6 +20,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.ThreadFile;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
@@ -168,6 +169,7 @@ public class ThreadController
         // must never surface as top-level threads in the workspace list.
         return result.stream()
                 .filter(t -> t.kind() != ThreadKind.BRAIN_AGENT)
+                .filter(t -> t.flow() != ThreadFlow.REVIEW)
                 .toList();
     }
 

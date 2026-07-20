@@ -60,6 +60,6 @@ public class WorkModelController
     @PostMapping("/work-models/refresh")
     public WorkModelOptions refresh()
     {
-        return workModels.options();
+        return workModels.refresh();
     }
 }

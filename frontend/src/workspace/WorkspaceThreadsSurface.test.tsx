@@ -54,6 +54,21 @@ describe('WorkspaceThreadsSurface', () => {
     expect(screen.getByText(/No trunks match this view/)).toBeTruthy();
   });
 
+  it('hides legacy review-flow threads from trunks', () => {
+    render(
+      <WorkspaceThreadsSurface
+        threads={[
+          thread({ id: 'dev', title: 'Real development trunk' }),
+          thread({ id: 'review', title: 'Review acme/widget#42', flow: 'review' }),
+        ]}
+        loading={false}
+      />,
+    );
+    expect(screen.getByText('Real development trunk')).toBeTruthy();
+    expect(screen.queryByText('Review acme/widget#42')).toBeNull();
+    expect(screen.getByText('1 open · 1 active')).toBeTruthy();
+  });
+
   it('shows the loading hint before data arrives', () => {
     render(<WorkspaceThreadsSurface threads={[]} loading />);
     expect(screen.getByText('Loading trunks…')).toBeTruthy();

@@ -43,6 +43,7 @@ import { PullDetailBody } from '../pulls/PullDetailPane';
 import { pullRowFromLocal } from '../pulls/localRow';
 import type { PullRow } from '../pulls/model';
 import { derivePRCapabilities } from '../pr/prCapabilities';
+import type { AgentReviewNavTarget } from '../pr/localpr/PrDetailsView';
 import { formatCost, formatDuration } from '../threads/brain/format';
 import { TaskChangedFilesCard } from './TaskChangedFilesCard';
 
@@ -58,7 +59,7 @@ export function TaskBrainRoute({
   onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
   trunkLabel, workspaceName, workspaceRepository,
   onNavigateGlobal, onSwitchWorkspace, onNotifications, notificationCount,
-  initialReviewRoundId,
+  initialReviewRoundId, onOpenAgentReview,
 }: {
   threadId: string;
   taskId: string;
@@ -85,6 +86,8 @@ export function TaskBrainRoute({
   onNotifications?: () => void;
   notificationCount?: number;
   initialReviewRoundId?: string;
+  /** Opens the PR-owned AgentColumn destination instead of an inline round page. */
+  onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
 }) {
   const { data, pollFast } = useBrainViewData(taskId);
   const { task, brainFeed, stages, subStages } = data;
@@ -137,6 +140,20 @@ export function TaskBrainRoute({
   const openAgentRound = (roundId?: string) => {
     const selected = roundId ?? agentReview.latestRound?.id;
     if (selected === undefined) return;
+    const review = agentReview.data?.review;
+    const pr = localPrBundle?.pr;
+    if (onOpenAgentReview !== undefined && review?.workspace_id != null && pr !== undefined) {
+      onOpenAgentReview({
+        threadId: review.owner_thread_id,
+        taskId: review.owner_task_id,
+        roundId: selected,
+        workspaceId: review.workspace_id,
+        prId: pr.id,
+        repo: pr.repo ?? workspaceRepository ?? '',
+        prNumber: pr.remotePrNumber,
+      });
+      return;
+    }
     setReviewOpen(true);
     setAgentRoundId(selected);
   };
@@ -448,7 +465,7 @@ export function TaskBrainRoute({
         onOpenStage={onOpenStage}
         threadId={threadId}
         developmentArtifact={reviewFiles !== null && reviewFiles.length > 0
-          ? <TaskChangedFilesCard files={reviewFiles} onReview={onOpenCode} />
+          ? <TaskChangedFilesCard files={reviewFiles} onReview={() => openTab('pr', 'changes')} />
           : undefined}
         spineTrailer={planTimelineNode}
         trailer={(
@@ -619,6 +636,7 @@ export function TaskBrainRoute({
       row={taskPullRow}
       bundle={displayedTaskBundle}
       refresh={refreshLocalPr}
+      openChangesToken={prSubTabRequest?.subTab === 'changes' ? prSubTabRequest.token : undefined}
       onComment={onTaskPrComment}
       onAssignAgent={() => { void agentReview.startReview(); }}
       onWorkWithAgent={() => openAgentRound()}
@@ -830,7 +848,7 @@ export function TaskBrainRoute({
           ?? displayedTaskBundle.commits.reduce((sum, commit) => sum + commit.additions, 0),
         deletions: displayedTaskBundle.pr.syncedDeletions
           ?? displayedTaskBundle.commits.reduce((sum, commit) => sum + commit.deletions, 0),
-        onOpen: onOpenCode,
+        onOpen: () => openTab('pr', 'changes'),
       } : undefined}
       onSubmitReview={onSubmitReview}
       submittingReview={submittingReview}

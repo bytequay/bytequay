@@ -59,6 +59,8 @@ class TestWorkspaceInsightsService
         runs = mock(AgentRunService.class);
         when(threadStore.listThreadsUpdatedSince(any())).thenReturn(List.of());
         when(reviewStore.taskReviewSpendSince(any())).thenReturn(List.of());
+        when(reviewStore.reviewSpendSince(any())).thenReturn(List.of());
+        when(reviewStore.reviewSpendSince(eq("ws-1"), any())).thenReturn(List.of());
         service = new WorkspaceInsightsService(
                 threadStore,
                 taskStore,
@@ -91,7 +93,7 @@ class TestWorkspaceInsightsService
     @Test
     void includesTaskOwnedAgentReviewSpend()
     {
-        when(reviewStore.taskReviewSpendSince(any())).thenReturn(List.of(
+        when(reviewStore.reviewSpendSince(any())).thenReturn(List.of(
                 new InvestigationReviewStore.TaskReviewSpend(1_160L, NOW.minusSeconds(60))));
 
         WorkspaceInsightsService.Insights insights = service.get("7d");
@@ -102,14 +104,15 @@ class TestWorkspaceInsightsService
     }
 
     @Test
-    void workspaceInsightsExcludeOtherWorkspacesAndGlobalReviewSpend()
+    void workspaceInsightsUsePrOwnedReviewSpendAndIgnoreLegacyReviewThreads()
     {
         Thread own = thread("thread-own", 120L);
+        Thread legacyReview = thread("legacy-review", 9_999L, ThreadFlow.REVIEW);
         when(threadStore.listThreadsByWorkspaceUpdatedSince(
                 eq("ws-1"), any()))
-                .thenReturn(List.of(own));
+                .thenReturn(List.of(own, legacyReview));
         when(threadStore.listThreadsByWorkspace("ws-1"))
-                .thenReturn(List.of(own));
+                .thenReturn(List.of(own, legacyReview));
         when(taskStore.hasActiveTask(own.id())).thenReturn(true);
         when(taskStore.listWithLinkedPr(anyInt())).thenReturn(List.of(
                 task(
@@ -124,16 +127,15 @@ class TestWorkspaceInsightsService
                         TaskStatus.COMPLETED,
                         NOW.minusSeconds(60),
                         "thread-other")));
-        when(reviewStore.taskReviewSpendSince(any())).thenReturn(List.of(
-                new InvestigationReviewStore.TaskReviewSpend(
-                        9_999L, NOW.minusSeconds(30))));
+        when(reviewStore.reviewSpendSince(eq("ws-1"), any())).thenReturn(List.of(
+                new InvestigationReviewStore.TaskReviewSpend(310L, NOW.minusSeconds(30))));
         when(runs.findByWorkspace("ws-1")).thenReturn(List.of(
                 run("run-own", AgentRun.KIND_DEV, "claude-code", 240L)));
 
         WorkspaceInsightsService.Insights insights =
                 service.get("ws-1", "7d");
 
-        assertThat(insights.spendInWindowMilli()).isEqualTo(120L);
+        assertThat(insights.spendInWindowMilli()).isEqualTo(430L);
         assertThat(insights.tasksShippedInWindow()).isEqualTo(1);
         assertThat(insights.tasksByRepo())
                 .extracting(
@@ -175,6 +177,11 @@ class TestWorkspaceInsightsService
 
     private static Thread thread(String id, long costUsdMilli)
     {
+        return thread(id, costUsdMilli, ThreadFlow.BUILD);
+    }
+
+    private static Thread thread(String id, long costUsdMilli, ThreadFlow flow)
+    {
         return new Thread(
                 id,
                 ThreadKind.CLI_AGENT,
@@ -190,7 +197,7 @@ class TestWorkspaceInsightsService
                 NOW.minusSeconds(30),
                 null,
                 null,
-                ThreadFlow.BUILD,
+                flow,
                 "ws-1",
                 null);
     }

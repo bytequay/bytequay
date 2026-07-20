@@ -4,14 +4,17 @@
 .agent-review-entry,
 .agent-review-state,
 .agent-submit-button { border: 1px solid var(--border-mid); border-radius: 8px; background: #fff; color: var(--text-2); padding: 6px 10px; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
-.agent-review-state.running { color: #6d28d9; border-color: rgba(139,92,246,.32); background: rgba(139,92,246,.08); }
+.agent-review-entry,
+.agent-review-state { color: #fff; border-color: #17191c; background: #17191c; }
+.agent-review-entry:hover,
+.agent-review-state:hover { color: #fff; border-color: #000; background: #000; }
+.agent-review-state.running { color: #fff; border-color: #17191c; background: #17191c; }
 .agent-review-state.running > span { display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: #1f883d; animation: agent-review-pulse 1.4s ease-in-out infinite; }
-.agent-review-state.stale { color: #9a6700; border-color: rgba(212,167,44,.5); background: #fff8c5; }
+.agent-review-state.stale { color: #fff; border-color: #17191c; background: #17191c; }
 .agent-review-entry-wrap { position: relative; display: inline-flex; }
 .agent-review-entry-split { display: inline-flex; }
 .agent-review-entry-split .agent-review-entry:first-child { border-radius: 8px 0 0 8px; }
 .agent-review-entry-split .agent-review-entry__customize { margin-left: -1px; border-radius: 0 8px 8px 0; padding-inline: 7px; }
-.agent-review-entry-split.stale .agent-review-entry { color: #9a6700; border-color: rgba(212,167,44,.5); background: #fff8c5; }
 .agent-review-customize { position: absolute; z-index: 90; top: calc(100% + 8px); right: 0; width: 300px; display: grid; gap: 8px; border: 1px solid var(--border-mid); border-radius: 10px; padding: 12px; color: var(--text-1); background: #fff; box-shadow: 0 14px 42px rgba(31,35,40,.18); text-align: left; white-space: normal; }
 .agent-review-customize > b { font-size: 12.5px; }
 .agent-review-customize > small { color: var(--text-3); font-size: 10.5px; line-height: 1.45; }
@@ -24,7 +27,6 @@
 .agent-review-customize__actions button.primary { color: #fff; border-color: #1f883d; background: #1f883d; }
 .agent-review-inline-error { max-width: 180px; overflow: hidden; text-overflow: ellipsis; color: #cf222e; font-size: 10px; font-weight: 700; white-space: nowrap; }
 .agent-submit-button { color: #fff; background: #1f883d; border-color: #1f883d; }
-.agent-submit-button > span { margin-left: 4px; border-radius: 999px; padding: 0 6px; background: rgba(255,255,255,.22); }
 .diff-file-row__comment-count { margin-left: auto; min-width: 17px; height: 17px; display: inline-grid; place-items: center; border-radius: 999px; color: #7c3aed; background: rgba(139,92,246,.12); font-size: 9px; font-weight: 800; }
 
 .agent-submit-popover { position: absolute; z-index: 80; top: calc(100% + 8px); right: 0; width: 390px; border: 1px solid var(--border-mid); border-radius: 12px; background: #fff; box-shadow: 0 14px 42px rgba(31,35,40,.18); overflow: hidden; color: var(--text-1); }

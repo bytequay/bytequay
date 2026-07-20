@@ -26,12 +26,14 @@ import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.ConceptScope;
 import com.bytequay.app.service.concepts.ConceptSpec;
 import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
+import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.threads.ThreadService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
@@ -98,6 +100,7 @@ public class WorkspaceService
     private final ThreadStore threadStore;
     private final WatchedRepoStore watchedRepos;
     private final ThreadService threadService;
+    private final InvestigationReviewService investigationReviews;
     private final WorkspaceDataPurger dataPurger;
 
     public WorkspaceService(
@@ -110,6 +113,7 @@ public class WorkspaceService
             // ThreadRegistry → WorkspaceService (the registry reads workspace
             // context). The teardown only needs ThreadService at delete time.
             @Lazy ThreadService threadService,
+            @Lazy InvestigationReviewService investigationReviews,
             WorkspaceDataPurger dataPurger)
     {
         this.store = requireNonNull(store, "store is null");
@@ -118,6 +122,8 @@ public class WorkspaceService
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.threadService = requireNonNull(threadService, "threadService is null");
+        this.investigationReviews = requireNonNull(
+                investigationReviews, "investigationReviews is null");
         this.dataPurger = requireNonNull(dataPurger, "dataPurger is null");
     }
 
@@ -285,24 +291,20 @@ public class WorkspaceService
      * CASCADE}, so with FK enforcement on, dropping a workspace that still
      * had threads would fail with a constraint violation.
      *
-     * <p>Each thread purge is best-effort — one thread's teardown throwing
-     * (a wedged git worktree, say) is logged and skipped so it can't strand
-     * the rest of the cascade.
+     * <p>The database teardown is one transaction. A failed thread/review
+     * purge aborts the workspace delete so earlier row removals roll back
+     * instead of leaving a half-deleted workspace.
      */
+    @Transactional
     public void delete(String workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         require(workspaceId);
         List<Thread> threads = threadStore.listThreadsByWorkspace(workspaceId);
         for (Thread thread : threads) {
-            try {
-                threadService.purge(thread.id());
-            }
-            catch (RuntimeException e) {
-                log.warn("purge of thread {} during workspace {} delete failed: {}",
-                        thread.id(), workspaceId, e.getMessage());
-            }
+            threadService.purge(thread.id());
         }
+        investigationReviews.purgeByWorkspace(workspaceId);
         dataPurger.purgeWorkspaceScoped(workspaceId);
         store.deleteWorkspace(workspaceId);
         log.info("deleted workspace {} and purged {} thread(s)", workspaceId, threads.size());

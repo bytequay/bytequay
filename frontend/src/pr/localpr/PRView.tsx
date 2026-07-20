@@ -294,8 +294,7 @@ export function PRView({
             onDiscardDrafts={onDiscardDrafts}
             onRunTests={onRunTests}
             runTestsBusy={runTestsBusy}
-            hidePublishGate={reviewData !== undefined && comments.some(comment =>
-              comment.findingId != null && comment.publishedAt === null && comment.dismissedAt === null)}
+            hidePublishGate={headerAction !== undefined}
           />
         )}
 

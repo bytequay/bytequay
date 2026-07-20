@@ -66,13 +66,17 @@ export default function WorkspaceTodayPage({
     };
   }, [workspace.id]);
 
-  const threadIds = useMemo(() => new Set(threads.map(thread => thread.id)), [threads]);
+  const publicThreads = useMemo(
+    () => threads.filter(thread => thread.flow !== 'review'),
+    [threads],
+  );
+  const threadIds = useMemo(() => new Set(publicThreads.map(thread => thread.id)), [publicThreads]);
   const liveTurns = turns.filter(turn => threadIds.has(turn.threadId));
-  const needsYou = threads.filter(thread =>
+  const needsYou = publicThreads.filter(thread =>
     thread.status === 'AWAITING_REVIEW' || thread.status === 'NEEDS_ATTENTION');
-  const running = threads.filter(thread =>
+  const running = publicThreads.filter(thread =>
     thread.status === 'RUNNING' || liveTurns.some(turn => turn.threadId === thread.id));
-  const landed = threads.filter(thread =>
+  const landed = publicThreads.filter(thread =>
     (thread.status === 'COMPLETED' || thread.status === 'ARCHIVED') && isToday(thread.updatedAt));
   const visualFrame = document.documentElement.dataset.workspaceVisualFrame;
   const firstSyncRunning = onboarding !== null && onboarding.syncState !== 'ready';
@@ -100,7 +104,7 @@ export default function WorkspaceTodayPage({
               <WorkspaceOnboarding
                 workspaceName={workspace.name}
                 state={onboarding}
-                threadCount={threads.length}
+                threadCount={publicThreads.length}
                 onDismiss={async () => {
                   setOnboarding(await workspaceApi.dismissOnboarding(workspace.id));
                 }}
@@ -156,7 +160,7 @@ export default function WorkspaceTodayPage({
                 {landed.map(thread => (
                   <div
                     key={thread.id}
-                    className={`wu-landed-row${thread.flow === 'review' ? ' review' : ''}`}
+                    className="wu-landed-row"
                     role="button"
                     tabIndex={0}
                     onClick={() => onOpenThread?.(thread.id)}
@@ -167,10 +171,8 @@ export default function WorkspaceTodayPage({
                       }
                     }}
                   >
-                    {thread.flow === 'review' ? <ReviewPostedIcon /> : <MergedIcon />}
-                    <span>{thread.title} — {thread.flow === 'review'
-                      ? thread.activitySummary || 'review posted'
-                      : 'merged'}</span>
+                    <MergedIcon />
+                    <span>{thread.title} — merged</span>
                     <span className="wu-landed-row__time">{compactRelativeTime(thread.updatedAt)}</span>
                   </div>
                 ))}
@@ -450,13 +452,6 @@ function MergedIcon() {
     strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <circle cx="18" cy="18" r="2.6" /><circle cx="6" cy="6" r="2.6" />
     <path d="M6 21V9a9 9 0 0 0 9 9" />
-  </svg>;
-}
-
-function ReviewPostedIcon() {
-  return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <path d="M20 6 9 17l-5-5" />
   </svg>;
 }
 

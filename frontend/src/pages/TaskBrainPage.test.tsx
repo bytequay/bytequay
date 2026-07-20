@@ -116,7 +116,7 @@ describe('TaskBrainPage locked frame', () => {
   it('opens and submits the review drawer', async () => {
     const onSubmitReview = vi.fn();
     render(brain({ onSubmitReview }));
-    fireEvent.click(screen.getByRole('button', { name: 'Submit review' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review • 0' }));
     const dialog = screen.getByRole('dialog', { name: 'Submit review' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Submit review' }));
     expect(onSubmitReview).toHaveBeenCalledWith('', 'COMMENT');

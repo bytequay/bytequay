@@ -214,13 +214,15 @@ export type ReviewStartDto = {
 export type WorkspaceSessionDto = {
   id: string;
   workspaceId: string;
-  trunkId: string;
+  trunkId: string | null;
   kind: 'plan' | 'dev' | 'review' | 'ci-fix';
   status: 'queued' | 'running' | 'paused' | 'done' | 'errored';
   provider: string | null;
   model: string | null;
   taskId: string | null;
   stageId: string | null;
+  reviewRoundId?: string | null;
+  durableReview: boolean;
   costUsdMilli: number;
   tokensIn: number;
   tokensOut: number;

@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import CurrentUserAvatar from '../CurrentUserAvatar';
+import { commentLineLabel } from '../diff/DiffInlineComments';
 import { renderMarkdown, type MarkdownRepoContext } from '../markdown';
 import { relativeTime } from '../notificationDisplay';
 import type { ActivityItemDto, DiffFileDto } from '../types';
@@ -41,10 +42,11 @@ function Chevron({ deg = 0, size = 11 }: { deg?: number; size?: number }) {
   );
 }
 
-function PendingCard({ c, files, login, onJump, onResolve, onDelete }: {
+function PendingCard({ c, files, login, repoCtx, onJump, onResolve, onDelete }: {
   c: LocalPRComment;
   files: DiffFileDto[] | null;
   login: string;
+  repoCtx: MarkdownRepoContext;
   onJump: (filePath: string, side: 'LEFT' | 'RIGHT', line: number) => void;
   onResolve: (id: string) => void;
   onDelete: (id: string) => void;
@@ -52,19 +54,20 @@ function PendingCard({ c, files, login, onJump, onResolve, onDelete }: {
   const file = c.filePath !== null ? files?.find(f => f.filename === c.filePath) ?? null : null;
   const snippet = file !== null && c.lineNumber !== null ? snippetRowFor(file.patch, c.side, c.lineNumber) : null;
   const jumpable = c.filePath !== null && c.lineNumber !== null;
+  const lineLabel = commentLineLabel(c);
   return (
     <div style={{ border: '1px solid #d5dbe1', borderRadius: 10, overflow: 'hidden', marginTop: 4 }}>
       <div
         className="pl-hov-phead"
         title={jumpable ? 'Jump to line' : undefined}
         onClick={jumpable ? () => onJump(c.filePath!, c.side, c.lineNumber!) : undefined}
-        style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 10px', background: '#f6f8fa', borderBottom: '1px solid #e7e9ec', cursor: 'pointer' }}
+        style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '8px 10px', background: '#f6f8fa', borderBottom: '1px solid #e7e9ec', cursor: jumpable ? 'pointer' : 'default' }}
       >
         <Chevron deg={90} />
         <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 600, color: '#17191c', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>
-          {c.filePath !== null ? lastTwoSegments(c.filePath) : 'Pull request'}
+          {c.filePath !== null ? lastTwoSegments(c.filePath) : 'Location unavailable'}
         </span>
-        {c.lineNumber !== null && <span style={{ fontSize: 11, color: '#59636e', flexShrink: 0 }}>Line {c.lineNumber}</span>}
+        {lineLabel !== null && <span style={{ fontSize: 11, color: '#59636e', flexShrink: 0 }}>{lineLabel}</span>}
         <span
           title="Mark resolved"
           onClick={e => { e.stopPropagation(); onResolve(c.id); }}
@@ -100,12 +103,9 @@ function PendingCard({ c, files, login, onJump, onResolve, onDelete }: {
           </span>
           <span style={chipStyle}>Contributor</span>
         </div>
-        <textarea
-          className="pl-pend-ta"
-          value={c.body}
-          readOnly
-          title="Editing not wired yet"
-          style={{ display: 'block', width: '100%', border: '1px solid transparent', borderRadius: 6, outline: 'none', resize: 'vertical', padding: '4px 6px', marginTop: 6, fontSize: 12.5, lineHeight: 1.55, color: '#1f2328', background: 'transparent', fontFamily: 'inherit', minHeight: 46 }}
+        <div
+          className="md-body pl-pending-comment-body"
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(c.body, repoCtx) }}
         />
         <div style={{ marginTop: 9 }}><EmojiPlusPill /></div>
         <div title="Not wired yet" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 9, fontSize: 12.5, color: '#59636e', cursor: 'pointer' }}>
@@ -202,10 +202,10 @@ export default function PullReviewSidebar({
           pending.length > 0 ? (
             <>
               <div style={{ padding: '10px 2px 6px', fontSize: 12, color: '#59636e', textAlign: 'center' }}>
-                Showing {pending.length} of {bundle.comments.length} comments
+                {pending.length} pending review {pending.length === 1 ? 'comment' : 'comments'}
               </div>
               {pending.map(c => (
-                <PendingCard key={c.id} c={c} files={files} login={login} onJump={onJump} onResolve={onResolve} onDelete={onDelete} />
+                <PendingCard key={c.id} c={c} files={files} login={login} repoCtx={repoCtx} onJump={onJump} onResolve={onResolve} onDelete={onDelete} />
               ))}
             </>
           ) : (

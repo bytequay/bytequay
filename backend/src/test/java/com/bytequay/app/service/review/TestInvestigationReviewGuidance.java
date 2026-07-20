@@ -46,6 +46,7 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -138,6 +139,7 @@ class TestInvestigationReviewGuidance
                 "applicable", "finding"));
         reviews.insertFinding(new FindingRow(
                 findingId, reviewId, priorRoundId, objectiveId, null, "hard-invariant",
+                null, null, null,
                 "The boundary rejects the configured value.", 3, "SUPPORTED", "unknown",
                 "Confirm whether that rejection is intentional.", "NEEDS_AUTHOR_INPUT", "old-head"));
         PRComment root = localPrs.addComment(
@@ -565,7 +567,7 @@ class TestInvestigationReviewGuidance
                     List.of(
                             new DiffFile("src/A.java", "modified", 1, 1, null),
                             new DiffFile("src/B.java", "modified", 1, 1, null)),
-                    null);
+                    Path.of("/tmp/bytequay-review-guidance"));
         }
 
         @Override

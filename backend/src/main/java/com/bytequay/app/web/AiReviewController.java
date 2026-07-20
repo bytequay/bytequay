@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -211,6 +212,75 @@ public class AiReviewController
             return new StatusResponse("IDLE", null);
         }
         return new StatusResponse(state.state(), state.error());
+    }
+
+    /**
+     * Starts the no-tools, supplied-diff-only review for an external unified
+     * PR. Unlike AgentReview this creates no thread, session, run, or round.
+     */
+    @PostMapping("/api/prs/{prId}/quick-review/start")
+    public Map<String, String> startQuickReview(@PathVariable String prId)
+    {
+        String key = quickReviewKey(prId);
+        AtomicBoolean reserved = new AtomicBoolean();
+        RunState reservation = new RunState("RUNNING", null);
+        running.compute(key, (ignored, existing) -> {
+            if (existing == null || !"RUNNING".equals(existing.state())) {
+                reserved.set(true);
+                return reservation;
+            }
+            return existing;
+        });
+        if (!reserved.get()) {
+            return ImmutableMap.of("state", "RUNNING");
+        }
+        try {
+            executor.execute(() -> {
+                try {
+                    aiReviewService.runQuickReview(prId);
+                    running.put(key, new RunState("DONE", null));
+                }
+                catch (Exception e) {
+                    String message = errorMessage(e);
+                    log.warn("Quick review run failed for PR {}: {}", prId, message);
+                    running.put(key, new RunState("FAILED", message));
+                }
+            });
+        }
+        catch (RuntimeException e) {
+            running.replace(key, reservation, new RunState("FAILED", errorMessage(e)));
+            throw e;
+        }
+        return ImmutableMap.of("state", "RUNNING");
+    }
+
+    @GetMapping("/api/prs/{prId}/quick-review/status")
+    public StatusResponse quickReviewStatus(@PathVariable String prId)
+    {
+        RunState state = running.get(quickReviewKey(prId));
+        return state == null
+                ? new StatusResponse("IDLE", null)
+                : new StatusResponse(state.state(), state.error());
+    }
+
+    @GetMapping("/api/prs/{prId}/quick-review/latest")
+    public AiReviewDraft latestQuickReview(@PathVariable String prId)
+    {
+        return aiReviewService.latestQuickReview(prId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "No quick review for this PR"));
+    }
+
+    private static String quickReviewKey(String prId)
+    {
+        return "quick:" + prId;
+    }
+
+    private static String errorMessage(Exception error)
+    {
+        return error instanceof ResponseStatusException status && status.getReason() != null
+                ? status.getReason()
+                : error.getMessage();
     }
 
     /** POST /ai/review?prId=&repo=&number= — runs a single review against the active LLM. */

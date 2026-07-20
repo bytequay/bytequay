@@ -34,6 +34,8 @@ type Props = {
   onStartReview?: (threadId: string | null, reviewId?: string) => void;
   /** Open the workspace-owned route for a standalone PR agent review. */
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
+  /** Hand an unwatched PR to the canonical quick/watch review flow. */
+  onOpenReviewSetup?: (action: 'quick' | 'watch', repo: string, number: number) => void;
   /** Active workspace the review panel lands in. */
   workspaceId?: string | null;
 };
@@ -68,7 +70,10 @@ function loadSidebarWidth(): number {
   return Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, n));
 }
 
-function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, onOpenAgentReview, workspaceId }: Props) {
+function TeamDetailPage({
+  teamId, onBack, onOpenLocalBranch, onStartReview, onOpenAgentReview,
+  onOpenReviewSetup, workspaceId,
+}: Props) {
   const [team, setTeam] = useState<TeamDto | null>(() => getCached<TeamDto>(TEAM_KEY(teamId)) ?? null);
   const [columnsData, setColumnsData] = useState<TeamColumnsResponse>(() =>
     getCached<TeamColumnsResponse>(COLUMNS_KEY(teamId)) ?? EMPTY_COLUMNS,
@@ -336,6 +341,7 @@ function TeamDetailPage({ teamId, onBack, onOpenLocalBranch, onStartReview, onOp
           pr={selectedPr}
           onStartReview={onStartReview}
           onOpenAgentReview={onOpenAgentReview}
+          onOpenReviewSetup={onOpenReviewSetup}
           workspaceId={workspaceId}
           onOpenReview={enterReview}
           onMarkHandled={handleMarkHandled}

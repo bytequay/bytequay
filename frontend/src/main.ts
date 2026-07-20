@@ -1047,6 +1047,41 @@ function registerIpc(): void {
     }
     return res.json();
   });
+
+  ipcMain.handle('quickReview:start', async (_event, prId: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/quick-review/start`,
+      { method: 'POST' },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Quick review start failed (${res.status}): ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('quickReview:status', async (_event, prId: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/quick-review/status`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Quick review status failed (${res.status}): ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('quickReview:latest', async (_event, prId: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/quick-review/latest`,
+    );
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Quick review result failed (${res.status}): ${body}`);
+    }
+    return res.json();
+  });
   ipcMain.handle('agentReview:getByThread', async (_event, threadId: string) => {
     const res = await fetch(`${BACKEND_BASE}/api/agent-reviews/by-thread/${encodeURIComponent(threadId)}`);
     if (res.status === 404) return null;

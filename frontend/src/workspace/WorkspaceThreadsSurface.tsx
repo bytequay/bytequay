@@ -34,12 +34,12 @@ export function WorkspaceThreadsSurface({
   const [showAll, setShowAll] = useState(false);
   const sourceUsesThreadCopy = typeof document !== 'undefined'
     && document.documentElement.dataset.workspaceVisualFrame === '1c';
-  const openThreads = threads.filter(isOpenTrunk);
+  const openThreads = threads
+    .filter(thread => thread.flow !== 'review')
+    .filter(isOpenTrunk);
   const tasksByThread = useThreadTaskLists(openThreads.map(thread => thread.id));
   const active = openThreads.filter(thread => thread.status === 'RUNNING').length;
-  const agentRunning = openThreads.filter(
-    thread => thread.status === 'RUNNING' && thread.flow !== 'review',
-  ).length;
+  const agentRunning = openThreads.filter(thread => thread.status === 'RUNNING').length;
   const needsYou = openThreads.filter(isNeedsYou).length;
   const publicNoun = sourceUsesThreadCopy ? 'Threads' : 'Trunks';
   const publicNounLower = publicNoun.toLowerCase();

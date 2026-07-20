@@ -39,27 +39,21 @@ export type PullDetailHeader = {
   ovCount: number;
   addP: string;
   delP: string;
-  agentAssigned: boolean;
-  agentRunning: boolean;
-  agentTitle: string;
-  wsTitle: string;
+  agentState: 'none' | 'running' | 'done' | 'stale';
 };
 
 export function buildHeader(row: PullRow, bundle: LocalPRBundle | null | undefined): PullDetailHeader {
-  const running = row.dto.reviewState === 'running';
+  const agentState = row.dto.reviewState ?? (row.hasAgent ? 'done' : 'none');
   return {
     title: bundle?.pr.title ?? row.title,
-    numS: `#${row.num}`,
+    numS: bundle?.pr.remotePrNumber === null || row.num <= 0 ? 'Local PR' : `#${row.num}`,
     isMerged: bundle?.pr.status === 'merged' || row.kind === 'merged',
     base: bundle?.pr.baseBranch ?? null,
     branch: bundle?.pr.branchName ?? null,
     ovCount: bundle?.comments.length ?? row.comments,
     addP: `+${shortCount(row.add)}`,
     delP: `−${shortCount(row.del)}`,
-    agentAssigned: row.hasAgent,
-    agentRunning: running,
-    agentTitle: `Work with agent${running ? ' — agent running' : ' — idle'}`,
-    wsTitle: `Open in workspace — locate this review task in the ${row.repo.split('/')[1] ?? row.repo} trunk`,
+    agentState,
   };
 }
 

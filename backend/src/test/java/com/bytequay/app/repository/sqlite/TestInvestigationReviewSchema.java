@@ -41,6 +41,7 @@ import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.review.InvestigationReviewService.StartOptions;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -87,6 +88,8 @@ class TestInvestigationReviewSchema
     private ThreadStore threads;
     @Autowired
     private ThreadService threadService;
+    @Autowired
+    private WorkspaceService workspaces;
     @Autowired
     private JdbcTemplate jdbc;
     @Autowired
@@ -159,6 +162,7 @@ class TestInvestigationReviewSchema
                 null, null, null, null, "digest", "10 return true;"));
         reviews.insertFinding(new FindingRow(
                 findingId, sessionId, roundId, objectiveId, null, "hard-invariant",
+                "src/A.java", 10, 12,
                 "Missing values are accepted", 3, "SUPPORTED", "unknown",
                 "Preserve the old failure", "candidate", "head"));
         reviews.insertEvidence(new FindingEvidenceRow(
@@ -171,7 +175,12 @@ class TestInvestigationReviewSchema
             assertThat(persistedRound.capabilitiesJson().sourceMode()).isEqualTo("remote-only");
             assertThat(persistedRound.triggerStageId()).isNull();
         });
-        assertThat(reviews.findings(sessionId)).singleElement().extracting(FindingRow::id).isEqualTo(findingId);
+        assertThat(reviews.findings(sessionId)).singleElement().satisfies(finding -> {
+            assertThat(finding.id()).isEqualTo(findingId);
+            assertThat(finding.path()).isEqualTo("src/A.java");
+            assertThat(finding.startLine()).isEqualTo(10);
+            assertThat(finding.endLine()).isEqualTo(12);
+        });
         assertThat(reviews.evidence(sessionId)).singleElement().extracting(FindingEvidenceRow::observationId)
                 .isEqualTo(observationId);
         assertThat(reviews.steps(sessionId)).filteredOn(step -> step.id().equals(unexecutedStepId))
@@ -207,6 +216,99 @@ class TestInvestigationReviewSchema
                 });
         reviews.markRoundFinalized(roundId);
         assertThat(reviews.dashboardStates()).containsEntry(prId, "done");
+    }
+
+    @Test
+    void workspaceDeletePurgesThreadlessReviewAndEveryRoundRun()
+    {
+        String suffix = UUID.randomUUID().toString();
+        String workspaceId = "ws-delete-" + suffix;
+        String prId = "pr-delete-" + suffix;
+        String reviewId = "review-delete-" + suffix;
+        String roundId = "round-delete-" + suffix;
+        String runId = "run-delete-" + suffix;
+        String verifierId = "verify-delete-" + suffix;
+        insertWorkspace(workspaceId);
+        prs.save(PR.createExternal(
+                prId, "acme/delete-" + suffix, 7, "https://example.test/7", "octocat",
+                "feature", "main", "Delete review", "", PR.STATUS_REMOTE_OPEN,
+                Instant.parse("2026-07-01T00:00:00Z"), null, null));
+        reviews.insertReview(new AgentReviewRow(
+                reviewId, "acme/delete", prId, "base", "head", "ACTIVE",
+                workspaceId, null, null), Instant.now());
+        insertReviewRun(runId, roundId, workspaceId, "running");
+        insertReviewRun(verifierId, roundId, workspaceId, "running");
+        reviews.insertRound(new ReviewRoundRow(
+                roundId, reviewId, runId, "initial", "full", "head", null,
+                "RUNNING", new RoundBudget(50, 10), 0), Instant.now());
+
+        workspaces.delete(workspaceId);
+
+        assertThat(reviews.findReview(reviewId)).isEmpty();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM agent_run WHERE id IN (?, ?)",
+                Long.class, runId, verifierId)).isZero();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM workspaces WHERE id = ?",
+                Long.class, workspaceId)).isZero();
+    }
+
+    @Test
+    void failedWorkspaceDeleteRollsBackTheReviewPurge()
+    {
+        String suffix = UUID.randomUUID().toString();
+        String workspaceId = "ws-rollback-" + suffix;
+        String prId = "pr-rollback-" + suffix;
+        String reviewId = "review-rollback-" + suffix;
+        String roundId = "round-rollback-" + suffix;
+        String runId = "run-rollback-" + suffix;
+        String blockerId = "run-blocker-" + suffix;
+        insertWorkspace(workspaceId);
+        prs.save(PR.createExternal(
+                prId, "acme/rollback-" + suffix, 8, "https://example.test/8", "octocat",
+                "feature", "main", "Rollback review", "", PR.STATUS_REMOTE_OPEN,
+                Instant.parse("2026-07-01T00:00:00Z"), null, null));
+        reviews.insertReview(new AgentReviewRow(
+                reviewId, "acme/rollback", prId, "base", "head", "ACTIVE",
+                workspaceId, null, null), Instant.now());
+        insertReviewRun(runId, roundId, workspaceId, "succeeded");
+        reviews.insertRound(new ReviewRoundRow(
+                roundId, reviewId, runId, "initial", "full", "head", "head",
+                "COMPLETED", new RoundBudget(50, 10), 0), Instant.now());
+        insertReviewRun(blockerId, null, workspaceId, "succeeded");
+
+        assertThatThrownBy(() -> workspaces.delete(workspaceId))
+                .isInstanceOf(RuntimeException.class);
+
+        assertThat(reviews.findReview(reviewId)).isPresent();
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM agent_run WHERE id = ?", Long.class, runId))
+                .isEqualTo(1L);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM workspaces WHERE id = ?", Long.class, workspaceId))
+                .isEqualTo(1L);
+
+        jdbc.update("DELETE FROM agent_run WHERE id = ?", blockerId);
+        workspaces.delete(workspaceId);
+    }
+
+    private void insertWorkspace(String workspaceId)
+    {
+        jdbc.update("""
+                INSERT INTO workspaces(id, name, memory_md, is_scratch, created_at_ms, updated_at_ms)
+                VALUES (?, ?, '', 0, 1, 1)
+                """, workspaceId, workspaceId);
+    }
+
+    private void insertReviewRun(
+            String runId, String roundId, String workspaceId, String status)
+    {
+        jdbc.update("""
+                INSERT INTO agent_run(
+                    id, kind, review_round_id, status, iterations, budget,
+                    started_at_ms, workspace_id)
+                VALUES (?, 'panel_review', ?, ?, 0, 50, 1, ?)
+                """, runId, roundId, status, workspaceId);
     }
 
     @Test
@@ -259,6 +361,21 @@ class TestInvestigationReviewSchema
     }
 
     @Test
+    void reviewSessionWithoutItsFirstRoundBlocksPrFolding()
+    {
+        String prId = UUID.randomUUID().toString();
+        prs.save(PR.createExternal(
+                prId, "acme/starting-" + prId, 18, "https://example.test/18", "octocat",
+                "feature", "main", "Start review", "", PR.STATUS_REMOTE_OPEN,
+                Instant.parse("2026-07-01T00:00:00Z"), null, null));
+        reviews.insertReview(new AgentReviewRow(
+                UUID.randomUUID().toString(), "acme/widget", prId, "base", "head", "ACTIVE",
+                null, null, null), Instant.now());
+
+        assertThat(prs.hasRunningAgentReview(prId)).isTrue();
+    }
+
+    @Test
     void recordsManualOnlySubmissionAgainstAnInvestigationSession()
             throws Exception
     {
@@ -284,7 +401,7 @@ class TestInvestigationReviewSchema
     }
 
     @Test
-    void standaloneReviewReachesTheRemoteReviewPath()
+    void standaloneFullReviewRequiresAWatchedRepositoryWorkspace()
     {
         String prId = UUID.randomUUID().toString();
         prs.save(PR.createExternal(
@@ -295,7 +412,7 @@ class TestInvestigationReviewSchema
         assertThatThrownBy(() -> investigationReviews.start(
                 prId, new StartOptions(null, null, null)))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("GitHub PAT not configured");
+                .hasMessageContaining("full agent review requires a watched repository workspace");
     }
 
     @Test
@@ -324,6 +441,7 @@ class TestInvestigationReviewSchema
                 objectiveId, roundId, criterionId, "Preserve behavior", "test", "applicable", "finding"));
         reviews.insertFinding(new FindingRow(
                 findingId, reviewId, roundId, objectiveId, null, "hard-invariant",
+                null, null, null,
                 "The behavior regressed", 3, "VERIFIED", "verified",
                 "Restore it", "included", "head"));
         PRComment root = localPrs.addComment(
@@ -381,6 +499,7 @@ class TestInvestigationReviewSchema
                 objectiveId, roundId, criterionId, "Preserve behavior", "test", "applicable", "finding"));
         reviews.insertFinding(new FindingRow(
                 findingId, reviewId, roundId, objectiveId, null, "hard-invariant",
+                null, null, null,
                 "The behavior regressed", 3, "VERIFIED", "verified",
                 "Restore it", "included", "head"));
         PRComment root = localPrs.addComment(

@@ -153,10 +153,14 @@ class SqlitePRStore
     {
         Long count = jdbc.queryForObject("""
                 SELECT COUNT(*)
-                FROM review_round r
-                JOIN review_session s ON s.id = r.session_id
+                FROM review_session s
                 WHERE s.pr_id = ?
-                  AND (r.status IN ('QUEUED', 'RUNNING') OR r.lifecycle_finalized = 0)
+                  AND ((s.status IN ('ACTIVE', 'STALE') AND NOT EXISTS (
+                          SELECT 1 FROM review_round r WHERE r.session_id = s.id))
+                       OR EXISTS (
+                          SELECT 1 FROM review_round r
+                          WHERE r.session_id = s.id
+                            AND (r.status IN ('QUEUED', 'RUNNING') OR r.lifecycle_finalized = 0)))
                 """, Long.class, prId);
         return count != null && count > 0;
     }
@@ -178,6 +182,7 @@ class SqlitePRStore
                 + "AND (run_id IS NULL OR run_id NOT IN "
                 + "(SELECT run_id FROM pr_check WHERE pr_id = ? AND run_id IS NOT NULL))",
                 toPrId, fromPrId, toPrId);
+        jdbc.update("UPDATE pr_review_draft SET unified_pr_id = ? WHERE unified_pr_id = ?", toPrId, fromPrId);
         reparentAgentReviews(fromPrId, toPrId);
         // Comments: ids are unique UUIDs, so no collision — move them all.
         jdbc.update("UPDATE pr_comment SET pr_id = ? WHERE pr_id = ?", toPrId, fromPrId);
@@ -226,22 +231,24 @@ class SqlitePRStore
             // Runs are accounted to the surviving development task once the
             // formerly standalone review becomes part of that task's history.
             jdbc.update("""
-                    UPDATE agent_run SET task_id = ?
+                    UPDATE agent_run
+                    SET task_id = ?, workspace_id = ?, thread_id = ?
                     WHERE id IN (
                         SELECT r.agent_run_id
                         FROM review_round r
                         JOIN review_session s ON s.id = r.session_id
                         WHERE s.pr_id = ?)
-                    """, taskOwner.taskId(), fromPrId);
+                    """, taskOwner.taskId(), taskOwner.workspaceId(), taskOwner.threadId(), fromPrId);
             jdbc.update("""
-                    UPDATE agent_run SET task_id = ?
+                    UPDATE agent_run
+                    SET task_id = ?, workspace_id = ?, thread_id = ?
                     WHERE id IN (
                         SELECT v.verifier_run_id
                         FROM finding_verification v
                         JOIN finding f ON f.id = v.finding_id
                         JOIN review_session s ON s.id = f.session_id
                         WHERE s.pr_id = ?)
-                    """, taskOwner.taskId(), fromPrId);
+                    """, taskOwner.taskId(), taskOwner.workspaceId(), taskOwner.threadId(), fromPrId);
         });
 
         Optional<String> targetReviewId = jdbc.queryForList("""

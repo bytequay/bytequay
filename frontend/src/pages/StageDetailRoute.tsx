@@ -46,6 +46,7 @@ import { PullDetailBody } from '../pulls/PullDetailPane';
 import { pullRowFromLocal } from '../pulls/localRow';
 import type { PullRow } from '../pulls/model';
 import { derivePRCapabilities } from '../pr/prCapabilities';
+import type { AgentReviewNavTarget } from '../pr/localpr/PrDetailsView';
 import { formatDuration } from '../threads/brain/format';
 import { TaskChangedFilesCard } from './TaskChangedFilesCard';
 
@@ -130,8 +131,8 @@ export function StageDetailRoute({
   onSwitchWorkspace?: () => void;
   onNotifications?: () => void;
   notificationCount?: number;
-  /** Open the task-owned full review-round surface at the selected round. */
-  onOpenAgentReview?: (roundId: string) => void;
+  /** Open the PR-owned full-review destination at the selected round. */
+  onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
 }) {
   const { data, refresh } = useStageDetailData(stageId);
   const shipProposal = usePendingShipProposal(threadId, taskId);
@@ -171,10 +172,22 @@ export function StageDetailRoute({
   const agentReview = useAgentReviewState(localPrBundle, refreshLocalPr, submitAgentFindingsToTask);
   const openAgentRound = useCallback((roundId?: string) => {
     const selected = roundId ?? agentReview.latestRound?.id;
-    if (selected !== undefined && onOpenAgentReview !== undefined) {
-      onOpenAgentReview(selected);
+    const review = agentReview.data?.review;
+    const pr = localPrBundle?.pr;
+    if (selected !== undefined && onOpenAgentReview !== undefined
+        && review?.workspace_id != null && pr !== undefined) {
+      onOpenAgentReview({
+        threadId: review.owner_thread_id,
+        taskId: review.owner_task_id,
+        roundId: selected,
+        workspaceId: review.workspace_id,
+        prId: pr.id,
+        repo: pr.repo ?? workspaceRepository ?? '',
+        prNumber: pr.remotePrNumber,
+      });
     }
-  }, [agentReview.latestRound?.id, onOpenAgentReview]);
+  }, [agentReview.data?.review, agentReview.latestRound?.id, localPrBundle?.pr,
+    onOpenAgentReview, workspaceRepository]);
   const pendingReviewComments = useMemo(
     () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
     [localPrBundle],
@@ -186,8 +199,10 @@ export function StageDetailRoute({
   // the tab that's already open.
   const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr' | 'ci'; token: number } | undefined>(
     undefined);
-  const openTab = useCallback((tab: 'pr', _subTab?: 'checks' | 'changes') => {
+  const [openChangesToken, setOpenChangesToken] = useState<number>();
+  const openTab = useCallback((tab: 'pr', subTab?: 'checks' | 'changes') => {
     setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
+    if (subTab === 'changes') setOpenChangesToken(token => (token ?? 0) + 1);
   }, []);
 
   // The ready-for-review callout's inline gate — same semantics as the
@@ -452,7 +467,7 @@ export function StageDetailRoute({
         )}
         {feedRows}
         {files !== null && files.length > 0 && (
-          <TaskChangedFilesCard files={files} onReview={onOpenCode} />
+          <TaskChangedFilesCard files={files} onReview={() => openTab('pr', 'changes')} />
         )}
         {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
         {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
@@ -529,6 +544,7 @@ export function StageDetailRoute({
       row={stagePullRow}
       bundle={displayedLocalPrBundle}
       refresh={refreshLocalPr}
+      openChangesToken={openChangesToken}
       onComment={onStagePrComment}
       onAssignAgent={() => { void agentReview.startReview(); }}
       onWorkWithAgent={() => openAgentRound()}
@@ -688,7 +704,11 @@ export function StageDetailRoute({
       tabs={{
         pr: stagePullDetail ?? undefined,
       }}
-      changes={hasDiff ? { additions: totalAdds, deletions: totalDels, onOpen: onOpenCode } : undefined}
+      changes={hasDiff ? {
+        additions: totalAdds,
+        deletions: totalDels,
+        onOpen: () => openTab('pr', 'changes'),
+      } : undefined}
       onSubmitReview={onSubmitReview}
       submittingReview={submittingReview}
       pendingReviewComments={pendingReviewComments}

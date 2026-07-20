@@ -22,6 +22,7 @@ import { AgentReviewRoundPage } from '../../review/AgentReviewRoundPage';
 import { EMPTY_REVIEW_CURSOR, type ReviewCursor } from '../../review/reviewCursor';
 import { useAgentReviewState } from '../../review/useAgentReviewState';
 import { SubmitReviewPopover } from '../../review/SubmitReviewPopover';
+import { isPendingLocalComment } from '../../diff/DiffInlineComments';
 
 /** `PrDetailsView` only ever needs a (repo, number) to bootstrap the
  *  unified fetch, plus its own id back for the dashboard-triage
@@ -31,12 +32,13 @@ import { SubmitReviewPopover } from '../../review/SubmitReviewPopover';
 type DetailsPr = { id: number | string; repo: string; number: number };
 
 export type AgentReviewNavTarget = {
-  threadId: string;
+  threadId: string | null;
   taskId: string | null;
   roundId: string;
   workspaceId: string;
+  prId: string;
   repo: string;
-  prNumber: number;
+  prNumber: number | null;
 };
 
 /**
@@ -56,6 +58,7 @@ export function PrDetailsView<T extends DetailsPr>({
   initialReviewRoundId,
   onCloseReviewRound,
   onOpenAgentReview,
+  onOpenReviewSetup,
 }: {
   pr: T;
   /** Fires once the agent review panel is created; the parent owns
@@ -79,6 +82,9 @@ export function PrDetailsView<T extends DetailsPr>({
    *  page for development PRs or the review-thread route for external PRs.
    *  Task pages omit this callback, so their own review remains inline. */
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
+  /** Unwatched external PRs use the canonical Pulls quick/watch flow instead
+   *  of trying to start a workspace-less AgentReview here. */
+  onOpenReviewSetup?: (action: 'quick' | 'watch', repo: string, number: number) => void;
 }) {
   const [owner, repoName] = pr.repo.split('/');
   const {
@@ -91,13 +97,39 @@ export function PrDetailsView<T extends DetailsPr>({
     runLocalTests, testsBusy,
   } = useExternalPrActions(owner, repoName, pr.number);
 
+  const reviewRepo = bundle?.pr.repo ?? pr.repo;
+  const [reviewWorkspaceId, setReviewWorkspaceId] = useState<string | null | undefined>();
+  useEffect(() => {
+    let cancelled = false;
+    const listWorkspaces = window.bridge?.listWorkspaces;
+    if (listWorkspaces === undefined) {
+      setReviewWorkspaceId(null);
+      return () => { cancelled = true; };
+    }
+    setReviewWorkspaceId(undefined);
+    void listWorkspaces()
+      .then(workspaces => {
+        if (cancelled) return;
+        const match = workspaces.find(candidate =>
+          candidate.repository?.fullName.toLowerCase() === reviewRepo.toLowerCase());
+        setReviewWorkspaceId(match?.id ?? null);
+      })
+      .catch(() => {
+        // Fail closed: the workspace passed by a Team page may belong to a
+        // different repository. Never start a full review against it unless
+        // the repository lookup positively matched.
+        if (!cancelled) setReviewWorkspaceId(null);
+      });
+    return () => { cancelled = true; };
+  }, [reviewRepo, workspaceId]);
+
   const {
     data: reviewData, displayedBundle, excludedFindings, pendingComments, latestRound, latestRoundNumber, headerState,
     startReview, updateComment, dismissComment: dismissAgentComment, submitReview: submitAgentReview,
     startRound, sendRoundMessage, updateRoundBudget,
     answerFinding, roundAction, cancelRound, reopenFinding, setFindingResolved, toggleFinding, hasAgentComment,
     loading: agentReviewBusy, error: agentReviewError,
-  } = useAgentReviewState(bundle, refresh, undefined, workspaceId);
+  } = useAgentReviewState(bundle, refresh, undefined, reviewWorkspaceId);
   // Live GitHub review threads for the diff (reply / resolve / unresolve).
   // The feed no-ops until the PR has a remote number; the same feed powers
   // the conversation timeline inside <PRView>, and the ETag probe dedupes the
@@ -119,7 +151,16 @@ export function PrDetailsView<T extends DetailsPr>({
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [reviewCursor, setReviewCursor] = useState<ReviewCursor>(EMPTY_REVIEW_CURSOR);
   const [reviewTabRequest, setReviewTabRequest] = useState<{ tab: 'files' | 'review'; token: number }>();
-  const submitComments = pendingComments;
+  const manualPendingComments = displayedBundle?.comments.filter(comment =>
+    comment.findingId == null && isPendingLocalComment(comment)) ?? [];
+  const submitComments = reviewData === null ? manualPendingComments : pendingComments;
+  const submitPendingReview = (verdict: Parameters<typeof submitAgentReview>[0]) => {
+    if (reviewData === null) {
+      void publishReview(verdict);
+      return;
+    }
+    submitAgentReview(verdict);
+  };
 
   useEffect(() => {
     setRoundOpen(false);
@@ -143,16 +184,17 @@ export function PrDetailsView<T extends DetailsPr>({
     if (reviewData == null) return;
     const selected = roundId ?? latestRound?.id;
     if (selected === undefined) return;
-    const ownerThreadId = reviewData.review.owner_thread_id;
     const ownerWorkspaceId = reviewData.review.workspace_id;
-    if (onOpenAgentReview !== undefined && ownerThreadId !== null && ownerWorkspaceId !== null) {
+    const reviewPr = displayedBundle?.pr;
+    if (onOpenAgentReview !== undefined && ownerWorkspaceId !== null && reviewPr !== undefined) {
       onOpenAgentReview({
-        threadId: ownerThreadId,
+        threadId: reviewData.review.owner_thread_id,
         taskId: reviewData.review.owner_task_id,
         roundId: selected,
         workspaceId: ownerWorkspaceId,
-        repo: pr.repo,
-        prNumber: pr.number,
+        prId: reviewPr.id,
+        repo: reviewPr.repo ?? pr.repo,
+        prNumber: reviewPr.remotePrNumber,
       });
       return;
     }
@@ -186,7 +228,7 @@ export function PrDetailsView<T extends DetailsPr>({
   };
 
 
-  const headerAction = (
+  const fullReviewHeaderAction = (
     <AgentReviewHeaderAction
       state={headerState}
       round={latestRoundNumber}
@@ -199,19 +241,48 @@ export function PrDetailsView<T extends DetailsPr>({
       onToggle={toggleFinding}
       onEdit={updateComment}
       onRemove={dismissComment}
-      onSubmit={submitAgentReview}
+      onSubmit={submitPendingReview}
     />
   );
-
-  const submitReviewControl = reviewData === null || submitComments.length === 0 ? undefined : (
-    <SubmitReviewPopover
-      comments={submitComments}
-      excluded={excludedFindings}
-      onToggle={toggleFinding}
-      onEdit={updateComment}
-      onRemove={dismissComment}
-      onSubmit={submitAgentReview}
-    />
+  const headerAction = reviewData !== null || typeof reviewWorkspaceId === 'string' ? fullReviewHeaderAction : (
+    <span className="agent-review-header-action">
+      <span className="agent-review-entry-wrap">
+        <span className="agent-review-entry-split">
+          {reviewWorkspaceId === undefined ? (
+            <button type="button" className="agent-review-entry" disabled>Review options…</button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="agent-review-entry"
+                disabled={onOpenReviewSetup === undefined}
+                onClick={() => onOpenReviewSetup?.('quick', pr.repo, pr.number)}
+              >
+                Run quick review
+              </button>
+              <button
+                type="button"
+                className="agent-review-entry"
+                disabled={onOpenReviewSetup === undefined}
+                onClick={() => onOpenReviewSetup?.('watch', pr.repo, pr.number)}
+              >
+                Watch repo · Full review
+              </button>
+            </>
+          )}
+        </span>
+      </span>
+      {submitComments.length > 0 && (
+        <SubmitReviewPopover
+          comments={submitComments}
+          excluded={excludedFindings}
+          onToggle={toggleFinding}
+          onEdit={updateComment}
+          onRemove={dismissComment}
+          onSubmit={submitPendingReview}
+        />
+      )}
+    </span>
   );
 
   const reviewHeadSha = displayedBundle?.commits.at(-1)?.sha ?? null;
@@ -340,9 +411,6 @@ export function PrDetailsView<T extends DetailsPr>({
         onToggleFindingPromotion={toggleFinding}
         canPromoteFindings={capabilities?.publishReview === true}
         onBack={() => setReviewOpen(false)}
-        onSubmitReview={pendingComments.length > 0 ? undefined : (body, verdict) => publishReview(verdict, body)}
-        submittingReview={publishBusy}
-        submitReviewControl={submitReviewControl}
         reviewData={reviewData ?? undefined}
         selectedFindingId={reviewCursor.selectedFinding}
         selectedFindingRequestToken={reviewCursor.token}

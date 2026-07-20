@@ -42,21 +42,24 @@ class TestThreadListExcludesBrain
     private ThreadStore threads;
 
     @Test
-    void listOmitsBrainAgentThreads()
+    void listOmitsInternalBrainAndLegacyReviewThreads()
     {
         // ws-default is the seeded workspace (threads.workspace_id is an FK).
         String ws = "ws-default";
-        String cliId = save(ThreadKind.CLI_AGENT, ws);
-        String brainId = save(ThreadKind.BRAIN_AGENT, ws);
+        String cliId = save(ThreadKind.CLI_AGENT, ThreadFlow.BUILD, ws);
+        String brainId = save(ThreadKind.BRAIN_AGENT, ThreadFlow.BUILD, ws);
+        String reviewId = save(ThreadKind.CLI_AGENT, ThreadFlow.REVIEW, ws);
 
         List<Thread> result = controller.list(null, null, ws, 50);
 
         // Scope assertions to our own ids — the shared workspace may hold
         // threads from other tests, but a brain thread must never appear.
-        assertThat(result).extracting(Thread::id).contains(cliId).doesNotContain(brainId);
+        assertThat(result).extracting(Thread::id)
+                .contains(cliId)
+                .doesNotContain(brainId, reviewId);
     }
 
-    private String save(ThreadKind kind, String workspaceId)
+    private String save(ThreadKind kind, ThreadFlow flow, String workspaceId)
     {
         String id = UUID.randomUUID().toString();
         Instant now = Instant.now();
@@ -64,7 +67,7 @@ class TestThreadListExcludesBrain
                 id, kind, /* provider */ "claude-code", /* agentSessionId */ null,
                 kind + " fixture", ThreadStatus.IDLE, /* model */ "test",
                 0L, 0L, 0L, now, now, /* endedAt */ null, /* errorMessage */ null,
-                ThreadFlow.BUILD, workspaceId, /* workModel */ null, /* activeTask */ null));
+                flow, workspaceId, /* workModel */ null, /* activeTask */ null));
         return id;
     }
 }

@@ -16,11 +16,14 @@ package com.bytequay.app.service.ai;
 import com.bytequay.app.domain.AiReviewDraft;
 import com.bytequay.app.domain.AttentionReason;
 import com.bytequay.app.domain.CreateReviewCommand;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.PullRequestReview;
 import com.bytequay.app.domain.ReviewOutput;
+import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.domain.Skill;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.repository.AiReviewDraftStore;
@@ -31,12 +34,15 @@ import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.SkillStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.GitHubResponseCache;
 import com.bytequay.app.service.pr.PullRequestDetailInvalidator;
 import com.bytequay.app.service.skills.SkillService;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -47,6 +53,14 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class TestAiReviewService
 {
@@ -59,6 +73,7 @@ class TestAiReviewService
         RecordingInvalidator detailInvalidator = new RecordingInvalidator(events);
         AiReviewService service = new AiReviewService(
                 new UnsupportedPullRequestStore(),
+                mock(PRService.class),
                 gitHub,
                 new LlmReviewerRegistry(List.of(), new EmptyAppSettingsStore()),
                 draftStore,
@@ -75,6 +90,158 @@ class TestAiReviewService
         assertThat(detailInvalidator.repo).isEqualTo("owner/repo");
         assertThat(detailInvalidator.number).isEqualTo(7);
         assertThat(events).containsExactly("github", "invalidate", "publish");
+    }
+
+    @Test
+    void testQuickReviewUsesUnifiedExternalPrAndExplicitNoToolsScope()
+    {
+        PRService prs = mock(PRService.class);
+        PullRequestRepository gitHub = mock(PullRequestRepository.class);
+        LlmReviewerRegistry registry = mock(LlmReviewerRegistry.class);
+        LlmReviewer reviewer = mock(LlmReviewer.class);
+        AiReviewDraftStore draftStore = mock(AiReviewDraftStore.class);
+        SkillService skills = mock(SkillService.class);
+        PatResolver pats = mock(PatResolver.class);
+        PullRequestDetailInvalidator invalidator = mock(PullRequestDetailInvalidator.class);
+        PR pr = externalPr("unified-pr");
+        PrRawDetail raw = rawDetail();
+        ReviewOutput output = new ReviewOutput("summary", List.of(), "claude", "model");
+        AiReviewDraft expected = draft("COMPLETE");
+
+        when(prs.findById("unified-pr")).thenReturn(Optional.of(pr));
+        when(registry.active()).thenReturn(reviewer);
+        when(reviewer.isConfigured()).thenReturn(true);
+        when(pats.resolve("owner/repo")).thenReturn("pat");
+        when(gitHub.fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(raw);
+        when(gitHub.fetchPrDiff("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn("complete diff");
+        when(skills.forRepo("owner/repo")).thenReturn(Optional.empty());
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+        when(draftStore.saveForUnifiedPr("unified-pr", "owner/repo", 7, "abc123", output))
+                .thenReturn(expected);
+
+        AiReviewService service = new AiReviewService(
+                mock(PullRequestStore.class), prs, gitHub, registry, draftStore,
+                skills, invalidator, pats);
+
+        assertThat(service.runQuickReview("unified-pr")).isSameAs(expected);
+        ArgumentCaptor<ReviewRequest> request = ArgumentCaptor.forClass(ReviewRequest.class);
+        verify(reviewer).review(request.capture());
+        assertThat(request.getValue().diff()).isEqualTo("complete diff");
+        assertThat(request.getValue().skillContext())
+                .contains("Review only the pull-request description and complete unified diff")
+                .contains("no repository exploration");
+        verify(draftStore).saveForUnifiedPr("unified-pr", "owner/repo", 7, "abc123", output);
+    }
+
+    @Test
+    void testQuickReviewRejectsOversizedDiffInsteadOfTruncating()
+    {
+        PRService prs = mock(PRService.class);
+        PullRequestRepository gitHub = mock(PullRequestRepository.class);
+        LlmReviewerRegistry registry = mock(LlmReviewerRegistry.class);
+        LlmReviewer reviewer = mock(LlmReviewer.class);
+        AiReviewDraftStore draftStore = mock(AiReviewDraftStore.class);
+        SkillService skills = mock(SkillService.class);
+        PatResolver pats = mock(PatResolver.class);
+
+        when(prs.findById("unified-pr")).thenReturn(Optional.of(externalPr("unified-pr")));
+        when(registry.active()).thenReturn(reviewer);
+        when(reviewer.isConfigured()).thenReturn(true);
+        when(pats.resolve("owner/repo")).thenReturn("pat");
+        when(gitHub.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(rawDetail());
+        when(gitHub.fetchPrDiff(eq("pat"), any(PullRequestRef.class)))
+                .thenReturn("x".repeat(ReviewPrompt.MAX_DIFF_CHARS + 1));
+
+        AiReviewService service = new AiReviewService(
+                mock(PullRequestStore.class), prs, gitHub, registry, draftStore,
+                skills, mock(PullRequestDetailInvalidator.class), pats);
+
+        assertThatThrownBy(() -> service.runQuickReview("unified-pr"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, error -> {
+                    assertThat(error.getStatusCode().value()).isEqualTo(413);
+                    assertThat(error.getReason()).contains("Watch the repo and run a full review");
+                });
+        verify(reviewer, never()).review(any());
+        verify(draftStore, never()).saveForUnifiedPr(any(), any(), eq(7), any(), any());
+    }
+
+    @Test
+    void testQuickReviewReparentsResultWhenExternalPrWasFoldedDuringReview()
+    {
+        PRService prs = mock(PRService.class);
+        PullRequestRepository gitHub = mock(PullRequestRepository.class);
+        LlmReviewerRegistry registry = mock(LlmReviewerRegistry.class);
+        LlmReviewer reviewer = mock(LlmReviewer.class);
+        AiReviewDraftStore draftStore = mock(AiReviewDraftStore.class);
+        SkillService skills = mock(SkillService.class);
+        PatResolver pats = mock(PatResolver.class);
+        PR external = externalPr("external-pr");
+        PR survivor = PR.create(
+                        "task-pr", "task-1", "head", "main", "A title", "description",
+                        Instant.parse("2026-05-08T00:00:00Z"))
+                .withRemote("owner/repo", 7, "https://github.com/owner/repo/pull/7",
+                        Instant.parse("2026-05-08T00:00:00Z"));
+        ReviewOutput output = new ReviewOutput("summary", List.of(), "claude", "model");
+        AiReviewDraft saved = draft("COMPLETE");
+        AiReviewDraft reparented = draft("COMPLETE");
+
+        when(prs.findById("external-pr"))
+                .thenReturn(Optional.of(external), Optional.empty());
+        when(prs.findTaskByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(survivor));
+        when(registry.active()).thenReturn(reviewer);
+        when(reviewer.isConfigured()).thenReturn(true);
+        when(pats.resolve("owner/repo")).thenReturn("pat");
+        when(gitHub.fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7)))
+                .thenReturn(rawDetail());
+        when(gitHub.fetchPrDiff("pat", PullRequestRef.of("owner", "repo", 7)))
+                .thenReturn("complete diff");
+        when(skills.forRepo("owner/repo")).thenReturn(Optional.empty());
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+        when(draftStore.saveForUnifiedPr("external-pr", "owner/repo", 7, "abc123", output))
+                .thenReturn(saved);
+        when(draftStore.latestForUnifiedPr("task-pr")).thenReturn(Optional.of(reparented));
+
+        AiReviewService service = new AiReviewService(
+                mock(PullRequestStore.class), prs, gitHub, registry, draftStore,
+                skills, mock(PullRequestDetailInvalidator.class), pats);
+
+        assertThat(service.runQuickReview("external-pr")).isSameAs(reparented);
+        verify(draftStore).reparentUnifiedPr("external-pr", "task-pr");
+    }
+
+    @Test
+    void testQuickReviewRejectsLocalTaskPrBeforeCallingGitHub()
+    {
+        PRService prs = mock(PRService.class);
+        PullRequestRepository gitHub = mock(PullRequestRepository.class);
+        PR local = PR.create(
+                "local-pr", "task-1", "feature", "main", "Title", "Description",
+                Instant.parse("2026-05-08T00:00:00Z"));
+        when(prs.findById("local-pr")).thenReturn(Optional.of(local));
+        AiReviewService service = new AiReviewService(
+                mock(PullRequestStore.class), prs, gitHub, mock(LlmReviewerRegistry.class),
+                mock(AiReviewDraftStore.class), mock(SkillService.class),
+                mock(PullRequestDetailInvalidator.class), mock(PatResolver.class));
+
+        assertThatThrownBy(() -> service.runQuickReview("local-pr"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, error ->
+                        assertThat(error.getStatusCode().value()).isEqualTo(422));
+        verifyNoInteractions(gitHub);
+    }
+
+    private static PR externalPr(String id)
+    {
+        return PR.createExternal(
+                id, "owner/repo", 7, "https://github.com/owner/repo/pull/7", "author",
+                "head", "main", "A title", "description", PR.STATUS_REMOTE_OPEN,
+                Instant.parse("2026-05-08T00:00:00Z"), null, null);
+    }
+
+    private static PrRawDetail rawDetail()
+    {
+        return new PrRawDetail(
+                "body", List.of(), false, true, "clean", 1, 1, 1, 0, List.of(),
+                "abc123", "head", "owner/repo", "main", "owner/repo");
     }
 
     private static AiReviewDraft draft(String status)
@@ -150,7 +317,10 @@ class TestAiReviewService
         {
             throw new UnsupportedOperationException();
         }
+        @Override public AiReviewDraft saveForUnifiedPr(String prId, String repo, int number, String headSha, ReviewOutput output) { throw new UnsupportedOperationException(); }
         @Override public Optional<AiReviewDraft> latestForPr(long prId) { throw new UnsupportedOperationException(); }
+        @Override public Optional<AiReviewDraft> latestForUnifiedPr(String prId) { throw new UnsupportedOperationException(); }
+        @Override public void reparentUnifiedPr(String fromPrId, String toPrId) { throw new UnsupportedOperationException(); }
         @Override public List<AiReviewDraft> historyForPr(long prId) { throw new UnsupportedOperationException(); }
         @Override public AiReviewDraft updateCommentBody(long draftId, long commentId, String editedBody) { throw new UnsupportedOperationException(); }
         @Override public AiReviewDraft deleteComment(long draftId, long commentId) { throw new UnsupportedOperationException(); }

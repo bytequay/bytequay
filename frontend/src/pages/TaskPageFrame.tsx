@@ -122,7 +122,7 @@ export function TaskPageFrame({
         <button type="button" className="workspace-task-header__submit"
           onClick={submittingReview ? undefined : () => setSubmitReviewOpen(true)}>
           <CheckIcon size={13} strokeWidth={2.4} />
-          {submittingReview ? 'Submitting…' : 'Submit review'}
+          {submittingReview ? 'Submitting…' : `Submit review • ${pendingReviewComments.length}`}
         </button>
       )}
       {prPane !== undefined && (

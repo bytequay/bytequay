@@ -252,12 +252,20 @@ public class InvestigationReviewTools
         if (!store.hypothesisBelongsToAssignment(hypothesisId, assignmentId)) {
             return error("hypothesis does not belong to assignment");
         }
+        String path = required(input, "path");
+        int startLine = requiredInt(input, "start_line");
+        int endLine = requiredInt(input, "end_line");
+        if (!InvestigationReviewService.rightSideRange(
+                snapshot(reviewId, assignmentId), path, startLine, endLine)) {
+            return error("finding range must be an inclusive RIGHT-side range in the reviewed diff");
+        }
         String roundId = store.assignments(reviewId).stream()
                 .filter(row -> row.id().equals(assignmentId)).findFirst().orElseThrow().roundId();
         String id = UUID.randomUUID().toString();
         if (!store.mutateWhileAssignmentRoundRunning(assignmentId, () ->
                 store.insertFinding(new FindingRow(
                         id, reviewId, roundId, objectiveId, hypothesisId, kind,
+                        path, startLine, endLine,
                         required(input, "claim"), severity, "TENTATIVE", "unknown",
                         required(input, "requested_action"), "candidate",
                         review.reviewedHeadCommit())))) {
@@ -416,6 +424,15 @@ public class InvestigationReviewTools
         return value.isBlank() ? null : value;
     }
 
+    private static int requiredInt(JsonNode input, String field)
+    {
+        JsonNode value = input.path(field);
+        if (!value.isIntegralNumber() || !value.canConvertToInt()) {
+            throw new IllegalArgumentException(field + " must be an integer");
+        }
+        return value.intValue();
+    }
+
     private static List<String> strings(JsonNode node)
     {
         List<String> values = new ArrayList<>();
@@ -539,9 +556,9 @@ public class InvestigationReviewTools
                         """
                         {"type":"object","properties":{"step_id":{"type":"string"},"query":{"type":"string"}},"required":["step_id","query"]}
                         """),
-                schema("record_finding", "Record an actionable candidate finding. Evidence is attached separately.",
+                schema("record_finding", "Record an actionable candidate finding at an exact changed-file range. Evidence is attached separately.",
                         """
-                        {"type":"object","properties":{"objective_id":{"type":"string"},"hypothesis_id":{"type":"string"},"criterion_kind":{"type":"string","enum":["hard-invariant","engineering-principle","repo-convention"]},"claim":{"type":"string"},"severity":{"type":"integer","minimum":1,"maximum":5},"requested_action":{"type":"string"}},"required":["objective_id","hypothesis_id","criterion_kind","claim","severity","requested_action"]}
+                        {"type":"object","properties":{"objective_id":{"type":"string"},"hypothesis_id":{"type":"string"},"criterion_kind":{"type":"string","enum":["hard-invariant","engineering-principle","repo-convention"]},"path":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1},"claim":{"type":"string"},"severity":{"type":"integer","minimum":1,"maximum":5},"requested_action":{"type":"string"}},"required":["objective_id","hypothesis_id","criterion_kind","path","start_line","end_line","claim","severity","requested_action"]}
                         """),
                 schema("record_evidence", "Link reproducible observation output to a finding. Strength is assigned by code.",
                         """

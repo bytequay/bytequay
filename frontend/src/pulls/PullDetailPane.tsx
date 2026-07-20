@@ -11,15 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
+import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
+import { SubmitReviewDrawer, type ReviewVerdict } from '../pages/SubmitReviewDrawer';
 import { usePR } from '../pr/usePR';
 import { derivePRCapabilities } from '../pr/prCapabilities';
+import type { AiReviewDraftDto } from '../types';
 import type { LocalPRBundle } from '../types/localPr';
 import { CommentBubbleIcon, PrMergedIcon, PrOpenIcon, RobotIcon } from './atoms';
 import { buildHeader } from './detailModel';
 import type { PullRow } from './model';
 import PullChanges from './PullChanges';
 import PullOverview from './PullOverview';
+import '../css/pulls.css';
 
 /**
  * The unified PR detail pane (header + Overview tab) from the redesign
@@ -33,14 +38,30 @@ const statePillStyle = { display: 'inline-flex', alignItems: 'center', gap: 6, c
 const tabBtnStyle = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 4px 10px', border: 0, background: 'transparent', fontSize: 13, cursor: 'pointer' } as const;
 
 export type PullDetailActions = {
+  /** A changed token selects Changes without remounting the PR detail pane. */
+  openChangesToken?: number;
   /** Opens the agent-review column for an agent-assigned PR. */
   onWorkWithAgent?: () => void;
   /** Jumps to the repo's workspace PR surface. */
   onOpenInWorkspace?: () => void;
   /** Starts an agent review for a PR with no agent assigned yet. */
   onAssignAgent?: () => void;
-  /** True when the host resolved the repo and found no workspace — the
-   *  workspace-bound buttons stay rendered but inert with a hint title. */
+  /** Runs the non-navigable, diff-only review available to unwatched repos. */
+  onRunQuickReview?: () => void;
+  /** Watches an external repo, then starts its workspace-bound full review. */
+  onWatchRepoForFullReview?: () => void;
+  /** State and persisted result for the non-navigable one-shot review. */
+  quickReview?: {
+    state: 'idle' | 'running' | 'done' | 'failed';
+    result: AiReviewDraftDto | null;
+    error: string | null;
+  };
+  /** State of cloning/syncing an unwatched repository for full review. */
+  fullReviewPreparation?: {
+    state: 'idle' | 'preparing' | 'failed';
+    error: string | null;
+  };
+  /** True when the host resolved the repo and found no watched workspace. */
   noWorkspace?: boolean;
 };
 
@@ -55,38 +76,157 @@ export type PullDetailBodyProps = {
   onComment?: (body: string) => Promise<void>;
 } & PullDetailActions;
 
-const NO_WORKSPACE_TITLE = 'No workspace for this repo yet';
+function ReviewAction({ children, onClick, title }: {
+  children: ReactNode;
+  onClick?: () => void;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="pl-review-action"
+      onClick={onClick}
+      disabled={onClick === undefined}
+      title={title}
+    >
+      {children}
+    </button>
+  );
+}
 
-function AgentButtons({ det, repo, actions }: { det: ReturnType<typeof buildHeader>; repo: string; actions: PullDetailActions }) {
-  const noop = () => {};
-  if (!det.agentAssigned) {
+function AgentButtons({ det, actions }: { det: ReturnType<typeof buildHeader>; actions: PullDetailActions }) {
+  if (actions.noWorkspace === true) {
+    const quick = actions.quickReview;
+    const quickLabel = quick?.state === 'running'
+      ? 'Quick review • running'
+      : quick?.state === 'done'
+        ? 'Quick review ✓'
+        : quick?.state === 'failed'
+          ? 'Retry quick review'
+          : 'Run quick review';
+    const quickAction = quick?.state === 'running' || quick?.state === 'done'
+      ? undefined
+      : actions.onRunQuickReview;
+    const preparation = actions.fullReviewPreparation;
+    const watchLabel = preparation?.state === 'preparing'
+      ? 'Preparing repo…'
+      : preparation?.state === 'failed'
+        ? 'Retry watching repo'
+        : 'Watch repo · Full review';
+    const watchAction = preparation?.state === 'preparing'
+      ? undefined
+      : actions.onWatchRepoForFullReview;
     return (
-      <button className="pl-hov-btn" onClick={actions.onAssignAgent ?? noop} title="Assign an agent" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', marginBottom: 4, border: '1px solid #d5dbe1', background: '#fff', borderRadius: 8, color: '#454c54', cursor: 'pointer', flexShrink: 0 }}>
-        <span style={{ color: '#8b5cf6', display: 'inline-flex' }}><RobotIcon size={14} /></span>
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
-      </button>
+      <>
+        <ReviewAction onClick={quickAction}>{quickLabel}</ReviewAction>
+        <ReviewAction onClick={watchAction}>{watchLabel}</ReviewAction>
+      </>
     );
   }
+
+  const label = det.agentState === 'running'
+    ? 'Full review • running'
+    : det.agentState === 'done'
+      ? 'Full review • completed'
+      : det.agentState === 'stale'
+        ? 'Full review • update available'
+        : 'Full review';
+  const action = det.agentState === 'none' ? actions.onAssignAgent : actions.onWorkWithAgent;
+
   return (
     <>
-      <button className="pl-hov-agent" onClick={actions.onWorkWithAgent ?? noop} title={actions.noWorkspace === true ? NO_WORKSPACE_TITLE : det.agentTitle} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', marginBottom: 4, border: '1px solid rgba(139,92,246,0.35)', background: 'rgba(139,92,246,0.08)', borderRadius: 8, color: '#7c3aed', cursor: 'pointer', flexShrink: 0 }}>
+      <ReviewAction onClick={action} title={label}>
         <RobotIcon size={14} />
-        {det.agentRunning
-          ? <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#2da44e', animation: 'pl-pulse 1.4s ease-in-out infinite' }} />
-          : <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#b6bcc2' }} />}
-      </button>
-      <button className="pl-hov-btn" onClick={actions.onOpenInWorkspace ?? noop} title={actions.noWorkspace === true ? NO_WORKSPACE_TITLE : `Open in workspace — locate this review task in the ${repo.split('/')[1] ?? repo} trunk`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', marginBottom: 4, border: '1px solid #d5dbe1', background: '#fff', borderRadius: 8, color: '#454c54', cursor: 'pointer', flexShrink: 0 }}>
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.6" /><rect x="14" y="3" width="7" height="7" rx="1.6" /><rect x="3" y="14" width="7" height="7" rx="1.6" /><rect x="14" y="14" width="7" height="7" rx="1.6" /></svg>
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7" /><path d="M9 7h8v8" /></svg>
-      </button>
+        {label}
+      </ReviewAction>
+      {actions.onOpenInWorkspace !== undefined && (
+        <button className="pl-hov-btn" onClick={actions.onOpenInWorkspace} title="Open related workspace" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', marginBottom: 4, border: '1px solid #d5dbe1', background: '#fff', borderRadius: 8, color: '#454c54', cursor: 'pointer', flexShrink: 0 }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.6" /><rect x="14" y="3" width="7" height="7" rx="1.6" /><rect x="3" y="14" width="7" height="7" rx="1.6" /><rect x="14" y="14" width="7" height="7" rx="1.6" /></svg>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7" /><path d="M9 7h8v8" /></svg>
+        </button>
+      )}
     </>
   );
 }
 
-export function PullDetailBody({ row, bundle, refresh, onComment, ...actions }: PullDetailBodyProps) {
+function QuickReviewInline({
+  quickReview,
+  fullReviewPreparation,
+}: Pick<PullDetailActions, 'quickReview' | 'fullReviewPreparation'>) {
+  const quickError = quickReview?.state === 'failed' ? quickReview.error : null;
+  const watchError = fullReviewPreparation?.state === 'failed' ? fullReviewPreparation.error : null;
+  const result = quickReview?.state === 'done' ? quickReview.result : null;
+
+  return (
+    <>
+      {(quickError !== null || watchError !== null) && (
+        <div className="pl-review-inline-error" role="alert">
+          {quickError ?? watchError}
+        </div>
+      )}
+      {result !== null && (
+        <section className="pl-quick-review" aria-label="Quick review result">
+          <header className="pl-quick-review__header">
+            <span>Quick review</span>
+            <small>Diff only · no repository exploration</small>
+          </header>
+          {result.summary !== null && result.summary.trim() !== '' && (
+            <p className="pl-quick-review__summary">{result.summary}</p>
+          )}
+          {result.comments.length === 0 ? (
+            <p className="pl-quick-review__empty">No actionable findings in the supplied diff.</p>
+          ) : (
+            <div className="pl-quick-review__findings">
+              {result.comments.map(finding => (
+                <article key={finding.id} className="pl-quick-review__finding">
+                  <div className="pl-quick-review__finding-meta">
+                    <span>{finding.severity}</span>
+                    <code>{finding.filePath}{finding.lineNumber > 0 ? `:${finding.lineNumber}` : ''}</code>
+                  </div>
+                  <p>{finding.editedBody ?? finding.body}</p>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+    </>
+  );
+}
+
+export function PullDetailBody({ row, bundle, refresh, onComment, openChangesToken, ...actions }: PullDetailBodyProps) {
   const [subTab, setSubTab] = useState<'overview' | 'changes'>('overview');
+  const [submitOpen, setSubmitOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [reviewNotice, setReviewNotice] = useState<string | null>(null);
   const det = buildHeader(row, bundle);
   const isOverview = subTab === 'overview';
+  useEffect(() => {
+    if (openChangesToken !== undefined) setSubTab('changes');
+  }, [openChangesToken]);
+  const pending = (bundle?.comments ?? []).filter(isPendingLocalComment);
+  const canPublish = bundle !== null && bundle !== undefined
+    && derivePRCapabilities(bundle.pr, 'details').publishReview;
+  const removePending = (id: string) => {
+    void window.bridge.deleteLocalPrComment(id).then(refresh).catch(() => { /* poll reconciles */ });
+  };
+  const submitReview = async (body: string, verdict: ReviewVerdict) => {
+    if (bundle === null || bundle === undefined) return;
+    setSubmitting(true);
+    setReviewNotice(null);
+    try {
+      await window.bridge.publishLocalPrReview(bundle.pr.id, {
+        verdict, findingIds: [], comments: [], body: body.trim().length > 0 ? body : null,
+      });
+      setReviewNotice(verdict === 'APPROVE'
+        ? 'Review approved on GitHub. The timeline may take a moment to update.'
+        : verdict === 'REQUEST_CHANGES'
+          ? 'Changes requested on GitHub. The timeline may take a moment to update.'
+          : 'Review submitted to GitHub. The timeline may take a moment to update.');
+      refresh();
+    }
+    finally { setSubmitting(false); }
+  };
 
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -133,14 +273,36 @@ export function PullDetailBody({ row, bundle, refresh, onComment, ...actions }: 
               <span style={{ fontSize: 10.5, fontWeight: 700, background: '#ffebe9', color: '#cf222e', borderRadius: 999, padding: '1px 7px' }}>{det.delP}</span>
             </button>
             <span style={{ flex: 1 }} />
-            <AgentButtons det={det} repo={row.repo} actions={actions} />
+            <AgentButtons det={det} actions={actions} />
+            {canPublish && (
+              <button
+                type="button"
+                className="pl-hov-green"
+                onClick={!submitting ? () => setSubmitOpen(true) : undefined}
+                disabled={submitting}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 13px', marginBottom: 4, border: '1px solid #1a7f37', background: '#1f883d', borderRadius: 7, fontSize: 12.5, fontWeight: 600, color: '#fff', cursor: submitting ? 'default' : 'pointer', flexShrink: 0 }}
+              >
+                {submitting ? 'Submitting…' : `Submit review • ${pending.length}`}
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+              </button>
+            )}
           </div>
         </div>
       </div>
 
+      {reviewNotice !== null && (
+        <div role="status" aria-live="polite" style={reviewNoticeStyle}>
+          <span aria-hidden="true">✓</span> {reviewNotice}
+        </div>
+      )}
+
       {isOverview ? (
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
           <div style={{ maxWidth: 880, margin: '0 auto', padding: '20px 36px 60px' }}>
+            <QuickReviewInline
+              quickReview={actions.quickReview}
+              fullReviewPreparation={actions.fullReviewPreparation}
+            />
             <PullOverview
               row={row}
               bundle={bundle}
@@ -153,9 +315,31 @@ export function PullDetailBody({ row, bundle, refresh, onComment, ...actions }: 
       ) : (
         <PullChanges row={row} bundle={bundle} refresh={refresh} onComment={onComment} />
       )}
+      <SubmitReviewDrawer
+        open={submitOpen}
+        submitting={submitting}
+        pendingComments={pending.map(comment => diffInlineCommentFromLocalPr(comment))}
+        onRemovePending={removePending}
+        onClose={() => setSubmitOpen(false)}
+        onSubmit={async (body, verdict) => {
+          await submitReview(body, verdict);
+          setSubmitOpen(false);
+        }}
+      />
     </div>
   );
 }
+
+const reviewNoticeStyle = {
+  margin: '12px 36px 0',
+  padding: '9px 12px',
+  border: '1px solid #aceebb',
+  borderRadius: 8,
+  background: '#dafbe1',
+  color: '#116329',
+  fontSize: 12.5,
+  fontWeight: 500,
+} as const;
 
 export default function PullDetailPane({ row, ...actions }: { row: PullRow } & PullDetailActions) {
   const { bundle, refresh } = usePR(row.dto.id);

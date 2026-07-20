@@ -88,7 +88,8 @@ public interface AgentRunService
 
     /**
      * Attach an artifact run (notably a review round) to its public
-     * workspace/trunk owner without creating a second run record.
+     * workspace owner, and optionally its trunk, without creating a second
+     * run record. PR-owned review runs intentionally have no trunk.
      */
     AgentRun attachOwnership(
             String runId, String workspaceId, String threadId,

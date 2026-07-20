@@ -35,6 +35,7 @@ import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestInvestigationReviewContext
@@ -97,6 +98,56 @@ class TestInvestigationReviewContext
         assertThat(snapshot.repositoryRoot()).isEqualTo(root);
         assertThat(snapshot.capabilities().sourceMode()).isEqualTo("local-source");
         assertThat(context.readFile(snapshot, "src/Exact.java")).isEqualTo("exact reviewed source");
+    }
+
+    @Test
+    void explicitFullReviewPreparationFetchesAForkPrHeadIntoTheWatchedClone()
+            throws Exception
+    {
+        PRService prs = mock(PRService.class);
+        WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
+        GitRunner git = mock(GitRunner.class);
+        PR pr = PR.createExternal(
+                "pr-fork", "acme/widget", 12, "https://example.test/12", "octocat",
+                "fork-feature", "main", "Fork PR", "", PR.STATUS_REMOTE_OPEN,
+                Instant.EPOCH, null, null);
+        when(prs.commits(pr.id())).thenReturn(List.of(
+                new PRCommit("c1", pr.id(), "base", "base", 0, 0, Instant.EPOCH, Instant.EPOCH),
+                new PRCommit("c2", pr.id(), "head", "head", 1, 0, Instant.EPOCH, Instant.EPOCH)));
+        when(watchedRepos.find("acme", "widget")).thenReturn(Optional.of(
+                new WatchedRepo(1, "acme", "widget", 0, root.toString(), null, null)));
+        when(git.refExists(root, "head")).thenReturn(false);
+        InvestigationReviewContext context = new InvestigationReviewContext(
+                prs, mock(PullRequestService.class), mock(TaskStore.class), watchedRepos, git);
+
+        context.prepareWatchedPr(pr);
+
+        verify(git).fetchPrRefs(root, 12, "main");
+    }
+
+    @Test
+    void explicitFullReviewPreparationFetchesFromTheWatchedReposUpstreamRemote()
+            throws Exception
+    {
+        PRService prs = mock(PRService.class);
+        WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
+        GitRunner git = mock(GitRunner.class);
+        PR pr = PR.createExternal(
+                "pr-upstream", "acme/widget", 13, "https://example.test/13", "octocat",
+                "fork-feature", "main", "Fork PR", "", PR.STATUS_REMOTE_OPEN,
+                Instant.EPOCH, null, null);
+        when(prs.commits(pr.id())).thenReturn(List.of(
+                new PRCommit("c1", pr.id(), "base", "base", 0, 0, Instant.EPOCH, Instant.EPOCH),
+                new PRCommit("c2", pr.id(), "head", "head", 1, 0, Instant.EPOCH, Instant.EPOCH)));
+        when(watchedRepos.find("acme", "widget")).thenReturn(Optional.of(
+                new WatchedRepo(1, "acme", "widget", 0, root.toString(), "upstream", null)));
+        when(git.refExists(root, "head")).thenReturn(false);
+        InvestigationReviewContext context = new InvestigationReviewContext(
+                prs, mock(PullRequestService.class), mock(TaskStore.class), watchedRepos, git);
+
+        context.prepareWatchedPr(pr);
+
+        verify(git).fetchPrRefs(root, "upstream", 13, "main");
     }
 
     @Test

@@ -1007,6 +1007,10 @@ const bridge: Bridge = {
     body?: { verdict: 'APPROVE' | 'COMMENT' | 'REQUEST_CHANGES'; findingIds: string[]; comments: string[]; body?: string | null },
   ) => ipcRenderer.invoke('pr:publishReview', prId, body),
   getAgentReview: (prId: string) => ipcRenderer.invoke('agentReview:get', prId),
+  startQuickReview: (prId: string) => ipcRenderer.invoke('quickReview:start', prId),
+  getQuickReviewStatus: (prId: string) => ipcRenderer.invoke('quickReview:status', prId),
+  getLatestQuickReview: (prId: string): Promise<AiReviewDraftDto | null> =>
+    ipcRenderer.invoke('quickReview:latest', prId),
   startAgentReview: (
     prId: string,
     body?: { runner?: 'api' | 'cli'; providerId?: string; workspaceId?: string },

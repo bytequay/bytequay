@@ -20,6 +20,7 @@ import com.bytequay.app.domain.WorkModelOptions.WorkModelAccount;
 import com.bytequay.app.domain.WorkModelOptions.WorkModelAgentOption;
 import com.bytequay.app.domain.WorkModelOptions.WorkModelEntry;
 import com.bytequay.app.domain.WorkModelOptions.WorkModelProviderOption;
+import com.bytequay.app.domain.WorkModelOptions.WorkModelReasoningEffort;
 import com.bytequay.app.service.CredentialService;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Service;
@@ -55,22 +56,53 @@ public class WorkModelService
     private static final Duration CLI_PROBE_TIMEOUT = Duration.ofSeconds(2);
 
     private final CredentialService credentials;
+    private final CodexModelCatalogProbe codexModels;
 
-    public WorkModelService(CredentialService credentials)
+    public WorkModelService(CredentialService credentials, CodexModelCatalogProbe codexModels)
     {
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.codexModels = requireNonNull(codexModels, "codexModels is null");
     }
 
     public WorkModelOptions options()
     {
-        return new WorkModelOptions(cliAgentOptions(), apiProviderOptions());
+        return options(false);
     }
 
-    private static List<WorkModelAgentOption> cliAgentOptions()
+    public WorkModelOptions refresh()
+    {
+        return options(true);
+    }
+
+    private WorkModelOptions options(boolean refresh)
+    {
+        return new WorkModelOptions(cliAgentOptions(refresh), apiProviderOptions());
+    }
+
+    private List<WorkModelAgentOption> cliAgentOptions(boolean refresh)
     {
         ImmutableList.Builder<WorkModelAgentOption> out = ImmutableList.builder();
         for (WorkModelCatalog.CatalogAgent agent : WorkModelCatalog.CLI_AGENTS) {
             boolean installed = cliAvailable(agent.id());
+            if (installed && "codex".equals(agent.id())) {
+                var discovered = codexModels.models(refresh);
+                if (discovered.isPresent()) {
+                    List<CodexModelCatalogProbe.Model> models = discovered.orElseThrow();
+                    String defaultModel = models.stream()
+                            .filter(CodexModelCatalogProbe.Model::isDefault)
+                            .findFirst()
+                            .orElse(models.get(0))
+                            .id();
+                    out.add(new WorkModelAgentOption(
+                            agent.id(),
+                            agent.displayName(),
+                            true,
+                            true,
+                            defaultModel,
+                            toCodexEntries(models)));
+                    continue;
+                }
+            }
             out.add(new WorkModelAgentOption(
                     agent.id(),
                     agent.displayName(),
@@ -125,6 +157,21 @@ public class WorkModelService
     {
         return models.stream()
                 .map(m -> new WorkModelEntry(m.id(), m.displayName(), m.isDefault()))
+                .collect(toImmutableList());
+    }
+
+    private static List<WorkModelEntry> toCodexEntries(List<CodexModelCatalogProbe.Model> models)
+    {
+        return models.stream()
+                .map(m -> new WorkModelEntry(
+                        m.id(),
+                        m.displayName(),
+                        m.isDefault(),
+                        m.description(),
+                        m.defaultReasoningEffort(),
+                        m.supportedReasoningEfforts().stream()
+                                .map(e -> new WorkModelReasoningEffort(e.id(), e.description()))
+                                .collect(toImmutableList())))
                 .collect(toImmutableList());
     }
 

@@ -922,6 +922,14 @@ public class GitRunner
     public void fetchPrRefs(Path workingDir, int prNumber, String baseRef)
             throws IOException, InterruptedException
     {
+        fetchPrRefs(workingDir, "origin", prNumber, baseRef);
+    }
+
+    /** Fetches the same private PR refs from a specific configured remote. */
+    public void fetchPrRefs(Path workingDir, String remote, int prNumber, String baseRef)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(remote, "remote is null");
         requireNonNull(baseRef, "baseRef is null");
         if (prNumber <= 0) {
             throw new IllegalArgumentException("prNumber must be positive, got " + prNumber);
@@ -929,7 +937,7 @@ public class GitRunner
         String headRefspec = "pull/" + prNumber + "/head:refs/bytequay/pr/" + prNumber + "/head";
         String baseRefspec = baseRef + ":refs/bytequay/pr/" + prNumber + "/base";
         run(
-                List.of("git", "fetch", "--no-tags", "--quiet", "origin", headRefspec, baseRefspec),
+                List.of("git", "fetch", "--no-tags", "--quiet", remote, headRefspec, baseRefspec),
                 workingDir,
                 120)
                 .requireSuccess();

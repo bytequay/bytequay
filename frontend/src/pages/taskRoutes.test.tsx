@@ -17,6 +17,8 @@ import { TaskBrainRoute } from './TaskBrainRoute';
 import { StageDetailRoute } from './StageDetailRoute';
 import { buildMockBrainView } from '../threads/brain/brainViewFixture';
 import type { PlanCardDto } from '../types/brainView';
+import type { DiffFileDto } from '../types';
+import type { LocalPRBundle } from '../types/localPr';
 
 // jsdom lacks scrollIntoView; the shared conversation may call it.
 beforeAll(() => { Element.prototype.scrollIntoView = vi.fn(); });
@@ -60,6 +62,57 @@ describe('TaskBrainRoute', () => {
     await waitFor(() => expect(sendBrainMessage).toHaveBeenCalledWith('task-1', 'what next?', []));
     // The working indicator appears while awaiting the brain's reply.
     expect(await screen.findByText('Brain is thinking…')).toBeTruthy();
+  });
+
+  it('opens the embedded PR Changes tab from the changed-files controls', async () => {
+    const file: DiffFileDto = {
+      filename: 'frontend/src/App.tsx', status: 'modified', additions: 3, deletions: 1, patch: null,
+    };
+    const bundle = {
+      pr: {
+        id: 'task-pr', taskId: 'task-pr-changes', branchName: 'jack/cost-meter', baseBranch: 'master',
+        title: 'Cost-meter widget', description: 'Add task usage to the workspace.', status: 'remote-open',
+        createdAt: 0, pushedAt: 0, remotePrNumber: 5680, remotePrUrl: 'https://example.test/5680',
+        mergedAt: null, closedAt: null, origin: 'task', repo: 'trinodb/trino', author: 'octocat',
+        syncedAt: null, syncedAdditions: 3, syncedDeletions: 1, syncedMergeable: null,
+        syncedMergeableState: null, syncedMergeQueueEnabled: false, syncedMergeQueueState: null,
+        branchDeletedAt: null,
+      },
+      commits: [], timeline: [], checks: [], comments: [],
+    } as LocalPRBundle;
+    const onOpenCode = vi.fn();
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(buildMockBrainView(0)),
+      getPrForTask: vi.fn().mockResolvedValue(bundle.pr),
+      getLocalPrBundle: vi.fn().mockResolvedValue(bundle),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([file]),
+      getAgentReview: vi.fn().mockResolvedValue(null),
+      fetchPullRequestDetail: vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] }),
+      fetchPrDiffFiles: vi.fn().mockResolvedValue([file]),
+    };
+
+    render(
+      <TaskBrainRoute
+        threadId="t1"
+        taskId="task-pr-changes"
+        onOpenStage={() => {}}
+        onOpenCode={onOpenCode}
+        onClosed={() => {}}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Review' }));
+    const changesTab = screen.getAllByRole('button', { name: /Changes/ })
+      .find(button => button.closest('.workspace-task-v2__pr') !== null) as HTMLButtonElement;
+    await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
+    expect(onOpenCode).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Overview/ }));
+    const changesPill = screen.getAllByRole('button', { name: /Changes/ })
+      .find(button => button.classList.contains('workspace-task-artifact-pill')) as HTMLButtonElement;
+    fireEvent.click(changesPill);
+    await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
+    expect(onOpenCode).not.toHaveBeenCalled();
   });
 
   it('shows the root-node plan with the review bar when the plan awaits the user', async () => {

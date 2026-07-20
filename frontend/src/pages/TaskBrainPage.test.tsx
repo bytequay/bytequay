@@ -42,10 +42,12 @@ function brain(overrides: Partial<Parameters<typeof TaskBrainPage>[0]> = {}) {
 }
 
 describe('TaskBrainPage locked frame', () => {
-  it('uses the 216px shell, brain badge, task header and composer metadata', () => {
+  it('uses the shared resizable nav width, brain badge, task header and composer metadata', () => {
+    window.localStorage.setItem('bq.rail-width', '330');
     const { container } = render(brain());
     expect((container.querySelector('.shell') as HTMLElement).style.gridTemplateColumns)
-      .toBe('216px minmax(0, 1fr)');
+      .toBe('330px minmax(0, 1fr)');
+    expect(screen.getByRole('separator', { name: 'Resize the sidebar' })).toBeTruthy();
     expect(container.querySelector('.workspace-task-header__badge')?.textContent).toBe('BRAIN');
     expect(screen.getByText('Add cost-meter card')).toBeTruthy();
     expect(screen.getByText('feat/cost')).toBeTruthy();

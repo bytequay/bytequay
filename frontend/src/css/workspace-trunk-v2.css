@@ -489,6 +489,7 @@
   bottom: 0;
   background: #e9ebee;
 }
+.workspace-redesign .trunk-page-v2__conversation .spine--trunk .sp-uturn__mark { left: -22.5px; }
 
 /* Locked trunk folds are quiet disclosure rows, collapsed by default. */
 .workspace-redesign .trunk-page-v2__conversation .spine--trunk .sp-work { padding-left: 3px; margin-bottom: 9px; }
@@ -537,6 +538,9 @@
   color: #33393f;
   font-size: 13px;
   line-height: 1.6;
+}
+.workspace-redesign .trunk-page-v2__conversation .sp-uturn--quiet .sp-ublock__tx p:last-child {
+  margin-bottom: 0 !important;
 }
 .workspace-redesign .trunk-page-v2__conversation .sp-headline--bare { padding-left: 3px; }
 .workspace-redesign .trunk-page-v2__conversation .sp-headline--bare::before {

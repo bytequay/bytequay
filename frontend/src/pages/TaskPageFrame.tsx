@@ -162,7 +162,7 @@ export function TaskPageFrame({
 
   return (
     <div className={`task-brain workspace-task-v2 workspace-task-v2--${surface}`}>
-      <Shell fixedSidebarWidth={216} fullWidth={sidebar === undefined}>
+      <Shell fullWidth={sidebar === undefined}>
         {sidebar}
         <Main topBar={header}>
           <div ref={bodyRef} className={`workspace-task-v2__body${showPr ? ' with-pr' : ''}`}>

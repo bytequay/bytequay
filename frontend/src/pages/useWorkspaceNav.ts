@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LogoColor, StatusDotVariant } from '../ui/primitives';
 import type { RepoChip, ThreadRow } from '../ui/workspace';
 import type { ThreadDto, WorkspaceCardDto } from '../types';
@@ -84,14 +84,20 @@ export type WorkspaceNavData = {
  */
 export function useWorkspaceNav(activeWorkspaceId: string | null): WorkspaceNavData {
   const [workspaces, setWorkspaces] = useState<WorkspaceCardDto[]>([]);
-  const [threads, setThreads] = useState<ThreadDto[]>([]);
-  const [overview, setOverview] = useState<WorkspaceOverviewDto | null>(null);
+  const [loaded, setLoaded] = useState<{
+    workspaceId: string | null;
+    threads: ThreadDto[];
+    overview: WorkspaceOverviewDto | null;
+  }>({ workspaceId: null, threads: [], overview: null });
+  const requestRef = useRef(0);
 
   const load = useCallback(async () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     if (bridge?.listWorkspaces === undefined) return;
+    const request = ++requestRef.current;
     try {
       const ws = await bridge.listWorkspaces();
+      if (request !== requestRef.current) return;
       setWorkspaces(ws);
       if (activeWorkspaceId !== null && bridge.listTasks !== undefined) {
         const [threadRows, workspaceOverview] = await Promise.all([
@@ -100,12 +106,11 @@ export function useWorkspaceNav(activeWorkspaceId: string | null): WorkspaceNavD
             path: `/api/workspaces/${encodeURIComponent(activeWorkspaceId)}/overview`,
           }) ?? Promise.resolve(null),
         ]);
-        setThreads(threadRows);
-        setOverview(workspaceOverview);
+        if (request !== requestRef.current) return;
+        setLoaded({ workspaceId: activeWorkspaceId, threads: threadRows, overview: workspaceOverview });
       }
       else {
-        setThreads([]);
-        setOverview(null);
+        setLoaded({ workspaceId: null, threads: [], overview: null });
       }
     }
     catch { /* leave the last loaded state */ }
@@ -117,10 +122,15 @@ export function useWorkspaceNav(activeWorkspaceId: string | null): WorkspaceNavD
   useEffect(() => {
     void load();
     const id = window.setInterval(() => { void load(); }, 5000);
-    return () => window.clearInterval(id);
+    return () => {
+      requestRef.current += 1;
+      window.clearInterval(id);
+    };
   }, [load]);
 
   const activeWorkspace = workspaces.find(w => w.id === activeWorkspaceId) ?? null;
+  const threads = loaded.workspaceId === activeWorkspaceId ? loaded.threads : [];
+  const overview = loaded.workspaceId === activeWorkspaceId ? loaded.overview : null;
   const repos: RepoChip[] = (activeWorkspace?.repos ?? []).map(r => ({
     initials: monogram(r), color: logoColorFor(r),
   }));

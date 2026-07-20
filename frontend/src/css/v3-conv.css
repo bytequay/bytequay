@@ -1282,10 +1282,11 @@
   line-height: 1.4;
 }
 .shell .ask-question-card__ctx {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--text-2);
   line-height: 1.5;
 }
+.shell .ask-question-card__ctx > div > :last-child { margin-bottom: 0 !important; }
 .shell .ask-question-card__options {
   display: flex;
   flex-direction: column;

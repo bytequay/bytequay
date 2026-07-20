@@ -54,6 +54,23 @@ describe('AskUserQuestionCard', () => {
     expect(onAnswer).toHaveBeenCalledWith(undefined, 'bytequay');
   });
 
+  it('renders markdown context and escaped newlines', () => {
+    const { container } = render(
+      <AskUserQuestionCard
+        question="Proceed?"
+        context={'First **important** point.\\n\\nRun `mvn test`.'}
+        options={[]}
+        allowFreeForm={false}
+        onAnswer={vi.fn()}
+      />,
+    );
+
+    const context = container.querySelector('.ask-question-card__ctx');
+    expect(context?.querySelector('strong')?.textContent).toBe('important');
+    expect(context?.querySelector('code')?.textContent).toBe('mvn test');
+    expect(context?.textContent).not.toContain('\\n');
+  });
+
   it('numbers the card when several are open', () => {
     render(
       <AskUserQuestionCard

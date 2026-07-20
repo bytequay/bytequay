@@ -131,7 +131,8 @@ function InboxSection({
   );
   const available = items.filter(item => !hiddenIds.includes(item.id));
   const unreadCount = available.filter(item => !item.read).length;
-  const needsAction = available.filter(item => item.actionRequired);
+  const needsAction = available
+    .filter(item => item.actionRequired && (!unreadOnly || !item.read));
   const notificationsToShow = available
     .filter(item => !item.actionRequired && (!unreadOnly || !item.read));
   const visibleNeedsAction = needsAction.slice(0, MAX_GROUP_ROWS);

@@ -51,6 +51,14 @@ import static java.util.Objects.requireNonNull;
 public class ClaudeCodeCliThreadAgent
         extends AbstractCliThreadAgent
 {
+    private static final String MISSING_PERMISSION_MCP_TOOL =
+            "MCP tool mcp__bytequay__approval_prompt (passed via --permission-prompt-tool) "
+                    + "not found. Available MCP tools: none";
+
+    /** Inline settings replace Claude's MCP-incompatible safe mode while
+     *  keeping provider-native auto-memory out of ByteQuay sessions. */
+    private static final String ISOLATED_SETTINGS = "{\"autoMemoryEnabled\":false}";
+
     /** Built-in tools exposed to the read-only trunk. MCP tools such as
      *  create_task are configured separately and remain available. */
     private static final String TRUNK_BUILTIN_TOOLS = "Read,Glob,Grep,WebFetch,WebSearch";
@@ -278,10 +286,13 @@ public class ClaudeCodeCliThreadAgent
                 .add("-p")
                 .add("--output-format", "stream-json")
                 .add("--verbose")
-                // ByteQuay owns role, skill, resource, MCP, and tool selection.
-                // Safe mode disables CLAUDE.md, skills, plugins, hooks, and
-                // discovered MCP servers while preserving normal auth.
-                .add("--safe-mode")
+                // ByteQuay owns instructions, skills, hooks and browser
+                // integrations. Unlike --safe-mode, these isolation flags
+                // leave the explicit ByteQuay MCP server available.
+                .add("--setting-sources", "")
+                .add("--disable-slash-commands")
+                .add("--no-chrome")
+                .add("--settings", ISOLATED_SETTINGS)
                 // Surface the upstream Anthropic stream events (text
                 // deltas, content_block_start/stop, message_delta) so the
                 // parser can emit AssistantTextDelta events for the
@@ -298,7 +309,12 @@ public class ClaudeCodeCliThreadAgent
             // The role prompt says the trunk is read-only, but a prompt is not
             // a security boundary. Remove Bash/Edit/Write/Task from Claude's
             // built-in catalog while leaving ByteQuay's create_task MCP tool.
-            argv.add("--tools", TRUNK_BUILTIN_TOOLS);
+            argv.add("--tools", TRUNK_BUILTIN_TOOLS)
+                    // Repository reads are already trusted through the CLI's
+                    // working directory. Pasted images live outside it, so
+                    // pre-approve only ByteQuay's managed attachment root.
+                    // Claude's Read matcher also checks symlink targets.
+                    .add("--allowed-tools", absoluteReadRule(ChatAttachmentStore.attachmentsRoot()));
         }
         // Resolved work-model cascade (or a CLI-reported model from a prior
         // turn) — mirrors CodexCliThreadAgent's -m flag. Sent on every turn,
@@ -338,13 +354,36 @@ public class ClaudeCodeCliThreadAgent
                 "NODE_OPTIONS",
                 "--max-old-space-size=512",
                 (existing, ours) -> existing.contains("--max-old-space-size") ? existing : existing + " " + ours);
+        // An app launched from a shell can inherit either flag. Both disable
+        // the explicit MCP bridge, so the child must use the argv isolation
+        // policy above instead.
+        pb.environment().remove("CLAUDE_CODE_SAFE_MODE");
+        pb.environment().remove("CLAUDE_CODE_SIMPLE");
         return pb;
+    }
+
+    /** Claude permission patterns use {@code //path} for an absolute path;
+     *  a single leading slash means project-relative. ByteQuay is macOS-only,
+     *  so an absolute {@link Path} starts with the slash added below. */
+    private static String absoluteReadRule(Path directory)
+    {
+        String absolute = directory.toAbsolutePath().normalize().toString();
+        return "Read(/" + absolute + "/**)";
     }
 
     @Override
     protected void cleanupProviderResources()
     {
         cleanupMcpConfig();
+    }
+
+    @Override
+    protected boolean shouldAutomaticallyRecover(String errorDetail)
+    {
+        // Retrying arbitrary coding-agent exits could repeat remote or file
+        // side effects. This startup/configuration failure happens before the
+        // permission-gated tool runs, so one fresh-MCP retry is safe.
+        return errorDetail != null && errorDetail.contains(MISSING_PERMISSION_MCP_TOOL);
     }
 
     /** Lazily writes the per-thread MCP config to a temp file Claude

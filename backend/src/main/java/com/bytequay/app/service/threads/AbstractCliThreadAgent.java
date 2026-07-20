@@ -375,6 +375,16 @@ public abstract class AbstractCliThreadAgent
     {
     }
 
+    /**
+     * Whether one failed CLI attempt is safe to retry inside the same
+     * scheduler turn. Default is fail-closed: only a provider that can
+     * identify a startup failure with no remote side effects opts in.
+     */
+    protected boolean shouldAutomaticallyRecover(String errorDetail)
+    {
+        return false;
+    }
+
     /** The current {@code --resume} session id (null/blank on the first
      *  turn). Subclasses read this when assembling their resume argv. */
     protected final String resumeSessionId()
@@ -825,88 +835,102 @@ public abstract class AbstractCliThreadAgent
         catch (RuntimeException e) {
             log.warn("Pre-turn hook for thread {} failed: {}", threadId, e.getMessage());
         }
-        ProcessBuilder pb = buildCommand(userInput);
-        // Provider CLIs own their native Bash/Grep/Glob execution, so those
-        // calls do not naturally pass through ByteQuay's MCP dispatcher.
-        // Install the per-turn CodeGraph-first search shims in the subprocess
-        // environment before it starts; failures are fail-open inside the
-        // runtime helper and never prevent the agent turn.
-        CodeGraphFirstRuntime.prepare(pb, threadId, mcpAgentKey());
         // Clear any stale interrupt flag from a prior turn so a fresh
         // turn's non-zero exit isn't misread as a user cancellation.
         userInterrupted.set(false);
         // Drop a prior turn's failure detail so it can't leak onto a later
         // turn's outcome.
         lastError.set(null);
-        Process process;
         try {
-            process = pb.start();
-        }
-        catch (IOException e) {
-            log.warn("Failed to spawn {} for thread {}: {}", binary, threadId, e.getMessage());
-            lastError.set("failed to spawn " + binary + ": " + e.getMessage());
-            transition(ThreadStatus.ERRORED);
-            publish(new StreamEvent.ErrorOccurred(Instant.now(),
-                    "failed to spawn " + binary + ": " + e.getMessage(), false));
-            publish(new StreamEvent.SessionEnded(Instant.now(), -1, e.getMessage()));
-            persistThreadSnapshot(Instant.now());
-            return;
-        }
-        currentProcess.set(process);
-        synchronized (stderrTail) {
-            stderrTail.clear();
-        }
-        // The worktree lease is held by the registry for the lifetime of
-        // this session, so the per-turn subprocess doesn't manage it.
-        try {
-            deliverPrompt(process, userInput);
-            java.lang.Thread stderrThread = drainStderr(process);
-            consumeStdout(process);
-            int exit = process.waitFor();
-            if (exit != 0) {
-                // p.destroy() from interrupt() always lands here with a
-                // non-zero exit. Treat the user-initiated path as a clean
-                // cancel: back to IDLE, no error banner, no failure event.
-                if (userInterrupted.compareAndSet(true, false)) {
-                    transition(ThreadStatus.IDLE);
-                    publish(new StreamEvent.SessionEnded(Instant.now(), exit, "interrupted by user"));
+            boolean recoveredOnce = false;
+            while (true) {
+                ProcessBuilder pb = buildCommand(userInput);
+                // Provider CLIs own their native Bash/Grep/Glob execution, so those
+                // calls do not naturally pass through ByteQuay's MCP dispatcher.
+                // Install the per-turn CodeGraph-first search shims in the subprocess
+                // environment before it starts; failures are fail-open inside the
+                // runtime helper and never prevent the agent turn.
+                CodeGraphFirstRuntime.prepare(pb, threadId, mcpAgentKey());
+                Process process;
+                try {
+                    process = pb.start();
                 }
-                else {
+                catch (IOException e) {
+                    String detail = "failed to spawn " + binary + ": " + e.getMessage();
+                    log.warn("Failed to spawn {} for thread {}: {}", binary, threadId, e.getMessage());
+                    lastError.set(detail);
+                    transition(ThreadStatus.ERRORED);
+                    handle(new StreamEvent.ErrorOccurred(Instant.now(), detail, false));
+                    handle(new StreamEvent.SessionEnded(Instant.now(), -1, e.getMessage()));
+                    return;
+                }
+                currentProcess.set(process);
+                synchronized (stderrTail) {
+                    stderrTail.clear();
+                }
+                // The worktree lease is held by the registry for the lifetime of
+                // this session, so the per-turn subprocess doesn't manage it.
+                try {
+                    deliverPrompt(process, userInput);
+                    java.lang.Thread stderrThread = drainStderr(process);
+                    consumeStdout(process);
+                    int exit = process.waitFor();
+                    if (exit == 0) {
+                        transition(ThreadStatus.IDLE);
+                        return;
+                    }
+
+                    // p.destroy() from interrupt() always lands here with a
+                    // non-zero exit. Treat the user-initiated path as a clean
+                    // cancel: back to IDLE, no error banner, no failure event.
+                    if (userInterrupted.compareAndSet(true, false)) {
+                        transition(ThreadStatus.IDLE);
+                        publish(new StreamEvent.SessionEnded(Instant.now(), exit, "interrupted by user"));
+                        return;
+                    }
+
                     // Let the stderr drain finish so the failure carries the
                     // CLI's actual error, not just a bare exit code.
-                    try {
-                        stderrThread.join(2_000);
-                    }
-                    catch (InterruptedException ignored) {
-                        java.lang.Thread.currentThread().interrupt();
-                    }
+                    stderrThread.join(2_000);
                     String tail = stderrTailText();
                     String detail = binary + " exited with code " + exit
                             + (tail.isBlank() ? "" : ":\n" + tail);
+                    if (!recoveredOnce && shouldAutomaticallyRecover(detail)) {
+                        recoveredOnce = true;
+                        log.warn("CLI thread {} ({}) hit a recoverable startup failure; retrying once: {}",
+                                threadId, binary, detail);
+                        // Claude's MCP config is a provider resource. Drop it
+                        // before rebuilding argv so the retry gets a fresh file.
+                        cleanupProviderResources();
+                        continue;
+                    }
                     log.warn("CLI thread {} ({}) failed: {}", threadId, binary, detail);
                     lastError.set(detail);
-                    publish(new StreamEvent.ErrorOccurred(Instant.now(), detail, true));
                     transition(ThreadStatus.ERRORED);
-                    publish(new StreamEvent.SessionEnded(Instant.now(), exit, "non-zero exit"));
+                    handle(new StreamEvent.ErrorOccurred(Instant.now(), detail, true));
+                    handle(new StreamEvent.SessionEnded(Instant.now(), exit, "non-zero exit"));
+                    return;
                 }
-            }
-            else {
-                transition(ThreadStatus.IDLE);
-            }
-        }
-        catch (IOException e) {
-            // A user interrupt closes the stdin pipe before the CLI
-            // finishes reading it, surfacing here as "Broken pipe". Same
-            // treatment as the non-zero-exit interrupt path.
-            if (userInterrupted.compareAndSet(true, false)) {
-                transition(ThreadStatus.IDLE);
-                publish(new StreamEvent.SessionEnded(Instant.now(), -1, "interrupted by user"));
-            }
-            else {
-                log.warn("I/O error talking to {} for thread {}: {}", binary, threadId, e.getMessage());
-                lastError.set("I/O error talking to " + binary + ": " + e.getMessage());
-                transition(ThreadStatus.ERRORED);
-                publish(new StreamEvent.ErrorOccurred(Instant.now(), e.getMessage(), false));
+                catch (IOException e) {
+                    // A user interrupt closes the stdin pipe before the CLI
+                    // finishes reading it, surfacing here as "Broken pipe". Same
+                    // treatment as the non-zero-exit interrupt path.
+                    if (userInterrupted.compareAndSet(true, false)) {
+                        transition(ThreadStatus.IDLE);
+                        publish(new StreamEvent.SessionEnded(Instant.now(), -1, "interrupted by user"));
+                    }
+                    else {
+                        String detail = "I/O error talking to " + binary + ": " + e.getMessage();
+                        log.warn("I/O error talking to {} for thread {}: {}", binary, threadId, e.getMessage());
+                        lastError.set(detail);
+                        transition(ThreadStatus.ERRORED);
+                        handle(new StreamEvent.ErrorOccurred(Instant.now(), detail, false));
+                    }
+                    return;
+                }
+                finally {
+                    currentProcess.compareAndSet(process, null);
+                }
             }
         }
         catch (InterruptedException e) {
@@ -1269,6 +1293,9 @@ public abstract class AbstractCliThreadAgent
                 && !capturedSession.isBlank()
                 ? capturedSession
                 : current.agentSessionId();
+        String errorMessage = status.get() == ThreadStatus.ERRORED
+                ? lastError.get()
+                : current.errorMessage();
         Thread next = new Thread(
                 current.id(), current.kind(), current.provider(), threadSessionId,
                 current.title(), status.get(),
@@ -1276,7 +1303,7 @@ public abstract class AbstractCliThreadAgent
                 runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),
                 current.createdAt(), Instant.now(),
                 endedAt != null ? endedAt : current.endedAt(),
-                current.errorMessage(),
+                errorMessage,
                 current.flow(),
                 current.workspaceId(),
                 current.workModel());

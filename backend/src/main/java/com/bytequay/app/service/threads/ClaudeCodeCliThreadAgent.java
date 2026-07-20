@@ -56,8 +56,10 @@ public class ClaudeCodeCliThreadAgent
                     + "not found. Available MCP tools: none";
 
     /** Inline settings replace Claude's MCP-incompatible safe mode while
-     *  keeping provider-native auto-memory out of ByteQuay sessions. */
-    private static final String ISOLATED_SETTINGS = "{\"autoMemoryEnabled\":false}";
+     *  keeping provider-native auto-memory and commit attribution out of
+     *  ByteQuay sessions. */
+    private static final String ISOLATED_SETTINGS =
+            "{\"autoMemoryEnabled\":false,\"attribution\":{\"commit\":\"\"}}";
 
     /** Built-in tools exposed to the read-only trunk. MCP tools such as
      *  create_task are configured separately and remain available. */

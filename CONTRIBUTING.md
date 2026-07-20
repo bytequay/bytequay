@@ -352,16 +352,17 @@ ByteQuay follows **Trino's commit-message guidelines**:
 [Trino: writing commit messages](https://github.com/trinodb/trino/blob/master/.github/DEVELOPMENT.md#commit-messages-and-pull-requests).
 The short version:
 
-- **Subject line**: imperative voice, ≤ 70 characters, **no trailing
+- **Subject line**: capitalized imperative voice, ≤ 50 characters, **no trailing
   period**, no `feat:` / `fix:` / Conventional-Commits prefix.
-  - Good: `Paginate /check-runs and add a refresh button next to the CI pill`
+  - Good: `Paginate check runs and add refresh button`
   - Bad: `feat(ci): added pagination support.`
-- **Body**: keep it tight. 1–4 short paragraphs at most, ~72 column
-  wrap. Explain *why* (the diff already shows what), reference issues
-  with `Fixes #N` if applicable. If the change is purely mechanical or
-  the subject line is self-explanatory, no body at all is fine.
+- **Body**: omit it when the subject is self-explanatory. Otherwise keep
+  it tight, wrap at ~72 columns, and explain *what and why* rather than
+  how. Reference issues with `Fixes #N` if applicable.
 - **One logical change per commit.** "Refactor + add feature" should
   be two commits. Don't be afraid to split.
+- **Attribution**: never add `Co-Authored-By` or similar trailers for AI
+  agents, assistants, or bots.
 - **Squash review fixups** before merge so the history reads cleanly.
 
 ### Pull requests

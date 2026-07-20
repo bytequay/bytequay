@@ -57,7 +57,12 @@ class TestPonytailBundleService
                 .satisfies(skill -> assertThat(skill.body()).contains("CodeGraph First"));
         assertThat(bundle.select(List.of("task-execution")))
                 .singleElement()
-                .satisfies(skill -> assertThat(skill.body()).contains("Task Execution"));
+                .satisfies(skill -> assertThat(skill.body())
+                        .contains("Task Execution")
+                        .contains("Every commit must build and pass its tests")
+                        .contains("at most 50 characters")
+                        .contains("Default to a subject-only commit")
+                        .contains("Never add AI or bot attribution"));
     }
 
     @Test

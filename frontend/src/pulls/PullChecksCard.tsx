@@ -64,7 +64,7 @@ export default function PullChecksCard({ model }: { model: ChecksModel }) {
           <span style={{ width: 22, height: 22, borderRadius: '50%', border: '2.5px dashed #bf8700', display: 'inline-block', flexShrink: 0, margin: 2, animation: 'pl-spin 1.6s linear infinite' }} />
         )}
         <span style={{ minWidth: 0 }}>
-          <span style={{ display: 'block', fontSize: 14.5, fontWeight: 600, color: '#17191c' }}>{model.title}</span>
+          <span style={{ display: 'block', fontSize: 14.5, color: '#17191c' }}>{model.title}</span>
           <span style={{ display: 'block', fontSize: 12.5, color: '#8b949e', marginTop: 2 }}>{model.sub}</span>
         </span>
       </div>
@@ -76,7 +76,7 @@ export default function PullChecksCard({ model }: { model: ChecksModel }) {
             style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 18px', cursor: 'pointer' }}
           >
             <Chevron open={isOpen(g)} />
-            <span style={{ fontSize: 13.5, fontWeight: 500, color: '#17191c' }}>{g.label}</span>
+            <span style={{ fontSize: 13.5, color: '#17191c' }}>{g.label}</span>
           </div>
           {isOpen(g) && (
             <div style={{ padding: '0 0 8px' }}>

@@ -108,7 +108,7 @@ export type TimelineReviewVerdict = 'approved' | 'changes' | 'commented' | 'dism
 export type TimelineItem =
   | { kind: 'commit'; id: string; at: number; time: string; message: string; sha: string }
   | { kind: 'review'; id: string; at: number; time: string; author: string; bot: boolean;
-      verdict: TimelineReviewVerdict; body: string | null }
+      verdict: TimelineReviewVerdict; body: string | null; remoteId: number | null }
   | { kind: 'comment'; id: string; at: number; time: string; author: string; bot: boolean;
       body: string; replies: TimelineReply[]; remoteId: number | null }
   | { kind: 'merged'; id: string; at: number; time: string; author: string; sha: string | null; base: string };
@@ -205,6 +205,7 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
         author: displayName(event.actor), bot: isBotActor(event.actor),
         verdict: reviewVerdict(verdict),
         body: body !== null && body.trim().length > 0 ? body : null,
+        remoteId: typeof event.remoteEventId === 'number' ? event.remoteEventId : null,
       });
     }
   }

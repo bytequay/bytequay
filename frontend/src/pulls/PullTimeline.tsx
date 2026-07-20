@@ -15,7 +15,9 @@ import { useState } from 'react';
 import { renderMarkdown } from '../markdown';
 import type { MarkdownRepoContext } from '../markdown';
 import { ReactionAddButton } from '../pr/Reactions';
+import { ReviewThreadCard } from '../pr/ReviewThreadCard';
 import type { ReactionContent } from '../pr/utils';
+import type { ReviewThreadDto } from '../types';
 import { Av } from './atoms';
 import type { TimelineItem } from './detailModel';
 
@@ -123,7 +125,13 @@ function CommentCard({ item, repoCtx, onReaction }: {
   );
 }
 
-function ReviewCard({ item, repoCtx }: { item: Extract<TimelineItem, { kind: 'review' }>; repoCtx: MarkdownRepoContext }) {
+function ReviewCard({ item, repoCtx, threads, prAuthor, prHtmlUrl }: {
+  item: Extract<TimelineItem, { kind: 'review' }>;
+  repoCtx: MarkdownRepoContext;
+  threads: ReviewThreadDto[];
+  prAuthor: string | null;
+  prHtmlUrl: string;
+}) {
   return (
     <div style={cardStyle}>
       <div style={cardHeadStyle}>
@@ -151,13 +159,28 @@ function ReviewCard({ item, repoCtx }: { item: Extract<TimelineItem, { kind: 're
           dangerouslySetInnerHTML={{ __html: renderMarkdown(item.body, repoCtx) }}
         />
       )}
+      {threads.map(thread => (
+        <div key={thread.rootGithubId} style={{ padding: '0 16px 14px' }}>
+          <ReviewThreadCard
+            thread={thread}
+            prAuthor={prAuthor}
+            prHtmlUrl={prHtmlUrl}
+            repoContext={repoCtx}
+          />
+        </div>
+      ))}
     </div>
   );
 }
 
-export default function PullTimeline({ items, repo, onCommentReaction }: {
+export default function PullTimeline({
+  items, repo, prAuthor = null, prHtmlUrl = '', reviewThreadsByRemoteId, onCommentReaction,
+}: {
   items: TimelineItem[];
   repo: string;
+  prAuthor?: string | null;
+  prHtmlUrl?: string;
+  reviewThreadsByRemoteId?: ReadonlyMap<number, ReviewThreadDto[]>;
   onCommentReaction?: (commentId: number, content: ReactionContent) => Promise<void>;
 }) {
   const [owner, name] = repo.split('/');
@@ -196,7 +219,16 @@ export default function PullTimeline({ items, repo, onCommentReaction }: {
               </div>
             );
           case 'review':
-            return <ReviewCard key={item.id} item={item} repoCtx={repoCtx} />;
+            return (
+              <ReviewCard
+                key={item.id}
+                item={item}
+                repoCtx={repoCtx}
+                threads={item.remoteId === null ? [] : reviewThreadsByRemoteId?.get(item.remoteId) ?? []}
+                prAuthor={prAuthor}
+                prHtmlUrl={prHtmlUrl}
+              />
+            );
           case 'comment':
             return <CommentCard key={item.id} item={item} repoCtx={repoCtx} onReaction={onCommentReaction} />;
         }

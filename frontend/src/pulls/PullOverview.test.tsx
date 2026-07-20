@@ -93,7 +93,7 @@ describe('PullOverview', () => {
       { kind: 'comment', id: 'c', at: 1, time: 'now', author: 'commenter', bot: false, body: 'body', remoteId: null, replies: [
         { id: 'reply', author: 'replier', bot: false, body: 'reply', time: 'now' },
       ] },
-      { kind: 'review', id: 'r', at: 2, time: 'now', author: 'reviewer', bot: false, verdict: 'approved', body: null },
+      { kind: 'review', id: 'r', at: 2, time: 'now', author: 'reviewer', bot: false, verdict: 'approved', body: null, remoteId: null },
       { kind: 'merged', id: 'm', at: 3, time: 'now', author: 'merger', sha: null, base: 'main' },
     ];
 
@@ -106,13 +106,53 @@ describe('PullOverview', () => {
 
   it('renders comment-only reviews without calling them changes requested', () => {
     const items: TimelineItem[] = [
-      { kind: 'review', id: 'r', at: 1, time: 'now', author: 'reviewer', bot: false, verdict: 'commented', body: null },
+      { kind: 'review', id: 'r', at: 1, time: 'now', author: 'reviewer', bot: false, verdict: 'commented', body: null, remoteId: null },
     ];
 
     render(<PullTimeline items={items} repo="trinodb/trino" />);
 
     expect(screen.getByText('Commented')).toBeTruthy();
     expect(screen.queryByText('Changes requested')).toBeNull();
+  });
+
+  it('renders inline code comments beneath their GitHub review', async () => {
+    const reviewBundle = {
+      ...bundle,
+      timeline: [{
+        id: 'review-event', localPrId: 'pr-1', eventType: 'review', actor: '@reviewer',
+        isLocalOnly: false, strippedOnPushAt: null, createdAt: 1_750_412_800_000,
+        payload: { verdict: 'COMMENTED', body: null }, remoteEventId: 9001,
+      }],
+    } as LocalPRBundle;
+    window.bridge = {
+      fetchPullRequestDetail: vi.fn().mockResolvedValue({
+        recentActivity: [{
+          actor: 'reviewer', eventType: 'reviewed', timestamp: '2025-06-20T10:00:00Z',
+          body: null, state: 'COMMENTED', beforeSha: null, afterSha: null,
+          requestedReviewer: null, reviewId: 77, authorAssociation: 'MEMBER', githubId: 9001,
+          reactions: null, labelName: null, labelColor: null, milestoneTitle: null,
+          assigneeLogin: null, crossRefNumber: null, crossRefTitle: null, crossRefUrl: null,
+          crossRefIsPullRequest: false,
+        }],
+        reviewThreads: [{
+          rootGithubId: 501, filePath: 'src/Foo.java', line: 41, side: 'RIGHT',
+          diffHunk: '@@ -41,1 +41,1 @@\n-return oldValue;\n+return currentValue;',
+          messages: [{
+            githubId: 601, author: 'reviewer', body: 'Please keep the current value here.',
+            createdAt: '2025-06-20T10:00:00Z', reactions: null, reviewId: 77,
+            authorAssociation: 'MEMBER',
+          }],
+          resolved: null, outdated: true, startLine: null, startSide: null,
+          originalLine: 41, originalStartLine: null,
+        }],
+      }),
+    } as unknown as typeof window.bridge;
+
+    render(<PullOverview row={row([])} bundle={reviewBundle} isMerged={false} />);
+
+    expect(await screen.findByText('Please keep the current value here.')).toBeTruthy();
+    expect(screen.getByText('return currentValue;')).toBeTruthy();
+    expect(screen.getByText('outdated')).toBeTruthy();
   });
 
   it('selects reviewers, assignees, and labels from the searchable popovers', async () => {

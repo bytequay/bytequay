@@ -230,7 +230,7 @@ public class TaskLifecycleDriver
         }
         String repo = parsed.get().repoRef().fullName();
         int number = parsed.get().number();
-        PullRequestDetail detail = pullRequests.getPullRequestDetail(repo, number);
+        PullRequestDetail detail = pullRequests.refreshPullRequestDetail(repo, number);
         // Persist the live CI status so the live-plan rail's CI validation
         // node reflects it — task.ciState otherwise never gets written and
         // stays permanently "unknown" even once the PR is actually green.

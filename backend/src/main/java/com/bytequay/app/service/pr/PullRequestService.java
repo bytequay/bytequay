@@ -460,9 +460,10 @@ public class PullRequestService
     /**
      * Refreshes one PR's detail. Tries a cheap conditional GET first
      * ({@code If-None-Match} on the cached ETag); when GitHub answers
-     * 304 we skip the full multi-call refetch and return the cached
-     * snapshot — that 304 doesn't count against the rate limit, so
-     * the navigate-back-to-PR flow is essentially free for quiet PRs.
+     * 304 we skip the full multi-call refetch, but still refresh the head
+     * commit's check runs. GitHub Actions state changes do not reliably bump
+     * the PR resource's ETag, so treating 304 as proof that CI is unchanged
+     * leaves task automation and the PR UI stuck on stale checks.
      *
      * <p>On a miss (no prior ETag, 200, or any probe error) we fall
      * back to the original invalidate-then-refetch path so the caller
@@ -534,9 +535,13 @@ public class PullRequestService
                     detailEtags.put(prId.get(), new EtagEntry(cachedEntry.etag(), now));
                 }
                 if (cachedEtag != null && !probe.changed()) {
-                    // 304: nothing's changed since we last fetched.
-                    // Skip the multi-call refetch and serve cached.
-                    log.info("[cache-diag] ETag probe 304 for {}#{} — serving cached (no refetch)", repo, number);
+                    // 304 only covers the PR resource. Check runs are a
+                    // separate Actions resource and may have moved from
+                    // queued → success/failure without changing this ETag.
+                    // Refresh that lightweight snapshot before serving the
+                    // otherwise-cached detail.
+                    log.info("[cache-diag] ETag probe 304 for {}#{} — refreshing CI snapshot", repo, number);
+                    getPullRequestCiSnapshot(repo, number);
                     return getPullRequestDetail(repo, number);
                 }
                 log.info("[cache-diag] ETag probe for {}#{}: hadCachedEtag={} changed={} → invalidate + refetch",

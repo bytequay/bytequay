@@ -140,7 +140,7 @@ function AgentButtons({ det, actions }: { det: ReturnType<typeof buildHeader>; a
         {label}
       </ReviewAction>
       {actions.onOpenInWorkspace !== undefined && (
-        <button className="pl-hov-btn" onClick={actions.onOpenInWorkspace} title="Open related workspace" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', marginBottom: 4, border: '1px solid #d5dbe1', background: '#fff', borderRadius: 8, color: '#454c54', cursor: 'pointer', flexShrink: 0 }}>
+        <button type="button" className="pl-hov-btn" onClick={actions.onOpenInWorkspace} aria-label="Open in workspace" title="Open in workspace" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px', marginBottom: 4, border: '1px solid #d5dbe1', background: '#fff', borderRadius: 8, color: '#454c54', cursor: 'pointer', flexShrink: 0 }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.6" /><rect x="14" y="3" width="7" height="7" rx="1.6" /><rect x="3" y="14" width="7" height="7" rx="1.6" /><rect x="14" y="14" width="7" height="7" rx="1.6" /></svg>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7" /><path d="M9 7h8v8" /></svg>
         </button>
@@ -282,7 +282,7 @@ export function PullDetailBody({ row, bundle, refresh, onComment, openChangesTok
                 disabled={submitting}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '5px 13px', marginBottom: 4, border: '1px solid #1a7f37', background: '#1f883d', borderRadius: 7, fontSize: 12.5, fontWeight: 400, color: '#fff', cursor: submitting ? 'default' : 'pointer', flexShrink: 0 }}
               >
-                {submitting ? 'Submitting…' : `Submit review • ${pending.length}`}
+                {submitting ? 'Submitting…' : `Submit review${pending.length > 0 ? ` • ${pending.length}` : ''}`}
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
               </button>
             )}

@@ -572,6 +572,12 @@ export default function PullsScreen({
                     prId: selRow.id,
                   })
                 : undefined}
+              onOpenInWorkspace={onOpenWorkspacePr !== undefined && selWorkspaceId !== undefined
+                ? () => onOpenWorkspacePr(selRow.repo, selRow.num, {
+                    agent: false,
+                    prId: selRow.id,
+                  })
+                : undefined}
               onAssignAgent={selWorkspaceId !== undefined ? () => assignAgent(selRow) : undefined}
               onRunQuickReview={workspaceResolved && selWorkspaceId === undefined
                 ? () => runQuickReview(selRow)

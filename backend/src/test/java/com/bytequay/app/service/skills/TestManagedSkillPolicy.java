@@ -54,10 +54,10 @@ class TestManagedSkillPolicy
     }
 
     @Test
-    void trunkPlanningTurnGetsPlannerAndCodeGraphGuidance()
+    void everyTrunkTurnGetsPlannerAndCodeGraphGuidance()
     {
         assertThat(policy.skillNames(
-                ThreadKind.CLI_AGENT, turn("user", "go ahead and implement this"), null))
+                ThreadKind.CLI_AGENT, turn("user", "what did you find?"), null))
                 .containsExactly("trunk-planner", "codegraph-first", CavemanPrompt.NAME);
     }
 
@@ -70,10 +70,8 @@ class TestManagedSkillPolicy
     }
 
     @Test
-    void normalTrunkAndBrainGetCodeGraphGuidance()
+    void normalBrainGetsCodeGraphGuidance()
     {
-        assertThat(policy.skillNames(ThreadKind.CLI_AGENT, turn("user"), null))
-                .containsExactly("codegraph-first", CavemanPrompt.NAME);
         assertThat(policy.skillNames(
                 ThreadKind.BRAIN_AGENT, turn("user", "go ahead and implement this"), null))
                 .containsExactly("codegraph-first", CavemanPrompt.NAME);

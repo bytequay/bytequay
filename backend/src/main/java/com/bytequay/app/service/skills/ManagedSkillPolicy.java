@@ -19,7 +19,6 @@ import com.bytequay.app.domain.ThreadTurn;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 @Service
@@ -31,32 +30,6 @@ public class ManagedSkillPolicy
     static final String CODEGRAPH_FIRST = "codegraph-first";
     static final String TASK_EXECUTION = "task-execution";
     private static final String BRAIN_REVIEW_SOURCE = "brain-review";
-    private static final Set<String> TRUNK_PLANNING_SOURCES = Set.of(
-            "backlog-start",
-            "create-task",
-            "trunk-planning");
-    private static final List<String> TRUNK_PLANNING_PHRASES = List.of(
-            "create_task",
-            "create a task",
-            "create task",
-            "cut a task",
-            "cut task",
-            "new task",
-            "start a task",
-            "start work",
-            "kick off",
-            "go ahead",
-            "go for it",
-            "do it",
-            "implement",
-            "fix ",
-            "add ",
-            "build ",
-            "wire ",
-            "split ",
-            "handle this",
-            "work on this",
-            "turn this into a task");
     private static final Set<StageType> CODING_STAGE_TYPES = Set.of(
             StageType.DEVELOPMENT_STAGE,
             StageType.REMOTE_DEVELOPMENT_STAGE,
@@ -71,7 +44,7 @@ public class ManagedSkillPolicy
                 && BRAIN_REVIEW_SOURCE.equals(turn.initiator().source())) {
             return List.of(PONYTAIL_REVIEW, CODEGRAPH_FIRST, CavemanPrompt.NAME);
         }
-        if (isTrunkPlanningTurn(kind, turn, stageType)) {
+        if (isTrunkTurn(kind, turn, stageType)) {
             return List.of(TRUNK_PLANNER, CODEGRAPH_FIRST, CavemanPrompt.NAME);
         }
         if (stageType != null && CODING_STAGE_TYPES.contains(stageType)) {
@@ -86,15 +59,11 @@ public class ManagedSkillPolicy
         return List.of(CODEGRAPH_FIRST, CavemanPrompt.NAME);
     }
 
-    private static boolean isTrunkPlanningTurn(ThreadKind kind, ThreadTurn turn, StageType stageType)
+    private static boolean isTrunkTurn(ThreadKind kind, ThreadTurn turn, StageType stageType)
     {
-        if (kind == ThreadKind.BRAIN_AGENT || stageType != null || turn == null || turn.taskId() != null) {
-            return false;
-        }
-        if (turn.initiator() != null && TRUNK_PLANNING_SOURCES.contains(turn.initiator().source())) {
-            return true;
-        }
-        String input = turn.input() == null ? "" : turn.input().toLowerCase(Locale.ROOT);
-        return TRUNK_PLANNING_PHRASES.stream().anyMatch(input::contains);
+        return kind != ThreadKind.BRAIN_AGENT
+                && stageType == null
+                && turn != null
+                && turn.taskId() == null;
     }
 }

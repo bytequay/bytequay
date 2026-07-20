@@ -230,9 +230,10 @@ export function TrunkWorkspaceSidebar({
                 <WorkspaceItem icon={<BranchIcon />} label="Branches" count={counts?.branches ?? undefined}
                   onClick={() => onNavigate?.('branches')} />
                 <WorkspaceItem icon={<CommitIcon />} label="Commits" onClick={() => onNavigate?.('commits')} />
-                <WorkspaceItem icon={<SessionIcon />} label="Sessions" count={counts?.sessions}
-                  running={(counts?.sessions ?? 0) > 0} onClick={() => onNavigate?.('sessions')} />
-                <WorkspaceItem icon={<MemoryIcon />} label="Memory" onClick={() => onNavigate?.('memory')} />
+                <WorkspaceItem icon={<SessionIcon />} label="Sessions" disabled
+                  onClick={() => onNavigate?.('sessions')} />
+                <WorkspaceItem icon={<MemoryIcon />} label="Memory" disabled
+                  onClick={() => onNavigate?.('memory')} />
                 <WorkspaceItem icon={<InsightsIcon />} label="Insights" onClick={() => onNavigate?.('insights')} />
               </div>
             )}
@@ -292,13 +293,19 @@ function taskStateIcon(state: ReturnType<typeof taskState> | 'quiet'): ReactNode
   return <span className="trunk-page-v2-nav__task-dot" />;
 }
 
-function WorkspaceItem({ icon, label, count, running = false, onClick }: {
-  icon: ReactNode; label: string; count?: number; running?: boolean; onClick: () => void;
+function WorkspaceItem({ icon, label, count, running = false, disabled = false, onClick }: {
+  icon: ReactNode;
+  label: string;
+  count?: number;
+  running?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
 }) {
   return (
     <SidebarRow icon={icon} trailing={running
       ? <span className="trunk-page-v2-nav__live"><i />{count}</span>
-      : count !== undefined && count > 0 ? count : undefined} onClick={onClick}>
+      : count !== undefined && count > 0 ? count : undefined} disabled={disabled}
+      title={disabled ? 'Still in progress' : undefined} onClick={onClick}>
       {label}
     </SidebarRow>
   );

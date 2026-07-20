@@ -264,8 +264,8 @@ describe('WorkspaceNavShell', () => {
       .toContain('4');
     expect(screen.getByText('Issues').closest('.workspace-page-row')?.textContent)
       .toContain('5');
-    expect(screen.getByText('Sessions').closest('.workspace-page-row')?.textContent)
-      .toContain('1');
+    expect((screen.getByRole('button', { name: /Sessions/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Memory' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByText('Review PR #42')).toBeNull();
     expect(screen.getByText('WORKSPACE')).toBeTruthy();
   });

@@ -2302,6 +2302,23 @@
   color: var(--accent);
 }
 
+.settings-shell-sidebar__link:disabled,
+.settings-shell-sidebar__link:disabled:hover {
+  background: none;
+  color: var(--text-4);
+  cursor: default;
+  opacity: 0.55;
+}
+
+.settings-shell-sidebar__link:disabled .settings-shell-sidebar__badge {
+  background: var(--bg-card);
+  color: var(--text-4);
+}
+
+.settings-shell-sidebar__link:disabled .settings-shell-sidebar__icon {
+  filter: grayscale(1);
+}
+
 .settings-shell-sidebar__icon {
   width: 16px;
   display: inline-flex;

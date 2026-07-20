@@ -13,7 +13,13 @@
  */
 import type { SettingsSection } from './types';
 
-type LinkDef = { id: SettingsSection; label: string; icon: string; experimental?: boolean };
+type LinkDef = {
+  id: SettingsSection;
+  label: string;
+  icon: string;
+  experimental?: boolean;
+  disabled?: boolean;
+};
 type GroupDef = { label: string; links: LinkDef[] };
 
 // Section grouping comes straight from the mockup: Personal / Review / System.
@@ -45,7 +51,7 @@ const GROUPS: GroupDef[] = [
   {
     label: 'Team',
     links: [
-      { id: 'teams', label: 'Teams', icon: '👥' },
+      { id: 'teams', label: 'Teams', icon: '👥', disabled: true },
       { id: 'watched-repos', label: 'Watched repos', icon: '📦' },
       { id: 'workspace-memory', label: 'Workspace memory', icon: '🧠' },
     ],
@@ -79,12 +85,17 @@ function SettingsSidebar({ active, onSelect }: Props) {
                 'settings-shell-sidebar__link' +
                 (active === link.id ? ' settings-shell-sidebar__link--active' : '')
               }
+              disabled={link.disabled}
+              title={link.disabled ? 'Still in progress' : undefined}
               onClick={() => onSelect(link.id)}
             >
               <span className="settings-shell-sidebar__icon" aria-hidden="true">{link.icon}</span>
               {link.label}
               {link.experimental && (
                 <span className="settings-shell-sidebar__badge" title="Experimental feature">Experimental</span>
+              )}
+              {link.disabled && (
+                <span className="settings-shell-sidebar__badge">In progress</span>
               )}
             </button>
           ))}

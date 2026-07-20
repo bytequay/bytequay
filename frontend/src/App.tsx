@@ -89,7 +89,7 @@ export type Nav =
   /** Task brain view — the per-task "brain" surface (aggregate strip,
    *  stage navigator, brain feed, action rail). Sits alongside the
    *  older task-detail page; the back link returns to that page. */
-  | { view: 'task-brain'; threadId: string; taskId: string; initialReviewRoundId?: string }
+  | { view: 'task-brain'; threadId: string; taskId: string; initialReviewRoundId?: string; initialPrSubTab?: 'changes' }
   /** Stage drill-in — the detailed per-stage view reached from a brain-
    *  view stage chip or a brain-agent response's drill-in chip. */
   | { view: 'stage-detail'; threadId: string; taskId: string; stageId: string }
@@ -1135,7 +1135,7 @@ function App() {
             threadId={nav.threadId}
             onOpenTask={taskId => setNav(lastTaskNav(nav.threadId, taskId))}
             onReviewTask={taskId => setNav({
-              view: 'task-code', threadId: nav.threadId, taskId, back: nav,
+              view: 'task-brain', threadId: nav.threadId, taskId, initialPrSubTab: 'changes',
             })}
             onWorkspaceResolved={setViewedThreadWorkspaceId}
           />
@@ -1145,6 +1145,7 @@ function App() {
             threadId={nav.threadId}
             taskId={nav.taskId}
             initialReviewRoundId={nav.initialReviewRoundId}
+            initialPrSubTab={nav.initialPrSubTab}
             onOpenAgentReview={openAgentReview}
             onOpenStage={stageId => setNav({
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,

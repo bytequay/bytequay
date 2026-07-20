@@ -59,7 +59,7 @@ export function TaskBrainRoute({
   onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
   trunkLabel, workspaceName, workspaceRepository,
   onNavigateGlobal, onSwitchWorkspace, onNotifications, notificationCount,
-  initialReviewRoundId, onOpenAgentReview,
+  initialReviewRoundId, initialPrSubTab, onOpenAgentReview,
 }: {
   threadId: string;
   taskId: string;
@@ -86,6 +86,7 @@ export function TaskBrainRoute({
   onNotifications?: () => void;
   notificationCount?: number;
   initialReviewRoundId?: string;
+  initialPrSubTab?: 'changes';
   /** Opens the PR-owned AgentColumn destination instead of an inline round page. */
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
 }) {
@@ -209,14 +210,19 @@ export function TaskBrainRoute({
     setSelectedAgentFinding(null);
     setSelectedAgentFile(null);
     setSelectedAgentLine(null);
-    setPrSubTabRequest(undefined);
+    setPrSubTabRequest(initialPrSubTab === 'changes'
+      ? previous => ({ subTab: 'changes', token: (previous?.token ?? 0) + 1 })
+      : undefined);
+    setOpenTabRequest(initialPrSubTab === 'changes'
+      ? previous => ({ tab: 'pr', token: (previous?.token ?? 0) + 1 })
+      : undefined);
     setReviewTabRequest(undefined);
     setReviewOpen(false);
     if (initialReviewRoundId !== undefined) {
       setReviewOpen(true);
       setAgentRoundId(initialReviewRoundId);
     }
-  }, [threadId, taskId, initialReviewRoundId, setReviewOpen]);
+  }, [threadId, taskId, initialReviewRoundId, initialPrSubTab, setReviewOpen]);
   useEffect(() => {
     setReviewFiles(null);
     const b = typeof window !== 'undefined' ? window.bridge : undefined;

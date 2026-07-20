@@ -168,7 +168,7 @@ export function TrunkPage({
 
   return (
     <div className="trunk-page-v2">
-      <Shell collapsed={collapsed} fullWidth={sidebar === undefined} fixedSidebarWidth={216}>
+      <Shell collapsed={collapsed} fullWidth={sidebar === undefined}>
         {sidebar}
         <Main topBar={topBar}>
           <div ref={bodyRef} className={paneOpen ? 'trunk-page-v2__body has-panel' : 'trunk-page-v2__body'}>

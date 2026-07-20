@@ -14,9 +14,10 @@
 import { useCallback, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 
-const MIN = 180;
-const MAX = 420;
-const DEFAULT = 232;
+export const SIDEBAR_MIN_WIDTH = 200;
+export const SIDEBAR_MAX_WIDTH = 460;
+export const SIDEBAR_DEFAULT_WIDTH = 250;
+export const SIDEBAR_WIDTH_KEY = 'bq.rail-width';
 
 /**
  * Drives the draggable boundary between the sidebar and the conversation
@@ -26,7 +27,7 @@ const DEFAULT = 232;
  * sitting on the sidebar's right edge. The sidebar is left-anchored, so its
  * width is the pointer minus the shell's left edge, clamped to a sane range.
  */
-export function useSidebarWidth(key = 'bq.sidebarWidth', defaultWidth = DEFAULT): {
+export function useSidebarWidth(key = SIDEBAR_WIDTH_KEY, defaultWidth = SIDEBAR_DEFAULT_WIDTH): {
   sidebarWidth: number;
   shellRef: RefObject<HTMLDivElement>;
   onResize: (clientX: number) => void;
@@ -34,7 +35,9 @@ export function useSidebarWidth(key = 'bq.sidebarWidth', defaultWidth = DEFAULT)
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     try {
       const stored = typeof localStorage !== 'undefined' ? Number(localStorage.getItem(key)) : NaN;
-      return Number.isFinite(stored) && stored >= MIN && stored <= MAX ? stored : defaultWidth;
+      return Number.isFinite(stored) && stored >= SIDEBAR_MIN_WIDTH && stored <= SIDEBAR_MAX_WIDTH
+        ? stored
+        : defaultWidth;
     }
     catch {
       return defaultWidth;
@@ -47,7 +50,7 @@ export function useSidebarWidth(key = 'bq.sidebarWidth', defaultWidth = DEFAULT)
     if (!rect) {
       return;
     }
-    const next = Math.max(MIN, Math.min(MAX, clientX - rect.left));
+    const next = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, clientX - rect.left));
     setSidebarWidth(next);
     try {
       localStorage.setItem(key, String(Math.round(next)));

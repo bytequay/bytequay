@@ -658,7 +658,7 @@ function lockedTaskComposer(closedNote: string, meta: string) {
         scope={{ kind: 'thread' as const, threadId: LOCKED_TRUNK_ID }}
       />
     ),
-    usage: { planPercent: 4, sessionLabel: '827 AI credits' },
+    usage: { contextPercent: 4, sessionLabel: '827 tokens' },
     meta,
   };
 }

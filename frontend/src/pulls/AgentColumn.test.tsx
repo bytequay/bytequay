@@ -68,7 +68,7 @@ function fixture(status: 'RUNNING' | 'COMPLETED_WITH_QUESTIONS'): {
       id: 'run-2', taskId: null, kind: 'panel_review', source: null, parentStageId: null,
       reviewRoundId: round.id, stageId: null,
       status: status === 'RUNNING' ? 'running' : 'succeeded', iterations: 1, budget: 150,
-      headline: null, startedAt: '2026-07-12T12:00:00Z',
+      headline: null, metricsJson: '{"tokensIn":1234,"tokensOut":56}', startedAt: '2026-07-12T12:00:00Z',
       finishedAt: status === 'RUNNING' ? null : '2026-07-12T12:12:00Z',
     }],
     criteria: [{
@@ -174,8 +174,8 @@ describe('AgentReviewConversation', () => {
     expect(usage.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(usage);
     expect(usage.getAttribute('aria-expanded')).toBe('true');
-    expect(view.getByText('4% used')).not.toBeNull();
-    expect(view.getByText('827 AI credits')).not.toBeNull();
+    expect(view.getByText('1,234 tokens')).not.toBeNull();
+    expect(view.getByText('56 tokens')).not.toBeNull();
 
     const input = view.getByRole('textbox', { name: 'Steer round 2' });
     fireEvent.change(input, { target: { value: 'Check teardown ordering' } });

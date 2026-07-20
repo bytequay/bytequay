@@ -14,7 +14,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentQuestionDto } from '../types';
-import type { TrunkActivityDto } from '../workspace/workspaceApi';
+import type { PlanUsageDto, TrunkActivityDto, WorkspaceSessionDto } from '../workspace/workspaceApi';
 import { TrunkPage } from './TrunkPage';
 
 const EMPTY_ACTIVITY: TrunkActivityDto = {
@@ -23,6 +23,7 @@ const EMPTY_ACTIVITY: TrunkActivityDto = {
   timeline: [],
   generatedAt: 0,
 };
+const OVERVIEW_WIDTH_KEY = 'bq.trunkOverviewWidth';
 
 function activity(overrides: Partial<TrunkActivityDto> = {}): TrunkActivityDto {
   return {
@@ -52,9 +53,13 @@ function question(): AgentQuestionDto {
 function mockBridge({
   trunkActivity = EMPTY_ACTIVITY,
   questions = [],
+  sessions = [],
+  planUsage = { providers: [] },
 }: {
   trunkActivity?: TrunkActivityDto;
   questions?: AgentQuestionDto[];
+  sessions?: WorkspaceSessionDto[];
+  planUsage?: PlanUsageDto;
 } = {}) {
   const bridge = {
     listBacklog: vi.fn().mockResolvedValue([]),
@@ -70,6 +75,8 @@ function mockBridge({
           today: { needsYou: [], running: [], spendTodayMilliUsd: 1840 },
         });
       }
+      if (path.endsWith('/sessions')) return Promise.resolve(sessions);
+      if (path.endsWith('/api/ai/plan-usage')) return Promise.resolve(planUsage);
       return Promise.resolve([]);
     }),
     answerQuestion: vi.fn().mockResolvedValue(undefined),
@@ -104,6 +111,7 @@ function renderTrunk(onOpenTask = vi.fn()) {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  localStorage.removeItem(OVERVIEW_WIDTH_KEY);
   Reflect.deleteProperty(window, 'bridge');
 });
 beforeEach(() => { mockBridge(); });
@@ -229,13 +237,77 @@ describe('TrunkPage', () => {
     expect(await screen.findByText('Active task')).toBeTruthy();
   });
 
-  it('uses the task-free trunk composer with the locked usage values', async () => {
+  it('resizes the workspace overview and restores its width', () => {
+    const { container, unmount } = renderTrunk();
+    const body = container.querySelector('.trunk-page-v2__body') as HTMLElement;
+    vi.spyOn(body, 'getBoundingClientRect').mockReturnValue({ right: 1200 } as DOMRect);
+
+    const handle = screen.getByRole('separator', { name: 'Resize workspace panel' });
+    fireEvent.mouseDown(handle, { clientX: 882 });
+    fireEvent.mouseMove(window, { clientX: 800 });
+    fireEvent.mouseUp(window);
+
+    expect((container.querySelector('.trunk-page-v2__overview') as HTMLElement).style.width)
+      .toBe('400px');
+    expect(localStorage.getItem(OVERVIEW_WIDTH_KEY)).toBe('400');
+
+    unmount();
+    const restored = renderTrunk();
+    expect((restored.container.querySelector('.trunk-page-v2__overview') as HTMLElement).style.width)
+      .toBe('400px');
+  });
+
+  it('shows provider-reported model usage instead of placeholder credits', async () => {
+    mockBridge({
+      sessions: [{
+        id: 'run-usage', workspaceId: 'ws-1', trunkId: 't1', kind: 'dev', status: 'done',
+        provider: 'openai', model: 'gpt-5', taskId: null, stageId: null, durableReview: false,
+        costUsdMilli: 0, tokensIn: 1_234, tokensOut: 56, stepCursor: 1, budget: null,
+        headline: null, durationMs: 100, launchInput: null, pauseReason: null, outcome: null,
+        startedAt: Date.now(), finishedAt: Date.now(),
+      }],
+    });
     renderTrunk();
 
     expect(screen.getByRole('button', { name: 'Usage' })).toBeTruthy();
     expect(screen.queryByText(/Changes \+/)).toBeNull();
+    expect(await screen.findByText('1,290 tokens · 1 run')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Usage' }));
-    expect(screen.getByText('4% used')).toBeTruthy();
-    expect(screen.getAllByText('827 AI credits').length).toBe(2);
+    expect(screen.getAllByText('1,234 tokens').length).toBe(2);
+    expect(screen.getAllByText('56 tokens').length).toBe(2);
+    expect(screen.queryByText(/AI credits/)).toBeNull();
+  });
+
+  it('renders provider plan limits through one meter style', async () => {
+    const now = Date.now();
+    mockBridge({
+      planUsage: {
+        providers: [{
+          provider: 'openai', label: 'Codex', plan: 'prolite', updatedAt: now,
+          source: 'Codex local session', message: null,
+          limits: [{
+            id: 'primary:10080', label: 'Weekly', usedPercent: 3, resetsAt: now + 7_200_000,
+            model: null,
+          }],
+        }, {
+          provider: 'anthropic', label: 'Claude', plan: null, updatedAt: now,
+          source: 'Claude Code status line', message: null,
+          limits: [{
+            id: 'five_hour', label: '5-hour', usedPercent: 98, resetsAt: now + 5_400_000,
+            model: null,
+          }],
+        }],
+      },
+    });
+    renderTrunk();
+
+    expect(await screen.findByText('Codex')).toBeTruthy();
+    expect(screen.getByText('Pro Lite')).toBeTruthy();
+    expect(screen.getByText('3% used')).toBeTruthy();
+    expect(screen.getByText('Claude')).toBeTruthy();
+    expect(screen.getByText('98% used')).toBeTruthy();
+    expect(screen.getByLabelText('5-hour 98% used').firstElementChild?.classList.contains('is-critical'))
+      .toBe(true);
+    expect(screen.getByText('MODEL ACTIVITY')).toBeTruthy();
   });
 });

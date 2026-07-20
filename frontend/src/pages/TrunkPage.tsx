@@ -12,22 +12,27 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import ResizeHandle from '../ResizeHandle';
 import type { BacklogItemDto, PullRequestDto } from '../types';
 import { AskUserQuestionCard, BacklogPrompt, pickTopBacklog } from '../ui/conv';
-import { Composer, Main, Shell } from '../ui/shell';
+import { Composer, Main, Shell, usePaneWidth } from '../ui/shell';
 import type { TaskCardData } from '../ui/pane';
 import {
   PullRequestBranchIcon, TrunkLineIcon,
 } from '../ui/workspace/WorkspacePageChrome';
 import {
   workspaceApi,
+  type PlanUsageDto,
+  type ProviderPlanUsageDto,
   type TrunkActivityItemDto,
   type WorkspaceBacklogItemDto,
   type WorkspaceOverviewDto,
+  type WorkspaceSessionDto,
 } from '../workspace/workspaceApi';
 import { useTrunkPane } from './useTrunkPane';
 
 const READY_BACKLOG_STATUSES = new Set(['open', 'created']);
+const OVERVIEW_WIDTH_KEY = 'bq.trunkOverviewWidth';
 
 /**
  * Locked trunk page. The conversation and every live gate remain owned by the
@@ -74,6 +79,7 @@ export function TrunkPage({
   const pane = useTrunkPane(threadId);
   const panel = useWorkspacePanelData(thread.workspaceId);
   const [paneOpen, setPaneOpen] = useState(true);
+  const { paneWidth, bodyRef, onResize } = usePaneWidth(OVERVIEW_WIDTH_KEY, 318, 240, 520);
 
   const openQuestions = pane.questions.filter(question => question.status === 'open');
   const readyBacklog = pane.backlog.filter(item => READY_BACKLOG_STATUSES.has(item.status));
@@ -143,6 +149,7 @@ export function TrunkPage({
   const pullRequestCount = pane.activity.pullRequestCount
     ?? [...tasks.active, ...tasks.closed].filter(task => task.prNumber !== undefined).length;
   const cost = (pane.activity.costUsdMilli ?? 0) / 1000;
+  const trunkUsage = sumUsage(panel.sessions.filter(session => session.trunkId === threadId));
   const compactHistoryTasks = historyTasks
     ?? tasks.closed.slice(0, Math.max(0, tasks.closed.length - 1));
 
@@ -161,7 +168,7 @@ export function TrunkPage({
       <Shell collapsed={collapsed} fullWidth={sidebar === undefined} fixedSidebarWidth={216}>
         {sidebar}
         <Main topBar={topBar}>
-          <div className={paneOpen ? 'trunk-page-v2__body has-panel' : 'trunk-page-v2__body'}>
+          <div ref={bodyRef} className={paneOpen ? 'trunk-page-v2__body has-panel' : 'trunk-page-v2__body'}>
             <div className="conv-col trunk-page-v2__conversation">
               <div className="trunk-page-v2__conversation-intro">
                 <div className="trunk-page-v2__trunk-head">
@@ -227,7 +234,7 @@ export function TrunkPage({
                   images={composer.images}
                   onImagesChange={composer.onImagesChange}
                   meta={`${taskCount} tasks · ${pullRequestCount} PRs · $${cost.toFixed(2)} this thread`}
-                  usage={{ planPercent: 4, sessionLabel: '827 AI credits' }}
+                  usage={{ tokensIn: trunkUsage.tokensIn, tokensOut: trunkUsage.tokensOut }}
                 />
               )}
             </div>
@@ -236,6 +243,9 @@ export function TrunkPage({
                 workspaceId={thread.workspaceId}
                 workspaceName={panel.overview?.workspace.name ?? 'Workspace'}
                 overview={panel.overview}
+                sessions={panel.sessions}
+                trunkUsage={trunkUsage}
+                planUsage={panel.planUsage}
                 pullRequests={panel.pullRequests}
                 workspaceBacklog={panel.backlog}
                 trunkBacklog={readyBacklog}
@@ -247,6 +257,8 @@ export function TrunkPage({
                 onOpenActivity={openActivity}
                 onCollapse={() => setPaneOpen(false)}
                 onRefresh={pane.refresh}
+                width={paneWidth}
+                onResize={onResize}
               />
             )}
           </div>
@@ -260,6 +272,9 @@ function WorkspaceOverviewPanel({
   workspaceId,
   workspaceName,
   overview,
+  sessions,
+  trunkUsage,
+  planUsage,
   pullRequests,
   workspaceBacklog,
   trunkBacklog,
@@ -271,10 +286,15 @@ function WorkspaceOverviewPanel({
   onOpenActivity,
   onCollapse,
   onRefresh,
+  width,
+  onResize,
 }: {
   workspaceId?: string;
   workspaceName: string;
   overview: WorkspaceOverviewDto | null;
+  sessions: WorkspaceSessionDto[];
+  trunkUsage: ModelUsage;
+  planUsage: PlanUsageDto;
   pullRequests: PullRequestDto[];
   workspaceBacklog: WorkspaceBacklogItemDto[];
   trunkBacklog: BacklogItemDto[];
@@ -286,6 +306,8 @@ function WorkspaceOverviewPanel({
   onOpenActivity: (item: TrunkActivityItemDto) => void;
   onCollapse: () => void;
   onRefresh: () => void;
+  width: number;
+  onResize: (clientX: number) => void;
 }) {
   const needsItem = pinned[0];
   const runningItem = runningSession ?? timeline.find(item => item.status === 'running');
@@ -295,14 +317,21 @@ function WorkspaceOverviewPanel({
   const backlog = workspaceBacklog.length > 0 ? workspaceBacklog.slice(0, 2) : trunkBacklog.slice(0, 2);
   const pullRequestTotal = overview?.sidebarCounts.pullRequests ?? openPullRequests.length;
   const runningSessionId = runningSession?.sessionId;
-  const todayRuns = (overview?.today.running.length ?? 0) + (overview?.today.landedToday?.length ?? 0);
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const todayUsage = sumUsage(sessions.filter(session => session.startedAt >= midnight.getTime()));
 
   const openPath = (suffix: string) => {
     if (workspaceId !== undefined) window.location.hash = `#/workspace/${workspaceId}/${suffix}`;
   };
 
   return (
-    <aside className="trunk-page-v2__overview">
+    <aside className="trunk-page-v2__overview" style={{ width }}>
+      <ResizeHandle
+        className="trunk-page-v2__overview-resize"
+        ariaLabel="Resize workspace panel"
+        onResize={onResize}
+      />
       <div className="trunk-page-v2__overview-head">
         <span>{workspaceName.charAt(0).toUpperCase() || 'B'}</span>
         <strong>{workspaceName}</strong>
@@ -385,10 +414,12 @@ function WorkspaceOverviewPanel({
 
         <section>
           <h3>USAGE</h3>
+          <PlanUsage providers={planUsage.providers} />
+          <h4 className="trunk-page-v2__usage-subtitle">MODEL ACTIVITY</h4>
           <div className="trunk-page-v2__usage">
-            <div><span>Plan</span><i><i /></i><strong>4%</strong></div>
-            <div><span>Session</span><strong>827 AI credits</strong></div>
-            <div><span>Today</span><strong>${((overview?.today.spendTodayMilliUsd ?? 0) / 1000).toFixed(2)} · {todayRuns} runs</strong></div>
+            <div><span>Input</span><strong>{formatTokens(trunkUsage.tokensIn)}</strong></div>
+            <div><span>Output</span><strong>{formatTokens(trunkUsage.tokensOut)}</strong></div>
+            <div><span>Today</span><strong>{formatTokens(todayUsage.tokensIn + todayUsage.tokensOut)} · {todayUsage.runs} {todayUsage.runs === 1 ? 'run' : 'runs'}</strong></div>
           </div>
         </section>
       </div>
@@ -400,16 +431,21 @@ type WorkspacePanelData = {
   overview: WorkspaceOverviewDto | null;
   pullRequests: PullRequestDto[];
   backlog: WorkspaceBacklogItemDto[];
+  sessions: WorkspaceSessionDto[];
+  planUsage: PlanUsageDto;
 };
 
 function useWorkspacePanelData(workspaceId: string | undefined): WorkspacePanelData {
-  const [data, setData] = useState<WorkspacePanelData>({ overview: null, pullRequests: [], backlog: [] });
+  const [data, setData] = useState<WorkspacePanelData>({
+    overview: null, pullRequests: [], backlog: [], sessions: [], planUsage: { providers: [] },
+  });
   const load = useCallback(async () => {
     if (workspaceId === undefined || window.bridge?.workspaceApi === undefined) return;
-    const [overview, pullRequests, backlog] = await Promise.allSettled([
+    const [overview, pullRequests, backlog, sessions] = await Promise.allSettled([
       workspaceApi.overview(workspaceId),
       workspaceApi.pullRequests(workspaceId),
       workspaceApi.backlog(workspaceId),
+      workspaceApi.sessions(workspaceId),
     ]);
     setData(current => ({
       overview: overview.status === 'fulfilled' && isWorkspaceOverview(overview.value)
@@ -418,16 +454,126 @@ function useWorkspacePanelData(workspaceId: string | undefined): WorkspacePanelD
         ? pullRequests.value : current.pullRequests,
       backlog: backlog.status === 'fulfilled' && Array.isArray(backlog.value)
         ? backlog.value : current.backlog,
+      sessions: sessions.status === 'fulfilled' && Array.isArray(sessions.value)
+        ? sessions.value : current.sessions,
+      planUsage: current.planUsage,
     }));
   }, [workspaceId]);
+  const loadPlanUsage = useCallback(async () => {
+    if (window.bridge?.workspaceApi === undefined) return;
+    try {
+      const planUsage = await workspaceApi.planUsage();
+      if (isPlanUsage(planUsage)) setData(current => ({ ...current, planUsage }));
+    }
+    catch {
+      // Keep the last provider snapshot; plan usage never blocks the workspace.
+    }
+  }, []);
 
   useEffect(() => {
-    setData({ overview: null, pullRequests: [], backlog: [] });
+    setData({ overview: null, pullRequests: [], backlog: [], sessions: [], planUsage: { providers: [] } });
     void load();
     const timer = window.setInterval(() => { void load(); }, 5000);
     return () => window.clearInterval(timer);
   }, [load]);
+  useEffect(() => {
+    void loadPlanUsage();
+    const timer = window.setInterval(() => { void loadPlanUsage(); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [loadPlanUsage]);
   return data;
+}
+
+type ModelUsage = { tokensIn: number; tokensOut: number; runs: number };
+
+function sumUsage(sessions: WorkspaceSessionDto[]): ModelUsage {
+  return sessions.reduce<ModelUsage>((usage, session) => ({
+    tokensIn: usage.tokensIn + session.tokensIn,
+    tokensOut: usage.tokensOut + session.tokensOut,
+    runs: usage.runs + 1,
+  }), { tokensIn: 0, tokensOut: 0, runs: 0 });
+}
+
+function formatTokens(tokens: number): string {
+  return `${tokens.toLocaleString('en-US')} tokens`;
+}
+
+function PlanUsage({ providers }: { providers: ProviderPlanUsageDto[] }) {
+  if (providers.length === 0) {
+    return <p className="trunk-page-v2__usage-empty">No provider plan limits reported.</p>;
+  }
+  return (
+    <div className="trunk-page-v2__plan-usage">
+      {providers.map(provider => (
+        <div className="trunk-page-v2__provider-usage" key={provider.provider}>
+          <div className="trunk-page-v2__provider-head">
+            <span className={`is-${provider.provider}`}>{provider.label.charAt(0)}</span>
+            <strong>{provider.label}</strong>
+            {provider.plan !== null && <small>{formatPlan(provider.plan)}</small>}
+          </div>
+          {provider.limits.length === 0 ? (
+            <p>{provider.message ?? 'Plan limits unavailable.'}</p>
+          ) : provider.limits.map(limit => {
+            const tone = limit.usedPercent >= 90 ? 'critical'
+              : limit.usedPercent >= 70 ? 'warning' : 'normal';
+            return (
+              <div className="trunk-page-v2__limit" key={limit.id}>
+                <div>
+                  <span>{limit.model ?? limit.label}</span>
+                  <strong>{formatPercent(limit.usedPercent)} used</strong>
+                </div>
+                <i aria-label={`${limit.label} ${formatPercent(limit.usedPercent)} used`}>
+                  <i className={`is-${tone}`} style={{ width: `${limit.usedPercent}%` }} />
+                </i>
+                <small>{formatReset(limit.resetsAt)}</small>
+              </div>
+            );
+          })}
+          {provider.updatedAt > 0 && (
+            <small className="trunk-page-v2__usage-source">
+              {provider.source ?? 'Provider'} · {formatUpdated(provider.updatedAt)}
+            </small>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatPercent(percent: number): string {
+  return `${Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1)}%`;
+}
+
+function formatReset(resetsAt: number): string {
+  if (resetsAt <= 0) return 'Reset time unavailable';
+  const remainingMinutes = Math.max(0, Math.ceil((resetsAt - Date.now()) / 60_000));
+  if (remainingMinutes < 24 * 60) {
+    const hours = Math.floor(remainingMinutes / 60);
+    const minutes = remainingMinutes % 60;
+    if (hours === 0) return `Resets in ${minutes}m`;
+    return `Resets in ${hours}h${minutes === 0 ? '' : ` ${minutes}m`}`;
+  }
+  return `Resets ${new Intl.DateTimeFormat('en-US', {
+    month: 'short', day: 'numeric',
+  }).format(new Date(resetsAt))}`;
+}
+
+function formatUpdated(updatedAt: number): string {
+  const minutes = Math.max(0, Math.floor((Date.now() - updatedAt) / 60_000));
+  if (minutes < 1) return 'updated now';
+  if (minutes < 60) return `updated ${minutes}m ago`;
+  return `updated ${Math.floor(minutes / 60)}h ago`;
+}
+
+function formatPlan(plan: string): string {
+  if (plan.toLowerCase() === 'prolite') return 'Pro Lite';
+  return plan.split(/[-_\s]+/).filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
+function isPlanUsage(value: unknown): value is PlanUsageDto {
+  return value !== null && typeof value === 'object'
+    && 'providers' in value && Array.isArray(value.providers);
 }
 
 function isWorkspaceOverview(value: unknown): value is WorkspaceOverviewDto {

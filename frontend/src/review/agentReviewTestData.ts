@@ -123,6 +123,7 @@ export function createAgentReviewFixture(bundle: LocalPRBundle, files: DiffFileD
       id: 'fixture-panel-run', taskId: bundle.pr.taskId ?? '', kind: 'panel_review', source: null,
       parentStageId: null, reviewRoundId: roundId, stageId: 'fixture-panel-stage', status: 'succeeded',
       iterations: 1, budget: 50, headline: '2 findings · 1 needs judgement',
+      metricsJson: '{"tokensIn":1234,"tokensOut":56}',
       startedAt: new Date(now - 600_000).toISOString(), finishedAt: new Date(now - 240_000).toISOString(),
     }],
     criteria: [

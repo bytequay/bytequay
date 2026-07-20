@@ -59,11 +59,14 @@ describe('rowsForTab', () => {
   const requested = pr({ id: 'c', origin: 'REVIEW_REQUESTED' });
   const merged = pr({ id: 'd', state: 'merged', mergedAt: new Date().toISOString() });
   const handled = pr({ id: 'e', handledAction: 'APPROVED' as DashboardPR['handledAction'] });
-  const all = [open, staleOpen, requested, merged, handled];
+  // A review-requested PR (someone else's) that merged — done, but NOT mine.
+  const reqMerged = pr({ id: 'f', origin: 'REVIEW_REQUESTED', state: 'merged', mergedAt: new Date().toISOString() });
+  const all = [open, staleOpen, requested, merged, handled, reqMerged];
 
-  it('keeps done PRs out of every open tab and in Done', () => {
+  it('keeps done PRs out of every open tab; Done is only my own merged PRs', () => {
     expect(rowsForTab(all, 'all').map(r => r.id).sort()).toEqual(['a', 'b', 'c']);
-    expect(rowsForTab(all, 'done').map(r => r.id).sort()).toEqual(['d', 'e']);
+    // 'e' (handled but still open) and 'f' (merged but not mine) are excluded.
+    expect(rowsForTab(all, 'done').map(r => r.id).sort()).toEqual(['d']);
   });
 
   it('Active drops rows without recent activity', () => {

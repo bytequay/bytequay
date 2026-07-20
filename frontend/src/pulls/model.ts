@@ -113,7 +113,10 @@ export function rowsForTab(prs: DashboardPR[], tab: PullTab): PullRow[] {
       subset = open.filter(pr => pr.origin === 'REVIEW_REQUESTED');
       break;
     case 'done':
-      subset = prs.filter(isDone);
+      // Done = my own PRs that merged. isDone() (used above to hide finished
+      // items from the open tabs) is deliberately broader — it also counts
+      // handled review requests — so the Done tab needs its own predicate.
+      subset = prs.filter(pr => pr.origin === 'AUTHORED' && pr.state === 'merged');
       break;
   }
   return subset.slice().sort(byUpdatedDesc).map(toRow);

@@ -80,7 +80,8 @@ class TestClaudeCodeCliThreadAgent
                 .containsSubsequence("--allowed-tools",
                         "Read(/" + ChatAttachmentStore.attachmentsRoot().toAbsolutePath().normalize() + "/**)")
                 .containsSubsequence("--setting-sources", "")
-                .containsSubsequence("--settings", "{\"autoMemoryEnabled\":false}")
+                .containsSubsequence("--settings",
+                        "{\"autoMemoryEnabled\":false,\"attribution\":{\"commit\":\"\"}}")
                 .contains("--disable-slash-commands", "--no-chrome")
                 .contains("--strict-mcp-config", "--permission-prompt-tool")
                 .doesNotContain("--safe-mode")

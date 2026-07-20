@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Av, RepoAv, RobotIcon } from './atoms';
+import { PullAuthorAv, RepoAv, RobotIcon } from './atoms';
 import type { PullChip, PullRow } from './model';
 import type { Bucket } from './workspaceModel';
 
@@ -62,7 +62,7 @@ function BoardCard({ row, onPick }: { row: PullRow; onPick: () => void }) {
         </div>
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 10, borderTop: '1px dashed #e7e9ec', paddingTop: 8, fontSize: 11.5, color: '#59636e' }}>
-        <Av login={row.author} size={16} />
+        <PullAuthorAv login={row.author} size={16} />
         <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>@{row.author}</span>
         {row.status === 'running' && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#2da44e', flexShrink: 0 }} />}
         {row.status === 'failed' && <span style={{ color: '#cf222e', fontWeight: 700 }}>✕</span>}

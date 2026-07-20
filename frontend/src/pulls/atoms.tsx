@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import type { CSSProperties } from 'react';
+import CurrentUserAvatar from '../CurrentUserAvatar';
 
 /**
  * Shared presentational atoms for the redesigned PR screens, ported from the
@@ -86,6 +87,17 @@ export function Av({ login, size, square = false, src }: {
       onError={() => setFailedSrc(avatarSrc)}
     />
   );
+}
+
+/** A missing task-PR author is the signed-in GitHub user, not an unknown user. */
+export function PullAuthorAv({ login, size, square = false }: {
+  login: string;
+  size: number;
+  square?: boolean;
+}) {
+  return login.trim() === ''
+    ? <CurrentUserAvatar size={size} />
+    : <Av login={login} size={size} square={square} />;
 }
 
 /** Repository rows show the owner's current GitHub avatar. GitHub's raw

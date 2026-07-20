@@ -16,6 +16,7 @@ package com.bytequay.app.service.localpr;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
+import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PR;
@@ -345,6 +346,7 @@ public class PRPublishService
         }
         RemoteTarget target = resolveRemoteTarget(pr);
         pullRequests.createIssueComment(target.pat(), target.ref(), body.trim());
+        markReviewRequestHandled(pr, HandledAction.COMMENTED);
         return pr;
     }
 
@@ -440,12 +442,26 @@ public class PRPublishService
                 .toList();
         pullRequests.createReview(pat, ref, new CreateReviewCommand(
                 Optional.empty(), body.isBlank() ? Optional.empty() : Optional.of(body), event, lineComments));
+        markReviewRequestHandled(pr, switch (event) {
+            case "APPROVE" -> HandledAction.APPROVED;
+            case "REQUEST_CHANGES" -> HandledAction.CHANGES_REQUESTED;
+            default -> HandledAction.COMMENTED;
+        });
 
         Instant when = Instant.now();
         for (PRComment draft : drafts) {
             prService.markPublished(draft.id(), when);
         }
         return prService.findById(prId).orElse(pr);
+    }
+
+    private void markReviewRequestHandled(PR pr, HandledAction action)
+    {
+        if (!pr.isTerminal()
+                && pr.githubSync() != null
+                && pr.githubSync().watchReason() == PullRequest.Origin.REVIEW_REQUESTED) {
+            prService.markHandled(pr.id(), action);
+        }
     }
 
     private long openCommentCount(String prId)

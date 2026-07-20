@@ -23,7 +23,13 @@ export type WorkspaceRoute =
   | { kind: 'workspaces' }
   | { kind: 'workspace'; workspaceId: string }
   | { kind: 'trunks'; workspaceId: string; trunkId?: string }
-  | { kind: 'pull-request'; workspaceId: string; number?: number }
+  | {
+      kind: 'pull-request';
+      workspaceId: string;
+      number?: number;
+      prId?: string;
+      agentColumn?: boolean;
+    }
   | { kind: 'issue'; workspaceId: string; number?: number }
   | { kind: 'session'; workspaceId: string; sessionId?: string }
   | { kind: 'backlog'; workspaceId: string; key?: string }
@@ -52,7 +58,10 @@ const positiveNumber = (value: string): number | null => {
 
 /** Parse both "#/…" and plain logical paths. Invalid paths fall home. */
 export function parseWorkspaceRoute(value: string): WorkspaceRoute {
-  const logical = value.trim().replace(/^#/, '').replace(/^\/+|\/+$/g, '');
+  const raw = value.trim().replace(/^#/, '');
+  const queryAt = raw.indexOf('?');
+  const logical = (queryAt < 0 ? raw : raw.slice(0, queryAt)).replace(/^\/+|\/+$/g, '');
+  const query = new URLSearchParams(queryAt < 0 ? '' : raw.slice(queryAt + 1));
   if (logical === '' || logical === 'home') return { kind: 'home' };
   if (logical === 'reviews') return { kind: 'reviews' };
   if (logical === 'workspaces') return { kind: 'workspaces' };
@@ -80,10 +89,16 @@ export function parseWorkspaceRoute(value: string): WorkspaceRoute {
       return { kind: 'trunks', workspaceId, trunkId };
     }
     case 'prs': {
-      if (parts[3] === undefined) return { kind: 'pull-request', workspaceId };
-      const number = positiveNumber(parts[3]);
-      return number === null ? { kind: 'pull-request', workspaceId }
-        : { kind: 'pull-request', workspaceId, number };
+      const number = parts[3] === undefined ? null : positiveNumber(parts[3]);
+      const prId = query.get('prId') || undefined;
+      const agentColumn = query.get('agent') === '1' ? true : undefined;
+      return {
+        kind: 'pull-request',
+        workspaceId,
+        ...(number === null ? {} : { number }),
+        ...(prId === undefined ? {} : { prId }),
+        ...(agentColumn === undefined ? {} : { agentColumn }),
+      };
     }
     case 'issues': {
       if (parts[3] === undefined) return { kind: 'issue', workspaceId };
@@ -132,9 +147,14 @@ export function workspaceRouteHash(route: WorkspaceRoute): string {
     case 'trunks':
       return `#/workspace/${encoded(route.workspaceId)}/trunks${
         route.trunkId === undefined ? '' : `/${encoded(route.trunkId)}`}`;
-    case 'pull-request':
+    case 'pull-request': {
+      const query = [];
+      if (route.prId !== undefined) query.push(`prId=${encoded(route.prId)}`);
+      if (route.agentColumn === true) query.push('agent=1');
       return `#/workspace/${encoded(route.workspaceId)}/prs${
-        route.number === undefined ? '' : `/${route.number}`}`;
+        route.number === undefined ? '' : `/${route.number}`}${
+        query.length === 0 ? '' : `?${query.join('&')}`}`;
+    }
     case 'issue':
       return `#/workspace/${encoded(route.workspaceId)}/issues${
         route.number === undefined ? '' : `/${route.number}`}`;

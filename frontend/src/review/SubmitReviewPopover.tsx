@@ -35,7 +35,7 @@ export function SubmitReviewPopover({ comments, excluded, onToggle, onEdit, onRe
   return (
     <div className="agent-submit-wrap">
       <button type="button" className="agent-submit-button" onClick={() => setOpen(value => !value)}>
-        Submit review <span>{included.length}</span> ▾
+        Submit review • {included.length} ▾
       </button>
       {open && (
         <div className="agent-submit-popover" role="dialog" aria-label="Submit review">

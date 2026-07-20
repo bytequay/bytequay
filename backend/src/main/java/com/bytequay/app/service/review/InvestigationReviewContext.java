@@ -18,6 +18,7 @@ import com.bytequay.app.domain.InvestigationReviewData.ReviewCapabilities;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCommit;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
@@ -29,6 +30,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import static java.lang.Math.toIntExact;
@@ -108,6 +110,46 @@ public class InvestigationReviewContext
     {
         List<PRCommit> commits = prs.commits(pr.id());
         return commits.isEmpty() ? "unknown-head" : commits.get(commits.size() - 1).sha();
+    }
+
+    /**
+     * Materialise GitHub's PR head in an explicitly watched clone before a
+     * full review starts. Normal context reads stay side-effect free; this is
+     * called only from the user-triggered full-review path. GitHub publishes
+     * {@code pull/N/head} on the target repository even for fork PRs.
+     */
+    public void prepareWatchedPr(PR pr)
+    {
+        if (pr.repo() == null || pr.remotePrNumber() == null
+                || pr.baseBranch() == null || pr.baseBranch().isBlank()) {
+            return;
+        }
+        String head = headCommit(pr);
+        if ("unknown-head".equals(head)) {
+            return;
+        }
+        watchedRepo(pr.repo()).ifPresent(watched ->
+                watchedRoot(watched).ifPresent(root -> {
+                    if (refExists(root, head)) {
+                        return;
+                    }
+                    try {
+                        String remote = watched.upstreamRemoteName();
+                        if (remote == null || remote.isBlank()) {
+                            git.fetchPrRefs(root, pr.remotePrNumber(), pr.baseBranch());
+                        }
+                        else {
+                            git.fetchPrRefs(root, remote, pr.remotePrNumber(), pr.baseBranch());
+                        }
+                    }
+                    catch (GitRunner.GitCommandException | IOException ignored) {
+                        // load() below will keep the review remote-only, and the
+                        // caller turns that into an actionable full-review error.
+                    }
+                    catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    }
+                }));
     }
 
     public String readFile(Snapshot snapshot, String path)
@@ -249,19 +291,33 @@ public class InvestigationReviewContext
 
     private Path watchedRootAt(String repo, String head)
     {
+        return watchedRoot(repo)
+                .filter(root -> refExists(root, head))
+                .orElse(null);
+    }
+
+    private Optional<Path> watchedRoot(String repo)
+    {
+        return watchedRepo(repo).flatMap(this::watchedRoot);
+    }
+
+    private Optional<WatchedRepo> watchedRepo(String repo)
+    {
         String[] parts = repo.split("/", 2);
         if (parts.length != 2) {
-            return null;
+            return Optional.empty();
         }
-        return watchedRepos.find(parts[0], parts[1])
-                .map(watched -> watched.localClonePath())
-                .filter(path -> path != null && !path.isBlank())
+        return watchedRepos.find(parts[0], parts[1]);
+    }
+
+    private Optional<Path> watchedRoot(WatchedRepo watched)
+    {
+        return Optional.ofNullable(watched.localClonePath())
+                .filter(path -> !path.isBlank())
                 .map(Path::of)
                 .map(Path::toAbsolutePath)
                 .map(Path::normalize)
-                .filter(Files::isDirectory)
-                .filter(root -> refExists(root, head))
-                .orElse(null);
+                .filter(Files::isDirectory);
     }
 
     private boolean refExists(Path root, String head)

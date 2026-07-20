@@ -20,8 +20,7 @@ import { formatCents } from './agentReviewTypes';
 export type AgentReviewHeaderState = 'never' | 'running' | 'done' | 'stale';
 export type AgentReviewStartOptions = { runner?: 'api' | 'cli' };
 
-function ReviewEntrySplit({ stale, onStart }: {
-  stale: boolean;
+function ReviewEntrySplit({ onStart }: {
   onStart: (options?: AgentReviewStartOptions) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -32,20 +31,20 @@ function ReviewEntrySplit({ stale, onStart }: {
   };
   return (
     <span className="agent-review-entry-wrap">
-      <span className={`agent-review-entry-split${stale ? ' stale' : ''}`}>
-        <button type="button" className="agent-review-entry" onClick={() => onStart()}>⚖ {stale ? 'Continue review' : 'Review with agent'}</button>
+      <span className="agent-review-entry-split">
+        <button type="button" className="agent-review-entry" onClick={() => onStart()}>Full review</button>
         <button type="button" className="agent-review-entry agent-review-entry__customize" onClick={() => setOpen(value => !value)} aria-expanded={open} aria-label="Customize agent review">▾</button>
       </span>
       {open && (
         <span className="agent-review-customize" role="dialog" aria-label="Customize agent review">
-          <b>{stale ? 'Customize re-review' : 'Customize review'}</b>
+          <b>Customize full review</b>
           <small>The deterministic plan starts immediately. Choose the execution lane for its reviewer seats.</small>
           <label><input type="radio" name="agent-review-runner" checked={runner === 'auto'} onChange={() => setRunner('auto')} /><span><b>Automatic</b><small>Use the configured reviewer pool.</small></span></label>
           <label><input type="radio" name="agent-review-runner" checked={runner === 'api'} onChange={() => setRunner('api')} /><span><b>API runner</b><small>Use an in-process provider credential.</small></span></label>
           <label><input type="radio" name="agent-review-runner" checked={runner === 'cli'} onChange={() => setRunner('cli')} /><span><b>CLI runner</b><small>Use the local Claude review CLI.</small></span></label>
           <span className="agent-review-customize__actions">
             <button type="button" onClick={() => setOpen(false)}>Cancel</button>
-            <button type="button" className="primary" onClick={start}>{stale ? 'Re-review' : 'Start review'}</button>
+            <button type="button" className="primary" onClick={start}>Start review</button>
           </span>
         </span>
       )}
@@ -70,10 +69,10 @@ export function AgentReviewHeaderAction({ state, spendCents = 0, round = 1, comm
   const findingCount = comments.filter(comment => comment.findingId != null).length;
   return (
     <span className="agent-review-header-action">
-      {state === 'never' && <ReviewEntrySplit stale={false} onStart={onStart} />}
-      {state === 'running' && <button type="button" className="agent-review-state running" onClick={onOpenRound}><span />Round {round} · reviewing · {formatCents(spendCents)}</button>}
-      {state === 'done' && <button type="button" className="agent-review-state" onClick={onOpenRound}>⚖ Round {round} ✓ · {findingCount > 0 ? `${findingCount} findings` : 'complete'}</button>}
-      {state === 'stale' && <ReviewEntrySplit stale onStart={onStart} />}
+      {state === 'never' && <ReviewEntrySplit onStart={onStart} />}
+      {state === 'running' && <button type="button" className="agent-review-state running" title={`Round ${round} · ${formatCents(spendCents)}`} onClick={onOpenRound}><span />Full review • running</button>}
+      {state === 'done' && <button type="button" className="agent-review-state" title={`${findingCount} findings · ${formatCents(spendCents)}`} onClick={onOpenRound}>Full review · Round {round}</button>}
+      {state === 'stale' && <button type="button" className="agent-review-state stale" onClick={onOpenRound}>Full review · update available</button>}
       {error != null && <span className="agent-review-inline-error" role="alert" title={error}>Review failed</span>}
       {comments.length > 0 && <SubmitReviewPopover comments={comments} excluded={excluded} onToggle={onToggle} onEdit={onEdit} onRemove={onRemove} onSubmit={onSubmit} />}
     </span>

@@ -200,7 +200,9 @@ public record InvestigationReviewData(
     @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
     public record FindingRow(
             String id, String reviewId, String roundId, String objectiveId,
-            String hypothesisId, String criterionKind, String claim, int severity,
+            String hypothesisId, String criterionKind,
+            String path, Integer startLine, Integer endLine,
+            String claim, int severity,
             String confidenceClass, String verificationStatus, String requestedAction,
             String lifecycleStatus, String lastCheckedCommit) {}
 

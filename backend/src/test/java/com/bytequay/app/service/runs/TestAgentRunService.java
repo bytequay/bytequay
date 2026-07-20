@@ -128,6 +128,28 @@ class TestAgentRunService
     }
 
     @Test
+    void attachOwnershipAllowsAWorkspaceArtifactWithoutAThread()
+    {
+        AgentRun detached = new AgentRun(
+                "run-review", null, AgentRun.KIND_PANEL_REVIEW, null,
+                null, "round-1", null, AgentRun.STATUS_RUNNING,
+                0, 50, null, null, NOW, null);
+        when(store.findById(detached.id())).thenReturn(Optional.of(detached));
+        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        AgentRun owned = service.attachOwnership(
+                detached.id(), "ws-1", null,
+                "agent-review", "agent-review", "Review octocat/app#42");
+
+        assertThat(owned.id()).isEqualTo(detached.id());
+        assertThat(owned.workspaceId()).isEqualTo("ws-1");
+        assertThat(owned.threadId()).isNull();
+        assertThat(owned.provider()).isEqualTo("agent-review");
+        assertThat(owned.model()).isEqualTo("agent-review");
+        assertThat(owned.launchInput()).isEqualTo("Review octocat/app#42");
+    }
+
+    @Test
     void openIsIdempotentWhenALiveRunOfTheSameKindExists()
     {
         AgentRun existing = new AgentRun(

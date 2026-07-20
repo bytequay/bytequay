@@ -14,12 +14,15 @@
 package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.InvestigationReviewData.FindingEvidenceRow;
+import com.bytequay.app.domain.InvestigationReviewData.FindingRow;
 import com.bytequay.app.domain.InvestigationReviewData.HypothesisRow;
 import com.bytequay.app.domain.InvestigationReviewData.InvestigationStepRow;
+import com.bytequay.app.domain.InvestigationReviewData.ObservationRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewObjectiveRow;
 import com.bytequay.app.service.review.DeterministicReviewCoverage.CoverageReport;
 import com.bytequay.app.service.review.DeterministicReviewCoverage.FailureClassResult;
 import com.bytequay.app.service.review.DeterministicReviewCoverage.SweepResult;
+import com.bytequay.app.service.review.InvestigationReviewContext.Snapshot;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.junit.jupiter.api.Test;
 
@@ -95,6 +98,36 @@ class TestDeterministicReviewCoverage
         assertThat(InvestigationReviewService.hasRequiredEvidence(List.of(supports, refutes))).isTrue();
         assertThat(InvestigationReviewService.hasRequiredEvidence(List.of(refutes))).isFalse();
         assertThat(InvestigationReviewService.hasRequiredEvidence(List.of())).isFalse();
+    }
+
+    @Test
+    void findingsNeedAChangedRightSideRangeCoveredBySupportingEvidence()
+    {
+        Snapshot snapshot = new Snapshot(null, "base", "head", """
+                diff --git a/src/A.java b/src/A.java
+                @@ -10,3 +10,4 @@
+                 before();
+                -oldCall();
+                +newCall();
+                +guard();
+                 after();
+                """, List.of(), null);
+        FindingRow finding = new FindingRow(
+                "finding", "review", "round", "objective", "hypothesis", "hard-invariant",
+                "src/A.java", 11, 12, "The guard is incomplete", 3, "SUPPORTED", "unknown",
+                "Handle the failure", "candidate", "head");
+        ObservationRow covering = new ObservationRow(
+                "observation", "step", "source", "head", "src/A.java", 10, 13,
+                null, null, null, null, "digest", "preview");
+
+        assertThat(InvestigationReviewService.rightSideRange(
+                snapshot, finding.path(), finding.startLine(), finding.endLine())).isTrue();
+        assertThat(InvestigationReviewService.rightSideRange(snapshot, "src/A.java", 11, 14)).isFalse();
+        assertThat(InvestigationReviewService.rightSideRange(snapshot, "src/A.java", 12, 11)).isFalse();
+        assertThat(InvestigationReviewService.hasAnchoredSupportingEvidence(
+                finding, List.of(evidence("SUPPORTS")), Map.of("observation", covering))).isTrue();
+        assertThat(InvestigationReviewService.hasAnchoredSupportingEvidence(
+                finding, List.of(evidence("REFUTES")), Map.of("observation", covering))).isFalse();
     }
 
     @Test

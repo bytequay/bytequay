@@ -13,15 +13,14 @@
  */
 package com.bytequay.app.service.workspaces;
 
-import com.bytequay.app.beans.session.SessionDto;
 import com.bytequay.app.beans.workspace.TrunkDto;
 import com.bytequay.app.beans.workspace.WorkspaceOnboardingDto;
 import com.bytequay.app.beans.workspace.WorkspaceOverviewDto;
 import com.bytequay.app.beans.workspace.WorkspaceSummaryDto;
-import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.BacklogItem;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
@@ -30,7 +29,7 @@ import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.BacklogStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.SessionProjectionService;
 import com.bytequay.app.service.threads.NotificationService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -53,7 +52,7 @@ public class WorkspaceOverviewService
     private final WorkspaceCreationService creations;
     private final WorkspaceConfigurationService configuration;
     private final ThreadStore threads;
-    private final AgentRunService runs;
+    private final SessionProjectionService sessions;
     private final BacklogStore backlog;
     private final NotificationService notifications;
     private final WatchedRepoStore watchedRepos;
@@ -64,7 +63,7 @@ public class WorkspaceOverviewService
             WorkspaceCreationService creations,
             WorkspaceConfigurationService configuration,
             ThreadStore threads,
-            AgentRunService runs,
+            SessionProjectionService sessions,
             BacklogStore backlog,
             NotificationService notifications,
             WatchedRepoStore watchedRepos,
@@ -74,7 +73,7 @@ public class WorkspaceOverviewService
         this.creations = requireNonNull(creations, "creations is null");
         this.configuration = requireNonNull(configuration, "configuration is null");
         this.threads = requireNonNull(threads, "threads is null");
-        this.runs = requireNonNull(runs, "runs is null");
+        this.sessions = requireNonNull(sessions, "sessions is null");
         this.backlog = requireNonNull(backlog, "backlog is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
@@ -100,9 +99,6 @@ public class WorkspaceOverviewService
                         "no workspace summary: " + workspaceId));
         WorkspaceSummaryDto summary = summary(card);
         List<Thread> all = publicTrunks(workspaceId);
-        List<AgentRun> sessionRows = runs.findByWorkspace(workspaceId).stream()
-                .filter(SessionDto::isPublic)
-                .toList();
         List<BacklogItem> backlogRows = backlog.findByWorkspace(workspaceId);
         long midnight = localMidnight();
         List<Thread> needsYou = all.stream()
@@ -119,9 +115,7 @@ public class WorkspaceOverviewService
         int unread = (int) notifications.listForWorkspace(workspaceId).stream()
                 .filter(notification -> notification.status() == NotificationStatus.UNREAD)
                 .count();
-        int liveSessions = (int) sessionRows.stream()
-                .filter(AgentRun::isLive)
-                .count();
+        int liveSessions = sessions.countLive(workspaceId);
         int openBacklog = (int) backlogRows.stream()
                 .filter(item -> !BacklogItem.STATUS_RESOLVED.equals(item.status())
                         && !BacklogItem.STATUS_DISCARDED.equals(item.status()))
@@ -212,6 +206,7 @@ public class WorkspaceOverviewService
     {
         return threads.listThreadsByWorkspace(workspaceId).stream()
                 .filter(thread -> thread.kind() != ThreadKind.BRAIN_AGENT)
+                .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
                 .filter(thread -> thread.parentTaskId() == null)
                 .sorted(Comparator.comparing(Thread::updatedAt).reversed())
                 .toList();

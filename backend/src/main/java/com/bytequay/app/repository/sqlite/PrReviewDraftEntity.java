@@ -36,6 +36,9 @@ class PrReviewDraftEntity
     @Column(name = "pr_id", nullable = false)
     private long prId;
 
+    @Column(name = "unified_pr_id")
+    private String unifiedPrId;
+
     @Column
     private String repo;
 
@@ -85,6 +88,9 @@ class PrReviewDraftEntity
 
     long getPrId() { return prId; }
     void setPrId(long prId) { this.prId = prId; }
+
+    String getUnifiedPrId() { return unifiedPrId; }
+    void setUnifiedPrId(String unifiedPrId) { this.unifiedPrId = unifiedPrId; }
 
     String getRepo() { return repo; }
     void setRepo(String repo) { this.repo = repo; }

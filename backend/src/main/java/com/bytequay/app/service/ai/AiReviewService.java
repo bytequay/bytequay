@@ -16,6 +16,7 @@ package com.bytequay.app.service.ai;
 import com.bytequay.app.domain.AiReviewDraft;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
@@ -26,6 +27,7 @@ import com.bytequay.app.repository.AiReviewDraftStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestDetailInvalidator;
 import com.bytequay.app.service.skills.SkillService;
 import org.springframework.http.HttpStatusCode;
@@ -50,7 +52,14 @@ import static java.util.Objects.requireNonNullElse;
 @Service
 public class AiReviewService
 {
+    private static final String QUICK_REVIEW_SCOPE = """
+            Quick-review scope: Review only the pull-request description and complete unified diff supplied in this request.
+            You have no repository exploration, file-reading, search, history, test, or code-navigation tools.
+            Do not claim anything about code outside the supplied diff; call out uncertainty instead.
+            """;
+
     private final PullRequestStore pullRequestStore;
+    private final PRService prs;
     private final PullRequestRepository gitHub;
     private final LlmReviewerRegistry registry;
     private final AiReviewDraftStore draftStore;
@@ -60,6 +69,7 @@ public class AiReviewService
 
     public AiReviewService(
             PullRequestStore pullRequestStore,
+            PRService prs,
             PullRequestRepository gitHub,
             LlmReviewerRegistry registry,
             AiReviewDraftStore draftStore,
@@ -68,12 +78,82 @@ public class AiReviewService
             PatResolver patResolver)
     {
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
+        this.prs = requireNonNull(prs, "prs is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.draftStore = requireNonNull(draftStore, "draftStore is null");
         this.skillService = requireNonNull(skillService, "skillService is null");
         this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
+    }
+
+    /**
+     * Runs the deliberately bounded, no-tools review offered for an external
+     * PR whose repository is not watched locally. This path owns no agent
+     * session: it sends one complete GitHub diff to one configured reviewer
+     * and stores the result directly against the unified PR id.
+     */
+    public AiReviewDraft runQuickReview(String prId)
+    {
+        if (prId == null || prId.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "prId must not be empty");
+        }
+        PR pr = prs.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "PR " + prId + " not found"));
+        if (!PR.ORIGIN_EXTERNAL.equals(pr.origin()) || pr.repo() == null || pr.remotePrNumber() == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(422),
+                    "Quick review is only available for external GitHub PRs; watch the repo for a full review");
+        }
+
+        String repo = pr.repo();
+        int number = pr.remotePrNumber();
+        LlmReviewer reviewer = registry.active();
+        if (!reviewer.isConfigured()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(412),
+                    "The active LLM provider (" + reviewer.displayName() + ") has no API key configured. "
+                            + "Add it in Settings → Credentials.");
+        }
+
+        String pat = patResolver.resolve(repo);
+        PullRequestRef ref = parseRef(repo, number);
+        PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
+        if (raw == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Empty response from GitHub PR detail");
+        }
+        String diff = requireNonNullElse(gitHub.fetchPrDiff(pat, ref), "");
+        if (diff.length() > ReviewPrompt.MAX_DIFF_CHARS) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(413),
+                    "This PR diff is too large for quick review (" + diff.length() + " characters). "
+                            + "Watch the repo and run a full review instead.");
+        }
+
+        String skillContext = skillService.forRepo(repo)
+                .map(Skill::body)
+                .filter(body -> !body.isBlank())
+                .map(body -> QUICK_REVIEW_SCOPE + "\n" + body)
+                .orElse(QUICK_REVIEW_SCOPE);
+        ReviewRequest request = new ReviewRequest(
+                repo, number, pr.title(), raw.body(), raw.headSha(), diff, skillContext);
+        ReviewOutput output = reviewer.review(request);
+        AiReviewDraft saved = draftStore.saveForUnifiedPr(prId, repo, number, raw.headSha(), output);
+        if (prs.findById(prId).isPresent()) {
+            return saved;
+        }
+        return prs.findTaskByRepoAndNumber(repo, number)
+                .map(survivor -> {
+                    draftStore.reparentUnifiedPr(prId, survivor.id());
+                    return draftStore.latestForUnifiedPr(survivor.id()).orElse(saved);
+                })
+                .orElse(saved);
+    }
+
+    public Optional<AiReviewDraft> latestQuickReview(String prId)
+    {
+        return draftStore.latestForUnifiedPr(prId);
     }
 
     /**

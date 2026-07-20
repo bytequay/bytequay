@@ -14,6 +14,9 @@
 package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -24,4 +27,12 @@ interface PrReviewDraftJpaRepository
     List<PrReviewDraftEntity> findByPrIdOrderByCreatedAtDesc(long prId);
 
     Optional<PrReviewDraftEntity> findTopByPrIdOrderByCreatedAtDesc(long prId);
+
+    Optional<PrReviewDraftEntity> findTopByUnifiedPrIdOrderByCreatedAtDesc(String prId);
+
+    @Modifying
+    @Query("UPDATE PrReviewDraftEntity d SET d.unifiedPrId = :toPrId WHERE d.unifiedPrId = :fromPrId")
+    void reparentUnifiedPr(
+            @Param("fromPrId") String fromPrId,
+            @Param("toPrId") String toPrId);
 }

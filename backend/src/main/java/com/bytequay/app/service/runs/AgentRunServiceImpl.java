@@ -215,7 +215,6 @@ class AgentRunServiceImpl
     {
         requireText(runId, "runId");
         requireText(workspaceId, "workspaceId");
-        requireText(threadId, "threadId");
         requireText(launchInput, "launchInput");
         return store.save(require(runId).withOwnership(
                 workspaceId, threadId, provider, model, launchInput));

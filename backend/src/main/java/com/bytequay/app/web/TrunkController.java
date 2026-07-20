@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.beans.workspace.TrunkDto;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.repository.ThreadStore;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -43,6 +44,7 @@ public class TrunkController
     {
         return threads.listThreadsByWorkspace(workspaceId).stream()
                 .filter(thread -> thread.kind() != ThreadKind.BRAIN_AGENT)
+                .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
                 .map(TrunkDto::from)
                 .toList();
     }
@@ -55,6 +57,7 @@ public class TrunkController
         return threads.findThreadById(trunkId)
                 .filter(thread -> workspaceId.equals(thread.workspaceId()))
                 .filter(thread -> thread.kind() != ThreadKind.BRAIN_AGENT)
+                .filter(thread -> thread.flow() != ThreadFlow.REVIEW)
                 .map(TrunkDto::from)
                 .orElseThrow(() -> new NoSuchElementException(
                         "no trunk in workspace: " + trunkId));

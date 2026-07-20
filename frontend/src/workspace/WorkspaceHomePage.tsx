@@ -66,7 +66,7 @@ function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewT
         window.bridge.listTasks({ workspaceId }),
         window.bridge.getWorkspaceMemory(workspaceId),
       ]);
-      setThreads(threadList);
+      setThreads(threadList.filter(thread => !isReviewThread(thread)));
       setMemoryMd(memory.memoryMd);
       setError(null);
     }

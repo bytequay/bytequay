@@ -657,9 +657,10 @@ class PRServiceImpl
             return task;
         }
         PR external = twin.get();
-        // A running round keeps the source PR id in its in-memory work item and
-        // may still append findings, comments, and timeline events. Reconcile
-        // on the next sweep rather than deleting that aggregate mid-run.
+        // A starting review or running round keeps the source PR id in its
+        // in-memory work item and may still append findings, comments, and
+        // timeline events. Reconcile on the next sweep rather than deleting
+        // that aggregate mid-run.
         if (store.hasRunningAgentReview(external.id())) {
             return task;
         }

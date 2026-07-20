@@ -27,6 +27,7 @@ import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.WorkspaceStore.WorkspaceStats;
 import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
+import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.threads.ThreadService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -54,6 +55,8 @@ class TestWorkspaceService
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
     private final ThreadService threadService = mock(ThreadService.class);
+    private final InvestigationReviewService investigationReviews =
+            mock(InvestigationReviewService.class);
     private final WorkspaceDataPurger dataPurger = mock(WorkspaceDataPurger.class);
     private final WorkspaceService service = new WorkspaceService(
             store,
@@ -62,6 +65,7 @@ class TestWorkspaceService
             threadStore,
             watchedRepos,
             threadService,
+            investigationReviews,
             dataPurger);
 
     @Test
@@ -348,15 +352,16 @@ class TestWorkspaceService
         // Each thread is purged (its agents stopped, worktrees reaped, row +
         // DB cascade) BEFORE the workspace row is dropped — required for
         // correctness, since threads.workspace_id has no ON DELETE CASCADE.
-        InOrder order = inOrder(threadService, dataPurger, store);
+        InOrder order = inOrder(threadService, investigationReviews, dataPurger, store);
         order.verify(threadService).purge("th-1");
         order.verify(threadService).purge("th-2");
+        order.verify(investigationReviews).purgeByWorkspace("ws-bytequay");
         order.verify(dataPurger).purgeWorkspaceScoped("ws-bytequay");
         order.verify(store).deleteWorkspace("ws-bytequay");
     }
 
     @Test
-    void deleteContinuesWhenOneThreadPurgeThrows()
+    void deleteAbortsWhenOneThreadPurgeThrows()
     {
         when(store.findWorkspaceById("ws-bytequay"))
                 .thenReturn(Optional.of(workspace("ws-bytequay", "ByteQuay")));
@@ -365,12 +370,12 @@ class TestWorkspaceService
         doThrow(new RuntimeException("wedged git worktree"))
                 .when(threadService).purge("th-1");
 
-        service.delete("ws-bytequay");
+        assertThatThrownBy(() -> service.delete("ws-bytequay"))
+                .hasMessageContaining("wedged git worktree");
 
-        // One thread's teardown blowing up must not strand the rest of the
-        // cascade or the workspace drop.
-        verify(threadService).purge("th-2");
-        verify(store).deleteWorkspace("ws-bytequay");
+        verify(threadService, never()).purge("th-2");
+        verify(investigationReviews, never()).purgeByWorkspace(any());
+        verify(store, never()).deleteWorkspace(any());
     }
 
     @Test
@@ -383,6 +388,7 @@ class TestWorkspaceService
         service.delete("ws-empty");
 
         verify(threadService, never()).purge(any());
+        verify(investigationReviews).purgeByWorkspace("ws-empty");
         verify(store).deleteWorkspace("ws-empty");
     }
 

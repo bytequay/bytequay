@@ -4195,6 +4195,13 @@ export type Bridge = {
   /** Persisted investigation-review aggregate; null means this PR has never
    *  been reviewed. Every review surface consumes this exact payload. */
   getAgentReview: (prId: string) => Promise<AgentReviewData | null>;
+  /** Diff-only one-shot review for an external PR whose repository is not watched. */
+  startQuickReview: (prId: string) => Promise<{ state: 'RUNNING' }>;
+  getQuickReviewStatus: (prId: string) => Promise<{
+    state: 'IDLE' | 'RUNNING' | 'DONE' | 'FAILED';
+    error: string | null;
+  }>;
+  getLatestQuickReview: (prId: string) => Promise<AiReviewDraftDto | null>;
   startAgentReview: (
     prId: string,
     body?: { runner?: 'api' | 'cli'; providerId?: string; workspaceId?: string },

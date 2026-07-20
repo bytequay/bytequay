@@ -19,9 +19,22 @@ import {
 
 type SessionFilter = 'all' | 'plan' | 'dev' | 'review' | 'ci-fix';
 
+export type WorkspaceReviewSessionTarget = {
+  workspaceId: string;
+  prId: string;
+  prNumber: number | null;
+  roundId: string;
+};
+
+type ReviewSessionTarget = WorkspaceReviewSessionTarget & {
+  title: string;
+  repo: string | null;
+};
+
 export default function WorkspaceSessionsPage({
   workspaceId,
   onOpenThread,
+  onOpenReview,
   selectedSessionId,
   onOpenSession,
   onBackToList,
@@ -33,6 +46,7 @@ export default function WorkspaceSessionsPage({
 }: {
   workspaceId: string;
   onOpenThread?: (threadId: string) => void;
+  onOpenReview?: (target: WorkspaceReviewSessionTarget) => void;
   selectedSessionId?: string;
   onOpenSession?: (sessionId: string) => void;
   onBackToList?: () => void;
@@ -90,8 +104,11 @@ export default function WorkspaceSessionsPage({
         sessionId={selectedSessionId}
         onBack={() => onBackToList?.()}
         onOpenThread={() => {
-          if (selected !== undefined) onOpenThread?.(selected.trunkId);
+          if (selected?.trunkId !== null && selected?.trunkId !== undefined) {
+            onOpenThread?.(selected.trunkId);
+          }
         }}
+        onOpenReview={onOpenReview}
         onChanged={refresh}
       />
     );
@@ -221,7 +238,9 @@ function SessionListRow({
           } · ${elapsed(session)}`}
       </span>
       <span className={`wu-session-list-action ${queued ? 'queued' : ''}`}>
-        {session.status === 'running'
+        {session.durableReview
+          ? 'Open →'
+          : session.status === 'running'
           ? 'Watch →'
           : errored
             ? 'Restart'
@@ -266,17 +285,51 @@ function SessionListSubtitle({
 }
 
 function SessionDetail({
-  session, loading, sessionId, onBack, onOpenThread, onChanged,
+  session, loading, sessionId, onBack, onOpenThread, onOpenReview, onChanged,
 }: {
   session: WorkspaceSessionDto | undefined;
   loading: boolean;
   sessionId: string;
   onBack: () => void;
   onOpenThread: () => void;
+  onOpenReview?: (target: WorkspaceReviewSessionTarget) => void;
   onChanged: () => Promise<void>;
 }) {
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<ReviewSessionTarget | null>(null);
+  const [reviewTargetError, setReviewTargetError] = useState<string | null>(null);
+  const reviewRoundId = session?.durableReview ? session.reviewRoundId ?? null : null;
+  const reviewWorkspaceId = session?.workspaceId ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    setReviewTarget(null);
+    setReviewTargetError(null);
+    if (reviewRoundId === null || reviewWorkspaceId === null) return () => { cancelled = true; };
+
+    void (async () => {
+      try {
+        const log = await window.bridge.getAgentReviewRoundLog(reviewRoundId);
+        const bundle = await window.bridge.getLocalPrBundle(log.review.pr_id)
+          .catch((_reason: unknown): null => null);
+        if (!cancelled) {
+          setReviewTarget({
+            workspaceId: reviewWorkspaceId,
+            prId: log.review.pr_id,
+            prNumber: bundle?.pr.remotePrNumber ?? null,
+            roundId: reviewRoundId,
+            title: bundle?.pr.title ?? 'Pull request',
+            repo: bundle?.pr.repo ?? null,
+          });
+        }
+      }
+      catch (reason) {
+        if (!cancelled) setReviewTargetError(message(reason));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [reviewRoundId, reviewWorkspaceId]);
 
   if (loading) {
     return <section className="wu-page"><div className="wu-body-message">Loading session…</div></section>;
@@ -316,6 +369,12 @@ function SessionDetail({
     ? 0
     : Math.min(100, (session.costUsdMilli / session.budget) * 100);
   const taskNumber = session.taskNumber ?? taskNumberFromId(session.taskId);
+  const openReview = (target: ReviewSessionTarget) => onOpenReview?.({
+    workspaceId: target.workspaceId,
+    prId: target.prId,
+    prNumber: target.prNumber,
+    roundId: target.roundId,
+  });
 
   return (
     <section className="wu-page wu-session-live-detail">
@@ -342,39 +401,70 @@ function SessionDetail({
           {' · '}{compactTokens(session.tokensIn + session.tokensOut)} · {elapsed(session)}
         </span>
         <span className="wu-session-live-spacer" />
-        {session.status === 'running' && (
+        {!session.durableReview && session.status === 'running' && (
           <button type="button" className="wu-session-control"
             disabled={acting} onClick={() => { void act('pause'); }}>Pause</button>
         )}
-        {session.status === 'paused' && (
+        {!session.durableReview && session.status === 'paused' && (
           <button type="button" className="wu-session-control"
             disabled={acting} onClick={() => { void act('resume'); }}>Resume</button>
         )}
-        {(session.status === 'done' || session.status === 'errored') && (
+        {!session.durableReview && (session.status === 'done' || session.status === 'errored') && (
           <button type="button" className="wu-session-control"
             disabled={acting} onClick={() => { void act('restart'); }}>Restart</button>
         )}
-        {(session.status === 'running' || session.status === 'paused' || session.status === 'queued') && (
+        {!session.durableReview
+          && (session.status === 'running' || session.status === 'paused' || session.status === 'queued') && (
           <button type="button" className="wu-session-control danger"
             disabled={acting} onClick={() => { void act('stop'); }}>Stop</button>
         )}
-        <button type="button" className="wu-session-open-trunk" onClick={onOpenThread}>
-          <TrunkIcon />
-          Open thread
-        </button>
+        {session.durableReview ? (
+          <button type="button" className="wu-session-open-trunk"
+            disabled={reviewTarget === null || onOpenReview === undefined}
+            onClick={() => { if (reviewTarget !== null) openReview(reviewTarget); }}>
+            Open pull request
+          </button>
+        ) : (
+          <button type="button" className="wu-session-open-trunk"
+            disabled={session.trunkId === null} onClick={onOpenThread}>
+            <TrunkIcon />
+            Open thread
+          </button>
+        )}
       </header>
       <div className="wu-session-context">
-        <span>
-          Belongs to <a href={`#/workspace/${encodeURIComponent(session.workspaceId)}/trunks/${
-            encodeURIComponent(session.trunkId)
-          }`} onClick={(event) => {
-            event.preventDefault();
-            onOpenThread();
-          }}>
-            {session.trunkTitle ?? 'owning thread'}
-          </a>
-          {taskNumber !== null && <> · task #{taskNumber}</>}
-        </span>
+        {session.durableReview ? (
+          <span>
+            Reviews {reviewTarget === null ? (
+              reviewTargetError === null ? 'pull request…' : 'an unavailable pull request'
+            ) : (
+              <a href={reviewTargetHref(reviewTarget)} onClick={(event) => {
+                if (onOpenReview !== undefined) {
+                  event.preventDefault();
+                  openReview(reviewTarget);
+                }
+              }}>
+                {reviewTarget.repo === null ? reviewTarget.title : reviewTarget.repo}
+                {reviewTarget.prNumber === null ? '' : `#${reviewTarget.prNumber}`}
+              </a>
+            )}
+            {reviewTargetError !== null && <small> · {reviewTargetError}</small>}
+          </span>
+        ) : (
+          <span>
+            {session.trunkId === null ? 'No owning thread' : (
+              <>Belongs to <a href={`#/workspace/${encodeURIComponent(session.workspaceId)}/trunks/${
+                encodeURIComponent(session.trunkId)
+              }`} onClick={(event) => {
+                event.preventDefault();
+                onOpenThread();
+              }}>
+                {session.trunkTitle ?? 'owning thread'}
+              </a></>
+            )}
+            {taskNumber !== null && <> · task #{taskNumber}</>}
+          </span>
+        )}
         {session.branch !== undefined && (
           <span className="wu-session-branch">{session.branch}</span>
         )}
@@ -464,6 +554,12 @@ function SessionTimelineDetail({ text }: { text: string }) {
       <b className="removed">{changes[2]}</b>{changes[3]}
     </span>
   );
+}
+
+function reviewTargetHref(target: WorkspaceReviewSessionTarget): string {
+  return `#/workspace/${encodeURIComponent(target.workspaceId)}/prs${
+    target.prNumber === null ? '' : `/${target.prNumber}`
+  }?prId=${encodeURIComponent(target.prId)}&agent=1`;
 }
 
 function derivedTimeline(session: WorkspaceSessionDto): NonNullable<WorkspaceSessionDto['timeline']> {

@@ -25,6 +25,8 @@ public record SessionDto(
         String trunkId,
         String taskId,
         String stageId,
+        String reviewRoundId,
+        boolean durableReview,
         String kind,
         String status,
         String provider,
@@ -44,13 +46,28 @@ public record SessionDto(
 {
     public static SessionDto from(AgentRun run, Instant now)
     {
+        return from(run.id(), run, now);
+    }
+
+    /** A durable PR review Session keeps the AgentReview id while its
+     * underlying round/remote runs may be replaced. */
+    public static SessionDto from(String sessionId, AgentRun run, Instant now)
+    {
+        return from(sessionId, run, now, false);
+    }
+
+    public static SessionDto from(
+            String sessionId, AgentRun run, Instant now, boolean durableReview)
+    {
         Instant end = run.finishedAt() == null ? now : run.finishedAt();
         return new SessionDto(
-                run.id(),
+                sessionId,
                 run.workspaceId(),
                 run.threadId(),
                 run.taskId(),
                 run.stageId(),
+                run.reviewRoundId(),
+                durableReview,
                 publicKind(run.kind()),
                 publicStatus(run.status()),
                 run.provider(),
@@ -75,9 +92,10 @@ public record SessionDto(
             return false;
         }
         // Detached remote-review jobs remain compatibility work, not
-        // workspace Sessions. Once adopted, later rounds carry both owners.
+        // workspace Sessions. PR-owned full reviews need a watched workspace,
+        // but intentionally have no synthetic thread.
         return !AgentRun.KIND_PANEL_REVIEW.equals(run.kind())
-                || (run.workspaceId() != null && run.threadId() != null);
+                || run.workspaceId() != null;
     }
 
     private static String publicKind(String kind)

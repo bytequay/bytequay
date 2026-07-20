@@ -1235,6 +1235,9 @@ export type WorkModelDto = {
    *  account for this provider. Ignored on CLI kinds (the agent
    *  manages its own auth). */
   account: string | null;
+  /** CLI-only reasoning level. Null/absent uses that model's CLI-reported
+   *  default. */
+  reasoningEffort?: string | null;
 };
 
 /** Lifecycle state of the local ds4 inference subprocess. Mirrors
@@ -1378,6 +1381,14 @@ export type WorkModelEntryDto = {
   id: string;
   displayName: string;
   isDefault: boolean;
+  description?: string | null;
+  defaultReasoningEffort?: string | null;
+  supportedReasoningEfforts?: WorkModelReasoningEffortDto[];
+};
+
+export type WorkModelReasoningEffortDto = {
+  id: string;
+  description?: string | null;
 };
 
 export type WorkModelAccountDto = {

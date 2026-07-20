@@ -91,8 +91,6 @@ import static java.util.Objects.requireNonNull;
 public class ThreadRegistry
 {
     private static final Logger log = LoggerFactory.getLogger(ThreadRegistry.class);
-    private static final String PLANNING_REASONING_EFFORT = "high";
-
     private final ThreadStore store;
     private final TaskStore taskStore;
     private final StageStore stageStore;
@@ -493,6 +491,24 @@ public class ThreadRegistry
         trunkSessions.remove(threadId);
     }
 
+    /** Apply a picker change to the next trunk turn without interrupting an
+     *  in-flight subprocess. Switching CLI families drops the cached wrapper
+     *  so the next turn rebuilds it with the matching provider adapter. */
+    public void updateTrunkWorkModel(String threadId, WorkModel workModel)
+    {
+        ThreadAgent current = trunkSessions.get(threadId);
+        if (current == null || workModel == null || workModel.kind() != WorkModelKind.CLI) {
+            return;
+        }
+        boolean currentCodex = current instanceof CodexCliThreadAgent;
+        boolean nextCodex = "codex".equals(workModel.agentOrProvider());
+        if (currentCodex != nextCodex) {
+            trunkSessions.remove(threadId, current);
+            return;
+        }
+        current.updateWorkModel(workModel);
+    }
+
     /**
      * Build the session if it isn't already in the map, otherwise
      * return the existing one. The {@link Thread} argument seeds the
@@ -711,17 +727,17 @@ public class ThreadRegistry
         // stage-open-time decision, not re-evaluated per turn.
         WorkModel resolved = resolveWorkModelForStage(thread, boundTask, stageId);
         ThreadAgent agent = switch (thread.kind()) {
-            case CLI_AGENT -> isCodex(thread)
+            case CLI_AGENT -> isCodex(thread, resolved)
                     ? new CodexCliThreadAgent(
                             thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                             workspaceMemorySupplier(thread, stageAudience(thread, stageId)),
                             resolveTaskRoleSkill(boundTask),
-                            boundTask, cliModelOverride(resolved))
+                            boundTask, cliModelOverride(resolved), cliReasoningEffort(resolved))
                     : new ClaudeCodeCliThreadAgent(
                             thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                             workspaceMemorySupplier(thread, stageAudience(thread, stageId)), skillMaterializer,
                             resolveTaskRoleSkill(boundTask),
-                            boundTask, cliModelOverride(resolved));
+                            boundTask, cliModelOverride(resolved), cliReasoningEffort(resolved));
             case LOGIC_LOOP -> {
                 String workingDir = boundTask != null
                         ? boundTask.workingDir()
@@ -762,7 +778,18 @@ public class ThreadRegistry
      *  wrong, so this falls back to null (the CLI's own default) instead. */
     private static String cliModelOverride(WorkModel resolved)
     {
-        return resolved.kind() == WorkModelKind.CLI ? resolved.model() : null;
+        if (resolved.kind() != WorkModelKind.CLI) {
+            return null;
+        }
+        // Empty is an intentional "let this CLI use its own default";
+        // null means no cascade override was supplied and constructors may
+        // fall back to the legacy model stored on the Thread row.
+        return resolved.model() == null ? "" : resolved.model();
+    }
+
+    private static String cliReasoningEffort(WorkModel resolved)
+    {
+        return resolved.kind() == WorkModelKind.CLI ? resolved.reasoningEffort() : null;
     }
 
     /** Resolves the effective work model for a stage's spawn: stage → task
@@ -784,24 +811,27 @@ public class ThreadRegistry
     {
         return switch (thread.kind()) {
             case CLI_AGENT -> {
+                WorkModel resolved = resolveWorkModel(thread.id());
                 // The resolver refreshes only when no planning snapshot is
                 // active; otherwise this is a cheap reuse of the same cwd/SHA.
                 String initialCwd = trunkCwdResolver.apply(thread);
-                AbstractCliThreadAgent agent = isCodex(thread)
+                AbstractCliThreadAgent agent = isCodex(thread, resolved)
                         ? new CodexCliThreadAgent(
                                 thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                                 workspaceMemorySupplier(thread, trunkAudience(thread)),
                                 roleRegistry == null ? null : roleRegistry.trunkTemplate(),
                                 initialCwd,
                                 CodexCliThreadAgent.TrunkMode.ENABLED,
-                                PLANNING_REASONING_EFFORT)
+                                cliModelOverride(resolved),
+                                cliReasoningEffort(resolved))
                         : new ClaudeCodeCliThreadAgent(
                                 thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                                 workspaceMemorySupplier(thread, trunkAudience(thread)), skillMaterializer,
                                 roleRegistry == null ? null : roleRegistry.trunkTemplate(),
                                 initialCwd,
                                 ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
-                                PLANNING_REASONING_EFFORT);
+                                cliModelOverride(resolved),
+                                cliReasoningEffort(resolved));
                 agent.setPreTurnHook(() -> {
                     String synced = trunkCwdResolver.apply(thread);
                     log.debug("trunk {} planning snapshot ready at {}", thread.id(), synced);
@@ -853,13 +883,14 @@ public class ThreadRegistry
                 case "codex" -> withManagedSkillBundle(new CodexCliThreadAgent(
                         thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                         workspaceMemorySupplier(thread, "plan"), brainSystemPrompt(thread), workingDir,
-                        CodexCliThreadAgent.TrunkMode.ENABLED, PLANNING_REASONING_EFFORT));
+                        CodexCliThreadAgent.TrunkMode.ENABLED,
+                        cliModelOverride(resolved), cliReasoningEffort(resolved)));
                 case "claude-code" -> withManagedSkillBundle(new ClaudeCodeCliThreadAgent(
                         thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                         workspaceMemorySupplier(thread, "plan"), skillMaterializer,
                         brainSystemPrompt(thread), workingDir,
                         ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
-                        PLANNING_REASONING_EFFORT));
+                        cliModelOverride(resolved), cliReasoningEffort(resolved)));
                 default -> throw new IllegalArgumentException(
                         "unsupported CLI brain agent: " + resolved.agentOrProvider());
             };
@@ -957,10 +988,21 @@ public class ThreadRegistry
         return "codex".equals(thread.provider());
     }
 
+    private static boolean isCodex(Thread thread, WorkModel resolved)
+    {
+        if (resolved.kind() == WorkModelKind.CLI) {
+            return "codex".equals(resolved.agentOrProvider());
+        }
+        return isCodex(thread);
+    }
+
     private WorkModel resolveWorkModel(String threadId)
     {
         if (workModelResolver != null) {
-            return workModelResolver.resolveForThread(threadId).choice();
+            WorkModelResolver.Resolved resolved = workModelResolver.resolveForThread(threadId);
+            if (resolved != null) {
+                return resolved.choice();
+            }
         }
         // Fallback for test paths where the resolver isn't wired.
         return new WorkModel(WorkModelKind.API, "anthropic", null, null);

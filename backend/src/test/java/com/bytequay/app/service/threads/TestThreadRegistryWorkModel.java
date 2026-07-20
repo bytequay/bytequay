@@ -152,16 +152,46 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
-    void codexTrunkStartsWithPlanningReasoningEffort()
+    void codexTrunkUsesTheResolvedModelAndReasoningEffort()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        WorkModel trunkPick = new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-5.6-sol", null, "max");
+        when(workModelResolver.resolveForThread(THREAD_ID))
+                .thenReturn(new WorkModelResolver.Resolved(trunkPick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.THREAD, THREAD_ID, THREAD_ID)));
         ThreadRegistry registry = newRegistry();
         Thread trunk = cliThread("codex", "gpt-5", /* sessionId */ null);
 
         CodexCliThreadAgent agent = (CodexCliThreadAgent) registry.getOrCreateTrunk(trunk);
 
         assertThat(agent.buildCommand("plan the next task").command())
-                .containsSubsequence("-c", "model_reasoning_effort=\"high\"");
+                .containsSubsequence("-c", "model_reasoning_effort=\"max\"")
+                .containsSubsequence("-m", "gpt-5.6-sol");
+    }
+
+    @Test
+    void cachedCodexTrunkUsesAPickerChangeOnItsNextTurn()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        WorkModel initial = new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-5.6-sol", null, "low");
+        when(workModelResolver.resolveForThread(THREAD_ID))
+                .thenReturn(new WorkModelResolver.Resolved(initial,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.THREAD, THREAD_ID, THREAD_ID)));
+        ThreadRegistry registry = newRegistry();
+        CodexCliThreadAgent agent = (CodexCliThreadAgent)
+                registry.getOrCreateTrunk(cliThread("codex", "gpt-5", null));
+
+        registry.updateTrunkWorkModel(THREAD_ID, new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-5.6-luna", null, "xhigh"));
+
+        assertThat(agent.buildCommand("continue").command())
+                .containsSubsequence("-c", "model_reasoning_effort=\"xhigh\"")
+                .containsSubsequence("-m", "gpt-5.6-luna")
+                .doesNotContain("gpt-5.6-sol");
     }
 
     @Test
@@ -200,7 +230,8 @@ class TestThreadRegistryWorkModel
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(TASK_ID)));
-        WorkModel brainPick = new WorkModel(WorkModelKind.CLI, "claude-code", "claude-sonnet-4-6", null);
+        WorkModel brainPick = new WorkModel(
+                WorkModelKind.CLI, "claude-code", "claude-sonnet-4-6", null, "high");
         when(workModelResolver.resolveForThread("brain-1"))
                 .thenReturn(new WorkModelResolver.Resolved(brainPick,
                         new WorkModelResolver.Provenance(
@@ -219,7 +250,8 @@ class TestThreadRegistryWorkModel
         UUID stageId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         when(stageStore.findStageById(stageId))
                 .thenReturn(Optional.of(stage(stageId, StageType.DEVELOPMENT_STAGE)));
-        WorkModel stagePick = new WorkModel(WorkModelKind.CLI, "codex", "gpt-5", null);
+        WorkModel stagePick = new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-5.6-luna", null, "high");
         when(workModelResolver.resolveForStage(THREAD_ID, TASK_ID, stageId.toString()))
                 .thenReturn(new WorkModelResolver.Resolved(stagePick,
                         new WorkModelResolver.Provenance(
@@ -229,7 +261,11 @@ class TestThreadRegistryWorkModel
         CodexCliThreadAgent agent = (CodexCliThreadAgent)
                 registry.getOrCreate(cliThread("codex", "gpt-5", null), taskWithRole(), stageId.toString());
 
-        assertThat(lastArg(agent.buildCommand("implement this").command()))
+        List<String> command = agent.buildCommand("implement this").command();
+        assertThat(command)
+                .containsSubsequence("-c", "model_reasoning_effort=\"high\"")
+                .containsSubsequence("-m", "gpt-5.6-luna");
+        assertThat(lastArg(command))
                 .contains("TASK ROLE")
                 .doesNotContain("Ponytail");
     }
@@ -265,11 +301,12 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
-    void claudeBrainStartsWithPlanningReasoningEffort()
+    void claudeBrainUsesTheResolvedReasoningEffort()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(TASK_ID)));
-        WorkModel brainPick = new WorkModel(WorkModelKind.CLI, "claude-code", "claude-sonnet-4-6", null);
+        WorkModel brainPick = new WorkModel(
+                WorkModelKind.CLI, "claude-code", "claude-sonnet-4-6", null, "high");
         when(workModelResolver.resolveForThread("brain-1"))
                 .thenReturn(new WorkModelResolver.Resolved(brainPick,
                         new WorkModelResolver.Provenance(WorkModelResolver.Source.THREAD, "brain-1", "brain-1")));
@@ -287,7 +324,8 @@ class TestThreadRegistryWorkModel
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(TASK_ID)));
-        WorkModel brainPick = new WorkModel(WorkModelKind.CLI, "codex", null, null);
+        WorkModel brainPick = new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-5.6-sol", null, "xhigh");
         when(workModelResolver.resolveForThread("brain-codex"))
                 .thenReturn(new WorkModelResolver.Resolved(brainPick,
                         new WorkModelResolver.Provenance(
@@ -300,8 +338,9 @@ class TestThreadRegistryWorkModel
         assertThat(agent.buildCommand("review this iteration").command())
                 .startsWith("codex")
                 .containsSubsequence("-c", "sandbox_mode=\"read-only\"")
-                .containsSubsequence("-c", "model_reasoning_effort=\"high\"")
-                .doesNotContain("-m", "claude-haiku-4-5-20251001");
+                .containsSubsequence("-c", "model_reasoning_effort=\"xhigh\"")
+                .containsSubsequence("-m", "gpt-5.6-sol")
+                .doesNotContain("claude-haiku-4-5-20251001");
     }
 
     private ThreadRegistry newRegistry()

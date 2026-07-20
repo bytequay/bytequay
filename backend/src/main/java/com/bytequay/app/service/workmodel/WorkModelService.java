@@ -38,17 +38,18 @@ import static java.util.Objects.requireNonNull;
  *
  * <ul>
  *   <li>{@link WorkModelCatalog} — the curated lists of CLI agents
- *       and API providers, plus their baseline models. Source of
- *       friendly names, ordering, and default-model markers.</li>
+ *       and API providers, plus fallback models.</li>
+ *   <li>{@link CodexModelCatalogProbe} — Codex's live picker-visible
+ *       models, descriptions, defaults, and reasoning efforts.</li>
  *   <li>{@link CredentialService} — stored API keys, which gate
  *       whether a provider appears at all (no DeepSeek key, no
  *       DeepSeek row) and supply the named account list (★ default
  *       + alternates).</li>
  * </ul>
  *
- * <p>CLI agents are probed with a non-interactive {@code --version}
- * command only. Avoid richer auth/doctor probes: some CLIs drop into
- * interactive flows that can wedge startup.
+ * <p>CLI installation is checked with {@code --version}. Codex discovery
+ * then uses its JSONL app-server protocol; interactive slash commands are
+ * intentionally never scraped.
  */
 @Service
 public class WorkModelService

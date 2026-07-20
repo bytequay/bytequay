@@ -15,6 +15,8 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.agents.AgentContextCompiler;
@@ -61,7 +63,7 @@ public class CodexCliThreadAgent
     private final Supplier<String> workspaceMemoryProvider;
     private final String roleSkillText;
     /** Optional Codex reasoning-effort override for planning-heavy sessions. */
-    private final String reasoningEffort;
+    private volatile String reasoningEffort;
 
     public CodexCliThreadAgent(
             Thread thread,
@@ -103,8 +105,28 @@ public class CodexCliThreadAgent
             String modelOverride)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                workspaceMemoryProvider, roleSkillText, boundTask, modelOverride, null);
+    }
+
+    /** Stage-scoped constructor with model and provider-native effort. */
+    public CodexCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            CodexJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            String roleSkillText,
+            Task boundTask,
+            String modelOverride,
+            String reasoningEffort)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, (String) null,
-                boundTask, modelOverride, (String) null);
+                boundTask, modelOverride, reasoningEffort);
     }
 
     /** Trunk-mode constructor: no focused Task, cwd defaulting to {@code
@@ -145,8 +167,30 @@ public class CodexCliThreadAgent
             String reasoningEffort)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                workspaceMemoryProvider, roleSkillText, trunkCwd, trunkMode,
+                null, reasoningEffort);
+    }
+
+    /** Trunk-mode constructor with explicit model and effort overrides. */
+    public CodexCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            CodexJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            String roleSkillText,
+            String trunkCwd,
+            @SuppressWarnings("unused") TrunkMode trunkMode,
+            String modelOverride,
+            String reasoningEffort)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, roleSkillText, DEFAULT_BINARY, trunkCwd,
-                (Task) null, (String) null, reasoningEffort);
+                (Task) null, modelOverride, reasoningEffort);
     }
 
     /** Marker enum disambiguating the trailing-string constructor
@@ -194,6 +238,15 @@ public class CodexCliThreadAgent
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         this.roleSkillText = roleSkillText;
         this.reasoningEffort = reasoningEffort;
+    }
+
+    @Override
+    public void updateWorkModel(WorkModel workModel)
+    {
+        if (workModel != null && workModel.kind() == WorkModelKind.CLI) {
+            updateModel(workModel.model());
+            reasoningEffort = workModel.reasoningEffort();
+        }
     }
 
     @Override
@@ -273,8 +326,12 @@ public class CodexCliThreadAgent
             // flags again is rejected ("unexpected argument '--sandbox'").
             argv.add("resume")
                     .add("--json")
-                    .add("--skip-git-repo-check")
-                    .add(resume)
+                    .add("--skip-git-repo-check");
+            String model = model();
+            if (model != null && !model.isBlank()) {
+                argv.add("-m", model);
+            }
+            argv.add(resume)
                     .add(composePrompt(userInput));
         }
 

@@ -419,6 +419,13 @@ public class ThreadService
         return store.findThreadById(threadId).orElse(next);
     }
 
+    /** Make a persisted thread-scope picker change visible to its next trunk
+     *  subprocess turn. Running turns keep the command they already spawned. */
+    public void updateTrunkWorkModel(String threadId, WorkModel resolved)
+    {
+        registry.updateTrunkWorkModel(threadId, resolved);
+    }
+
     /**
      * Create a 0-Task thread. The thread lands on the trunk
      * (planning) — no branch, no worktree, no Task row. If the caller

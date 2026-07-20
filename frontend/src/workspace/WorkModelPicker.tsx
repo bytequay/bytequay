@@ -64,12 +64,13 @@ export function WorkModelPicker({ value, onChange }: Props) {
     finally { setRefreshing(false); }
   };
 
-  const selectCli = (agentId: string, modelId: string | null) => {
+  const selectCli = (agentId: string, modelId: string | null, reasoningEffort: string | null) => {
     onChange({
       kind: 'CLI',
       agentOrProvider: agentId,
       model: modelId,
       account: null,
+      reasoningEffort,
     });
   };
 
@@ -116,8 +117,10 @@ export function WorkModelPicker({ value, onChange }: Props) {
               expanded={expandedId === cliKey(agent.id)}
               selected={value !== null && value.kind === 'CLI' && value.agentOrProvider === agent.id}
               activeModel={value !== null && value.kind === 'CLI' && value.agentOrProvider === agent.id ? value.model : null}
+              activeEffort={value !== null && value.kind === 'CLI' && value.agentOrProvider === agent.id
+                ? value.reasoningEffort ?? null : null}
               onToggle={() => setExpandedId(prev => prev === cliKey(agent.id) ? null : cliKey(agent.id))}
-              onPick={(modelId) => selectCli(agent.id, modelId)}
+              onPick={(modelId, effort) => selectCli(agent.id, modelId, effort)}
             />
           ))}
           {options.apiProviders.map(provider => (
@@ -185,7 +188,8 @@ function labelForChoice(value: WorkModelDto, options: WorkModelOptionsDto | null
     const modelId = value.model ?? agent.defaultModel;
     const model = agent.models.find(m => m.id === modelId);
     const modelLabel = model !== undefined ? model.displayName : modelId;
-    return `${agent.displayName} · ${modelLabel} · CLI`;
+    const effort = value.reasoningEffort ?? model?.defaultReasoningEffort;
+    return `${agent.displayName} · ${modelLabel} · CLI${effort === null || effort === undefined ? '' : ` · ${effort}`}`;
   }
   const provider = options.apiProviders.find(p => p.id === value.agentOrProvider);
   if (provider === undefined) return fallback;
@@ -197,14 +201,15 @@ function labelForChoice(value: WorkModelDto, options: WorkModelOptionsDto | null
 }
 
 function CliRow({
-  agent, expanded, selected, activeModel, onToggle, onPick,
+  agent, expanded, selected, activeModel, activeEffort, onToggle, onPick,
 }: {
   agent: WorkModelAgentOptionDto;
   expanded: boolean;
   selected: boolean;
   activeModel: string | null;
+  activeEffort: string | null;
   onToggle: () => void;
-  onPick: (modelId: string | null) => void;
+  onPick: (modelId: string | null, reasoningEffort: string | null) => void;
 }) {
   const readinessChip = agent.installed && agent.authed
     ? <span style={chipOkStyle}>✓ installed &amp; authed</span>
@@ -216,6 +221,8 @@ function CliRow({
   // they typed instead of it appearing unselected.
   const activeIsCustom = activeModel !== null
       && !agent.models.some(m => m.id === activeModel);
+  const selectedModel = agent.models.find(m => m.id === (activeModel ?? agent.defaultModel));
+  const efforts = selectedModel?.supportedReasoningEfforts ?? [];
   return (
     <div style={rowStyle(selected)}>
       <button type="button" onClick={onToggle} style={rowHeadStyle}>
@@ -230,12 +237,12 @@ function CliRow({
             <button
               key={m.id}
               type="button"
-              onClick={() => onPick(m.isDefault ? null : m.id)}
+              onClick={() => onPick(m.id, null)}
               style={modelBtnStyle(
                 (activeModel === null && m.isDefault) || activeModel === m.id,
               )}
               disabled={!agent.installed}
-              title={!agent.installed ? 'Install the CLI to pick a model' : undefined}
+              title={!agent.installed ? 'Install the CLI to pick a model' : m.description ?? undefined}
             >
               <span>{m.displayName}</span>
               {m.isDefault && <span style={defaultTagStyle}>Default</span>}
@@ -245,8 +252,24 @@ function CliRow({
             disabled={!agent.installed}
             active={activeIsCustom}
             value={activeIsCustom && activeModel !== null ? activeModel : ''}
-            onCommit={(value) => onPick(value)}
+            onCommit={(value) => onPick(value, null)}
           />
+          {selected && efforts.length > 0 && (
+            <label style={effortRowStyle}>
+              <span style={mutedStyle}>Reasoning effort:</span>
+              <select
+                value={activeEffort ?? selectedModel?.defaultReasoningEffort ?? ''}
+                onChange={(event) => onPick(activeModel, event.target.value)}
+                style={effortSelectStyle}
+              >
+                {efforts.map(effort => (
+                  <option key={effort.id} value={effort.id} title={effort.description ?? undefined}>
+                    {effort.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       )}
     </div>
@@ -284,8 +307,9 @@ function ApiRow({
               <button
                 key={m.id}
                 type="button"
-                onClick={() => onPick(m.isDefault ? null : m.id, activeAccount)}
+                onClick={() => onPick(m.id, activeAccount)}
                 style={modelBtnStyle(isActive)}
+                title={m.description ?? undefined}
               >
                 <span>{m.displayName}</span>
                 {m.isDefault && <span style={defaultTagStyle}>Default</span>}
@@ -568,6 +592,23 @@ const accountsRowStyle: React.CSSProperties = {
   padding: '6px 12px',
   flexWrap: 'wrap',
   fontSize: 11,
+};
+
+const effortRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '6px 12px',
+};
+
+const effortSelectStyle: React.CSSProperties = {
+  padding: '3px 8px',
+  fontSize: 11,
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  background: '#fff',
+  color: 'var(--text-2)',
+  fontFamily: 'inherit',
 };
 
 function accountBtnStyle(active: boolean): React.CSSProperties {

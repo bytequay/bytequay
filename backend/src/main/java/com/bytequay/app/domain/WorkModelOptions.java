@@ -33,7 +33,7 @@ public record WorkModelOptions(
             boolean installed,
             /** Agent reports an active auth session (best-effort probe). */
             boolean authed,
-            /** Catalog default model id for this agent, never null. */
+            /** CLI-reported or fallback default model id, never null. */
             String defaultModel,
             List<WorkModelEntry> models) {}
 

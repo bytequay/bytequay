@@ -25,9 +25,6 @@ import static java.util.Objects.requireNonNull;
 /**
  * Read endpoint for the work-model option tree the picker walks.
  *
- * <p>Phase 1 — turn execution still routes via the legacy active-
- * provider registry. The cascade resolver + lane router land in Phase 2
- * and read from the same source this endpoint exposes.
  */
 @RestController
 @RequestMapping("/api")
@@ -54,8 +51,8 @@ public class WorkModelController
     /**
      * POST /api/work-models/refresh — kept as an alias for the GET
      * endpoint so the picker's existing Refresh affordance keeps
-     * working. This re-reads credentials and re-probes local CLI
-     * binaries with non-interactive version checks.
+     * working. This re-reads credentials, re-probes local CLI binaries,
+     * and refreshes Codex's app-server model catalog.
      */
     @PostMapping("/work-models/refresh")
     public WorkModelOptions refresh()

@@ -15,6 +15,8 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.agents.AgentContextCompiler;
@@ -66,7 +68,7 @@ public class ClaudeCodeCliThreadAgent
      *  byte-stable across turns, which keeps the prompt cache warm. */
     private final String roleSkillText;
     /** Optional Claude Code effort level for planning-heavy sessions. */
-    private final String reasoningEffort;
+    private volatile String reasoningEffort;
     /** Lazily-written MCP config file Claude reads via {@code
      *  --mcp-config}. Same path for the lifetime of one session. */
     private final AtomicReference<Path> mcpConfigPath = new AtomicReference<>();
@@ -114,8 +116,30 @@ public class ClaudeCodeCliThreadAgent
             String modelOverride)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                workspaceMemoryProvider, skillMaterializer, roleSkillText,
+                boundTask, modelOverride, null);
+    }
+
+    /** Stage-scoped constructor with model and provider-native effort. */
+    public ClaudeCodeCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            StreamJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            SkillMaterializer skillMaterializer,
+            String roleSkillText,
+            Task boundTask,
+            String modelOverride,
+            String reasoningEffort)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
-                (String) null, boundTask, modelOverride, (String) null);
+                (String) null, boundTask, modelOverride, reasoningEffort);
     }
 
     /**
@@ -161,8 +185,31 @@ public class ClaudeCodeCliThreadAgent
             String reasoningEffort)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                workspaceMemoryProvider, skillMaterializer, roleSkillText,
+                trunkCwd, trunkMode, null, reasoningEffort);
+    }
+
+    /** Trunk / brain constructor with explicit model and effort overrides. */
+    public ClaudeCodeCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            StreamJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            SkillMaterializer skillMaterializer,
+            String roleSkillText,
+            String trunkCwd,
+            @SuppressWarnings("unused") TrunkMode trunkMode,
+            String modelOverride,
+            String reasoningEffort)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY,
-                trunkCwd, (Task) null, (String) null, reasoningEffort);
+                trunkCwd, (Task) null, modelOverride, reasoningEffort);
     }
 
     /** Marker enum disambiguating the two-argument trailing-string
@@ -212,6 +259,15 @@ public class ClaudeCodeCliThreadAgent
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         this.roleSkillText = roleSkillText;
         this.reasoningEffort = reasoningEffort;
+    }
+
+    @Override
+    public void updateWorkModel(WorkModel workModel)
+    {
+        if (workModel != null && workModel.kind() == WorkModelKind.CLI) {
+            updateModel(workModel.model());
+            reasoningEffort = workModel.reasoningEffort();
+        }
     }
 
     @Override

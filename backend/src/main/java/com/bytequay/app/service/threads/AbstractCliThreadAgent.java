@@ -415,6 +415,11 @@ public abstract class AbstractCliThreadAgent
         return model.get();
     }
 
+    protected final void updateModel(String nextModel)
+    {
+        model.set(nextModel == null ? "" : nextModel);
+    }
+
     @Override
     public final String workingDir()
     {

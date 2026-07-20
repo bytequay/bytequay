@@ -19,6 +19,7 @@ import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.service.threads.TaskCleanupEvent;
 import com.bytequay.app.service.threads.TaskCreatedEvent;
 import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import org.slf4j.Logger;
@@ -158,6 +159,10 @@ public class StageLifecycle
         if (target.get() == StageType.CLEANUP_STAGE) {
             stageStore.closeStage(opened.id(), "task_completed");
             log.debug("opened + closed CleanupStage {} for completed task {}", opened.id(), taskId);
+            // Fire for ALL completions; the AFTER_COMMIT listener decides
+            // (merged-only) what teardown a completion warrants and runs the
+            // git/GitHub I/O off this transaction. Keep this branch policy-free.
+            events.publishEvent(new TaskCleanupEvent(taskId));
             return;
         }
         // Seed a monitor stage's budget / review config at open time.

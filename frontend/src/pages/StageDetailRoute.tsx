@@ -201,9 +201,10 @@ export function StageDetailRoute({
     undefined);
   const [openChangesToken, setOpenChangesToken] = useState<number>();
   const openTab = useCallback((tab: 'pr', subTab?: 'checks' | 'changes') => {
+    refreshLocalPr();
     setOpenTabRequest(prev => ({ tab, token: (prev?.token ?? 0) + 1 }));
     if (subTab === 'changes') setOpenChangesToken(token => (token ?? 0) + 1);
-  }, []);
+  }, [refreshLocalPr]);
 
   // The ready-for-review callout's inline gate — same semantics as the
   // task page: approve ships the parked proposal exactly as drafted.
@@ -503,13 +504,15 @@ export function StageDetailRoute({
     </Conv>
   );
 
-  // Normal stage pages reuse the locked Pull Requests detail body. The local
-  // bundle is the source of truth; before it has a remote number there is no
-  // real PR page to embed, so the fixed column is omitted.
+  // Normal stage pages reuse the locked Pull Requests detail body. Prefer the
+  // local bundle's remote number, but fall back to the task linkage while that
+  // aggregate catches up after a background push.
   const pr = data?.pr ?? null;
   const taskCompleted = data?.task.currentPhase === 'COMPLETED';
   const displayedLocalPrBundle = agentReview.displayedBundle ?? localPrBundle;
-  const stageRemotePrNumber = displayedLocalPrBundle?.pr.remotePrNumber ?? null;
+  const stageRemotePrNumber = displayedLocalPrBundle?.pr.remotePrNumber
+    ?? data?.task.prNumber
+    ?? brain.task.prNumber;
   const stagePullRow = displayedLocalPrBundle !== null && displayedLocalPrBundle !== undefined
       && stageRemotePrNumber !== null
     ? ((): PullRow => {

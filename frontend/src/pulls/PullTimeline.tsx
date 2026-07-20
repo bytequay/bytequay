@@ -125,14 +125,19 @@ function CommentCard({ item, repoCtx, onReaction }: {
   );
 }
 
-function ReviewCard({ item, repoCtx, threads, prAuthor, prHtmlUrl }: {
+function ReviewCard({
+  item, repoCtx, threads, prAuthor, prHtmlUrl, onThreadReply, onThreadReact, onThreadSetResolved,
+}: {
   item: Extract<TimelineItem, { kind: 'review' }>;
   repoCtx: MarkdownRepoContext;
   threads: ReviewThreadDto[];
   prAuthor: string | null;
   prHtmlUrl: string;
+  onThreadReply?: (rootGithubId: number, body: string) => Promise<void>;
+  onThreadReact?: (commentGithubId: number, content: ReactionContent) => Promise<void>;
+  onThreadSetResolved?: (rootGithubId: number, resolved: boolean) => Promise<void>;
 }) {
-  return (
+  const reviewSummary = (
     <div style={cardStyle}>
       <div style={cardHeadStyle}>
         <Av login={item.author} size={24} square={item.bot} />
@@ -159,22 +164,36 @@ function ReviewCard({ item, repoCtx, threads, prAuthor, prHtmlUrl }: {
           dangerouslySetInnerHTML={{ __html: renderMarkdown(item.body, repoCtx) }}
         />
       )}
-      {threads.map(thread => (
-        <div key={thread.rootGithubId} style={{ padding: '0 16px 14px' }}>
+    </div>
+  );
+  if (threads.length === 0) return reviewSummary;
+  return (
+    <>
+      {(item.body !== null || item.verdict !== 'commented') && reviewSummary}
+      <div className="pl-review-thread-list">
+        {threads.map(thread => (
           <ReviewThreadCard
+            key={thread.rootGithubId}
             thread={thread}
             prAuthor={prAuthor}
             prHtmlUrl={prHtmlUrl}
             repoContext={repoCtx}
+            compact
+            onReply={onThreadReply === undefined
+              ? undefined
+              : body => onThreadReply(thread.rootGithubId, body)}
+            onReact={onThreadReact}
+            onSetResolved={onThreadSetResolved}
           />
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+    </>
   );
 }
 
 export default function PullTimeline({
   items, repo, prAuthor = null, prHtmlUrl = '', reviewThreadsByRemoteId, onCommentReaction,
+  onThreadReply, onThreadReact, onThreadSetResolved,
 }: {
   items: TimelineItem[];
   repo: string;
@@ -182,6 +201,9 @@ export default function PullTimeline({
   prHtmlUrl?: string;
   reviewThreadsByRemoteId?: ReadonlyMap<number, ReviewThreadDto[]>;
   onCommentReaction?: (commentId: number, content: ReactionContent) => Promise<void>;
+  onThreadReply?: (rootGithubId: number, body: string) => Promise<void>;
+  onThreadReact?: (commentGithubId: number, content: ReactionContent) => Promise<void>;
+  onThreadSetResolved?: (rootGithubId: number, resolved: boolean) => Promise<void>;
 }) {
   const [owner, name] = repo.split('/');
   const repoCtx: MarkdownRepoContext = { owner: owner ?? repo, repo: name ?? repo };
@@ -227,6 +249,9 @@ export default function PullTimeline({
                 threads={item.remoteId === null ? [] : reviewThreadsByRemoteId?.get(item.remoteId) ?? []}
                 prAuthor={prAuthor}
                 prHtmlUrl={prHtmlUrl}
+                onThreadReply={onThreadReply}
+                onThreadReact={onThreadReact}
+                onThreadSetResolved={onThreadSetResolved}
               />
             );
           case 'comment':

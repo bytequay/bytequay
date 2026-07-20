@@ -149,6 +149,13 @@
 .pl-hov-phead:hover { background: #eef1f4 !important; }
 .pl-hov-trash:hover { color: #cf222e !important; }
 .pl-hov-card:hover { border-color: #b6bcc2 !important; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.07) !important; }
+.pl-review-thread-list {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 26px;
+  margin: 18px 0;
+}
 .pl-pending-comment-body {
   margin-top: 8px;
   color: #1f2328;

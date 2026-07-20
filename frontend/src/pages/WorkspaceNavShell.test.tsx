@@ -160,6 +160,7 @@ describe('WorkspaceNavShell', () => {
     expect(await screen.findByText('Backend cleanup review')).toBeTruthy();
     expect(container.querySelector('.trunk-page-v2-nav__trunk > button.is-active')?.textContent)
       .toContain('Backend cleanup review');
+    expect(container.querySelectorAll('.trunk-page-v2-nav__directory .tree-folder')).toHaveLength(2);
     expect(container.querySelector('.trunk-page-v2-nav__trunk-icon svg')).toBeTruthy();
     fireEvent.click(screen.getByText('Fix Delta Lake timestamp'));
     expect(onOpenThread).toHaveBeenCalledWith('t2');

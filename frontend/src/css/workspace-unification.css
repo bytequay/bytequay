@@ -1215,6 +1215,15 @@
   font-weight: 400;
 }
 
+.workspace-redesign .shell .sb-nav-item.disabled,
+.workspace-redesign .shell .sb-nav-item.disabled:hover {
+  background: transparent;
+  color: var(--bq-text-4);
+  cursor: default;
+  opacity: 0.5;
+  font-weight: 400;
+}
+
 .workspace-redesign .ws-user-footer {
   display: flex;
   min-height: 45px;

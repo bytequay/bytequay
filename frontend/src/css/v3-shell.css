@@ -145,6 +145,14 @@
   color: var(--text-1);
   font-weight: 500;
 }
+.shell .sb-nav-item.disabled,
+.shell .sb-nav-item.disabled:hover {
+  background: transparent;
+  color: var(--text-4);
+  cursor: default;
+  opacity: 0.5;
+  font-weight: 400;
+}
 .shell .sb-nav-item .ic {
   font-size: 16px;
   color: var(--text-3);

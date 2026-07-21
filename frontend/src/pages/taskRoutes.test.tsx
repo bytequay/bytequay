@@ -51,6 +51,9 @@ describe('TaskBrainRoute', () => {
 
     // The locked shell + BRAIN badge render from the fixture.
     expect(document.querySelector('.shell')).toBeTruthy();
+    expect(document.querySelector('.shell.full-width')).toBeNull();
+    expect(document.querySelector('.workspace-task-sidebar-v2')).toBeTruthy();
+    expect(screen.getByText('STAGES')).toBeTruthy();
     expect(document.querySelector('.workspace-task-header__badge')?.textContent).toBe('BRAIN');
 
     fireEvent.click(screen.getByTitle('Usage'));
@@ -213,6 +216,9 @@ describe('StageDetailRoute', () => {
     render(<StageDetailRoute threadId="t1" taskId="task-1" stageId="stage-1" />);
 
     expect(document.querySelector('.shell')).toBeTruthy();
+    expect(document.querySelector('.shell.full-width')).toBeNull();
+    expect(document.querySelector('.workspace-task-sidebar-v2')).toBeTruthy();
+    expect(screen.getByText('STAGES')).toBeTruthy();
     expect(document.querySelector('.workspace-task-header__badge')?.textContent).toBe('DEV STAGE');
 
     const box = screen.getByRole('textbox');

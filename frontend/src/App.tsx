@@ -920,11 +920,45 @@ function App() {
     }
   })();
 
-  // Task-owned full-page surfaces render their own sidebar, so the global
-  // workspace rail steps aside for them. Cast to a plain string so this alias
-  // doesn't narrow `nav` inside the rail JSX.
-  const ownsTaskSidebar = (nav.view as string) === 'stage-detail'
-    || (nav.view as string) === 'task-brain';
+  // Task and stage pages keep their task-specific plan navigation. Their
+  // sidebar reuses the workspace chrome but replaces the trunk list with the
+  // selected task's live plan.
+  const ownsTaskSidebar = (nav.view as string) === 'task-brain'
+    || (nav.view as string) === 'stage-detail';
+
+  const navigateSidebar = (key: WsNavKey) => {
+    switch (key) {
+      case 'home': setNav({ view: 'home' }); break;
+      case 'workspaces':
+        setNav({ view: 'workspaces-landing' });
+        break;
+      case 'pulls': setNav({ view: 'pulls' }); break;
+      case 'automations': break;
+      case 'repos': setNav({ view: 'repos' }); break;
+      case 'email': setNav({ view: 'email' }); break;
+      case 'bug-report': setNav({ view: 'settings', section: 'help' }); break;
+      case 'notifications':
+        setNav(sidebarWorkspaceId === null
+          ? { view: 'notifications' }
+          : { view: 'workspace', section: 'notifications' });
+        break;
+      case 'settings':
+        setNav(sidebarWorkspaceId === null
+          ? { view: 'settings' }
+          : { view: 'workspace', section: 'settings', settingsSection: 'agents' });
+        break;
+      case 'today': setNav({ view: 'workspace', section: 'today' }); break;
+      case 'trunks': setNav({ view: 'workspace', section: 'trunks' }); break;
+      case 'pull-requests': setNav({ view: 'workspace', section: 'pull-requests' }); break;
+      case 'issues': setNav({ view: 'workspace', section: 'issues' }); break;
+      case 'backlog': setNav({ view: 'workspace', section: 'backlog' }); break;
+      case 'branches': setNav({ view: 'workspace', section: 'branches' }); break;
+      case 'commits': setNav({ view: 'workspace', section: 'commits' }); break;
+      case 'sessions': setNav({ view: 'workspace', section: 'sessions' }); break;
+      case 'memory': setNav({ view: 'workspace', section: 'memory' }); break;
+      case 'insights': setNav({ view: 'workspace', section: 'insights' }); break;
+    }
+  };
 
   const openAgentReview = (target: AgentReviewNavTarget) => {
     setActiveWorkspaceId(target.workspaceId);
@@ -976,43 +1010,7 @@ function App() {
           })}
           onOpenPr={(owner, repo, prNumber) =>
             setNav({ view: 'repo', owner, repo, prNumber, back: { view: 'home' } })}
-          onNavigate={key => {
-            switch (key) {
-              case 'home': setNav({ view: 'home' }); break;
-              case 'workspaces':
-                // Always the all-workspaces landing — jumping into the
-                // last-worked workspace on a second click read as
-                // unpredictable. The workspace itself is one click away
-                // on its landing card.
-                setNav({ view: 'workspaces-landing' });
-                break;
-              case 'pulls': setNav({ view: 'pulls' }); break;
-              case 'automations': break; // no Automations surface yet
-              case 'repos': setNav({ view: 'repos' }); break;
-              case 'email': setNav({ view: 'email' }); break;
-              case 'bug-report': setNav({ view: 'settings', section: 'help' }); break;
-              case 'notifications':
-                setNav(sidebarWorkspaceId === null
-                  ? { view: 'notifications' }
-                  : { view: 'workspace', section: 'notifications' });
-                break;
-              case 'settings':
-                setNav(sidebarWorkspaceId === null
-                  ? { view: 'settings' }
-                  : { view: 'workspace', section: 'settings', settingsSection: 'agents' });
-                break;
-              case 'today': setNav({ view: 'workspace', section: 'today' }); break;
-              case 'trunks': setNav({ view: 'workspace', section: 'trunks' }); break;
-              case 'pull-requests': setNav({ view: 'workspace', section: 'pull-requests' }); break;
-              case 'issues': setNav({ view: 'workspace', section: 'issues' }); break;
-              case 'backlog': setNav({ view: 'workspace', section: 'backlog' }); break;
-              case 'branches': setNav({ view: 'workspace', section: 'branches' }); break;
-              case 'commits': setNav({ view: 'workspace', section: 'commits' }); break;
-              case 'sessions': setNav({ view: 'workspace', section: 'sessions' }); break;
-              case 'memory': setNav({ view: 'workspace', section: 'memory' }); break;
-              case 'insights': setNav({ view: 'workspace', section: 'insights' }); break;
-            }
-          }}
+          onNavigate={navigateSidebar}
           onOpenThread={openThread}
           onOpenTask={(threadId, taskId) => setNav(lastTaskNav(threadId, taskId))}
           onSwitchWorkspace={openSidebarWorkspaceToday}
@@ -1145,14 +1143,8 @@ function App() {
             trunkLabel={selectedTrunkLabel}
             workspaceName={sidebarWorkspace?.name}
             workspaceRepository={taskWorkspaceRepository}
-            onNavigateGlobal={destination => setNav(destination === 'home'
-              ? { view: 'home' }
-              : { view: 'workspaces-landing' })}
+            onNavigateGlobal={navigateSidebar}
             onSwitchWorkspace={openSidebarWorkspaceToday}
-            onNotifications={() => setNav(sidebarWorkspaceId === null
-              ? { view: 'notifications' }
-              : { view: 'workspace', section: 'notifications' })}
-            notificationCount={unreadNotificationCount}
           />
         )}
         {nav.view === 'stage-detail' && (
@@ -1176,14 +1168,8 @@ function App() {
             trunkLabel={selectedTrunkLabel}
             workspaceName={sidebarWorkspace?.name}
             workspaceRepository={taskWorkspaceRepository}
-            onNavigateGlobal={destination => setNav(destination === 'home'
-              ? { view: 'home' }
-              : { view: 'workspaces-landing' })}
+            onNavigateGlobal={navigateSidebar}
             onSwitchWorkspace={openSidebarWorkspaceToday}
-            onNotifications={() => setNav(sidebarWorkspaceId === null
-              ? { view: 'notifications' }
-              : { view: 'workspace', section: 'notifications' })}
-            notificationCount={unreadNotificationCount}
           />
         )}
         {nav.view === 'notifications' && (

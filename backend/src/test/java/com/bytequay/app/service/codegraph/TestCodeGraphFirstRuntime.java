@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.codegraph;
 
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -127,6 +128,8 @@ class TestCodeGraphFirstRuntime
     {
         // Match the provider command shape shown by Codex. In particular,
         // verify that zsh's login startup keeps the managed shim first in PATH.
+        // Skip where zsh is absent (e.g. the Linux CI runner ships only bash).
+        Assumptions.assumeTrue(Files.isExecutable(Path.of("/bin/zsh")), "requires /bin/zsh");
         ProcessBuilder process = new ProcessBuilder("/bin/zsh", "-lc", command);
         process.directory(directory.toFile());
         return process;

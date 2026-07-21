@@ -233,7 +233,7 @@
 .workspace-task-stage__plan-row:hover { background: var(--left-nav-hover-bg); }
 .workspace-task-stage__plan-row:disabled { cursor: default; opacity: 1; }
 .workspace-task-stage__plan-row:disabled:hover { background: transparent; }
-.workspace-task-stage__plan-row > span:first-child { color: #2da44e; display: inline-flex; flex-shrink: 0; }
+.workspace-task-stage__plan-row > span:first-child { display: inline-flex; flex-shrink: 0; }
 .workspace-task-stage__plan-row > span:nth-child(2) {
   min-width: 0;
   overflow: hidden;

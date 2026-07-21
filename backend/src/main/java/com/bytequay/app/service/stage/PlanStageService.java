@@ -29,6 +29,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
@@ -82,6 +83,7 @@ public class PlanStageService
     private final ThreadTurnStore turnStore;
     private final ThreadTurnScheduler scheduler;
     private final PRService prService;
+    private final NotificationService notifications;
     private final ApplicationEventPublisher events;
     private final ObjectMapper mapper;
 
@@ -93,6 +95,7 @@ public class PlanStageService
             ThreadTurnStore turnStore,
             ThreadTurnScheduler scheduler,
             PRService prService,
+            NotificationService notifications,
             ApplicationEventPublisher events,
             ObjectMapper mapper)
     {
@@ -103,6 +106,7 @@ public class PlanStageService
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.prService = requireNonNull(prService, "prService is null");
+        this.notifications = requireNonNull(notifications, "notifications is null");
         this.events = requireNonNull(events, "events is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
@@ -130,6 +134,13 @@ public class PlanStageService
         String source = turn.initiator().source();
         if ("plan-kickoff".equals(source) || "plan-followup".equals(source)) {
             onPlanningTurnFinished(event, turn, source);
+        }
+        else if ("plan-approved".equals(source) || "automation-plan-approved".equals(source)) {
+            // The development kickoff turn (enqueued by enqueueDevKickoff, whose
+            // source is "plan-approved" for a manual approval or
+            // "automation-plan-approved" for the automation path). If it failed,
+            // surface the strand instead of leaving the stage running silently.
+            onDevTurnFinished(event);
         }
     }
 
@@ -171,6 +182,36 @@ public class PlanStageService
                 log.debug("nudged brain {} to record a plan for task {}", brain.id(), event.taskId());
             });
         }
+    }
+
+    /**
+     * Development kickoff turn ended. A <em>failed</em> kickoff turn is one
+     * cause of a stranded DevelopmentStage: without this it early-returned and
+     * the stage sat "running" forever with no turn and no error. Surface it as
+     * NEEDS_ATTENTION with the turn's error so the human sees it. A successful
+     * turn is intentionally a no-op — the task lifecycle no longer nudges the
+     * agent to ship; publishing is driven by the agent's own PR workflow.
+     */
+    private void onDevTurnFinished(TaskTurnFinishedEvent event)
+    {
+        if (!event.failed()) {
+            return;
+        }
+        Task task = taskStore.findTaskById(event.taskId()).orElse(null);
+        if (task == null || task.phase() != TaskPhase.IMPLEMENTING) {
+            return;
+        }
+        boolean devOpen = stageStore.findActiveStage(event.taskId())
+                .map(s -> s.type() == StageType.DEVELOPMENT_STAGE)
+                .orElse(false);
+        if (!devOpen) {
+            return;
+        }
+        String msg = turnStore.findTurnById(event.turnId())
+                .map(ThreadTurn::errorMessage)
+                .filter(m -> m != null && !m.isBlank())
+                .orElse("The development turn failed before proposing to publish.");
+        surfaceDevFailure(event.taskId(), msg, Actor.AGENT);
     }
 
     /**
@@ -461,6 +502,74 @@ public class PlanStageService
         }
         scheduler.enqueueTaskTurn(
                 dev, devKickoffPrompt(plan), task.id(), TurnInitiator.unattended(initiatorSource));
+    }
+
+    /**
+     * Re-enqueue the development kickoff for a task whose DevelopmentStage
+     * opened but never got its kickoff turn (stage-open and turn-enqueue are
+     * decoupled, so a lost enqueue strands the stage). Rebuilds the prompt from
+     * the approved plan on the now-closed PlanStage and reuses the normal
+     * {@link #enqueueDevKickoff} path. Returns {@code false} when the task or
+     * its approved plan can't be found (so the caller can escalate instead).
+     */
+    @Transactional
+    public boolean reenqueueDevKickoff(String taskId)
+    {
+        JsonNode plan = approvedPlan(taskId).orElse(null);
+        if (plan == null) {
+            return false;
+        }
+        enqueueDevKickoff(taskId, plan, "plan-approved");
+        log.debug("re-enqueued dev kickoff for stranded task {}", taskId);
+        return true;
+    }
+
+    /**
+     * Park a task at NEEDS_ATTENTION with a visible reason: transition the
+     * phase (illegal-edge-safe — a no-op if it already moved on), record a
+     * {@code DEV_FAILED} event on the open DevelopmentStage, stamp the reason
+     * onto the task's error message so {@code read_task} / the UI show an error
+     * state instead of a stage that looks perpetually "running", and notify.
+     * Shared by the failed-turn hook (Actor.AGENT) and the stranded-dev
+     * reconciler (Actor.SCHEDULER).
+     */
+    @Transactional
+    public void surfaceDevFailure(String taskId, String reason, Actor actor)
+    {
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        if (task == null || task.phase() != TaskPhase.IMPLEMENTING) {
+            return;
+        }
+        String plain = reason == null || reason.isBlank()
+                ? "Development failed before proposing to publish." : reason;
+        stageStore.findActiveStage(taskId)
+                .filter(s -> s.type() == StageType.DEVELOPMENT_STAGE)
+                .ifPresent(dev -> {
+                    Map<String, Object> payload = new LinkedHashMap<>();
+                    payload.put("error", plain);
+                    payload.put("failedAt", Instant.now().toString());
+                    stageStore.recordEvent(dev.id(), taskId, StageEventType.DEV_FAILED, payload);
+                });
+        taskStore.saveTask(task.withErrorMessage(plain));
+        phaseMachine.transition(taskId, TaskPhase.NEEDS_ATTENTION, "dev_failed", actor);
+        try {
+            notifications.notifyNeedsAttention(task.threadId(), taskId,
+                    "{\"reason\":" + mapper.writeValueAsString(plain) + ",\"cause\":\"dev_failed\"}");
+        }
+        catch (JsonProcessingException | RuntimeException e) {
+            log.warn("needs-attention notify for task {} failed: {}", taskId, e.getMessage());
+        }
+        log.debug("surfaced dev failure on task {}: {}", taskId, plain);
+    }
+
+    /** The approved plan for a task — the latest {@code PLAN_RECORDED} on its
+     *  (now-closed) PlanStage, or empty when none is found. */
+    private Optional<JsonNode> approvedPlan(String taskId)
+    {
+        return stageStore.findStagesByTask(taskId).stream()
+                .filter(s -> s.type() == StageType.PLAN_STAGE)
+                .reduce((first, second) -> second)
+                .flatMap(plan -> latestPlan(plan.id()));
     }
 
     private static String devKickoffPrompt(JsonNode plan)

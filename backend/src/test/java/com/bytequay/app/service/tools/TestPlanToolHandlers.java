@@ -116,6 +116,84 @@ class TestPlanToolHandlers
     }
 
     @Test
+    void recordPlanHoistsStepsFromTheFlatDottedKeyIntoIntentSteps()
+            throws Exception
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+
+        // The brain sometimes serialises the step list under a flat "intent.steps"
+        // key instead of nesting it under intent; readers look only at
+        // intent.steps and would otherwise render a 0-step plan.
+        ObjectNode node = mapper.createObjectNode();
+        node.put("status", "finalized");
+        node.set("intent", mapper.createObjectNode().put("summary", "do the thing"));
+        node.set("intent.steps", mapper.createArrayNode()
+                .add(mapper.createObjectNode().put("ordinal", 1).put("action", "edit Foo")));
+
+        tools.recordPlan(new RecordPlanArgs(taskId, node), CALL);
+
+        JsonNode payload = mapper.readTree(stageStore.findEventsByStage(plan.id()).stream()
+                .filter(e -> e.eventType() == StageEventType.PLAN_RECORDED)
+                .findFirst().orElseThrow().payloadJson());
+        JsonNode steps = payload.path("intent").path("steps");
+        assertThat(steps.isArray()).isTrue();
+        assertThat(steps.size()).isEqualTo(1);
+        assertThat(steps.get(0).path("action").asText()).isEqualTo("edit Foo");
+        assertThat(payload.has("intent.steps")).isFalse();
+    }
+
+    @Test
+    void recordPlanFinalizesACompletePlanThatOmitsStatus()
+            throws Exception
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+
+        // Model narrates completion but omits status: a complete plan (goal +
+        // steps) must still reach the approval gate.
+        ObjectNode node = mapper.createObjectNode();
+        node.put("goal", "wire the cancel route into the frontend");
+        node.set("intent", mapper.createObjectNode().set("steps", mapper.createArrayNode()
+                .add(mapper.createObjectNode().put("ordinal", 1).put("action", "edit Foo"))));
+
+        tools.recordPlan(new RecordPlanArgs(taskId, node), CALL);
+
+        assertThat(latestPlanPayload(plan.id()).path("status").asText()).isEqualTo("finalized");
+    }
+
+    @Test
+    void recordPlanLeavesAnExplicitStatusAndAnIncompleteStakeAlone()
+            throws Exception
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+
+        // Explicit non-final status is respected; a stake with no steps stays a
+        // draft even though status is blank.
+        ObjectNode suggested = mapper.createObjectNode();
+        suggested.put("status", "suggested");
+        suggested.put("goal", "still thinking");
+        suggested.set("intent", mapper.createObjectNode().set("steps", mapper.createArrayNode()
+                .add(mapper.createObjectNode().put("ordinal", 1).put("action", "edit Foo"))));
+        tools.recordPlan(new RecordPlanArgs(taskId, suggested), CALL);
+        assertThat(latestPlanPayload(plan.id()).path("status").asText()).isEqualTo("suggested");
+
+        ObjectNode stake = mapper.createObjectNode();
+        stake.put("goal", "early stake, no steps yet");
+        tools.recordPlan(new RecordPlanArgs(taskId, stake), CALL);
+        assertThat(latestPlanPayload(plan.id()).path("status").asText("")).isBlank();
+    }
+
+    private JsonNode latestPlanPayload(UUID stageId)
+            throws Exception
+    {
+        return mapper.readTree(stageStore.findEventsByStage(stageId).stream()
+                .filter(e -> e.eventType() == StageEventType.PLAN_RECORDED)
+                .reduce((first, second) -> second).orElseThrow().payloadJson());
+    }
+
+    @Test
     void recordingWithoutAnOpenPlanStageErrors()
     {
         String taskId = seedTask();

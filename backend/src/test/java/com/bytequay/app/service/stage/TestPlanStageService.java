@@ -42,6 +42,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -306,6 +307,31 @@ class TestPlanStageService
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
 
         verify(scheduler).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
+    }
+
+    @Test
+    void devKickoffRendersStringFormSteps()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        // Steps as plain strings, not {ordinal, action} objects — the plan card
+        // renders these, so the dev kickoff must too, not blank "0." lines.
+        Map<String, Object> intent = new LinkedHashMap<>();
+        intent.put("summary", "land it");
+        intent.put("steps", List.of("Add the migration and stores", "Wire the reader"));
+        intent.put("pushStrategy", "await_approval");
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_RECORDED, Map.of(
+                "id", "rev-1", "status", "finalized", "intent", intent,
+                "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small")));
+
+        planStageService.approveByStage(plan.id());
+
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(scheduler).enqueueTaskTurn(any(), prompt.capture(), any(), any());
+        assertThat(prompt.getValue())
+                .contains("1. Add the migration and stores")
+                .contains("2. Wire the reader")
+                .doesNotContain("0. ");
     }
 
     @Test

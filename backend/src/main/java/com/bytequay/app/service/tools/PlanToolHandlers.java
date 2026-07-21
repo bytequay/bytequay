@@ -133,7 +133,10 @@ public class PlanToolHandlers
                 .anyMatch(e -> e.eventType() == StageEventType.PLAN_RECORDED);
         String source = hasPrior ? "brain-revision" : "brain";
 
-        Map<String, Object> payload = toMutableMap(args.plan());
+        ObjectNode planNode = (ObjectNode) args.plan();
+        hoistMisplacedSteps(planNode);
+        finalizeIfComplete(planNode);
+        Map<String, Object> payload = toMutableMap(planNode);
         payload.put("id", UUID.randomUUID().toString());
         payload.put("plannedAt", Instant.now().toString());
         payload.put("source", source);
@@ -332,6 +335,49 @@ public class PlanToolHandlers
         }
         catch (JsonProcessingException e) {
             throw new IllegalStateException("failed to serialise plan tool payload", e);
+        }
+    }
+
+    // The approval pipeline — the approve endpoint, the plan self-review (R20),
+    // and the card's "awaiting" state — all key on status=="finalized", which is
+    // the model's to set. Some models narrate the plan as final ("Plan recorded
+    // and finalized") yet omit the field, wedging the plan in "draft" forever.
+    // Treat a structurally-complete plan (goal + steps) with no explicit status
+    // as finalized; an explicit status (e.g. "suggested") and an incomplete
+    // stake are both left as-is.
+    private void finalizeIfComplete(ObjectNode plan)
+    {
+        if (!plan.path("status").asText("").isBlank()) {
+            return;
+        }
+        boolean complete = !plan.path("goal").asText("").isBlank()
+                && plan.path("intent").path("steps").isArray()
+                && !plan.path("intent").path("steps").isEmpty();
+        if (complete) {
+            plan.put("status", "finalized");
+        }
+    }
+
+    // The brain sometimes serialises the step list under a flat dotted key
+    // "intent.steps", or at the top level as "steps", instead of nesting it
+    // under intent. Every reader looks at intent.steps, so 9 real steps render
+    // as a 0-step plan. Canonicalise once here, at the single write chokepoint,
+    // so the card, the dev-kickoff prompt, and the workspace monitors all find
+    // them without each needing its own fallback.
+    private void hoistMisplacedSteps(ObjectNode plan)
+    {
+        JsonNode intent = plan.path("intent");
+        if (intent.path("steps").isArray() && !intent.path("steps").isEmpty()) {
+            return;
+        }
+        for (String key : new String[] {"intent.steps", "steps"}) {
+            JsonNode misplaced = plan.path(key);
+            if (misplaced.isArray() && !misplaced.isEmpty()) {
+                ObjectNode intentObj = intent.isObject() ? (ObjectNode) intent : plan.putObject("intent");
+                intentObj.set("steps", misplaced);
+                plan.remove(key);
+                return;
+            }
         }
     }
 

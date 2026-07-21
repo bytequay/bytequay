@@ -511,11 +511,28 @@ public class PlanStageService
     private static String devKickoffPrompt(JsonNode plan)
     {
         StringBuilder steps = new StringBuilder();
+        // Mirror StageServiceImpl.buildPlanCard: steps arrive under intent.steps
+        // or top-level steps, as {ordinal, action, …} objects OR plain strings,
+        // with the text under any of a few keys. Read them the same robust way
+        // so the kickoff never renders blank "0." lines for steps the plan card
+        // showed fine.
         JsonNode stepNodes = plan.path("intent").path("steps");
+        if (!stepNodes.isArray() || stepNodes.isEmpty()) {
+            stepNodes = plan.path("steps");
+        }
         if (stepNodes.isArray()) {
+            int index = 0;
             for (JsonNode step : stepNodes) {
-                steps.append("\n").append(step.path("ordinal").asInt())
-                        .append(". ").append(step.path("action").asText(""));
+                index++;
+                String action = step.isTextual() ? step.asText("")
+                        : firstNonBlank(step.path("action").asText(""), step.path("step").asText(""),
+                                step.path("description").asText(""), step.path("text").asText(""),
+                                step.path("summary").asText(""));
+                if (action.isBlank()) {
+                    continue;
+                }
+                action = action.replaceFirst("^\\s*\\d+[.)]\\s+", "");
+                steps.append("\n").append(step.path("ordinal").asInt(index)).append(". ").append(action);
             }
         }
         String intent = plan.path("intent").path("summary").asText("");
@@ -543,6 +560,16 @@ public class PlanStageService
         catch (JsonProcessingException e) {
             return mapper.createObjectNode();
         }
+    }
+
+    private static String firstNonBlank(String... candidates)
+    {
+        for (String candidate : candidates) {
+            if (candidate != null && !candidate.isBlank()) {
+                return candidate;
+            }
+        }
+        return "";
     }
 
     private Map<String, Object> toMutableMap(String json)

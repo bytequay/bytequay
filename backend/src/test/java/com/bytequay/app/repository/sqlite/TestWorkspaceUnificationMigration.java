@@ -233,7 +233,7 @@ class TestWorkspaceUnificationMigration
                 SELECT json_extract(settings_json, '$.brainBudgetChars')
                 FROM workspace_settings WHERE workspace_id = 'ws-widget'
                 """)).isEqualTo("8000");
-        // V185 repairs the seed-complete milestone: it means an accepted
+        // V192 repairs the seed-complete milestone: it means an accepted
         // seed run, not merely a workspace with memory content. ws-widget has
         // no applied seed distill_run, so the milestone is reset to 0.
         assertThat(singleString(connection, """

@@ -26,7 +26,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Store-level tests against the real {@code V185} schema (full Flyway
+ * Store-level tests against the real {@code V192} schema (full Flyway
  * migration on a temp SQLite file). Covers durable-run creation and the
  * catalog's no-duplicate-rerun idempotency.
  */

@@ -63,8 +63,12 @@ public class PlanUsageService
     private static final Duration CLAUDE_CACHE_MAX_AGE = Duration.ofMinutes(15);
     private static final Pattern ANSI_ESCAPE = Pattern.compile(
             "\\u001B(?:\\[[0-?]*[ -/]*[@-~]|\\][^\\u0007]*(?:\\u0007|\\u001B\\\\)|[()][A-Z0-9]|[78])");
+    // No line-start anchor: the screen-reader TUI's cursor-move/erase escapes get
+    // stripped to nothing, which glues a heading onto the preceding chrome
+    // ("Esc to cancelCurrent session"), so a heading is not reliably at a line
+    // start. The heading strings are distinctive enough to match mid-line.
     private static final Pattern CLAUDE_LIMIT = Pattern.compile(
-            "(?m)^(Current session|Current week \\(([^)]+)\\))\\s*\\R+"
+            "(Current session|Current week \\(([^)]+)\\))\\s*\\R+"
                     + "(?:\\d+(?:\\.\\d+)?%\\s+)?(\\d+(?:\\.\\d+)?)% used\\s*\\R+"
                     + "Resets ([^\\r\\n]+)");
     private static final Pattern CLAUDE_PLAN = Pattern.compile(

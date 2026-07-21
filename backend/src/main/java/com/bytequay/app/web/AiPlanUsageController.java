@@ -14,9 +14,11 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.service.ai.PlanUsageService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import static java.util.Objects.requireNonNull;
 
@@ -40,6 +42,16 @@ public class AiPlanUsageController
     @PostMapping("/api/ai/plan-usage/claude/refresh")
     public PlanUsageService.PlanUsage refreshClaude()
     {
-        return service.refreshClaude();
+        try {
+            return service.refreshClaude();
+        }
+        catch (IllegalStateException e) {
+            // Scraping /usage out of the interactive CLI is best-effort — the TUI
+            // may not render in a spawned pty, its format may drift, or the user
+            // may be logged out. The panel auto-fires this on mount, so surface an
+            // upstream 503 (logged quietly) instead of a 500 that spams unhandled
+            // stack traces. The client already shows a "refresh failed" message.
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage(), e);
+        }
     }
 }

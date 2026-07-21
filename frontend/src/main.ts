@@ -4048,10 +4048,20 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       method,
       headers: request.body === undefined ? undefined : { 'Content-Type': 'application/json' },
       body: request.body === undefined ? undefined : JSON.stringify(request.body),
+      // Bound the wait so a slow/stuck backend endpoint fails fast and names
+      // itself, instead of hanging ~5 min on undici's default header timeout.
+      // 60s clears the slowest legit proxied call — the ~35s Claude CLI usage
+      // probe behind /api/ai/plan-usage/claude/refresh.
+      signal: AbortSignal.timeout(60_000),
+    }).catch((err: unknown) => {
+      const reason = err instanceof Error && err.name === 'TimeoutError'
+        ? 'timed out after 60s (backend slow or unresponsive)'
+        : err instanceof Error ? err.message : String(err);
+      throw new Error(`workspace request ${method} ${request.path} failed: ${reason}`);
     });
     if (!response.ok) {
       const detail = await response.text().catch(() => '');
-      throw new Error(`workspace request returned ${response.status}: ${detail}`);
+      throw new Error(`workspace request ${method} ${request.path} returned ${response.status}: ${detail}`);
     }
     if (response.status === 204) return null;
     return response.json();

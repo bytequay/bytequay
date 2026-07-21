@@ -107,6 +107,22 @@ public class WorkspaceConfigurationService
     public WorkspaceOnboardingDto onboarding(String workspaceId)
     {
         workspaces.require(workspaceId);
+        // Project-learning card state, derived from the durable run so the
+        // onboarding surface reflects "Learning merged history" progress
+        // without duplicating counts into workspace_onboarding.
+        String learningState = jdbc.query("""
+                SELECT state FROM repo_learning_run
+                WHERE workspace_id = ?
+                ORDER BY started_at_ms DESC LIMIT 1
+                """, (rs, ignored) -> rs.getString("state"), workspaceId)
+                .stream().findFirst().orElse(null);
+        int learningCataloged = count("""
+                SELECT count(*) FROM repo_pr_source WHERE workspace_id = ?
+                """, workspaceId);
+        int learningAnalyzed = count("""
+                SELECT count(*) FROM repo_pr_source
+                WHERE workspace_id = ? AND analysis_state = 'analyzed'
+                """, workspaceId);
         List<WorkspaceOnboardingDto> rows = jdbc.query("""
                 SELECT *
                 FROM workspace_onboarding
@@ -121,6 +137,9 @@ public class WorkspaceConfigurationService
                         rs.getBoolean("memory_seed_complete"),
                         rs.getBoolean("first_trunk_complete"),
                         rs.getBoolean("memory_imported"),
+                        learningState,
+                        learningCataloged,
+                        learningAnalyzed,
                         nullableLong(rs.getObject("dismissed_at_ms")),
                         rs.getLong("updated_at_ms")),
                 workspaceId);
@@ -242,5 +261,11 @@ public class WorkspaceConfigurationService
     private static Long nullableLong(Object value)
     {
         return value instanceof Number number ? number.longValue() : null;
+    }
+
+    private int count(String sql, String arg)
+    {
+        Integer n = jdbc.queryForObject(sql, Integer.class, arg);
+        return n == null ? 0 : n;
     }
 }

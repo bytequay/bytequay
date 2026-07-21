@@ -196,4 +196,56 @@ class TestConceptRegistry
                 .doesNotContain(".")
                 .doesNotContain("\n");
     }
+
+    @Test
+    void testTwoWorkspacesResolveSameTermIndependently()
+    {
+        registry.registerRuntime("ws-a", glossary("widget", "a small UI control"));
+        registry.registerRuntime("ws-b", glossary("widget", "a hardware gadget"));
+
+        assertThat(registry.byName("widget", "ws-a", null).orElseThrow().definition())
+                .isEqualTo("a small UI control");
+        assertThat(registry.byName("widget", "ws-b", null).orElseThrow().definition())
+                .isEqualTo("a hardware gadget");
+    }
+
+    @Test
+    void testClearingOneWorkspaceLeavesOtherIntact()
+    {
+        registry.registerRuntime("ws-a", glossary("widget", "a small UI control"));
+        registry.registerRuntime("ws-b", glossary("widget", "a hardware gadget"));
+
+        registry.clearScope(ConceptScope.WORKSPACE, "ws-a");
+
+        assertThat(registry.byName("widget", "ws-a", null))
+                .as("clearing ws-a drops only its entry")
+                .isEmpty();
+        assertThat(registry.byName("widget", "ws-b", null).orElseThrow().definition())
+                .isEqualTo("a hardware gadget");
+    }
+
+    @Test
+    void testReloadAfterRestartKeepsWorkspacesIndependent()
+            throws IOException
+    {
+        // A fresh registry models an application restart; replaying each
+        // workspace's glossary (as WorkspaceService#reloadAllGlossaries does)
+        // must restore independent resolution.
+        ConceptRegistry restarted = new ConceptRegistry();
+        restarted.scan();
+        restarted.registerRuntime("ws-a", glossary("widget", "a small UI control"));
+        restarted.registerRuntime("ws-b", glossary("widget", "a hardware gadget"));
+
+        assertThat(restarted.byName("widget", "ws-a", null).orElseThrow().definition())
+                .isEqualTo("a small UI control");
+        assertThat(restarted.byName("widget", "ws-b", null).orElseThrow().definition())
+                .isEqualTo("a hardware gadget");
+    }
+
+    private static ConceptSpec glossary(String name, String definition)
+    {
+        return new ConceptSpec(name, List.of(), ConceptKind.NOUN, definition,
+                List.of(), List.of(), List.of(), ConceptScope.WORKSPACE,
+                "workspace://test/memory.md#" + name);
+    }
 }

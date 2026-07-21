@@ -522,6 +522,15 @@ public class WorkspaceKnowledgeService
                     applied_at_ms = ?
                 WHERE id = ?
                 """, write(inverse), digest(workspaceId), now, runId);
+        if ("seed".equals(row.trigger())) {
+            // The seed-complete milestone means an accepted seed run, not
+            // merely a cloned workspace with content.
+            jdbc.update("""
+                    UPDATE workspace_onboarding
+                    SET memory_seed_complete = 1, updated_at_ms = ?
+                    WHERE workspace_id = ?
+                    """, now, workspaceId);
+        }
         return requireRun(workspaceId, runId);
     }
 

@@ -20,6 +20,7 @@ import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.RepoService;
+import com.bytequay.app.service.learning.ProjectLearningService;
 import com.bytequay.app.service.local.LocalRepoService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,6 +62,7 @@ public class WorkspaceCreationService
     private final WorkspaceService workspaces;
     private final WorkspaceConfigurationService configuration;
     private final WatchedRepoStore watchedRepos;
+    private final ProjectLearningService projectLearning;
     private final Set<String> activeJobs = ConcurrentHashMap.newKeySet();
 
     public WorkspaceCreationService(
@@ -69,7 +71,8 @@ public class WorkspaceCreationService
             RepoService repos,
             WorkspaceService workspaces,
             WorkspaceConfigurationService configuration,
-            WatchedRepoStore watchedRepos)
+            WatchedRepoStore watchedRepos,
+            ProjectLearningService projectLearning)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
         this.localRepos = requireNonNull(localRepos, "localRepos is null");
@@ -77,6 +80,7 @@ public class WorkspaceCreationService
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.configuration = requireNonNull(configuration, "configuration is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
+        this.projectLearning = requireNonNull(projectLearning, "projectLearning is null");
     }
 
     @Transactional
@@ -316,6 +320,12 @@ public class WorkspaceCreationService
             updateOnboardingReady(workspace.id());
             update(id, "ready", "Workspace ready", FIRST_SYNC_STEPS,
                     workspace.id(), local.localClonePath(), null);
+
+            // The workspace is usable now; historical project learning runs
+            // on its own durable, resumable background run and never blocks
+            // this ready transition.
+            projectLearning.enqueue(workspace.id(),
+                    operation.owner() + "/" + operation.repo(), "clone");
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();

@@ -32,11 +32,11 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -73,10 +73,17 @@ public class ConceptRegistry
      *  prefix and changing it is a coordinated rename anyway. */
     private static final String BASE_PACKAGE = "com.bytequay.app";
 
-    /** All registered specs, keyed by {@code name → scope → spec}.
-     *  Insertion-ordered inner map so the alternates list returned
-     *  by {@link #alternatesFor} is stable. */
-    private final Map<String, Map<ConceptScope, ConceptSpec>> byNameThenScope = new LinkedHashMap<>();
+    /** All registered specs, keyed by {@code name → (scope, scopeId) →
+     *  spec}. The {@code scopeId} is null for APP / USER (global) specs
+     *  and carries the workspace id (WORKSPACE) or repo full name (REPO)
+     *  so two workspaces holding the same glossary term resolve
+     *  independently. Insertion-ordered inner map so the alternates list
+     *  returned by {@link #alternatesFor} is stable. */
+    private final Map<String, Map<ScopeKey, ConceptSpec>> byNameThenScope = new LinkedHashMap<>();
+
+    /** Identity of a registered spec: its scope plus the owning
+     *  workspace/repo (null for the global APP/USER scopes). */
+    private record ScopeKey(ConceptScope scope, String scopeId) {}
 
     /** Cached sorted view of all (name, winning scope) specs, used
      *  by {@link #list(ConceptKind)}. Rebuilt on every mutation —
@@ -105,32 +112,61 @@ public class ConceptRegistry
     }
 
     /**
-     * Register a runtime-scoped concept (WORKSPACE / REPO / USER).
-     * Replaces any prior spec at the same scope for the same name;
-     * APP-scoped specs from the startup scan are never overwritten.
+     * Register a global runtime-scoped concept (USER, or an unkeyed
+     * WORKSPACE / REPO spec). Equivalent to {@link #registerRuntime(String,
+     * ConceptSpec)} with a null scopeId.
      */
     public synchronized void registerRuntime(ConceptSpec spec)
+    {
+        registerRuntime(null, spec);
+    }
+
+    /**
+     * Register a runtime-scoped concept owned by {@code scopeId} (the
+     * workspace id for WORKSPACE, the repo full name for REPO; null for the
+     * global USER scope). Replaces any prior spec at the same (scope,
+     * scopeId) for the same name; APP-scoped specs from the startup scan are
+     * never overwritten. Keying by scopeId is what lets one workspace's
+     * glossary update leave every other workspace's entries untouched.
+     */
+    public synchronized void registerRuntime(String scopeId, ConceptSpec spec)
     {
         if (spec.scope() == ConceptScope.APP) {
             throw new IllegalArgumentException(
                     "APP scope is reserved for code-anchored concepts: " + spec.name());
         }
         byNameThenScope
-                .computeIfAbsent(spec.name(), n -> new EnumMap<>(ConceptScope.class))
-                .put(spec.scope(), spec);
+                .computeIfAbsent(spec.name(), n -> new LinkedHashMap<>())
+                .put(new ScopeKey(spec.scope(), scopeId), spec);
         rebuildSorted();
     }
 
     /**
-     * Drop every spec at a given scope. Used by the glossary parser
-     * to clear a workspace's prior entries before re-loading.
+     * Drop every spec at a given scope, regardless of owner. Used to reset
+     * a whole scope (e.g. Saved Views reloading the USER scope wholesale).
      */
     public synchronized void clearScope(ConceptScope scope)
+    {
+        clearScope(scope, null, true);
+    }
+
+    /**
+     * Drop only the specs at {@code scope} owned by {@code scopeId} — one
+     * workspace's or repo's entries — leaving every other owner's intact.
+     */
+    public synchronized void clearScope(ConceptScope scope, String scopeId)
+    {
+        clearScope(scope, scopeId, false);
+    }
+
+    private synchronized void clearScope(ConceptScope scope, String scopeId, boolean allOwners)
     {
         if (scope == ConceptScope.APP) {
             throw new IllegalArgumentException("APP scope is not clearable");
         }
-        byNameThenScope.values().forEach(perScope -> perScope.remove(scope));
+        byNameThenScope.values().forEach(perKey -> perKey.keySet().removeIf(
+                key -> key.scope() == scope
+                        && (allOwners || Objects.equals(key.scopeId(), scopeId))));
         byNameThenScope.values().removeIf(Map::isEmpty);
         rebuildSorted();
     }
@@ -152,18 +188,28 @@ public class ConceptRegistry
     }
 
     /** Returns the most-specific spec for {@code name} (USER &gt;
-     *  WORKSPACE &gt; REPO &gt; APP), or {@link Optional#empty()}
-     *  if no spec is registered under any scope. */
+     *  WORKSPACE &gt; REPO &gt; APP) ignoring owner context, or
+     *  {@link Optional#empty()} if no spec is registered under any scope. */
     public Optional<ConceptSpec> byName(String name)
+    {
+        return byName(name, null, null);
+    }
+
+    /** Owner-aware resolution: WORKSPACE candidates count only when they
+     *  belong to {@code workspaceId} (or are unkeyed) and REPO candidates
+     *  only when they belong to {@code repoFullName}, so two workspaces
+     *  sharing a term resolve independently. Null context ids fall back to
+     *  the owner-agnostic winner. */
+    public Optional<ConceptSpec> byName(String name, String workspaceId, String repoFullName)
     {
         if (name == null || name.isEmpty()) {
             return Optional.empty();
         }
-        Map<ConceptScope, ConceptSpec> perScope = byNameThenScope.get(name);
-        if (perScope == null || perScope.isEmpty()) {
+        Map<ScopeKey, ConceptSpec> perKey = byNameThenScope.get(name);
+        if (perKey == null || perKey.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(pickWinner(perScope));
+        return Optional.ofNullable(pickWinner(perKey, workspaceId, repoFullName));
     }
 
     /** Full lookup view: the winning spec plus any alternates
@@ -173,15 +219,21 @@ public class ConceptRegistry
      *  auditable. */
     public Optional<Alternates> lookup(String name)
     {
+        return lookup(name, null, null);
+    }
+
+    /** Owner-aware {@link #lookup(String)}. */
+    public Optional<Alternates> lookup(String name, String workspaceId, String repoFullName)
+    {
         if (name == null || name.isEmpty()) {
             return Optional.empty();
         }
-        Map<ConceptScope, ConceptSpec> perScope = byNameThenScope.get(name);
-        if (perScope == null || perScope.isEmpty()) {
+        Map<ScopeKey, ConceptSpec> perKey = byNameThenScope.get(name);
+        if (perKey == null || perKey.isEmpty()) {
             return Optional.empty();
         }
-        ConceptSpec winner = pickWinner(perScope);
-        List<ConceptSpec> alternates = perScope.values().stream()
+        ConceptSpec winner = pickWinner(perKey, workspaceId, repoFullName);
+        List<ConceptSpec> alternates = perKey.values().stream()
                 .filter(s -> s != winner)
                 .sorted(Comparator.comparing(ConceptSpec::scope))
                 .toList();
@@ -194,12 +246,13 @@ public class ConceptRegistry
 
     // ── Internals ───────────────────────────────────────────────
 
-    private static ConceptSpec pickWinner(Map<ConceptScope, ConceptSpec> perScope)
+    private static ConceptSpec pickWinner(
+            Map<ScopeKey, ConceptSpec> perKey, String workspaceId, String repoFullName)
     {
         for (ConceptScope scope : new ConceptScope[] {
                 ConceptScope.USER, ConceptScope.WORKSPACE,
                 ConceptScope.REPO, ConceptScope.APP}) {
-            ConceptSpec candidate = perScope.get(scope);
+            ConceptSpec candidate = candidateAt(perKey, scope, workspaceId, repoFullName);
             if (candidate != null) {
                 return candidate;
             }
@@ -207,10 +260,41 @@ public class ConceptRegistry
         return null;
     }
 
+    /** Best spec at one scope for the given owner context: an owner match
+     *  when the context id is known, else the owner-agnostic entry. */
+    private static ConceptSpec candidateAt(
+            Map<ScopeKey, ConceptSpec> perKey, ConceptScope scope,
+            String workspaceId, String repoFullName)
+    {
+        String owner = switch (scope) {
+            case WORKSPACE -> workspaceId;
+            case REPO -> repoFullName;
+            default -> null;
+        };
+        ConceptSpec unkeyed = null;
+        for (Map.Entry<ScopeKey, ConceptSpec> entry : perKey.entrySet()) {
+            ScopeKey key = entry.getKey();
+            if (key.scope() != scope) {
+                continue;
+            }
+            if (owner != null && owner.equals(key.scopeId())) {
+                return entry.getValue();
+            }
+            if (key.scopeId() == null && unkeyed == null) {
+                unkeyed = entry.getValue();
+            }
+            else if (owner == null && unkeyed == null) {
+                // No owner context: any entry at this scope will do.
+                unkeyed = entry.getValue();
+            }
+        }
+        return unkeyed;
+    }
+
     private synchronized void rebuildSorted()
     {
         List<ConceptSpec> winners = byNameThenScope.values().stream()
-                .map(ConceptRegistry::pickWinner)
+                .map(perKey -> pickWinner(perKey, null, null))
                 .filter(s -> s != null)
                 .sorted(Comparator.comparing(ConceptSpec::name))
                 .collect(Collectors.toList());
@@ -271,9 +355,9 @@ public class ConceptRegistry
 
     private void register(ConceptSpec spec)
     {
-        Map<ConceptScope, ConceptSpec> perScope =
-                byNameThenScope.computeIfAbsent(spec.name(), n -> new EnumMap<>(ConceptScope.class));
-        ConceptSpec prior = perScope.put(spec.scope(), spec);
+        Map<ScopeKey, ConceptSpec> perScope =
+                byNameThenScope.computeIfAbsent(spec.name(), n -> new LinkedHashMap<>());
+        ConceptSpec prior = perScope.put(new ScopeKey(spec.scope(), null), spec);
         if (prior != null) {
             // Two code sites annotated with the same name at the
             // same scope: fail fast so the duplicate is fixed up

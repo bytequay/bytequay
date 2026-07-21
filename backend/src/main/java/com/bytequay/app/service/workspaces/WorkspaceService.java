@@ -29,7 +29,9 @@ import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
 import com.bytequay.app.service.threads.ThreadService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -630,15 +632,16 @@ public class WorkspaceService
      * {@link ConceptScope#WORKSPACE}. Replaces any prior workspace-
      * scoped concepts wholesale — the .md is the source of truth.
      *
-     * <p>v1 supports one active workspace at a time, so we
-     * {@link ConceptRegistry#clearScope clearScope(WORKSPACE)} before
-     * loading the new entries. Multi-workspace memory simultaneously
-     * visible to the registry lands when the broader switcher does.
+     * <p>Entries are keyed by workspace id, so re-syncing one workspace
+     * clears and reloads only that workspace's glossary and never touches
+     * another's. {@link #reloadAllGlossaries()} replays this for every
+     * workspace at startup so persisted concepts survive a restart without
+     * the user re-editing memory.
      */
     private void syncGlossaryConcepts(Workspace workspace)
     {
         try {
-            concepts.clearScope(ConceptScope.WORKSPACE);
+            concepts.clearScope(ConceptScope.WORKSPACE, workspace.id());
             List<WorkspaceGlossaryParser.Entry> entries = glossaryParser.parse(workspace.memoryMd());
             for (WorkspaceGlossaryParser.Entry entry : entries) {
                 ConceptSpec spec = new ConceptSpec(
@@ -655,7 +658,7 @@ public class WorkspaceService
                         List.of(),
                         ConceptScope.WORKSPACE,
                         "workspace://" + workspace.id() + "/memory.md#" + entry.name());
-                concepts.registerRuntime(spec);
+                concepts.registerRuntime(workspace.id(), spec);
             }
             if (!entries.isEmpty()) {
                 log.info("Loaded {} workspace glossary concept(s) for {}",
@@ -668,6 +671,21 @@ public class WorkspaceService
             // workspace-scoped entries cleared.
             log.warn("Failed to sync workspace glossary for {}: {}",
                     workspace.id(), e.getMessage());
+        }
+    }
+
+    /**
+     * Replay every workspace's glossary into the concept registry at
+     * startup. Workspace-scoped concepts are not persisted in their own
+     * table — they are derived from each workspace's memory — so without
+     * this reload they would not survive a restart. Keyed by workspace id,
+     * so the workspaces stay independent.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void reloadAllGlossaries()
+    {
+        for (Workspace workspace : list()) {
+            syncGlossaryConcepts(workspace);
         }
     }
 

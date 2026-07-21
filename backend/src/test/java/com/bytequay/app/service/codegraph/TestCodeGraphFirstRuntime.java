@@ -24,6 +24,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class TestCodeGraphFirstRuntime
 {
@@ -87,6 +88,10 @@ class TestCodeGraphFirstRuntime
     void shellShimBlocksBroadRgButAllowsExactAndPostGraphChecks(@TempDir Path checkout)
             throws Exception
     {
+        // The shim's PATH ordering is exercised through a zsh login shell to
+        // mirror the provider command shape. Skip where zsh isn't installed
+        // (e.g. a stock Linux CI runner) rather than fail on a missing binary.
+        assumeTrue(new File("/bin/zsh").canExecute(), "/bin/zsh not available");
         Files.writeString(checkout.resolve("Known.java"), "class Known {}\n", StandardCharsets.UTF_8);
         String threadId = unique("thread");
         String agentKey = unique("agent");

@@ -19,7 +19,7 @@ import {
 } from '../workspace';
 import type { WsNavKey } from '../workspace';
 import { TrafficLights } from './Sidebar';
-import type { GuardChipData, LivePlanNav, LivePlanNode, LivePlanPhaseNode } from './livePlanModel';
+import type { GuardChipData, LivePlanNav, LivePlanNode, LivePlanPhaseNode, LivePlanStatus } from './livePlanModel';
 
 export type TaskAgentReviewTrack = {
   status: 'running' | 'questions' | 'complete' | 'stale' | 'errored';
@@ -231,10 +231,26 @@ function StagePlanRow({ phase, onNavigate }: {
       disabled={disabled}
       onClick={() => { if (!disabled) onNavigate(phase.nav); }}
     >
-      <span aria-hidden><SmallCheckIcon /></span>
+      <PhaseStatusIcon status={phase.status} />
       <span>{phase.label}</span>
       {phase.meta !== undefined && <small>{phase.meta}</small>}
     </button>
+  );
+}
+
+/** Sub-step status marker, mirroring the top-level {@link StageStatusIcon}:
+ *  green ✓ when done, a pulsing dot while active, amber when it needs the user,
+ *  a gray dot otherwise. Reuses the rail's status-icon CSS so a phase's real
+ *  status shows through instead of every row reading as a finished check. */
+function PhaseStatusIcon({ status }: { status: LivePlanStatus }) {
+  const cls = status === 'done' ? 'is-done'
+    : status === 'running' || status === 'planning' || status === 'monitoring' || status === 'awaiting'
+      ? `is-${status}`
+      : 'is-idle';
+  return (
+    <span className={`workspace-task-stage__status-icon ${cls}`} aria-hidden>
+      {status === 'done' ? <SmallCheckIcon /> : <i />}
+    </span>
   );
 }
 

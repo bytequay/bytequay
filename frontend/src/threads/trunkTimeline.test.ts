@@ -32,6 +32,7 @@ describe('extractText / parseToolCall', () => {
   it('pulls text / summary out of envelopes', () => {
     expect(extractText(JSON.stringify({ text: 'hi' }))).toBe('hi');
     expect(extractText(JSON.stringify({ summary: 'thought' }))).toBe('thought');
+    expect(extractText(JSON.stringify({ message: 'agent failed' }))).toBe('agent failed');
     expect(extractText('not json')).toBe('');
   });
 
@@ -111,6 +112,16 @@ describe('buildTrunkTimeline', () => {
     // permission_request that comes after it.
     expect(trunkHeadline(round!)).toBeNull();
     expect(trunkWork(round!).map(r => r.id)).toEqual(['tx', 'pr']);
+  });
+
+  it('keeps a durable process error in the failed round', () => {
+    const items = buildTrunkTimeline([
+      msg('u', 'user', 'text', { text: 'inspect this' }, '2026-01-01T00:00:00Z'),
+      msg('err', 'system', 'error', { message: 'permission MCP unavailable' }, '2026-01-01T00:00:05Z'),
+    ], []);
+    const round = items[0].kind === 'round' ? items[0].round : null;
+    if (round === null) throw new Error('expected a conversation round');
+    expect(trunkWork(round).map(r => r.id)).toEqual(['err']);
   });
 
   it('drops an already-decided permission_request from the timeline', () => {

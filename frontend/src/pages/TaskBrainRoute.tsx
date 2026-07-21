@@ -17,8 +17,7 @@ import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
 import { PRView } from '../pr/localpr/PRView';
 import { LocalPrReviewScreen } from '../pr/localpr/LocalPrReviewScreen';
 import { PushDialog } from '../pr/localpr/PushDialog';
-import type { DiffFileDto, UserProfileDto } from '../types';
-import { getCached } from '../dataCache';
+import type { DiffFileDto } from '../types';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { useMessageQueue } from '../threads/useMessageQueue';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
@@ -29,8 +28,8 @@ import { Conv, DecisionNode, EventTimestamp, NodeCard, QueuedMessages, Working }
 import { SparkIcon } from '../ui/TaskBrainDesignIcons';
 import { BrainFeed } from '../threads/brain/BrainFeed';
 import { PlanCard, PlanningSeed, planStepComments } from '../threads/brain/TaskRootNode';
-import { buildTaskAgentReviewTrack, TaskSidebar } from '../ui/shell/TaskSidebar';
-import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
+import { TaskSidebar } from '../ui/shell/TaskSidebar';
+import { buildLivePlan } from '../ui/shell/livePlanModel';
 import { TaskBrainPage } from './TaskBrainPage';
 import { WorkModelPill } from '../workspace/WorkModelPill';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
@@ -47,19 +46,19 @@ import { derivePRCapabilities } from '../pr/prCapabilities';
 import type { AgentReviewNavTarget } from '../pr/localpr/PrDetailsView';
 import { formatCost, formatDuration } from '../threads/brain/format';
 import { TaskChangedFilesCard } from './TaskChangedFilesCard';
+import type { WsNavKey } from '../ui/workspace';
 
 /**
  * Data adapter that mounts the V3 {@link TaskBrainPage} on the live brain
  * data. Wires the brain feed → conversation, the composer → the brain
- * agent, the lifecycle Run menu, and the task-scoped sidebar's live-plan
- * diagram (which replaces the old stage-chip strip as the stage-navigation
- * surface).
+ * agent and the lifecycle Run menu. App keeps the shared workspace navigation
+ * mounted across trunk, task, and stage routes.
  */
 export function TaskBrainRoute({
   threadId, taskId, onOpenStage, onOpenRun, onClosed,
   onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
   trunkLabel, workspaceName, workspaceRepository,
-  onNavigateGlobal, onSwitchWorkspace, onNotifications, notificationCount,
+  onNavigateGlobal, onSwitchWorkspace,
   initialReviewRoundId, initialPrSubTab, onOpenAgentReview,
 }: {
   threadId: string;
@@ -71,7 +70,6 @@ export function TaskBrainRoute({
   onClosed: () => void;
   /** Open the task's owning trunk from the plain trunk row and breadcrumb. */
   onBack?: () => void;
-  /** Browser-style history back for the traffic-light row. */
   onHistoryBack?: () => void;
   onForward?: () => void;
   backEnabled?: boolean;
@@ -80,10 +78,8 @@ export function TaskBrainRoute({
   trunkLabel?: string;
   workspaceName?: string;
   workspaceRepository?: string;
-  onNavigateGlobal?: (destination: 'home' | 'workspaces') => void;
+  onNavigateGlobal?: (destination: WsNavKey) => void;
   onSwitchWorkspace?: () => void;
-  onNotifications?: () => void;
-  notificationCount?: number;
   initialReviewRoundId?: string;
   initialPrSubTab?: 'changes';
   /** Opens the PR-owned AgentColumn destination instead of an inline round page. */
@@ -162,10 +158,8 @@ export function TaskBrainRoute({
     [localPrBundle],
   );
 
-  // Force-opens the right-pane PR tab from the rail's gate nodes (Local
-  // review / Remote pull request / Merge-Close, R27) and the review
-  // callout's View PR — a fresh token re-fires even for a repeat click on
-  // the tab that's already open.
+  // Force-opens the right-pane PR tab from task actions. A fresh token
+  // re-fires even for a repeat click on the tab that's already open.
   const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr'; token: number } | undefined>(undefined);
   const openTab = useCallback((tab: 'pr', subTab?: 'overview' | 'checks' | 'changes') => {
     refreshLocalPr();
@@ -559,63 +553,52 @@ export function TaskBrainRoute({
       }
     : undefined;
 
-  // The task-scoped sidebar with the live-plan diagram — the stage-navigation
-  // surface that replaces the top-bar chip strip (design decision #17).
-  const livePlanNodes = buildLivePlan({
-    stages,
-    subStages,
-    liveRuns: data.liveRuns,
-    guard: data.guard,
-    liveRound: data.liveRound,
-    task: { prNumber: task.prNumber, currentPhase: task.currentPhase as TaskPhase, terminal: task.terminal },
-    prStatus: task.prNumber === null ? null : task.prDraft ? 'draft' : 'open',
-    mergeReady: proposalAction(shipProposal) === 'merge_pr',
-    viewedStageId: null,
-    // This IS the brain page, so the Plan node is the active view.
-    viewingBrain: true,
-    // Pulse the Plan node while the brain is thinking.
-    working,
-    // Light the parked stage orange when a gate is awaiting the user's approval.
-    awaitingApprovalStageId: data.rightRail.approval?.stageId ?? null,
-    devPhases: data.devPhases,
-    ciStatus: linkedPr?.ciStatus ?? null,
-    ciSummary: linkedPr?.ciSummary ?? null,
-  });
   const sidebar = (
     <TaskSidebar
       task={{
-        title: task.title, branch: task.branch,
+        title: task.title,
+        branch: task.branch,
         taskNumber: task.taskNumber,
         repository: workspaceRepository ?? task.repoFullName,
         workspaceName,
-        metaLine: task.statusLabel, finished,
+        metaLine: task.statusLabel,
+        finished,
       }}
-      nodes={livePlanNodes}
-      guard={buildGuardChip(data.guard, task.terminal)}
+      threadLabel={trunkLabel}
+      nodes={buildLivePlan({
+        stages,
+        subStages,
+        liveRuns: data.liveRuns,
+        guard: data.guard,
+        liveRound: data.liveRound,
+        task: {
+          prNumber: task.prNumber,
+          currentPhase: task.currentPhase as TaskPhase,
+          terminal: task.terminal,
+        },
+        prStatus: task.prNumber === null ? null : task.prDraft ? 'draft' : 'open',
+        mergeReady: proposalAction(shipProposal) === 'merge_pr',
+        viewedStageId: null,
+        viewingBrain: true,
+        working,
+        awaitingApprovalStageId: data.rightRail.approval?.stageId ?? null,
+        devPhases: data.devPhases,
+        ciStatus: linkedPr?.ciStatus ?? null,
+        ciSummary: linkedPr?.ciSummary ?? null,
+      })}
+      highlightActiveStage={false}
       onBack={onHistoryBack}
-      onOpenTrunk={onBack}
       onForward={onForward}
       backEnabled={backEnabled}
       forwardEnabled={forwardEnabled}
       onToggleCollapse={onToggleCollapse}
-      threadLabel={trunkLabel}
-      user={getCached<UserProfileDto>('home:profile')?.login}
-      onNavigateGlobal={onNavigateGlobal}
-      onSwitchWorkspace={onSwitchWorkspace}
-      onNotifications={onNotifications}
-      notificationCount={notificationCount}
-      defaultExpandPhases
-      highlightActiveStage={false}
+      onOpenTrunk={onBack}
       onOpenStage={onOpenStage}
       onOpenPr={pr?.onOpen}
       onOpenTab={openTab}
       onOpenRun={onOpenRun}
-      agentReview={agentReview.data === null
-        ? undefined
-        : buildTaskAgentReviewTrack(agentReview.data, openAgentRound)}
-      onToggleGuard={enabled => {
-        void window.bridge.updateTaskGuard(taskId, { enabled }).then(pollFast).catch(() => { /* poll reconciles */ });
-      }}
+      onNavigateGlobal={onNavigateGlobal}
+      onSwitchWorkspace={onSwitchWorkspace}
     />
   );
 

@@ -625,7 +625,6 @@ function LockedTaskSidebar({ activeDevelopment = false }: { activeDevelopment?: 
       threadLabel="Clean code v2"
       nodes={lockedTaskNodes(activeDevelopment)}
       highlightActiveStage={activeDevelopment}
-      notificationCount={8}
       onOpenTrunk={() => {}}
       onOpenStage={() => {}}
       onOpenBrain={() => {}}

@@ -104,11 +104,8 @@ export function TaskSidebar({
   onToggleGuard?: (enabled: boolean) => void;
   agentReview?: TaskAgentReviewTrack;
   actions?: ReactNode;
-  user?: string;
-  onNavigateGlobal?: (destination: 'home' | 'workspaces') => void;
+  onNavigateGlobal?: (destination: WsNavKey) => void;
   onSwitchWorkspace?: () => void;
-  onNotifications?: () => void;
-  notificationCount?: number;
 }) {
   const leaves = nodes.flatMap(node => node.phases?.length ? node.phases : [node]);
   const doneCount = leaves.filter(node => node.status === 'done').length;
@@ -138,8 +135,7 @@ export function TaskSidebar({
         forwardEnabled={forwardEnabled}
         onToggleCollapse={onToggleCollapse}
       />
-      <WorkspacePrimaryNav activeNav="trunks"
-        onNavigate={onNavigateGlobal as ((destination: WsNavKey) => void) | undefined} />
+      <WorkspacePrimaryNav activeNav="trunks" onNavigate={onNavigateGlobal} />
       <WorkspaceSwitcherCard name={workspaceName} repository={repository || workspaceName}
         onSwitch={onSwitchWorkspace} />
 

@@ -22,7 +22,10 @@ export type SidebarNavKey = 'home' | 'my-work' | 'automations';
  *  stand in for the native macOS buttons — hidden behind the real ones
  *  while windowed, shown (red/yellow/green) only in fullscreen where the
  *  OS hides its own (driven by the `.is-fullscreen` class on the rail). */
-export function TrafficLights({ onBack, onForward, backEnabled = true, forwardEnabled = true, onToggleCollapse, hideNavArrows = false }: {
+export function TrafficLights({
+  onBack, onForward, backEnabled = true, forwardEnabled = true,
+  onToggleCollapse, hideNavArrows = false, className = '',
+}: {
   onBack?: () => void;
   onForward?: () => void;
   /** Dim an arrow when its history edge is reached (default enabled). */
@@ -30,9 +33,10 @@ export function TrafficLights({ onBack, onForward, backEnabled = true, forwardEn
   forwardEnabled?: boolean;
   onToggleCollapse?: () => void;
   hideNavArrows?: boolean;
+  className?: string;
 }) {
   return (
-    <div className="sb-traffic">
+    <div className={`sb-traffic ${className}`.trim()}>
       {/* The dots stand in for the native macOS buttons in fullscreen
           (where the OS hides its own), so they must actually work. */}
       <div className="dots">

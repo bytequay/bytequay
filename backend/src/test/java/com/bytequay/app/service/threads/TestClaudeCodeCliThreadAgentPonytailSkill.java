@@ -70,8 +70,8 @@ class TestClaudeCodeCliThreadAgentPonytailSkill
                     .contains("# ByteQuay managed runtime skills")
                     .contains("## ponytail")
                     .contains("smallest working change");
-            assertThat(command.command()).contains("--safe-mode", "--strict-mcp-config");
-            assertThat(command.command()).doesNotContain("--bare");
+            assertThat(command.command()).contains("--strict-mcp-config");
+            assertThat(command.command()).doesNotContain("--safe-mode", "--bare");
             assertThat(command.environment()).doesNotContainKey("BYTEQUAY_SKILLS_DIR");
         }
         finally {

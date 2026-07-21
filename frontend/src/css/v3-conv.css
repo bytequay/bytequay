@@ -1398,6 +1398,7 @@
 
 /* thinking sub-message (folded work) */
 .shell .sp-submsg--think .sp-submsg__tx { font-style: italic; color: var(--text-3); }
+.shell .sp-submsg--error .sp-submsg__tx { color: var(--red); }
 
 /* ════════════════════════════════════════════════════════════════════
    TASK ROOT NODE (M10 Part A) — seed block + typed plan card + review bar.

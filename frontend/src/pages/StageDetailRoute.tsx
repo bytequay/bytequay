@@ -20,8 +20,7 @@ import { useThreadStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
 import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
 import { MarkReadyPanel, markReadyPrRef } from '../threads/MarkReadyPanel';
-import type { DiffFileDto, UserProfileDto } from '../types';
-import { getCached } from '../dataCache';
+import type { DiffFileDto } from '../types';
 import type { AgentRunDto, StageType, TaskPhase } from '../types/brainView';
 import {
   Conv, EventRow, EventTimestamp, QueuedMessages, RoundEpisode, RunEpisode, Spine, Working,
@@ -38,8 +37,8 @@ import type { ReviewVerdict } from './SubmitReviewDrawer';
 import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
 import { PlanCard, planStepComments } from '../threads/brain/TaskRootNode';
 import { PlanOverlay } from './PlanOverlay';
-import { buildTaskAgentReviewTrack, TaskSidebar } from '../ui/shell/TaskSidebar';
-import { buildGuardChip, buildLivePlan } from '../ui/shell/livePlanModel';
+import { TaskSidebar } from '../ui/shell/TaskSidebar';
+import { buildLivePlan } from '../ui/shell/livePlanModel';
 import { makeIdCache } from '../threads/brain/idCache';
 import { useAgentReviewState } from '../review/useAgentReviewState';
 import { ConvIndex } from '../threads/ConvIndex';
@@ -50,6 +49,7 @@ import { derivePRCapabilities } from '../pr/prCapabilities';
 import type { AgentReviewNavTarget } from '../pr/localpr/PrDetailsView';
 import { formatDuration } from '../threads/brain/format';
 import { TaskChangedFilesCard } from './TaskChangedFilesCard';
+import type { WsNavKey } from '../ui/workspace';
 
 /** Last-known cumulative diff per thread+task, so switching stages within a
  *  task paints the diff at once (the diff is task-wide, identical across the
@@ -101,7 +101,7 @@ export function StageDetailRoute({
   threadId, taskId, stageId, onOpenStage, onOpenRun,
   onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, onToggleCollapse, onOpenBrain,
   trunkLabel, workspaceName, workspaceRepository,
-  onNavigateGlobal, onSwitchWorkspace, onNotifications, notificationCount,
+  onNavigateGlobal, onSwitchWorkspace,
   onOpenAgentReview,
 }: {
   threadId: string;
@@ -109,12 +109,10 @@ export function StageDetailRoute({
   stageId: string;
   /** Jump to another stage after approving the plan or from the task flow. */
   onOpenStage?: (stageId: string) => void;
-  /** Navigate to a live run's own log — the rail's Remote CI / comments rows
-   *  and the stage feed's run/round episodes use this. */
+  /** Navigate to a live run's own log from the stage feed's run/round episodes. */
   onOpenRun?: (runId: string) => void;
   /** Open the task's owning trunk from the plain trunk row and breadcrumb. */
   onBack?: () => void;
-  /** Browser-style history back for the traffic-light row. */
   onHistoryBack?: () => void;
   onForward?: () => void;
   backEnabled?: boolean;
@@ -125,10 +123,8 @@ export function StageDetailRoute({
   trunkLabel?: string;
   workspaceName?: string;
   workspaceRepository?: string;
-  onNavigateGlobal?: (destination: 'home' | 'workspaces') => void;
+  onNavigateGlobal?: (destination: WsNavKey) => void;
   onSwitchWorkspace?: () => void;
-  onNotifications?: () => void;
-  notificationCount?: number;
   /** Open the PR-owned full-review destination at the selected round. */
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
 }) {
@@ -191,10 +187,8 @@ export function StageDetailRoute({
     [localPrBundle],
   );
 
-  // Force-opens the right-pane PR tab from the rail's gate nodes (Local
-  // review / Remote pull request / Merge-Close, R27) and the review
-  // callout's View PR — a fresh token re-fires even for a repeat click on
-  // the tab that's already open.
+  // Force-opens the right-pane PR tab from task actions. A fresh token
+  // re-fires even for a repeat click on the tab that's already open.
   const [openTabRequest, setOpenTabRequest] = useState<{ tab: 'pr' | 'ci'; token: number } | undefined>(
     undefined);
   const [openChangesToken, setOpenChangesToken] = useState<number>();
@@ -273,11 +267,6 @@ export function StageDetailRoute({
   // Local-PR interactivity is gated on the TASK lifecycle, not the viewed
   // stage: the local-review moment arrives exactly when Dev closes, so a
   // closed stage must not disable commenting on a still-local PR.
-  const taskTerminal = brain.task.terminal;
-  const realtimeCi = data?.realtimeCi ?? null;
-  const prNumber = data?.task.prNumber ?? null;
-  const repoFullName = data?.task.repoFullName;
-
   // Changes / PR tabs only apply to the work stages — the Plan stage is a
   // read-only conversation artifact with no diff of its own.
   const hasDiff = stageKind !== 'plan';
@@ -309,14 +298,6 @@ export function StageDetailRoute({
       .catch(() => { /* omit the count when git history is unavailable */ });
     return () => { cancelled = true; };
   }, [threadId, taskId, diffCacheKey, hasDiff]);
-
-  const openPr = useCallback(() => {
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    if (realtimeCi !== null) { void bridge?.openInAppBrowser(realtimeCi.prUrl); return; }
-    if (repoFullName != null && prNumber !== null) {
-      void bridge?.openInAppBrowser(`https://github.com/${repoFullName}/pull/${prNumber}`);
-    }
-  }, [realtimeCi, repoFullName, prNumber]);
 
   const approvePlan = () => {
     if (plan === null) return;
@@ -600,10 +581,7 @@ export function StageDetailRoute({
   const planGuard = data?.guard ?? brain.guard;
   const planLiveRound = data?.liveRound ?? brain.liveRound;
   const planDevPhases = data?.devPhases ?? brain.devPhases;
-  const sidebarTitle = data?.task.title ?? brain.task.title;
-  const sidebarBranch = data?.task.branch ?? brain.task.branch;
   const sidebarPhase = (data?.task.currentPhase ?? brain.task.currentPhase) as TaskPhase;
-  const sidebarFinished = taskCompleted || (data === null && brain.task.terminal);
   const livePlanNodes = useMemo(() => buildLivePlan({
     stages: planStages,
     subStages: planSubStages,
@@ -611,65 +589,22 @@ export function StageDetailRoute({
     guard: planGuard,
     liveRound: planLiveRound,
     task: {
-      prNumber,
+      prNumber: data?.task.prNumber ?? brain.task.prNumber,
       currentPhase: sidebarPhase,
-      terminal: taskTerminal,
+      terminal: brain.task.terminal,
     },
     prStatus: pr?.status ?? null,
     mergeReady: proposalAction(shipProposal) === 'merge_pr',
     viewedStageId: stageId,
-    // Pulse this stage's node while its agent is mid-turn.
     working,
     devPhases: planDevPhases,
     ciStatus: brain.rightRail.linkedPr?.ciStatus ?? null,
     ciSummary: brain.rightRail.linkedPr?.ciSummary ?? null,
   }), [
-    planStages, planSubStages, planLiveRuns, planGuard, planLiveRound, planDevPhases, sidebarPhase, prNumber, pr,
-    stageId, shipProposal, working, taskTerminal, brain.rightRail.linkedPr,
+    planStages, planSubStages, planLiveRuns, planGuard, planLiveRound, planDevPhases,
+    data?.task.prNumber, brain.task.prNumber, sidebarPhase, brain.task.terminal,
+    pr, shipProposal, stageId, working, brain.rightRail.linkedPr,
   ]);
-  // Render once we have any stage data — the stage detail, or the task-level
-  // brain stages — so the rail persists across stage switches.
-  const sidebar = planStages.length === 0 ? undefined : (
-    <TaskSidebar
-      task={{
-        title: sidebarTitle,
-        branch: sidebarBranch,
-        taskNumber: data?.task.taskNumber ?? brain.task.taskNumber,
-        repository: workspaceRepository ?? data?.task.repoFullName ?? brain.task.repoFullName,
-        workspaceName,
-        metaLine: sidebarPhase.replace(/_/g, ' ').toLowerCase(),
-        finished: sidebarFinished,
-      }}
-      nodes={livePlanNodes}
-      guard={buildGuardChip(planGuard, taskTerminal)}
-      onBack={onHistoryBack}
-      onOpenTrunk={onBack}
-      onForward={onForward}
-      backEnabled={backEnabled}
-      forwardEnabled={forwardEnabled}
-      onToggleCollapse={onToggleCollapse}
-      threadLabel={trunkLabel}
-      user={getCached<UserProfileDto>('home:profile')?.login}
-      onNavigateGlobal={onNavigateGlobal}
-      onSwitchWorkspace={onSwitchWorkspace}
-      onNotifications={onNotifications}
-      notificationCount={notificationCount}
-      onOpenStage={onOpenStage}
-      onOpenPr={pr !== null ? openPr : undefined}
-      onOpenTab={openTab}
-      onOpenBrain={onOpenBrain}
-      onOpenRun={onOpenRun}
-      agentReview={agentReview.data === null
-        ? undefined
-        : buildTaskAgentReviewTrack(agentReview.data, openAgentRound)}
-      onToggleGuard={enabled => {
-        void window.bridge.updateTaskGuard(taskId, { enabled })
-          .then(() => { pollFast(); refresh(); })
-          .catch(() => { /* poll reconciles */ });
-      }}
-    />
-  );
-
   const activeStageLabel = livePlanNodes.find(node => node.activeView)?.label
     ?? (stageKind === 'plan' ? 'Planning'
       : stageKind === 'remote-dev' ? 'Remote Development'
@@ -689,6 +624,34 @@ export function StageDetailRoute({
     status: taskCompleted ? 'merged' : (pr?.status ?? displayedLocalPrBundle?.pr.status ?? 'open'),
     onOpen: () => openTab('pr', 'overview'),
   } : undefined;
+  const sidebar = (
+    <TaskSidebar
+      task={{
+        title: data?.task.title ?? brain.task.title,
+        branch: data?.task.branch ?? brain.task.branch,
+        taskNumber: data?.task.taskNumber ?? brain.task.taskNumber,
+        repository: workspaceRepository ?? data?.task.repoFullName ?? brain.task.repoFullName,
+        workspaceName,
+        metaLine: sidebarPhase.replace(/_/g, ' ').toLowerCase(),
+        finished: taskCompleted || (data === null && brain.task.terminal),
+      }}
+      threadLabel={trunkLabel}
+      nodes={livePlanNodes}
+      onBack={onHistoryBack}
+      onForward={onForward}
+      backEnabled={backEnabled}
+      forwardEnabled={forwardEnabled}
+      onToggleCollapse={onToggleCollapse}
+      onOpenTrunk={onBack}
+      onOpenStage={onOpenStage}
+      onOpenPr={pr !== null ? () => openTab('pr', 'overview') : undefined}
+      onOpenTab={openTab}
+      onOpenBrain={onOpenBrain}
+      onOpenRun={onOpenRun}
+      onNavigateGlobal={onNavigateGlobal}
+      onSwitchWorkspace={onSwitchWorkspace}
+    />
+  );
 
   return (
     <StageDetailPage

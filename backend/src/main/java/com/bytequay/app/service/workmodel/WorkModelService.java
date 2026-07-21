@@ -107,8 +107,8 @@ public class WorkModelService
             out.add(new WorkModelAgentOption(
                     agent.id(),
                     agent.displayName(),
-                    installed,
-                    installed,
+                    /* installed */ true,
+                    /* authed */ true,
                     agent.defaultModel().id(),
                     toEntries(agent.models())));
         }

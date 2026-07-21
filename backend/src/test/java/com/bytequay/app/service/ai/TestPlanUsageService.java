@@ -162,6 +162,35 @@ class TestPlanUsageService
     }
 
     @Test
+    void parsesClaudeUsageWhenRedrawGluesTheSessionHeading()
+    {
+        Instant capturedAt = ZonedDateTime.of(
+                2026, 7, 20, 13, 30, 0, 0, ZoneId.of("Asia/Singapore")).toInstant();
+        // The screen-reader TUI's cursor-move/erase codes strip to nothing, gluing
+        // the first heading onto preceding chrome ("Esc to cancelCurrent session")
+        // so it is no longer at a line start — the real capture that returned 0
+        // limits and 500'd the refresh endpoint.
+        String output = """
+                Esc to cancelCurrent session
+                63% 63% used
+                Resets 2:20pm (Asia/Singapore)
+                Current week (all models)
+                64% 64% used
+                Resets Jul 24 at 8am (Asia/Singapore)
+                +50% weekly limits promo through Aug 19
+                Current week (Fable)
+                98% 98% used
+                Resets Jul 24 at 8am (Asia/Singapore)
+                """;
+
+        PlanUsageService.ProviderUsage usage = PlanUsageService.parseClaudeUsage(output, capturedAt);
+
+        assertThat(usage.limits())
+                .extracting(PlanUsageService.LimitWindow::id)
+                .containsExactly("current_session", "all_models", "model:fable");
+    }
+
+    @Test
     void refreshesClaudeUsageThroughExpect()
             throws IOException
     {

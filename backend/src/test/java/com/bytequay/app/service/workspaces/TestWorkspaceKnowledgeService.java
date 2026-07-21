@@ -184,6 +184,37 @@ class TestWorkspaceKnowledgeService
                 .hasMessageContaining("overwrite edits");
     }
 
+    @Test
+    void applyingAnAcceptedSeedRunCompletesTheSeedMilestone()
+    {
+        String workspaceId = workspace("");
+        long now = Instant.now().toEpochMilli();
+        jdbc.update("""
+                INSERT INTO workspace_onboarding (
+                    workspace_id, clone_complete, sync_state,
+                    memory_seed_complete, updated_at_ms)
+                VALUES (?, 1, 'ready', 0, ?)
+                """, workspaceId, now);
+
+        DistillRunDto preview = service.createPreview(
+                workspaceId,
+                "seed",
+                List.of(),
+                List.of(addBrain("op-1", "Seeded convention")));
+        service.decide(
+                workspaceId,
+                preview.id(),
+                List.of(decision("op-1", "Seeded convention", "accepted")));
+        service.apply(workspaceId, preview.id());
+
+        assertThat(jdbc.queryForObject("""
+                SELECT memory_seed_complete FROM workspace_onboarding
+                WHERE workspace_id = ?
+                """, Integer.class, workspaceId))
+                .as("an accepted seed run completes the milestone")
+                .isEqualTo(1);
+    }
+
     private String workspace(String memory)
     {
         String id = "ws-knowledge-" + UUID.randomUUID();

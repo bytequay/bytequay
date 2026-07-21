@@ -22,6 +22,12 @@ public record WorkspaceOnboardingDto(
         boolean memorySeedComplete,
         boolean firstTrunkComplete,
         boolean memoryImported,
+        // Project-learning card state, derived from the durable learning run.
+        // Null until a run exists. The workspace is usable while learning
+        // continues, so these never gate completion.
+        String learningState,
+        int learningCataloged,
+        int learningAnalyzed,
         Long dismissedAt,
         long updatedAt)
 {

@@ -38,6 +38,17 @@ public record RepoRef(String owner, String repo)
         return new RepoRef(owner, repo);
     }
 
+    /** Splits a canonical {@code "owner/repo"} string. */
+    public static RepoRef parse(String fullName)
+    {
+        requireNonNull(fullName, "fullName is null");
+        int slash = fullName.indexOf('/');
+        if (slash < 1 || slash == fullName.length() - 1) {
+            throw new IllegalArgumentException("not an owner/repo name: " + fullName);
+        }
+        return new RepoRef(fullName.substring(0, slash), fullName.substring(slash + 1));
+    }
+
     /** Returns the canonical {@code "owner/repo"} string used in GitHub API paths and UI. */
     public String fullName()
     {

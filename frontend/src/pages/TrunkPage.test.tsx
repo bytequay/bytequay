@@ -15,12 +15,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentQuestionDto } from '../types';
 import type {
-  ApiUsageDto,
-  DeepSeekBalanceDto,
-  PlanUsageDto,
   TrunkActivityDto,
   WorkspaceBacklogItemDto,
-  WorkspaceSessionDto,
 } from '../workspace/workspaceApi';
 import { TrunkPage } from './TrunkPage';
 
@@ -90,21 +86,11 @@ function backlogItem(overrides: Partial<WorkspaceBacklogItemDto> = {}): Workspac
 function mockBridge({
   trunkActivity = EMPTY_ACTIVITY,
   questions = [],
-  sessions = [],
   backlog = [],
-  planUsage = { providers: [] },
-  refreshedPlanUsage = planUsage,
-  apiUsage = null,
-  deepSeekBalance = null,
 }: {
   trunkActivity?: TrunkActivityDto;
   questions?: AgentQuestionDto[];
-  sessions?: WorkspaceSessionDto[];
   backlog?: WorkspaceBacklogItemDto[];
-  planUsage?: PlanUsageDto;
-  refreshedPlanUsage?: PlanUsageDto;
-  apiUsage?: ApiUsageDto | null;
-  deepSeekBalance?: DeepSeekBalanceDto | null;
 } = {}) {
   const bridge = {
     listBacklog: vi.fn().mockResolvedValue([]),
@@ -120,12 +106,7 @@ function mockBridge({
           today: { needsYou: [], running: [], spendTodayMilliUsd: 1840 },
         });
       }
-      if (path.endsWith('/sessions')) return Promise.resolve(sessions);
       if (path.endsWith('/backlog')) return Promise.resolve(backlog);
-      if (path === '/api/ai/plan-usage') return Promise.resolve(planUsage);
-      if (path === '/api/ai/plan-usage/claude/refresh') return Promise.resolve(refreshedPlanUsage);
-      if (path === '/api/ai/api-usage') return Promise.resolve(apiUsage ?? []);
-      if (path === '/api/ai/deepseek/balance') return Promise.resolve(deepSeekBalance ?? []);
       return Promise.resolve([]);
     }),
     answerQuestion: vi.fn().mockResolvedValue(undefined),
@@ -177,7 +158,7 @@ describe('TrunkPage', () => {
     expect(screen.getByText('RUNNING NOW')).toBeTruthy();
     expect(screen.getByText('OPEN PRS')).toBeTruthy();
     expect(screen.getByText('BACKLOG')).toBeTruthy();
-    expect(screen.getByText('USAGE')).toBeTruthy();
+    expect(screen.queryByText('USAGE')).toBeNull();
   });
 
   it('surfaces a terminal agent error and offers recovery', () => {
@@ -346,145 +327,28 @@ describe('TrunkPage', () => {
       .toBe('400px');
   });
 
-  it('shows provider-reported model usage instead of placeholder credits', async () => {
-    mockBridge({
-      sessions: [{
-        id: 'run-usage', workspaceId: 'ws-1', trunkId: 't1', kind: 'dev', status: 'done',
-        provider: 'openai', model: 'gpt-5', taskId: null, stageId: null, durableReview: false,
-        costUsdMilli: 0, tokensIn: 1_234, tokensOut: 56, stepCursor: 1, budget: null,
-        headline: null, durationMs: 100, launchInput: null, pauseReason: null, outcome: null,
-        startedAt: Date.now(), finishedAt: Date.now(),
-      }],
-    });
+  it('omits provider and token usage from the trunk surface', async () => {
+    const bridge = mockBridge();
     renderTrunk();
 
-    expect(screen.getByRole('button', { name: 'Usage' })).toBeTruthy();
-    expect(screen.queryByText(/Changes \+/)).toBeNull();
-    expect(await screen.findByText('1,290 tokens · 1 run')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Usage' }));
-    expect(screen.getAllByText('1,234 tokens').length).toBe(2);
-    expect(screen.getAllByText('56 tokens').length).toBe(2);
-    expect(screen.queryByText(/AI credits/)).toBeNull();
-  });
+    await waitFor(() => expect(bridge.workspaceApi).toHaveBeenCalledWith({
+      path: '/api/workspaces/ws-1/overview',
+    }));
 
-  it('renders provider plan limits through one meter style', async () => {
-    const now = Date.now();
-    mockBridge({
-      planUsage: {
-        providers: [{
-          provider: 'openai', label: 'Codex CLI', plan: 'prolite', updatedAt: now,
-          source: 'Codex CLI app-server', message: null,
-          limits: [{
-            id: 'primary:10080', label: 'Weekly', usedPercent: 3, resetsAt: now + 7_200_000,
-            model: null,
-          }],
-        }, {
-          provider: 'anthropic', label: 'Claude CLI', plan: null, updatedAt: now,
-          source: 'Claude CLI /usage', message: null,
-          limits: [{
-            id: 'current_session', label: 'Current session', usedPercent: 2,
-            resetsAt: now + 5_400_000, model: null,
-          }, {
-            id: 'all_models', label: 'All models', usedPercent: 55,
-            resetsAt: now + 4 * 24 * 60 * 60_000, model: null,
-          }, {
-            id: 'model:fable', label: 'Weekly', usedPercent: 98,
-            resetsAt: now + 4 * 24 * 60 * 60_000,
-            model: 'Fable',
-          }],
-        }],
-      },
+    expect(screen.queryByText('USAGE')).toBeNull();
+    expect(screen.queryByText('MODEL ACTIVITY')).toBeNull();
+    expect(screen.queryByText('Codex CLI')).toBeNull();
+    expect(screen.queryByText('Claude CLI')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Usage' })).toBeNull();
+    expect(bridge.workspaceApi).not.toHaveBeenCalledWith({
+      path: '/api/workspaces/ws-1/sessions',
     });
-    renderTrunk();
-
-    expect(await screen.findByText('Codex CLI')).toBeTruthy();
-    expect(screen.getByText('Pro Lite')).toBeTruthy();
-    expect(screen.getByText('3% used')).toBeTruthy();
-    expect(screen.getByText('Claude CLI')).toBeTruthy();
-    expect(screen.getByText('98% used')).toBeTruthy();
-    expect(screen.getByLabelText('Fable 98% used').firstElementChild?.classList.contains('is-critical'))
-      .toBe(true);
-    const claudeCard = screen.getByText('Claude CLI').closest('.trunk-page-v2__provider-usage');
-    const claudeLabels = claudeCard === null
-      ? []
-      : [...claudeCard.querySelectorAll('.trunk-page-v2__limit > div > span')];
-    expect(claudeLabels
-      .map(element => element.textContent))
-      .toEqual(['Current session', 'All models', 'Fable']);
-    expect(screen.getByText('MODEL ACTIVITY')).toBeTruthy();
-  });
-
-  it('shows ByteQuay API usage and DeepSeek balance without CLI data', async () => {
-    const bridge = mockBridge({
-      apiUsage: {
-        month: '2026-07',
-        providers: [{
-          provider: 'anthropic', label: 'Anthropic API', callsCount: 2,
-          costUsdMilli: 1_230,
-        }, {
-          provider: 'deepseek', label: 'DeepSeek API', callsCount: 3,
-          costUsdMilli: 70,
-        }],
-      },
-      deepSeekBalance: {
-        configured: true, available: true, updatedAt: Date.now(), message: null,
-        balances: [{
-          currency: 'USD', totalBalance: '12.34000000',
-          grantedBalance: '2.00000000', toppedUpBalance: '10.34000000',
-        }],
-      },
-    });
-    renderTrunk();
-
-    expect(await screen.findByText('API usage')).toBeTruthy();
-    expect(screen.getByText('Anthropic API')).toBeTruthy();
-    expect(screen.getByText('2 requests')).toBeTruthy();
-    expect(screen.getByText('$1.23')).toBeTruthy();
-    expect(screen.getByText('DeepSeek API')).toBeTruthy();
-    expect(screen.getByText('3 requests')).toBeTruthy();
-    expect(screen.getByText('$0.07')).toBeTruthy();
-    expect(screen.getByText('Balance USD 12.34')).toBeTruthy();
-    expect(screen.getByText('ByteQuay requests only · estimated cost')).toBeTruthy();
-    expect(bridge.workspaceApi).toHaveBeenCalledWith({ path: '/api/ai/api-usage' });
-    expect(bridge.workspaceApi).toHaveBeenCalledWith({ path: '/api/ai/deepseek/balance' });
-  });
-
-  it('refreshes Claude interactive usage automatically when only status-line limits exist', async () => {
-    const now = Date.now();
-    const bridge = mockBridge({
-      planUsage: {
-        providers: [{
-          provider: 'anthropic', label: 'Claude CLI', plan: null, updatedAt: 0,
-          source: 'Claude CLI status line', message: null,
-          limits: [{
-            id: 'seven_day', label: 'Weekly', usedPercent: 55,
-            resetsAt: now + 4 * 24 * 60 * 60_000, model: null,
-          }],
-        }],
-      },
-      refreshedPlanUsage: {
-        providers: [{
-          provider: 'anthropic', label: 'Claude CLI', plan: 'Max', updatedAt: now,
-          source: 'Claude CLI /usage', message: null,
-          limits: [{
-            id: 'current_session', label: 'Current session', usedPercent: 8,
-            resetsAt: now + 2 * 60 * 60_000, model: null,
-          }, {
-            id: 'model:fable', label: 'Weekly', usedPercent: 98,
-            resetsAt: now + 4 * 24 * 60 * 60_000, model: 'Fable',
-          }],
-        }],
-      },
-    });
-    renderTrunk();
-
-    expect(await screen.findByText('Current session')).toBeTruthy();
-    expect(screen.getByText('8% used')).toBeTruthy();
-    expect(await screen.findByText('Fable')).toBeTruthy();
-    expect(screen.getByText('98% used')).toBeTruthy();
-    expect(bridge.workspaceApi).toHaveBeenCalledWith({
+    expect(bridge.workspaceApi).not.toHaveBeenCalledWith({ path: '/api/ai/plan-usage' });
+    expect(bridge.workspaceApi).not.toHaveBeenCalledWith({
       path: '/api/ai/plan-usage/claude/refresh',
       method: 'POST',
     });
+    expect(bridge.workspaceApi).not.toHaveBeenCalledWith({ path: '/api/ai/api-usage' });
+    expect(bridge.workspaceApi).not.toHaveBeenCalledWith({ path: '/api/ai/deepseek/balance' });
   });
 });

@@ -13,7 +13,6 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { ThreadDto, ThreadTurnDto, WorkspaceCardDto } from '../types';
-import ProviderUsagePanel from './ProviderUsagePanel';
 import {
   workspaceApi,
   type WorkspaceOnboardingDto,
@@ -116,9 +115,6 @@ export default function WorkspaceTodayPage({
                 onNewThread={onNewThread}
               />
             )}
-          <TodaySection label="Usage">
-            <div className="wu-today__usage-pinned"><ProviderUsagePanel /></div>
-          </TodaySection>
           {!firstSyncRunning && <TodaySection label="Needs you" tone="attention">
             {needsYou.length === 0 ? (
               <QuietEmpty>Nothing needs your attention.</QuietEmpty>

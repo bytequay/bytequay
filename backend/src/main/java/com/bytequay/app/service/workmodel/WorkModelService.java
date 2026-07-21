@@ -24,9 +24,7 @@ import com.bytequay.app.service.CredentialService;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -45,15 +43,15 @@ import static java.util.Objects.requireNonNull;
  *       + alternates).</li>
  * </ul>
  *
- * <p>CLI agents are probed with a non-interactive {@code --version}
- * command only. Avoid richer auth/doctor probes: some CLIs drop into
- * interactive flows that can wedge startup.
+ * <p>CLI agents are always reported as installed + authed. We used to
+ * probe the local binary at picker-render time, but the {@code --version}
+ * spawn leaked file-descriptor drain threads and could wedge the JVM's
+ * {@code posix_spawn} machinery. Users now discover a missing CLI at
+ * use-time with a clear error rather than at render time with a chip.
  */
 @Service
 public class WorkModelService
 {
-    private static final Duration CLI_PROBE_TIMEOUT = Duration.ofSeconds(2);
-
     private final CredentialService credentials;
 
     public WorkModelService(CredentialService credentials)
@@ -70,34 +68,15 @@ public class WorkModelService
     {
         ImmutableList.Builder<WorkModelAgentOption> out = ImmutableList.builder();
         for (WorkModelCatalog.CatalogAgent agent : WorkModelCatalog.CLI_AGENTS) {
-            boolean installed = cliAvailable(agent.id());
             out.add(new WorkModelAgentOption(
                     agent.id(),
                     agent.displayName(),
-                    installed,
-                    installed,
+                    /* installed */ true,
+                    /* authed */ true,
                     agent.defaultModel().id(),
                     toEntries(agent.models())));
         }
         return out.build();
-    }
-
-    private static boolean cliAvailable(String agentId)
-    {
-        String binary = "codex".equals(agentId) ? "codex" : "claude";
-        try {
-            Process process = new ProcessBuilder(binary, "--version")
-                    .redirectErrorStream(true)
-                    .start();
-            if (!process.waitFor(CLI_PROBE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly();
-                return false;
-            }
-            return process.exitValue() == 0;
-        }
-        catch (Exception ignored) {
-            return false;
-        }
     }
 
     private List<WorkModelProviderOption> apiProviderOptions()

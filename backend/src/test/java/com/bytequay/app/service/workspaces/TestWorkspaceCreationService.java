@@ -17,6 +17,7 @@ import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.RepoService;
+import com.bytequay.app.service.learning.ProjectLearningService;
 import com.bytequay.app.service.local.LocalRepoService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -87,7 +88,8 @@ class TestWorkspaceCreationService
                 repos,
                 workspaces,
                 configuration,
-                mock(WatchedRepoStore.class));
+                mock(WatchedRepoStore.class),
+                mock(ProjectLearningService.class));
 
         service.recover();
         awaitState(jdbc, "operation-1", "ready");

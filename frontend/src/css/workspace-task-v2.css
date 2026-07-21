@@ -135,6 +135,15 @@
   flex-direction: column;
   gap: var(--left-nav-group-gap);
 }
+/* The node's nav button and its fold-toggle chevron share one row; hover and
+   the active highlight live on the row so both light up together. */
+.workspace-task-stage-row {
+  display: flex;
+  align-items: center;
+  border-radius: var(--left-nav-row-radius);
+}
+.workspace-task-stage-row:hover { background: var(--left-nav-hover-bg); }
+.workspace-task-stage-row.is-active { background: var(--left-nav-active-bg); }
 .workspace-task-stage {
   display: flex;
   width: 100%;
@@ -148,10 +157,23 @@
   cursor: pointer;
   text-align: left;
 }
-.workspace-task-stage:hover { background: var(--left-nav-hover-bg); }
-.workspace-task-stage.is-active {
-  background: var(--left-nav-active-bg);
+/* With a fold toggle beside it, the nav button flexes to fill the rest. */
+.workspace-task-stage-row > .workspace-task-stage { flex: 1; min-width: 0; width: auto; }
+.workspace-task-stage__toggle {
+  flex-shrink: 0;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--left-nav-row-radius);
+  background: transparent;
+  color: #c6cbd1;
+  cursor: pointer;
 }
+.workspace-task-stage__toggle:hover { color: #57606a; }
+.workspace-task-stage__toggle > svg { transition: transform 0.12s; }
+.workspace-task-stage__toggle.is-open > svg { transform: rotate(90deg); }
 .workspace-task-stage.is-automatic,
 .workspace-task-stage.is-automatic:disabled {
   cursor: default;

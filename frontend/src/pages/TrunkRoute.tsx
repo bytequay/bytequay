@@ -118,11 +118,22 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
       sawRunningRef.current = false;
     }
   }, [replyCount, awaitedAt, thread?.status]);
-  // The agent is working whenever the thread process is RUNNING — not just
-  // right after the user's own submit. An autonomous multi-step turn (cut a
-  // task, run tools, reply, run more) keeps the indicator up the whole time,
-  // even across intermediate messages, so a quiet gap never reads as dead.
-  const working = busy || awaitedAt !== null || thread?.status === 'RUNNING';
+  // The trunk is working only while its OWN turn is in flight. thread.status
+  // alone is wrong: a cut task and its trunk share one threads row, so a running
+  // task STAGE flips thread.status to RUNNING even after the trunk's turn ended —
+  // which lit "Trunk is working" for the task's work. Gate on BOTH the shared
+  // row being RUNNING and the newest trunk-scope (taskId === null) row not being
+  // turn-terminal: once the trunk turn closes it leaves a turn_done as its last
+  // trunk row, so subsequent stage activity (which appends only task-scoped
+  // rows) can't masquerade as the trunk working. Still holds the indicator up
+  // across a multi-step trunk turn, since that leaves a non-terminal tail.
+  const lastTrunkRow = [...messages].reverse().find(m => m.taskId === null);
+  const trunkTurnRunning = thread?.status === 'RUNNING'
+    && lastTrunkRow !== undefined
+    && lastTrunkRow.type !== 'turn_done'
+    && lastTrunkRow.type !== 'session_ended'
+    && lastTrunkRow.type !== 'error';
+  const working = busy || awaitedAt !== null || trunkTurnRunning;
 
   const load = useCallback(async () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;

@@ -196,6 +196,32 @@ describe('TrunkRoute', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
+  it('keeps the Working banner hidden when only a cut task\'s stage is running', async () => {
+    // The trunk turn already ended (its last trunk-scope row is a turn_done),
+    // but the cut task's dev stage is still running — and since the task shares
+    // the trunk's threads row, thread.status reads RUNNING. The banner must NOT
+    // treat that stage work as the trunk working.
+    mockBridge({
+      getTask: vi.fn().mockResolvedValue({
+        id: 't1', title: 'Backend cleanup', createdAt: '2026-06-24T00:00:00Z',
+        workspaceId: 'ws-1', status: 'RUNNING',
+      }),
+      getTaskIndex: vi.fn().mockResolvedValue({
+        threadId: 't1', totalUserMessages: 1, entries: [], loadedFromSeq: null, nextCursor: null,
+        messages: [
+          { id: 'm1', threadId: 't1', taskId: null, seq: 1, role: 'user', type: 'text', contentJson: JSON.stringify({ text: 'cut the task' }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:00:00Z' },
+          { id: 'm2', threadId: 't1', taskId: null, seq: 2, role: 'assistant', type: 'text', contentJson: JSON.stringify({ text: 'Task cut.' }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:00:05Z' },
+          { id: 'm3', threadId: 't1', taskId: null, seq: 3, role: 'system', type: 'turn_done', contentJson: '{}', durationMs: 1000, tokensIn: null, ts: '2026-06-24T10:00:06Z' },
+          // The running stage appends only task-scoped rows.
+          { id: 'm4', threadId: 't1', taskId: 'task-1', seq: 4, role: 'assistant', type: 'text', contentJson: JSON.stringify({ text: 'editing files' }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:05:00Z' },
+        ],
+      }),
+    });
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+    await screen.findAllByText('Add meter');
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('reports the loaded thread\'s own workspace id', async () => {
     const onWorkspaceResolved = vi.fn();
     mockBridge();

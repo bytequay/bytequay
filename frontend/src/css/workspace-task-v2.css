@@ -482,7 +482,8 @@
 .task-brain.workspace-task-v2 .shell .sp-headline::before,
 .task-brain.workspace-task-v2 .shell .sp-work::before,
 .task-brain.workspace-task-v2 .shell .sp-bmsg::before {
-  left: -28px;
+  /* 13px marker (border-box) centred on the 2px rail at x=12: 36 - 30.5 + 6.5 = 12. */
+  left: -30.5px;
   border-color: #d0d7de;
   background: #fff;
 }

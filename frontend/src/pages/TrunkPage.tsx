@@ -25,9 +25,7 @@ import {
   type TrunkActivityItemDto,
   type WorkspaceBacklogItemDto,
   type WorkspaceOverviewDto,
-  type WorkspaceSessionDto,
 } from '../workspace/workspaceApi';
-import ProviderUsagePanel from '../workspace/ProviderUsagePanel';
 import { useTrunkPane } from './useTrunkPane';
 
 const READY_BACKLOG_STATUSES = new Set(['open', 'created']);
@@ -152,7 +150,6 @@ export function TrunkPage({
   const pullRequestCount = pane.activity.pullRequestCount
     ?? [...tasks.active, ...tasks.closed].filter(task => task.prNumber !== undefined).length;
   const cost = (pane.activity.costUsdMilli ?? 0) / 1000;
-  const trunkUsage = sumUsage(panel.sessions.filter(session => session.trunkId === threadId));
   const compactHistoryTasks = historyTasks
     ?? tasks.closed.slice(0, Math.max(0, tasks.closed.length - 1));
 
@@ -252,7 +249,6 @@ export function TrunkPage({
                   images={composer.images}
                   onImagesChange={composer.onImagesChange}
                   meta={`${taskCount} tasks · ${pullRequestCount} PRs · $${cost.toFixed(2)} this thread`}
-                  usage={{ tokensIn: trunkUsage.tokensIn, tokensOut: trunkUsage.tokensOut }}
                 />
               )}
             </div>
@@ -261,8 +257,6 @@ export function TrunkPage({
                 workspaceId={thread.workspaceId}
                 workspaceName={panel.overview?.workspace.name ?? 'Workspace'}
                 overview={panel.overview}
-                sessions={panel.sessions}
-                trunkUsage={trunkUsage}
                 pullRequests={panel.pullRequests}
                 workspaceBacklog={panel.backlog}
                 trunkBacklog={readyBacklog}
@@ -289,8 +283,6 @@ function WorkspaceOverviewPanel({
   workspaceId,
   workspaceName,
   overview,
-  sessions,
-  trunkUsage,
   pullRequests,
   workspaceBacklog,
   trunkBacklog,
@@ -308,8 +300,6 @@ function WorkspaceOverviewPanel({
   workspaceId?: string;
   workspaceName: string;
   overview: WorkspaceOverviewDto | null;
-  sessions: WorkspaceSessionDto[];
-  trunkUsage: ModelUsage;
   pullRequests: PullRequestDto[];
   workspaceBacklog: WorkspaceBacklogItemDto[];
   trunkBacklog: BacklogItemDto[];
@@ -334,9 +324,6 @@ function WorkspaceOverviewPanel({
     .slice(0, 2);
   const pullRequestTotal = overview?.sidebarCounts.pullRequests ?? openPullRequests.length;
   const runningSessionId = runningSession?.sessionId;
-  const midnight = new Date();
-  midnight.setHours(0, 0, 0, 0);
-  const todayUsage = sumUsage(sessions.filter(session => session.startedAt >= midnight.getTime()));
 
   const openPath = (suffix: string) => {
     if (workspaceId !== undefined) window.location.hash = `#/workspace/${workspaceId}/${suffix}`;
@@ -439,17 +426,6 @@ function WorkspaceOverviewPanel({
             </div>
           ) : <p className="trunk-page-v2__overview-empty">Backlog is clear.</p>}
         </section>
-
-        <section>
-          <h3>USAGE</h3>
-          <ProviderUsagePanel />
-          <h4 className="trunk-page-v2__usage-subtitle">MODEL ACTIVITY</h4>
-          <div className="trunk-page-v2__usage">
-            <div><span>Input</span><strong>{formatTokens(trunkUsage.tokensIn)}</strong></div>
-            <div><span>Output</span><strong>{formatTokens(trunkUsage.tokensOut)}</strong></div>
-            <div><span>Today</span><strong>{formatTokens(todayUsage.tokensIn + todayUsage.tokensOut)} · {todayUsage.runs} {todayUsage.runs === 1 ? 'run' : 'runs'}</strong></div>
-          </div>
-        </section>
       </div>
     </aside>
   );
@@ -459,20 +435,18 @@ type WorkspacePanelData = {
   overview: WorkspaceOverviewDto | null;
   pullRequests: PullRequestDto[];
   backlog: WorkspaceBacklogItemDto[];
-  sessions: WorkspaceSessionDto[];
 };
 
 function useWorkspacePanelData(workspaceId: string | undefined): WorkspacePanelData {
   const [data, setData] = useState<WorkspacePanelData>({
-    overview: null, pullRequests: [], backlog: [], sessions: [],
+    overview: null, pullRequests: [], backlog: [],
   });
   const load = useCallback(async () => {
     if (workspaceId === undefined || window.bridge?.workspaceApi === undefined) return;
-    const [overview, pullRequests, backlog, sessions] = await Promise.allSettled([
+    const [overview, pullRequests, backlog] = await Promise.allSettled([
       workspaceApi.overview(workspaceId),
       workspaceApi.pullRequests(workspaceId),
       workspaceApi.backlog(workspaceId),
-      workspaceApi.sessions(workspaceId),
     ]);
     setData(current => ({
       overview: overview.status === 'fulfilled' && isWorkspaceOverview(overview.value)
@@ -481,32 +455,16 @@ function useWorkspacePanelData(workspaceId: string | undefined): WorkspacePanelD
         ? pullRequests.value : current.pullRequests,
       backlog: backlog.status === 'fulfilled' && Array.isArray(backlog.value)
         ? backlog.value : current.backlog,
-      sessions: sessions.status === 'fulfilled' && Array.isArray(sessions.value)
-        ? sessions.value : current.sessions,
     }));
   }, [workspaceId]);
 
   useEffect(() => {
-    setData({ overview: null, pullRequests: [], backlog: [], sessions: [] });
+    setData({ overview: null, pullRequests: [], backlog: [] });
     void load();
     const timer = window.setInterval(() => { void load(); }, 5000);
     return () => window.clearInterval(timer);
   }, [load]);
   return data;
-}
-
-type ModelUsage = { tokensIn: number; tokensOut: number; runs: number };
-
-function sumUsage(sessions: WorkspaceSessionDto[]): ModelUsage {
-  return sessions.reduce<ModelUsage>((usage, session) => ({
-    tokensIn: usage.tokensIn + session.tokensIn,
-    tokensOut: usage.tokensOut + session.tokensOut,
-    runs: usage.runs + 1,
-  }), { tokensIn: 0, tokensOut: 0, runs: 0 });
-}
-
-function formatTokens(tokens: number): string {
-  return `${tokens.toLocaleString('en-US')} tokens`;
 }
 
 function isWorkspaceOverview(value: unknown): value is WorkspaceOverviewDto {

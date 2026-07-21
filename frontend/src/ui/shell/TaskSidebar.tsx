@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentReviewData } from '../../review/agentReviewTypes';
 import {
@@ -181,6 +182,11 @@ export function StagesList({ nodes, highlightActive = true, onNavigate }: {
   highlightActive?: boolean;
   onNavigate: (nav: LivePlanNav) => void;
 }) {
+  // Explicit per-node fold state for the phase ladder, keyed by node key.
+  // Absent = collapsed: the sub-steps open only when the user clicks the
+  // node's chevron (mirroring the plan diagram's disclosure), so a running
+  // stage's steps don't bury the rest of the rail.
+  const [openPhases, setOpenPhases] = useState<Record<string, boolean>>({});
   return (
     <div className="workspace-task-stages">
       {nodes.map(node => {
@@ -188,24 +194,39 @@ export function StagesList({ nodes, highlightActive = true, onNavigate }: {
         const active = highlightActive && node.activeView && !cleanup;
         const disabled = cleanup || node.nav.kind === 'none';
         const title = cleanup ? 'Runs automatically — no agent page' : 'Open agent page';
+        const hasPhases = !cleanup && node.phases !== undefined && node.phases.length > 0;
+        const open = openPhases[node.key] ?? false;
         return (
           <div className="workspace-task-stage-group" key={node.key}>
-            <button
-              type="button"
-              className={`workspace-task-stage tone-${stageTone(node)}${active ? ' is-active' : ''}${cleanup ? ' is-automatic' : ''}`}
-              title={title}
-              disabled={disabled}
-              onClick={() => onNavigate(node.nav)}
-            >
-              <StageStatusIcon node={node} />
-              <span className="workspace-task-stage__copy">
-                <strong>{node.label}</strong>
-                <span>{stageMetric(node)}</span>
-              </span>
-              <small className={`is-${node.status}`}>{stageStatusLabel(node)}</small>
-              {!cleanup && <ChevronIcon size={11} />}
-            </button>
-            {active && node.phases !== undefined && node.phases.length > 0 && (
+            <div className={`workspace-task-stage-row${active ? ' is-active' : ''}`}>
+              <button
+                type="button"
+                className={`workspace-task-stage tone-${stageTone(node)}${active ? ' is-active' : ''}${cleanup ? ' is-automatic' : ''}`}
+                title={title}
+                disabled={disabled}
+                onClick={() => onNavigate(node.nav)}
+              >
+                <StageStatusIcon node={node} />
+                <span className="workspace-task-stage__copy">
+                  <strong>{node.label}</strong>
+                  <span>{stageMetric(node)}</span>
+                </span>
+                <small className={`is-${node.status}`}>{stageStatusLabel(node)}</small>
+                {!cleanup && !hasPhases && <ChevronIcon size={11} />}
+              </button>
+              {hasPhases && (
+                <button
+                  type="button"
+                  className={`workspace-task-stage__toggle${open ? ' is-open' : ''}`}
+                  aria-expanded={open}
+                  aria-label={open ? `Collapse ${node.label}` : `Expand ${node.label}`}
+                  onClick={() => setOpenPhases(prev => ({ ...prev, [node.key]: !open }))}
+                >
+                  <ChevronIcon size={11} />
+                </button>
+              )}
+            </div>
+            {open && hasPhases && node.phases !== undefined && (
               <div className="workspace-task-stage__plan">
                 {node.phases.map(phase => (
                   <StagePlanRow key={phase.key} phase={phase} onNavigate={onNavigate} />

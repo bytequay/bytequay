@@ -40,6 +40,26 @@ describe('TaskSidebar', () => {
     expect(screen.getByText('Cleanup')).toBeTruthy();
   });
 
+  it('folds a stage\'s steps behind its chevron — collapsed until clicked', () => {
+    render(
+      <TaskSidebar
+        task={{ title: 'x', branch: 'b' }}
+        nodes={nodes}
+      />,
+    );
+    // Every stage starts collapsed — no sub-step ladder is shown up front.
+    expect(document.querySelector('.workspace-task-stage__plan')).toBeNull();
+    // Local Development has steps, so it exposes a fold toggle; clicking it
+    // discloses the ladder in place (the nav button stays separate).
+    const toggle = screen.getByRole('button', { name: 'Expand Local Development' });
+    fireEvent.click(toggle);
+    expect(document.querySelector('.workspace-task-stage__plan')).not.toBeNull();
+    expect(screen.getByText('Local review')).toBeTruthy();
+    // The same chevron collapses it again.
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Local Development' }));
+    expect(document.querySelector('.workspace-task-stage__plan')).toBeNull();
+  });
+
   it('shows the done-count with the same bottom navigation as Home', () => {
     render(
       <TaskSidebar

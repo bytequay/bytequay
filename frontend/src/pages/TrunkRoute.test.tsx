@@ -94,6 +94,22 @@ describe('TrunkRoute', () => {
     await waitFor(() => expect(bridge.sendTrunkMessage).toHaveBeenCalledWith('t1', 'cut a task', []));
   });
 
+  it('revives an errored trunk from the visible recovery action', async () => {
+    const resumeTask = vi.fn().mockResolvedValue(undefined);
+    mockBridge({
+      getTask: vi.fn().mockResolvedValue({
+        id: 't1', title: 'Backend cleanup', createdAt: '2026-06-24T00:00:00Z', workspaceId: 'ws-1',
+        status: 'ERRORED', errorMessage: 'permission MCP unavailable',
+      }),
+      resumeTask,
+    });
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Resume thread' }));
+
+    await waitFor(() => expect(resumeTask).toHaveBeenCalledWith('t1'));
+  });
+
   it('opening a task-cut card fires onOpenTask', async () => {
     mockBridge();
     const onOpenTask = vi.fn();

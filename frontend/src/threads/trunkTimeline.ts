@@ -25,6 +25,7 @@ export function extractText(contentJson: string): string {
       if (typeof o.text === 'string') return o.text;
       if (typeof o.content === 'string') return o.content;
       if (typeof o.summary === 'string') return o.summary;
+      if (typeof o.message === 'string') return o.message;
     }
   }
   catch { /* non-JSON envelope */ }
@@ -128,7 +129,7 @@ export type TrunkItem =
 /** The message type the backend writes to the trunk on task completion. */
 export const TASK_SUMMARY_TYPE = 'task_summary';
 
-const PLANNING_TYPES = new Set(['text', 'thinking', 'tool_call', 'permission_request']);
+const PLANNING_TYPES = new Set(['text', 'thinking', 'tool_call', 'permission_request', 'error']);
 
 /** Read a task-completion marker's envelope: {text, taskId, taskSeq}. */
 function parseSummary(m: ThreadMessageDto): TrunkSummary {

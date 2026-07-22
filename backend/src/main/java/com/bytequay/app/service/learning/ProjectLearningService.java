@@ -34,7 +34,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -62,11 +64,21 @@ public class ProjectLearningService
     private static final Logger log = LoggerFactory.getLogger(ProjectLearningService.class);
     private static final int EXTRACTOR_VERSION = 1;
 
+    /** Cataloged rows pre-ranked per analysis pass before module-coverage selection. */
+    private static final int PRERANK_LIMIT = 500;
+    /** PRs promoted to 'selected' per pass — bounds the evidence-fetch fan-out. */
+    private static final int SELECT_LIMIT = 50;
+    /** Selected rows analyzed per pass; the loop repeats until the queue drains. */
+    private static final int ANALYZE_BATCH = 25;
+
     private final ProjectLearningStore store;
     private final WorkspaceRepositoryResolver repositories;
     private final WatchedRepoStore watchedRepos;
     private final DocumentIndexer indexer;
     private final MergedPrCatalog catalog;
+    private final PrPriorityScorer scorer;
+    private final ModuleCoverageSelector selector;
+    private final PrEvidenceFetcher evidenceFetcher;
     private final PatResolver patResolver;
     private final ObjectMapper json;
     private final Set<String> activeJobs = ConcurrentHashMap.newKeySet();
@@ -77,6 +89,9 @@ public class ProjectLearningService
             WatchedRepoStore watchedRepos,
             DocumentIndexer indexer,
             MergedPrCatalog catalog,
+            PrPriorityScorer scorer,
+            ModuleCoverageSelector selector,
+            PrEvidenceFetcher evidenceFetcher,
             PatResolver patResolver,
             ObjectMapper json)
     {
@@ -85,6 +100,9 @@ public class ProjectLearningService
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.indexer = requireNonNull(indexer, "indexer is null");
         this.catalog = requireNonNull(catalog, "catalog is null");
+        this.scorer = requireNonNull(scorer, "scorer is null");
+        this.selector = requireNonNull(selector, "selector is null");
+        this.evidenceFetcher = requireNonNull(evidenceFetcher, "evidenceFetcher is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.json = requireNonNull(json, "json is null");
     }
@@ -181,7 +199,8 @@ public class ProjectLearningService
     void execute(String id)
     {
         ProjectLearningRun run = store.findRun(id).orElse(null);
-        if (run == null || (!run.isLive() && !"partial".equals(run.state()))) {
+        if (run == null
+                || (!run.isLive() && !"partial".equals(run.state()) && !"analyzing".equals(run.state()))) {
             return;
         }
         try {
@@ -204,7 +223,13 @@ public class ProjectLearningService
                         docs.capsuleMd(), docs.sourceDigest(), Instant.now().toEpochMilli());
             }
 
-            catalogHistory(run, identity.fullName(), head);
+            boolean caughtUp = catalogHistory(run, identity.fullName(), head);
+            if (caughtUp) {
+                // Deterministic Phase 2: rank + snapshot-pinned evidence. Runs on
+                // the same background thread once the catalog is complete; leaves
+                // the run terminal at 'caught-up' when the analysis queue drains.
+                analyze(run, identity.fullName(), clone, head);
+            }
         }
         catch (RuntimeException e) {
             log.warn("project learning run {} failed: {}", id, e.getMessage());
@@ -212,7 +237,8 @@ public class ProjectLearningService
         }
     }
 
-    private void catalogHistory(ProjectLearningRun run, String repoFullName, String head)
+    /** Returns true when the catalog reached caught-up (analysis may proceed). */
+    private boolean catalogHistory(ProjectLearningRun run, String repoFullName, String head)
     {
         String pat = patResolver.resolve(repoFullName);
         CatalogCursor start = run.catalogCursor() == null
@@ -245,12 +271,121 @@ public class ProjectLearningService
         if (outcome.state() == MergedPrCatalog.State.CAUGHT_UP) {
             store.updateRun(run.id(), "caught-up", head, writeCursor(outcome.cursor()),
                     counts(run), now, null, now);
+            return true;
         }
-        else {
-            // Partial: visible via state + last_error, retryable via the
-            // preserved cursor.
-            store.updateRun(run.id(), "partial", head, writeCursor(outcome.cursor()),
-                    counts(run), null, outcome.error(), now);
+        // Partial: visible via state + last_error, retryable via the
+        // preserved cursor.
+        store.updateRun(run.id(), "partial", head, writeCursor(outcome.cursor()),
+                counts(run), null, outcome.error(), now);
+        return false;
+    }
+
+    // ── analysis (Phase 2) ──────────────────────────────────────────
+
+    /**
+     * Rank cataloged PRs and build snapshot-pinned evidence bundles. Resumable:
+     * selection persists 'selected' rows and analysis flips them to 'analyzed',
+     * so a restart picks up the unfinished queue. Marks the run terminal at
+     * 'caught-up' when the queue drains (a crash mid-analysis parks it at
+     * 'analyzing', which {@link #recover()} re-launches).
+     */
+    private void analyze(ProjectLearningRun run, String repoFullName, Path clone, String head)
+    {
+        markState(run, "analyzing", head);
+        selectBatch(run);
+
+        String pat = patResolver.resolve(repoFullName);
+        while (true) {
+            var selected = store.selectedSources(run.workspaceId(), run.repo(), ANALYZE_BATCH);
+            if (selected.isEmpty()) {
+                break;
+            }
+            for (RepoPrSource source : selected) {
+                analyzeOne(run, repoFullName, pat, clone, head, source);
+            }
+        }
+
+        long now = Instant.now().toEpochMilli();
+        store.updateRun(run.id(), "caught-up", head, run.catalogCursor(),
+                counts(run), now, null, now);
+    }
+
+    /** Pre-rank cataloged rows and promote a module-covering batch to 'selected'. */
+    private void selectBatch(ProjectLearningRun run)
+    {
+        var cataloged = store.catalogedSources(run.workspaceId(), run.repo(), PRERANK_LIMIT);
+        if (cataloged.isEmpty()) {
+            return;
+        }
+        Map<Integer, Double> scoreByPr = new LinkedHashMap<>();
+        var candidates = new ArrayList<ModuleCoverageSelector.Candidate>();
+        for (RepoPrSource source : cataloged) {
+            double pre = scorer.preRank(source);
+            scoreByPr.put(source.prNumber(), pre);
+            candidates.add(new ModuleCoverageSelector.Candidate(
+                    source.prNumber(), pre, modulesOf(source)));
+        }
+        for (int prNumber : selector.select(candidates, SELECT_LIMIT)) {
+            store.markSelected(run.workspaceId(), run.repo(), prNumber,
+                    scoreByPr.getOrDefault(prNumber, 0.0));
+        }
+    }
+
+    private void analyzeOne(
+            ProjectLearningRun run, String repoFullName, String pat, Path clone, String head,
+            RepoPrSource source)
+    {
+        long now = Instant.now().toEpochMilli();
+        try {
+            PrEvidenceBundle bundle = evidenceFetcher.fetch(
+                    pat, run.workspaceId(), repoFullName, source.prNumber(),
+                    authorOf(source), clone, head);
+            double score = scorer.refine(source, bundle, bundle.chains());
+            store.persistEvidence(bundle, score, now);
+            store.markAnalyzed(run.workspaceId(), run.repo(), source.prNumber(),
+                    score, bundle.mergeSha(), now);
+        }
+        catch (RuntimeException e) {
+            // Don't fail the whole run on one PR — mark it analyzed with the
+            // pre-rank score so the queue drains and the run can complete.
+            log.warn("evidence analysis failed for {}#{}: {}",
+                    repoFullName, source.prNumber(), e.getMessage());
+            store.markAnalyzed(run.workspaceId(), run.repo(), source.prNumber(),
+                    source.priorityScore() == null ? 0.0 : source.priorityScore(), null, now);
+        }
+    }
+
+    private String authorOf(RepoPrSource source)
+    {
+        return metaText(source, "author");
+    }
+
+    /** Coarse module hints from the head branch name, for coverage selection. */
+    private Set<String> modulesOf(RepoPrSource source)
+    {
+        String headRef = metaText(source, "headRef");
+        if (headRef == null || headRef.isBlank()) {
+            return Set.of();
+        }
+        // "feature/scheduler/fix" -> "scheduler"; "fix-parser" -> "fix".
+        String[] parts = headRef.split("[/_-]");
+        for (String part : parts) {
+            if (!part.isBlank()) {
+                return Set.of(part.toLowerCase(Locale.ROOT));
+            }
+        }
+        return Set.of();
+    }
+
+    private String metaText(RepoPrSource source, String field)
+    {
+        try {
+            var node = json.readTree(source.metadataJson() == null ? "{}" : source.metadataJson());
+            var value = node.get(field);
+            return value == null || value.isNull() ? null : value.asText();
+        }
+        catch (IOException e) {
+            return null;
         }
     }
 

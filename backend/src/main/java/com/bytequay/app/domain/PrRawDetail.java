@@ -31,6 +31,11 @@ import java.util.List;
  * written before the terminal-state columns existed, and on the
  * backward-compat constructor used by callers that don't carry it.
  * @param merged True when the PR landed (merged) rather than closed unmerged.
+ * @param baseSha The base-side commit SHA (base.sha from the pulls payload).
+ * Null on legacy rows and on the backward-compat constructors — the
+ * dashboard cache never persisted it. Needed to pin evidence bundles.
+ * @param mergeCommitSha The merge commit SHA GitHub created when the PR
+ * landed (merge_commit_sha). Null when the PR is unmerged or on legacy rows.
  */
 public record PrRawDetail(
         String body,
@@ -49,8 +54,36 @@ public record PrRawDetail(
         String baseRef,
         String baseRepo,
         String state,
-        boolean merged)
+        boolean merged,
+        String baseSha,
+        String mergeCommitSha)
 {
+    /** Backward-compat constructor for callers that carry terminal PR state
+     *  but not the pinning SHAs: defaults both to null. */
+    public PrRawDetail(
+            String body,
+            List<String> labels,
+            boolean draft,
+            Boolean mergeable,
+            String mergeableState,
+            int additions,
+            int deletions,
+            int changedFiles,
+            int requestedReviewerCount,
+            List<String> requestedReviewers,
+            String headSha,
+            String headRef,
+            String headRepo,
+            String baseRef,
+            String baseRepo,
+            String state,
+            boolean merged)
+    {
+        this(body, labels, draft, mergeable, mergeableState, additions, deletions, changedFiles,
+                requestedReviewerCount, requestedReviewers, headSha, headRef, headRepo, baseRef,
+                baseRepo, state, merged, null, null);
+    }
+
     /** Backward-compat constructor for callers (mostly tests) that don't
      *  carry terminal PR state: defaults to open / not-merged. */
     public PrRawDetail(
@@ -72,6 +105,6 @@ public record PrRawDetail(
     {
         this(body, labels, draft, mergeable, mergeableState, additions, deletions, changedFiles,
                 requestedReviewerCount, requestedReviewers, headSha, headRef, headRepo, baseRef,
-                baseRepo, null, false);
+                baseRepo, null, false, null, null);
     }
 }

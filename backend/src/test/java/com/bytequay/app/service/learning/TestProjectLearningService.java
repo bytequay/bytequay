@@ -78,6 +78,9 @@ class TestProjectLearningService
         resolver = mock(WorkspaceRepositoryResolver.class);
         watchedRepos = mock(WatchedRepoStore.class);
         PatResolver patResolver = mock(PatResolver.class);
+        PrPriorityScorer scorer = new PrPriorityScorer(new ObjectMapper());
+        ModuleCoverageSelector selector = new ModuleCoverageSelector();
+        PrEvidenceFetcher evidenceFetcher = mock(PrEvidenceFetcher.class);
 
         when(resolver.resolve("ws-1")).thenReturn(new WorkspaceRepositoryResolver
                 .RepositoryIdentity("acme", "widget", "acme/widget", "main"));
@@ -88,7 +91,7 @@ class TestProjectLearningService
                 .thenReturn(new DocumentIndexer.IndexResult(0, "capsule", "digest"));
 
         service = new ProjectLearningService(store, resolver, watchedRepos, indexer,
-                catalog, patResolver, new ObjectMapper());
+                catalog, scorer, selector, evidenceFetcher, patResolver, new ObjectMapper());
     }
 
     @Test

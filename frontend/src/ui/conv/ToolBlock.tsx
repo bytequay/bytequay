@@ -22,11 +22,14 @@ import type { ReactNode } from 'react';
  * plan-family tools. Controlled when `open`/`onToggle` are supplied,
  * otherwise self-managed.
  */
-export function ToolBlock({ tag, plan = false, desc, meta, children, open, onToggle, defaultOpen = false, icon }: {
+export function ToolBlock({ tag, plan = false, desc, descTail = false, meta, children, open, onToggle, defaultOpen = false, icon }: {
   tag: ReactNode;
   /** Purple plan-family tag tint. */
   plan?: boolean;
   desc: ReactNode;
+  /** Head-truncate the desc (ellipsis on the left) so a file path's tail
+   *  stays visible instead of its interchangeable directory prefix. */
+  descTail?: boolean;
   meta?: ReactNode;
   /** The code/result body, shown when expanded. */
   children?: ReactNode;
@@ -52,7 +55,7 @@ export function ToolBlock({ tag, plan = false, desc, meta, children, open, onTog
         {hasBody && <span className="disc" aria-hidden>{expanded ? '▾' : '▸'}</span>}
         {icon !== undefined && <span className="t-ic" aria-hidden>{icon}</span>}
         <span className={plan ? 'tag plan' : 'tag'}>{tag}</span>
-        <span className="desc">{desc}</span>
+        <span className={descTail ? 'desc desc--tail' : 'desc'}>{desc}</span>
         {meta !== undefined && <span className="meta">{meta}</span>}
       </button>
       {hasBody && expanded && <div className="body-code">{children}</div>}

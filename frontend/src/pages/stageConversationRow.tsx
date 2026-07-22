@@ -39,13 +39,15 @@ function verbIcon(tag: string): ReactNode {
 /** The tool-block description: the tool name plus its command / target
  *  (the Bash command, the edited file, the search pattern…) so the row
  *  shows what actually ran, not just "Bash" — and never renders blank
- *  (which read as an empty line). */
-function toolDesc(label: string | null, detail: string | null): ReactNode {
+ *  (which read as an empty line). When the tool name merely repeats the
+ *  coarse tag pill it's dropped so a Read reads "Read /path", not the
+ *  doubled "Read Read /path"; "Run Bash …" keeps both since they differ. */
+function toolDesc(label: string | null, detail: string | null, tag?: string): ReactNode {
   const name = nonBlank(label);
   const arg = nonBlank(detail);
   if (name === null && arg === null) return 'Tool call';
   if (arg === null) return name;
-  if (name === null) return <span className="tool-arg">{arg}</span>;
+  if (name === null || name === tag) return <span className="tool-arg">{arg}</span>;
   return <>{name} <span className="tool-arg">{arg}</span></>;
 }
 
@@ -198,16 +200,23 @@ export function stageRow(
       // No "Agent" who-row — tool calls render as bare blocks so a run of
       // them doesn't repeat the redundant agent header on every line. Tag
       // falls back to "Tool" so the block never collapses to a blank line.
-      return (
-        <ToolBlock
-          key={r.id}
-          tag={nonBlank(r.toolTag) ?? 'Tool'}
-          icon={verbIcon(nonBlank(r.toolTag) ?? 'Tool')}
-          desc={toolDesc(r.toolLabel, r.toolDetail)}
-        >
-          {r.toolResult ?? r.toolDiff ?? undefined}
-        </ToolBlock>
-      );
+      {
+        const tag = nonBlank(r.toolTag) ?? 'Tool';
+        // Read/Write args are file paths — head-truncate so the filename tail
+        // stays visible when the worktree prefix overflows the row.
+        const pathArg = tag === 'Read' || tag === 'Write';
+        return (
+          <ToolBlock
+            key={r.id}
+            tag={tag}
+            icon={verbIcon(tag)}
+            desc={toolDesc(r.toolLabel, r.toolDetail, tag)}
+            descTail={pathArg}
+          >
+            {r.toolResult ?? r.toolDiff ?? undefined}
+          </ToolBlock>
+        );
+      }
     case 'permission':
       if (onDecide && r.callId) {
         return (

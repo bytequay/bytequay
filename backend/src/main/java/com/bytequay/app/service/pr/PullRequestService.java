@@ -652,7 +652,8 @@ public class PullRequestService
      * a sensible size so a 50MB job log doesn't crater the renderer.
      * Empty string when GitHub doesn't expose a log for this check
      * (external CI, expired log, missing PAT scope) — the frontend
-     * shows a "log unavailable" hint in that case.
+     * shows a "log unavailable" hint in that case. Each invocation fetches
+     * GitHub directly; raw CI logs are never served from a local cache.
      */
     public String getCheckRunLog(String repo, long checkRunId)
     {
@@ -711,7 +712,7 @@ public class PullRequestService
         PullRequestRef ref = parseRef(repo, number);
         PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
         List<PrCheckRunState> runs = raw != null && raw.headSha() != null
-                ? gitHub.fetchPrCheckRuns(pat, ref.owner(), ref.repo(), raw.headSha())
+                ? gitHub.fetchPrCheckRunsStrict(pat, ref.owner(), ref.repo(), raw.headSha())
                 : ImmutableList.of();
         RepoRef repoRef = RepoRef.of(ref.owner(), ref.repo());
         boolean viewerCanWrite = responseCache.getViewerCanWrite(

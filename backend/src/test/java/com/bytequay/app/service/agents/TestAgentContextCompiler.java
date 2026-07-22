@@ -66,6 +66,26 @@ class TestAgentContextCompiler
     }
 
     @Test
+    void remoteCiReadsAreAvailableEquallyInCliAndApiLanes()
+    {
+        ThreadTurn turn = turn("task-1");
+        for (StageType stage : List.of(
+                StageType.REMOTE_DEVELOPMENT_STAGE,
+                StageType.REVIEW_MONITOR_STAGE,
+                StageType.CI_FIXING_STAGE)) {
+            ResolvedAgentContext cli = compiler.resolve(ThreadKind.CLI_AGENT, turn, stage);
+            ResolvedAgentContext api = compiler.resolve(ThreadKind.LOGIC_LOOP, turn, stage);
+
+            assertThat(api).isEqualTo(cli);
+            assertThat(cli.toolNames()).contains("read_remote_pr_status", "read_ci_log");
+        }
+
+        assertThat(compiler.resolve(
+                ThreadKind.CLI_AGENT, turn, StageType.DEVELOPMENT_STAGE).toolNames())
+                .doesNotContain("read_ci_log");
+    }
+
+    @Test
     void roleIsThePermissionAndResourceCeiling()
     {
         ResolvedAgentContext trunk = compiler.resolve(

@@ -319,6 +319,18 @@ public class GitHubClient
     @Override
     public List<PrCheckRunState> fetchPrCheckRuns(String pat, String owner, String repo, String sha)
     {
+        return fetchPrCheckRuns(pat, owner, repo, sha, false);
+    }
+
+    @Override
+    public List<PrCheckRunState> fetchPrCheckRunsStrict(String pat, String owner, String repo, String sha)
+    {
+        return fetchPrCheckRuns(pat, owner, repo, sha, true);
+    }
+
+    private List<PrCheckRunState> fetchPrCheckRuns(
+            String pat, String owner, String repo, String sha, boolean strict)
+    {
         // GitHub's /commits/{sha}/check-runs defaults to per_page=30 and
         // does NOT auto-aggregate across pages. Repos with large CI
         // matrices (Trino, Spark, etc.) routinely run 50+ check-runs
@@ -359,6 +371,11 @@ public class GitHubClient
                 }
             }
             catch (RestClientResponseException e) {
+                if (strict) {
+                    // An empty/partial list is indistinguishable from "no CI"
+                    // to live CI callers and can overwrite a known failure.
+                    throw toReadableException(e);
+                }
                 break;
             }
         }

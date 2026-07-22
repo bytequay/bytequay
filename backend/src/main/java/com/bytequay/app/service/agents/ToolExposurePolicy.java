@@ -61,14 +61,14 @@ public class ToolExposurePolicy
             "push"));
 
     private static final Set<String> REMOTE_DEVELOPMENT = union(TASK_CORE, Set.of(
-            "read_remote_pr_status", "get_new_updated_ci_fixing_log", "run_checks", "validate",
+            "read_remote_pr_status", "read_ci_log", "get_new_updated_ci_fixing_log", "run_checks", "validate",
             "record_iteration_summary", "record_dev_report", "read_dev_report",
             "record_pr_check", "record_pr_comment", "resolve_pr_comment",
             "list_pr_review_threads", "reply_review_thread", "resolve_review_thread",
             "request_reviewer", "request_review", "push", "ship_task", "mark_ready"));
 
     private static final Set<String> CI_FIXING = union(TASK_CORE, Set.of(
-            "read_remote_pr_status", "get_new_updated_ci_fixing_log", "run_checks", "validate",
+            "read_remote_pr_status", "read_ci_log", "get_new_updated_ci_fixing_log", "run_checks", "validate",
             "record_iteration_summary", "record_dev_report", "read_dev_report",
             "record_pr_check", "list_pr_review_threads", "push", "request_review", "ship_task"));
 

@@ -63,6 +63,18 @@ class TestPullRequestDetailMapper
     }
 
     @Test
+    void allTerminalFailureConclusionsFailTheAggregate()
+    {
+        for (String conclusion : List.of(
+                "failure", "timed_out", "cancelled", "action_required", "startup_failure")) {
+            assertThat(PullRequestDetailMapper.aggregateCiStatus(List.of(
+                    check("build", "completed", conclusion))))
+                    .as(conclusion)
+                    .isEqualTo(CiStatus.FAILING);
+        }
+    }
+
+    @Test
     void countsApprovalsAndChangesRequestedFromReviews()
     {
         List<PrReviewState> reviews = List.of(

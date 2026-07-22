@@ -268,6 +268,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Path args (Read/Write) truncate from the HEAD so the filename tail
+   survives when the worktree prefix overflows — `…/pulls/PrRawDetail.java`
+   instead of `/Users/…/.worktree…`. Same BiDi trick as the diff-pane
+   filename: the Latin glyphs + slashes stay an LTR run inside the RTL box. */
+.shell .tool-block .head .desc--tail {
+  direction: rtl;
+  text-align: left;
+}
 .shell .tool-block .head .meta {
   font-size: 11px;
   color: var(--text-4);
@@ -348,6 +356,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+/* The file-path tail after the label. Head-truncates (ellipsis on the left,
+   same BiDi trick as the diff-pane filename) so the leaf filename survives,
+   and shrinks far ahead of the label so "Running Write:" stays visible. */
+.shell .working__tail {
+  flex: 0 999 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
 }
 .shell .working__elapsed,
 .shell .working__stop { flex: none; }

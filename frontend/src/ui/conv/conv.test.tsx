@@ -79,6 +79,19 @@ describe('Working', () => {
     expect(container.querySelector('.working')?.getAttribute('role')).toBe('status');
   });
 
+  it('splits the path into its own tail element (head-truncated in CSS)', () => {
+    const { container } = render(<Working label="Running Write:" tail="/repo/.worktrees/x/Foo.java" />);
+    // Verb stays in the label; the path is a separate .working__tail so it can
+    // truncate from the head while the label does not.
+    expect(container.querySelector('.working__label')?.textContent).toBe('Running Write:');
+    expect(container.querySelector('.working__tail')?.textContent).toBe('/repo/.worktrees/x/Foo.java');
+  });
+
+  it('omits the tail element when no path is given', () => {
+    const { container } = render(<Working label="Running command: git status" />);
+    expect(container.querySelector('.working__tail')).toBeNull();
+  });
+
   it('shows live tool activity below the current status', () => {
     render(<Working activities={[{
       callId: 'call-1', label: 'Running command', detail: 'git status',

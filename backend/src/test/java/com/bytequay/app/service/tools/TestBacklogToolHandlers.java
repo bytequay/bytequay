@@ -36,7 +36,7 @@ class TestBacklogToolHandlers
     private final BacklogToolHandlers handlers = new BacklogToolHandlers(backlog, mapper);
 
     @Test
-    void proposeCreatesTheItemsAndReturnsTheIds()
+    void proposeCreatesTheItemsAndReturnsLabeledIds()
             throws Exception
     {
         when(backlog.createBatch(eq("t1"), any()))
@@ -50,6 +50,11 @@ class TestBacklogToolHandlers
 
         assertThat(result.isError()).isFalse();
         assertThat(result.text()).contains("grp-1").contains("backlogItemIds");
+        JsonNode payload = mapper.readTree(result.text());
+        assertThat(payload.path("backlogItems").get(0).path("id").asText()).isEqualTo("a");
+        assertThat(payload.path("backlogItems").get(0).path("title").asText()).isEqualTo("A");
+        assertThat(payload.path("backlogItems").get(1).path("id").asText()).isEqualTo("b");
+        assertThat(payload.path("backlogItems").get(1).path("title").asText()).isEqualTo("B");
         verify(backlog).createBatch(eq("t1"), argThat(
                 (List<BacklogService.NewBacklogItem> forwarded) ->
                         forwarded.size() == 2 && "A".equals(forwarded.get(0).title())));

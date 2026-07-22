@@ -585,7 +585,63 @@ class TestAgentToolHandlersCreateTask
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         verify(backlog).resolve("phase-2", "task-42");
-        verify(backlog, never()).list(any());
+        verify(backlog).list(THREAD_ID);
+    }
+
+    @Test
+    void rejectsAnExplicitBacklogIdThatConflictsWithTheApprovedTask()
+            throws Exception
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking"),
+                backlogItem("phase-3", "Project Intelligence Phase 3 — canonical knowledge")));
+        when(threadStore.listRecentMessages(THREAD_ID, 24)).thenReturn(List.of(
+                textMessage(1, null, "assistant", "Cut this as the Phase 2 task?"),
+                textMessage(2, null, "user", "go ahead")));
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Implement Phase 2 PR ranking",
+                        "Implement the approved Phase 2 plan.", null, null, null,
+                        mapper.createObjectNode().put("status", "finalized"), "phase-3", false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        JsonNode payload = mapper.readTree(result.text());
+        assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
+        assertThat(payload.path("reason").asText()).contains("conflicts");
+        assertThat(payload.path("candidates").get(0).path("id").asText())
+                .isEqualTo("phase-2");
+        verify(threads, never()).materialiseTask(any(), any());
+        verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
+    void returnsTheBacklogItemActuallyLinkedToTheTask()
+            throws Exception
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        Task created = mock(Task.class);
+        when(created.id()).thenReturn("task-42");
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
+        BacklogItem phase2 = backlogItem(
+                "phase-2", "Project Intelligence Phase 2 — PR ranking");
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(phase2));
+        when(backlog.resolve("phase-2", "task-42")).thenReturn(phase2);
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Implement Phase 2 PR ranking",
+                        "Implement the approved Phase 2 plan.", null, null, null,
+                        null, "phase-2", false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        JsonNode linked = mapper.readTree(result.text()).path("linkedBacklog");
+        assertThat(linked.path("id").asText()).isEqualTo("phase-2");
+        assertThat(linked.path("title").asText())
+                .isEqualTo("Project Intelligence Phase 2 — PR ranking");
     }
 
     @Test

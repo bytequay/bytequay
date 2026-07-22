@@ -807,7 +807,8 @@ public class AgentToolHandlers
     @AgentTool(
             name = "create_task",
             description = "Cut a new task on this thread. Trunk-only. Returns the new task's "
-                    + "id, branch, worktree path, and seq. A thread may run several tasks at "
+                    + "id, branch, worktree path, seq, and the backlog item actually linked. "
+                    + "A thread may run several tasks at "
                     + "once — each gets its own branch and worktree — so this cuts immediately "
                     + "whether or not other tasks are already live. This is the only way to "
                     + "start a task. Call it only after presenting the plan, asking the user to "
@@ -861,26 +862,40 @@ public class AgentToolHandlers
                 : createTaskTitle(initialPrompt, thread.title());
         String title = shortTitle(rawTitle);
         String backlogItemId = args.backlogItemId();
-        if ((backlogItemId == null || backlogItemId.isBlank())
-                && !args.skipBacklogLink()) {
-            BacklogLinkDecision decision = inferBacklogLink(
-                    threadId, rawTitle, initialPrompt, args.trunkPlan());
-            if (decision.requiresConfirmation()) {
-                List<BacklogLinkCandidate> candidates = decision.candidates().stream()
-                        .map(item -> new BacklogLinkCandidate(item.id(), item.title()))
-                        .toList();
-                String linkOptions = String.join("; ", candidates.stream()
-                        .map(candidate -> "\"Start and link: " + candidate.title()
-                                + "\" (retry with backlog_item_id=" + candidate.id() + ")")
-                        .toList());
-                return toolOutcome(new BacklogLinkConfirmationResult(
-                        true,
-                        decision.reason(),
-                        candidates,
-                        "No task was created. Call ask_user_question now with these options: "
-                                + linkOptions + "; \"Start without backlog\" (retry create_task "
-                                + "with skip_backlog_link=true)."));
+        boolean explicitBacklogItem = backlogItemId != null && !backlogItemId.isBlank();
+        BacklogLinkDecision decision = BacklogLinkDecision.none();
+        if (explicitBacklogItem || !args.skipBacklogLink()) {
+            decision = inferBacklogLink(threadId, rawTitle, initialPrompt, args.trunkPlan());
+        }
+        if (explicitBacklogItem) {
+            if (decision.itemId() != null && !backlogItemId.equals(decision.itemId())) {
+                decision = BacklogLinkDecision.confirm(
+                        "The supplied backlog item conflicts with the backlog item identified "
+                                + "by the approved task context.",
+                        decision.candidates());
             }
+            else {
+                // An explicit id is allowed to settle ambiguous or absent evidence.
+                decision = BacklogLinkDecision.none();
+            }
+        }
+        if (decision.requiresConfirmation()) {
+            List<BacklogLinkCandidate> candidates = decision.candidates().stream()
+                    .map(item -> new BacklogLinkCandidate(item.id(), item.title()))
+                    .toList();
+            String linkOptions = String.join("; ", candidates.stream()
+                    .map(candidate -> "\"Start and link: " + candidate.title()
+                            + "\" (retry with backlog_item_id=" + candidate.id() + ")")
+                    .toList());
+            return toolOutcome(new BacklogLinkConfirmationResult(
+                    true,
+                    decision.reason(),
+                    candidates,
+                    "No task was created. Call ask_user_question now with these options: "
+                            + linkOptions + "; \"Start without backlog\" (retry create_task "
+                            + "with skip_backlog_link=true)."));
+        }
+        if (!explicitBacklogItem) {
             backlogItemId = decision.itemId();
         }
         ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
@@ -902,7 +917,7 @@ public class AgentToolHandlers
                 args.trunkPlan()).withOrigin(Task.ORIGIN_AGENT);
         try {
             Task created = threads.materialiseTask(threadId, request);
-            resolveBacklogItem(backlogItemId, created.id());
+            BacklogItem linkedBacklog = resolveBacklogItem(backlogItemId, created.id());
             return toolOutcome(new CreatedTaskResult(
                     created.id(),
                     created.threadId(),
@@ -911,7 +926,10 @@ public class AgentToolHandlers
                     created.branchName(),
                     created.worktreePath(),
                     created.workingDir(),
-                    created.baseBranch()));
+                    created.baseBranch(),
+                    linkedBacklog == null
+                            ? null
+                            : new LinkedBacklog(linkedBacklog.id(), linkedBacklog.title())));
         }
         catch (IllegalArgumentException | IllegalStateException e) {
             return ToolOutcome.Completed.error("create_task failed: " + e.getMessage());
@@ -921,17 +939,18 @@ public class AgentToolHandlers
     /** Best-effort: link the new task after it has been cut. A stale id or a
      *  transient backlog failure must not turn successful task creation into
      *  a tool failure. */
-    private void resolveBacklogItem(String backlogItemId, String taskId)
+    private BacklogItem resolveBacklogItem(String backlogItemId, String taskId)
     {
         if (backlogItemId == null || backlogItemId.isBlank()) {
-            return;
+            return null;
         }
         try {
-            backlog.resolve(backlogItemId, taskId);
+            return backlog.resolve(backlogItemId, taskId);
         }
         catch (RuntimeException e) {
             log.warn("create_task: failed to resolve backlog item {} for task {}: {}",
                     backlogItemId, taskId, e.getMessage());
+            return null;
         }
     }
 
@@ -960,7 +979,11 @@ public class AgentToolHandlers
                 ApprovalMatch approval = matchApprovalEvidence(
                         candidates, approvalContext.evidence());
                 if (approval.decisiveItemId() != null) {
-                    return BacklogLinkDecision.link(approval.decisiveItemId());
+                    return candidates.stream()
+                            .filter(item -> item.id().equals(approval.decisiveItemId()))
+                            .findFirst()
+                            .map(BacklogLinkDecision::link)
+                            .orElseGet(BacklogLinkDecision::none);
                 }
                 addMatch(matches, approval.match());
             }
@@ -978,7 +1001,7 @@ public class AgentToolHandlers
                             .count() >= 2)
                     .toList();
             if (strong.size() == 1) {
-                return BacklogLinkDecision.link(strong.getFirst().id());
+                return BacklogLinkDecision.link(strong.getFirst());
             }
             boolean conflicting = matched.size() > 1
                     || matches.stream().anyMatch(match -> !match.isUnique());
@@ -1208,9 +1231,9 @@ public class AgentToolHandlers
             return new BacklogLinkDecision(null, null, List.of());
         }
 
-        static BacklogLinkDecision link(String itemId)
+        static BacklogLinkDecision link(BacklogItem item)
         {
-            return new BacklogLinkDecision(itemId, null, List.of());
+            return new BacklogLinkDecision(item.id(), null, List.of(item));
         }
 
         static BacklogLinkDecision confirm(String reason, List<BacklogItem> candidates)
@@ -1220,7 +1243,7 @@ public class AgentToolHandlers
 
         boolean requiresConfirmation()
         {
-            return !candidates.isEmpty();
+            return reason != null;
         }
     }
 
@@ -1325,7 +1348,10 @@ public class AgentToolHandlers
             String branchName,
             String worktreePath,
             String workingDir,
-            String baseBranch) {}
+            String baseBranch,
+            LinkedBacklog linkedBacklog) {}
+
+    public record LinkedBacklog(String id, String title) {}
 
     /** Wire shape returned instead of cutting a task when backlog evidence is
      *  suggestive but not safe to apply automatically. */

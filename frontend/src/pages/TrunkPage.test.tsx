@@ -11,12 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentQuestionDto } from '../types';
+import type { AgentQuestionDto, BacklogItemDto } from '../types';
 import type {
   TrunkActivityDto,
-  WorkspaceBacklogItemDto,
 } from '../workspace/workspaceApi';
 import { TrunkPage } from './TrunkPage';
 
@@ -53,7 +52,7 @@ function question(): AgentQuestionDto {
   };
 }
 
-function backlogItem(overrides: Partial<WorkspaceBacklogItemDto> = {}): WorkspaceBacklogItemDto {
+function backlogItem(overrides: Partial<BacklogItemDto> = {}): BacklogItemDto {
   return {
     id: 'b1',
     threadId: 't1',
@@ -90,10 +89,10 @@ function mockBridge({
 }: {
   trunkActivity?: TrunkActivityDto;
   questions?: AgentQuestionDto[];
-  backlog?: WorkspaceBacklogItemDto[];
+  backlog?: BacklogItemDto[];
 } = {}) {
   const bridge = {
-    listBacklog: vi.fn().mockResolvedValue([]),
+    listBacklog: vi.fn().mockResolvedValue(backlog),
     listThreadSignals: vi.fn().mockResolvedValue([]),
     listThreadQuestions: vi.fn().mockResolvedValue(questions),
     workspaceApi: vi.fn(({ path }: { path: string; method?: string }) => {
@@ -244,23 +243,78 @@ describe('TrunkPage', () => {
     expect(onOpenTask).toHaveBeenCalledWith('task-9');
   });
 
-  it('opens actionable backlog items from the workspace overview', async () => {
+  it('keeps trunk backlog cards local, shows lifecycle details, and folds after three', async () => {
     window.location.hash = '#/workspace/ws-1/trunks/t1';
-    mockBridge({
+    const bridge = mockBridge({
       backlog: [
-        backlogItem(),
-        backlogItem({ id: 'b2', key: 'BQ-2', title: 'Already shipped', status: 'resolved' }),
-        backlogItem({ id: 'b3', key: 'BQ-3', title: 'Already underway', status: 'in-progress' }),
+        backlogItem({ startedAt: 2 }),
+        backlogItem({
+          id: 'b2', key: 'BQ-2', title: 'Already shipped', status: 'resolved',
+          startedAt: 2, resolvedAt: 3, linkedTaskId: 'task-9',
+        }),
+        backlogItem({
+          id: 'b3', key: 'BQ-3', title: 'Already underway', status: 'in-progress',
+          startedAt: 2, inProgressAt: 2,
+        }),
+        backlogItem({ id: 'b4', key: 'BQ-4', title: 'Fourth phase' }),
+        backlogItem({ id: 'b5', key: 'BQ-5', title: 'Fifth phase' }),
       ],
     });
-    renderTrunk();
+    const onOpenTask = vi.fn();
+    const { container } = renderTrunk(onOpenTask);
 
-    const item = await screen.findByRole('button', { name: 'Open backlog item Remove legacy endpoint' });
-    expect(screen.queryByText('Already shipped')).toBeNull();
-    expect(screen.queryByText('Already underway')).toBeNull();
+    const item = await screen.findByRole('button', { name: /Remove legacy endpoint/ });
+    expect(container.querySelectorAll('.trunk-page-v2__backlog .task-card')).toHaveLength(3);
+    expect(item.textContent).toContain('cleanup');
+    expect(item.textContent).toContain('Created ·');
+    expect(screen.getByText('Task cut')).toBeTruthy();
+    expect(screen.getByText('Trunk exploring')).toBeTruthy();
+    expect(screen.queryByText('Fourth phase')).toBeNull();
+
+    fireEvent.click(screen.getByRole('link', { name: '→ Task #9' }));
+    expect(onOpenTask).toHaveBeenCalledWith('task-9');
 
     fireEvent.click(item);
-    expect(window.location.hash).toBe('#/workspace/ws-1/backlog/BQ-1');
+    const dialog = screen.getByRole('dialog', { name: 'Backlog item BQ-1' });
+    expect(within(dialog).getByRole('button', { name: /Start development/ })).toBeTruthy();
+    expect(window.location.hash).toBe('#/workspace/ws-1/trunks/t1');
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+    const openCard = await screen.findByRole('button', { name: /Remove legacy endpoint/ });
+    fireEvent.click(within(openCard).getByRole('button', { name: /Start development/ }));
+    await waitFor(() => expect(bridge.startBacklogDevelopment).toHaveBeenCalledWith('b1'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load 2 more' }));
+    expect(screen.getByText('Fourth phase')).toBeTruthy();
+    expect(screen.getByText('Fifth phase')).toBeTruthy();
+  });
+
+  it('keeps idle backlog suggestions out of the conversation', async () => {
+    mockBridge({ backlog: [backlogItem()] });
+    render(
+      <TrunkPage
+        threadId="t1"
+        thread={{ title: 'Backend cleanup', workspaceId: 'ws-1' }}
+        conversation={<div data-testid="conv">conversation</div>}
+        composer={{ value: '', onChange: () => {}, onSubmit: () => {} }}
+        tasks={{ active: [], closed: [] }}
+      />,
+    );
+
+    expect(await screen.findByRole('button', { name: /Remove legacy endpoint/ })).toBeTruthy();
+    expect(screen.queryByText('No active task — run the top backlog next?')).toBeNull();
+  });
+
+  it('opens keyless legacy backlog details without workspace mutation controls', async () => {
+    mockBridge({ backlog: [backlogItem({ id: 'legacy-id', key: null })] });
+    renderTrunk();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Remove legacy endpoint/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Backlog item legacy-id' });
+    expect(within(dialog).getByRole('textbox', { name: 'Title' }).getAttribute('contenteditable')).toBe('false');
+    expect(within(dialog).queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: /Start development/ })).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: 'Discard' })).toBeNull();
   });
 
   it('keeps unresolved agent questions pinned in the conversation', async () => {

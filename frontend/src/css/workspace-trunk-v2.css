@@ -674,8 +674,7 @@
   font-size: 11px;
 }
 
-.workspace-redesign .trunk-page-v2 .trunk-questions,
-.workspace-redesign .trunk-page-v2 .backlog-prompt {
+.workspace-redesign .trunk-page-v2 .trunk-questions {
   width: min(100% - 56px, 780px);
   margin-right: auto;
   margin-left: auto;
@@ -896,34 +895,51 @@
 .workspace-redesign .trunk-page-v2__prs > button > small { margin-left: auto; flex-shrink: 0; color: #8b949e; font-size: 11px; }
 .workspace-redesign .trunk-page-v2__prs > button > i { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; }
 
-.workspace-redesign .trunk-page-v2__backlog { display: flex; flex-direction: column; gap: 6px; }
-.workspace-redesign .trunk-page-v2__backlog > button {
-  width: 100%;
-  display: flex;
-  gap: 8px;
-  padding: 3px 4px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #454c54;
-  cursor: pointer;
-  font: inherit;
-  font-size: 12px;
-  line-height: 1.45;
-  text-align: left;
+.workspace-redesign .trunk-page-v2__backlog { display: flex; flex-direction: column; gap: 8px; }
+.workspace-redesign .trunk-page-v2__backlog .task-card {
+  gap: 6px;
+  padding: 10px 11px;
+  border-radius: 9px;
 }
-.workspace-redesign .trunk-page-v2__backlog > button:hover { background: #f8f9fa; }
-.workspace-redesign .trunk-page-v2__backlog > button:focus-visible {
+.workspace-redesign .trunk-page-v2__backlog .task-card .header .title {
+  font-size: 12.5px;
+  line-height: 1.35;
+  font-weight: 400;
+}
+.workspace-redesign .trunk-page-v2__backlog .task-card .body {
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.workspace-redesign .trunk-page-v2__backlog .task-card .meta-row {
+  gap: 5px;
+  margin-top: 1px;
+}
+.workspace-redesign .trunk-page-v2__backlog .task-card button.start-dev-btn {
+  padding: 3px 7px;
+  border: 1px solid #000;
+  background: #111;
+  color: #fff;
+  font-size: 9.5px;
+}
+.workspace-redesign .trunk-page-v2__backlog .task-card .backlog-drop-btn {
+  padding: 3px 6px;
+  border: 1px solid var(--border-mid);
+  background: transparent;
+  font-size: 9.5px;
+}
+.workspace-redesign .trunk-page-v2__backlog-more {
+  align-self: center;
+  padding: 3px 7px !important;
+  color: #0969da;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+.workspace-redesign .trunk-page-v2__backlog-more:hover { text-decoration: underline; }
+.workspace-redesign .trunk-page-v2__backlog-more:focus-visible,
+.workspace-redesign .trunk-page-v2__backlog .task-card:focus-visible {
   outline: 2px solid var(--accent, #6f42c1);
   outline-offset: 1px;
-}
-.workspace-redesign .trunk-page-v2__backlog > button > span:first-child {
-  width: 6px;
-  height: 6px;
-  margin: 6px 3px 0;
-  flex: 0 0 6px;
-  border-radius: 50%;
-  background: var(--accent, #6f42c1);
 }
 
 .workspace-redesign .trunk-page-v2__usage {

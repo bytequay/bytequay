@@ -15,9 +15,9 @@ package com.bytequay.app.domain;
 
 /**
  * The event kinds recorded in {@code task_stage_event} for measurement and
- * audit. Only {@link #OPENED} and {@link #CLOSED} are written today; the
- * rest are declared so the loop, notify, and operation write sites that
- * land later have their vocabulary ready.
+ * audit. Lifecycle events, notifications, and remote pull-request creation
+ * are written by their respective services; the remaining values provide
+ * stable vocabulary for other stage transitions.
  */
 public enum StageEventType
 {
@@ -33,6 +33,11 @@ public enum StageEventType
     OPERATION_FAILED,
     BUDGET_EXHAUSTED,
     BUDGET_EXHAUSTED_DECISION,
+
+    /** A task's local branch was published as a new remote pull request.
+     *  Payload carries the branch flow, GitHub URL, and local diff totals so
+     *  Development and Brain can render the same milestone. */
+    PULL_REQUEST_CREATED,
 
     /** A {@code PlanResult} was recorded on a PlanStage (the payload is the
      *  full plan JSON). Multiple per stage form the revision chain. */

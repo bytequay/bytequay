@@ -16,10 +16,8 @@ package com.bytequay.app.beans.stage;
 import java.util.List;
 
 /**
- * One chronological row of the brain feed. In this milestone only the
- * {@code STAGE_OPENED} / {@code STAGE_CLOSED} types are produced (derived
- * from {@code task_stage_event}); the conversational and iteration-summary
- * types fill in as later milestones write them.
+ * One chronological row of the brain feed, derived from stage events,
+ * conversation messages, and iteration summaries.
  *
  * <p>A {@code STAGE_CLOSED} row's {@code body} carries the stage's rollup
  * inline — e.g. {@code "CI-fixing finished · 3m · 30k tokens · 2 files"} —
@@ -30,6 +28,8 @@ import java.util.List;
  * @param images attached-screenshot file paths — only ever non-empty on a
  *               {@code USER_MESSAGE} row
  * @param managedSkills runtime-managed skills active for this user turn
+ * @param pullRequest the typed remote-PR creation payload, present only for
+ *                    {@code PUSHED_PR_CREATED}
  */
 public record BrainFeedRow(
         String id,
@@ -41,6 +41,7 @@ public record BrainFeedRow(
         String body,
         String referencedStageId,
         List<String> images,
-        List<String> managedSkills)
+        List<String> managedSkills,
+        PullRequestCreatedData pullRequest)
 {
 }

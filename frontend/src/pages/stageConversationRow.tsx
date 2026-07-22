@@ -13,7 +13,7 @@
  */
 import type { ReactNode } from 'react';
 import type { StageConversationRow } from '../types/brainView';
-import { EventRow, EventTimestamp, ToolBlock, UserMsg, WorkFold } from '../ui/conv';
+import { EventRow, EventTimestamp, PullRequestCreatedEvent, ToolBlock, UserMsg, WorkFold } from '../ui/conv';
 import {
   ChevronRightIcon, ClockIcon, McpCubeIcon, PenIcon, PlanIcon, SearchIcon, TerminalRunIcon,
 } from '../ui/TaskBrainDesignIcons';
@@ -153,6 +153,14 @@ export function stageRow(
     return <RuntimeKickoffCard key={r.id} row={r} kickoff={kickoff} />;
   }
   switch (r.kind) {
+    case 'pull_request_created':
+      return (
+        <PullRequestCreatedEvent
+          key={r.id}
+          pullRequest={r.pullRequest}
+          timestamp={<EventTimestamp iso={r.ts} />}
+        />
+      );
     case 'user':
       return (
         <UserMsg

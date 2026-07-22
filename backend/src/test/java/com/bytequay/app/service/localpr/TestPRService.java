@@ -16,6 +16,7 @@ package com.bytequay.app.service.localpr;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRComment;
+import com.bytequay.app.domain.PRCommit;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
@@ -34,6 +35,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -41,6 +43,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -387,6 +390,14 @@ class TestPRService
     void recordPushStripsLocalsRecordsRemoteAndFlipsStatus()
     {
         pr(PR.STATUS_LOCAL_OPEN);
+        UUID developmentStageId = UUID.randomUUID();
+        StageInstance development = new StageInstance(
+                developmentStageId, "task1", StageType.DEVELOPMENT_STAGE,
+                StageState.CLOSED, NOW, NOW, null);
+        when(stageStore.findStageByType("task1", StageType.DEVELOPMENT_STAGE))
+                .thenReturn(Optional.of(development));
+        when(store.commitsFor("pr1")).thenReturn(List.of(
+                new PRCommit("c1", "pr1", "abc", "first", 7, 2, NOW, null)));
         PRTimelineEntry localEvent = new PRTimelineEntry(
                 "ev1", "pr1", PRTimelineEntry.TYPE_COMMIT, "claude-code",
                 /* localOnly */ true, /* strippedOnPushAt */ null, NOW, null, /* remoteEventId */ null);
@@ -405,7 +416,7 @@ class TestPRService
 
         // The local event is stamped stripped (never migrates to GitHub).
         ArgumentCaptor<PRTimelineEntry> events = ArgumentCaptor.forClass(PRTimelineEntry.class);
-        verify(store, times(2)).addEvent(events.capture()); // stripped event + status event
+        verify(store, times(3)).addEvent(events.capture()); // stripped event + remote PR + status event
         assertThat(events.getAllValues().get(0).id()).isEqualTo("ev1");
         assertThat(events.getAllValues().get(0).strippedOnPushAt()).isEqualTo(NOW);
         // The local comment is stamped stripped too.
@@ -414,7 +425,23 @@ class TestPRService
         assertThat(comments.getValue().strippedOnPushAt()).isEqualTo(NOW);
         // The final status flip lands at remote-drafted, and a status event was written.
         assertThat(pushed.status()).isEqualTo(PR.STATUS_REMOTE_DRAFTED);
-        assertThat(events.getAllValues().get(1).eventType()).isEqualTo(PRTimelineEntry.TYPE_STATUS);
+        PRTimelineEntry created = events.getAllValues().get(1);
+        assertThat(created.eventType()).isEqualTo(PRTimelineEntry.TYPE_PULL_REQUEST_CREATED);
+        assertThat(created.localOnly()).isFalse();
+        assertThat(created.payloadJson()).contains(
+                "\"branch\":\"dev/x\"", "\"baseBranch\":\"main\"", "\"number\":145",
+                "\"additions\":7", "\"deletions\":2");
+        assertThat(events.getAllValues().get(2).eventType()).isEqualTo(PRTimelineEntry.TYPE_STATUS);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> stagePayload = ArgumentCaptor.forClass(Map.class);
+        verify(stageStore).recordEvent(
+                eq(developmentStageId), eq("task1"), eq(StageEventType.PULL_REQUEST_CREATED), stagePayload.capture());
+        assertThat(stagePayload.getValue()).containsEntry("branch", "dev/x")
+                .containsEntry("baseBranch", "main")
+                .containsEntry("number", 145)
+                .containsEntry("additions", 7)
+                .containsEntry("deletions", 2);
     }
 
     @Test

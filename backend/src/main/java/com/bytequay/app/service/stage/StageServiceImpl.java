@@ -18,6 +18,7 @@ import com.bytequay.app.beans.stage.BrainFeedRow;
 import com.bytequay.app.beans.stage.CommitDto;
 import com.bytequay.app.beans.stage.ContextWindowDto;
 import com.bytequay.app.beans.stage.LinkedPrDto;
+import com.bytequay.app.beans.stage.PullRequestCreatedData;
 import com.bytequay.app.beans.stage.ScrubberDash;
 import com.bytequay.app.beans.stage.StageDetailDto;
 import com.bytequay.app.beans.stage.StageDto;
@@ -599,7 +600,8 @@ public class StageServiceImpl
                 body,
                 referencedStageId,
                 user ? decodeStringArray(m.contentJson(), "images") : List.of(),
-                user ? decodeStringArray(m.contentJson(), "managedSkills") : List.of());
+                user ? decodeStringArray(m.contentJson(), "managedSkills") : List.of(),
+                null);
     }
 
     /** The id of the first stage whose display name the reply mentions, or
@@ -680,7 +682,8 @@ public class StageServiceImpl
                 event.message() == null ? "" : event.message(),
                 null,
                 List.of(),
-                List.of());
+                List.of(),
+                null);
     }
 
     private Optional<BrainFeedRow> brainFeedRow(
@@ -701,7 +704,23 @@ public class StageServiceImpl
                     panelReviewBody(e.payloadJson()),
                     e.stageId().toString(),
                     List.of(),
-                    List.of()));
+                    List.of(),
+                    null));
+        }
+
+        if (e.eventType() == StageEventType.PULL_REQUEST_CREATED) {
+            return Optional.of(new BrainFeedRow(
+                    e.id().toString(),
+                    null,
+                    "PUSHED_PR_CREATED",
+                    e.stageId().toString(),
+                    stageType == null ? null : stageType.name(),
+                    e.eventAt().toString(),
+                    "Pull request created",
+                    null,
+                    List.of(),
+                    List.of(),
+                    PullRequestCreatedData.fromPayload(e.payloadJson(), mapper)));
         }
 
         String type = switch (e.eventType()) {
@@ -736,7 +755,8 @@ public class StageServiceImpl
                 body,
                 null,
                 List.of(),
-                List.of()));
+                List.of(),
+                null));
     }
 
     /** Human-readable line for a finished panel, read from the CLOSED event's
@@ -1036,6 +1056,7 @@ public class StageServiceImpl
     private static final Set<StageEventType> SCRUBBER_MAJOR = EnumSet.of(
             StageEventType.OPENED,
             StageEventType.CLOSED,
+            StageEventType.PULL_REQUEST_CREATED,
             StageEventType.BUDGET_EXHAUSTED,
             StageEventType.NOTIFY_FIRED);
 

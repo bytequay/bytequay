@@ -55,6 +55,17 @@ class TestProjectLearningStore
     }
 
     @Test
+    void testProjectLearningMigrationChecksumMatchesReleasedSchema()
+    {
+        // V192 was installed from a conflict-resolution branch before this
+        // code path was merged. Its text is immutable for existing databases.
+        assertThat(jdbc.queryForObject("""
+                SELECT checksum FROM flyway_schema_history
+                WHERE version = '192'
+                """, String.class)).isEqualTo("-1938762556");
+    }
+
+    @Test
     void testInsertAndRecoverResumableRun()
     {
         store.insertRun(run("run-1", "queued", null));

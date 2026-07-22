@@ -172,6 +172,17 @@ export type StageDto = {
   // Per-stage metrics live on the stage detail endpoint, not here.
 };
 
+/** The first remote pull request created from a task's local development
+ * branch. Present on the matching Brain and Development conversation event. */
+export type PullRequestCreatedData = {
+  branch?: string | null;
+  baseBranch?: string | null;
+  number?: number | null;
+  url?: string | null;
+  additions?: number | null;
+  deletions?: number | null;
+};
+
 export type BrainFeedRowType =
   | 'STAGE_OPENED' | 'STAGE_CLOSED' | 'PANEL_REVIEW_COMPLETED'
   | 'PUSHED_PR_CREATED' | 'ITERATION_SUMMARY' | 'USER_MESSAGE'
@@ -189,6 +200,8 @@ export type BrainFeedRow = {
   referencedStageId: string | null;   // for the "🔍 Open stage" drill-in chip
   images: string[];                   // attached-screenshot paths — USER_MESSAGE only
   managedSkills: string[];            // runtime-managed skills — USER_MESSAGE only
+  /** Remote PR creation metadata — present only on PUSHED_PR_CREATED. */
+  pullRequest?: PullRequestCreatedData | null;
 };
 
 export type ApprovalDto = {
@@ -446,7 +459,7 @@ export type StagePrThread = {
 export type StageConversationRow = {
   id: string;
   messageSeq: number | null;
-  kind: 'agent' | 'user' | 'tool_call' | 'iteration_marker' | 'permission';
+  kind: 'agent' | 'user' | 'tool_call' | 'iteration_marker' | 'permission' | 'pull_request_created';
   text: string | null;
   toolTag: string | null;
   toolLabel: string | null;
@@ -466,6 +479,8 @@ export type StageConversationRow = {
   images: string[];
   /** Runtime-managed skills — `user` rows only, empty otherwise. */
   managedSkills: string[];
+  /** Remote PR creation metadata — `pull_request_created` rows only. */
+  pullRequest?: PullRequestCreatedData | null;
 };
 
 /** Uncomputed catalog fields are absent (not zero); panelInvocationsCount

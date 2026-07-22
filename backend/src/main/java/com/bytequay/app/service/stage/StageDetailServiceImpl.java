@@ -14,6 +14,7 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.beans.stage.ContextWindowDto;
+import com.bytequay.app.beans.stage.PullRequestCreatedData;
 import com.bytequay.app.beans.stage.ScrubberDash;
 import com.bytequay.app.beans.stage.StageDetailData;
 import com.bytequay.app.beans.stage.StageDetailData.CiCheck;
@@ -186,7 +187,7 @@ public class StageDetailServiceImpl
                 subStages,
                 conversationThreadId(stage, task),
                 iterations,
-                buildConversation(stage, task, devMessages, iters),
+                buildConversation(stage, task, devMessages, iters, events),
                 buildRealtimeCi(task, prDetail),
                 buildCiFixHistory(stage, iters, events),
                 buildPrTab(task, prDetail),
@@ -608,7 +609,11 @@ public class StageDetailServiceImpl
      * renders whether the stage looped or ran once.
      */
     private List<ConversationRow> buildConversation(
-            StageInstance stage, Task task, List<ThreadMessage> devMessages, List<TaskStageIteration> iters)
+            StageInstance stage,
+            Task task,
+            List<ThreadMessage> devMessages,
+            List<TaskStageIteration> iters,
+            List<StageEvent> events)
     {
         List<ThreadMessage> source = stage.type() == StageType.PLAN_STAGE
                 ? threadStore.findBrainThreadByTask(task.id())
@@ -647,7 +652,7 @@ public class StageDetailServiceImpl
                 rows.add(new ConversationRow(m.id(), m.seq(), "tool_call", null,
                         tc.tag(), tc.label(), tc.detail(),
                         r == null ? null : r.output(), r == null ? null : r.isError(),
-                        editDiff(m), null, m.ts().toString(), null, List.of(), List.of()));
+                        editDiff(m), null, m.ts().toString(), null, List.of(), List.of(), null));
             }
             else if ("text".equals(m.type())) {
                 String text = decodeText(m.contentJson());
@@ -659,7 +664,7 @@ public class StageDetailServiceImpl
                 }
                 rows.add(new ConversationRow(m.id(), m.seq(), user ? "user" : "agent",
                         text, null, null, null, null, null, null, null, m.ts().toString(), null,
-                        images, managedSkills));
+                        images, managedSkills, null));
             }
             else if ("permission_request".equals(m.type())) {
                 String callId = callIdOf(m);
@@ -667,14 +672,23 @@ public class StageDetailServiceImpl
                     rows.add(new ConversationRow(m.id(), m.seq(), "permission",
                             permissionField(m, "summary"),
                             null, permissionField(m, "toolName"), null,
-                            null, null, null, null, m.ts().toString(), callId, List.of(), List.of()));
+                            null, null, null, null, m.ts().toString(), callId, List.of(), List.of(), null));
                 }
             }
         }
         for (TaskStageIteration it : iters) {
             rows.add(new ConversationRow(it.id() + ":marker", null, "iteration_marker",
                     it.trigger(), null, null, null, null, null, null, it.iterationNumber(),
-                    TimeWindow.forIteration(it).start().toString(), null, List.of(), List.of()));
+                    TimeWindow.forIteration(it).start().toString(), null, List.of(), List.of(), null));
+        }
+        for (StageEvent event : events) {
+            if (event.eventType() != StageEventType.PULL_REQUEST_CREATED) {
+                continue;
+            }
+            rows.add(new ConversationRow(
+                    event.id().toString(), null, "pull_request_created", "Pull request created",
+                    null, null, null, null, null, null, null, event.eventAt().toString(), null,
+                    List.of(), List.of(), PullRequestCreatedData.fromPayload(event.payloadJson(), mapper)));
         }
         rows.sort(Comparator.comparing(ConversationRow::ts));
         return rows;

@@ -12,7 +12,9 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
+import type { PullRequestCreatedData } from '../../types/brainView';
 import type { LocalPRTimelineEvent } from '../../types/localPr';
+import { PullRequestCreatedEvent } from '../../ui/conv';
 import {
   CheckIcon, ClockIcon, CloseIcon, CommitIcon,
 } from '../../ui/TaskBrainDesignIcons';
@@ -26,6 +28,17 @@ function str(payload: Record<string, unknown> | null, key: string): string | nul
 function num(payload: Record<string, unknown> | null, key: string): number | null {
   const v = payload?.[key];
   return typeof v === 'number' ? v : null;
+}
+
+function pullRequestData(payload: Record<string, unknown> | null): PullRequestCreatedData {
+  return {
+    branch: str(payload, 'branch'),
+    baseBranch: str(payload, 'baseBranch'),
+    number: num(payload, 'number'),
+    url: str(payload, 'url'),
+    additions: num(payload, 'additions'),
+    deletions: num(payload, 'deletions'),
+  };
 }
 
 /** Body copy for a compact one-line event, derived from its payload. Missing
@@ -70,6 +83,15 @@ function eventBody(event: LocalPRTimelineEvent): ReactNode {
 }
 
 export function TimelineIconEvent({ event }: { event: LocalPRTimelineEvent }) {
+  if (event.eventType === 'pull-request-created') {
+    return (
+      <PullRequestCreatedEvent
+        pullRequest={pullRequestData(event.payload)}
+        timestamp={agoLabel(event.createdAt)}
+        timeline
+      />
+    );
+  }
   const failed = event.eventType === 'ci' && isFailedCiPayload(event.payload);
   const iconCls = event.eventType === 'ci' ? (failed ? 'fail' : 'green') : event.eventType === 'commit' ? 'commit' : '';
   const icon = event.eventType === 'ci'

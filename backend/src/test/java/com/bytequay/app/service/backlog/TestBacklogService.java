@@ -190,8 +190,9 @@ class TestBacklogService
     void createBatchCreatesACrossLinkedAgentGroup()
     {
         List<BacklogService.NewBacklogItem> inputs = List.of(
-                new BacklogService.NewBacklogItem("Clean A", "body a", List.of("ui"), "high"),
-                new BacklogService.NewBacklogItem("Clean B", "body b", null, null));
+                new BacklogService.NewBacklogItem(
+                        "Clean A", "Useful summary.\n\nImplementation detail.", List.of("ui"), "high"),
+                new BacklogService.NewBacklogItem("Clean B", "", null, null));
 
         BacklogService.BatchResult result = service.createBatch("thread-1", inputs);
 
@@ -211,6 +212,9 @@ class TestBacklogService
         assertThat(saved.get(0).relatedBacklogIds()).containsExactly(saved.get(1).id());
         assertThat(saved.get(1).relatedBacklogIds()).containsExactly(saved.get(0).id());
         assertThat(saved.get(0).priority()).isEqualTo("high");
+        assertThat(saved.get(0).summary()).isEqualTo("Useful summary.");
+        assertThat(saved.get(0).detail()).isEqualTo("Useful summary.\n\nImplementation detail.");
+        assertThat(saved.get(1).summary()).isEqualTo("Clean B");
     }
 
     @Test

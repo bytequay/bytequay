@@ -337,7 +337,7 @@ describe('TrunkPage', () => {
     window.location.hash = '#/workspace/ws-1/trunks/t1';
     const bridge = mockBridge({
       backlog: [
-        backlogItem({ startedAt: 2 }),
+        backlogItem({ startedAt: 2, summary: 'Remove legacy endpoint' }),
         backlogItem({
           id: 'b2', key: 'BQ-2', title: 'Already shipped', status: 'resolved',
           startedAt: 2, resolvedAt: 3, linkedTaskId: 'task-9',
@@ -355,6 +355,7 @@ describe('TrunkPage', () => {
 
     const item = await screen.findByRole('button', { name: /Remove legacy endpoint/ });
     expect(container.querySelectorAll('.trunk-page-v2__backlog .task-card')).toHaveLength(3);
+    expect(within(item).getAllByText('Remove legacy endpoint')).toHaveLength(1);
     expect(item.textContent).toContain('cleanup');
     expect(item.textContent).toContain('Created ·');
     expect(screen.getByText('Task cut')).toBeTruthy();

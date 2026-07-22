@@ -88,6 +88,7 @@ export default function WorkspaceBacklogPage({
     const available = items.filter(item => item.status !== 'discarded');
     return filter === 'all' ? available : available.filter(item => item.status === filter);
   }, [filter, items]);
+  const backlogNames = useMemo(() => backlogTitleMap(items), [items]);
 
   const open = (item: WorkspaceBacklogItemDto) => {
     setCreating(false);
@@ -170,6 +171,7 @@ export default function WorkspaceBacklogPage({
           item={editing}
           trunks={trunks}
           threadNames={threadNames}
+          backlogNames={backlogNames}
           onClose={closeEditor}
           onSaved={async saved => {
             setCreating(false);
@@ -216,7 +218,7 @@ function BacklogRow({
     >
       <div className="wu-backlog-row__copy">
         <strong>{item.title}</strong>
-        {item.summary.length > 0 && <p>{item.summary}</p>}
+        {item.summary.length > 0 && !sameText(item.summary, item.title) && <p>{item.summary}</p>}
         <div className="wu-backlog-row__meta">
           {item.tags.map(tag => <Tag key={tag} value={tag} />)}
           <CreationOriginBadge origin={item.origin} />
@@ -267,6 +269,7 @@ export function BacklogEditor({
   item,
   trunks,
   threadNames,
+  backlogNames = new Map(),
   fixedTrunkId,
   readOnly = false,
   onClose,
@@ -280,6 +283,7 @@ export function BacklogEditor({
   item: WorkspaceBacklogItemDto | null;
   trunks: BacklogTrunk[];
   threadNames: Map<string, string>;
+  backlogNames?: Map<string, string>;
   /** Locks Start development to the trunk hosting this editor. */
   fixedTrunkId?: string;
   /** Shows legacy items that have no workspace key without exposing invalid mutations. */
@@ -298,6 +302,9 @@ export function BacklogEditor({
     ?? '';
   const [title, setTitle] = useState(item?.title ?? '');
   const [summary, setSummary] = useState(item?.summary ?? '');
+  const [showSummary] = useState(
+    item === null || !sameText(item.summary, item.title),
+  );
   const [detail, setDetail] = useState(item?.detail ?? '');
   const [impactRisk, setImpactRisk] = useState(item?.impactRisk ?? '');
   const [tags, setTags] = useState(item?.tags ?? []);
@@ -307,25 +314,32 @@ export function BacklogEditor({
     initialTrunk.length === 0 ? [] : [{ type: 'trunk', id: initialTrunk }]
   ));
   const [trunkId, setTrunkId] = useState(initialTrunk);
-  const [linkEditor, setLinkEditor] = useState(false);
+  const [linkEditor, setLinkEditor] = useState<'trunk' | 'task' | 'backlog' | null>(null);
+  const [linkOptions, setLinkOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [knownThreadNames, setKnownThreadNames] = useState(() => new Map(threadNames));
+  const [knownBacklogNames, setKnownBacklogNames] = useState(() => new Map(backlogNames));
+  const [linksLoading, setLinksLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const valid = title.trim().length > 0 && summary.trim().length > 0
+  const persistedSummary = showSummary ? summary.trim() : title.trim();
+  const valid = title.trim().length > 0 && persistedSummary.length > 0
     && trunkId.length > 0;
+  const linksForTrunk = (selectedTrunkId: string) => [
+    ...links.filter(link => link.type !== 'trunk'
+      || (link.id !== trunkId && link.id !== selectedTrunkId)),
+    { type: 'trunk', id: selectedTrunkId },
+  ];
 
   const input = (): WorkspaceBacklogInput => ({
     trunkId,
     title: title.trim(),
-    summary: summary.trim(),
+    summary: persistedSummary,
     detail: detail.trim(),
     impactRisk: impactRisk.trim(),
     tags,
     priority: item?.priority ?? 'medium',
-    links: [
-      ...links.filter(link => link.type !== 'trunk'),
-      { type: 'trunk', id: trunkId },
-    ],
+    links: linksForTrunk(trunkId),
   });
 
   const persist = async (): Promise<WorkspaceBacklogItemDto | null> => {
@@ -361,18 +375,12 @@ export function BacklogEditor({
         ? await workspaceApi.createBacklogItem(workspaceId, {
             ...input(),
             trunkId: selectedTrunkId,
-            links: [
-              ...links.filter(link => link.type !== 'trunk'),
-              { type: 'trunk', id: selectedTrunkId },
-            ],
+            links: linksForTrunk(selectedTrunkId),
           })
         : await workspaceApi.updateBacklogItem(workspaceId, item.key, {
             ...input(),
             trunkId: selectedTrunkId,
-            links: [
-              ...links.filter(link => link.type !== 'trunk'),
-              { type: 'trunk', id: selectedTrunkId },
-            ],
+            links: linksForTrunk(selectedTrunkId),
           });
       await onStarted(saved, selectedTrunkId);
     }
@@ -414,14 +422,60 @@ export function BacklogEditor({
     setTagEditor(false);
   };
 
-  const addTrunkLink = (id: string) => {
+  const addLink = (type: 'trunk' | 'task' | 'backlog', id: string) => {
     if (id.length === 0) return;
-    setLinks(current => [
-      ...current.filter(link => link.type !== 'trunk'),
-      { type: 'trunk', id },
-    ]);
-    setTrunkId(id);
-    setLinkEditor(false);
+    setLinks(current => current.some(link => link.type === type && link.id === id)
+      ? current
+      : [...current, { type, id }]);
+    setLinkEditor(null);
+  };
+
+  const openLinkEditor = async (type: 'trunk' | 'task' | 'backlog') => {
+    setLinkEditor(type);
+    setLinkOptions([]);
+    setLinksLoading(true);
+    setError(null);
+    try {
+      if (type === 'trunk') {
+        const workspaceTrunks = await workspaceApi.trunks(workspaceId);
+        setKnownThreadNames(current => new Map([
+          ...current,
+          ...workspaceTrunks.map(trunk => [trunk.id, trunk.title] as const),
+        ]));
+        setLinkOptions(workspaceTrunks
+          .filter(trunk => !links.some(link => link.type === 'trunk' && link.id === trunk.id))
+          .map(trunk => ({ id: trunk.id, label: trunk.title })));
+      }
+      else if (type === 'task') {
+        const tasks = trunkId.length === 0 ? [] : await window.bridge.listTasksForThread(trunkId);
+        setLinkOptions(tasks
+          .filter(task => !links.some(link => link.type === 'task' && link.id === task.id))
+          .map(task => ({
+            id: task.id,
+            label: task.name?.trim() || `Task ${task.seq}`,
+          })));
+      }
+      else {
+        const backlogItems = await workspaceApi.backlog(workspaceId);
+        setKnownBacklogNames(current => new Map([
+          ...current,
+          ...backlogTitleMap(backlogItems),
+        ]));
+        setLinkOptions(backlogItems
+          .filter(candidate => candidate.id !== item?.id && candidate.key !== item?.key)
+          .filter(candidate => !links.some(link => link.type === 'backlog' && link.id === candidate.id))
+          .map(candidate => ({ id: candidate.id, label: candidate.title })));
+      }
+    }
+    catch (cause) {
+      setLinkEditor(null);
+      setError(messageOf(cause, `Unable to load ${
+        type === 'trunk' ? 'threads' : type === 'task' ? 'tasks' : 'backlog items'
+      }.`));
+    }
+    finally {
+      setLinksLoading(false);
+    }
   };
 
   return (
@@ -469,13 +523,15 @@ export function BacklogEditor({
                 onChange={setTitle}
               />
             </label>
-            <label>
-              <span>Summary <b>*</b></span>
-              <EditableField
-                ariaLabel="Summary" className="summary" value={summary}
-                readOnly={readOnly} onChange={setSummary}
-              />
-            </label>
+            {showSummary && (
+              <label>
+                <span>Summary <b>*</b></span>
+                <EditableField
+                  ariaLabel="Summary" className="summary" value={summary}
+                  readOnly={readOnly} onChange={setSummary}
+                />
+              </label>
+            )}
             <label>
               <span>Detail <em>· markdown</em></span>
               <EditableField
@@ -550,7 +606,7 @@ export function BacklogEditor({
               {links.map(link => (
                 <div
                   key={`${link.type}-${link.id}`}
-                  className={`link-${link.type}`}
+                  className={`wu-backlog-editor__link link-${link.type}`}
                   role={link.type === 'trunk' ? 'button' : undefined}
                   tabIndex={link.type === 'trunk' ? 0 : undefined}
                   onClick={() => link.type === 'trunk' && onOpenThread?.(link.id)}
@@ -563,39 +619,46 @@ export function BacklogEditor({
                 >
                   <LinkIcon type={link.type} />
                   <span>
-                    {linkLabel(link, threadNames)} <em>{linkRelation(link, item)}</em>
+                    {linkLabel(link, knownThreadNames, knownBacklogNames)} <em>{linkRelation(link, item)}</em>
                   </span>
                 </div>
               ))}
-              {!readOnly && (linkEditor
-                ? (
-                  <select
-                    value=""
-                    onChange={event => addTrunkLink(event.target.value)}
-                    onBlur={() => setLinkEditor(false)}
-                    autoFocus
-                    aria-label="Link a trunk"
-                  >
-                    <option value="">Choose a trunk…</option>
-                    {trunks.map(trunk => <option key={trunk.id} value={trunk.id}>{trunk.title}</option>)}
-                  </select>
-                )
-                : (
-                  <span
-                    className="wu-backlog-editor__add-link"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setLinkEditor(true)}
-                    onKeyDown={event => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        setLinkEditor(true);
-                      }
-                    }}
-                  >
-                    + Link thread, task or item
-                  </span>
-                ))}
+              {!readOnly && (
+                <>
+                  <div className="wu-backlog-editor__link-actions" aria-label="Add linked item">
+                    <button type="button" onClick={() => void openLinkEditor('trunk')}>+ Link thread</button>
+                    <button
+                      type="button"
+                      disabled={trunkId.length === 0}
+                      onClick={() => void openLinkEditor('task')}
+                    >
+                      + Link task
+                    </button>
+                    <button type="button" onClick={() => void openLinkEditor('backlog')}>
+                      + Link other item
+                    </button>
+                  </div>
+                  {linkEditor !== null && (
+                    <select
+                      value=""
+                      disabled={linksLoading}
+                      onChange={event => {
+                        addLink(linkEditor, event.target.value);
+                      }}
+                      onBlur={() => setLinkEditor(null)}
+                      autoFocus
+                      aria-label={`Link ${linkEditor === 'trunk' ? 'thread' : linkEditor === 'task' ? 'task' : 'other item'}`}
+                    >
+                      <option value="">
+                        {linksLoading ? 'Loading…' : `Choose ${linkEditor === 'trunk' ? 'a thread' : linkEditor === 'task' ? 'a task' : 'another item'}…`}
+                      </option>
+                      {linkOptions.map(option => (
+                        <option key={option.id} value={option.id}>{option.label}</option>
+                      ))}
+                    </select>
+                  )}
+                </>
+              )}
             </div>
 
             {item !== null && (
@@ -623,7 +686,7 @@ export function BacklogEditor({
                 <TrunkPicker
                   trunks={trunks}
                   label="Start work under a thread"
-                  disabled={busy || title.trim().length === 0 || summary.trim().length === 0}
+                  disabled={busy || title.trim().length === 0 || persistedSummary.length === 0}
                   onSelect={selected => void start(selected)}
                   onNewTrunk={item === null ? undefined : () => onRequestNewTrunk?.(item.key)}
                 />
@@ -632,7 +695,7 @@ export function BacklogEditor({
                 <div className="wu-backlog-trunk-picker">
                   <button
                     type="button"
-                    disabled={busy || title.trim().length === 0 || summary.trim().length === 0}
+                    disabled={busy || title.trim().length === 0 || persistedSummary.length === 0}
                     onClick={() => void start(fixedTrunkId)}
                   >
                     Start development <span aria-hidden>→</span>
@@ -823,23 +886,32 @@ function relativeTime(timestamp: number): string {
 function linkLabel(
   link: { type: string; id: string },
   threadNames: Map<string, string>,
+  backlogNames: Map<string, string>,
 ): string {
   if (link.type === 'trunk') return threadNames.get(link.id) ?? link.id;
   if (link.type === 'task') return `Task #${taskNumber(link.id)}`;
-  if (link.type === 'backlog') {
-    if (link.id === 'BQ-19') return 'BQ-19 property tests';
-    return link.id.startsWith('BQ-') ? link.id : `Backlog ${link.id}`;
-  }
+  if (link.type === 'backlog') return backlogNames.get(link.id) ?? 'Backlog item';
   if (link.type === 'issue') return `Issue #${link.id}`;
   if (link.type === 'pr') return `PR #${link.id}`;
   return `${link.type} ${link.id}`;
+}
+
+export function backlogTitleMap(
+  items: Array<{ id: string; key?: string | null; title: string }>,
+): Map<string, string> {
+  const names = new Map<string, string>();
+  items.forEach(item => {
+    names.set(item.id, item.title);
+    if (item.key !== null && item.key !== undefined) names.set(item.key, item.title);
+  });
+  return names;
 }
 
 function linkRelation(
   link: { type: string; id: string },
   item: WorkspaceBacklogItemDto | null,
 ): string {
-  if (link.type === 'trunk') return 'thread · origin';
+  if (link.type === 'trunk') return link.id === item?.threadId ? 'thread · origin' : 'linked thread';
   if (link.type === 'task') return 'found during';
   if (link.type === 'backlog') return 'relates to';
   if (item?.source === 'agent') return 'linked by agent';
@@ -848,4 +920,8 @@ function linkRelation(
 
 function messageOf(cause: unknown, fallback: string): string {
   return cause instanceof Error && cause.message.length > 0 ? cause.message : fallback;
+}
+
+function sameText(left: string, right: string): boolean {
+  return left.trim().toLocaleLowerCase() === right.trim().toLocaleLowerCase();
 }

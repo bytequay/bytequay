@@ -44,6 +44,15 @@ interface NotificationJpaRepository
             """)
     int finishResolution(@Param("id") String id);
 
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update NotificationEntity n
+               set n.status = 'RESOLVED'
+             where n.id = :id
+               and n.status in ('UNREAD', 'READ')
+            """)
+    int resolveOpen(@Param("id") String id);
+
     /**
      * Release a claim back to UNREAD when an approve was rejected before
      * it changed any remote state. Returns the row to the actionable

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
@@ -41,16 +42,21 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.checks.ValidationPassResult;
+import com.bytequay.app.service.checks.ValidationPassService;
 import com.bytequay.app.service.localpr.LocalReviewClearedEvent;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.NotificationService;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -66,6 +72,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -92,12 +99,14 @@ class TestBrainReviewServiceImpl
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
     private final PRService prService = mock(PRService.class);
+    private final ValidationPassService validation = mock(ValidationPassService.class);
+    private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
     private final NotificationService notifications = mock(NotificationService.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final BrainReviewServiceImpl service = new BrainReviewServiceImpl(
             taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore, prService,
-            notifications, mapper, Clock.fixed(NOW, ZoneOffset.UTC), events);
+            validation, phaseMachine, notifications, mapper, Clock.fixed(NOW, ZoneOffset.UTC), events);
 
     // ── R20: plan self-review ────────────────────────────────────────────
 
@@ -159,6 +168,9 @@ class TestBrainReviewServiceImpl
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-3", false));
 
+        verify(stageStore).recordEvent(
+                eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED),
+                eq(Map.of("verdict", "completed_without_verdict")));
         verify(taskStore).setAutoApprove(TASK_ID, true);
         // The self-review turn's own completion must not re-enqueue itself.
         verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any());
@@ -176,6 +188,97 @@ class TestBrainReviewServiceImpl
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-4", false));
 
         verify(taskStore, never()).setAutoApprove(anyString(), any(Boolean.class));
+    }
+
+    @Test
+    void failedPlanSelfReviewRetriesOnce()
+    {
+        ThreadTurn failed = turn(
+                PLAN_STAGE_ID.toString(), TurnInitiator.unattended("brain-plan-self-review"));
+        when(turnStore.findTurnById("failed-review")).thenReturn(Optional.of(failed));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(turnStore.listTurnsByTaskId("thread-1", 50)).thenReturn(List.of(failed));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "failed-review", true));
+
+        verify(scheduler).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
+                argThat(initiator -> "brain-plan-self-review".equals(initiator.source())));
+        verify(phaseMachine, never()).transition(eq(TASK_ID), eq(TaskPhase.NEEDS_ATTENTION), any(), any());
+    }
+
+    @Test
+    void secondFailedPlanSelfReviewParksInsteadOfSkippingTheCheckpoint()
+    {
+        ThreadTurn failed = turn(
+                PLAN_STAGE_ID.toString(), TurnInitiator.unattended("brain-plan-self-review"));
+        ThreadTurn prior = runTurn(
+                PLAN_STAGE_ID.toString(), "brain-plan-self-review", ThreadTurnStatus.FAILED, null);
+        when(turnStore.findTurnById("failed-review")).thenReturn(Optional.of(failed));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(turnStore.listTurnsByTaskId("thread-1", 50)).thenReturn(List.of(failed, prior));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "failed-review", true));
+
+        verify(phaseMachine).transition(
+                TASK_ID, TaskPhase.NEEDS_ATTENTION, "plan_self_review_failed", Actor.AGENT);
+        verify(taskStore).saveTask(argThat(task -> task.status() == TaskStatus.NEEDS_ATTENTION));
+        verify(notifications).notifyNeedsAttention(eq("thread-1"), eq(TASK_ID), anyString());
+        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void reconcilerRecordsTheCheckpointWhenACompletionEventWasMissed()
+    {
+        Task planning = taskAt(TaskPhase.PLANNING);
+        when(taskStore.listByPhases(List.of(TaskPhase.PLANNING), 100)).thenReturn(List.of(planning));
+        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findEventsByStage(PLAN_STAGE_ID))
+                .thenReturn(List.of(planRecordedEvent("finalized")));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+        when(turnStore.listTurnsByTaskId("brain-1", 50)).thenReturn(List.of(
+                turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("brain-plan-self-review"))));
+
+        service.reconcilePlanSelfReviews();
+
+        verify(stageStore).recordEvent(
+                eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED),
+                eq(Map.of("verdict", "completed_without_verdict")));
+        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void revisedFinalizedPlanRequiresANewSelfReviewTurn()
+    {
+        Task planning = taskAt(TaskPhase.PLANNING);
+        StageEvent first = planRecordedEvent("finalized");
+        StageEvent reviewed = new StageEvent(
+                UUID.randomUUID(), PLAN_STAGE_ID, TASK_ID, StageEventType.PLAN_SELF_REVIEWED,
+                NOW.minusSeconds(2), "{\"verdict\":\"approved\"}");
+        StageEvent revised = new StageEvent(
+                UUID.randomUUID(), PLAN_STAGE_ID, TASK_ID, StageEventType.PLAN_RECORDED,
+                NOW, first.payloadJson());
+        ThreadTurn oldReview = new ThreadTurn(
+                "old-review", "brain-1", TASK_ID, ThreadResourceLane.CLI,
+                ThreadTurnStatus.COMPLETED, "review", NOW.minusSeconds(3), NOW.minusSeconds(2),
+                NOW.minusSeconds(3), NOW.minusSeconds(2), null,
+                TurnInitiator.unattended("brain-plan-self-review"),
+                PLAN_STAGE_ID.toString(), ThreadScope.STAGE);
+        when(taskStore.listByPhases(List.of(TaskPhase.PLANNING), 100)).thenReturn(List.of(planning));
+        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findEventsByStage(PLAN_STAGE_ID)).thenReturn(List.of(first, reviewed, revised));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+        when(turnStore.listTurnsByTaskId("brain-1", 50)).thenReturn(List.of(oldReview));
+
+        service.reconcilePlanSelfReviews();
+
+        verify(scheduler).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
+                argThat(initiator -> "brain-plan-self-review".equals(initiator.source())));
+        verify(stageStore, never()).recordEvent(
+                eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED), any());
     }
 
     @Test
@@ -306,6 +409,60 @@ class TestBrainReviewServiceImpl
     }
 
     @Test
+    void legacyPublishGateIsRetiredBeforeABrainFixTurnIsScheduled()
+    {
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING).withBrainVerdict(
+                ReviewRound.VERDICT_CHANGES_REQUESTED);
+        when(turnStore.findTurnById("legacy-review")).thenReturn(Optional.of(runTurn(
+                "run-stage", "brain-review", ThreadTurnStatus.COMPLETED, triaging.runId())));
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(triaging));
+        Task legacy = taskAt(TaskPhase.AWAITING_PUSH).withStatus(TaskStatus.AWAITING_REVIEW);
+        Task recovered = taskAt(TaskPhase.INTERNAL_REVIEW).withStatus(TaskStatus.IDLE);
+        when(taskStore.findTaskById(TASK_ID))
+                .thenReturn(Optional.of(legacy), Optional.of(recovered));
+        AgentRun run = new AgentRun(
+                triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
+        when(threadStore.findThreadById(recovered.threadId())).thenReturn(Optional.of(idleTaskThread()));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "legacy-review", false));
+
+        verify(notifications).supersedeAwaitingReviewForTask(legacy.threadId(), TASK_ID);
+        verify(taskStore).saveTask(argThat(task -> task.status() == TaskStatus.IDLE));
+        verify(phaseMachine).observe(TASK_ID, TaskPhase.INTERNAL_REVIEW, "brain_review_resumed");
+        verify(taskStore, times(2)).findTaskById(TASK_ID);
+        verify(scheduler).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq("run-stage"),
+                argThat(i -> "brain-review-fix".equals(i.source())), eq(triaging.runId()));
+    }
+
+    @Test
+    void legacyPublishGateBeingResolvedKeepsTheBrainFixParked()
+    {
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING).withBrainVerdict(
+                ReviewRound.VERDICT_CHANGES_REQUESTED);
+        when(turnStore.findTurnById("resolving-review")).thenReturn(Optional.of(runTurn(
+                "run-stage", "brain-review", ThreadTurnStatus.COMPLETED, triaging.runId())));
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(triaging));
+        Task legacy = taskAt(TaskPhase.AWAITING_PUSH).withStatus(TaskStatus.AWAITING_REVIEW);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(legacy));
+        AgentRun run = new AgentRun(
+                triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
+        doThrow(new ResponseStatusException(HttpStatus.CONFLICT, "resolution in progress"))
+                .when(notifications).supersedeAwaitingReviewForTask(legacy.threadId(), TASK_ID);
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "resolving-review", false));
+
+        verify(taskStore, never()).saveTask(any());
+        verify(phaseMachine, never()).observe(anyString(), any(), anyString());
+        verify(threadStore, never()).findThreadById(anyString());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString());
+    }
+
+    @Test
     void anApprovedVerdictConcludesABrainOriginRoundAndFlipsLocalOpen()
     {
         ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING).withBrainVerdict(
@@ -338,6 +495,33 @@ class TestBrainReviewServiceImpl
     }
 
     @Test
+    void anApprovedExternalVerificationWaitsAtTheRoundGate()
+    {
+        ReviewRound triaging = round(ReviewRound.STATUS_TRIAGING)
+                .withIterationBumped()
+                .withBrainVerdict(ReviewRound.VERDICT_APPROVED);
+        ThreadTurn reviewTurn = runTurn(
+                "run-stage", "brain-review", ThreadTurnStatus.COMPLETED, triaging.runId(),
+                "prompt\n\n[brain-review-iteration:1]");
+        when(turnStore.findTurnById("external-review")).thenReturn(Optional.of(reviewTurn));
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(triaging));
+        Task task = taskAt(TaskPhase.AWAITING_REMOTE_REVIEW);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        AgentRun run = new AgentRun(
+                triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "external-review", false));
+
+        verify(roundStore).save(argThat(r -> ReviewRound.STATUS_AWAITING_GATE.equals(r.status())
+                && NOW.equals(r.gatedAt())));
+        verify(agentRuns).transition(triaging.runId(), AgentRun.STATUS_AWAITING_GATE, "drafts_ready");
+        verify(agentRuns, never()).transition(triaging.runId(), AgentRun.STATUS_SUCCEEDED, "brain_review_concluded");
+        verify(prService, never()).requestUserReview(anyString(), anyString());
+    }
+
+    @Test
     void budgetExhaustionEscalatesAndStillConcludes()
     {
         ReviewRound lastIteration = brainRound(ReviewRound.STATUS_TRIAGING)
@@ -355,11 +539,15 @@ class TestBrainReviewServiceImpl
         when(agentRuns.findById(lastIteration.runId())).thenReturn(Optional.of(run));
         PR drafted = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
         when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
+        when(prService.comments("pr1")).thenReturn(List.of(brainComment(
+                "c-open", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Still unresolved")));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-7", false));
 
         assertThat(lastIteration.brainBudgetExhausted()).isTrue();
         verify(notifications).notifyNeedsAttention(eq(task().threadId()), eq(TASK_ID), anyString());
+        verify(roundStore).save(argThat(r -> ReviewRound.STATUS_CLOSED.equals(r.status())
+                && r.stats().open() == 1));
         verify(prService).requestUserReview("pr1", "brain");
         // approved=false on an escalation — auto_merge must not push unreviewed
         // concerns straight to remote.
@@ -399,12 +587,13 @@ class TestBrainReviewServiceImpl
     void reviewBeforeRoundGateStartsTheVerificationPassInsteadOfArmingTheGateDirectly()
     {
         ReviewRound addressed = round(ReviewRound.STATUS_ADDRESSING);
-        Task task = task();
+        Task task = taskAt(TaskPhase.AWAITING_REMOTE_REVIEW);
         AgentRun run = new AgentRun(
                 addressed.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE, null, null,
                 "run-stage", AgentRun.STATUS_RUNNING, 1, null, null, null, NOW, null);
         when(agentRuns.findById(addressed.runId())).thenReturn(Optional.of(run));
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+        when(validation.run(TASK_ID)).thenReturn(new ValidationPassResult(true, 0, List.of()));
 
         service.reviewBeforeRoundGate(addressed, task);
 
@@ -413,6 +602,40 @@ class TestBrainReviewServiceImpl
         verify(scheduler).enqueueTaskTurn(
                 any(), anyString(), eq(TASK_ID), eq("run-stage"),
                 argThat(i -> "brain-review".equals(i.source())), anyString());
+    }
+
+    @Test
+    void reviewBeforeRoundGateStopsAndParksWhenValidationFails()
+    {
+        ReviewRound addressed = round(ReviewRound.STATUS_ADDRESSING);
+        Task task = taskAt(TaskPhase.AWAITING_REMOTE_REVIEW);
+        when(validation.run(TASK_ID)).thenReturn(new ValidationPassResult(false, 3, List.of()));
+
+        service.reviewBeforeRoundGate(addressed, task);
+
+        verify(phaseMachine).transition(
+                TASK_ID, TaskPhase.NEEDS_ATTENTION, "review_fixes_validation_failed",
+                Actor.AGENT);
+        verify(roundStore, never()).save(any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString());
+    }
+
+    @Test
+    void reviewBeforeRoundGateParksInsteadOfFailingOpenWhenItsRunIsMissing()
+    {
+        ReviewRound addressed = round(ReviewRound.STATUS_ADDRESSING);
+        Task task = taskAt(TaskPhase.AWAITING_REMOTE_REVIEW);
+        when(validation.run(TASK_ID)).thenReturn(new ValidationPassResult(true, 0, List.of()));
+
+        service.reviewBeforeRoundGate(addressed, task);
+
+        verify(phaseMachine).transition(
+                TASK_ID, TaskPhase.NEEDS_ATTENTION, "brain_review_run_missing", Actor.AGENT);
+        verify(notifications).notifyNeedsAttention(eq(task.threadId()), eq(TASK_ID),
+                argThat(payload -> payload.contains(addressed.id())));
+        verify(roundStore, never()).save(any());
+        verify(agentRuns, never()).transition(anyString(), eq(AgentRun.STATUS_AWAITING_GATE), anyString());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString());
     }
 
     // ── reconcileStalledRounds: the intra-thread-multi-tasking backstop ───
@@ -428,6 +651,8 @@ class TestBrainReviewServiceImpl
                 "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
         when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
         when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(idleTaskThread()));
+        when(turnStore.listTurnsByAgentRunId(triaging.runId(), 100)).thenReturn(List.of(
+                runTurn("run-stage", "brain-review", ThreadTurnStatus.COMPLETED, triaging.runId())));
 
         service.reconcileStalledRounds();
 
@@ -448,6 +673,8 @@ class TestBrainReviewServiceImpl
                 "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
         when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
         when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(busyTaskThread()));
+        when(turnStore.listTurnsByAgentRunId(triaging.runId(), 100)).thenReturn(List.of(
+                runTurn("run-stage", "brain-review", ThreadTurnStatus.COMPLETED, triaging.runId())));
 
         service.reconcileStalledRounds();
 
@@ -458,15 +685,21 @@ class TestBrainReviewServiceImpl
     @Test
     void reconcileStalledRoundsAdvancesAnAddressingRoundOnceItsThreadIsIdle()
     {
-        ReviewRound addressing = brainRound(ReviewRound.STATUS_ADDRESSING).withIterationBumped();
+        ReviewRound addressing = brainRound(ReviewRound.STATUS_ADDRESSING)
+                .withIterationBumped()
+                .withBrainVerdict(ReviewRound.VERDICT_CHANGES_REQUESTED);
         when(roundStore.findAllLive()).thenReturn(List.of(addressing));
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
+        Task task = taskAt(TaskPhase.INTERNAL_REVIEW);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
         AgentRun run = new AgentRun(
                 addressing.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
                 "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
         when(agentRuns.findById(addressing.runId())).thenReturn(Optional.of(run));
-        when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(idleTaskThread()));
+        when(threadStore.findThreadById(task.threadId())).thenReturn(Optional.of(idleTaskThread()));
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+        when(validation.run(TASK_ID)).thenReturn(new ValidationPassResult(true, 0, List.of()));
+        when(turnStore.listTurnsByAgentRunId(addressing.runId(), 100)).thenReturn(List.of(
+                runTurn("run-stage", "brain-review-fix", ThreadTurnStatus.COMPLETED, addressing.runId())));
 
         service.reconcileStalledRounds();
 
@@ -474,7 +707,132 @@ class TestBrainReviewServiceImpl
                 any(), anyString(), eq(TASK_ID), eq("run-stage"),
                 argThat(i -> "brain-review".equals(i.source())), anyString());
         verify(roundStore).save(argThat(
-                r -> ReviewRound.STATUS_TRIAGING.equals(r.status()) && r.iteration() == 2));
+                r -> ReviewRound.STATUS_TRIAGING.equals(r.status())
+                        && r.iteration() == 2
+                        && r.brainVerdict() == null));
+        verify(phaseMachine, never()).transition(anyString(), any(), anyString(), any());
+    }
+
+    @Test
+    void completedFixDoesNotAdvanceOrSpendAnIterationWithoutABrainThread()
+    {
+        ReviewRound addressing = brainRound(ReviewRound.STATUS_ADDRESSING).withIterationBumped();
+        when(roundStore.findAllLive()).thenReturn(List.of(addressing));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.INTERNAL_REVIEW)));
+        AgentRun run = new AgentRun(
+                addressing.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(addressing.runId())).thenReturn(Optional.of(run));
+        when(validation.run(TASK_ID)).thenReturn(new ValidationPassResult(true, 0, List.of()));
+        when(turnStore.listTurnsByAgentRunId(addressing.runId(), 100)).thenReturn(List.of(
+                runTurn("run-stage", "brain-review-fix", ThreadTurnStatus.COMPLETED, addressing.runId())));
+
+        service.reconcileStalledRounds();
+
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString());
+        verify(roundStore, never()).save(argThat(r -> ReviewRound.STATUS_TRIAGING.equals(r.status())));
+        verify(prService, never()).recordBrainReviewStarted(anyString(), anyString(), anyInt(), anyString());
+    }
+
+    @Test
+    void completedFixDoesNotAdvanceOrSpendAnIterationWhenReviewEnqueueFails()
+    {
+        ReviewRound addressing = brainRound(ReviewRound.STATUS_ADDRESSING).withIterationBumped();
+        when(roundStore.findAllLive()).thenReturn(List.of(addressing));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.INTERNAL_REVIEW)));
+        AgentRun run = new AgentRun(
+                addressing.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(addressing.runId())).thenReturn(Optional.of(run));
+        when(validation.run(TASK_ID)).thenReturn(new ValidationPassResult(true, 0, List.of()));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+        when(turnStore.listTurnsByAgentRunId(addressing.runId(), 100)).thenReturn(List.of(
+                runTurn("run-stage", "brain-review-fix", ThreadTurnStatus.COMPLETED, addressing.runId())));
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString()))
+                .thenThrow(new IllegalStateException("queue unavailable"));
+
+        service.reconcileStalledRounds();
+
+        verify(roundStore, never()).save(argThat(r -> ReviewRound.STATUS_TRIAGING.equals(r.status())));
+        verify(prService, never()).recordBrainReviewStarted(anyString(), anyString(), anyInt(), anyString());
+    }
+
+    @Test
+    void reconcileDoesNotReuseACompletedReviewFromAnOlderIteration()
+    {
+        ReviewRound secondReview = brainRound(ReviewRound.STATUS_TRIAGING)
+                .withIterationBumped()
+                .withIterationBumped();
+        when(roundStore.findAllLive()).thenReturn(List.of(secondReview));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
+        AgentRun run = new AgentRun(
+                secondReview.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(secondReview.runId())).thenReturn(Optional.of(run));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+        when(turnStore.listTurnsByAgentRunId(secondReview.runId(), 100)).thenReturn(List.of(
+                runTurn("run-stage", "brain-review", ThreadTurnStatus.COMPLETED, secondReview.runId())));
+
+        service.reconcileStalledRounds();
+
+        verify(scheduler).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq("run-stage"),
+                argThat(i -> "brain-review".equals(i.source())), eq(secondReview.runId()));
+        verify(scheduler, never()).enqueueTaskTurn(
+                any(), anyString(), anyString(), anyString(),
+                argThat(i -> "brain-review-fix".equals(i.source())), anyString());
+        verify(roundStore, never()).save(argThat(r -> ReviewRound.STATUS_ADDRESSING.equals(r.status())));
+    }
+
+    @Test
+    void reconcileAdvancesTheMarkedReviewForTheCurrentIteration()
+    {
+        ReviewRound secondReview = brainRound(ReviewRound.STATUS_TRIAGING)
+                .withIterationBumped()
+                .withIterationBumped()
+                .withBrainVerdict(ReviewRound.VERDICT_CHANGES_REQUESTED);
+        when(roundStore.findAllLive()).thenReturn(List.of(secondReview));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
+        AgentRun run = new AgentRun(
+                secondReview.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(secondReview.runId())).thenReturn(Optional.of(run));
+        when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(idleTaskThread()));
+        when(turnStore.listTurnsByAgentRunId(secondReview.runId(), 100)).thenReturn(List.of(
+                runTurn("run-stage", "brain-review", ThreadTurnStatus.COMPLETED, secondReview.runId(),
+                        "prompt\n\n[brain-review-iteration:2]"),
+                runTurn("run-stage", "brain-review", ThreadTurnStatus.COMPLETED, secondReview.runId())));
+
+        service.reconcileStalledRounds();
+
+        verify(scheduler).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq("run-stage"),
+                argThat(i -> "brain-review-fix".equals(i.source())), eq(secondReview.runId()));
+        verify(roundStore).save(argThat(r -> ReviewRound.STATUS_ADDRESSING.equals(r.status())));
+    }
+
+    @Test
+    void reconcileStalledRoundsDoesNotReReviewFailedBrainFixes()
+    {
+        ReviewRound addressing = brainRound(ReviewRound.STATUS_ADDRESSING).withIterationBumped();
+        when(roundStore.findAllLive()).thenReturn(List.of(addressing));
+        Task task = taskAt(TaskPhase.INTERNAL_REVIEW);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        AgentRun run = new AgentRun(
+                addressing.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(addressing.runId())).thenReturn(Optional.of(run));
+        when(threadStore.findThreadById(task.threadId())).thenReturn(Optional.of(idleTaskThread()));
+        when(validation.run(TASK_ID)).thenReturn(new ValidationPassResult(false, 3, List.of()));
+        when(turnStore.listTurnsByAgentRunId(addressing.runId(), 100)).thenReturn(List.of(
+                runTurn("run-stage", "brain-review-fix", ThreadTurnStatus.COMPLETED, addressing.runId())));
+
+        service.reconcileStalledRounds();
+
+        verify(phaseMachine).transition(
+                TASK_ID, TaskPhase.NEEDS_ATTENTION, "brain_fixes_validation_failed", Actor.AGENT);
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString());
+        verify(roundStore, never()).save(argThat(r -> ReviewRound.STATUS_TRIAGING.equals(r.status())));
     }
 
     @Test
@@ -486,35 +844,121 @@ class TestBrainReviewServiceImpl
         ReviewRound addressing = brainRound(ReviewRound.STATUS_ADDRESSING).withIterationBumped();
         when(roundStore.findAllLive()).thenReturn(List.of(addressing));
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
-        when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(busyTaskThread()));
+        AgentRun run = new AgentRun(
+                addressing.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(addressing.runId())).thenReturn(Optional.of(run));
+        when(turnStore.listTurnsByAgentRunId(addressing.runId(), 100)).thenReturn(List.of(
+                runTurn("run-stage", "brain-review-fix", ThreadTurnStatus.RUNNING, addressing.runId())));
 
         service.reconcileStalledRounds();
 
-        verify(agentRuns, never()).findById(any());
         verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any());
         verify(roundStore, never()).save(any());
     }
 
     @Test
-    void reconcileStalledRoundsIgnoresExternalOriginRounds()
+    void reconcileStalledRoundsDoesNotInferAQueuedExternalBrainTurnCompleted()
     {
         ReviewRound external = round(ReviewRound.STATUS_TRIAGING);
         when(roundStore.findAllLive()).thenReturn(List.of(external));
+        Task task = taskAt(TaskPhase.AWAITING_REMOTE_REVIEW);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        AgentRun run = new AgentRun(
+                external.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(external.runId())).thenReturn(Optional.of(run));
+        when(turnStore.listTurnsByAgentRunId(external.runId(), 100)).thenReturn(List.of(
+                runTurn("run-stage", "brain-review", ThreadTurnStatus.QUEUED, external.runId())));
 
         service.reconcileStalledRounds();
 
-        verify(taskStore, never()).findTaskById(any());
+        verify(roundStore, never()).save(any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString());
+    }
+
+    @Test
+    void failedBrainTurnEventNeverAdvancesTheRound()
+    {
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING);
+        ThreadTurn failed = runTurn(
+                "run-stage", "brain-review", ThreadTurnStatus.FAILED, triaging.runId());
+        when(turnStore.findTurnById("failed-turn")).thenReturn(Optional.of(failed));
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(triaging));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "failed-turn", true));
+
+        verify(taskStore, never()).findTaskById(TASK_ID);
+        verify(roundStore, never()).save(any());
+    }
+
+    @Test
+    void secondFailedBrainReviewTurnParksInsteadOfRetryingForever()
+    {
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING);
+        Task task = task();
+        when(roundStore.findAllLive()).thenReturn(List.of(triaging));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        AgentRun run = new AgentRun(
+                triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND,
+                AgentRun.SOURCE_LOCAL, null, null, "run-stage",
+                AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
+        when(turnStore.listTurnsByAgentRunId(triaging.runId(), 100)).thenReturn(List.of(
+                runTurn("run-stage", "brain-review", ThreadTurnStatus.FAILED, triaging.runId()),
+                runTurn("run-stage", "brain-review", ThreadTurnStatus.CANCELLED, triaging.runId())));
+
+        service.reconcileStalledRounds();
+
+        verify(phaseMachine).transition(
+                TASK_ID, TaskPhase.NEEDS_ATTENTION, "brain_review_turn_failed", Actor.AGENT);
+        verify(notifications).notifyNeedsAttention(eq(task.threadId()), eq(TASK_ID),
+                argThat(payload -> payload.contains(triaging.id())));
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString());
+    }
+
+    @Test
+    void duplicateReviewCompletionCannotAdvanceTheFollowingFixIteration()
+    {
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING)
+                .withBrainVerdict(ReviewRound.VERDICT_CHANGES_REQUESTED);
+        ReviewRound addressing = triaging.withStatus(ReviewRound.STATUS_ADDRESSING);
+        ThreadTurn reviewTurn = runTurn(
+                "run-stage", "brain-review", ThreadTurnStatus.COMPLETED, triaging.runId());
+        when(turnStore.findTurnById("review-turn")).thenReturn(Optional.of(reviewTurn));
+        when(roundStore.findLiveByTask(TASK_ID))
+                .thenReturn(Optional.of(triaging), Optional.of(addressing));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
+        AgentRun run = new AgentRun(
+                triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
+        when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(idleTaskThread()));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "review-turn", false));
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "review-turn", false));
+
+        verify(scheduler, times(1)).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq("run-stage"),
+                argThat(i -> "brain-review-fix".equals(i.source())), eq(triaging.runId()));
+        verify(roundStore, times(1)).save(argThat(r -> ReviewRound.STATUS_ADDRESSING.equals(r.status())));
+        verify(validation, never()).run(TASK_ID);
     }
 
     // ── fixtures ─────────────────────────────────────────────────────────
 
     private static Task task()
     {
+        return taskAt(TaskPhase.INTERNAL_REVIEW);
+    }
+
+    private static Task taskAt(TaskPhase phase)
+    {
         return new Task(
                 TASK_ID, "thread-1", 1L, TaskStatus.RUNNING, "dev/x", "/tmp/wt", "main", "/tmp/clone",
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, null, NOW, null, null, null, null, null,
-                null, TaskPhase.AWAITING_PUSH, null, 0, null);
+                null, phase, null, 0, null);
     }
 
     private static StageInstance planStage(StageState state)
@@ -571,6 +1015,23 @@ class TestBrainReviewServiceImpl
                 "turn-x", "thread-1", TASK_ID, ThreadResourceLane.CLI,
                 ThreadTurnStatus.COMPLETED, "prompt", NOW, NOW, NOW, NOW,
                 null, initiator, stageId, ThreadScope.TASK);
+    }
+
+    private static ThreadTurn runTurn(
+            String stageId, String source, ThreadTurnStatus status, String runId)
+    {
+        return runTurn(stageId, source, status, runId, "prompt");
+    }
+
+    private static ThreadTurn runTurn(
+            String stageId, String source, ThreadTurnStatus status, String runId, String input)
+    {
+        return new ThreadTurn(
+                "failed-turn", "thread-1", TASK_ID, ThreadResourceLane.CLI,
+                status, input, NOW, NOW, NOW,
+                status == ThreadTurnStatus.QUEUED || status == ThreadTurnStatus.RUNNING ? null : NOW,
+                status == ThreadTurnStatus.FAILED ? "failed" : null,
+                TurnInitiator.unattended(source), stageId, ThreadScope.STAGE, runId);
     }
 
     private static ThreadMessage reviewMessage(String body)

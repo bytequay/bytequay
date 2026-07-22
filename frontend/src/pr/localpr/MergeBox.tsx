@@ -13,17 +13,14 @@
  */
 import { useState } from 'react';
 import type { ReactNode } from 'react';
+import type { PullRequestDetailDto } from '../../types';
 import type { PRCapabilities } from '../prCapabilities';
 import type { LocalPR, LocalPRCheck } from '../../types/localPr';
+import type { BrainReviewSummary, LocalReviewGate } from './localReviewGate';
 import {
   CheckIcon, ChevronRightIcon, MergeBranchIcon, PullRequestIcon,
 } from '../../ui/TaskBrainDesignIcons';
 import { CheckRows } from './CheckRows';
-
-/** The brain's dev-end review verdict, once it's concluded (plan-rail-runs.md
- *  R21/R23) — derived by the caller from the PR's brain-authored comments,
- *  since a brain review round never blocks the flip forever. */
-export type BrainReviewSummary = { total: number; unresolved: number };
 
 function MergeBoxShell({ children, className = '', tone = 'green' }: {
   children: ReactNode;
@@ -50,11 +47,17 @@ const MERGE_METHODS: { key: string; label: string; verb: string }[] = [
 ];
 
 function BrainReviewTag({ brainReview }: { brainReview?: BrainReviewSummary }) {
-  if (brainReview === undefined || brainReview.total === 0) return null;
-  if (brainReview.unresolved === 0) {
-    return <span className="brain-review-tag ok">✓ Brain-reviewed</span>;
+  if (brainReview === undefined || brainReview.state === 'pending') {
+    return <span className="brain-review-tag warn">◆ Brain review pending</span>;
   }
-  return <span className="brain-review-tag warn">◆ brain unresolved · {brainReview.unresolved}</span>;
+  if (brainReview.state === 'approved') {
+    return <span className="brain-review-tag ok">✓ Brain approved</span>;
+  }
+  return (
+    <span className="brain-review-tag warn">
+      ◆ brain unresolved{brainReview.unresolved === undefined ? '' : ` · ${brainReview.unresolved}`}
+    </span>
+  );
 }
 
 /** Mirrors github.com's own merge-box phrasing (docs/mockups/v3/design/
@@ -189,8 +192,8 @@ function MethodButton({ method, onChange, onConfirm, disabled }: {
  * own synced fields, not local optimism.
  */
 export function MergeBox({
-  pr, capabilities, localChecks, remoteChecks, openComments, localTestsFailing = false,
-  pendingStripCount, draftCount, brainReview, onPush, onAskAgent, onMerge,
+  pr, capabilities, localChecks, remoteChecks, remoteDetail, openComments, localTestsFailing = false,
+  pendingStripCount, draftCount, localReviewGate, onPush, onAskAgent, onMerge,
   onDequeue, onDeleteBranch, onPublishReview, onDiscardDrafts, onRunTests, runTestsBusy = false,
   hidePublishGate = false,
 }: {
@@ -198,11 +201,13 @@ export function MergeBox({
   capabilities: PRCapabilities;
   localChecks: LocalPRCheck[];
   remoteChecks: LocalPRCheck[];
+  remoteDetail?: PullRequestDetailDto | null;
   openComments: number;
   localTestsFailing?: boolean;
   pendingStripCount: number;
   draftCount: number;
-  brainReview?: BrainReviewSummary;
+  /** Server-owned Local Review state. Task promotion fails closed when absent. */
+  localReviewGate?: LocalReviewGate;
   onPush?: () => void;
   onAskAgent?: () => void;
   onMerge?: (method: string) => void;
@@ -225,7 +230,7 @@ export function MergeBox({
   // Queued/merged are the two terminal-ish outcomes of a merge attempt —
   // github.com shows either as the box's ENTIRE content (no checks summary
   // alongside), so these short-circuit before anything else below.
-  const queued = capabilities.merge && pr.status === 'remote-open' && pr.syncedMergeQueueState === 'QUEUED';
+  const queued = pr.status === 'remote-open' && pr.syncedMergeQueueState === 'QUEUED';
   const merged = pr.status === 'merged';
 
   if (queued) {
@@ -271,10 +276,22 @@ export function MergeBox({
   const summary = checksSummary(allChecks);
 
   const showPushGate = capabilities.push && pr.status === 'local-open';
-  // Drafts show the gate too — merging one marks it ready for review
-  // first (the backend flips it before merging/queueing).
-  const showMergeGate = capabilities.merge;
-  const draft = pr.status === 'remote-drafted';
+  const pushEligible = localReviewGate?.eligible === true
+    && openComments === 0 && !localTestsFailing && onPush !== undefined;
+  const unresolvedHumanGate = localReviewGate?.eligible === true
+    && localReviewGate.brainReview.state === 'unresolved';
+  // Task-origin PRs use the authoritative merge notification. A direct
+  // external merge appears only from a live detail snapshot that is fully
+  // green; the backend repeats this same preflight immediately before merge.
+  const showMergeGate = capabilities.merge
+    && remoteDetail != null
+    && !remoteDetail.draft
+    && remoteDetail.viewerCanWrite
+    && remoteDetail.ciStatus === 'PASSING'
+    && remoteDetail.changesRequestedCount === 0
+    && remoteDetail.mergeable === true
+    && remoteDetail.reviewThreads.every(thread => thread.resolved === true)
+    && openComments === 0;
   const showPublishGate = !hidePublishGate && capabilities.publishReview && draftCount > 0;
   const hasMergeableData = pr.syncedMergeable !== null;
   if (!showPushGate && !showMergeGate && !showPublishGate
@@ -284,8 +301,6 @@ export function MergeBox({
   // Matches github.com's fully-green card border once checks pass AND
   // there's nothing blocking a merge.
   const allGood = summary.icon === 'green' && pr.syncedMergeable === true;
-  const mergeBlocked = openComments > 0 || pr.syncedMergeable === false;
-
   const confirmMerge = () => {
     setMergePhase('idle');
     onMerge?.(method);
@@ -327,11 +342,19 @@ export function MergeBox({
       {showPushGate && (
         <>
           <div className="mb-sec">
-            <span className="mb-ic green"><CheckIcon size={18} /></span>
+            <span className={`mb-ic ${pushEligible && !unresolvedHumanGate ? 'green' : 'amber'}`}>
+              {pushEligible && !unresolvedHumanGate ? <CheckIcon size={18} /> : '!'}
+            </span>
             <div className="mb-t">
-              <div className="h">Ready to push to GitHub as a Draft PR <BrainReviewTag brainReview={brainReview} /></div>
+              <div className="h">
+                {unresolvedHumanGate
+                  ? 'Human approval required before shipping'
+                  : pushEligible ? 'Ready to push to GitHub as a Draft PR' : 'Local review is not ready to ship'}{' '}
+                <BrainReviewTag brainReview={localReviewGate?.brainReview} />
+              </div>
               <div className="s">
-                Pushes <code>{pr.branchName}</code> and opens a draft
+                {localReviewGate?.reason ?? 'Waiting for authoritative task, validation, and Brain review state.'}
+                {' · '}Pushes <code>{pr.branchName}</code> and opens a draft
                 {openComments > 0 ? ` · ${openComments} open comment${openComments === 1 ? '' : 's'}` : ''}
                 {localTestsFailing ? ' · local tests failing' : ''}
               </div>
@@ -347,7 +370,7 @@ export function MergeBox({
               type="button"
               className="btn green"
               onClick={onPush}
-              disabled={openComments > 0 || localTestsFailing}
+              disabled={!pushEligible}
             >
               Approve &amp; push to GitHub
             </button>
@@ -363,7 +386,7 @@ export function MergeBox({
           <div className="mb-sec">
             <div className="mb-t">
               <div className="s">
-                {draft ? 'This will mark the draft ready for review, then ' : 'This will '}
+                This will{' '}
                 {pr.syncedMergeQueueEnabled
                   ? 'add this pull request to the merge queue.'
                   : `${MERGE_METHODS.find(m => m.key === method)?.verb} your changes and merge them into ${pr.baseBranch}.`}
@@ -386,17 +409,8 @@ export function MergeBox({
           <div className="mb-sec">
             <span className="mb-ic green"><MergeBranchIcon size={18} /></span>
             <div className="mb-t">
-              <div className="h">
-                {openComments > 0
-                  ? `${openComments} open comment${openComments === 1 ? '' : 's'} — resolve before merge`
-                  : pr.syncedMergeable === false ? 'Merge blocked'
-                  : draft ? 'Draft — merging marks it ready first' : 'Ready to merge'}
-              </div>
-              <div className="s">
-                {pr.syncedMergeable === false
-                  ? `Resolve branch conflicts before merging into ${pr.baseBranch}.`
-                  : `Merging opens ${pr.baseBranch} ← ${pr.branchName}`}
-              </div>
+              <div className="h">Ready to merge</div>
+              <div className="s">Merging opens {pr.baseBranch} ← {pr.branchName}</div>
             </div>
           </div>
           <div className="mb-actions">
@@ -404,7 +418,6 @@ export function MergeBox({
               <button
                 type="button"
                 className="btn green"
-                disabled={mergeBlocked}
                 onClick={() => setMergePhase('confirm')}
               >
                 Merge when ready
@@ -414,11 +427,8 @@ export function MergeBox({
                 method={method}
                 onChange={setMethod}
                 onConfirm={() => setMergePhase('confirm')}
-                disabled={mergeBlocked}
+                disabled={false}
               />
-            )}
-            {openComments > 0 && pr.syncedMergeable !== false && (
-              <button type="button" className="btn" onClick={() => setMergePhase('confirm')}>Merge anyway</button>
             )}
           </div>
           <div className="mb-cli-hint">

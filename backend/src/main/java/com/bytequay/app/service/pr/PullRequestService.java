@@ -51,6 +51,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoListCache;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -340,6 +341,12 @@ public class PullRequestService
         return resolveCurrentLogin(patResolver.resolve());
     }
 
+    /** Authenticated login for a repo-scoped credential, if GitHub can resolve it. */
+    public String resolveCurrentRepoLogin(String repoFullName)
+    {
+        return resolveCurrentLogin(patResolver.resolve(repoFullName));
+    }
+
     /** True when an under-enriched PR is due for a forced backfill sync:
      *  either we've never re-checked it or the last attempt is older than
      *  {@link #BACKFILL_RECHECK_INTERVAL}. */
@@ -472,6 +479,18 @@ public class PullRequestService
     public PullRequestDetail refreshPullRequestDetail(String repo, int number)
     {
         return refreshPullRequestDetail(repo, number, 0);
+    }
+
+    /**
+     * Fetches a complete live PR detail snapshot for an authorization decision.
+     * Unlike {@link #refreshPullRequestDetail(String, int)}, this never accepts a
+     * PR-resource 304 as proof that reviews or review-thread resolution are
+     * unchanged, because those GitHub resources can change independently.
+     */
+    public PullRequestDetail fetchFreshPullRequestDetail(String repo, int number)
+    {
+        invalidatePullRequestDetail(repo, number);
+        return getPullRequestDetail(repo, number);
     }
 
     /**
@@ -826,6 +845,23 @@ public class PullRequestService
      */
     public void commentOnPullRequest(String repo, int number, long prId, String body, boolean close)
     {
+        if (close) {
+            Optional<Task> owner = findTaskOwnedPr(repo, number);
+            if (owner.isPresent()) {
+                TaskPhaseMachine.withTaskLock(owner.get().id(), () -> {
+                    commentOnPullRequestLocked(repo, number, prId, body, true);
+                    eventPublisher.publishEvent(new PullRequestClosedEvent(repo, number));
+                    return null;
+                });
+                return;
+            }
+        }
+        commentOnPullRequestLocked(repo, number, prId, body, close);
+    }
+
+    private void commentOnPullRequestLocked(
+            String repo, int number, long prId, String body, boolean close)
+    {
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         if (body != null && !body.isBlank()) {
@@ -842,7 +878,10 @@ public class PullRequestService
         }
         if (close) {
             gitHub.updatePullRequest(pat, ref, UpdatePullRequestCommand.close());
-            viewStateStore.markReviewed(prId, HandledAction.DISMISSED);
+            Optional<Long> storedPrId = prId > 0
+                    ? Optional.of(prId)
+                    : store.findIdByRepoAndNumber(repo, number);
+            storedPrId.ifPresent(id -> viewStateStore.markReviewed(id, HandledAction.DISMISSED));
             invalidatePullRequestCaches(repo, number);
         }
     }
@@ -1256,6 +1295,7 @@ public class PullRequestService
      */
     public MergeResult mergePullRequest(String repo, int number, long prId, String strategy)
     {
+        rejectTaskOwnedMergePath(repo, number);
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         Optional<PullRequestRepository.MergeQueueProbe> probe;
@@ -1371,10 +1411,34 @@ public class PullRequestService
      */
     public void enableAutoMerge(String repo, int number, long prId, String strategy)
     {
+        rejectTaskOwnedMergePath(repo, number);
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         gitHub.enableAutoMerge(pat, ref, autoMergeGraphqlEnum(strategy));
         invalidatePullRequestCaches(repo, number);
+    }
+
+    /** Task-owned PRs have stronger local policy than GitHub alone can see
+     *  (live review rounds, app-local comments, and the configured approval
+     *  threshold). They must merge through the local-PR endpoint, whose fresh
+     *  {@code ReadyToMergeService} predicate is authoritative. */
+    private void rejectTaskOwnedMergePath(String repo, int number)
+    {
+        if (findTaskOwnedPr(repo, number).isPresent()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "task-owned pull requests must use the task Merge / Close gate");
+        }
+    }
+
+    private Optional<Task> findTaskOwnedPr(String repo, int number)
+    {
+        String prRef = repo + "#" + number;
+        return taskStore.findTasksByPrRef(prRef).stream().findFirst()
+                .or(() -> taskStore.findByLinkedPrNumber(number).stream()
+                        .filter(task -> task.linkedPrRef() != null
+                                && prRef.equalsIgnoreCase(task.linkedPrRef()))
+                        .findFirst());
     }
 
     /**

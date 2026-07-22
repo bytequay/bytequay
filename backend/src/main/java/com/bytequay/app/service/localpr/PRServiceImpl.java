@@ -26,15 +26,22 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.review.DevReportService;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -63,25 +70,27 @@ class PRServiceImpl
     private final DevReportService devReports;
     private final ObjectMapper mapper;
     private final StageStore stageStore;
+    private final TaskStore taskStore;
     private final ApplicationEventPublisher events;
     private final Clock clock;
 
     @Autowired
     PRServiceImpl(
             PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore,
-            ApplicationEventPublisher events)
+            TaskStore taskStore, ApplicationEventPublisher events)
     {
-        this(store, devReports, mapper, stageStore, events, Clock.systemUTC());
+        this(store, devReports, mapper, stageStore, taskStore, events, Clock.systemUTC());
     }
 
     PRServiceImpl(
             PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore,
-            ApplicationEventPublisher events, Clock clock)
+            TaskStore taskStore, ApplicationEventPublisher events, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.devReports = requireNonNull(devReports, "devReports is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.events = requireNonNull(events, "events is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -728,6 +737,16 @@ class PRServiceImpl
     public PR recordPush(String prId, String repo, int remotePrNumber, String remotePrUrl)
     {
         PR pr = require(prId);
+        if (pr.taskId() == null) {
+            return recordPush(pr, repo, remotePrNumber, remotePrUrl);
+        }
+        return TaskPhaseMachine.withTaskLock(pr.taskId(), () ->
+                recordPush(require(prId), repo, remotePrNumber, remotePrUrl));
+    }
+
+    private PR recordPush(PR pr, String repo, int remotePrNumber, String remotePrUrl)
+    {
+        String prId = pr.id();
         Instant when = now();
         // Strip the private local record before it can be confused with what
         // migrated — local-only events + local-origin comments never leave
@@ -812,6 +831,33 @@ class PRServiceImpl
             String parentCommentId)
     {
         PR pr = require(prId);
+        if (pr.taskId() == null) {
+            return addComment(pr, origin, scope, filePath, lineNumber, side,
+                    startLine, startSide, author, body, parentCommentId);
+        }
+        return TaskPhaseMachine.withTaskLock(pr.taskId(), () ->
+                addComment(require(prId), origin, scope, filePath, lineNumber, side,
+                        startLine, startSide, author, body, parentCommentId));
+    }
+
+    private PRComment addComment(
+            PR pr,
+            String origin,
+            String scope,
+            String filePath,
+            Integer lineNumber,
+            String side,
+            Integer startLine,
+            String startSide,
+            String author,
+            String body,
+            String parentCommentId)
+    {
+        if (PR.ORIGIN_TASK.equals(pr.origin())
+                && PRTimelineEntry.ACTOR_USER.equals(author)
+                && PRComment.ORIGIN_LOCAL.equals(origin)) {
+            requireOpenTaskLocalReview(pr);
+        }
         requireText(origin, "origin");
         requireText(author, "author");
         requireText(body, "body");
@@ -947,9 +993,40 @@ class PRServiceImpl
     {
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        PR pr = require(comment.prId());
+        if (pr.taskId() != null) {
+            return TaskPhaseMachine.withTaskLock(pr.taskId(), () -> reopenComment(require(pr.id()), commentId));
+        }
+        return reopenComment(pr, commentId);
+    }
+
+    private PRComment reopenComment(PR pr, String commentId)
+    {
+        PRComment comment = store.findCommentById(commentId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        if (!pr.id().equals(comment.prId())) {
+            throw new IllegalArgumentException("comment " + commentId + " belongs to another PR");
+        }
+        if (PR.ORIGIN_TASK.equals(pr.origin()) && !PR.STATUS_LOCAL_DRAFTED.equals(pr.status())) {
+            requireOpenTaskLocalReview(pr);
+        }
         PRComment saved = store.saveComment(comment.withReopened());
         notifyUpdated(comment.prId());
         return saved;
+    }
+
+    private void requireOpenTaskLocalReview(PR pr)
+    {
+        Task task = taskStore.findTaskById(pr.taskId()).orElse(null);
+        boolean activeLocalReview = task != null
+                && task.status() != TaskStatus.NEEDS_ATTENTION
+                && (task.phase() == TaskPhase.AWAITING_PUSH
+                        || task.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+        if (!PR.STATUS_LOCAL_OPEN.equals(pr.status()) || !activeLocalReview) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "Local Review is not open for comments; refresh and use the current review surface");
+        }
     }
 
     @Override

@@ -180,6 +180,18 @@ class TestPlanStageService
     }
 
     @Test
+    void approveRejectsUntilTheLatestPlanCompletesMandatorySelfReview()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        recordUnreviewedPlan(plan, taskId, "finalized", "rev-1");
+
+        assertThatThrownBy(() -> planStageService.approveByStage(plan.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("self-review");
+    }
+
+    @Test
     void approveRejectsAClosedStage()
     {
         String taskId = seedTask();
@@ -294,7 +306,7 @@ class TestPlanStageService
     }
 
     @Test
-    void devKickoffTurnFinishingWhileStillImplementingNudgesToShip()
+    void devKickoffTurnFinishingNeverCreatesALegacyShipGate()
     {
         String taskId = seedTask();
         StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
@@ -306,7 +318,7 @@ class TestPlanStageService
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
 
-        verify(scheduler).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
     }
 
     @Test
@@ -323,6 +335,9 @@ class TestPlanStageService
         stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_RECORDED, Map.of(
                 "id", "rev-1", "status", "finalized", "intent", intent,
                 "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small")));
+        stageStore.recordEvent(
+                plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
+                Map.of("verdict", "approved"));
 
         planStageService.approveByStage(plan.id());
 
@@ -335,7 +350,7 @@ class TestPlanStageService
     }
 
     @Test
-    void automatedDevKickoffGetsTheSameCompletionSafetyNudge()
+    void automatedDevKickoffAlsoNeverCreatesALegacyShipGate()
     {
         String taskId = seedTask();
         StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
@@ -346,7 +361,7 @@ class TestPlanStageService
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
 
-        verify(scheduler).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
     }
 
     @Test
@@ -415,6 +430,16 @@ class TestPlanStageService
     }
 
     private JsonNode recordPlan(StageInstance plan, String taskId, String status, String revId)
+    {
+        JsonNode recorded = recordUnreviewedPlan(plan, taskId, status, revId);
+        stageStore.recordEvent(
+                plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
+                Map.of("verdict", "approved"));
+        return recorded;
+    }
+
+    private JsonNode recordUnreviewedPlan(
+            StageInstance plan, String taskId, String status, String revId)
     {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("id", revId);

@@ -17,6 +17,7 @@ import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
 import com.bytequay.app.domain.HandledAction;
+import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PR;
@@ -24,16 +25,24 @@ import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.stage.ReadyToMergeService;
+import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
+import com.bytequay.app.service.threads.TaskService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -61,9 +70,9 @@ import static java.util.Objects.requireNonNull;
  * private local record (design #47) and flips the status. Agents never reach
  * here — push is user-initiated through {@code PRController}.
  *
- * <p>A local PR pushes to its own origin and opens against origin's base, so
- * (unlike the fork-aware {@code PublishService}) there is no cross-fork head:
- * the head is the bare branch name.
+ * <p>A local PR always pushes to its own origin. Direct clones then open a
+ * same-repository PR with a bare head; fork clones open against the watched
+ * upstream using {@code <fork-owner>:<branch>}.
  *
  * <p>Promotion gate (design doc slice 5): {@link #push} refuses while any
  * comment thread is still open, or the most recently recorded local test run
@@ -80,28 +89,43 @@ public class PRPublishService
 
     private final PRService prService;
     private final TaskStore taskStore;
+    private final WatchedRepoStore watchedRepos;
     private final GitRunner git;
     private final PullRequestRepository pullRequests;
     private final PatResolver patResolver;
     private final BrainReviewService brainReview;
+    private final PullRequestService pullRequestDetails;
+    private final ReadyToMergeService readyToMerge;
     private final TaskPhaseMachine phaseMachine;
+    private final NotificationService notifications;
+    private final TaskService taskService;
 
     public PRPublishService(
             PRService prService,
             TaskStore taskStore,
+            WatchedRepoStore watchedRepos,
             GitRunner git,
             PullRequestRepository pullRequests,
             PatResolver patResolver,
             BrainReviewService brainReview,
-            TaskPhaseMachine phaseMachine)
+            PullRequestService pullRequestDetails,
+            ReadyToMergeService readyToMerge,
+            TaskPhaseMachine phaseMachine,
+            NotificationService notifications,
+            TaskService taskService)
     {
         this.prService = requireNonNull(prService, "prService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.git = requireNonNull(git, "git is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
+        this.pullRequestDetails = requireNonNull(pullRequestDetails, "pullRequestDetails is null");
+        this.readyToMerge = requireNonNull(readyToMerge, "readyToMerge is null");
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
+        this.notifications = requireNonNull(notifications, "notifications is null");
+        this.taskService = requireNonNull(taskService, "taskService is null");
     }
 
     /**
@@ -165,16 +189,35 @@ public class PRPublishService
 
     /** Push {@code prId}'s branch and open a Draft PR, then strip locals + flip
      *  {@code local-open → remote-drafted}. */
-    public PR push(String prId)
+    public synchronized PR push(String prId)
     {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
+        if (pr.taskId() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " has no task");
+        }
+        return TaskPhaseMachine.withTaskLock(pr.taskId(), () -> pushLocked(prId));
+    }
+
+    private PR pushLocked(String prId)
+    {
+        PR pr = prService.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
+        if (PR.STATUS_REMOTE_DRAFTED.equals(pr.status()) && pr.remotePrNumber() != null) {
+            return recoverAlreadyPushed(pr);
+        }
+        return pushLocal(pr);
+    }
+
+    private PR pushLocal(PR pr)
+    {
+        String prId = pr.id();
         if (!PR.STATUS_LOCAL_OPEN.equals(pr.status())) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT, "local PR " + prId + " is not ready to push (status=" + pr.status() + ")");
         }
         long openComments = openCommentCount(prId);
-        if (openComments > 0) {
+        if (openComments > 0 && !onlyEscalatedBrainCommentsRemain(pr)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "local PR " + prId + " has " + openComments + " open comment thread(s) — "
                             + "resolve or dismiss them before promoting");
@@ -188,27 +231,116 @@ public class PRPublishService
         if (task.workingDir() == null || task.workingDir().isBlank()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "task " + task.id() + " has no working dir");
         }
-        RepoRef repo = remoteSlug(task);
-        pushBranch(task, pr.branchName());
+        if (task.phase() != TaskPhase.AWAITING_PUSH || task.status() == TaskStatus.NEEDS_ATTENTION) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "task " + task.id() + " is not at the Local Review push gate");
+        }
+        // A local-open PR has already passed the canonical user gate. Any
+        // still-live publish proposal on the same task predates this flow;
+        // retire it before remote side effects so it cannot block the remote
+        // lifecycle. A RESOLVING gate fails closed; needs-attention notices
+        // are intentionally untouched.
+        notifications.supersedeAwaitingReviewForTask(task.threadId(), task.id());
+        if (task.status() == TaskStatus.AWAITING_REVIEW) {
+            taskStore.saveTask(task.withStatus(TaskStatus.IDLE));
+            task = task.withStatus(TaskStatus.IDLE);
+        }
+        Task gateTask = taskStore.findTaskById(task.id()).orElse(task);
+        if (gateTask.phase() != TaskPhase.AWAITING_PUSH
+                || gateTask.status() == TaskStatus.NEEDS_ATTENTION
+                || openCommentCount(prId) > 0 && !onlyEscalatedBrainCommentsRemain(pr)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Local Review changed while Push was starting; review the latest comments and try again");
+        }
+        PublishTarget target = resolvePublishTarget(task, pr);
+        RepoRef repo = target.repo();
+        pushBranch(task);
         String pat = patResolver.resolve(repo.owner() + "/" + repo.repo());
-        PullRequest opened = pullRequests.createPullRequest(
-                pat, repo, CreatePullRequestCommand.draft(pr.branchName(), pr.baseBranch(), pr.title(), pr.description()));
+        PullRequest opened = findExistingOpenPullRequest(pat, target, pr)
+                .orElseGet(() -> createOrAdoptPullRequest(pat, target, pr));
         if (opened == null) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub did not return the opened PR");
+        }
+        if (task.status() != TaskStatus.IN_REVIEW) {
+            taskStore.saveTask(task.withStatus(TaskStatus.IN_REVIEW));
         }
         // Mirror the push onto the task row so the rest of the app sees the
         // pushed/linked state, then strip locals + flip the local PR status.
         taskStore.markPushed(task.id(), Instant.now());
         taskStore.linkPullRequest(task.id(), opened.number(), LINKED_STATUS_DRAFT);
         taskStore.linkTaskToPr(task.id(), opened.repo() + "#" + opened.number());
-        // This push bypasses the gated Push/OpenPr proposal flow (the local
-        // PR already survived its own review, so nothing pauses for
-        // approval here) — advance the phase directly, or the task stays on
-        // AWAITING_PUSH's local-only polling forever and TaskLifecycleDriver
-        // never picks up CI state for it.
-        phaseMachine.observe(task.id(), TaskPhase.PUSHED_AWAITING_CI, "local_pr_pushed");
         PR pushed = prService.recordPush(prId, repo.owner() + "/" + repo.repo(), opened.number(), opened.htmlUrl());
-        return prService.updateAuthor(pushed.id(), actorLabel(opened.author()));
+        PR authored = prService.updateAuthor(pushed.id(), actorLabel(opened.author()));
+        // Persist the remote identity before advancing the task phase. If a
+        // local write fails anywhere above, retry adopts the same open PR;
+        // if this final phase write fails, the remote-drafted PR recovery
+        // path repairs it without publishing again.
+        phaseMachine.observe(task.id(), TaskPhase.PUSHED_AWAITING_CI, "local_pr_pushed");
+        return authored;
+    }
+
+    /** Finish local state after a prior attempt reached GitHub and recorded
+     *  the PR row but failed before the task/phase update completed. */
+    private PR recoverAlreadyPushed(PR pr)
+    {
+        Task task = taskStore.findTaskById(pr.taskId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.CONFLICT, "no task for local PR " + pr.id()));
+        if (pr.repo() == null || pr.repo().isBlank() || pr.remotePrUrl() == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "local PR " + pr.id() + " has incomplete remote identity");
+        }
+        if (task.phase() == TaskPhase.NEEDS_ATTENTION
+                || task.status() == TaskStatus.NEEDS_ATTENTION) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "task " + task.id() + " is parked at NEEDS_ATTENTION");
+        }
+        notifications.supersedeAwaitingReviewForTask(task.threadId(), task.id());
+        if (task.status() != TaskStatus.IN_REVIEW) {
+            taskStore.saveTask(task.withStatus(TaskStatus.IN_REVIEW));
+        }
+        taskStore.markPushed(task.id(), pr.pushedAt() == null ? Instant.now() : pr.pushedAt());
+        taskStore.linkPullRequest(task.id(), pr.remotePrNumber(), LINKED_STATUS_DRAFT);
+        taskStore.linkTaskToPr(task.id(), pr.repo() + "#" + pr.remotePrNumber());
+        phaseMachine.observe(task.id(), TaskPhase.PUSHED_AWAITING_CI, "local_pr_pushed");
+        return pr;
+    }
+
+    /** Adopt an existing exact open PR for this target/head/base,
+     *  making retries after a successful remote create idempotent. */
+    private Optional<PullRequest> findExistingOpenPullRequest(String pat, PublishTarget target, PR pr)
+    {
+        RepoRef repo = target.repo();
+        try {
+            ListPullRequestsQuery query = new ListPullRequestsQuery(
+                    "open",
+                    Optional.of(target.headFilter()),
+                    Optional.of(target.base()),
+                    "created", "desc", 10, 1);
+            return pullRequests.listPullRequests(pat, repo, query).stream()
+                    .filter(candidate -> repo.fullName().equalsIgnoreCase(candidate.repo()))
+                    .filter(candidate -> "open".equalsIgnoreCase(candidate.state()))
+                    .filter(candidate -> pr.branchName().equals(candidate.headRef()))
+                    .findFirst();
+        }
+        catch (RuntimeException e) {
+            log.warn("lookup of existing PR for {}/{} failed: {}",
+                    repo.fullName(), pr.branchName(), e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private PullRequest createOrAdoptPullRequest(String pat, PublishTarget target, PR pr)
+    {
+        RepoRef repo = target.repo();
+        try {
+            return pullRequests.createPullRequest(
+                    pat, repo, CreatePullRequestCommand.draft(
+                            target.apiHead(), target.base(), pr.title(), pr.description()));
+        }
+        catch (RuntimeException createFailure) {
+            return findExistingOpenPullRequest(pat, target, pr).orElseThrow(() -> createFailure);
+        }
     }
 
     private static String actorLabel(String githubLogin)
@@ -232,24 +364,32 @@ public class PRPublishService
      */
     public PR merge(String prId, String method)
     {
+        PR identified = prService.findById(prId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
+        if (identified.taskId() == null || identified.taskId().isBlank()) {
+            return mergeLocked(prId, method);
+        }
+        return TaskPhaseMachine.withTaskLock(
+                identified.taskId(), () -> mergeLocked(prId, method));
+    }
+
+    private PR mergeLocked(String prId, String method)
+    {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
-        if (pr.remotePrNumber() == null) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " has not been pushed");
-        }
-        if (pr.isTerminal()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " is already " + pr.status());
+        if (!PR.STATUS_REMOTE_OPEN.equals(pr.status()) || pr.remotePrNumber() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "local PR " + prId + " is not an open, review-ready remote PR");
         }
         RemoteTarget target = resolveRemoteTarget(pr);
         String pat = target.pat();
         PullRequestRef ref = target.ref();
 
-        // A still-draft PR can't merge or queue on GitHub — merging one
-        // means "mark it ready for review, then merge". Mirrors the
-        // mark-ready gate's own flip in PublishService.
-        if (PR.STATUS_REMOTE_DRAFTED.equals(pr.status())) {
-            pullRequests.setPullRequestDraft(pat, ref, false);
-            pr = prService.transition(prId, PR.STATUS_REMOTE_OPEN, PRTimelineEntry.ACTOR_USER);
+        PullRequestDetail detail = pullRequestDetails.fetchFreshPullRequestDetail(
+                ref.owner() + "/" + ref.repo(), ref.number());
+        if (!readyToMerge.isReadyForMerge(pr.taskId(), detail)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "pull request is not ready to merge: CI, approvals, comments, review rounds, and mergeability must be clear");
         }
 
         Optional<PullRequestRepository.MergeQueueProbe> probe;
@@ -266,6 +406,7 @@ public class PRPublishService
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         "GitHub did not queue PR #" + pr.remotePrNumber() + ": " + queued.message());
             }
+            authorizeQueuedTaskMerge(pr);
             return prService.findById(prId).orElse(pr);
         }
 
@@ -279,6 +420,7 @@ public class PRPublishService
                 if (nodeId.isPresent()) {
                     MergeResult queued = pullRequests.enqueuePullRequest(pat, nodeId.get());
                     if (queued.queued()) {
+                        authorizeQueuedTaskMerge(pr);
                         return prService.findById(prId).orElse(pr);
                     }
                 }
@@ -289,7 +431,19 @@ public class PRPublishService
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "GitHub did not merge PR #" + pr.remotePrNumber() + ": " + result.message());
         }
-        return prService.recordMerged(prId);
+        PR merged = prService.recordMerged(prId);
+        if (pr.taskId() != null && !pr.taskId().isBlank()) {
+            taskService.completeTasksForMergedPr(
+                    ref.owner() + "/" + ref.repo(), ref.number());
+        }
+        return merged;
+    }
+
+    private void authorizeQueuedTaskMerge(PR pr)
+    {
+        if (pr.taskId() != null && !pr.taskId().isBlank()) {
+            taskService.authorizeMergeForPr(pr.repo(), pr.remotePrNumber());
+        }
     }
 
     /** True when a direct-merge rejection is GitHub requiring the change to
@@ -391,12 +545,17 @@ public class PRPublishService
     }
 
     /** Publishes the selected draft comments plus an optional overall review
-     * body. Task-owned PRs are valid once they have a remote identity. */
+     * body. Only dashboard-discovered external PRs may publish review drafts;
+     * comments on task-owned PRs remain private throughout their lifecycle. */
     public PR publishReview(
             String prId, String verdict, List<String> findingIds, List<String> commentIds, String reviewBody)
     {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
+        if (!PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT, "task-owned PR review drafts are private and cannot be published");
+        }
         if (pr.repo() == null || pr.remotePrNumber() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity to review");
         }
@@ -466,10 +625,24 @@ public class PRPublishService
 
     private long openCommentCount(String prId)
     {
+        return openRootComments(prId).size();
+    }
+
+    private List<PRComment> openRootComments(String prId)
+    {
         return prService.comments(prId).stream()
                 .filter(c -> c.parentCommentId() == null)
                 .filter(c -> c.resolvedAt() == null && c.dismissedAt() == null)
-                .count();
+                .toList();
+    }
+
+    private boolean onlyEscalatedBrainCommentsRemain(PR pr)
+    {
+        List<PRComment> open = openRootComments(pr.id());
+        return !open.isEmpty()
+                && brainReview.isBudgetExhaustedEscalation(pr.taskId())
+                && open.stream().allMatch(comment ->
+                        PRTimelineEntry.ACTOR_BRAIN.equals(comment.author()));
     }
 
     /** The most recently started local check, if any, failed. No local checks
@@ -494,7 +667,47 @@ public class PRPublishService
         };
     }
 
-    private RepoRef remoteSlug(Task task)
+    private PublishTarget resolvePublishTarget(Task task, PR pr)
+    {
+        Path repoRoot = Path.of(task.workingDir());
+        RepoRef origin = originSlug(task);
+        WatchedRepo watched = watchedRepos.findAll().stream()
+                .filter(candidate -> candidate.localClonePath() != null
+                        && !candidate.localClonePath().isBlank()
+                        && Path.of(candidate.localClonePath()).equals(repoRoot))
+                .findFirst()
+                .orElse(null);
+        boolean fork = watched != null
+                && watched.upstreamRemoteName() != null
+                && !watched.upstreamRemoteName().isBlank();
+        if (!fork) {
+            return new PublishTarget(
+                    origin, pr.branchName(), origin.owner() + ":" + pr.branchName(), pr.baseBranch());
+        }
+
+        RepoRef upstream = new RepoRef(watched.owner(), watched.repo());
+        String base = upstreamDefaultBranch(repoRoot, watched.upstreamRemoteName())
+                .orElse(pr.baseBranch());
+        String head = origin.owner() + ":" + pr.branchName();
+        return new PublishTarget(upstream, head, head, base);
+    }
+
+    private Optional<String> upstreamDefaultBranch(Path repoRoot, String remote)
+    {
+        try {
+            return git.defaultBranch(repoRoot, remote).filter(branch -> !branch.isBlank());
+        }
+        catch (IOException | RuntimeException e) {
+            log.warn("Resolving default branch for {} in {} failed: {}", remote, repoRoot, e.getMessage());
+            return Optional.empty();
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        }
+    }
+
+    private RepoRef originSlug(Task task)
     {
         try {
             return git.remoteSlug(Path.of(task.workingDir()), "origin")
@@ -510,16 +723,16 @@ public class PRPublishService
         }
     }
 
-    /** Push the branch from the task worktree unless it is already on origin. */
-    private void pushBranch(Task task, String branch)
+    private record PublishTarget(RepoRef repo, String apiHead, String headFilter, String base) {}
+
+    /** Push the reviewed local HEAD. A pre-existing origin ref may be behind,
+     *  so its mere existence is never proof that the reviewed commits landed. */
+    private void pushBranch(Task task)
     {
         String worktreePath = task.worktreePath() == null || task.worktreePath().isBlank()
                 ? task.workingDir() : task.worktreePath();
         Path worktree = Path.of(worktreePath);
         try {
-            if (git.refExists(worktree, "origin/" + branch)) {
-                return;
-            }
             git.push(worktree);
         }
         catch (IOException e) {

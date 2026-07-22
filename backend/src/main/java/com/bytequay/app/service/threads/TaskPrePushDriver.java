@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.threads;
 
-import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -21,6 +20,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.checks.ValidationPassResult;
 import com.bytequay.app.service.checks.ValidationPassService;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRSyncService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -33,21 +33,22 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Drives the <em>pre-push</em> spine of the dev-task lifecycle that the
- * PR-observing {@link TaskLifecycleDriver} can't see: an idle task that
- * has committed work locally but hasn't reached the remote moves
- * {@code IMPLEMENTING → VALIDATING → INTERNAL_REVIEW → AWAITING_PUSH}.
+ * PR-observing {@link TaskLifecycleDriver} can't see: after Development
+ * explicitly hands off into {@code VALIDATING}, an idle task that has
+ * committed work locally but hasn't reached the remote moves to
+ * {@code INTERNAL_REVIEW}. The Brain review
+ * owns the last transition to {@code AWAITING_PUSH} once the private local PR
+ * is ready for the user.
  *
  * <p>Trigger: a task that's {@link TaskStatus#IDLE} (its coding turn
- * ended) at {@link TaskPhase#IMPLEMENTING}, not yet on the remote
- * (no push, no PR), with commits on its branch ahead of base. The
- * "commits ahead" signal is what distinguishes "done a chunk of work"
- * from a task merely paused mid-edit.
+ * ended) at {@link TaskPhase#VALIDATING}, not yet on the remote
+ * (no remote push or remote PR), with commits on its branch ahead of base.
+ * The explicit phase is the durable completion signal; "commits ahead"
+ * remains a sanity check that there is a local diff to review.
  *
  * <p>Validation drives {@code VALIDATING → INTERNAL_REVIEW} through its
- * existing finished-event; internal review auto-advances to
- * {@code AWAITING_PUSH} because no internal-review pass is wired to run
- * yet (it passes vacuously). As real checks / a review pass land, those
- * two phases stop being instantaneous — the wiring here doesn't change.
+ * existing finished-event. A local-PR sync then starts (or resumes) the Brain
+ * adversarial review; it must not be skipped by creating a publish gate here.
  */
 @Component
 public class TaskPrePushDriver
@@ -61,18 +62,18 @@ public class TaskPrePushDriver
     private final TaskStore taskStore;
     private final ValidationPassService validation;
     private final GitRunner git;
-    private final TaskPhaseMachine phaseMachine;
+    private final PRSyncService prSync;
 
     public TaskPrePushDriver(
             TaskStore taskStore,
             ValidationPassService validation,
             GitRunner git,
-            TaskPhaseMachine phaseMachine)
+            PRSyncService prSync)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.validation = requireNonNull(validation, "validation is null");
         this.git = requireNonNull(git, "git is null");
-        this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
+        this.prSync = requireNonNull(prSync, "prSync is null");
     }
 
     /** Offset from the other lifecycle sweeps so they don't bunch up. */
@@ -81,7 +82,10 @@ public class TaskPrePushDriver
     {
         for (Task task : taskStore.listByStatus(TaskStatus.IDLE, SCAN_LIMIT)) {
             try {
-                if (isReadyForPrePush(task)) {
+                if (task.phase() == TaskPhase.INTERNAL_REVIEW) {
+                    prSync.syncFromTask(task.id());
+                }
+                else if (isReadyForPrePush(task)) {
                     runPrePush(task);
                 }
             }
@@ -93,8 +97,8 @@ public class TaskPrePushDriver
 
     private boolean isReadyForPrePush(Task task)
     {
-        if (task.phase() != TaskPhase.IMPLEMENTING) {
-            return false; // already past the implement phase, or parked.
+        if (task.phase() != TaskPhase.VALIDATING) {
+            return false; // Development has not explicitly handed off.
         }
         if (task.pushedAt() != null || task.prNumber() != null) {
             return false; // on the remote — the PR-observing driver owns it.
@@ -119,16 +123,15 @@ public class TaskPrePushDriver
     /** Visible for the unit test: run the pre-push phase sequence. */
     void runPrePush(Task task)
     {
-        phaseMachine.transition(task.id(), TaskPhase.VALIDATING, "pre_push_checks", Actor.SCHEDULER);
         // Synchronous: publishes ValidationPassFinishedEvent, which the
         // phase machine reacts to (VALIDATING -> INTERNAL_REVIEW on clean,
-        // -> NEEDS_ATTENTION on a cap-hit failure).
+        // -> NEEDS_ATTENTION on a failed check).
         ValidationPassResult result = validation.run(task.id());
         if (result.passed()) {
-            // No internal-review pass is wired to run yet, so a clean
-            // validation advances straight to the push gate.
-            phaseMachine.transition(
-                    task.id(), TaskPhase.AWAITING_PUSH, "internal_review_clean", Actor.SCHEDULER);
+            // Validation's finished event already moved the task to
+            // INTERNAL_REVIEW. Syncing creates/updates the local PR and starts
+            // the Brain review; that review alone can hand off to Local Review.
+            prSync.syncFromTask(task.id());
         }
     }
 }

@@ -14,6 +14,7 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.Actor;
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -23,6 +24,7 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.concepts.Concept;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.threads.ParkedProposalService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
@@ -84,6 +86,7 @@ public class PublishToolHandlers
     private final ObjectMapper mapper;
     private final TaskPhaseMachine taskPhaseMachine;
     private final PullRequestService pullRequestService;
+    private final PRService prService;
 
     public PublishToolHandlers(
             TaskStore taskStore,
@@ -92,7 +95,8 @@ public class PublishToolHandlers
             GitRunner git,
             ObjectMapper mapper,
             TaskPhaseMachine taskPhaseMachine,
-            PullRequestService pullRequestService)
+            PullRequestService pullRequestService,
+            PRService prService)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
@@ -101,6 +105,7 @@ public class PublishToolHandlers
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.taskPhaseMachine = requireNonNull(taskPhaseMachine, "taskPhaseMachine is null");
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
+        this.prService = requireNonNull(prService, "prService is null");
     }
 
     /** Args record for {@code validate}. */
@@ -127,6 +132,11 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to validate");
         }
         Task task = active.get();
+        if (hasPrivateLocalPr(task)) {
+            return ToolOutcome.Completed.ok(
+                    "Not advanced — record_local_review is the sole development handoff "
+                            + "for a task with a Local PR.");
+        }
         if (task.phase() != TaskPhase.IMPLEMENTING) {
             return ToolOutcome.Completed.ok(
                     "task is already at or past validation (phase " + task.phase() + "); no change");
@@ -170,6 +180,10 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to request review for");
         }
         Task task = active.get();
+        Optional<ToolOutcome> rejected = rejectLegacyPublishForLocalPr(task);
+        if (rejected.isPresent()) {
+            return rejected.get();
+        }
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return ToolOutcome.Completed.ok("the active task has no worktree — no diff is available for review");
         }
@@ -238,6 +252,10 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to push");
         }
         Task task = active.get();
+        Optional<ToolOutcome> rejected = rejectLegacyPublishForLocalPr(task);
+        if (rejected.isPresent()) {
+            return rejected.get();
+        }
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return ToolOutcome.Completed.ok("the active task has no worktree — push needs an isolated branch");
         }
@@ -284,6 +302,11 @@ public class PublishToolHandlers
         Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to reply on");
+        }
+        if (hasTaskOriginPr(active.get())) {
+            return ToolOutcome.Completed.ok(
+                    "Not parked — review-round replies are drafted locally with record_round_reply "
+                            + "and published atomically from the round gate.");
         }
         Optional<PullRequestRef> prRef = resolvePrRefFromTask(active.get());
         if (prRef.isEmpty()) {
@@ -370,6 +393,10 @@ public class PublishToolHandlers
         Optional<Task> active = resolveTaskForCall(call);
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to park the resolution on");
+        }
+        if (hasTaskOriginPr(active.get())) {
+            return ToolOutcome.Completed.ok(
+                    "Not parked — task-origin review threads are resolved through the round gate.");
         }
         return park(active.get(),
                 new ParkedProposal.ResolveReviewThread(rootCommentId, resolved, toPrRef(prRef.get())),
@@ -694,6 +721,10 @@ public class PublishToolHandlers
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to open a PR for");
         }
+        Optional<ToolOutcome> rejected = rejectLegacyPublishForLocalPr(active.get());
+        if (rejected.isPresent()) {
+            return rejected.get();
+        }
         Optional<WatchedRepo> repo = resolveRepoFromTask(active.get());
         if (repo.isEmpty()) {
             return ToolOutcome.Completed.ok("active task's workingDir doesn't match any watched repo");
@@ -757,6 +788,10 @@ public class PublishToolHandlers
         if (active.isEmpty()) {
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to review");
         }
+        if (hasTaskOriginPr(active.get())) {
+            return ToolOutcome.Completed.ok(
+                    "Not parked — task-origin feedback stays private in the canonical review-round gate.");
+        }
         Optional<PullRequestRef> prRef = resolvePrRefFromTask(active.get());
         if (prRef.isEmpty()) {
             return ToolOutcome.Completed.ok("no PR linked to the active task — set linked_pr_number first");
@@ -819,6 +854,10 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to advance");
         }
         Task task = active.get();
+        Optional<ToolOutcome> rejected = rejectLegacyPublishForLocalPr(task);
+        if (rejected.isPresent()) {
+            return rejected.get();
+        }
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return ToolOutcome.Completed.ok("the active task has no worktree — next task needs an isolated branch");
         }
@@ -882,6 +921,10 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok("no active task on this thread — nothing to ship");
         }
         Task task = active.get();
+        Optional<ToolOutcome> rejected = rejectLegacyPublishForLocalPr(task);
+        if (rejected.isPresent()) {
+            return rejected.get();
+        }
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return ToolOutcome.Completed.ok("the active task has no worktree — ship needs an isolated branch");
         }
@@ -941,6 +984,36 @@ public class PublishToolHandlers
             return Optional.empty();
         }
         return taskStore.findTaskById(call.taskId());
+    }
+
+    /** Canonical task-origin PRs advance through record_local_review,
+     *  validation, Brain, and the Local Review gate. The legacy publish
+     *  tools must not manufacture an earlier AWAITING_PUSH promotion. */
+    private Optional<ToolOutcome> rejectLegacyPublishForLocalPr(Task task)
+    {
+        if (!hasPrivateLocalPr(task)) {
+            return Optional.empty();
+        }
+        return Optional.of(ToolOutcome.Completed.ok(
+                "Not parked — this task already has a Local PR. Finish development with "
+                        + "record_local_review; validation, Brain review, and Local Review "
+                        + "must complete before the app offers Push."));
+    }
+
+    private boolean hasPrivateLocalPr(Task task)
+    {
+        return prService.findByTask(task.id())
+                .filter(pr -> PR.ORIGIN_TASK.equals(pr.origin()))
+                .filter(pr -> PR.STATUS_LOCAL_DRAFTED.equals(pr.status())
+                        || PR.STATUS_LOCAL_OPEN.equals(pr.status()))
+                .isPresent();
+    }
+
+    private boolean hasTaskOriginPr(Task task)
+    {
+        return prService.findByTask(task.id())
+                .filter(pr -> PR.ORIGIN_TASK.equals(pr.origin()))
+                .isPresent();
     }
 
     /** Persist a parked proposal and return the synchronous text the

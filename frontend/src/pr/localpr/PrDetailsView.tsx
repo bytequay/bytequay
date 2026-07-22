@@ -22,7 +22,7 @@ import { AgentReviewRoundPage } from '../../review/AgentReviewRoundPage';
 import { EMPTY_REVIEW_CURSOR, type ReviewCursor } from '../../review/reviewCursor';
 import { useAgentReviewState } from '../../review/useAgentReviewState';
 import { SubmitReviewPopover } from '../../review/SubmitReviewPopover';
-import { isPendingLocalComment } from '../../diff/DiffInlineComments';
+import { isPublishableReviewDraft } from '../../diff/DiffInlineComments';
 
 /** `PrDetailsView` only ever needs a (repo, number) to bootstrap the
  *  unified fetch, plus its own id back for the dashboard-triage
@@ -152,7 +152,7 @@ export function PrDetailsView<T extends DetailsPr>({
   const [reviewCursor, setReviewCursor] = useState<ReviewCursor>(EMPTY_REVIEW_CURSOR);
   const [reviewTabRequest, setReviewTabRequest] = useState<{ tab: 'files' | 'review'; token: number }>();
   const manualPendingComments = displayedBundle?.comments.filter(comment =>
-    comment.findingId == null && isPendingLocalComment(comment)) ?? [];
+    comment.findingId == null && isPublishableReviewDraft(comment)) ?? [];
   const submitComments = reviewData === null ? manualPendingComments : pendingComments;
   const submitPendingReview = (verdict: Parameters<typeof submitAgentReview>[0]) => {
     if (reviewData === null) {

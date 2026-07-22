@@ -427,6 +427,11 @@ class TestStageBrain
                 "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small",
                         "componentsCount", 2, "expectedGain", "fewer flakes")));
 
+        assertThat(stageService.getBrain(taskId).rightRail().plan().state()).isEqualTo("draft");
+        stageStore.recordEvent(
+                plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
+                Map.of("verdict", "approved"));
+
         TaskBrainViewData.PlanCard card = stageService.getBrain(taskId).rightRail().plan();
 
         assertThat(card).isNotNull();
@@ -468,6 +473,9 @@ class TestStageBrain
                         "summary", "change the default and add a test",
                         "steps", List.of(Map.of("ordinal", 1, "action", "edit RetryConfig"))),
                 "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small")));
+        stageStore.recordEvent(
+                plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
+                Map.of("verdict", "approved"));
 
         TaskBrainViewData.PlanCard updated = stageService.getBrain(taskId).rightRail().plan();
         assertThat(updated.state()).isEqualTo("awaiting");
@@ -520,6 +528,9 @@ class TestStageBrain
                 "intent_steps_note", "see steps below",
                 "steps", List.of(Map.of("ordinal", 1, "action", "edit RetryConfig")),
                 "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small")));
+        stageStore.recordEvent(
+                plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
+                Map.of("verdict", "approved"));
 
         TaskBrainViewData.PlanCard card = stageService.getBrain(taskId).rightRail().plan();
 

@@ -26,6 +26,7 @@ import { CheckRows } from './CheckRows';
 import { MergeBox } from './MergeBox';
 import { PRCommentComposer } from './PRCommentComposer';
 import type { AgentReviewData } from '../../review/agentReviewTypes';
+import type { LocalReviewGate } from './localReviewGate';
 
 /**
  * The unified PR renderer (U7) — ONE component driven by a `capabilities`
@@ -45,7 +46,7 @@ export function PRView({
   onRunTests, runTestsBusy = false, onResolveThread, onDismissThread, onReplyThread, onReplyLineThread, onOpenStage,
   onPublishReview, onDiscardDrafts, syncedAt, syncing, onRefresh, headerAction, openSubTabRequest,
   changesContent, reviewData, onOpenReviewRound, onAnswerFinding, onReviewRoundAction,
-  onSetFindingResolved, onToggleFindingPromotion,
+  onSetFindingResolved, onToggleFindingPromotion, localReviewGate,
 }: {
   bundle: LocalPRBundle;
   capabilities: PRCapabilities;
@@ -100,20 +101,14 @@ export function PRView({
   onReviewRoundAction?: (roundId: string) => void;
   onSetFindingResolved?: (findingId: string, resolved: boolean) => void | Promise<unknown>;
   onToggleFindingPromotion?: (findingId: string) => void | Promise<unknown>;
+  /** Authoritative task/validation/Brain state for task-origin promotion. */
+  localReviewGate?: LocalReviewGate;
 }) {
   const { pr, commits, timeline, checks, comments } = bundle;
   const local = isLocalStatus(pr.status);
 
   const openComments = comments.filter(c => c.parentCommentId === null
     && c.resolvedAt === null && c.strippedOnPushAt === null).length;
-  // The brain's dev-end review outcome (plan-rail-runs.md R21/R23) — derived
-  // from its own comments (author='brain'), never a separate fetch: a brain
-  // review round always concludes before the PR flips to local-open, so by
-  // the time this renders, its story is fully told here.
-  const brainComments = comments.filter(c => c.author === 'brain');
-  const brainReview = brainComments.length > 0
-    ? { total: brainComments.length, unresolved: brainComments.filter(c => c.resolvedAt === null && c.dismissedAt === null).length }
-    : undefined;
   const localChecks = checks.filter(c => c.kind === 'local');
   const remoteChecks = checks.filter(c => c.kind === 'remote');
   // The promotion gate (design doc slice 5) only cares about the MOST RECENT
@@ -280,11 +275,12 @@ export function PRView({
             capabilities={capabilities}
             localChecks={localChecks}
             remoteChecks={remoteChecks}
+            remoteDetail={remoteDetail}
             openComments={openComments}
             localTestsFailing={localTestsFailing}
             pendingStripCount={bundle.pendingStripCount ?? 0}
             draftCount={draftCount}
-            brainReview={brainReview}
+            localReviewGate={localReviewGate}
             onPush={onPush}
             onAskAgent={onAskAgent}
             onMerge={onMerge}

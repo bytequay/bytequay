@@ -86,7 +86,7 @@ describe('PullDetailPane', () => {
       comments: Array.from({ length: 8 }, (_, index): LocalPRComment => ({
         id: `comment-${index}`, localPrId: 'task-pr', origin: 'local' as const,
         scope: 'file-line' as const, filePath: 'src/Foo.java', lineNumber: index + 1,
-        side: 'RIGHT' as const, startLine: null, startSide: null, author: 'agent',
+        side: 'RIGHT' as const, startLine: null, startSide: null, author: index === 0 ? 'you' : 'agent',
         body: `Finding ${index + 1}`, createdAt: index, resolvedAt: null, dismissedAt: null,
         strippedOnPushAt: null, parentCommentId: null, publishedAt: null,
       })),
@@ -115,15 +115,15 @@ describe('PullDetailPane', () => {
     fireEvent.click(screen.getByRole('button', { name: /Comment/ }));
     await waitFor(() => expect(onComment).toHaveBeenCalledWith('Looks good'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Submit review • 8' }));
-    expect(screen.getByRole('dialog', { name: 'Submit review' }).textContent).toContain('8 pending');
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review • 1' }));
+    expect(screen.getByRole('dialog', { name: 'Submit review' }).textContent).toContain('1 pending');
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
     fireEvent.click(screen.getByRole('button', { name: /Changes/ }));
-    expect(screen.getAllByRole('button', { name: 'Submit review • 8' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Submit review • 1' })).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Submit comments' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Submit review • 8' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review • 1' }));
     fireEvent.click(screen.getByRole('radio', { name: /Approve/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Submit review' }));
 

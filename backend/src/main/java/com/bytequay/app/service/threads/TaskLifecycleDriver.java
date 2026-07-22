@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
@@ -29,18 +30,18 @@ import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.checks.ValidationPassResult;
+import com.bytequay.app.service.checks.ValidationPassService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
-import com.bytequay.app.service.tools.ParkedProposal;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -103,7 +104,6 @@ public class TaskLifecycleDriver
     private final ThreadStore threadStore;
     private final ThreadTurnScheduler scheduler;
     private final NotificationService notifications;
-    private final ObjectMapper mapper;
     private final RemoteCommentIngestor commentIngestor;
     private final ReadyToMergeService readyToMerge;
     private final ReviewRoundService reviewRounds;
@@ -111,6 +111,7 @@ public class TaskLifecycleDriver
     private final StageStore stageStore;
     private final PRService prService;
     private final TaskTerminalSealer sealer;
+    private final ValidationPassService validation;
 
     public TaskLifecycleDriver(
             TaskStore taskStore,
@@ -120,14 +121,14 @@ public class TaskLifecycleDriver
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
             NotificationService notifications,
-            ObjectMapper mapper,
             RemoteCommentIngestor commentIngestor,
             ReadyToMergeService readyToMerge,
             ReviewRoundService reviewRounds,
             ThreadRegistry registry,
             StageStore stageStore,
             PRService prService,
-            TaskTerminalSealer sealer)
+            TaskTerminalSealer sealer,
+            ValidationPassService validation)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -136,7 +137,6 @@ public class TaskLifecycleDriver
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
-        this.mapper = requireNonNull(mapper, "mapper is null");
         this.commentIngestor = requireNonNull(commentIngestor, "commentIngestor is null");
         this.readyToMerge = requireNonNull(readyToMerge, "readyToMerge is null");
         this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
@@ -144,6 +144,7 @@ public class TaskLifecycleDriver
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.prService = requireNonNull(prService, "prService is null");
         this.sealer = requireNonNull(sealer, "sealer is null");
+        this.validation = requireNonNull(validation, "validation is null");
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
@@ -239,15 +240,30 @@ public class TaskLifecycleDriver
         }
         // Mirror any new remote review comments into the unified
         // review_comment table (idempotent) before acting on the phase.
-        commentIngestor.ingest(task.id(), repo, number, detail);
-        // Fire / auto-reset the ready-to-merge notification off the same detail.
-        readyToMerge.evaluate(task, detail);
+        String currentLogin = prService.findByTask(task.id())
+                .map(PR::author)
+                .filter(author -> !author.isBlank())
+                .orElse(null);
+        if (currentLogin == null) {
+            currentLogin = pullRequests.resolveCurrentRepoLogin(repo);
+        }
+        commentIngestor.ingest(task.id(), repo, number, detail, currentLogin);
+        TaskPhaseMachine.withTaskLock(task.id(), () -> {
+            reconcileObservedTask(task, repo, number, detail);
+            return null;
+        });
+    }
+
+    private void reconcileObservedTask(Task task, String repo, int number, PullRequestDetail detail)
+    {
         Optional<TaskPhase> target = TaskLifecyclePhases.observedPhaseFromDetail(detail);
         if (target.isEmpty()) {
             return;
         }
         TaskPhase phase = target.get();
         if (phase == TaskPhase.COMPLETED) {
+            // Clear merge-gate state even when a parked task finishes remotely.
+            readyToMerge.evaluate(task, detail);
             // The PR reached a terminal state on the remote (merged or
             // closed) without our in-app merge action — so
             // PullRequestMergedEvent never fired and the completion path in
@@ -257,16 +273,30 @@ public class TaskLifecycleDriver
             completeRemotelyTerminal(task, detail.merged());
             return;
         }
+        task = taskStore.findTaskById(task.id()).orElse(null);
+        if (isParkedOrTerminal(task)) {
+            return;
+        }
+        // Fire / auto-reset the ready-to-merge notification off the same detail.
+        // It may itself park the task after exhausting merge-queue retries.
+        readyToMerge.evaluate(task, detail);
+        task = taskStore.findTaskById(task.id()).orElse(null);
+        if (isParkedOrTerminal(task)) {
+            return;
+        }
         if (phase == TaskPhase.AWAITING_READY && detail.draft()) {
-            // CI is green on a still-draft shipped PR. Rather than un-drafting
-            // autonomously, offer a ONE-TIME "mark ready for review (+ request
-            // reviewers)" approval gate — the user decides when it goes out.
-            // The sentinel guarantees it's offered once even if dismissed; an
-            // already-ready PR never reaches here (guarded on detail.draft()).
-            phaseMachine.observe(task.id(), TaskPhase.AWAITING_READY, "ci_green_on_draft");
-            if (taskStore.markReadyGateSentIfUnset(task.id(), Instant.now())) {
-                parkMarkReadyGate(task, repo, number);
+            // Local Review already authorised publishing. Green CI is the
+            // automatic draft -> ready checkpoint, not a second human gate.
+            notifications.supersedeAwaitingReviewForTask(task.threadId(), task.id());
+            if (task.status() == TaskStatus.AWAITING_REVIEW) {
+                taskStore.saveTask(task.withStatus(TaskStatus.IN_REVIEW));
             }
+            pullRequests.setPullRequestDraft(repo, number, false);
+            prService.findByTask(task.id())
+                    .filter(pr -> PR.STATUS_REMOTE_DRAFTED.equals(pr.status()))
+                    .ifPresent(pr -> prService.transition(
+                            pr.id(), PR.STATUS_REMOTE_OPEN, PRTimelineEntry.ACTOR_AGENT));
+            phaseMachine.observe(task.id(), TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green_marked_ready");
             return;
         }
         phaseMachine.observe(task.id(), phase, "pr_state_observed");
@@ -279,11 +309,27 @@ public class TaskLifecycleDriver
         }
     }
 
+    private static boolean isParkedOrTerminal(Task task)
+    {
+        if (task == null || task.phase() == TaskPhase.NEEDS_ATTENTION
+                || task.phase() == TaskPhase.COMPLETED) {
+            return true;
+        }
+        return switch (task.status()) {
+            case NEEDS_ATTENTION, COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED -> true;
+            default -> false;
+        };
+    }
+
     /** Visible for the unit test: check one task's local PR for unaddressed
      *  comments and drive the {@code AWAITING_PUSH ⇄ ADDRESSING_LOCAL_COMMENTS}
      *  loop. */
     void reconcileLocalTask(Task task)
     {
+        if (task.status() == TaskStatus.NEEDS_ATTENTION
+                || task.phase() == TaskPhase.NEEDS_ATTENTION) {
+            return; // A real human gate owns the task; never churn agent turns behind it.
+        }
         Optional<PR> prOpt = prService.findByTask(task.id());
         if (prOpt.isEmpty()) {
             return;
@@ -301,7 +347,20 @@ public class TaskLifecycleDriver
                 startAddressLocalComments(task, pr, comments);
             }
             else {
-                phaseMachine.observe(task.id(), TaskPhase.AWAITING_PUSH, "local_comments_addressed");
+                Thread thread = threadStore.findThreadById(task.threadId()).orElse(null);
+                if (thread == null || thread.status() != ThreadStatus.IDLE) {
+                    return;
+                }
+                ValidationPassResult result = validation.run(task.id());
+                if (result.passed()) {
+                    phaseMachine.transition(
+                            task.id(), TaskPhase.AWAITING_PUSH, "local_comments_validated", Actor.AGENT);
+                }
+                else {
+                    phaseMachine.transition(
+                            task.id(), TaskPhase.NEEDS_ATTENTION,
+                            "local_comments_validation_failed", Actor.AGENT);
+                }
             }
             return;
         }
@@ -324,7 +383,8 @@ public class TaskLifecycleDriver
     private static boolean isUnaddressedLocalComment(PRComment comment)
     {
         return comment.resolvedAt() == null && comment.dismissedAt() == null
-                && !PRTimelineEntry.ACTOR_AGENT.equals(comment.author());
+                && !PRTimelineEntry.ACTOR_AGENT.equals(comment.author())
+                && !PRTimelineEntry.ACTOR_BRAIN.equals(comment.author());
     }
 
     /**
@@ -343,7 +403,37 @@ public class TaskLifecycleDriver
         if (newest == null) {
             return; // resolved between the caller's check and here.
         }
-        phaseMachine.observe(task.id(), TaskPhase.ADDRESSING_LOCAL_COMMENTS, "new_local_comments");
+        boolean addressing = TaskPhaseMachine.withTaskLock(task.id(), () -> {
+            // Re-read under the same per-task lock Local Review promotion
+            // holds through its remote side effects. Exactly one path wins:
+            // either this strict edge blocks Push, or Push completes and this
+            // stale sweep leaves the now-remote task alone.
+            Task current = taskStore.findTaskById(task.id()).orElse(null);
+            if (current == null) {
+                return false;
+            }
+            if (current.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS) {
+                return true;
+            }
+            if (current.phase() != TaskPhase.AWAITING_PUSH) {
+                return false;
+            }
+            try {
+                phaseMachine.transition(
+                        task.id(), TaskPhase.ADDRESSING_LOCAL_COMMENTS,
+                        "new_local_comments", Actor.AGENT);
+                return true;
+            }
+            catch (ResponseStatusException e) {
+                if (e.getStatusCode().value() == 409) {
+                    return false; // Push won the race; do not mark or enqueue.
+                }
+                throw e;
+            }
+        });
+        if (!addressing) {
+            return;
+        }
         // Advance the marker up front, same reasoning as the remote loop: a
         // later sweep shouldn't treat this same batch as newly arrived.
         prService.markLocalAddressed(pr.id(), newest);
@@ -415,31 +505,6 @@ public class TaskLifecycleDriver
                     .append('\n');
         }
         return out.toString();
-    }
-
-    /**
-     * Park the one-time mark-ready gate as an AWAITING_REVIEW notification
-     * carrying a {@code mark_ready} proposal. Created directly (not via
-     * {@code ParkedProposalService.park}) so the shipped task stays IN_REVIEW
-     * on the remote spine — the gate is a prompt to mark ready, not a status
-     * change. Approving it flips the PR ready and requests any reviewers.
-     */
-    private void parkMarkReadyGate(Task task, String repo, int number)
-    {
-        int slash = repo.indexOf('/');
-        if (slash <= 0) {
-            return;
-        }
-        ParkedProposal proposal = new ParkedProposal.MarkReady(
-                new ParkedProposal.PrRef(repo.substring(0, slash), repo.substring(slash + 1), number));
-        try {
-            notifications.notifyAwaitingReview(
-                    task.threadId(), task.id(), mapper.writeValueAsString(proposal));
-        }
-        catch (JsonProcessingException e) {
-            log.warn("Failed to write mark-ready gate payload for task {}: {}",
-                    task.id(), e.getMessage());
-        }
     }
 
     /** Drive a task to a terminal state from an observed remote merge /

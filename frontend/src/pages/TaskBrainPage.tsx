@@ -13,7 +13,7 @@
  */
 import type { ReactNode } from 'react';
 import type { DiffInlineComment } from '../diff/DiffInlineComments';
-import { MarkReadyReminderTab, PlanReminderTab } from './PlanOverlay';
+import { PlanReminderTab } from './PlanOverlay';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
 import {
   TaskPageFrame,
@@ -26,7 +26,7 @@ type BrainTab = 'pr';
 /** Locked task-brain frame. Data and live actions remain owned by the route. */
 export function TaskBrainPage({
   task, pr, sidebar, conversation, composer, run = {}, tabs, changes,
-  planReminder, onRevealPlan, markReadyReminder, onOpenMarkReady,
+  planReminder, onRevealPlan,
   onSubmitReview, submittingReview = false, openTabRequest,
   pendingReviewComments = [], onRemovePendingReviewComment, conversationIndex,
   onOpenTrunk,
@@ -58,8 +58,6 @@ export function TaskBrainPage({
   changes?: TaskPageChanges;
   planReminder?: 'awaiting' | 'locked';
   onRevealPlan?: () => void;
-  markReadyReminder?: boolean;
-  onOpenMarkReady?: () => void;
   onOpenCi?: () => void;
   onSubmitReview?: (body: string, verdict: ReviewVerdict) => void;
   submittingReview?: boolean;
@@ -77,9 +75,6 @@ export function TaskBrainPage({
   };
   const reminder = (
     <>
-      {markReadyReminder === true && onOpenMarkReady !== undefined && (
-        <MarkReadyReminderTab onClick={onOpenMarkReady} />
-      )}
       {planReminder !== undefined && (
         <PlanReminderTab state={planReminder} onClick={onRevealPlan ?? revealPlan} />
       )}
@@ -94,7 +89,11 @@ export function TaskBrainPage({
       taskNumber={parsedTaskNumber}
       trunkLabel={task.trunkLabel}
       branch={task.branch}
-      statusLabel={(run.statusLabel ?? (task.finished === true ? 'COMPLETED' : undefined))?.toUpperCase()}
+      run={{
+        ...run,
+        statusLabel: (run.statusLabel ?? (task.finished === true ? 'COMPLETED' : undefined))?.toUpperCase(),
+        terminal: run.terminal ?? task.finished,
+      }}
       sidebar={sidebar}
       conversation={conversation}
       conversationIndex={conversationIndex}

@@ -22,6 +22,7 @@ import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.WorkModel;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -140,6 +141,12 @@ public interface StageStore
 
     Optional<ReviewComment> findReviewCommentById(UUID id);
 
+    /** Finds the persisted mirror of one GitHub comment. */
+    default Optional<ReviewComment> findReviewCommentByRemoteLink(String remoteLink)
+    {
+        return Optional.empty();
+    }
+
     /** Whether a remote-sourced comment with this link is already stored —
      *  the dedup guard for remote-comment ingestion. */
     boolean reviewCommentExistsByRemoteLink(String remoteLink);
@@ -160,6 +167,17 @@ public interface StageStore
     /** Flip a comment's {@code resolved} flag. No-op when the id is
      *  unknown. */
     default void setReviewCommentResolved(UUID id, boolean resolved)
+    {
+    }
+
+    /** Whether the round gate has already resolved this inline thread on GitHub. */
+    default boolean isRemoteThreadResolutionPosted(UUID commentId)
+    {
+        return false;
+    }
+
+    /** Durable checkpoint written after GitHub accepts the thread-resolution mutation. */
+    default void markRemoteThreadResolutionPosted(UUID commentId, Instant postedAt)
     {
     }
 

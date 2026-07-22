@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -189,6 +190,34 @@ class TestNotificationService
         verify(store, never()).dismiss(eq("other"), anyLong());
         verify(store, never()).dismiss(eq("read"), anyLong());
         verify(store, never()).dismiss(eq("passive"), anyLong());
+    }
+
+    @Test
+    void supersedeAwaitingReviewForTaskLeavesNeedsAttentionOpen()
+    {
+        Notification gate = row("gate", NotificationKind.AWAITING_REVIEW, "task-1", NotificationStatus.UNREAD);
+        Notification readGate = row("read-gate", NotificationKind.AWAITING_REVIEW, "task-1", NotificationStatus.READ);
+        Notification attention = row("attention", NotificationKind.NEEDS_ATTENTION, "task-1", NotificationStatus.UNREAD);
+        when(store.listForThread(eq("thread-1"), anyInt())).thenReturn(List.of(gate, readGate, attention));
+
+        service.supersedeAwaitingReviewForTask("thread-1", "task-1");
+
+        verify(store).resolveOpen("gate");
+        verify(store).resolveOpen("read-gate");
+        verify(store, never()).resolveOpen("attention");
+    }
+
+    @Test
+    void supersedeAwaitingReviewForTaskRefusesAnInFlightResolution()
+    {
+        Notification resolving = row(
+                "resolving", NotificationKind.AWAITING_REVIEW, "task-1", NotificationStatus.RESOLVING);
+        when(store.listForThread(eq("thread-1"), anyInt())).thenReturn(List.of(resolving));
+
+        assertThatThrownBy(() -> service.supersedeAwaitingReviewForTask("thread-1", "task-1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("resolution is already in progress");
+        verify(store, never()).resolveOpen(anyString());
     }
 
     @Test

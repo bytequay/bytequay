@@ -23,13 +23,18 @@ import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.review.DevReportService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -63,9 +68,10 @@ class TestPRService
     private final PRStore store = mock(PRStore.class);
     private final DevReportService devReports = mock(DevReportService.class);
     private final StageStore stageStore = mock(StageStore.class);
+    private final TaskStore taskStore = mock(TaskStore.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final PRService service = new PRServiceImpl(
-            store, devReports, new ObjectMapper(), stageStore, events, Clock.fixed(NOW, ZoneOffset.UTC));
+            store, devReports, new ObjectMapper(), stageStore, taskStore, events, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private PR pr(String status)
     {
@@ -73,7 +79,16 @@ class TestPRService
         PR withStatus = base.withStatus(status, NOW);
         when(store.findById("pr1")).thenReturn(Optional.of(withStatus));
         when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        taskAt(TaskPhase.AWAITING_PUSH);
         return withStatus;
+    }
+
+    private void taskAt(TaskPhase phase)
+    {
+        Task task = mock(Task.class);
+        when(task.phase()).thenReturn(phase);
+        when(task.status()).thenReturn(TaskStatus.IDLE);
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task));
     }
 
     @Test
@@ -163,7 +178,7 @@ class TestPRService
     @Test
     void fileLineCommentRequiresLocation()
     {
-        pr(PR.STATUS_LOCAL_DRAFTED);
+        pr(PR.STATUS_LOCAL_OPEN);
 
         assertThatThrownBy(() -> service.addComment(
                 "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
@@ -173,9 +188,36 @@ class TestPRService
     }
 
     @Test
+    void taskLocalReviewRejectsUserCommentsAfterPromotion()
+    {
+        pr(PR.STATUS_REMOTE_DRAFTED);
+
+        assertThatThrownBy(() -> service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, PRTimelineEntry.ACTOR_USER, "too late", null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not open");
+        verify(store, never()).saveComment(any());
+    }
+
+    @Test
+    void taskLocalReviewRejectsAStaleLocalOpenTabAfterThePhaseMovesOn()
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+        taskAt(TaskPhase.PUSHED_AWAITING_CI);
+
+        assertThatThrownBy(() -> service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, PRTimelineEntry.ACTOR_USER, "too late", null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not open");
+        verify(store, never()).saveComment(any());
+    }
+
+    @Test
     void addCommentAnchorsToTheRemovedSideAndDefaultsBlankSideToRight()
     {
-        pr(PR.STATUS_LOCAL_DRAFTED);
+        pr(PR.STATUS_LOCAL_OPEN);
         when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
 
         PRComment onLeft = service.addComment(
@@ -192,7 +234,7 @@ class TestPRService
     @Test
     void addCommentBuildsAMultiLineRangeWhenStartLineDiffers()
     {
-        pr(PR.STATUS_LOCAL_DRAFTED);
+        pr(PR.STATUS_LOCAL_OPEN);
         when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
 
         PRComment range = service.addComment(
@@ -207,7 +249,7 @@ class TestPRService
     @Test
     void addCommentKeepsAValidParentCommentId()
     {
-        pr(PR.STATUS_LOCAL_DRAFTED);
+        pr(PR.STATUS_LOCAL_OPEN);
         PRComment parent = new PRComment(
                 "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
                 "brain", "question", NOW, null, null, null, null, null, "RIGHT", null, null);
@@ -224,7 +266,7 @@ class TestPRService
     @Test
     void replyInheritsItsParentsFileAnchor()
     {
-        pr(PR.STATUS_LOCAL_DRAFTED);
+        pr(PR.STATUS_LOCAL_OPEN);
         PRComment parent = new PRComment(
                 "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
                 "src/Parent.java", 15, "brain", "question", NOW,
@@ -365,6 +407,7 @@ class TestPRService
     @Test
     void reopenCommentClearsClosedState()
     {
+        pr(PR.STATUS_LOCAL_OPEN);
         PRComment comment = new PRComment(
                 "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
                 "you", "note", NOW, NOW, NOW, null, null, null, "RIGHT", null, null);
@@ -375,6 +418,21 @@ class TestPRService
 
         assertThat(reopened.resolvedAt()).isNull();
         assertThat(reopened.dismissedAt()).isNull();
+    }
+
+    @Test
+    void reopenCommentCannotReviveALocalThreadAfterPromotion()
+    {
+        pr(PR.STATUS_REMOTE_DRAFTED);
+        PRComment comment = new PRComment(
+                "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                "you", "note", NOW, NOW, NOW, null, null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
+
+        assertThatThrownBy(() -> service.reopenComment("cm1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not open");
+        verify(store, never()).saveComment(any());
     }
 
     @Test

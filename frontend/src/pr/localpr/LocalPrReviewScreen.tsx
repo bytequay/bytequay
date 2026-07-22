@@ -16,7 +16,7 @@ import type { AnchorSide, RowDecoration } from '../../diff/DiffFileList';
 import { DiffReviewShell, type DiffReviewExtraTab } from '../../diff/DiffReviewShell';
 import { ExpandableFileDiffBody } from '../../diff/ExpandableFileDiffBody';
 import {
-  DiffInlineComments, diffInlineCommentFromLocalPr, isPendingLocalComment, rangeLabel,
+  DiffInlineComments, diffInlineCommentFromLocalPr, isPublishableReviewDraft, rangeLabel,
 } from '../../diff/DiffInlineComments';
 import { InlineReviewThread } from '../../diff/InlineReviewThread';
 import { ReviewTabPendingList } from '../../diff/PendingCommentsList';
@@ -367,7 +367,7 @@ export function LocalPrReviewScreen({
   const [submitReviewOpen, setSubmitReviewOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('files');
   const handledTabToken = useRef<number | undefined>(undefined);
-  const pending = useMemo(() => comments.filter(isPendingLocalComment), [comments]);
+  const pending = useMemo(() => comments.filter(isPublishableReviewDraft), [comments]);
   const commentCountByFile = useMemo(() => {
     const counts = new Map<string, number>();
     for (const comment of comments) {

@@ -13,7 +13,7 @@
  */
 import type { ReactNode } from 'react';
 import type { DiffInlineComment } from '../diff/DiffInlineComments';
-import { MarkReadyReminderTab, PlanReminderTab } from './PlanOverlay';
+import { PlanReminderTab } from './PlanOverlay';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
 import {
   TaskPageFrame,
@@ -38,7 +38,7 @@ const STAGE_KEY: Record<StageKind, string> = {
 /** Locked stage/agent page. Its work folds are supplied expanded by the route. */
 export function StageDetailPage({
   stageKind, stage, sidebar, conversation, composer, run = {}, tabs, changes, pr,
-  planReminder, onRevealPlan, markReadyReminder, onOpenMarkReady,
+  planReminder, onRevealPlan,
   onSubmitReview, submittingReview = false,
   openTabRequest, pendingReviewComments = [], onRemovePendingReviewComment,
   conversationIndex, taskNumber, trunkLabel, taskTitle, onOpenTrunk, onOpenTask,
@@ -66,8 +66,6 @@ export function StageDetailPage({
   onOpenCi?: () => void;
   planReminder?: 'awaiting' | 'locked';
   onRevealPlan?: () => void;
-  markReadyReminder?: boolean;
-  onOpenMarkReady?: () => void;
   onSubmitReview?: (body: string, verdict: ReviewVerdict) => void;
   submittingReview?: boolean;
   pendingReviewComments?: DiffInlineComment[];
@@ -81,14 +79,7 @@ export function StageDetailPage({
 }) {
   const reminder = planReminder !== undefined && onRevealPlan !== undefined
     ? <PlanReminderTab state={planReminder} onClick={onRevealPlan} /> : null;
-  const reminders = reminder !== null || (markReadyReminder === true && onOpenMarkReady !== undefined) ? (
-    <>
-      {markReadyReminder === true && onOpenMarkReady !== undefined && (
-        <MarkReadyReminderTab onClick={onOpenMarkReady} />
-      )}
-      {reminder}
-    </>
-  ) : undefined;
+  const reminders = reminder ?? undefined;
 
   return (
     <TaskPageFrame
@@ -98,7 +89,7 @@ export function StageDetailPage({
       taskNumber={taskNumber}
       trunkLabel={trunkLabel}
       branch={stage.branch}
-      statusLabel={run.statusLabel?.toUpperCase()}
+      run={{ ...run, statusLabel: run.statusLabel?.toUpperCase() }}
       sidebar={sidebar}
       conversation={conversation}
       conversationIndex={conversationIndex}

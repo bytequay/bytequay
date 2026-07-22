@@ -136,12 +136,12 @@ public record ReviewRound(
                 origin, verdict, iteration, budget);
     }
 
-    /** Copy with the iteration count bumped — called once per review turn
-     *  scheduled, regardless of whether that turn ends up recording a
-     *  verdict. */
+    /** Copy for a freshly scheduled review iteration. The prior verdict is
+     *  deliberately cleared: if the new reviewer omits its verdict tool call,
+     *  the loop must not silently reuse the preceding iteration's decision. */
     public ReviewRound withIterationBumped()
     {
         return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
-                origin, brainVerdict, iteration + 1, budget);
+                origin, null, iteration + 1, budget);
     }
 }

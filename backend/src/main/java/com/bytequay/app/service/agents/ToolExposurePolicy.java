@@ -53,35 +53,30 @@ public class ToolExposurePolicy
             "read_plan_conversation", "read_pr");
 
     private static final Set<String> DEVELOPMENT = union(TASK_CORE, Set.of(
-            "run_checks", "validate", "record_iteration_summary", "record_dev_report",
+            "run_checks", "record_iteration_summary", "record_dev_report",
             "read_dev_report", "read_dev_conversation", "record_pr_progress", "record_pr_description",
             "record_pr_commit", "record_pr_check", "record_local_review",
-            "record_pr_comment", "resolve_pr_comment", "request_review", "ship_task",
-            "list_pr_review_threads", "reply_review_thread", "resolve_review_thread",
-            "push"));
+            "record_pr_comment", "resolve_pr_comment", "list_pr_review_threads"));
 
     private static final Set<String> REMOTE_DEVELOPMENT = union(TASK_CORE, Set.of(
             "read_remote_pr_status", "read_ci_log", "get_new_updated_ci_fixing_log", "run_checks", "validate",
             "record_iteration_summary", "record_dev_report", "read_dev_report",
-            "record_pr_check", "record_pr_comment", "resolve_pr_comment",
-            "list_pr_review_threads", "reply_review_thread", "resolve_review_thread",
-            "request_reviewer", "request_review", "push", "ship_task", "mark_ready"));
+            "record_pr_commit", "record_pr_check", "list_pr_review_threads",
+            "record_round_reply", "resolve_review_comment"));
 
     private static final Set<String> CI_FIXING = union(TASK_CORE, Set.of(
             "read_remote_pr_status", "read_ci_log", "get_new_updated_ci_fixing_log", "run_checks", "validate",
             "record_iteration_summary", "record_dev_report", "read_dev_report",
-            "record_pr_check", "list_pr_review_threads", "push", "request_review", "ship_task"));
+            "record_pr_check", "list_pr_review_threads"));
 
     private static final Set<String> REVIEW = union(TASK_CORE, Set.of(
             "read_commit_summary", "read_diff_summary", "check_test_coverage",
             "list_unresolved_comments", "list_pr_review_threads", "record_round_reply",
-            "record_pr_comment", "resolve_pr_comment", "record_review_verdict",
-            "reply_review_thread", "resolve_review_thread"));
+            "record_pr_comment", "resolve_pr_comment", "record_review_verdict"));
 
     private static final Set<String> BRANCH_GUARD = union(TASK_CORE, Set.of(
             "read_remote_pr_status", "list_unresolved_comments", "list_pr_review_threads",
-            "run_checks", "record_iteration_summary", "record_dev_report", "record_pr_check",
-            "reply_review_thread", "resolve_review_thread", "push", "ship_task"));
+            "run_checks", "record_iteration_summary", "record_dev_report", "record_pr_check", "push"));
 
     public Set<String> activeTools(ByteQuayRole role, StageType stageType)
     {

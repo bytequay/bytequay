@@ -24,6 +24,16 @@ const nodes = buildLivePlan({
   task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
 });
 
+const activeDevelopmentNodes = buildLivePlan({
+  stages: [{
+    id: 'dev-1', taskId: 't', type: 'DEVELOPMENT_STAGE', state: 'ACTIVE',
+    openedAt: '2026-01-01T00:00:00Z', closedAt: null, callerStageId: null,
+    summary: '', loopIteration: 0,
+  }],
+  subStages: [],
+  task: { prNumber: null, currentPhase: 'VALIDATING' as TaskPhase, terminal: false },
+});
+
 describe('TaskSidebar', () => {
   it('renders task context and stages as flat navigation rows', () => {
     render(
@@ -36,28 +46,28 @@ describe('TaskSidebar', () => {
     expect(screen.queryByText(/feat\/cost-meter/)).toBeNull();
     expect(screen.getByText('STAGES')).toBeTruthy();
     expect(screen.getByText('Plan')).toBeTruthy();
-    expect(screen.getByText('Remote Development')).toBeTruthy();
+    expect(screen.getByText('Development')).toBeTruthy();
+    expect(screen.getByText('Local review')).toBeTruthy();
+    expect(screen.getByText('CI validation')).toBeTruthy();
+    expect(screen.getByText('Comments')).toBeTruthy();
     expect(screen.getByText('Cleanup')).toBeTruthy();
   });
 
-  it('folds a stage\'s steps behind its chevron — collapsed until clicked', () => {
+  it('shows Development phases while active and lets the user fold them', () => {
     render(
       <TaskSidebar
         task={{ title: 'x', branch: 'b' }}
-        nodes={nodes}
+        nodes={activeDevelopmentNodes}
       />,
     );
-    // Every stage starts collapsed — no sub-step ladder is shown up front.
-    expect(document.querySelector('.workspace-task-stage__plan')).toBeNull();
-    // Local Development has steps, so it exposes a fold toggle; clicking it
-    // discloses the ladder in place (the nav button stays separate).
-    const toggle = screen.getByRole('button', { name: 'Expand Local Development' });
-    fireEvent.click(toggle);
     expect(document.querySelector('.workspace-task-stage__plan')).not.toBeNull();
-    expect(screen.getByText('Local review')).toBeTruthy();
-    // The same chevron collapses it again.
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse Local Development' }));
+    expect(screen.getByText('Implementing')).toBeTruthy();
+    expect(screen.getByText('Validation')).toBeTruthy();
+    expect(screen.getByText('Brain review')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Development' }));
     expect(document.querySelector('.workspace-task-stage__plan')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand Development' }));
+    expect(document.querySelector('.workspace-task-stage__plan')).not.toBeNull();
   });
 
   it('shows the done-count with the same bottom navigation as Home', () => {
@@ -67,10 +77,20 @@ describe('TaskSidebar', () => {
         nodes={nodes}
       />,
     );
-    expect(screen.getByText(/^\d+ of \d+ done$/)).toBeTruthy();
+    expect(screen.getByText(/^\d+ of 8 done$/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Report a bug' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
     expect(screen.queryByText('chenjian2664')).toBeNull();
+  });
+
+  it('keeps canonical owner glyphs visible independently of status', () => {
+    const { container } = render(<TaskSidebar task={{ title: 'x', branch: 'b' }} nodes={nodes} />);
+    expect(Array.from(container.querySelectorAll('[data-node-type="stage"]')).map(node => node.textContent))
+      .toEqual(['🤖', '🤖', '🤖']);
+    expect(Array.from(container.querySelectorAll('[data-node-type="gate"]')).map(node => node.textContent))
+      .toEqual(['◆', '◆']);
+    expect(Array.from(container.querySelectorAll('[data-node-type="auto"]')).map(node => node.textContent))
+      .toEqual(['○', '○', '○']);
   });
 
   it('fires onBack from the traffic-lights back arrow', () => {
@@ -109,17 +129,21 @@ describe('TaskSidebar', () => {
         onOpenStage={onOpenStage}
       />,
     );
-    fireEvent.click(screen.getByText('Local Development'));
+    fireEvent.click(screen.getByText('Development'));
     expect(onOpenStage).toHaveBeenCalledWith('dev-1');
   });
 
-  it('keeps Cleanup disabled with the locked no-agent tooltip and no chevron', () => {
+  it('keeps Cleanup disabled while CI validation remains actionable', () => {
+    const onOpenTab = vi.fn();
     const { container } = render(
       <TaskSidebar
         task={{ title: 'x', branch: 'b' }}
         nodes={nodes}
+        onOpenTab={onOpenTab}
       />,
     );
+    fireEvent.click(screen.getByText('CI validation'));
+    expect(onOpenTab).toHaveBeenCalledWith('pr', 'checks');
     const cleanupButton = screen.getByText('Cleanup').closest('button') as HTMLButtonElement;
     expect(cleanupButton.disabled).toBe(true);
     expect(cleanupButton.title).toBe('Runs automatically — no agent page');

@@ -13,7 +13,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ShipReviewPrompt } from './ShipReviewPrompt';
+import { ShipReviewPrompt, StaleShipGatePrompt } from './ShipReviewPrompt';
 import { usePendingShipProposal } from './usePendingShipProposal';
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(window, 'bridge'); });
@@ -29,17 +29,21 @@ describe('ShipReviewPrompt', () => {
 
   it('fires the inline gate actions when provided', () => {
     const onApprove = vi.fn();
+    const onDiscard = vi.fn();
     const onReviewChanges = vi.fn();
     render(
       <ShipReviewPrompt
         onReview={vi.fn()}
         onApprove={onApprove}
+        onDiscard={onDiscard}
         onReviewChanges={onReviewChanges}
       />,
     );
     fireEvent.click(screen.getByText('Approve & ship'));
     fireEvent.click(screen.getByText('Review changes'));
+    fireEvent.click(screen.getByText('Discard gate'));
     expect(onApprove).toHaveBeenCalledOnce();
+    expect(onDiscard).toHaveBeenCalledOnce();
     expect(onReviewChanges).toHaveBeenCalledOnce();
   });
 
@@ -49,6 +53,16 @@ describe('ShipReviewPrompt', () => {
     );
     expect((screen.getByText('Shipping…').closest('button') as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('boom')).toBeTruthy();
+  });
+
+  it('recovers an obsolete gate without offering an approval action', () => {
+    const onDiscard = vi.fn();
+    render(<StaleShipGatePrompt onDiscard={onDiscard} />);
+
+    expect(screen.getByText('Stale publish gate')).toBeTruthy();
+    expect(screen.queryByText('Approve & ship')).toBeNull();
+    fireEvent.click(screen.getByText('Discard stale gate'));
+    expect(onDiscard).toHaveBeenCalledOnce();
   });
 });
 

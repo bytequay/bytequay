@@ -64,7 +64,9 @@ export function AgentReviewHeaderAction({ state, spendCents = 0, round = 1, comm
   onToggle: (findingId: string) => void;
   onEdit: (commentId: string, body: string) => void;
   onRemove: (commentId: string) => void;
-  onSubmit: (verdict: ReviewVerdict) => void;
+  /** Omitted when this PR surface is review-only (not publishable by the
+   * current user), while Full review and its local findings stay available. */
+  onSubmit?: (verdict: ReviewVerdict) => void;
 }) {
   const findingCount = comments.filter(comment => comment.findingId != null).length;
   return (
@@ -74,7 +76,16 @@ export function AgentReviewHeaderAction({ state, spendCents = 0, round = 1, comm
       {state === 'done' && <button type="button" className="agent-review-state" title={`${findingCount} findings · ${formatCents(spendCents)}`} onClick={onOpenRound}>Full review · Round {round}</button>}
       {state === 'stale' && <button type="button" className="agent-review-state stale" onClick={onOpenRound}>Full review · update available</button>}
       {error != null && <span className="agent-review-inline-error" role="alert" title={error}>Review failed</span>}
-      {comments.length > 0 && <SubmitReviewPopover comments={comments} excluded={excluded} onToggle={onToggle} onEdit={onEdit} onRemove={onRemove} onSubmit={onSubmit} />}
+      {comments.length > 0 && onSubmit !== undefined && (
+        <SubmitReviewPopover
+          comments={comments}
+          excluded={excluded}
+          onToggle={onToggle}
+          onEdit={onEdit}
+          onRemove={onRemove}
+          onSubmit={onSubmit}
+        />
+      )}
     </span>
   );
 }

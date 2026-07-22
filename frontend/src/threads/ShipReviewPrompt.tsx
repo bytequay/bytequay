@@ -20,9 +20,10 @@ import { CheckIcon, WarnTriangleIcon } from '../ui/TaskBrainDesignIcons';
  * pane onto its Changes tab. Both review actions stay in that one PR-owned
  * diff surface.
  */
-export function ShipReviewPrompt({ onReview, onApprove, onReviewChanges, busy = false, note }: {
+export function ShipReviewPrompt({ onReview, onApprove, onDiscard, onReviewChanges, busy = false, note }: {
   onReview: () => void;
   onApprove?: () => void;
+  onDiscard?: () => void;
   onReviewChanges?: () => void;
   busy?: boolean;
   /** Approve-failure reason surfaced under the actions. */
@@ -49,6 +50,66 @@ export function ShipReviewPrompt({ onReview, onApprove, onReviewChanges, busy = 
               Review changes
             </button>
           )}
+          {onDiscard !== undefined && (
+            <button type="button" className="review-callout__btn" onClick={onDiscard} disabled={busy}>
+              Discard gate
+            </button>
+          )}
+        </div>
+        {note != null && <div className="review-callout__note">{note}</div>}
+      </div>
+    </div>
+  );
+}
+
+/** Recovery for an obsolete `ship_task` proposal that survived into the
+ * local-PR review flow. It deliberately offers no approval path: approving
+ * the legacy gate can skip the Brain/comment loop, while discarding it
+ * releases the publish gate so Development can keep editing. */
+export function StaleShipGatePrompt({ onDiscard, busy = false, note }: {
+  onDiscard: () => void;
+  busy?: boolean;
+  note?: string | null;
+}) {
+  return (
+    <div className="review-callout">
+      <span className="review-callout__icon" aria-hidden><WarnTriangleIcon /></span>
+      <div className="review-callout__body">
+        <div className="review-callout__title">Stale publish gate</div>
+        <div className="review-callout__tx">
+          An older ship proposal is blocking the current local review flow. Discard it so Development can continue.
+        </div>
+        <div className="review-callout__actions">
+          <button type="button" className="review-callout__btn" onClick={onDiscard} disabled={busy}>
+            {busy ? 'Discarding…' : 'Discard stale gate'}
+          </button>
+        </div>
+        {note != null && <div className="review-callout__note">{note}</div>}
+      </div>
+    </div>
+  );
+}
+
+/** A pre-auto-undraft `mark_ready` proposal can survive an upgrade. It may
+ * be discarded, but never approved: green CI now marks the draft ready by
+ * itself and this old gate must not reintroduce a second human checkpoint. */
+export function StaleMarkReadyGatePrompt({ onDiscard, busy = false, note }: {
+  onDiscard: () => void;
+  busy?: boolean;
+  note?: string | null;
+}) {
+  return (
+    <div className="review-callout">
+      <span className="review-callout__icon" aria-hidden><WarnTriangleIcon /></span>
+      <div className="review-callout__body">
+        <div className="review-callout__title">Obsolete ready-for-review gate</div>
+        <div className="review-callout__tx">
+          Green CI now marks the Draft PR ready automatically. Discard this older gate to continue.
+        </div>
+        <div className="review-callout__actions">
+          <button type="button" className="review-callout__btn" onClick={onDiscard} disabled={busy}>
+            {busy ? 'Discarding…' : 'Discard obsolete gate'}
+          </button>
         </div>
         {note != null && <div className="review-callout__note">{note}</div>}
       </div>

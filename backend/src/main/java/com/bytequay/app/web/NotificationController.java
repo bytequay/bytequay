@@ -16,6 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.threads.NotificationMuteService;
@@ -253,7 +254,8 @@ public class NotificationController
             return false;
         }
         return tasks.findTaskById(taskId)
-                .map(task -> task.status() == TaskStatus.NEEDS_ATTENTION)
+                .map(task -> task.status() == TaskStatus.NEEDS_ATTENTION
+                        || task.phase() == TaskPhase.NEEDS_ATTENTION)
                 .orElse(false);
     }
 

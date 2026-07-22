@@ -13,6 +13,10 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.ReviewComment;
+import com.bytequay.app.domain.ReviewRound;
+import com.bytequay.app.repository.ReviewRoundStore;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.ReviewCommentService;
 import org.springframework.stereotype.Component;
 
@@ -30,10 +34,17 @@ import static java.util.Objects.requireNonNull;
 public class ReviewCommentToolHandlers
 {
     private final ReviewCommentService reviewComments;
+    private final StageStore stageStore;
+    private final ReviewRoundStore roundStore;
 
-    public ReviewCommentToolHandlers(ReviewCommentService reviewComments)
+    public ReviewCommentToolHandlers(
+            ReviewCommentService reviewComments,
+            StageStore stageStore,
+            ReviewRoundStore roundStore)
     {
         this.reviewComments = requireNonNull(reviewComments, "reviewComments is null");
+        this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.roundStore = requireNonNull(roundStore, "roundStore is null");
     }
 
     /** Args record for {@code resolve_review_comment}. */
@@ -58,7 +69,29 @@ public class ReviewCommentToolHandlers
         catch (IllegalArgumentException | NullPointerException e) {
             return ToolOutcome.Completed.error("Invalid comment_id: " + raw);
         }
+        ReviewComment remoteComment = stageStore.findReviewCommentById(commentId).orElse(null);
+        if (remoteComment == null) {
+            return ToolOutcome.Completed.error("No review comment: " + commentId);
+        }
+        if (!belongsToActiveRound(call, remoteComment)) {
+            return ToolOutcome.Completed.error(
+                    "comment does not belong to this task's active review round");
+        }
         reviewComments.resolve(commentId);
         return ToolOutcome.Completed.ok("Review comment " + commentId + " marked resolved.");
+    }
+
+    private boolean belongsToActiveRound(ToolCall call, ReviewComment comment)
+    {
+        if (call.taskId() == null || !call.taskId().equals(comment.taskId())
+                || comment.roundId() == null) {
+            return false;
+        }
+        return roundStore.findLiveByTask(call.taskId())
+                .filter(round -> round.id().equals(comment.roundId().toString()))
+                .filter(round -> ReviewRound.STATUS_ADDRESSING.equals(round.status()))
+                .filter(round -> call.agentRunId() == null
+                        || call.agentRunId().equals(round.runId()))
+                .isPresent();
     }
 }

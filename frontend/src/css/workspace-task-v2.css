@@ -253,6 +253,18 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
 .workspace-task-stage__status-icon.is-planning > i,
 .workspace-task-stage__status-icon.is-monitoring > i { background: #2da44e; animation: working-pulse 2s infinite; }
 .workspace-task-stage__status-icon.is-awaiting > i { background: #bf8700; }
+.workspace-task-stage__owner {
+  width: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #8b949e;
+  font-size: 11px;
+  line-height: 1;
+}
+.workspace-task-stage__owner.is-stage { font-size: 12px; }
+.workspace-task-stage__owner.is-gate { color: #bf8700; }
 .workspace-task-stage__plan {
   display: flex;
   flex-direction: column;

@@ -112,6 +112,12 @@ export function isPendingLocalComment(c: LocalPRComment): boolean {
     && c.resolvedAt === null && c.dismissedAt === null;
 }
 
+/** A human-authored draft the backend can include in `publish-review`.
+ * Agent/Brain findings are local review input, not drafts from the user. */
+export function isPublishableReviewDraft(c: LocalPRComment): boolean {
+  return isPendingLocalComment(c) && c.author.trim().toLowerCase() === 'you';
+}
+
 export function diffInlineCommentFromLocalPr(c: LocalPRComment, reviewOrIndex?: AgentReviewData | number): DiffInlineComment {
   const review = typeof reviewOrIndex === 'number' ? undefined : reviewOrIndex;
   const agent = c.origin === 'local' && isAgentAuthor(c.author);

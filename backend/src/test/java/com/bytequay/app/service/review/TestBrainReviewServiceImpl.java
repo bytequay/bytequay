@@ -337,7 +337,9 @@ class TestBrainReviewServiceImpl
 
         assertThat(result.status()).isEqualTo(PR.STATUS_LOCAL_DRAFTED);
         verify(roundStore).save(argThat(r ->
-                ReviewRound.ORIGIN_BRAIN.equals(r.origin()) && ReviewRound.STATUS_TRIAGING.equals(r.status())));
+                ReviewRound.ORIGIN_BRAIN.equals(r.origin())
+                        && ReviewRound.STATUS_TRIAGING.equals(r.status())
+                        && r.budget() == 5));
         verify(prService, never()).requestUserReview(any(), any());
     }
 
@@ -527,7 +529,9 @@ class TestBrainReviewServiceImpl
         ReviewRound lastIteration = brainRound(ReviewRound.STATUS_TRIAGING)
                 .withIterationBumped()
                 .withIterationBumped()
-                .withIterationBumped() // iteration now == budget (3)
+                .withIterationBumped()
+                .withIterationBumped()
+                .withIterationBumped() // iteration now == budget (5)
                 .withBrainVerdict(ReviewRound.VERDICT_CHANGES_REQUESTED);
         when(turnStore.findTurnById("turn-7")).thenReturn(Optional.of(turn("run-stage", TurnInitiator.unattended(
                 "brain-review"))));
@@ -563,7 +567,9 @@ class TestBrainReviewServiceImpl
         ReviewRound neverVerdicted = brainRound(ReviewRound.STATUS_TRIAGING)
                 .withIterationBumped()
                 .withIterationBumped()
-                .withIterationBumped(); // iteration == budget (3), brainVerdict still null
+                .withIterationBumped()
+                .withIterationBumped()
+                .withIterationBumped(); // iteration == budget (5), brainVerdict still null
         when(turnStore.findTurnById("turn-8")).thenReturn(Optional.of(turn("run-stage", TurnInitiator.unattended(
                 "brain-review"))));
         when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(neverVerdicted));

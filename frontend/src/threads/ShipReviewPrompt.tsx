@@ -14,15 +14,16 @@
 import { CheckIcon, WarnTriangleIcon } from '../ui/TaskBrainDesignIcons';
 
 /**
- * The in-conversation callout shown when development has finished and a
- * `ship_task` proposal is parked awaiting the user. Two exits: Approve &
- * ship resolves the parked gate inline, Review changes unfolds the PR
- * pane onto its Changes tab. Both review actions stay in that one PR-owned
- * diff surface.
+ * The in-conversation callout shown when development has finished. The
+ * canonical local-PR flow opens its confirmation dialog from here; a legacy
+ * task with no local PR may still resolve its parked `ship_task` here.
  */
-export function ShipReviewPrompt({ onReview, onApprove, onDiscard, onReviewChanges, busy = false, note }: {
+export function ShipReviewPrompt({
+  onReview, onApprove, approveDisabled = false, onDiscard, onReviewChanges, busy = false, note,
+}: {
   onReview: () => void;
   onApprove?: () => void;
+  approveDisabled?: boolean;
   onDiscard?: () => void;
   onReviewChanges?: () => void;
   busy?: boolean;
@@ -41,7 +42,13 @@ export function ShipReviewPrompt({ onReview, onApprove, onDiscard, onReviewChang
         </div>
         <div className="review-callout__actions">
           {onApprove !== undefined && (
-            <button type="button" className="review-callout__btn review-callout__btn--ok" onClick={onApprove} disabled={busy}>
+            <button
+              type="button"
+              className="review-callout__btn review-callout__btn--ok"
+              onClick={onApprove}
+              disabled={busy || approveDisabled}
+              title={approveDisabled ? note ?? undefined : undefined}
+            >
               <CheckIcon size={13} strokeWidth={2.4} />{busy ? 'Shipping…' : 'Approve & ship'}
             </button>
           )}

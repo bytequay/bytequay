@@ -47,7 +47,7 @@ import { formatCost, formatDuration } from '../threads/brain/format';
 import { TaskChangedFilesCard } from './TaskChangedFilesCard';
 import type { WsNavKey } from '../ui/workspace';
 import PublishGatePane from '../PublishGatePane';
-import { deriveLocalReviewGate } from '../pr/localpr/localReviewGate';
+import { deriveLocalReviewApproval, deriveLocalReviewGate } from '../pr/localpr/localReviewGate';
 
 /**
  * Data adapter that mounts the V3 {@link TaskBrainPage} on the live brain
@@ -484,6 +484,19 @@ export function TaskBrainRoute({
           : [])),
     [brainFeed]);
 
+  const localReviewGate = deriveLocalReviewGate(task.currentPhase, data.devPhases);
+  const localReviewApproval = deriveLocalReviewApproval(localPrBundle, localReviewGate);
+  const canonicalLocalReviewPrompt = localReviewApproval === null ? null : (
+    <ShipReviewPrompt
+      onReview={openChanges}
+      onApprove={() => setPushOpen(true)}
+      approveDisabled={!localReviewApproval.enabled}
+      onReviewChanges={() => openTab('pr', 'changes')}
+      note={!localReviewApproval.enabled || localReviewGate.brainReview.state === 'unresolved'
+        ? localReviewApproval.reason
+        : null}
+    />
+  );
   const shipAction = proposalAction(shipProposal);
   const shipGatePrompt = shipAction === 'mark_ready'
     ? <StaleMarkReadyGatePrompt
@@ -491,9 +504,8 @@ export function TaskBrainRoute({
         busy={shipBusy}
         note={shipNote}
       />
-    : shipAction !== 'ship_task' || localPrBundle === undefined
-      ? null
-      : localPrBundle === null && task.currentPhase === 'AWAITING_PUSH'
+    : shipAction === 'ship_task' && localPrBundle !== undefined
+      ? localPrBundle === null && task.currentPhase === 'AWAITING_PUSH'
         ? <ShipReviewPrompt
             onReview={openChanges}
             onApprove={() => { void approveShip(); }}
@@ -506,7 +518,8 @@ export function TaskBrainRoute({
             onDiscard={() => { void discardProposal(); }}
             busy={shipBusy}
             note={shipNote}
-          />;
+          />
+      : canonicalLocalReviewPrompt;
 
   const conversation = (
     <Conv scrollRef={conversationRef}>
@@ -639,7 +652,6 @@ export function TaskBrainRoute({
   );
 
   const displayedTaskBundle = agentReview.displayedBundle ?? localPrBundle;
-  const localReviewGate = deriveLocalReviewGate(task.currentPhase, data.devPhases);
   // Normal task pages reuse the locked Pull Requests detail body. Keep the
   // legacy PRView below exclusively for the review-round drill-in, whose
   // finding APIs do not exist on PullDetailBody.
@@ -701,11 +713,6 @@ export function TaskBrainRoute({
             }}
           />
         ) : undefined}
-        localReviewGate={localReviewGate}
-        onPush={() => setPushOpen(true)}
-        onAskAgentToAddress={task.terminal ? undefined : askAgentToAddress}
-        onRunLocalTests={runLocalTests}
-        localTestsBusy={testsBusy}
         onClosePullRequest={displayedTaskBundle.pr.remotePrNumber !== null
             && displayedTaskBundle.pr.repo !== null
             && displayedTaskBundle.pr.status !== 'merged'

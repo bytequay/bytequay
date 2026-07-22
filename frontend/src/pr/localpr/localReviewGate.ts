@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { DevPhaseDto } from '../../types/brainView';
+import type { LocalPRBundle } from '../../types/localPr';
 
 export type BrainReviewSummary =
   | { state: 'approved' }
@@ -23,6 +24,13 @@ export type LocalReviewGate = {
   eligible: boolean;
   reason: string;
   brainReview: BrainReviewSummary;
+};
+
+/** Final renderer-side affordance for the Local Review approval callout.
+ * The backend repeats every one of these checks immediately before push. */
+export type LocalReviewApproval = {
+  enabled: boolean;
+  reason: string;
 };
 
 function unresolvedCount(meta: string): number | undefined {
@@ -81,4 +89,36 @@ export function deriveLocalReviewGate(
     };
   }
   return { eligible: true, reason: 'Validation and Brain review passed.', brainReview };
+}
+
+/** Combines the task-owned gate with the two PR-owned blockers visible in the
+ * bundle. Budget-exhausted Brain findings are the deliberate human override
+ * path, so only non-Brain open threads block that amber approval. */
+export function deriveLocalReviewApproval(
+  bundle: LocalPRBundle | null | undefined,
+  gate: LocalReviewGate,
+): LocalReviewApproval | null {
+  if (bundle?.pr.origin !== 'task' || bundle.pr.status !== 'local-open') return null;
+
+  const openComments = bundle.comments.filter(comment => comment.parentCommentId === null
+    && comment.resolvedAt === null && comment.dismissedAt === null);
+  const blockingComments = gate.eligible && gate.brainReview.state === 'unresolved'
+    ? openComments.filter(comment => comment.author !== 'brain')
+    : openComments;
+  const latestLocalCheck = bundle.checks
+    .filter(check => check.kind === 'local')
+    .reduce<typeof bundle.checks[number] | undefined>(
+      (latest, check) => latest === undefined || check.startedAt > latest.startedAt ? check : latest,
+      undefined,
+    );
+  const blockers = [
+    ...(!gate.eligible ? [gate.reason] : []),
+    ...(blockingComments.length > 0
+      ? [`Resolve or dismiss ${blockingComments.length} open local review comment${blockingComments.length === 1 ? '' : 's'} before shipping.`]
+      : []),
+    ...(latestLocalCheck?.status === 'failed' ? ['The latest local test run failed.'] : []),
+  ];
+  return blockers.length > 0
+    ? { enabled: false, reason: blockers.join(' ') }
+    : { enabled: true, reason: gate.reason };
 }

@@ -59,17 +59,18 @@ describe('LivePlan', () => {
   it('renders every lifecycle node with its status class, plus the nested phase ladder once expanded', () => {
     const { container } = render(<LivePlan nodes={model()} />);
     expect(screen.getByText('Plan').closest('.plan-node')?.className).toContain('done');
-    expect(screen.getByText('Comments').closest('.plan-node')?.className).toContain('future');
+    expect(screen.getByText('Remote Development').closest('.plan-node')?.className).toContain('future');
     // No ladder auto-opens — every node starts collapsed regardless of status.
     expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);
 
-    fireEvent.click(screen.getByLabelText('Expand Development'));
+    fireEvent.click(screen.getByLabelText('Expand Local Development'));
+    fireEvent.click(screen.getByLabelText('Expand Remote Development'));
     expect(screen.getByText('Validation').closest('.plan-phase-row')?.className).toContain('running');
     // A live run badges its phase row inline.
     expect(screen.getByText('iter 2')).toBeTruthy();
     // The phase ladders render as nested rows; no separate run sub-rows.
     expect(container.querySelectorAll('.plan-sub-row').length).toBe(0);
-    expect(container.querySelectorAll('.plan-phase-row').length).toBe(3);
+    expect(container.querySelectorAll('.plan-phase-row').length).toBe(9);
   });
 
   it('navigates to the brain page when the Plan node is clicked', () => {
@@ -86,6 +87,7 @@ describe('LivePlan', () => {
       task: { prNumber: null, currentPhase: 'AWAITING_PUSH' as TaskPhase, terminal: false },
     });
     render(<LivePlan nodes={nodes} onOpenTab={onOpenTab} />);
+    fireEvent.click(screen.getByLabelText('Expand Local Development'));
     fireEvent.click(screen.getByText('Local review'));
     expect(onOpenTab).toHaveBeenCalledWith('pr', undefined);
   });
@@ -98,6 +100,7 @@ describe('LivePlan', () => {
       task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
     });
     render(<LivePlan nodes={nodes} onOpenTab={onOpenTab} onOpenPr={onOpenPr} />);
+    fireEvent.click(screen.getByLabelText('Expand Remote Development'));
     fireEvent.click(screen.getByText('CI validation'));
     expect(onOpenTab).toHaveBeenCalledWith('pr', 'checks');
     expect(onOpenPr).not.toHaveBeenCalled();
@@ -110,10 +113,10 @@ describe('LivePlan', () => {
 
   it('highlights the currently-viewed stage', () => {
     render(<LivePlan nodes={model('DEVELOPMENT_STAGE-id')} />);
-    expect(screen.getByText('Development').closest('.plan-node')?.className).toContain('active-view');
+    expect(screen.getByText('Local Development').closest('.plan-node')?.className).toContain('active-view');
   });
 
-  it('collapses completed Development phases into meta without blocking stage navigation', () => {
+  it('keeps completed stage phases collapsed but expandable without blocking navigation', () => {
     const onOpenStage = vi.fn();
     const nodes = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'CLOSED')], subStages: [],
@@ -126,9 +129,11 @@ describe('LivePlan', () => {
     });
     const { container } = render(<LivePlan nodes={nodes} onOpenStage={onOpenStage} />);
     expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);
-    expect(screen.queryByLabelText('Expand Development')).toBeNull();
-    expect(screen.getByText('validated ✓ · brain review complete')).toBeTruthy();
-    fireEvent.click(screen.getByText('Development'));
+    fireEvent.click(screen.getByLabelText('Expand Local Development'));
+    expect(container.querySelectorAll('.plan-phase-row').length).toBe(5);
+    fireEvent.click(screen.getByLabelText('Collapse Local Development'));
+    expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);
+    fireEvent.click(screen.getByText('Local Development'));
     expect(onOpenStage).toHaveBeenCalledWith('DEVELOPMENT_STAGE-id');
   });
 

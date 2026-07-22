@@ -55,6 +55,23 @@ describe('ShipReviewPrompt', () => {
     expect(screen.getByText('boom')).toBeTruthy();
   });
 
+  it('keeps a blocked canonical approval visible but disabled', () => {
+    const onApprove = vi.fn();
+    render(
+      <ShipReviewPrompt
+        onReview={vi.fn()}
+        onApprove={onApprove}
+        approveDisabled
+        note="Resolve the local review comment first."
+      />,
+    );
+    const approve = screen.getByRole('button', { name: 'Approve & ship' }) as HTMLButtonElement;
+    expect(approve.disabled).toBe(true);
+    fireEvent.click(approve);
+    expect(onApprove).not.toHaveBeenCalled();
+    expect(screen.getByText('Resolve the local review comment first.')).toBeTruthy();
+  });
+
   it('recovers an obsolete gate without offering an approval action', () => {
     const onDiscard = vi.fn();
     render(<StaleShipGatePrompt onDiscard={onDiscard} />);

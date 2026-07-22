@@ -19,8 +19,6 @@ import { usePR } from '../pr/usePR';
 import { derivePRCapabilities } from '../pr/prCapabilities';
 import type { AiReviewDraftDto, DiffFileDto } from '../types';
 import type { LocalPRBundle } from '../types/localPr';
-import type { LocalReviewGate } from '../pr/localpr/localReviewGate';
-import { MergeBox } from '../pr/localpr/MergeBox';
 import { CommentBubbleIcon, PrMergedIcon, PrOpenIcon, RobotIcon } from './atoms';
 import { buildHeader } from './detailModel';
 import type { PullRow } from './model';
@@ -71,12 +69,6 @@ export type PullDetailActions = {
   };
   /** True when the host resolved the repo and found no watched workspace. */
   noWorkspace?: boolean;
-  /** Task-origin Local Review actions. Eligibility remains server-owned. */
-  localReviewGate?: LocalReviewGate;
-  onPush?: () => void;
-  onAskAgentToAddress?: () => void;
-  onRunLocalTests?: () => void;
-  localTestsBusy?: boolean;
   /** Explicit user-owned remote close action. Omitted for local/terminal PRs. */
   onClosePullRequest?: () => Promise<void>;
 };
@@ -279,36 +271,6 @@ export function PullDetailBody({
   const pending = (bundle?.comments ?? []).filter(isPublishableReviewDraft);
   const canPublish = bundle !== null && bundle !== undefined
     && derivePRCapabilities(bundle.pr, 'details').publishReview;
-  const localReviewPanel = bundle !== null && bundle !== undefined
-      && bundle.pr.origin === 'task' && bundle.pr.status === 'local-open' ? (() => {
-    const localChecks = bundle.checks.filter(check => check.kind === 'local');
-    const latest = localChecks.reduce<typeof localChecks[number] | undefined>(
-      (current, check) => current === undefined || check.startedAt > current.startedAt ? check : current,
-      undefined,
-    );
-    const openComments = bundle.comments.filter(comment => comment.parentCommentId === null
-      && comment.resolvedAt === null && comment.strippedOnPushAt === null).length;
-    const draftCount = bundle.comments.filter(comment => comment.parentCommentId === null
-      && comment.origin === 'local' && comment.publishedAt === null
-      && comment.resolvedAt === null && comment.dismissedAt === null).length;
-    return (
-      <MergeBox
-        pr={bundle.pr}
-        capabilities={derivePRCapabilities(bundle.pr, 'task')}
-        localChecks={localChecks}
-        remoteChecks={[]}
-        openComments={openComments}
-        localTestsFailing={latest?.status === 'failed'}
-        pendingStripCount={bundle.pendingStripCount ?? 0}
-        draftCount={draftCount}
-        localReviewGate={actions.localReviewGate}
-        onPush={actions.onPush}
-        onAskAgent={actions.onAskAgentToAddress}
-        onRunTests={actions.onRunLocalTests}
-        runTestsBusy={actions.localTestsBusy}
-      />
-    );
-  })() : null;
   const removePending = (id: string) => {
     void window.bridge.deleteLocalPrComment(id).then(refresh).catch(() => { /* poll reconciles */ });
   };
@@ -422,7 +384,6 @@ export function PullDetailBody({
               fullReviewPreparation={actions.fullReviewPreparation}
             />
             {overviewBanner}
-            {localReviewPanel}
             <PullOverview
               row={row}
               bundle={bundle}

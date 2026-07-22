@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
+import WorkspacePullDetailZoom from '../pulls/PullDetailZoom';
 import type { BacklogItemDto, PullRequestDto } from '../types';
 import { AskUserQuestionCard } from '../ui/conv';
 import { Composer, Main, Shell, usePaneWidth } from '../ui/shell';
@@ -82,11 +83,13 @@ export function TrunkPage({
   const panel = useWorkspacePanelData(thread.workspaceId);
   const [paneOpen, setPaneOpen] = useState(true);
   const [selectedBacklogId, setSelectedBacklogId] = useState<string | null>(null);
+  const [zoomedPullRequest, setZoomedPullRequest] = useState<PullRequestDto | null>(null);
   const { paneWidth, bodyRef, onResize } = usePaneWidth(OVERVIEW_WIDTH_KEY, 318, 240, 520);
 
   const openQuestions = pane.questions.filter(question => question.status === 'open');
   useEffect(() => {
     setSelectedBacklogId(null);
+    setZoomedPullRequest(null);
   }, [threadId]);
   const selectedBacklog = selectedBacklogId === null
     ? undefined
@@ -251,6 +254,7 @@ export function TrunkPage({
                 onDropBacklog={itemId => { void pane.skip(itemId); }}
                 onReopenBacklog={itemId => { void pane.revive(itemId); }}
                 onOpenTask={onOpenTask}
+                onOpenPullRequest={setZoomedPullRequest}
                 width={paneWidth}
                 onResize={onResize}
               />
@@ -258,6 +262,13 @@ export function TrunkPage({
           </div>
         </Main>
       </Shell>
+      {thread.workspaceId !== undefined && zoomedPullRequest !== null && (
+        <WorkspacePullDetailZoom
+          workspaceId={thread.workspaceId}
+          pullRequest={zoomedPullRequest}
+          onClose={() => setZoomedPullRequest(null)}
+        />
+      )}
       {selectedBacklog !== undefined && editorWorkspaceId !== undefined && (
         <BacklogEditor
           key={selectedBacklog.id}
@@ -305,6 +316,7 @@ function WorkspaceOverviewPanel({
   onDropBacklog,
   onReopenBacklog,
   onOpenTask,
+  onOpenPullRequest,
   width,
   onResize,
 }: {
@@ -324,6 +336,7 @@ function WorkspaceOverviewPanel({
   onDropBacklog: (itemId: string) => void;
   onReopenBacklog: (itemId: string) => void;
   onOpenTask?: (taskId: string) => void;
+  onOpenPullRequest: (pullRequest: PullRequestDto) => void;
   width: number;
   onResize: (clientX: number) => void;
 }) {
@@ -414,7 +427,7 @@ function WorkspaceOverviewPanel({
           {openPullRequests.length > 0 ? (
             <div className="trunk-page-v2__prs">
               {openPullRequests.map(pr => (
-                <button type="button" key={pr.id} onClick={() => openPath(`prs/${pr.number}`)}>
+                <button type="button" key={pr.id} onClick={() => onOpenPullRequest(pr)}>
                   <span className="trunk-page-v2__pr-icon"><OpenPullRequestIcon /></span>
                   <span>{pr.title}</span>
                   <small>#{pr.number}</small>

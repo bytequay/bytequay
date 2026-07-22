@@ -46,7 +46,7 @@ vi.mock('../repos/AddRepoModal', () => ({
 }));
 
 vi.mock('./PullDetailPane', () => ({
-  default: ({ row, noWorkspace, onAssignAgent, onRunQuickReview, onWatchRepoForFullReview, onWorkWithAgent, onOpenInWorkspace, quickReview, fullReviewPreparation }: {
+  default: ({ row, noWorkspace, onAssignAgent, onRunQuickReview, onWatchRepoForFullReview, onWorkWithAgent, onOpenInWorkspace, quickReview, fullReviewPreparation, onToggleZoom, zoomed }: {
     row: PullRow;
     noWorkspace?: boolean;
     onAssignAgent?: () => void;
@@ -56,6 +56,8 @@ vi.mock('./PullDetailPane', () => ({
     onOpenInWorkspace?: () => void;
     quickReview?: { state: string; result: AiReviewDraftDto | null };
     fullReviewPreparation?: { state: string };
+    onToggleZoom?: () => void;
+    zoomed?: boolean;
   }) => (
     <div
       data-testid="pull-detail"
@@ -71,6 +73,11 @@ vi.mock('./PullDetailPane', () => ({
       <button onClick={onWatchRepoForFullReview} disabled={onWatchRepoForFullReview === undefined}>watch-hook</button>
       <button onClick={onWorkWithAgent} disabled={onWorkWithAgent === undefined}>open-hook</button>
       <button onClick={onOpenInWorkspace} disabled={onOpenInWorkspace === undefined}>workspace-hook</button>
+      {onToggleZoom !== undefined && (
+        <button onClick={onToggleZoom}>
+          {zoomed === true ? 'Close pull request details' : 'Maximize pull request details'}
+        </button>
+      )}
     </div>
   ),
 }));
@@ -149,6 +156,38 @@ describe('PullsScreen', () => {
     expect((await screen.findByTestId('pull-detail')).textContent).toContain(pr.id);
     await waitFor(() => expect(window.bridge.fetchDashboardPrs).toHaveBeenCalled());
     expect(getPrForRepoPull).not.toHaveBeenCalled();
+  });
+
+  it('zooms the selected PR in place without routing to a workspace', async () => {
+    setCached('prs:list', [pr]);
+    const openWorkspacePr = vi.fn();
+    window.bridge = {
+      listWorkspaces: vi.fn().mockResolvedValue([]),
+      fetchDashboardPrs: vi.fn().mockResolvedValue([pr]),
+      syncDashboardPrs: vi.fn().mockResolvedValue([pr]),
+      recordSurfaceVisit: vi.fn().mockResolvedValue(undefined),
+    } as unknown as typeof window.bridge;
+
+    render(
+      <PullsScreen
+        initialPr={{ repo: pr.repo, number: pr.number }}
+        onOpenWorkspacePr={openWorkspacePr}
+      />,
+    );
+
+    const detail = await screen.findByTestId('pull-detail');
+    const hash = window.location.hash;
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize pull request details' }));
+
+    expect(screen.getByRole('dialog', { name: 'Pull request details' })).toBeTruthy();
+    expect(screen.getByTestId('pull-detail')).toBe(detail);
+    expect(screen.getByText(pr.title)).toBeTruthy();
+    expect(openWorkspacePr).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe(hash);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close pull request details' }));
+    expect(screen.queryByRole('dialog', { name: 'Pull request details' })).toBeNull();
+    expect(screen.getByTestId('pull-detail')).toBe(detail);
   });
 
   it('runs quick review inline and prepares a watched repo before starting full review', async () => {

@@ -38,6 +38,10 @@ const statePillStyle = { display: 'inline-flex', alignItems: 'center', gap: 6, c
 const tabBtnStyle = { display: 'inline-flex', alignItems: 'center', gap: 7, padding: '6px 4px 10px', border: 0, background: 'transparent', fontSize: 13, cursor: 'pointer' } as const;
 
 export type PullDetailActions = {
+  /** Zooms this already-mounted detail pane without changing its PR or tab. */
+  onToggleZoom?: () => void;
+  /** Switches the top-right affordance from maximize to restore/close. */
+  zoomed?: boolean;
   /** A changed token selects Overview without remounting the PR detail pane. */
   openOverviewToken?: number;
   /** A changed token selects Changes without remounting the PR detail pane. */
@@ -286,8 +290,20 @@ export function PullDetailBody({
 
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <div style={{ flexShrink: 0, borderBottom: '1px solid #e7e9ec', background: '#fff' }}>
-        <div style={{ maxWidth: 880, margin: '0 auto', padding: '18px 36px 0' }}>
+      <div style={{ position: 'relative', flexShrink: 0, borderBottom: '1px solid #e7e9ec', background: '#fff' }}>
+        {actions.onToggleZoom !== undefined && (
+          <button
+            type="button"
+            className="pl-hov-ic"
+            aria-label={actions.zoomed === true ? 'Close pull request details' : 'Maximize pull request details'}
+            title={actions.zoomed === true ? 'Close pull request details' : 'Maximize pull request details'}
+            onClick={actions.onToggleZoom}
+            style={{ position: 'absolute', zIndex: 2, top: 12, right: 14, width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, border: 0, borderRadius: 7, background: 'transparent', color: '#6e7781', cursor: 'pointer' }}
+          >
+            <PullDetailZoomIcon zoomed={actions.zoomed === true} />
+          </button>
+        )}
+        <div style={{ maxWidth: 880, margin: '0 auto', padding: actions.onToggleZoom === undefined ? '18px 36px 0' : '18px 62px 0 36px' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
             <span style={{ fontSize: 21, fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.01em', color: '#17191c', minWidth: 0, flex: 1 }}>
               {det.title}{' '}
@@ -394,6 +410,18 @@ export function PullDetailBody({
         }}
       />
     </div>
+  );
+}
+
+function PullDetailZoomIcon({ zoomed }: { zoomed: boolean }) {
+  return zoomed ? (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 3v4a2 2 0 0 1-2 2H3M15 3v4a2 2 0 0 0 2 2h4M9 21v-4a2 2 0 0 0-2-2H3M15 21v-4a2 2 0 0 1 2-2h4" />
+    </svg>
+  ) : (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+    </svg>
   );
 }
 

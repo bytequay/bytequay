@@ -43,6 +43,7 @@ import { makeIdCache } from '../threads/brain/idCache';
 import { useAgentReviewState } from '../review/useAgentReviewState';
 import { ConvIndex } from '../threads/ConvIndex';
 import { PullDetailBody } from '../pulls/PullDetailPane';
+import { PullDetailHost } from '../pulls/PullDetailZoom';
 import { pullRowFromLocal } from '../pulls/localRow';
 import type { PullRow } from '../pulls/model';
 import { derivePRCapabilities } from '../pr/prCapabilities';
@@ -139,6 +140,7 @@ export function StageDetailRoute({
   const [text, setText] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [prZoomed, setPrZoomed] = useState(false);
   const {
     bundle: localPrBundle,
     refresh: refreshLocalPr,
@@ -547,33 +549,41 @@ export function StageDetailRoute({
   };
   const stagePullDetail = stagePullRow !== null && displayedLocalPrBundle !== null
       && displayedLocalPrBundle !== undefined ? (
-    <PullDetailBody
-      key={stagePullRow.id}
-      row={stagePullRow}
-      bundle={displayedLocalPrBundle}
-      refresh={refreshLocalPr}
-      openOverviewToken={openOverviewToken}
-      openChangesToken={openChangesToken}
-      changesFiles={displayedLocalPrBundle.pr.remotePrNumber === null ? files : undefined}
-      fetchChangesBlob={displayedLocalPrBundle.pr.remotePrNumber === null
-        ? (path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)
-        : undefined}
-      changesBanner={shipProposal !== null && markReadyPr !== null ? (
-        <MarkReadyPanel
-          notificationId={shipProposal.id}
-          pr={markReadyPr}
-          onMarked={() => {
-            pollFast();
-            refreshLocalPr();
-            void refreshShipProposal();
-          }}
-        />
-      ) : undefined}
-      onComment={onStagePrComment}
-      onAssignAgent={() => { void agentReview.startReview(); }}
-      onWorkWithAgent={() => openAgentRound()}
-      onOpenInWorkspace={onOpenBrain}
-    />
+    <PullDetailHost
+      zoomed={prZoomed}
+      onClose={() => setPrZoomed(false)}
+      normalStyle={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0 }}
+    >
+      <PullDetailBody
+        key={stagePullRow.id}
+        row={stagePullRow}
+        bundle={displayedLocalPrBundle}
+        refresh={refreshLocalPr}
+        openOverviewToken={openOverviewToken}
+        openChangesToken={openChangesToken}
+        changesFiles={displayedLocalPrBundle.pr.remotePrNumber === null ? files : undefined}
+        fetchChangesBlob={displayedLocalPrBundle.pr.remotePrNumber === null
+          ? (path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)
+          : undefined}
+        changesBanner={shipProposal !== null && markReadyPr !== null ? (
+          <MarkReadyPanel
+            notificationId={shipProposal.id}
+            pr={markReadyPr}
+            onMarked={() => {
+              pollFast();
+              refreshLocalPr();
+              void refreshShipProposal();
+            }}
+          />
+        ) : undefined}
+        onComment={onStagePrComment}
+        onAssignAgent={() => { void agentReview.startReview(); }}
+        onWorkWithAgent={() => openAgentRound()}
+        onOpenInWorkspace={onOpenBrain}
+        zoomed={prZoomed}
+        onToggleZoom={() => setPrZoomed(value => !value)}
+      />
+    </PullDetailHost>
   ) : null;
   const planStages = data?.allStages ?? brain.stages;
   const planSubStages = data?.subStages ?? brain.subStages;

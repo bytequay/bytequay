@@ -30,6 +30,7 @@ import AgentColumn from './AgentColumn';
 import { pullRowFromLocal } from './localRow';
 import PullBoard from './PullBoard';
 import PullDetailPane from './PullDetailPane';
+import { PullDetailHost } from './PullDetailZoom';
 import PullRowItem from './PullRowItem';
 import '../css/pulls.css';
 
@@ -99,6 +100,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
   const [detW, setDetW] = useState(DETAIL_DEFAULT);
   const [paneRow, setPaneRow] = useState<PullRow | null>(null);
   const [agentView, setAgentView] = useState(initialAgentView === true);
+  const [detailZoomed, setDetailZoomed] = useState(false);
   const [pendingAgentStarts, setPendingAgentStarts] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
@@ -126,6 +128,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
     setDirectPrId(initialPrId ?? null);
     setPaneOpen(targeted);
     setAgentView(targeted && initialAgentView === true);
+    setDetailZoomed(false);
   }, [initialAgentView, initialPrId, initialPrNumber]);
 
   const counts = useMemo(() => filterCounts(prs), [prs]);
@@ -213,6 +216,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
   };
 
   const pick = (num: number) => {
+    setDetailZoomed(false);
     setDirectPrId(null);
     setSel(num);
     setPaneOpen(true);
@@ -221,6 +225,7 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
 
   const togglePane = () => {
     if (paneShown) {
+      setDetailZoomed(false);
       setPaneOpen(false);
       onBackToList();
     }
@@ -399,24 +404,32 @@ export default function WorkspacePullsScreen({ workspaceId, initialPrNumber, ini
 
       {/* ═══ PR detail pane ═══ */}
       {paneShown && (
-        <div style={{ width: detW, flexShrink: 1, minWidth: 0, borderLeft: '1px solid #e7e9ec', display: 'flex', minHeight: 0, background: '#fff', position: 'relative' }}>
-          <div
-            className="pl-hov-drag"
-            onMouseDown={detDragStart}
-            title="Drag to resize"
-            style={{ position: 'absolute', left: -3, top: 0, bottom: 0, width: 6, cursor: 'col-resize', zIndex: 5 }}
-          />
+        <PullDetailHost
+          zoomed={detailZoomed}
+          onClose={() => setDetailZoomed(false)}
+          normalStyle={{ width: detW, flexShrink: 1, minWidth: 0, borderLeft: '1px solid #e7e9ec', display: 'flex', minHeight: 0, background: '#fff', position: 'relative' }}
+        >
+          {!detailZoomed && (
+            <div
+              className="pl-hov-drag"
+              onMouseDown={detDragStart}
+              title="Drag to resize"
+              style={{ position: 'absolute', left: -3, top: 0, bottom: 0, width: 6, cursor: 'col-resize', zIndex: 5 }}
+            />
+          )}
           {paneRow !== null && (
             <PullDetailPane
               key={paneRow.id}
               row={paneRow}
+              zoomed={detailZoomed}
+              onToggleZoom={() => setDetailZoomed(value => !value)}
               onWorkWithAgent={pendingAgentStarts.has(paneRow.id)
                 ? undefined
-                : () => setAgentView(true)}
+                : () => { setDetailZoomed(false); setAgentView(true); }}
               onAssignAgent={assignAgent}
             />
           )}
-        </div>
+        </PullDetailHost>
       )}
     </div>
   );

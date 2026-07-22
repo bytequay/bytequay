@@ -18,13 +18,18 @@ import type { PullRow } from './model';
 import WorkspacePullsScreen from './WorkspacePullsScreen';
 
 vi.mock('./PullDetailPane', () => ({
-  default: ({ row, onAssignAgent, onWorkWithAgent }: {
+  default: ({ row, onAssignAgent, onWorkWithAgent, onToggleZoom, zoomed }: {
     row: PullRow;
     onAssignAgent?: () => void;
     onWorkWithAgent?: () => void;
+    onToggleZoom?: () => void;
+    zoomed?: boolean;
   }) => (
     <div data-testid="pull-detail">
       {row.num}
+      {onToggleZoom !== undefined && (
+        <button onClick={onToggleZoom}>{zoomed ? 'Close pull request details' : 'Maximize pull request details'}</button>
+      )}
       {row.dto.reviewState === 'running'
         ? <button onClick={onWorkWithAgent} disabled={onWorkWithAgent === undefined}>Full review • running</button>
         : row.hasAgent
@@ -112,6 +117,50 @@ describe('WorkspacePullsScreen', () => {
     expect(workspaceRequest).toHaveBeenCalledWith({
       path: '/api/workspaces/ws-1/pull-requests/29',
     });
+  });
+
+  it('zooms the already-open detail in place without routing through the PR list', async () => {
+    const selected = pr(30627);
+    const workspaceRequest = vi.fn().mockImplementation(({ path }: { path: string }) => {
+      if (path.endsWith('/repository')) {
+        return Promise.resolve({
+          fullName: 'trinodb/trino', owner: 'trinodb', repo: 'trino',
+          defaultBaseBranch: 'master', local: null,
+        });
+      }
+      if (path.endsWith('/pull-requests')) return Promise.resolve([selected]);
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    const onOpenPr = vi.fn();
+    const onBackToList = vi.fn();
+    window.bridge = {
+      workspaceApi: workspaceRequest,
+      getPrForRepoPull: vi.fn().mockResolvedValue({ id: 'pr-30627' }),
+      getAgentReview: vi.fn().mockResolvedValue(null),
+      recordSurfaceVisit: vi.fn().mockResolvedValue(undefined),
+    } as unknown as typeof window.bridge;
+
+    render(
+      <WorkspacePullsScreen
+        workspaceId="ws-1"
+        initialPrNumber={30627}
+        onOpenPr={onOpenPr}
+        onBackToList={onBackToList}
+      />,
+    );
+
+    const detail = await screen.findByTestId('pull-detail');
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize pull request details' }));
+
+    expect(screen.getByRole('dialog', { name: 'Pull request details' })).toBeTruthy();
+    expect(screen.getByTestId('pull-detail')).toBe(detail);
+    expect(screen.getByText('To review · 1')).toBeTruthy();
+    expect(onOpenPr).not.toHaveBeenCalled();
+    expect(onBackToList).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close pull request details' }));
+    expect(screen.queryByRole('dialog', { name: 'Pull request details' })).toBeNull();
+    expect(screen.getByTestId('pull-detail')).toBe(detail);
   });
 
   it('changes a started full review to running and replaces column two with AgentColumn', async () => {

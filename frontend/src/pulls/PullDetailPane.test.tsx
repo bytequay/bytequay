@@ -40,15 +40,20 @@ describe('PullDetailPane', () => {
       snoozedUntil: null, snoozeWakeReason: null,
     };
 
-    const view = render(<PullDetailPane row={toRow(dto)} />);
+    const onToggleZoom = vi.fn();
+    const view = render(<PullDetailPane row={toRow(dto)} onToggleZoom={onToggleZoom} />);
 
     expect(screen.getByText('A change')).not.toBeNull();
     expect(screen.queryByRole('button', { name: 'Open pull request on GitHub' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize pull request details' }));
+    expect(onToggleZoom).toHaveBeenCalledOnce();
 
     const changes = screen.getByRole('button', { name: /Changes/ });
     expect(changes.style.fontWeight).toBe('500');
-    view.rerender(<PullDetailPane row={toRow(dto)} openChangesToken={1} />);
+    view.rerender(<PullDetailPane row={toRow(dto)} openChangesToken={1} onToggleZoom={onToggleZoom} zoomed />);
     expect(changes.style.fontWeight).toBe('600');
+    fireEvent.click(screen.getByRole('button', { name: 'Close pull request details' }));
+    expect(onToggleZoom).toHaveBeenCalledTimes(2);
   });
 
   it('keeps one counted submit action in the shared PR header across tabs', async () => {

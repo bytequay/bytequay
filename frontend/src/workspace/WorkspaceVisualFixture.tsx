@@ -18,6 +18,7 @@ import type {
 import type { BrainFeedRow, StageConversationRow, StageDto } from '../types/brainView';
 import type { LocalPRBundle } from '../types/localPr';
 import { PullDetailBody } from '../pulls/PullDetailPane';
+import { PullDetailHost } from '../pulls/PullDetailZoom';
 import { pullRowFromLocal } from '../pulls/localRow';
 import { StageDetailPage } from '../pages/StageDetailPage';
 import { TaskBrainPage } from '../pages/TaskBrainPage';
@@ -635,13 +636,22 @@ function LockedTaskSidebar({ activeDevelopment = false }: { activeDevelopment?: 
 }
 
 function LockedPrPanel() {
+  const [zoomed, setZoomed] = useState(false);
   return (
-    <PullDetailBody
-      row={lockedTaskPullRow}
-      bundle={lockedTaskPrBundle}
-      refresh={() => {}}
-      onComment={async () => {}}
-    />
+    <PullDetailHost
+      zoomed={zoomed}
+      onClose={() => setZoomed(false)}
+      normalStyle={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0 }}
+    >
+      <PullDetailBody
+        row={lockedTaskPullRow}
+        bundle={lockedTaskPrBundle}
+        refresh={() => {}}
+        onComment={async () => {}}
+        zoomed={zoomed}
+        onToggleZoom={() => setZoomed(value => !value)}
+      />
+    </PullDetailHost>
   );
 }
 

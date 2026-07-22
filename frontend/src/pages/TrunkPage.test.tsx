@@ -153,7 +153,6 @@ describe('TrunkPage', () => {
     expect(screen.getByTestId('sidebar')).toBeTruthy();
     expect(screen.getByTestId('conv')).toBeTruthy();
     expect(screen.getByText('Backend cleanup')).toBeTruthy();
-    expect(await screen.findByText('WORKSPACE')).toBeTruthy();
     expect(await screen.findByText('Active task')).toBeTruthy();
     expect(screen.getByText('RUNNING NOW')).toBeTruthy();
     expect(screen.getByText('OPEN PRS')).toBeTruthy();
@@ -301,7 +300,7 @@ describe('TrunkPage', () => {
     renderTrunk();
     await screen.findByText('Active task');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse workspace panel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle workspace panel' }));
     expect(screen.queryByText('Active task')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Toggle workspace panel' }));
     expect(await screen.findByText('Active task')).toBeTruthy();

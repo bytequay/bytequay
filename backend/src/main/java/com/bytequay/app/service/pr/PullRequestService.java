@@ -992,6 +992,19 @@ public class PullRequestService
      */
     public void setReviewThreadResolved(String repo, long prId, long rootCommentId, boolean resolved)
     {
+        setReviewThreadResolved(repo, 0, prId, rootCommentId, resolved);
+    }
+
+    /**
+     * Same as the 4-arg overload, but {@code number} lets the resolution
+     * recover the thread's GraphQL node id via a live GraphQL lookup when it
+     * isn't in the detail cache — task-owned PRs the legacy dashboard never
+     * fetched carry no cached node id, so the cache-only path 404s for them.
+     * Pass 0 for {@code number} when it isn't known (the live fallback is then
+     * skipped and the cache-only behaviour is preserved).
+     */
+    public void setReviewThreadResolved(String repo, int number, long prId, long rootCommentId, boolean resolved)
+    {
         String pat = patResolver.resolve(repo);
         // Prefer the client-supplied prId, but fall back to resolving it from
         // the thread's own root comment id. Unified-PR surfaces don't carry
@@ -1007,6 +1020,16 @@ public class PullRequestService
                 .findFirst()
                 .map(PrReviewThreadMessage::graphqlNodeId)
                 .orElse(null);
+        if (nodeId == null && number > 0) {
+            // Never cached with a node id (task-owned PRs the legacy dashboard
+            // never fetched land here): resolve the thread's node id live.
+            nodeId = gitHub.fetchReviewThreadResolution(pat, parseRef(repo, number)).stream()
+                    .filter(m -> m.rootCommentDatabaseId() == rootCommentId)
+                    .map(PullRequestRepository.ReviewThreadMeta::graphqlNodeId)
+                    .filter(id -> id != null && !id.isBlank())
+                    .findFirst()
+                    .orElse(null);
+        }
         if (nodeId == null) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(404),
@@ -1018,7 +1041,10 @@ public class PullRequestService
         else {
             gitHub.unresolveReviewThread(pat, nodeId);
         }
-        detailStore.save(detailPrId, PullRequestDetailPatcher.withReviewThreadResolved(cached, rootCommentId, resolved));
+        if (cached != null) {
+            detailStore.save(detailPrId,
+                    PullRequestDetailPatcher.withReviewThreadResolved(cached, rootCommentId, resolved));
+        }
     }
 
     /** Adds an emoji reaction to the PR description. */

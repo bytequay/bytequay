@@ -119,6 +119,24 @@ class TestReadyToMerge
     }
 
     @Test
+    void firesWhenMergeabilityIsStillUnknown()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+
+        // GitHub hasn't finished recomputing mergeability after the push, so it
+        // reports null. That is not a conflict — the gate must still fire.
+        PullRequestDetail unknownMergeable = detail(CiStatus.PASSING, 0, 0, false, "open");
+        when(unknownMergeable.mergeable()).thenReturn(null);
+
+        readyToMerge.evaluate(task, unknownMergeable);
+        assertThat(taskStore.mergeNotificationSentAt(taskId)).isPresent();
+        assertThat(readyToMergeNotifications(threadId)).isEqualTo(1);
+    }
+
+    @Test
     void parksAReviewerNudgeWhenTheUserCannotMerge()
     {
         String threadId = seedThread();

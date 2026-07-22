@@ -203,6 +203,16 @@ describe('MergeBox direct merge flow (external, remote-open)', () => {
     expect(screen.queryByRole('button', { name: 'Squash and merge' })).toBeNull();
   });
 
+  it('does not crash and hides direct merge when reviewThreads is null', () => {
+    const p = pr();
+    // The backend can serialize reviewThreads as null; the gate must fail
+    // closed (no merge) instead of throwing on .every().
+    const nullThreads = detail({ reviewThreads: null as unknown as ReviewThreadDto[] });
+    render(<MergeBox pr={p} capabilities={derivePRCapabilities(p, 'details')} localChecks={[]} remoteChecks={[]} remoteDetail={nullThreads} openComments={0} pendingStripCount={0} draftCount={0} onMerge={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'Squash and merge' })).toBeNull();
+  });
+
   it('keeps task-origin merge behind the lifecycle notification gate', () => {
     const p = taskPr();
     render(<MergeBox pr={p} capabilities={derivePRCapabilities(p, 'task')} localChecks={[]} remoteChecks={[]} remoteDetail={detail()} openComments={0} pendingStripCount={0} draftCount={0} onMerge={vi.fn()} />);

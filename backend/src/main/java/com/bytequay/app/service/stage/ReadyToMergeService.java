@@ -154,7 +154,12 @@ public class ReadyToMergeService
         return detail.ciStatus() == CiStatus.PASSING
                 && detail.changesRequestedCount() == 0
                 && detail.writeApprovalCount() >= minApprovals
-                && Boolean.TRUE.equals(detail.mergeable())
+                // Tolerate an unknown (null) mergeable: GitHub reports null
+                // transiently while it recomputes right after a push, and the
+                // cached detail served on a 304 may never refresh it. Only a
+                // definite conflict (false) blocks; the merge call itself re-
+                // checks against a live GitHub state before it goes through.
+                && !Boolean.FALSE.equals(detail.mergeable())
                 && noUnresolvedGitHubThreads(detail)
                 && (taskId == null || (noUnresolvedRemoteComments(taskId)
                         && reviewRounds.findLiveByTask(taskId).isEmpty()));

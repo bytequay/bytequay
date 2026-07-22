@@ -508,8 +508,8 @@ class TestReviewRoundService
 
         verify(pullRequests).replyToReviewThread(REPO, PR_NUMBER, 111L, "Inline reply");
         verify(pullRequests).commentOnPullRequest(REPO, PR_NUMBER, 0L, "General reply", false);
-        verify(pullRequests).setReviewThreadResolved(REPO, 0L, 111L, true);
-        verify(pullRequests, never()).setReviewThreadResolved(REPO, 0L, 222L, true);
+        verify(pullRequests).setReviewThreadResolved(REPO, PR_NUMBER, 0L, 111L, true);
+        verify(pullRequests, never()).setReviewThreadResolved(REPO, PR_NUMBER, 0L, 222L, true);
         verify(stageStore).markRemoteThreadResolutionPosted(inline.id(), NOW);
     }
 
@@ -537,7 +537,7 @@ class TestReviewRoundService
         service.approve(gated.id());
 
         verify(pullRequests, times(1)).setReviewThreadResolved(
-                REPO, 0L, fixed.remoteCommentId(), true);
+                REPO, PR_NUMBER, 0L, fixed.remoteCommentId(), true);
         verify(stageStore, times(1)).markRemoteThreadResolutionPosted(fixed.id(), NOW);
         verify(git, times(1)).push(Path.of(task().worktreePath()));
     }

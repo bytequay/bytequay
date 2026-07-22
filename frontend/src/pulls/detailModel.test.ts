@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { LocalPR, LocalPRBundle, LocalPRCheck, LocalPRComment, LocalPRTimelineEvent } from '../types/localPr';
-import { buildChecks, buildTimeline, isBotActor } from './detailModel';
+import { buildChecks, buildTimeline, isBotActor, statePill } from './detailModel';
 
 function check(overrides: Partial<LocalPRCheck>): LocalPRCheck {
   return {
@@ -54,6 +54,18 @@ function bundle(overrides: Partial<Omit<LocalPRBundle, 'pr'>> & { pr?: Partial<L
   };
   return { commits: [], timeline: [], checks: [], comments: [], ...overrides, pr };
 }
+
+describe('statePill', () => {
+  it('paints local phases blue, remote-open green, merged purple', () => {
+    expect(statePill('local-drafted')).toEqual({ label: 'Local Draft', bg: '#0969da', icon: 'open' });
+    expect(statePill('local-open')).toEqual({ label: 'Local Open', bg: '#0969da', icon: 'open' });
+    expect(statePill('remote-drafted').label).toBe('Draft');
+    expect(statePill('remote-open')).toEqual({ label: 'Open', bg: '#1f883d', icon: 'open' });
+    expect(statePill('merged').icon).toBe('merged');
+    expect(statePill('closed').label).toBe('Closed');
+    expect(statePill(null).label).toBe('Open');
+  });
+});
 
 describe('buildChecks', () => {
   it('returns null for no checks', () => {

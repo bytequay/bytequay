@@ -322,9 +322,10 @@ export function PullDetailBody({
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginTop: 12 }}>
-            {det.isMerged
-              ? <span style={{ ...statePillStyle, background: '#8250df' }}><PrMergedIcon size={13} strokeWidth={2.2} />Merged</span>
-              : <span style={{ ...statePillStyle, background: '#1f883d' }}><PrOpenIcon size={13} strokeWidth={2.2} />Open</span>}
+            <span style={{ ...statePillStyle, background: det.pill.bg }}>
+              {det.pill.icon === 'merged' ? <PrMergedIcon size={13} strokeWidth={2.2} /> : <PrOpenIcon size={13} strokeWidth={2.2} />}
+              {det.pill.label}
+            </span>
             {det.base !== null && det.branch !== null && (
               <>
                 <span style={branchChipStyle}>{det.base}</span>

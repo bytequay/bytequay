@@ -16,6 +16,7 @@ package com.bytequay.app.repository.sqlite;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 interface ReviewCommentJpaRepository
         extends JpaRepository<ReviewCommentEntity, String>
@@ -30,9 +31,11 @@ interface ReviewCommentJpaRepository
      *  per github.com discussion comment. */
     boolean existsByRemoteLink(String remoteLink);
 
+    Optional<ReviewCommentEntity> findByRemoteLink(String remoteLink);
+
     /** Remote comments not yet grouped into a round — what ReviewRoundService
      *  batches on each reconcile sweep. */
-    List<ReviewCommentEntity> findByTaskIdAndSourceAndRoundIdIsNull(String taskId, String source);
+    List<ReviewCommentEntity> findByTaskIdAndSourceAndRoundIdIsNullAndResolvedFalse(String taskId, String source);
 
     List<ReviewCommentEntity> findByRoundIdOrderByCreatedAtMsAsc(String roundId);
 }

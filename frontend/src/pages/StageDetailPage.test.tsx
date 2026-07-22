@@ -95,6 +95,14 @@ describe('StageDetailPage locked frame', () => {
     expect(screen.getByPlaceholderText('This stage is closed — ask about what happened here…')).toBeTruthy();
   });
 
+  it('forwards task-scoped Resume from a stage page', () => {
+    const onResume = vi.fn();
+    render(stage('dev', { run: { paused: true, statusLabel: 'needs attention', onResume } }));
+    fireEvent.click(screen.getByRole('button', { name: /NEEDS ATTENTION/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Resume' }));
+    expect(onResume).toHaveBeenCalledOnce();
+  });
+
   it('opens and submits the review drawer', async () => {
     const onSubmitReview = vi.fn();
     render(stage('dev', { onSubmitReview }));

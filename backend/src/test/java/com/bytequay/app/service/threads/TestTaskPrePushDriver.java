@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.threads;
 
-import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -21,12 +20,14 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.checks.ValidationPassResult;
 import com.bytequay.app.service.checks.ValidationPassService;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRSyncService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
 
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -37,23 +38,21 @@ class TestTaskPrePushDriver
     private final TaskStore taskStore = mock(TaskStore.class);
     private final ValidationPassService validation = mock(ValidationPassService.class);
     private final GitRunner git = mock(GitRunner.class);
-    private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
+    private final PRSyncService prSync = mock(PRSyncService.class);
     private final TaskPrePushDriver driver =
-            new TaskPrePushDriver(taskStore, validation, git, phaseMachine);
+            new TaskPrePushDriver(taskStore, validation, git, prSync);
 
     @Test
-    void cleanValidationWalksToAwaitingPush()
+    void cleanValidationStartsTheLocalPrBrainReviewWithoutOpeningAPushGate()
     {
         when(validation.run("t1.k1")).thenReturn(new ValidationPassResult(true, 0, List.of()));
 
         driver.runPrePush(task());
 
-        verify(phaseMachine).transition("t1.k1", TaskPhase.VALIDATING, "pre_push_checks", Actor.SCHEDULER);
         verify(validation).run("t1.k1");
-        // Validation drives VALIDATING -> INTERNAL_REVIEW via its event;
-        // the driver then advances to the push gate.
-        verify(phaseMachine).transition(
-                eq("t1.k1"), eq(TaskPhase.AWAITING_PUSH), eq("internal_review_clean"), eq(Actor.SCHEDULER));
+        // Validation drives VALIDATING -> INTERNAL_REVIEW via its event. The
+        // local PR / Brain review owns the later Local Review handoff.
+        verify(prSync).syncFromTask("t1.k1");
     }
 
     @Test
@@ -63,18 +62,47 @@ class TestTaskPrePushDriver
 
         driver.runPrePush(task());
 
-        verify(phaseMachine).transition("t1.k1", TaskPhase.VALIDATING, "pre_push_checks", Actor.SCHEDULER);
         // Validation failing parks the task at NEEDS_ATTENTION (its own
         // event); the driver must NOT push it to AWAITING_PUSH.
-        verify(phaseMachine, never()).transition(
-                eq("t1.k1"), eq(TaskPhase.AWAITING_PUSH), eq("internal_review_clean"), eq(Actor.SCHEDULER));
+        verify(prSync, never()).syncFromTask(anyString());
+    }
+
+    @Test
+    void reconcileDoesNotInferADevelopmentHandoffFromCommitsAlone()
+            throws Exception
+    {
+        when(taskStore.listByStatus(TaskStatus.IDLE, 200)).thenReturn(List.of(task(TaskPhase.IMPLEMENTING)));
+        when(git.commitCountUniqueTo(any(), anyString(), anyString())).thenReturn(1);
+
+        driver.reconcile();
+
+        verify(validation, never()).run(anyString());
+    }
+
+    @Test
+    void reconcileRunsValidationAfterTheExplicitHandoff()
+            throws Exception
+    {
+        when(taskStore.listByStatus(TaskStatus.IDLE, 200)).thenReturn(List.of(task(TaskPhase.VALIDATING)));
+        when(git.commitCountUniqueTo(any(), anyString(), anyString())).thenReturn(1);
+        when(validation.run("t1.k1")).thenReturn(new ValidationPassResult(true, 0, List.of()));
+
+        driver.reconcile();
+
+        verify(validation).run("t1.k1");
+        verify(prSync).syncFromTask("t1.k1");
     }
 
     private static Task task()
     {
+        return task(TaskPhase.VALIDATING);
+    }
+
+    private static Task task(TaskPhase phase)
+    {
         Instant now = Instant.ofEpochMilli(1_700_000_000_000L);
         return new Task("t1.k1", "t1", 1L, TaskStatus.IDLE, "dev/t1.k1", "/wt/t1.k1", "main", "/clone",
                 null, null, null, null, null, "DEVELOP", null, null, 0L, 0L, 0L, null,
-                now, null, null, null, null, null, null, TaskPhase.IMPLEMENTING, null, 0, null, null);
+                now, null, null, null, null, null, null, phase, null, 0, null, null);
     }
 }

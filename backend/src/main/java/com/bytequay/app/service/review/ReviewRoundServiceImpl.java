@@ -15,12 +15,14 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.AgentRun;
+import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
@@ -32,6 +34,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
@@ -48,12 +51,15 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
@@ -81,6 +87,7 @@ class ReviewRoundServiceImpl
     private final GitRunner git;
     private final BrainReviewService brainReview;
     private final RemoteDevelopmentStageService remoteStages;
+    private final PRService prService;
     private final Clock clock;
 
     @Autowired
@@ -96,10 +103,11 @@ class ReviewRoundServiceImpl
             PullRequestService pullRequests,
             GitRunner git,
             BrainReviewService brainReview,
-            RemoteDevelopmentStageService remoteStages)
+            RemoteDevelopmentStageService remoteStages,
+            PRService prService)
     {
         this(taskStore, stageStore, roundStore, agentRuns, threadStore, scheduler, turnStore,
-                phaseMachine, pullRequests, git, brainReview, remoteStages, Clock.systemUTC());
+                phaseMachine, pullRequests, git, brainReview, remoteStages, prService, Clock.systemUTC());
     }
 
     ReviewRoundServiceImpl(
@@ -115,6 +123,7 @@ class ReviewRoundServiceImpl
             GitRunner git,
             BrainReviewService brainReview,
             RemoteDevelopmentStageService remoteStages,
+            PRService prService,
             Clock clock)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -129,12 +138,13 @@ class ReviewRoundServiceImpl
         this.git = requireNonNull(git, "git is null");
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
         this.remoteStages = requireNonNull(remoteStages, "remoteStages is null");
+        this.prService = requireNonNull(prService, "prService is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
     @Override
     @Transactional
-    public void reconcile(Task task)
+    public synchronized void reconcile(Task task)
     {
         Optional<ReviewRound> live = roundStore.findLiveByTask(task.id());
         if (live.isPresent()) {
@@ -201,10 +211,10 @@ class ReviewRoundServiceImpl
      *  own fix turns, and {@link BrainReviewServiceImpl} owns those. */
     @EventListener
     @Transactional
-    public void onTurnFinished(TaskTurnFinishedEvent event)
+    public synchronized void onTurnFinished(TaskTurnFinishedEvent event)
     {
         ThreadTurn turn = turnStore.findTurnById(event.turnId()).orElse(null);
-        if (turn == null) {
+        if (turn == null || event.failed() || turn.status() != ThreadTurnStatus.COMPLETED) {
             return;
         }
         Optional<ReviewRound> live = roundStore.findLiveByTask(event.taskId())
@@ -215,7 +225,7 @@ class ReviewRoundServiceImpl
             return;
         }
         ReviewRound round = live.get();
-        if (!matchesRunTurn(round, turn)) {
+        if (!isRoundKickoffTurn(round, turn)) {
             return;
         }
         Task task = taskStore.findTaskById(event.taskId()).orElse(null);
@@ -223,6 +233,14 @@ class ReviewRoundServiceImpl
             return;
         }
         brainReview.reviewBeforeRoundGate(round, task);
+    }
+
+    private boolean isRoundKickoffTurn(ReviewRound round, ThreadTurn turn)
+    {
+        return turn != null
+                && turn.initiator() != null
+                && "review-round".equals(turn.initiator().source())
+                && matchesRunTurn(round, turn);
     }
 
     private boolean matchesRunTurn(ReviewRound round, ThreadTurn turn)
@@ -234,7 +252,7 @@ class ReviewRoundServiceImpl
         if (agentRunId != null && !agentRunId.isBlank()) {
             return round.runId().equals(agentRunId);
         }
-        if (!"review-round".equals(turn.initiator().source())) {
+        if (turn.initiator() == null || !"review-round".equals(turn.initiator().source())) {
             return false;
         }
         return turn.stageId() != null
@@ -253,8 +271,22 @@ class ReviewRoundServiceImpl
             return;
         }
         AgentRun run = agentRuns.findById(round.runId()).orElse(null);
-        if (run == null || hasQueuedOrRunningTurn(task.threadId(), run)) {
+        if (run == null || task.status() == TaskStatus.NEEDS_ATTENTION
+                || task.phase() == TaskPhase.NEEDS_ATTENTION) {
             return;
+        }
+        ThreadTurn kickoff = latestRoundKickoffTurn(task.threadId(), run).orElse(null);
+        if (kickoff != null) {
+            if (kickoff.status() == ThreadTurnStatus.QUEUED
+                    || kickoff.status() == ThreadTurnStatus.RUNNING) {
+                return;
+            }
+            if (kickoff.status() == ThreadTurnStatus.COMPLETED) {
+                brainReview.reviewBeforeRoundGate(round, task);
+                return;
+            }
+            // FAILED/CANCELLED fall through and retry while the task is
+            // runnable. A parked NEEDS_ATTENTION task was handled above.
         }
         enqueueRoundKickoffIfReady(task, round, run, stageStore.findCommentsByRound(UUID.fromString(round.id())));
     }
@@ -285,12 +317,12 @@ class ReviewRoundServiceImpl
         }
     }
 
-    private boolean hasQueuedOrRunningTurn(String threadId, AgentRun run)
+    private Optional<ThreadTurn> latestRoundKickoffTurn(String threadId, AgentRun run)
     {
         return turnStore.listTurnsByTaskId(threadId, 100).stream()
                 .filter(t -> matchesRunTurn(run, t))
-                .anyMatch(t -> t.status() == ThreadTurnStatus.QUEUED
-                        || t.status() == ThreadTurnStatus.RUNNING);
+                .filter(t -> t.initiator() != null && "review-round".equals(t.initiator().source()))
+                .findFirst();
     }
 
     private boolean matchesRunTurn(AgentRun run, ThreadTurn turn)
@@ -302,7 +334,8 @@ class ReviewRoundServiceImpl
         if (agentRunId != null && !agentRunId.isBlank()) {
             return run.id().equals(agentRunId);
         }
-        return "review-round".equals(turn.initiator().source())
+        return turn.initiator() != null
+                && "review-round".equals(turn.initiator().source())
                 && turn.stageId() != null
                 && turn.stageId().equals(run.stageId());
     }
@@ -316,7 +349,24 @@ class ReviewRoundServiceImpl
     @Override
     public List<ReviewRound> findByTask(String taskId)
     {
-        return roundStore.findByTask(taskId);
+        List<ReviewRound> rounds = roundStore.findByTask(taskId);
+        int openBrainFindings = prService.findByTask(taskId)
+                .map(pr -> (int) prService.comments(pr.id()).stream()
+                        .filter(comment -> PRTimelineEntry.ACTOR_BRAIN.equals(comment.author()))
+                        .filter(comment -> comment.parentCommentId() == null)
+                        .filter(comment -> comment.resolvedAt() == null && comment.dismissedAt() == null)
+                        .count())
+                .orElse(0);
+        return rounds.stream().map(round -> {
+            if (!ReviewRound.ORIGIN_BRAIN.equals(round.origin())) {
+                return round;
+            }
+            ReviewRound.ReviewRoundStats stats = round.stats() == null
+                    ? ReviewRound.ReviewRoundStats.empty()
+                    : round.stats();
+            return round.withStats(new ReviewRound.ReviewRoundStats(
+                    stats.fixed(), stats.replied(), stats.pushedBack(), openBrainFindings));
+        }).toList();
     }
 
     @Override
@@ -332,9 +382,19 @@ class ReviewRoundServiceImpl
     }
 
     @Override
-    @Transactional
     public ReviewRound approve(String roundId)
     {
+        ReviewRound identified = roundStore.findById(roundId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no round: " + roundId));
+        return TaskPhaseMachine.withTaskLock(
+                identified.taskId(), () -> approveLocked(roundId));
+    }
+
+    private ReviewRound approveLocked(String roundId)
+    {
+        // Re-read after taking the per-task lock. The unlocked lookup above
+        // exists only to identify which lock owns this round.
         ReviewRound round = roundStore.findById(roundId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no round: " + roundId));
@@ -342,40 +402,156 @@ class ReviewRoundServiceImpl
             throw new ResponseStatusException(HttpStatusCode.valueOf(422),
                     "round " + roundId + " is not awaiting its gate");
         }
-        Task task = taskStore.findTaskById(round.taskId())
+        Task task = requirePublishableTask(round, null);
+        boolean recovery = task.phase() == TaskPhase.PUSHED_AWAITING_CI;
+        PullRequestRef ref = PullRequestRef.parse(task.linkedPrRef())
                 .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "no task: " + round.taskId()));
-        Optional<PullRequestRef> ref = PullRequestRef.parse(task.linkedPrRef());
-        if (ref.isPresent()) {
-            for (ReviewComment comment : stageStore.findCommentsByRound(UUID.fromString(roundId))) {
-                if (comment.draftReplyBody() == null || comment.draftReplyBody().isBlank()
-                        || comment.remoteCommentId() == null) {
-                    continue;
-                }
-                pullRequests.replyToReviewThread(ref.get().repoRef().fullName(), ref.get().number(),
+                        HttpStatusCode.valueOf(422), "task has no valid pull request ref"));
+        if (task.worktreePath() == null || task.worktreePath().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                    "task has no worktree path");
+        }
+        Path worktree;
+        try {
+            worktree = Path.of(task.worktreePath());
+        }
+        catch (InvalidPathException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                    "task has an invalid worktree path");
+        }
+        List<ReviewComment> comments = stageStore.findCommentsByRound(UUID.fromString(roundId));
+        long openComments = comments.stream().filter(comment -> !comment.resolved()).count();
+        if (openComments > 0) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                    "round still has " + openComments + " unresolved comments");
+        }
+        for (ReviewComment comment : comments) {
+            if (!isGeneralComment(comment)
+                    && (comment.remoteCommentId() == null || comment.remoteCommentId() <= 0)) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                        "inline comment has no valid remote comment id/thread root: " + comment.id());
+            }
+            if (comment.draftReplyBody() == null) {
+                continue;
+            }
+            if (comment.draftReplyBody().isBlank()) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                        "draft reply has a blank body: " + comment.id());
+            }
+            if (comment.remoteCommentId() == null || comment.remoteCommentId() <= 0) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                        "draft reply has no valid remote comment id: " + comment.id());
+            }
+        }
+
+        // Persist the user's approval before the first network effect. If the
+        // process dies after the push/reply/resolve, the phase event is the
+        // durable authorization checkpoint that lets the same gate resume.
+        if (!recovery) {
+            phaseMachine.transition(task.id(), TaskPhase.PUSHED_AWAITING_CI,
+                    "round_approved", Actor.HUMAN);
+        }
+
+        // Re-pushing the same HEAD is harmless. Reply and resolution stamps
+        // below make the non-idempotent remote effects resumable one by one.
+        requirePublishableTask(round, null);
+        try {
+            git.push(worktree);
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                    "push interrupted for round " + roundId);
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                    "push failed for round " + roundId + ": " + e.getMessage());
+        }
+
+        // Intentionally no outer transaction: each successful reply stamp
+        // commits before the next remote call, so a retry resumes safely.
+        for (ReviewComment comment : comments) {
+            if (comment.draftReplyBody() == null || comment.draftReplyPostedAt() != null) {
+                continue;
+            }
+            requirePublishableTask(round, null);
+            if (isGeneralComment(comment)) {
+                pullRequests.commentOnPullRequest(
+                        ref.repoRef().fullName(), ref.number(), 0L,
+                        comment.draftReplyBody(), false);
+            }
+            else {
+                pullRequests.replyToReviewThread(ref.repoRef().fullName(), ref.number(),
                         comment.remoteCommentId(), comment.draftReplyBody());
             }
+            stageStore.saveReviewComment(comment.withDraftReplyPostedAt(now()));
         }
-        if (task.worktreePath() != null && !task.worktreePath().isBlank()) {
-            try {
-                git.push(Path.of(task.worktreePath()));
+
+        // A handled inline concern is not complete until its GitHub thread is
+        // resolved. Resolution has its own durable per-comment checkpoint.
+        Set<Long> resolvedRoots = new HashSet<>();
+        for (ReviewComment comment : comments) {
+            if (isGeneralComment(comment)) {
+                continue;
             }
-            catch (InterruptedException e) {
-                java.lang.Thread.currentThread().interrupt();
-                throw new ResponseStatusException(HttpStatusCode.valueOf(502),
-                        "push interrupted for round " + roundId);
+            if (stageStore.isRemoteThreadResolutionPosted(comment.id())) {
+                resolvedRoots.add(comment.remoteCommentId());
+                continue;
             }
-            catch (IOException e) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(502),
-                        "push failed for round " + roundId + ": " + e.getMessage());
+            requirePublishableTask(round, null);
+            if (resolvedRoots.add(comment.remoteCommentId())) {
+                pullRequests.setReviewThreadResolved(
+                        ref.repoRef().fullName(), 0L, comment.remoteCommentId(), true);
             }
+            stageStore.markRemoteThreadResolutionPosted(comment.id(), now());
         }
-        phaseMachine.transition(task.id(), TaskPhase.PUSHED_AWAITING_CI, "round_approved", Actor.HUMAN);
         if (round.runId() != null) {
             agentRuns.transition(round.runId(), AgentRun.STATUS_SUCCEEDED, "round_approved");
         }
         ReviewRound posted = round.withStatus(ReviewRound.STATUS_POSTED).withPostedAt(now());
         return roundStore.save(posted);
+    }
+
+    private Task requirePublishableTask(ReviewRound round, Boolean expectedRecovery)
+    {
+        Task task = taskStore.findTaskById(round.taskId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + round.taskId()));
+        boolean recovery = task.phase() == TaskPhase.PUSHED_AWAITING_CI;
+        if (expectedRecovery != null && recovery != expectedRecovery
+                || !isLiveReviewTaskStatus(task.status())
+                || (!recovery && task.phase() != TaskPhase.AWAITING_REMOTE_REVIEW)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "round gate is stale for task phase/status "
+                            + task.phase() + "/" + task.status());
+        }
+        if (recovery && !hasRoundApprovalCheckpoint(round)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task was pushed by another workflow; this round has no approval checkpoint");
+        }
+        return task;
+    }
+
+    private static boolean isGeneralComment(ReviewComment comment)
+    {
+        return comment.file() == null || comment.file().isBlank();
+    }
+
+    private boolean hasRoundApprovalCheckpoint(ReviewRound round)
+    {
+        Instant gatedAt = round.gatedAt() == null ? round.openedAt() : round.gatedAt();
+        return taskStore.listPhaseEvents(round.taskId()).stream()
+                .filter(event -> event.toPhase() == TaskPhase.PUSHED_AWAITING_CI)
+                .filter(event -> "round_approved".equals(event.reason()))
+                .filter(event -> event.actor() == Actor.HUMAN)
+                .anyMatch(event -> gatedAt == null || !event.transitionedAt().isBefore(gatedAt));
+    }
+
+    private static boolean isLiveReviewTaskStatus(TaskStatus status)
+    {
+        return status == TaskStatus.RUNNING
+                || status == TaskStatus.IDLE
+                || status == TaskStatus.IN_REVIEW;
     }
 
     @Override

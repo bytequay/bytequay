@@ -14,8 +14,10 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.domain.NotificationKind;
+import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.CiStatus;
+import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
@@ -26,6 +28,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -70,6 +73,8 @@ class TestReadyToMerge
     private TaskStore taskStore;
     @Autowired
     private StageStore stageStore;
+    @Autowired
+    private ReviewRoundStore reviewRounds;
     @Autowired
     private ThreadStore threadStore;
     @Autowired
@@ -187,6 +192,41 @@ class TestReadyToMerge
     }
 
     @Test
+    void doesNotFireWhileAReviewRoundIsLive()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+        reviewRounds.save(new ReviewRound(
+                UUID.randomUUID().toString(), taskId, 1, List.of("@octocat"),
+                ReviewRound.STATUS_ADDRESSING, ReviewRound.ReviewRoundStats.empty(),
+                null, Instant.now(), null, null, ReviewRound.ORIGIN_EXTERNAL,
+                null, 0, ReviewRound.DEFAULT_BRAIN_BUDGET));
+
+        readyToMerge.evaluate(task, readyDetail());
+
+        assertThat(taskStore.mergeNotificationSentAt(taskId)).isEmpty();
+        assertThat(readyToMergeNotifications(threadId)).isZero();
+    }
+
+    @Test
+    void doesNotFireForAnUnresolvedLiveGitHubThread()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+        PullRequestDetail detail = readyDetail();
+        PullRequestDetail.ReviewThread unresolved = mock(PullRequestDetail.ReviewThread.class);
+        when(unresolved.resolved()).thenReturn(false);
+        when(detail.reviewThreads()).thenReturn(List.of(unresolved));
+
+        readyToMerge.evaluate(task, detail);
+
+        assertThat(taskStore.mergeNotificationSentAt(taskId)).isEmpty();
+        assertThat(readyToMergeNotifications(threadId)).isZero();
+    }
+
+    @Test
     void autoResetsWhenAConditionBreaks()
     {
         String threadId = seedThread();
@@ -199,6 +239,9 @@ class TestReadyToMerge
         // CI goes red — the armed sentinel clears.
         readyToMerge.evaluate(task, detail(CiStatus.FAILING, 0, 0, false, "open"));
         assertThat(taskStore.mergeNotificationSentAt(taskId)).isEmpty();
+        assertThat(notifications.listForThread(threadId)).anyMatch(notification ->
+                notification.payloadJson().contains("\"action\":\"merge_pr\"")
+                        && notification.status() == NotificationStatus.RESOLVED);
     }
 
     @Test
@@ -278,6 +321,8 @@ class TestReadyToMerge
         lenient().when(detail.viewerCanWrite()).thenReturn(true);
         lenient().when(detail.requestedReviewers()).thenReturn(List.of());
         lenient().when(detail.approvalCount()).thenReturn(0);
+        lenient().when(detail.writeApprovalCount()).thenReturn(0);
+        lenient().when(detail.reviewThreads()).thenReturn(List.of());
         // Mergeable by default; the CI-failing paths short-circuit before the
         // mergeable check, so keep it lenient.
         lenient().when(detail.mergeable()).thenReturn(true);

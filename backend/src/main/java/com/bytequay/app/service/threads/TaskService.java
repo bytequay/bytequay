@@ -18,12 +18,14 @@ import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
@@ -37,7 +39,9 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PrPushedEvent;
+import com.bytequay.app.service.pr.PullRequestClosedEvent;
 import com.bytequay.app.service.pr.PullRequestMergedEvent;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.service.workspaces.WorkspaceShipEvent;
@@ -101,6 +105,7 @@ public class TaskService
     private final ApplicationEventPublisher eventPublisher;
     private final TaskPhaseMachine taskPhaseMachine;
     private final TaskTerminalSealer sealer;
+    private final PRService prService;
 
     public TaskService(
             ThreadStore threadStore,
@@ -117,7 +122,8 @@ public class TaskService
             ObjectMapper mapper,
             ApplicationEventPublisher eventPublisher,
             TaskPhaseMachine taskPhaseMachine,
-            TaskTerminalSealer sealer)
+            TaskTerminalSealer sealer,
+            PRService prService)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -134,6 +140,7 @@ public class TaskService
         this.eventPublisher = requireNonNull(eventPublisher, "eventPublisher is null");
         this.taskPhaseMachine = requireNonNull(taskPhaseMachine, "taskPhaseMachine is null");
         this.sealer = requireNonNull(sealer, "sealer is null");
+        this.prService = requireNonNull(prService, "prService is null");
     }
 
     /** All tasks for a thread, ordered by seq ascending. 404 if the
@@ -354,10 +361,24 @@ public class TaskService
     private Task shipOrParkAndStartNext(
             String threadId, String taskId, ShipRequest request, ParkMode mode, boolean approvedParked)
     {
+        return TaskPhaseMachine.withTaskLock(taskId, () ->
+                shipOrParkAndStartNextLocked(threadId, taskId, request, mode, approvedParked));
+    }
+
+    private Task shipOrParkAndStartNextLocked(
+            String threadId, String taskId, ShipRequest request, ParkMode mode, boolean approvedParked)
+    {
         requireNonNull(request, "request is null");
         requireNonNull(mode, "mode is null");
         Thread thread = requireThread(threadId);
         Task current = requireTask(threadId, taskId);
+        prService.findByTask(current.id())
+                .filter(pr -> PR.ORIGIN_TASK.equals(pr.origin()))
+                .ifPresent(pr -> {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                            "task " + taskId + " is managed by the Local Review lifecycle (PR status="
+                                    + pr.status() + "); use its Approve & ship gate");
+                });
         if (approvedParked) {
             if (current.status() != TaskStatus.AWAITING_REVIEW) {
                 throw new ResponseStatusException(HttpStatusCode.valueOf(409),
@@ -648,6 +669,12 @@ public class TaskService
         completeTasksForMergedPr(event.repoFullName(), event.prNumber());
     }
 
+    @EventListener
+    public void onPullRequestClosed(PullRequestClosedEvent event)
+    {
+        closeTasksForRemotePr(event.repoFullName(), event.prNumber());
+    }
+
     /**
      * Advance any shipped task that owns {@code prNumber} in {@code
      * repoFullName} from IN_REVIEW to COMPLETED. Called by the dashboard
@@ -658,40 +685,59 @@ public class TaskService
      */
     public void completeTasksForMergedPr(String repoFullName, int prNumber)
     {
+        finishTasksForRemotePr(repoFullName, prNumber, true);
+    }
+
+    /** Immediately seal a task whose PR the user closed without merging. */
+    public void closeTasksForRemotePr(String repoFullName, int prNumber)
+    {
+        finishTasksForRemotePr(repoFullName, prNumber, false);
+    }
+
+    private void finishTasksForRemotePr(String repoFullName, int prNumber, boolean merged)
+    {
         try {
-            for (Task task : taskStore.findByLinkedPrNumber(prNumber)) {
-                if (task.status() != TaskStatus.IN_REVIEW) {
-                    continue;
-                }
-                if (!repoMatches(task, repoFullName)) {
-                    continue;
-                }
-                taskStore.completeTask(task.id(), Instant.now());
-                // Record the merged PR state so the task/stage surfaces show
-                // the PR as merged, not open, after it lands.
-                taskStore.linkPullRequest(task.id(), prNumber, "merged");
-                // Drive the dev-lifecycle phase to its terminal COMPLETED
-                // through the machine (not just the runtime status) so the
-                // phase audit + transition event fire.
-                if (task.phase() != TaskPhase.COMPLETED) {
-                    try {
-                        taskPhaseMachine.transition(
-                                task.id(), TaskPhase.COMPLETED, "pr_merged", Actor.WEBHOOK);
+            for (Task candidate : taskStore.findByLinkedPrNumber(prNumber)) {
+                TaskPhaseMachine.withTaskLock(candidate.id(), () -> {
+                    // Re-read only after acquiring the same lock used by every
+                    // task-owned push. A merge can therefore seal/reap only
+                    // after an in-flight push has left its critical section.
+                    Task task = taskStore.findTaskById(candidate.id()).orElse(candidate);
+                    if (task.status() != TaskStatus.IN_REVIEW
+                            || !repoMatches(task, repoFullName)) {
+                        return null;
                     }
-                    catch (RuntimeException e) {
-                        log.warn("phase -> COMPLETED for task {} failed: {}",
-                                task.id(), e.getMessage());
+                    if (merged) {
+                        taskStore.completeTask(task.id(), Instant.now());
                     }
-                }
-                sealer.seal(task.id(), "pr_merged");
-                // The PR landed, so the local worktree + branch are dead
-                // weight — reap them. Best-effort; a task already shipped
-                // (worktree nulled) is skipped.
-                notificationService.dismissOpenForTask(task.threadId(), task.id());
-                worktreeService.reap(task);
-                // The PR merged, so its head branch is dead — delete the remote
-                // copy too (what GitHub's auto-delete-head-branch setting does).
-                worktreeService.deleteRemoteBranch(task);
+                    else {
+                        taskStore.remoteCloseTask(task.id(), Instant.now());
+                    }
+                    taskStore.linkPullRequest(task.id(), prNumber, merged ? "merged" : "closed");
+                    if (task.phase() != TaskPhase.COMPLETED) {
+                        try {
+                            if (merged) {
+                                taskPhaseMachine.transition(
+                                        task.id(), TaskPhase.COMPLETED, "pr_merged", Actor.WEBHOOK);
+                            }
+                            else {
+                                taskPhaseMachine.observe(
+                                        task.id(), TaskPhase.COMPLETED, "pr_closed");
+                            }
+                        }
+                        catch (RuntimeException e) {
+                            log.warn("phase -> COMPLETED for task {} failed: {}",
+                                    task.id(), e.getMessage());
+                        }
+                    }
+                    // Seal before reaping so queued/running lifecycle work sees
+                    // the terminal task while its worktree still exists.
+                    sealer.seal(task.id(), merged ? "pr_merged" : "pr_closed");
+                    notificationService.dismissOpenForTask(task.threadId(), task.id());
+                    worktreeService.reap(task);
+                    worktreeService.deleteRemoteBranch(task);
+                    return null;
+                });
             }
         }
         catch (RuntimeException e) {
@@ -853,6 +899,11 @@ public class TaskService
     @Transactional
     public Task resumeTask(String taskId)
     {
+        return TaskPhaseMachine.withTaskLock(taskId, () -> resumeTaskLocked(taskId));
+    }
+
+    private Task resumeTaskLocked(String taskId)
+    {
         Task task = taskStore.findTaskById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
@@ -860,24 +911,111 @@ public class TaskService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "task " + taskId + " cannot be resumed");
         }
+        boolean recovering = task.status() == TaskStatus.NEEDS_ATTENTION
+                || task.phase() == TaskPhase.NEEDS_ATTENTION;
+        TaskPhase resumedPhase = task.phase();
+        if (recovering) {
+            resumedPhase = recoveryPhase(task);
+            taskPhaseMachine.recover(taskId, resumedPhase, "user_resumed_task");
+        }
         Thread thread = threadStore.findThreadById(task.threadId())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no thread: " + task.threadId()));
-        Task resumed = revivedTask(task);
+        Task resumed = revivedTask(task, resumedPhase);
         taskStore.saveTask(resumed);
         Thread resumedThread = revivedThread(thread);
         if (resumedThread != thread) {
             threadStore.saveThread(resumedThread);
         }
         Optional<StageInstance> activeStage = stageStore.findActiveStage(taskId);
-        resumeRuntime(resumedThread, resumed, activeStage);
+        if (!recovering || shouldResumeRuntime(resumedPhase, activeStage)) {
+            resumeRuntime(resumedThread, resumed, activeStage);
+        }
+        if (recovering) {
+            clearNeedsAttentionNotifications(task);
+        }
         return resumed;
+    }
+
+    private TaskPhase recoveryPhase(Task task)
+    {
+        Optional<PR> pr = prService.findByTask(task.id());
+        if (pr.isPresent()) {
+            String status = pr.get().status();
+            if (PR.STATUS_MERGED.equals(status) || PR.STATUS_CLOSED.equals(status)) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + task.id() + " has a terminal pull request");
+            }
+        }
+
+        TaskPhase blockedFrom = task.phase();
+        if (blockedFrom == TaskPhase.NEEDS_ATTENTION) {
+            List<TaskPhaseEvent> phaseEvents = taskStore.listPhaseEvents(task.id());
+            for (int i = phaseEvents.size() - 1; i >= 0; i--) {
+                if (phaseEvents.get(i).toPhase() == TaskPhase.NEEDS_ATTENTION) {
+                    blockedFrom = phaseEvents.get(i).fromPhase();
+                    break;
+                }
+            }
+        }
+        if (blockedFrom != null && blockedFrom != TaskPhase.NEEDS_ATTENTION) {
+            return switch (blockedFrom) {
+                case PLANNING, QUEUED -> blockedFrom;
+                case AWAITING_PUSH -> TaskPhase.AWAITING_PUSH;
+                case PUSHED_AWAITING_CI, AWAITING_READY -> TaskPhase.PUSHED_AWAITING_CI;
+                case AWAITING_REMOTE_REVIEW -> TaskPhase.AWAITING_REMOTE_REVIEW;
+                case IMPLEMENTING, VALIDATING, INTERNAL_REVIEW,
+                        ADDRESSING_LOCAL_COMMENTS, NEEDS_ATTENTION -> TaskPhase.IMPLEMENTING;
+                case COMPLETED -> throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + task.id() + " is complete");
+            };
+        }
+        if (pr.isPresent()) {
+            return switch (pr.get().status()) {
+                case PR.STATUS_REMOTE_DRAFTED -> TaskPhase.PUSHED_AWAITING_CI;
+                case PR.STATUS_REMOTE_OPEN -> TaskPhase.AWAITING_REMOTE_REVIEW;
+                case PR.STATUS_LOCAL_OPEN -> TaskPhase.AWAITING_PUSH;
+                default -> TaskPhase.IMPLEMENTING;
+            };
+        }
+        return TaskPhase.IMPLEMENTING;
+    }
+
+    private static boolean shouldResumeRuntime(
+            TaskPhase phase, Optional<StageInstance> activeStage)
+    {
+        if (activeStage.isPresent()) {
+            return true;
+        }
+        return switch (phase) {
+            case IMPLEMENTING, VALIDATING, INTERNAL_REVIEW, ADDRESSING_LOCAL_COMMENTS -> true;
+            default -> false;
+        };
+    }
+
+    private void clearNeedsAttentionNotifications(Task task)
+    {
+        try {
+            notificationService.listForThread(task.threadId()).stream()
+                    .filter(n -> task.id().equals(n.taskId())
+                            && n.kind() == NotificationKind.NEEDS_ATTENTION
+                            && n.status() == NotificationStatus.UNREAD)
+                    .forEach(n -> notificationService.markRead(n.id()));
+        }
+        catch (RuntimeException e) {
+            log.warn("clearing needs-attention notifications on recovery of {} threw: {}",
+                    task.id(), e.getMessage());
+        }
     }
 
     private static boolean isResumable(Task task)
     {
         if (task.phase() == TaskPhase.COMPLETED) {
             return false;
+        }
+        if (task.phase() == TaskPhase.NEEDS_ATTENTION
+                || task.status() == TaskStatus.NEEDS_ATTENTION) {
+            return true;
         }
         return switch (task.status()) {
             case IDLE, AWAITING, PAUSED, ERRORED, ARCHIVED -> true;
@@ -886,6 +1024,11 @@ public class TaskService
     }
 
     private static Task revivedTask(Task task)
+    {
+        return revivedTask(task, task.phase());
+    }
+
+    private static Task revivedTask(Task task, TaskPhase phase)
     {
         return new Task(
                 task.id(), task.threadId(), task.seq(), TaskStatus.IDLE,
@@ -897,7 +1040,7 @@ public class TaskService
                 task.agentSessionId(), task.createdAt(),
                 /* endedAt */ null, /* errorMessage */ null,
                 task.name(), task.roleSkill(), task.workModel(),
-                task.pushedAt(), task.phase(), task.agendaJson(),
+                task.pushedAt(), phase, task.agendaJson(),
                 task.consecutiveAutoPushes(), task.linkedPrRef(), task.openingPrompt(),
                 task.origin());
     }

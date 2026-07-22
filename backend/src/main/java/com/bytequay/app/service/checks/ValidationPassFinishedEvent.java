@@ -17,8 +17,8 @@ import java.util.List;
 
 /**
  * Fired when a ValidationPass finishes. The {@code TaskPhaseMachine}
- * listens: {@code passed} drives VALIDATING ▶ INTERNAL_REVIEW; a cap-hit
- * failure drives VALIDATING ▶ NEEDS_ATTENTION with the failures attached.
+ * listens: {@code passed} drives VALIDATING ▶ INTERNAL_REVIEW; a failed
+ * check drives VALIDATING ▶ NEEDS_ATTENTION with the failures attached.
  */
 public record ValidationPassFinishedEvent(
         String taskId,

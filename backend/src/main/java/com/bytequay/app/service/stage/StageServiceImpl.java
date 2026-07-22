@@ -216,7 +216,12 @@ public class StageServiceImpl
             return new TaskBrainViewData.DevPhase(
                     "brainReview", "running", "iter " + brainRound.iteration(), brainRound.runId());
         }
-        return new TaskBrainViewData.DevPhase("brainReview", "done", null, null);
+        if (ReviewRound.VERDICT_APPROVED.equals(brainRound.brainVerdict())) {
+            return new TaskBrainViewData.DevPhase("brainReview", "done", "brain approved", null);
+        }
+        int open = brainRound.stats() == null ? 0 : brainRound.stats().open();
+        return new TaskBrainViewData.DevPhase(
+                "brainReview", "done", open > 0 ? "brain unresolved · " + open : "brain unresolved", null);
     }
 
     /** Phases reached only once Validation has finished. */
@@ -295,7 +300,9 @@ public class StageServiceImpl
                 statusLabel(task),
                 "CLI",
                 "",
-                task.status() == TaskStatus.PAUSED,
+                task.status() == TaskStatus.PAUSED
+                        || task.status() == TaskStatus.NEEDS_ATTENTION
+                        || task.phase() == TaskPhase.NEEDS_ATTENTION,
                 isTerminal(task.status()));
     }
 
@@ -959,8 +966,10 @@ public class StageServiceImpl
         // lands. Gate "awaiting" on actual structural completeness too, not
         // status alone, so an in-between stake reads as still drafting.
         boolean structurallyComplete = !goal.isBlank() && !steps.isEmpty();
+        boolean selfReviewed = latestPlanWasSelfReviewed(events);
         String state = plan.state() == StageState.CLOSED ? "locked"
-                : "finalized".equals(status) && structurallyComplete ? "awaiting" : "draft";
+                : "finalized".equals(status) && structurallyComplete && selfReviewed
+                        ? "awaiting" : "draft";
         return new TaskBrainViewData.PlanCard(
                 plan.id().toString(),
                 state,
@@ -977,6 +986,20 @@ public class StageServiceImpl
                 followups,
                 textList(latest.path("outOfScope")),
                 error);
+    }
+
+    private static boolean latestPlanWasSelfReviewed(List<StageEvent> events)
+    {
+        boolean reviewed = false;
+        for (StageEvent event : events) {
+            if (event.eventType() == StageEventType.PLAN_RECORDED) {
+                reviewed = false;
+            }
+            else if (event.eventType() == StageEventType.PLAN_SELF_REVIEWED) {
+                reviewed = true;
+            }
+        }
+        return reviewed;
     }
 
     /** A JSON array node read as a list of non-blank strings; empty otherwise. */

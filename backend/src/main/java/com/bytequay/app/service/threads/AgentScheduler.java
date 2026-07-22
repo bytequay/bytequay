@@ -753,7 +753,10 @@ public class AgentScheduler
             appendEvent(finished, CODEGRAPH_POLICY, codeGraphMetrics.toJson());
         }
         boolean budgetPaused = accountRun(finished, session);
-        if (failed || !budgetPaused) {
+        // Some turns are one step inside a coordinator-owned, multi-turn run.
+        // Their coordinator alone decides when live CI is green, review drafts
+        // need a gate, or the whole review episode has concluded.
+        if ((failed || !budgetPaused) && !coordinatorOwnsRunCompletion(finished)) {
             transitionRun(
                     finished.agentRunId(),
                     failed ? AgentRun.STATUS_FAILED : AgentRun.STATUS_SUCCEEDED,
@@ -836,6 +839,22 @@ public class AgentScheduler
             // A session projection must never strand or fail the scheduler's
             // authoritative turn state.
         }
+    }
+
+    private static boolean coordinatorOwnsRunCompletion(ThreadTurn turn)
+    {
+        if (turn.agentRunId() == null || turn.initiator() == null) {
+            return false;
+        }
+        String source = turn.initiator().source();
+        if (source == null) {
+            return false;
+        }
+        return switch (source) {
+            case "ci-fix-shipped", "review-round", "brain-review", "brain-review-fix",
+                    "branch-guard-fix" -> true;
+            default -> false;
+        };
     }
 
     private boolean accountRun(ThreadTurn turn, ThreadAgent session)

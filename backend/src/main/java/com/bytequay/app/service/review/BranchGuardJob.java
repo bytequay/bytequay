@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.BranchGuard;
 import com.bytequay.app.domain.BranchGuard.Health;
@@ -20,6 +21,7 @@ import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
@@ -39,6 +41,7 @@ import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.threads.AutomationCoordinator;
 import com.bytequay.app.service.threads.NotificationService;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -49,6 +52,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -79,6 +83,7 @@ public class BranchGuardJob
     private final ObjectMapper mapper;
     private final RemoteDevelopmentStageService remoteStages;
     private final CodeGraphUpdateCoordinator codeGraph;
+    private final TaskPhaseMachine phaseMachine;
 
     @Autowired
     public BranchGuardJob(
@@ -94,7 +99,8 @@ public class BranchGuardJob
             PullRequestService pullRequests,
             ObjectMapper mapper,
             RemoteDevelopmentStageService remoteStages,
-            CodeGraphUpdateCoordinator codeGraph)
+            CodeGraphUpdateCoordinator codeGraph,
+            TaskPhaseMachine phaseMachine)
     {
         this.guards = requireNonNull(guards, "guards is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -109,6 +115,7 @@ public class BranchGuardJob
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.remoteStages = requireNonNull(remoteStages, "remoteStages is null");
         this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
+        this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
     }
 
     public BranchGuardJob(
@@ -123,11 +130,12 @@ public class BranchGuardJob
             NotificationService notifications,
             PullRequestService pullRequests,
             ObjectMapper mapper,
-            RemoteDevelopmentStageService remoteStages)
+            RemoteDevelopmentStageService remoteStages,
+            TaskPhaseMachine phaseMachine)
     {
         this(guards, taskStore, threadStore, scheduler, turnStore, git, checks,
                 agentRuns, notifications, pullRequests, mapper, remoteStages,
-                CodeGraphUpdateCoordinator.disabled());
+                CodeGraphUpdateCoordinator.disabled(), phaseMachine);
     }
 
     @Scheduled(fixedDelay = NIGHTLY_MS, initialDelay = NIGHTLY_MS)
@@ -144,10 +152,18 @@ public class BranchGuardJob
     }
 
     /** Visible for tests: run one guard's check. Skips busy threads. */
-    void checkOne(BranchGuard guard)
+    void checkOne(BranchGuard snapshot)
+    {
+        TaskPhaseMachine.withTaskLock(snapshot.taskId(), () -> {
+            guards.findByTask(snapshot.taskId()).ifPresent(this::checkOneLocked);
+            return null;
+        });
+    }
+
+    private void checkOneLocked(BranchGuard guard)
     {
         Task task = taskStore.findTaskById(guard.taskId()).orElse(null);
-        if (task == null || isTerminal(task.status())
+        if (isStopped(guard, task)
                 || task.worktreePath() == null || task.worktreePath().isBlank()
                 || task.baseBranch() == null) {
             return;
@@ -246,12 +262,34 @@ public class BranchGuardJob
             parkNeedsAttention(task, guard, run.id(), "local checks failed after rebasing onto " + baseRef);
             return;
         }
-        // A rebase rewrites commit SHAs, so the push must be force-with-lease
-        // even though this is a plain drift-catchup, not a rewritten fix.
-        git.pushForceWithLease(worktree);
-        agentRuns.transition(run.id(), AgentRun.STATUS_SUCCEEDED, "rebased_and_pushed");
-        guards.save(guard.withState(BranchGuard.STATE_HEALTHY).withLastRun(run.id(), Instant.now()));
-        log.info("branch guard rebased + pushed task {} onto {}", task.id(), baseRef);
+        boolean pushed = TaskPhaseMachine.withTaskLock(task.id(), () -> {
+            BranchGuard currentGuard = guards.findByTask(task.id()).orElse(null);
+            Task currentTask = taskStore.findTaskById(task.id()).orElse(null);
+            if (isStopped(currentGuard, currentTask)) {
+                agentRuns.transition(run.id(), AgentRun.STATUS_FAILED, "guard_stopped_before_push");
+                return false;
+            }
+            try {
+                // A rebase rewrites commit SHAs, so the push must be force-with-lease
+                // even though this is a plain drift-catchup, not a rewritten fix.
+                git.pushForceWithLease(worktree);
+            }
+            catch (InterruptedException e) {
+                java.lang.Thread.currentThread().interrupt();
+                throw new IllegalStateException("branch guard push interrupted", e);
+            }
+            catch (IOException e) {
+                throw new IllegalStateException("branch guard push failed", e);
+            }
+            agentRuns.transition(run.id(), AgentRun.STATUS_SUCCEEDED, "rebased_and_pushed");
+            guards.save(currentGuard.withHealth(guard.health())
+                    .withState(BranchGuard.STATE_HEALTHY)
+                    .withLastRun(run.id(), Instant.now()));
+            return true;
+        });
+        if (pushed) {
+            log.info("branch guard rebased + pushed task {} onto {}", task.id(), baseRef);
+        }
     }
 
     /** Starts one bounded agent turn when the mechanical rebase cannot finish. */
@@ -286,6 +324,14 @@ public class BranchGuardJob
     @EventListener
     public void onFixTurnFinished(TaskTurnFinishedEvent event)
     {
+        TaskPhaseMachine.withTaskLock(event.taskId(), () -> {
+            onFixTurnFinishedLocked(event);
+            return null;
+        });
+    }
+
+    private void onFixTurnFinishedLocked(TaskTurnFinishedEvent event)
+    {
         BranchGuard guard = guards.findByTask(event.taskId()).orElse(null);
         if (guard == null || !BranchGuard.STATE_FIXING.equals(guard.state()) || guard.lastRunId() == null) {
             return;
@@ -295,7 +341,7 @@ public class BranchGuardJob
             return;
         }
         Task task = taskStore.findTaskById(event.taskId()).orElse(null);
-        if (task == null || isTerminal(task.status())
+        if (isStopped(guard, task)
                 || task.worktreePath() == null || task.baseBranch() == null) {
             return;
         }
@@ -343,7 +389,27 @@ public class BranchGuardJob
 
     private void parkNeedsAttention(Task task, BranchGuard guard, String runId, String reason)
     {
-        guards.save(guard.withState(BranchGuard.STATE_NEEDS_ATTENTION).withLastRun(runId, Instant.now()));
+        TaskPhaseMachine.withTaskLock(task.id(), () -> {
+            Task currentTask = taskStore.findTaskById(task.id()).orElse(null);
+            if (currentTask == null || currentTask.phase() == TaskPhase.COMPLETED
+                    || isTerminal(currentTask.status())) {
+                return null;
+            }
+            if (currentTask.phase() == TaskPhase.NEEDS_ATTENTION) {
+                // Repair a legacy/partial row whose phase was parked without
+                // the matching runtime status.
+                phaseMachine.observe(
+                        task.id(), TaskPhase.NEEDS_ATTENTION, "branch_guard_needs_attention");
+            }
+            else {
+                phaseMachine.transition(
+                        task.id(), TaskPhase.NEEDS_ATTENTION,
+                        "branch_guard_needs_attention", Actor.AGENT);
+            }
+            BranchGuard current = guards.findByTask(task.id()).orElse(guard);
+            guards.save(current.withState(BranchGuard.STATE_NEEDS_ATTENTION).withLastRun(runId, Instant.now()));
+            return null;
+        });
         try {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("reason", "branch_guard_needs_attention");
@@ -359,6 +425,22 @@ public class BranchGuardJob
     {
         return switch (status) {
             case COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED, ARCHIVED -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean isStopped(BranchGuard guard, Task task)
+    {
+        if (guard == null || !guard.enabled()
+                || BranchGuard.STATE_NEEDS_ATTENTION.equals(guard.state())
+                || task == null
+                || task.phase() == TaskPhase.NEEDS_ATTENTION
+                || task.phase() == TaskPhase.COMPLETED
+                || isTerminal(task.status())) {
+            return true;
+        }
+        return switch (task.status()) {
+            case AWAITING, AWAITING_REVIEW, NEEDS_ATTENTION, PAUSED -> true;
             default -> false;
         };
     }

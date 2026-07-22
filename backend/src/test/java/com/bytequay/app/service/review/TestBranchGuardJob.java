@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.BranchGuard;
 import com.bytequay.app.domain.PullRequestDetail;
@@ -43,6 +44,7 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.threads.NotificationService;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -53,6 +55,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -60,6 +63,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -80,12 +84,14 @@ class TestBranchGuardJob
     private final NotificationService notifications = mock(NotificationService.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final RemoteDevelopmentStageService remoteStages = mock(RemoteDevelopmentStageService.class);
+    private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
 
     @Test
     void skipsEntirelyWhenTheThreadIsNotIdle()
             throws Exception
     {
         BranchGuardJob job = job(List.of());
+        when(guards.findByTask(TASK_ID)).thenReturn(Optional.of(guard(BranchGuard.STATE_HEALTHY)));
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread(ThreadStatus.RUNNING)));
 
@@ -100,6 +106,7 @@ class TestBranchGuardJob
             throws Exception
     {
         BranchGuardJob job = job(List.of());
+        when(guards.findByTask(TASK_ID)).thenReturn(Optional.of(guard(BranchGuard.STATE_HEALTHY)));
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(TaskStatus.COMPLETED)));
 
         job.checkOne(guard(BranchGuard.STATE_HEALTHY));
@@ -215,6 +222,39 @@ class TestBranchGuardJob
         verify(git, never()).pushForceWithLease(any());
         verify(agentRuns).transition(run.id(), AgentRun.STATUS_FAILED, "checks_failed_after_rebase");
         verify(guards).save(argThatState(BranchGuard.STATE_NEEDS_ATTENTION));
+        verify(phaseMachine).transition(
+                TASK_ID, TaskPhase.NEEDS_ATTENTION, "branch_guard_needs_attention", Actor.AGENT);
+    }
+
+    @Test
+    void aSecondTickCannotReviveAGuardParkedByTheFirstTick()
+            throws Exception
+    {
+        ValidationCheck failingCheck = mock(ValidationCheck.class);
+        when(failingCheck.run(eq(TASK_ID), eq(WORKTREE)))
+                .thenReturn(List.of(new ValidationFailure("test", "it broke")));
+        BranchGuardJob job = job(List.of(failingCheck));
+        wireIdleTask();
+        AtomicReference<BranchGuard> stored = new AtomicReference<>(guard(BranchGuard.STATE_HEALTHY));
+        when(guards.findByTask(TASK_ID)).thenAnswer(ignored -> Optional.of(stored.get()));
+        when(guards.save(any())).thenAnswer(invocation -> {
+            BranchGuard saved = invocation.getArgument(0);
+            stored.set(saved);
+            return saved;
+        });
+        when(git.resolveCommitSha(WORKTREE, "origin/main")).thenReturn(Optional.of("sha-main-new"));
+        when(git.mergeBase(WORKTREE, "HEAD", "origin/main")).thenReturn(Optional.of("sha-main-old"));
+        when(git.rebasePreview(WORKTREE, "HEAD", "origin/main")).thenReturn(RebaseOutcome.CLEAN);
+        when(agentRuns.openInStage(any(), any(), any(), any(), any()))
+                .thenReturn(run(AgentRun.STATUS_RUNNING));
+
+        job.checkOne(stored.get());
+        job.checkOne(stored.get());
+
+        verify(git, times(1)).fetch(WORKTREE);
+        verify(git, times(1)).rebase(WORKTREE, "origin/main");
+        verify(git, never()).pushForceWithLease(any());
+        verify(guards, never()).save(argThatState(BranchGuard.STATE_HEALTHY));
     }
 
     @Test
@@ -240,6 +280,34 @@ class TestBranchGuardJob
     }
 
     @Test
+    void taskParkedWhileAFixTurnIsBeingVerifiedNeverPushes()
+            throws Exception
+    {
+        AtomicReference<Task> storedTask = new AtomicReference<>(task());
+        ValidationCheck check = mock(ValidationCheck.class);
+        when(check.run(eq(TASK_ID), eq(WORKTREE))).thenAnswer(ignored -> {
+            storedTask.set(task(TaskStatus.NEEDS_ATTENTION, TaskPhase.NEEDS_ATTENTION));
+            return List.of();
+        });
+        BranchGuardJob job = job(List.of(check));
+        when(taskStore.findTaskById(TASK_ID)).thenAnswer(ignored -> Optional.of(storedTask.get()));
+        BranchGuard fixing = guard(BranchGuard.STATE_FIXING).withLastRun("run1", Instant.now());
+        when(guards.findByTask(TASK_ID)).thenReturn(Optional.of(fixing));
+        AgentRun run = run(AgentRun.STATUS_RUNNING);
+        when(agentRuns.findById("run1")).thenReturn(Optional.of(run));
+        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(turn(REMOTE_STAGE_ID.toString(), "run1")));
+        when(git.hasUncommittedChanges(WORKTREE)).thenReturn(false);
+        when(git.resolveCommitSha(WORKTREE, "origin/main")).thenReturn(Optional.of("sha-main-new"));
+        when(git.mergeBase(WORKTREE, "HEAD", "origin/main")).thenReturn(Optional.of("sha-main-new"));
+
+        job.onFixTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
+
+        verify(git, never()).pushForceWithLease(any());
+        verify(agentRuns).transition("run1", AgentRun.STATUS_FAILED, "guard_stopped_before_push");
+        verify(guards, never()).save(argThatState(BranchGuard.STATE_HEALTHY));
+    }
+
+    @Test
     void fixTurnFinishingStillUnresolvedParksNeedsAttentionWithoutTouchingTheWorktree()
             throws Exception
     {
@@ -257,6 +325,8 @@ class TestBranchGuardJob
         verify(git, never()).pushForceWithLease(any());
         verify(guards).save(argThatState(BranchGuard.STATE_NEEDS_ATTENTION));
         verify(notifications).notifyNeedsAttention(eq("t1"), eq(TASK_ID), anyString());
+        verify(phaseMachine).transition(
+                TASK_ID, TaskPhase.NEEDS_ATTENTION, "branch_guard_needs_attention", Actor.AGENT);
     }
 
     @Test
@@ -280,12 +350,13 @@ class TestBranchGuardJob
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread(ThreadStatus.IDLE)));
         when(remoteStages.ensureOpen(TASK_ID)).thenReturn(remoteStage());
+        when(guards.findByTask(TASK_ID)).thenReturn(Optional.of(guard(BranchGuard.STATE_HEALTHY)));
     }
 
     private BranchGuardJob job(List<ValidationCheck> checks)
     {
         return new BranchGuardJob(guards, taskStore, threadStore, scheduler, turnStore, git, checks,
-                agentRuns, notifications, pullRequests, new ObjectMapper(), remoteStages);
+                agentRuns, notifications, pullRequests, new ObjectMapper(), remoteStages, phaseMachine);
     }
 
     private static BranchGuard argThatState(String state)
@@ -366,11 +437,18 @@ class TestBranchGuardJob
 
     private static Task task(TaskStatus status)
     {
+        return task(status, status == TaskStatus.COMPLETED
+                ? TaskPhase.COMPLETED
+                : TaskPhase.AWAITING_REMOTE_REVIEW);
+    }
+
+    private static Task task(TaskStatus status, TaskPhase phase)
+    {
         return new Task(
                 TASK_ID, "t1", 1L, status, "dev/x", WORKTREE.toString(), "main", "/tmp/clone",
                 null, null, null, null, null, "DEVELOP", 42, null,
                 0L, 0L, 0L, null, Instant.now(), null, null, null, null, null,
-                null, status == TaskStatus.COMPLETED ? TaskPhase.COMPLETED : TaskPhase.AWAITING_REMOTE_REVIEW,
+                null, phase,
                 null, 0, "acme/widgets#42");
     }
 }

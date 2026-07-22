@@ -20,9 +20,7 @@ import { PushDialog } from '../pr/localpr/PushDialog';
 import type { DiffFileDto } from '../types';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { useMessageQueue } from '../threads/useMessageQueue';
-import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
-import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
-import { MarkReadyPanel, markReadyPrRef } from '../threads/MarkReadyPanel';
+import { ShipReviewPrompt, StaleMarkReadyGatePrompt, StaleShipGatePrompt } from '../threads/ShipReviewPrompt';
 import type { TaskPhase } from '../types/brainView';
 import { Conv, DecisionNode, EventTimestamp, NodeCard, QueuedMessages, Working } from '../ui/conv';
 import { SparkIcon } from '../ui/TaskBrainDesignIcons';
@@ -33,7 +31,7 @@ import { buildLivePlan } from '../ui/shell/livePlanModel';
 import { TaskBrainPage } from './TaskBrainPage';
 import { WorkModelPill } from '../workspace/WorkModelPill';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
-import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
+import { diffInlineCommentFromLocalPr, isPublishableReviewDraft } from '../diff/DiffInlineComments';
 import { PlanOverlay } from './PlanOverlay';
 import { ConvIndex } from '../threads/ConvIndex';
 import { AgentReviewHeaderAction } from '../review/AgentReviewHeaderAction';
@@ -48,6 +46,8 @@ import type { AgentReviewNavTarget } from '../pr/localpr/PrDetailsView';
 import { formatCost, formatDuration } from '../threads/brain/format';
 import { TaskChangedFilesCard } from './TaskChangedFilesCard';
 import type { WsNavKey } from '../ui/workspace';
+import PublishGatePane from '../PublishGatePane';
+import { deriveLocalReviewGate } from '../pr/localpr/localReviewGate';
 
 /**
  * Data adapter that mounts the V3 {@link TaskBrainPage} on the live brain
@@ -158,7 +158,7 @@ export function TaskBrainRoute({
     setAgentRoundId(selected);
   };
   const pendingReviewComments = useMemo(
-    () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
+    () => (localPrBundle?.comments ?? []).filter(isPublishableReviewDraft).map(diffInlineCommentFromLocalPr),
     [localPrBundle],
   );
 
@@ -191,6 +191,21 @@ export function TaskBrainRoute({
       const result = await window.bridge.approveNotification(
         shipProposal.id, null, proposalAction(shipProposal) ?? 'ship_task');
       if (result.resolution !== 'approved') setShipNote(result.message);
+      pollFast();
+      void refreshShipProposal();
+    }
+    catch (e) { setShipNote(e instanceof Error ? e.message : String(e)); }
+    finally { setShipBusy(false); }
+  }, [shipBusy, shipProposal, pollFast, refreshShipProposal]);
+  const discardProposal = useCallback(async () => {
+    if (shipBusy || shipProposal === null) return;
+    setShipBusy(true);
+    setShipNote(null);
+    try {
+      const action = proposalAction(shipProposal);
+      if (action === null) throw new Error('This proposal has no supported action.');
+      const result = await window.bridge.discardNotification(shipProposal.id, action);
+      if (!result.ok) setShipNote(result.message);
       pollFast();
       void refreshShipProposal();
     }
@@ -469,6 +484,30 @@ export function TaskBrainRoute({
           : [])),
     [brainFeed]);
 
+  const shipAction = proposalAction(shipProposal);
+  const shipGatePrompt = shipAction === 'mark_ready'
+    ? <StaleMarkReadyGatePrompt
+        onDiscard={() => { void discardProposal(); }}
+        busy={shipBusy}
+        note={shipNote}
+      />
+    : shipAction !== 'ship_task' || localPrBundle === undefined
+      ? null
+      : localPrBundle === null && task.currentPhase === 'AWAITING_PUSH'
+        ? <ShipReviewPrompt
+            onReview={openChanges}
+            onApprove={() => { void approveShip(); }}
+            onDiscard={() => { void discardProposal(); }}
+            onReviewChanges={() => openTab('pr', 'changes')}
+            busy={shipBusy}
+            note={shipNote}
+          />
+        : <StaleShipGatePrompt
+            onDiscard={() => { void discardProposal(); }}
+            busy={shipBusy}
+            note={shipNote}
+          />;
+
   const conversation = (
     <Conv scrollRef={conversationRef}>
       {showRoot && seed !== undefined && seed.trim().length > 0 && (
@@ -508,17 +547,7 @@ export function TaskBrainRoute({
                 </div>
               </DecisionNode>
             )}
-            {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
-              ? <MarkReadyPrompt onReview={openChanges} />
-              : (
-                <ShipReviewPrompt
-                  onReview={openChanges}
-                  onApprove={() => { void approveShip(); }}
-                  onReviewChanges={() => openTab('pr', 'changes')}
-                  busy={shipBusy}
-                  note={shipNote}
-                />
-              ))}
+            {shipGatePrompt}
             <QueuedMessages
               messages={queue}
               onEdit={id => setText(takeForEdit(id))}
@@ -610,7 +639,7 @@ export function TaskBrainRoute({
   );
 
   const displayedTaskBundle = agentReview.displayedBundle ?? localPrBundle;
-  const markReadyPr = proposalAction(shipProposal) === 'mark_ready' ? markReadyPrRef(shipProposal) : null;
+  const localReviewGate = deriveLocalReviewGate(task.currentPhase, data.devPhases);
   // Normal task pages reuse the locked Pull Requests detail body. Keep the
   // legacy PRView below exclusively for the review-round drill-in, whose
   // finding APIs do not exist on PullDetailBody.
@@ -661,17 +690,36 @@ export function TaskBrainRoute({
         fetchChangesBlob={displayedTaskBundle.pr.remotePrNumber === null
           ? (path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)
           : undefined}
-        changesBanner={shipProposal !== null && markReadyPr !== null ? (
-          <MarkReadyPanel
-            notificationId={shipProposal.id}
-            pr={markReadyPr}
-            onMarked={() => {
+        overviewBanner={shipProposal !== null && shipAction === 'merge_pr' ? (
+          <PublishGatePane
+            notification={shipProposal}
+            prTitle={displayedTaskBundle.pr.title}
+            onResolved={() => {
               pollFast();
               refreshLocalPr();
               void refreshShipProposal();
             }}
           />
         ) : undefined}
+        localReviewGate={localReviewGate}
+        onPush={() => setPushOpen(true)}
+        onAskAgentToAddress={task.terminal ? undefined : askAgentToAddress}
+        onRunLocalTests={runLocalTests}
+        localTestsBusy={testsBusy}
+        onClosePullRequest={displayedTaskBundle.pr.remotePrNumber !== null
+            && displayedTaskBundle.pr.repo !== null
+            && displayedTaskBundle.pr.status !== 'merged'
+            && displayedTaskBundle.pr.status !== 'closed' ? async () => {
+              await window.bridge.commentPr(
+                Number(taskPullRow.dto.id) || 0,
+                displayedTaskBundle.pr.repo!,
+                displayedTaskBundle.pr.remotePrNumber!,
+                '',
+                true,
+              );
+              refreshLocalPr();
+              pollFast();
+            } : undefined}
         onComment={onTaskPrComment}
         onAssignAgent={() => { void agentReview.startReview(); }}
         onWorkWithAgent={() => openAgentRound()}
@@ -724,7 +772,7 @@ export function TaskBrainRoute({
       onToggle={agentReview.toggleFinding}
       onEdit={agentReview.updateComment}
       onRemove={removeReviewComment}
-      onSubmit={agentReview.submitReview}
+      onSubmit={prCapabilities?.publishReview === true ? agentReview.submitReview : undefined}
     />
   );
   const taskPrView = displayedTaskBundle != null && prCapabilities !== null ? (
@@ -759,7 +807,7 @@ export function TaskBrainRoute({
           onAnswerFinding={agentReview.answerFinding}
           onSetFindingResolved={agentReview.setFindingResolved}
           onBack={() => setReviewOpen(false)}
-          onSubmitReview={onSubmitReview}
+          onSubmitReview={prCapabilities.publishReview ? onSubmitReview : undefined}
           submittingReview={submittingReview}
           reviewData={agentReview.data ?? undefined}
           selectedFindingId={selectedAgentFinding}
@@ -792,6 +840,7 @@ export function TaskBrainRoute({
       onReviewRoundAction={agentReview.roundAction}
       onSetFindingResolved={agentReview.setFindingResolved}
       onToggleFindingPromotion={agentReview.toggleFinding}
+      localReviewGate={localReviewGate}
     />
   ) : null;
 
@@ -877,8 +926,6 @@ export function TaskBrainRoute({
         : plan.state === 'locked' ? 'locked'
         : undefined}
       onRevealPlan={plan !== null ? () => setPlanOpen(true) : undefined}
-      markReadyReminder={proposalAction(shipProposal) === 'mark_ready'}
-      onOpenMarkReady={openChanges}
       tabs={{
         pr: taskPullDetail ?? undefined,
       }}
@@ -889,7 +936,7 @@ export function TaskBrainRoute({
           ?? displayedTaskBundle.commits.reduce((sum, commit) => sum + commit.deletions, 0),
         onOpen: () => openTab('pr', 'changes'),
       } : undefined}
-      onSubmitReview={onSubmitReview}
+      onSubmitReview={prCapabilities?.publishReview === true ? onSubmitReview : undefined}
       submittingReview={submittingReview}
       pendingReviewComments={pendingReviewComments}
       onRemovePendingReviewComment={deleteLocalComment}

@@ -20,6 +20,7 @@ import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -58,6 +59,7 @@ public class ReadyToMergeService
 
     private final TaskStore taskStore;
     private final StageStore stageStore;
+    private final ReviewRoundStore reviewRounds;
     private final NotificationService notifications;
     private final PullRequestService pullRequests;
     private final TaskPhaseMachine phaseMachine;
@@ -66,6 +68,7 @@ public class ReadyToMergeService
     public ReadyToMergeService(
             TaskStore taskStore,
             StageStore stageStore,
+            ReviewRoundStore reviewRounds,
             NotificationService notifications,
             PullRequestService pullRequests,
             TaskPhaseMachine phaseMachine,
@@ -73,6 +76,7 @@ public class ReadyToMergeService
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
@@ -91,26 +95,19 @@ public class ReadyToMergeService
 
         // A terminal PR can't be "ready to merge"; clear every gate/marker.
         if (detail.merged() || isClosed(detail)) {
+            notifications.supersedeAwaitingReviewForTask(task.threadId(), task.id());
             taskStore.clearMergeNotificationSent(task.id());
             taskStore.clearMergeAuthorization(task.id());
             return;
         }
 
-        // A draft PR is never merge-ready: firing the gate here arms the
-        // sentinel while the PR is still shipping-as-draft, and once it's
-        // marked ready for review the armed sentinel suppresses the real gate
-        // forever. Gate only once the PR is actually out for review.
-        //
-        // Approvals: the task's minimum-approvals gate counts only reviewers
-        // with write permission (detail.writeApprovalCount() — GitHub's green
-        // marks). An outstanding changes-requested review always blocks.
-        int minApprovals = taskStore.minApprovals(task.id());
-        boolean ready = !detail.draft()
-                && detail.ciStatus() == CiStatus.PASSING
-                && detail.changesRequestedCount() == 0
-                && detail.writeApprovalCount() >= minApprovals
-                && noUnresolvedRemoteComments(task.id())
-                && !Boolean.FALSE.equals(detail.mergeable());
+        boolean ready = isReadyForMerge(task.id(), detail);
+        if (!ready) {
+            // A task has at most one live publish gate. Once the merge
+            // predicate breaks, retire that stale terminal gate immediately;
+            // its fresh preflight would reject it anyway.
+            notifications.supersedeAwaitingReviewForTask(task.threadId(), task.id());
+        }
 
         // Standing consent: once the user approved, keep the merge moving
         // automatically (re-enqueue after a queue bounce) instead of
@@ -142,6 +139,31 @@ public class ReadyToMergeService
             recordOnActiveStage(task.id(), StageEventType.NOTIFY_SKIPPED,
                     Map.of("reason", "conditions_broke"));
         }
+    }
+
+    /** The authoritative merge predicate shared by monitoring and the final
+     *  merge endpoint. A null task id is an external PR: it has no task policy
+     *  or local review round, but GitHub's live readiness still applies. */
+    public boolean isReadyForMerge(String taskId, PullRequestDetail detail)
+    {
+        if (detail == null || detail.draft() || detail.merged()
+                || !"open".equalsIgnoreCase(detail.state())) {
+            return false;
+        }
+        int minApprovals = taskId == null ? 0 : taskStore.minApprovals(taskId);
+        return detail.ciStatus() == CiStatus.PASSING
+                && detail.changesRequestedCount() == 0
+                && detail.writeApprovalCount() >= minApprovals
+                && Boolean.TRUE.equals(detail.mergeable())
+                && noUnresolvedGitHubThreads(detail)
+                && (taskId == null || (noUnresolvedRemoteComments(taskId)
+                        && reviewRounds.findLiveByTask(taskId).isEmpty()));
+    }
+
+    private static boolean noUnresolvedGitHubThreads(PullRequestDetail detail)
+    {
+        return detail.reviewThreads() != null && detail.reviewThreads().stream()
+                .allMatch(thread -> Boolean.TRUE.equals(thread.resolved()));
     }
 
     /**

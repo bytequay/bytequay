@@ -19,6 +19,7 @@ import { usePaneWidth } from '../ui/shell/usePaneWidth';
 import { CheckIcon } from '../ui/TaskBrainDesignIcons';
 import { ChevronIcon, PullRequestBranchIcon, TrunkLineIcon } from '../ui/workspace';
 import { SubmitReviewDrawer, type ReviewVerdict } from './SubmitReviewDrawer';
+import { RunMenu } from '../ui/shell/RunMenu';
 
 export type TaskPageComposer = {
   value: string;
@@ -50,9 +51,18 @@ export type TaskPageChanges = {
   onOpen?: () => void;
 };
 
+export type TaskPageRun = {
+  statusLabel?: string;
+  paused?: boolean;
+  terminal?: boolean;
+  onPause?: () => void;
+  onResume?: () => void;
+  onClose?: () => void;
+};
+
 export function TaskPageFrame({
   surface, pageTitle, taskTitle, taskNumber, branch, trunkLabel = 'Trunk', statusLabel,
-  sidebar, conversation, conversationIndex, composer, pr, prPane, changes, stageKey,
+  sidebar, conversation, conversationIndex, composer, run, pr, prPane, changes, stageKey,
   onOpenTrunk, onOpenTask, onSubmitReview, submittingReview = false,
   pendingReviewComments = [], onRemovePendingReviewComment, openPrToken,
   leadingToolbar,
@@ -64,6 +74,7 @@ export function TaskPageFrame({
   branch?: string;
   trunkLabel?: string;
   statusLabel?: string;
+  run?: TaskPageRun;
   sidebar?: ReactNode;
   conversation: ReactNode;
   conversationIndex?: ReactNode;
@@ -95,6 +106,7 @@ export function TaskPageFrame({
   }, [openPrToken]);
 
   const showPr = prOpen && prPane !== undefined;
+  const runControls = run ?? (statusLabel === undefined ? undefined : { statusLabel });
   const badge = surface === 'brain' ? 'BRAIN' : `${stageKey?.toUpperCase() ?? 'DEV'} STAGE`;
   const header = (
     <div className="workspace-task-header">
@@ -120,7 +132,16 @@ export function TaskPageFrame({
         </button>
       )}
       <span className="workspace-task-header__grow" />
-      {statusLabel !== undefined && <span className="workspace-task-header__state">{statusLabel}</span>}
+      {runControls !== undefined && (
+        <RunMenu
+          statusLabel={runControls.statusLabel}
+          paused={runControls.paused}
+          terminal={runControls.terminal}
+          onPause={runControls.onPause}
+          onResume={runControls.onResume}
+          onClose={runControls.onClose}
+        />
+      )}
       {onSubmitReview !== undefined && (
         <button type="button" className="workspace-task-header__submit"
           onClick={submittingReview ? undefined : () => setSubmitReviewOpen(true)}>

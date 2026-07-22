@@ -74,6 +74,12 @@ class ReviewCommentEntity
     @Column(name = "draft_reply_created_at_ms")
     private Long draftReplyCreatedAtMs;
 
+    @Column(name = "draft_reply_posted_at_ms")
+    private Long draftReplyPostedAtMs;
+
+    @Column(name = "remote_thread_resolved_at_ms")
+    private Long remoteThreadResolvedAtMs;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -121,4 +127,10 @@ class ReviewCommentEntity
 
     Long getDraftReplyCreatedAtMs() { return draftReplyCreatedAtMs; }
     void setDraftReplyCreatedAtMs(Long draftReplyCreatedAtMs) { this.draftReplyCreatedAtMs = draftReplyCreatedAtMs; }
+
+    Long getDraftReplyPostedAtMs() { return draftReplyPostedAtMs; }
+    void setDraftReplyPostedAtMs(Long draftReplyPostedAtMs) { this.draftReplyPostedAtMs = draftReplyPostedAtMs; }
+
+    Long getRemoteThreadResolvedAtMs() { return remoteThreadResolvedAtMs; }
+    void setRemoteThreadResolvedAtMs(Long remoteThreadResolvedAtMs) { this.remoteThreadResolvedAtMs = remoteThreadResolvedAtMs; }
 }

@@ -164,7 +164,7 @@ export function LivePlan({
    *  Remote pull request / Merge-Close all open the PR tab in place, R27).
    *  `subTab` additionally forces the PR tab's own Checks sub-tab (CI
    *  validation). */
-  onOpenTab?: (tab: 'pr', subTab?: 'checks') => void;
+  onOpenTab?: (tab: 'pr', subTab?: 'overview' | 'checks' | 'changes') => void;
   /** Navigate to the task's brain page — the Plan node uses this. */
   onOpenBrain?: () => void;
   /** Navigate to a live run's own log — the Checks/Addressing sub-rows use this. */

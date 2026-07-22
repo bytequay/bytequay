@@ -54,6 +54,7 @@ function toolDesc(label: string | null, detail: string | null, tag?: string): Re
 const PLAN_KICKOFF_PREFIX = 'The plan for this task has been approved — implement it now.';
 const CI_FIX_CONTEXT_PREFIX = '## Context from prior stages\nYou are a fresh agent for the CI-fixing stage —';
 const CI_FIX_PROMPT_PREFIX = 'CI is failing on the shipped PR ';
+const LOCAL_COMMENTS_PREFIX = 'New comments arrived on your local PR "';
 
 function kickoffIntent(text: string): string {
   const start = text.indexOf('\nIntent:');
@@ -103,6 +104,15 @@ function runtimeKickoff(r: StageConversationRow): RuntimeKickoff | null {
       preview: ciFixPreview(r.text),
       bodyLabel: 'CI-fix kickoff prompt',
       icon: <TerminalRunIcon size={14} />,
+    };
+  }
+  if (r.text.startsWith(LOCAL_COMMENTS_PREFIX)) {
+    const firstLine = r.text.split('\n', 1)[0];
+    return {
+      title: 'Address local review comments',
+      preview: firstLine.replace(/\s+Unlike remote review comments.*$/, ''),
+      bodyLabel: 'Local-comment addressing prompt',
+      icon: <PenIcon />,
     };
   }
   return null;

@@ -36,6 +36,7 @@ import java.util.UUID;
  * @param roundId the {@code ReviewRound} this comment is grouped into, if any
  * @param draftReplyBody the round agent's drafted (unposted) reply, if any
  * @param draftReplyCreatedAt when the draft reply was recorded, if any
+ * @param draftReplyPostedAt when the draft reply was successfully posted, if any
  * @param side {@link DiffSide#LEFT} or {@link DiffSide#RIGHT} — defaults to
  *             RIGHT for every comment that predates this concept
  * @param startLine first line of a multi-line range, null for single-line
@@ -55,8 +56,48 @@ public record ReviewComment(
         UUID roundId,
         String draftReplyBody,
         Instant draftReplyCreatedAt,
+        Instant draftReplyPostedAt,
         String side,
         Integer startLine,
         String startSide)
 {
+    /** Compatibility constructor for callers creating a not-yet-posted reply. */
+    public ReviewComment(
+            UUID id,
+            String taskId,
+            String file,
+            int line,
+            String body,
+            Instant createdAt,
+            ReviewCommentSource source,
+            String remoteLink,
+            boolean resolved,
+            Long remoteCommentId,
+            UUID roundId,
+            String draftReplyBody,
+            Instant draftReplyCreatedAt,
+            String side,
+            Integer startLine,
+            String startSide)
+    {
+        this(id, taskId, file, line, body, createdAt, source, remoteLink, resolved,
+                remoteCommentId, roundId, draftReplyBody, draftReplyCreatedAt,
+                null, side, startLine, startSide);
+    }
+
+    public ReviewComment withDraftReplyPostedAt(Instant postedAt)
+    {
+        return new ReviewComment(
+                id, taskId, file, line, body, createdAt, source, remoteLink, resolved,
+                remoteCommentId, roundId, draftReplyBody, draftReplyCreatedAt,
+                postedAt, side, startLine, startSide);
+    }
+
+    public ReviewComment withRemoteState(boolean remoteResolved, long threadRootCommentId)
+    {
+        return new ReviewComment(
+                id, taskId, file, line, body, createdAt, source, remoteLink, remoteResolved,
+                threadRootCommentId, roundId, draftReplyBody, draftReplyCreatedAt,
+                draftReplyPostedAt, side, startLine, startSide);
+    }
 }

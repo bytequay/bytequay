@@ -18,6 +18,7 @@ import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StageInstance;
@@ -25,6 +26,7 @@ import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
@@ -38,6 +40,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PrPushedEvent;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -53,6 +56,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -100,13 +106,14 @@ class TestTaskServiceShipAndContinue
     private final ObjectMapper mapper = new ObjectMapper();
     private final TaskPhaseMachine taskPhaseMachine = mock(TaskPhaseMachine.class);
     private final TaskTerminalSealer sealer = mock(TaskTerminalSealer.class);
+    private final PRService prService = mock(PRService.class);
 
     private final TaskService service = new TaskService(
             threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
             git, pullRequests, patResolver,
             registry, workspaces, notifications, mapper,
             NOOP_PUBLISHER,
-            taskPhaseMachine, sealer);
+            taskPhaseMachine, sealer, prService);
 
     @Test
     void shipOpensADraftPrKeepsTheWorktreeAndCutsNoSuccessor()
@@ -177,6 +184,31 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
+    void legacyShipAndNextCannotBypassATaskOriginLocalPrGate()
+            throws Exception
+    {
+        when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread("thread-1")));
+        Task current = task(
+                "task-1", "thread-1", 1L, "dev/task-1", "/tmp/wt/task-1", "/tmp/repo");
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(current));
+        PR localPr = PR.create(
+                "local-pr-1", "task-1", "dev/task-1", "main", "Change", "", Instant.now());
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(localPr));
+
+        assertThatThrownBy(() -> service.shipAndContinue(
+                "thread-1", "task-1", new TaskService.ShipRequest(null, TaskService.BaseMode.MAIN)))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Approve & ship");
+        assertThatThrownBy(() -> service.parkAndStartNext(
+                "thread-1", "task-1", new TaskService.ShipRequest(null, TaskService.BaseMode.MAIN)))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Approve & ship");
+
+        verify(git, never()).push(any(Path.class));
+        verify(pullRequests, never()).createPullRequest(anyString(), any(), any());
+    }
+
+    @Test
     void shipOpeningAPrPublishesAPrPushedEventSoItsPrRowLearnsAboutIt()
             throws Exception
     {
@@ -191,7 +223,7 @@ class TestTaskServiceShipAndContinue
                 git, pullRequests, patResolver,
                 registry, workspaces, notifications, mapper,
                 eventPublisher,
-                taskPhaseMachine, sealer);
+                taskPhaseMachine, sealer, prService);
 
         when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread("thread-1")));
         Task shipped = task("task-1", "thread-1", 1L, "dev/task-1-fix-the-thing",
@@ -338,6 +370,49 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
+    void mergedCompletionWaitsForTheTaskPushLockBeforeSealing()
+            throws Exception
+    {
+        String workingDir = "/tmp/acme/widget";
+        Task inReview = task("task-1", "thread-1", 1L, "dev/task-1",
+                "/tmp/wt", workingDir, TaskStatus.IN_REVIEW);
+        CountDownLatch completionStarted = new CountDownLatch(1);
+        when(taskStore.findByLinkedPrNumber(42)).thenAnswer(ignored -> {
+            completionStarted.countDown();
+            return List.of(inReview);
+        });
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(inReview));
+        when(watchedRepoStore.findAll()).thenReturn(List.of(
+                new WatchedRepo(1L, "acme", "widget", 0, workingDir, null, null)));
+
+        CountDownLatch lockHeld = new CountDownLatch(1);
+        CountDownLatch releaseLock = new CountDownLatch(1);
+        CompletableFuture<Void> push = CompletableFuture.runAsync(() ->
+                TaskPhaseMachine.withTaskLock("task-1", () -> {
+                    lockHeld.countDown();
+                    try {
+                        releaseLock.await();
+                    }
+                    catch (InterruptedException e) {
+                        java.lang.Thread.currentThread().interrupt();
+                    }
+                    return null;
+                }));
+        assertThat(lockHeld.await(5, TimeUnit.SECONDS)).isTrue();
+
+        CompletableFuture<Void> completion = CompletableFuture.runAsync(() ->
+                service.completeTasksForMergedPr("acme/widget", 42));
+        assertThat(completionStarted.await(5, TimeUnit.SECONDS)).isTrue();
+        verify(taskStore, never()).completeTask(anyString(), any());
+
+        releaseLock.countDown();
+        push.get(5, TimeUnit.SECONDS);
+        completion.get(5, TimeUnit.SECONDS);
+        verify(taskStore).completeTask(eq("task-1"), any());
+        verify(sealer).seal("task-1", "pr_merged");
+    }
+
+    @Test
     void mergingAPrInAnotherRepoLeavesTheTaskUntouched()
     {
         // Same PR number, different repo — must not complete the task,
@@ -352,6 +427,24 @@ class TestTaskServiceShipAndContinue
 
         verify(taskStore, never()).completeTask(anyString(), any());
         verify(taskPhaseMachine, never()).transition(anyString(), any(), anyString(), any());
+    }
+
+    @Test
+    void closingTheShippedTasksPrSealsItAsRemoteClosed()
+    {
+        String workingDir = "/tmp/acme/widget";
+        Task inReview = task("task-1", "thread-1", 1L, "dev/task-1",
+                "/tmp/wt", workingDir, TaskStatus.IN_REVIEW);
+        when(taskStore.findByLinkedPrNumber(42)).thenReturn(List.of(inReview));
+        when(watchedRepoStore.findAll()).thenReturn(List.of(
+                new WatchedRepo(1L, "acme", "widget", 0, workingDir, null, null)));
+
+        service.closeTasksForRemotePr("acme/widget", 42);
+
+        verify(taskStore).remoteCloseTask(eq("task-1"), any());
+        verify(taskStore).linkPullRequest("task-1", 42, "closed");
+        verify(taskPhaseMachine).observe("task-1", TaskPhase.COMPLETED, "pr_closed");
+        verify(sealer).seal("task-1", "pr_closed");
     }
 
     @Test
@@ -530,6 +623,85 @@ class TestTaskServiceShipAndContinue
         verify(agent).resume();
     }
 
+    @Test
+    void resumeNeedsAttentionRestoresRemoteDraftToCiWithoutStartingDev()
+    {
+        Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
+        PR remoteDraft = PR.create(
+                        "pr1", parked.id(), parked.branchName(), parked.baseBranch(),
+                        "Title", "", parked.createdAt())
+                .withStatus(PR.STATUS_LOCAL_OPEN, parked.createdAt())
+                .withStatus(PR.STATUS_REMOTE_DRAFTED, parked.createdAt())
+                .withRemote("acme/widget", 42, "https://github.com/acme/widget/pull/42", parked.createdAt());
+        Notification notice = new Notification(
+                "notice-1", NotificationKind.NEEDS_ATTENTION, parked.threadId(), parked.id(),
+                NotificationStatus.UNREAD, "{}", parked.createdAt(), null);
+        when(taskStore.findTaskById(parked.id())).thenReturn(Optional.of(parked));
+        when(prService.findByTask(parked.id())).thenReturn(Optional.of(remoteDraft));
+        when(threadStore.findThreadById(parked.threadId()))
+                .thenReturn(Optional.of(thread(parked.threadId())));
+        when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.empty());
+        when(notifications.listForThread(parked.threadId())).thenReturn(List.of(notice));
+
+        Task resumed = service.resumeTask(parked.id());
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        assertThat(resumed.phase()).isEqualTo(TaskPhase.PUSHED_AWAITING_CI);
+        verify(taskPhaseMachine).recover(
+                parked.id(), TaskPhase.PUSHED_AWAITING_CI, "user_resumed_task");
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(notifications).markRead("notice-1");
+    }
+
+    @Test
+    void resumeNeedsAttentionAfterValidationReturnsToDevelopment()
+    {
+        Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
+        when(taskStore.findTaskById(parked.id())).thenReturn(Optional.of(parked));
+        when(prService.findByTask(parked.id())).thenReturn(Optional.empty());
+        when(taskStore.listPhaseEvents(parked.id())).thenReturn(List.of(new TaskPhaseEvent(
+                1L, parked.id(), TaskPhase.VALIDATING, TaskPhase.NEEDS_ATTENTION,
+                parked.createdAt(), "validation_failed", Actor.AGENT)));
+        when(threadStore.findThreadById(parked.threadId()))
+                .thenReturn(Optional.of(thread(parked.threadId())));
+        when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.empty());
+        StageAgent agent = mock(StageAgent.class);
+        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(agent);
+
+        Task resumed = service.resumeTask(parked.id());
+
+        assertThat(resumed.phase()).isEqualTo(TaskPhase.IMPLEMENTING);
+        verify(taskPhaseMachine).recover(
+                parked.id(), TaskPhase.IMPLEMENTING, "user_resumed_task");
+        verify(agent).resume();
+    }
+
+    @Test
+    void resumeUsesTheParkedPhaseBeforeTheRemotePrState()
+    {
+        Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
+        PR remoteOpen = PR.create(
+                        "pr1", parked.id(), parked.branchName(), parked.baseBranch(),
+                        "Title", "", parked.createdAt())
+                .withStatus(PR.STATUS_LOCAL_OPEN, parked.createdAt())
+                .withStatus(PR.STATUS_REMOTE_DRAFTED, parked.createdAt())
+                .withStatus(PR.STATUS_REMOTE_OPEN, parked.createdAt());
+        when(taskStore.findTaskById(parked.id())).thenReturn(Optional.of(parked));
+        when(prService.findByTask(parked.id())).thenReturn(Optional.of(remoteOpen));
+        when(taskStore.listPhaseEvents(parked.id())).thenReturn(List.of(new TaskPhaseEvent(
+                1L, parked.id(), TaskPhase.PUSHED_AWAITING_CI, TaskPhase.NEEDS_ATTENTION,
+                parked.createdAt(), "ci_fix_attempts_exhausted", Actor.AGENT)));
+        when(threadStore.findThreadById(parked.threadId()))
+                .thenReturn(Optional.of(thread(parked.threadId())));
+        when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.empty());
+
+        Task resumed = service.resumeTask(parked.id());
+
+        assertThat(resumed.phase()).isEqualTo(TaskPhase.PUSHED_AWAITING_CI);
+        verify(taskPhaseMachine).recover(
+                parked.id(), TaskPhase.PUSHED_AWAITING_CI, "user_resumed_task");
+    }
+
     private static Thread thread(String id)
     {
         Instant now = Instant.parse("2026-05-15T12:00:00Z");
@@ -596,6 +768,21 @@ class TestTaskServiceShipAndContinue
                 /* agentSessionId */ null,
                 now, /* endedAt */ null, /* errorMessage */ null,
                 /* name */ null, /* roleSkill */ null, /* workModel */ null);
+    }
+
+    private static Task parkedTask(TaskPhase phase)
+    {
+        Task task = task(
+                "t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.NEEDS_ATTENTION);
+        return new Task(
+                task.id(), task.threadId(), task.seq(), task.status(), task.branchName(),
+                task.worktreePath(), task.baseBranch(), task.workingDir(), task.processPid(),
+                task.logPath(), task.prNumber(), task.prState(), task.ciState(), task.taskType(),
+                task.linkedPrNumber(), task.linkedIssueNumber(), task.costUsdMilli(),
+                task.tokensIn(), task.tokensOut(), task.agentSessionId(), task.createdAt(),
+                task.endedAt(), task.errorMessage(), task.name(), task.roleSkill(), task.workModel(),
+                task.pushedAt(), phase, task.agendaJson(), task.consecutiveAutoPushes(),
+                task.linkedPrRef(), task.openingPrompt(), task.origin());
     }
 
     private static PullRequest prWithNumber(int number)

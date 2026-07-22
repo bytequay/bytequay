@@ -65,7 +65,7 @@ final class TaskPhaseTransitions
         m.put(TaskPhase.AWAITING_PUSH,
                 EnumSet.of(TaskPhase.PUSHED_AWAITING_CI, TaskPhase.ADDRESSING_LOCAL_COMMENTS));
         m.put(TaskPhase.ADDRESSING_LOCAL_COMMENTS, EnumSet.of(TaskPhase.AWAITING_PUSH));
-        // CI green on a draft holds for "mark ready"; CI green on a ready
+        // CI green on a draft passes through automatic mark-ready; a ready
         // PR goes straight to remote review. CI red no longer moves the
         // phase — a ci_fix AgentRun fixes and re-pushes beside this phase.
         m.put(TaskPhase.PUSHED_AWAITING_CI,

@@ -76,6 +76,13 @@ class SqliteNotificationStore
 
     @Override
     @Transactional
+    public boolean resolveOpen(String id)
+    {
+        return notifications.resolveOpen(id) == 1;
+    }
+
+    @Override
+    @Transactional
     public boolean releaseResolution(String id)
     {
         return notifications.releaseResolution(id) == 1;

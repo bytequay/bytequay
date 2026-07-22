@@ -14,6 +14,7 @@
 package com.bytequay.app.service.mcp.approval;
 
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.mcp.McpResponses;
@@ -21,6 +22,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -39,6 +41,9 @@ import static java.util.Objects.requireNonNull;
 public class ParkGuardStep
         implements ApprovalStep
 {
+    private static final Set<TaskPhase> LOCAL_AGENT_PHASES = Set.of(
+            TaskPhase.INTERNAL_REVIEW, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+
     private static final String PARK_DENY_MESSAGE = ""
             + "This thread is parked at the publish gate. The user must "
             + "approve or discard the proposed change before further "
@@ -58,7 +63,7 @@ public class ParkGuardStep
     @Override
     public ApprovalStepResult apply(ApprovalContext ctx)
     {
-        if (!isThreadParked(ctx.threadId())) {
+        if (!isThreadParked(ctx.threadId(), ctx.taskId())) {
             return ApprovalStepResult.cont();
         }
         return ApprovalStepResult.resolve(
@@ -72,11 +77,23 @@ public class ParkGuardStep
      *  parked row must not block prompts from that successor. In
      *  contrast, NEEDS_ATTENTION remains blocking until the user
      *  resolves it. */
-    private boolean isThreadParked(String threadId)
+    private boolean isThreadParked(String threadId, String taskId)
     {
         List<Task> tasks = taskStore.listTasksByThread(threadId);
-        if (tasks.stream().anyMatch(t -> t.status() == TaskStatus.NEEDS_ATTENTION)) {
+        List<Task> scopedTasks = taskId == null
+                ? tasks
+                : tasks.stream().filter(t -> taskId.equals(t.id())).toList();
+        if (scopedTasks.stream().anyMatch(t -> t.status() == TaskStatus.NEEDS_ATTENTION
+                || t.phase() == TaskPhase.NEEDS_ATTENTION)) {
             return true;
+        }
+        // Legacy ship_task parks wrote AWAITING_REVIEW before the canonical
+        // local Brain/fix loop finished. That stale runtime status must not
+        // freeze the active local phase; its proposal is rejected separately.
+        if (taskId != null && tasks.stream().anyMatch(t -> taskId.equals(t.id())
+                && t.status() == TaskStatus.AWAITING_REVIEW
+                && t.phase() != null && LOCAL_AGENT_PHASES.contains(t.phase()))) {
+            return false;
         }
         return !taskStore.hasActiveTask(threadId)
                 && tasks.stream().anyMatch(t -> t.status() == TaskStatus.AWAITING_REVIEW);

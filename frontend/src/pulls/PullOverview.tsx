@@ -54,11 +54,12 @@ function LoadingTimeline() {
   );
 }
 
-export default function PullOverview({ row, bundle, isMerged, onComment, onDescriptionSaved }: {
+export default function PullOverview({ row, bundle, isMerged, onComment, onClosePullRequest, onDescriptionSaved }: {
   row: PullRow;
   bundle: LocalPRBundle | null | undefined;
   isMerged: boolean;
   onComment?: (body: string) => Promise<void>;
+  onClosePullRequest?: () => Promise<void>;
   onDescriptionSaved?: () => void;
 }) {
   const loading = bundle === undefined;
@@ -213,7 +214,7 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onDescr
         )}
       </div>
 
-      <PullComposer canClose={!isMerged} onComment={onComment} repoCtx={repoCtx} />
+      <PullComposer onComment={onComment} onClose={isMerged ? undefined : onClosePullRequest} repoCtx={repoCtx} />
     </>
   );
 }

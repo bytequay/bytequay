@@ -25,6 +25,8 @@ import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -60,6 +62,48 @@ class TestRemoteCommentIngestor
         assertThat(saved.remoteLink())
                 .isEqualTo("https://github.com/octo/repo/pull/7#discussion_r1001");
         assertThat(saved.taskId()).isEqualTo("task-1");
+        assertThat(saved.remoteCommentId()).isEqualTo(1L);
+    }
+
+    @Test
+    void excludesTheAuthenticatedUsersInlineRepliesAndTopLevelComments()
+    {
+        ReviewThread thread = new ReviewThread(
+                1001L, "src/Foo.java", 12, "RIGHT", null,
+                List.of(
+                        message(1001L, "reviewer", "please fix"),
+                        message(1002L, "octocat", "Fixed, thanks!")),
+                false, null, false, null, null, null, null);
+        PullRequestDetail detail = mock(PullRequestDetail.class);
+        when(detail.reviewThreads()).thenReturn(List.of(thread));
+        when(detail.recentActivity()).thenReturn(List.of(
+                commented(5001L, "octocat", "author follow-up", Instant.parse("2026-06-20T10:00:00Z"))));
+
+        ingestor.ingest("task-1", "octo/repo", 7, detail, "@OctoCat");
+
+        ArgumentCaptor<ReviewComment> captor = ArgumentCaptor.forClass(ReviewComment.class);
+        verify(stageStore).saveReviewComment(captor.capture());
+        assertThat(captor.getValue().body()).isEqualTo("please fix");
+        assertThat(captor.getValue().remoteCommentId()).isEqualTo(1001L);
+    }
+
+    @Test
+    void refreshesAnExistingUnroundedThreadsResolutionInBothDirections()
+    {
+        String link = "https://github.com/octo/repo/pull/7#discussion_r1001";
+        ReviewComment unresolved = remoteComment(false, link);
+        when(stageStore.findReviewCommentByRemoteLink(link))
+                .thenReturn(Optional.of(unresolved), Optional.of(unresolved.withRemoteState(true, 1L)));
+
+        ingestor.ingest("task-1", "octo/repo", 7,
+                detailWith(thread("src/Foo.java", 12, true, message(1001L, "nit"))));
+        ingestor.ingest("task-1", "octo/repo", 7,
+                detailWith(thread("src/Foo.java", 12, false, message(1001L, "nit"))));
+
+        ArgumentCaptor<ReviewComment> captor = ArgumentCaptor.forClass(ReviewComment.class);
+        verify(stageStore, times(2)).saveReviewComment(captor.capture());
+        assertThat(captor.getAllValues()).extracting(ReviewComment::resolved)
+                .containsExactly(true, false);
     }
 
     @Test
@@ -174,7 +218,20 @@ class TestRemoteCommentIngestor
 
     private static ReviewMessage message(long githubId, String body)
     {
-        return new ReviewMessage(githubId, "octocat", body,
+        return message(githubId, "octocat", body);
+    }
+
+    private static ReviewMessage message(long githubId, String author, String body)
+    {
+        return new ReviewMessage(githubId, author, body,
                 Instant.parse("2026-06-20T10:00:00Z"), null, null, "MEMBER");
+    }
+
+    private static ReviewComment remoteComment(boolean resolved, String link)
+    {
+        return new ReviewComment(
+                UUID.randomUUID(), "task-1", "src/Foo.java", 12, "nit",
+                Instant.parse("2026-06-20T10:00:00Z"), ReviewCommentSource.REMOTE_REVIEWER,
+                link, resolved, 1L, null, null, null, "RIGHT", null, null);
     }
 }

@@ -131,13 +131,6 @@ public class PlanStageService
         if ("plan-kickoff".equals(source) || "plan-followup".equals(source)) {
             onPlanningTurnFinished(event, turn, source);
         }
-        else if ("plan-approved".equals(source)
-                || "automation-plan-approved".equals(source)) {
-            // The development kickoff turn (enqueued by enqueueDevKickoff with
-            // source "plan-approved"). If it ended still implementing without
-            // proposing a push, nudge it once to ship.
-            onDevTurnFinished(event);
-        }
     }
 
     /** Plan-stage turn-end handling: surface a failure, else nudge once
@@ -178,69 +171,6 @@ public class PlanStageService
                 log.debug("nudged brain {} to record a plan for task {}", brain.id(), event.taskId());
             });
         }
-    }
-
-    /**
-     * Development kickoff turn ended. If the agent finished implementing but
-     * never proposed a push (the task is still IMPLEMENTING — a ship/push
-     * proposal would have fast-forwarded the phase to AWAITING_PUSH), nudge it
-     * once to call {@code ship_task}, which parks a push + draft-PR proposal
-     * for the user's approval. Without this the DevelopmentStage sits "running"
-     * forever after producing a result. Mirrors the plan-stage record_plan
-     * nudge: a one-shot follow-up turn under a distinct initiator source so it
-     * can't loop. Nothing is pushed automatically — the proposal still gates on
-     * the user's approval.
-     */
-    private void onDevTurnFinished(TaskTurnFinishedEvent event)
-    {
-        if (event.failed()) {
-            return;
-        }
-        Task task = taskStore.findTaskById(event.taskId()).orElse(null);
-        if (task == null || task.phase() != TaskPhase.IMPLEMENTING) {
-            return;
-        }
-        boolean devOpen = stageStore.findActiveStage(event.taskId())
-                .map(s -> s.type() == StageType.DEVELOPMENT_STAGE)
-                .orElse(false);
-        if (!devOpen) {
-            return;
-        }
-        threadStore.findThreadById(task.threadId()).ifPresent(dev -> {
-            String nudge = "Your implementation turn ended without proposing to publish. Start the "
-                    + "PR workflow by calling record_pr_progress(phase=starting). Inspect git "
-                    + "status, the complete base-to-head commit history, and the current change "
-                    + "scope. First, if "
-                    + "any work is uncommitted, stage and commit it now with a clear message per "
-                    + "logical change — your commits become the PR's history verbatim, and "
-                    + "ship_task bounces you if the worktree is dirty. Re-read the clean status "
-                    + "and final committed base-to-head diff. Then, if the "
-                    + "work is complete, call record_pr_progress(phase=creating-draft), record the "
-                    + "finished title/body with record_pr_description, then call ship_task(...) "
-                    + "with those exact values — do NOT call push by "
-                    + "itself. When you call ship_task you MUST include a pr_title and a "
-                    + "pr_body. ship_task parks ONE proposal that, on the "
-                    + "user's approval, pushes the branch AND opens a draft PR in a single "
-                    + "step, so the PR links and the stage advances together. It parks for "
-                    + "approval and pushes nothing until the user approves. If the work "
-                    + "isn't finished, keep going instead."
-                    + PullRequestTemplate.find(task.agentCwd())
-                            .map(tpl -> "\n\nThis repository provides a pull-request template. "
-                                    + "Your pr_body MUST follow it EXACTLY: keep its headings, "
-                                    + "checklists, and structure, fill in each section for this "
-                                    + "change (delete only inapplicable optional sections), and "
-                                    + "add no sections of your own. Template:\n\n" + tpl)
-                            .orElse("\n\nThis repository has no pull-request template, so keep "
-                                    + "the pr_body minimal and sized to the change: a small / nit "
-                                    + "change gets ONE line saying what it does (e.g. \"Add a "
-                                    + "requireNonNull check for currentPredicate in "
-                                    + "DynamicFilterSnapshot\") — do NOT add Description / Changes "
-                                    + "/ Validation headings, list every edit, or describe "
-                                    + "testing. Only a substantial change warrants a short "
-                                    + "summary paragraph.");
-            scheduler.enqueueTaskTurn(dev, nudge, task.id(), TurnInitiator.unattended("ship-nudge"));
-            log.debug("nudged dev thread {} to ship task {}", dev.id(), event.taskId());
-        });
     }
 
     /**
@@ -390,6 +320,9 @@ public class PlanStageService
         if (!"finalized".equals(latest.path("status").asText(null))) {
             throw status(400, "the latest plan is not finalized — the brain must finalize it first");
         }
+        if (!latestPlanWasSelfReviewed(plan.id())) {
+            throw status(409, "the mandatory Brain plan self-review has not finished yet");
+        }
         if (expectedPlan != null && !latest.equals(expectedPlan)) {
             throw status(409, "the plan changed after workspace issue intake classified it");
         }
@@ -405,6 +338,22 @@ public class PlanStageService
         enqueueDevKickoff(plan.taskId(), latest, initiatorSource);
         return new ApproveResult(
                 dev.id().toString(), "/tasks/" + plan.taskId() + "/stages/" + dev.id());
+    }
+
+    /** A review marker applies only to the revision that preceded it. Any
+     *  later PLAN_RECORDED event resets the checkpoint. */
+    private boolean latestPlanWasSelfReviewed(UUID planStageId)
+    {
+        boolean reviewed = false;
+        for (StageEvent event : stageStore.findEventsByStage(planStageId)) {
+            if (event.eventType() == StageEventType.PLAN_RECORDED) {
+                reviewed = false;
+            }
+            else if (event.eventType() == StageEventType.PLAN_SELF_REVIEWED) {
+                reviewed = true;
+            }
+        }
+        return reviewed;
     }
 
     private void assertIssueIntakePolicy(String taskId, JsonNode plan)

@@ -36,6 +36,11 @@ public interface NotificationStore
      *  deleted or no longer holds the active claim. */
     boolean finishResolution(String id);
 
+    /** Resolve an unread/read gate that became obsolete before approval.
+     *  Returns false when the row is already terminal or holds an active
+     *  RESOLVING claim. */
+    boolean resolveOpen(String id);
+
     /** Release a claim back to UNREAD when the approve was rejected
      *  before any remote state changed. Returns false unless the row
      *  currently holds a RESOLVING claim. */

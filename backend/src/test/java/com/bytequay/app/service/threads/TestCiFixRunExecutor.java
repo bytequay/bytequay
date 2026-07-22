@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PullRequestDetail;
@@ -26,14 +27,18 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WorkspaceRepo;
+import com.bytequay.app.repository.PrDetailStore;
+import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -48,6 +53,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -57,6 +63,7 @@ import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -91,13 +98,15 @@ class TestCiFixRunExecutor
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
     private final AgentRunService agentRuns = mock(AgentRunService.class);
     private final RemoteDevelopmentStageService remoteStages = mock(RemoteDevelopmentStageService.class);
+    private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
 
     private CiFixRunExecutor newExecutor()
     {
         when(remoteStages.ensureOpen(anyString())).thenReturn(remoteStage());
         return new CiFixRunExecutor(
                 leaseService, taskStore, threadStore, workspaceStore, notificationService,
-                scheduler, pullRequests, git, mapper, turnStore, agentRuns, remoteStages);
+                scheduler, pullRequests, git, mapper, turnStore, agentRuns, remoteStages,
+                phaseMachine);
     }
 
     private static StageInstance remoteStage()
@@ -154,7 +163,9 @@ class TestCiFixRunExecutor
                 .contains("CI is failing")
                 .contains(REPO)
                 .contains("#" + PR_NUMBER)
-                .contains("backend-tests");
+                .contains("backend-tests")
+                .contains("commit the fix", "ByteQuay pushes", "do not open a separate review gate")
+                .doesNotContain("request_review");
         // An automated trigger marks the turn unattended so the
         // approval gate escalates rather than waiting for a click.
         assertThat(initiatorArg.getValue().attended()).isFalse();
@@ -276,7 +287,8 @@ class TestCiFixRunExecutor
         verify(scheduler).enqueueTaskTurn(
                 any(), promptArg.capture(), taskIdArg.capture(), any(), initiatorArg.capture(), eq("run-1"));
         assertThat(taskIdArg.getValue()).isEqualTo("ship-3");
-        // Autonomous CI-fix prompt: pushes its own fix, no review wait.
+        // Autonomous CI-fix prompt: commits for ByteQuay to auto-push, with
+        // no second review gate.
         assertThat(promptArg.getValue())
                 .contains("shipped PR")
                 .contains("git push");
@@ -287,10 +299,74 @@ class TestCiFixRunExecutor
     }
 
     @Test
-    void escalatesToNeedsAttentionAfterTheAttemptBudgetIsSpent()
+    void oneRedCiEpisodeKeepsItsBudgetAcrossTwoFixPushesAndThenParks()
+            throws Exception
+    {
+        Task task = newShippedTask("ship-episode", "thread-episode");
+        Thread thread = newThread("thread-episode", ThreadStatus.IDLE);
+        AtomicReference<AgentRun> episode = new AtomicReference<>(new AgentRun(
+                "run-episode", task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
+                REMOTE_STAGE_ID, null, REMOTE_STAGE_ID, AgentRun.STATUS_RUNNING,
+                /* cheap re-run already spent */ 1, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS,
+                null, null, NOW, null));
+        when(agentRuns.openInStage(
+                task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
+                REMOTE_STAGE_ID, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS))
+                .thenAnswer(ignored -> episode.get());
+        when(agentRuns.recordIteration(eq("run-episode"), any()))
+                .thenAnswer(invocation -> {
+                    String headline = invocation.getArgument(1);
+                    return episode.updateAndGet(run -> run.withIteration(
+                            run.iterations() + 1, headline));
+                });
+        when(agentRuns.findById("run-episode"))
+                .thenAnswer(ignored -> Optional.of(episode.get()));
+        when(taskStore.findTaskById(task.id())).thenReturn(Optional.of(task));
+        when(threadStore.findThreadById(thread.id())).thenReturn(Optional.of(thread));
+        when(leaseService.isHeldByAnotherTask(WORKTREE_PATH, task.id())).thenReturn(false);
+        when(notificationService.listUnread()).thenReturn(List.of());
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+                .thenReturn("turn-1", "turn-2");
+        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(ciFixTurn(
+                "turn-1", task, "run-episode")));
+        when(turnStore.findTurnById("turn-2")).thenReturn(Optional.of(ciFixTurn(
+                "turn-2", task, "run-episode")));
+
+        // Process restarts between scans deliberately discard the in-memory
+        // cooldown. The attempt count must survive because it lives on the run.
+        CiFixRunExecutor firstScan = newExecutor();
+        firstScan.driveShippedCiFix(task, REPO, failingCi());
+        assertThat(episode.get().iterations()).isEqualTo(2);
+        firstScan.autoPushAfterCiFix(new TaskTurnFinishedEvent(task.id(), "turn-1", false));
+        verify(git, timeout(2000)).pushForceWithLease(Path.of(WORKTREE_PATH));
+
+        CiFixRunExecutor secondScan = newExecutor();
+        secondScan.driveShippedCiFix(task, REPO, failingCi());
+        assertThat(episode.get().iterations()).isEqualTo(3);
+        secondScan.autoPushAfterCiFix(new TaskTurnFinishedEvent(task.id(), "turn-2", false));
+        verify(git, timeout(2000).times(2)).pushForceWithLease(Path.of(WORKTREE_PATH));
+
+        CiFixRunExecutor thirdRedScan = newExecutor();
+        thirdRedScan.driveShippedCiFix(task, REPO, failingCi());
+
+        verify(scheduler, times(2)).enqueueTaskTurn(
+                any(), anyString(), eq(task.id()), eq(REMOTE_STAGE_ID), any(), eq("run-episode"));
+        verify(agentRuns, times(3)).openInStage(
+                task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
+                REMOTE_STAGE_ID, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS);
+        verify(agentRuns).transition("run-episode", AgentRun.STATUS_FAILED, "attempts_exhausted");
+        verify(phaseMachine).transition(
+                task.id(), TaskPhase.NEEDS_ATTENTION, "ci_fix_attempts_exhausted", Actor.AGENT);
+        verify(notificationService).notifyNeedsAttention(eq(thread.id()), eq(task.id()), anyString());
+        verify(pullRequests, never()).rerunFailedChecks(anyString(), anyString());
+    }
+
+    @Test
+    void budgetExhaustionParksTheTaskAndASecondScanCannotOpenAFreshRun()
     {
         Task task = newShippedTask("ship-4", "thread-4");
         wireRun("ship-4", CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS);
+        when(taskStore.findTaskById("ship-4")).thenReturn(Optional.of(task));
         when(notificationService.listUnread()).thenReturn(List.of());
         CiFixRunExecutor executor = newExecutor();
 
@@ -302,6 +378,36 @@ class TestCiFixRunExecutor
         verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any());
         verify(pullRequests, never()).rerunFailedChecks(anyString(), anyString());
         verify(agentRuns).transition("run-1", AgentRun.STATUS_FAILED, "attempts_exhausted");
+        verify(phaseMachine).transition(
+                "ship-4", TaskPhase.NEEDS_ATTENTION, "ci_fix_attempts_exhausted",
+                Actor.AGENT);
+
+        ArgumentCaptor<Task> parkedCaptor = ArgumentCaptor.forClass(Task.class);
+        verify(taskStore).saveTask(parkedCaptor.capture());
+        assertThat(parkedCaptor.getValue().status()).isEqualTo(TaskStatus.NEEDS_ATTENTION);
+
+        // The next periodic pass reads the persisted parked row. It must stop
+        // before fetching CI/opening a new live run at iteration zero.
+        when(taskStore.listWithLinkedPr(200)).thenReturn(List.of(parkedCaptor.getValue()));
+        when(pullRequests.refreshPullRequestDetail(REPO, PR_NUMBER))
+                .thenReturn(prDetailWithBody("still failing"));
+        AutomationCoordinator coordinator = new AutomationCoordinator(
+                leaseService,
+                taskStore,
+                mock(WatchedRepoStore.class),
+                mock(PullRequestStore.class),
+                mock(PrDetailStore.class),
+                notificationService,
+                pullRequests,
+                mapper,
+                executor);
+
+        coordinator.scanForFailingCi();
+
+        verify(pullRequests, never()).refreshPullRequestDetail(REPO, PR_NUMBER);
+        verify(agentRuns).openInStage(
+                "ship-4", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
+                REMOTE_STAGE_ID, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS);
     }
 
     @Test
@@ -312,16 +418,69 @@ class TestCiFixRunExecutor
         // finishes, the app pushes the commit force-with-lease so CI re-runs.
         Task task = newShippedTask("ship-push", "thread-1");
         when(taskStore.findTaskById("ship-push")).thenReturn(Optional.of(task));
+        when(agentRuns.findById("run-push"))
+                .thenReturn(Optional.of(runningCiFixRun("run-push", "ship-push")));
         when(turnStore.findTurnById("turn-x")).thenReturn(Optional.of(new ThreadTurn(
                 "turn-x", "thread-1", "ship-push", ThreadResourceLane.CLI,
                 ThreadTurnStatus.COMPLETED, "fix", NOW, NOW, NOW, NOW, null,
-                TurnInitiator.unattended("ci-fix-shipped"))));
+                TurnInitiator.unattended("ci-fix-shipped"), REMOTE_STAGE_ID,
+                ThreadScope.STAGE, "run-push")));
         CiFixRunExecutor executor = newExecutor();
 
         executor.autoPushAfterCiFix(new TaskTurnFinishedEvent("ship-push", "turn-x", false));
 
         // The push runs off-thread; await it.
         verify(git, timeout(2000)).pushForceWithLease(Path.of(WORKTREE_PATH));
+    }
+
+    @Test
+    void autoPushesAnOptedInDashboardCiFixWithoutALegacyReviewGate()
+            throws Exception
+    {
+        Task task = newTask("dashboard-push", "thread-1");
+        when(taskStore.findTaskById("dashboard-push")).thenReturn(Optional.of(task));
+        when(agentRuns.findById("run-dashboard"))
+                .thenReturn(Optional.of(succeededCiFixRun("run-dashboard", "dashboard-push")));
+        when(turnStore.findTurnById("turn-dashboard")).thenReturn(Optional.of(new ThreadTurn(
+                "turn-dashboard", "thread-1", "dashboard-push", ThreadResourceLane.CLI,
+                ThreadTurnStatus.COMPLETED, "fix", NOW, NOW, NOW, NOW, null,
+                TurnInitiator.unattended("auto-fix-ci-fail"), REMOTE_STAGE_ID,
+                ThreadScope.STAGE, "run-dashboard")));
+        CiFixRunExecutor executor = newExecutor();
+
+        executor.autoPushAfterCiFix(
+                new TaskTurnFinishedEvent("dashboard-push", "turn-dashboard", false));
+
+        verify(git, timeout(2000)).pushForceWithLease(Path.of(WORKTREE_PATH));
+    }
+
+    @Test
+    void doesNotPushWhenTheTaskParksAfterTheCompletionEvent()
+            throws Exception
+    {
+        Task active = newShippedTask("ship-race", "thread-1");
+        AtomicReference<Task> current = new AtomicReference<>(active);
+        when(taskStore.findTaskById("ship-race"))
+                .thenAnswer(ignored -> Optional.of(current.get()));
+        when(agentRuns.findById("run-race"))
+                .thenReturn(Optional.of(runningCiFixRun("run-race", "ship-race")));
+        when(turnStore.findTurnById("turn-race")).thenReturn(Optional.of(new ThreadTurn(
+                "turn-race", "thread-1", "ship-race", ThreadResourceLane.CLI,
+                ThreadTurnStatus.COMPLETED, "fix", NOW, NOW, NOW, NOW, null,
+                TurnInitiator.unattended("ci-fix-shipped"), REMOTE_STAGE_ID,
+                ThreadScope.STAGE, "run-race")));
+        CiFixRunExecutor executor = newExecutor();
+
+        // Hold the same lock the async pusher uses, deliver the completion,
+        // then park the task before letting the pusher re-read durable state.
+        TaskPhaseMachine.withTaskLock("ship-race", () -> {
+            executor.autoPushAfterCiFix(new TaskTurnFinishedEvent("ship-race", "turn-race", false));
+            current.set(active.withStatus(TaskStatus.NEEDS_ATTENTION));
+            return null;
+        });
+
+        verify(git, after(500).never()).pushForceWithLease(any());
+        verify(git, never()).commit(any(), anyString());
     }
 
     @Test
@@ -442,6 +601,31 @@ class TestCiFixRunExecutor
     private static PrCheckRunState checkRunState(String name)
     {
         return new PrCheckRunState(null, name, "completed", "failure", null, null, null);
+    }
+
+    private static AgentRun succeededCiFixRun(String runId, String taskId)
+    {
+        return new AgentRun(
+                runId, taskId, AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
+                REMOTE_STAGE_ID, null, REMOTE_STAGE_ID, AgentRun.STATUS_SUCCEEDED,
+                1, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS, null, null, NOW, NOW);
+    }
+
+    private static AgentRun runningCiFixRun(String runId, String taskId)
+    {
+        return new AgentRun(
+                runId, taskId, AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
+                REMOTE_STAGE_ID, null, REMOTE_STAGE_ID, AgentRun.STATUS_RUNNING,
+                1, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS, null, null, NOW, null);
+    }
+
+    private static ThreadTurn ciFixTurn(String turnId, Task task, String runId)
+    {
+        return new ThreadTurn(
+                turnId, task.threadId(), task.id(), ThreadResourceLane.CLI,
+                ThreadTurnStatus.COMPLETED, "fix", NOW, NOW, NOW, NOW, null,
+                TurnInitiator.unattended("ci-fix-shipped"), REMOTE_STAGE_ID,
+                ThreadScope.STAGE, runId);
     }
 
     private static Task newShippedTask(String id, String threadId)

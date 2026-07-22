@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
@@ -27,15 +28,18 @@ import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.checks.ValidationPassResult;
+import com.bytequay.app.service.checks.ValidationPassService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,10 +48,10 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -64,7 +68,6 @@ class TestTaskLifecycleDriver
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final NotificationService notifications = mock(NotificationService.class);
-    private final ObjectMapper mapper = new ObjectMapper();
     private final RemoteCommentIngestor commentIngestor = mock(RemoteCommentIngestor.class);
     private final ReadyToMergeService readyToMerge = mock(ReadyToMergeService.class);
     private final ReviewRoundService reviewRounds = mock(ReviewRoundService.class);
@@ -72,10 +75,11 @@ class TestTaskLifecycleDriver
     private final StageStore stageStore = mock(StageStore.class);
     private final PRService prService = mock(PRService.class);
     private final TaskTerminalSealer sealer = mock(TaskTerminalSealer.class);
+    private final ValidationPassService validation = mock(ValidationPassService.class);
     private final TaskLifecycleDriver driver =
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
-                    threadStore, scheduler, notifications, mapper,
-                    commentIngestor, readyToMerge, reviewRounds, registry, stageStore, prService, sealer);
+                    threadStore, scheduler, notifications,
+                    commentIngestor, readyToMerge, reviewRounds, registry, stageStore, prService, sealer, validation);
 
     @TempDir
     private Path tempDir;
@@ -111,41 +115,68 @@ class TestTaskLifecycleDriver
     }
 
     @Test
-    void greenDraftOffersTheMarkReadyGateOnceInsteadOfAutoUnDrafting()
+    void greenDraftIsMarkedReadyAutomaticallyAndEntersRemoteReview()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         PullRequestDetail greenDraft = detail(CiStatus.PASSING, true);
         when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenDraft);
-        when(taskStore.markReadyGateSentIfUnset(eq("t1.k2"), any())).thenReturn(true);
+        PR remoteDraft = pr("pr1", PR.STATUS_REMOTE_DRAFTED, null);
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(remoteDraft));
 
         driver.reconcileTask(task);
 
-        // Green draft → record the AWAITING_READY gate and park a ONE-TIME
-        // mark-ready approval (a mark_ready proposal). It must NOT un-draft
-        // autonomously — the user approves marking it ready for review.
-        verify(phaseMachine).observe("t1.k2", TaskPhase.AWAITING_READY, "ci_green_on_draft");
-        verify(notifications).notifyAwaitingReview(eq("t1"), eq("t1.k2"), contains("mark_ready"));
-        verify(pullRequests, never()).setPullRequestDraft(any(), anyInt(), eq(false));
+        verify(pullRequests).setPullRequestDraft("trinodb/trino", 29897, false);
+        verify(notifications).supersedeAwaitingReviewForTask("t1", "t1.k2");
+        verify(prService).transition("pr1", PR.STATUS_REMOTE_OPEN, PRTimelineEntry.ACTOR_AGENT);
+        verify(phaseMachine).observe(
+                "t1.k2", TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green_marked_ready");
+        verify(reviewRounds, never()).reconcile(task);
     }
 
     @Test
-    void greenDraftDoesNotReParkTheMarkReadyGateOnceSent()
+    void greenDraftDoesNotAdvancePastAnInFlightLegacyGateResolution()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         PullRequestDetail greenDraft = detail(CiStatus.PASSING, true);
         when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenDraft);
-        // Sentinel already set (a prior sweep offered the gate) → not the winner.
-        when(taskStore.markReadyGateSentIfUnset(eq("t1.k2"), any())).thenReturn(false);
+        doThrow(new ResponseStatusException(HttpStatus.CONFLICT, "resolution is already in progress"))
+                .when(notifications).supersedeAwaitingReviewForTask("t1", "t1.k2");
+
+        assertThatThrownBy(() -> driver.reconcileTask(task))
+                .hasMessageContaining("resolution is already in progress");
+
+        verify(pullRequests, never()).setPullRequestDraft("trinodb/trino", 29897, false);
+        verify(prService, never()).transition(anyString(), anyString(), anyString());
+        verify(phaseMachine, never()).observe(
+                "t1.k2", TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green_marked_ready");
+    }
+
+    @Test
+    void aPreviouslyAwaitingReadyDraftAlsoAutoUndrafts()
+    {
+        Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_READY)
+                .withStatus(TaskStatus.AWAITING_REVIEW);
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
+        PullRequestDetail greenDraft = detail(CiStatus.PASSING, true);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenDraft);
 
         driver.reconcileTask(task);
 
-        verify(notifications, never()).notifyAwaitingReview(any(), any(), anyString());
+        verify(pullRequests).setPullRequestDraft("trinodb/trino", 29897, false);
+        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
+        verify(taskStore).saveTask(taskCaptor.capture());
+        assertThat(taskCaptor.getValue().status()).isEqualTo(TaskStatus.IN_REVIEW);
+        verify(phaseMachine).observe(
+                "t1.k2", TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green_marked_ready");
     }
 
     @Test
     void greenReadyPrAdvancesToRemoteReviewWithoutReUnDrafting()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_READY);
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         PullRequestDetail greenReady = detail(CiStatus.PASSING, false);
         when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenReady);
 
@@ -242,6 +273,7 @@ class TestTaskLifecycleDriver
     void readyPrAtRemoteReviewHandsOffToTheRoundService()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         PullRequestDetail ready = detail(CiStatus.PASSING, /* draft */ false);
         when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(ready);
 
@@ -255,9 +287,43 @@ class TestTaskLifecycleDriver
     }
 
     @Test
+    void mergeQueueParkIsNotOverwrittenByObservedRemoteReview()
+    {
+        Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
+        Task parked = task("trinodb/trino#29897", TaskPhase.NEEDS_ATTENTION);
+        PullRequestDetail ready = detail(CiStatus.PASSING, false);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(ready);
+        when(taskStore.findTaskById("t1.k2"))
+                .thenReturn(Optional.of(task), Optional.of(parked));
+
+        driver.reconcileTask(task);
+
+        verify(readyToMerge).evaluate(task, ready);
+        verify(phaseMachine, never()).observe(anyString(), any(), anyString());
+        verify(reviewRounds, never()).reconcile(any());
+    }
+
+    @Test
+    void staleRemoteSpineRowCannotMutateAParkedTask()
+    {
+        Task stale = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
+        Task parked = stale.withStatus(TaskStatus.NEEDS_ATTENTION);
+        PullRequestDetail greenDraft = detail(CiStatus.PASSING, true);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenDraft);
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(parked));
+
+        driver.reconcileTask(stale);
+
+        verify(readyToMerge, never()).evaluate(any(), any());
+        verify(pullRequests, never()).setPullRequestDraft(any(), anyInt(), eq(false));
+        verify(phaseMachine, never()).observe(anyString(), any(), anyString());
+    }
+
+    @Test
     void doesNotHandOffToTheRoundServiceOutsideRemoteReview()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         PullRequestDetail pending = detail(CiStatus.PENDING, false);
         when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(pending);
 
@@ -289,6 +355,7 @@ class TestTaskLifecycleDriver
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "please fix this", commentAt, null, null)));
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
         when(thread.status()).thenReturn(ThreadStatus.IDLE);
@@ -296,12 +363,33 @@ class TestTaskLifecycleDriver
 
         driver.reconcileLocalTask(task);
 
-        verify(phaseMachine).observe("t1.k2", TaskPhase.ADDRESSING_LOCAL_COMMENTS, "new_local_comments");
+        verify(phaseMachine).transition(
+                "t1.k2", TaskPhase.ADDRESSING_LOCAL_COMMENTS, "new_local_comments", Actor.AGENT);
         verify(prService).markLocalAddressed("pr1", commentAt);
         ArgumentCaptor<TurnInitiator> initiator = ArgumentCaptor.forClass(TurnInitiator.class);
         verify(scheduler).enqueueTaskTurn(eq(thread), anyString(), eq("t1.k2"), any(), initiator.capture());
         assertThat(initiator.getValue().attended()).isFalse();
         assertThat(initiator.getValue().source()).isEqualTo("address-local-comments");
+    }
+
+    @Test
+    void staleLocalCommentSnapshotCannotRegressARemoteTask()
+    {
+        Task stale = task(null, TaskPhase.AWAITING_PUSH);
+        Task pushed = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
+        Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, null);
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.comments("pr1")).thenReturn(
+                List.of(localComment("cm1", "you", "please fix this", commentAt, null, null)));
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(pushed));
+
+        driver.reconcileLocalTask(stale);
+
+        verify(phaseMachine, never()).transition(
+                eq("t1.k2"), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString(), any());
+        verify(prService, never()).markLocalAddressed(anyString(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
     }
 
     @Test
@@ -333,11 +421,56 @@ class TestTaskLifecycleDriver
         // Resolved — nothing left to address.
         when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "please fix this", commentAt, commentAt, null)));
+        Thread thread = mock(Thread.class);
+        when(thread.status()).thenReturn(ThreadStatus.IDLE);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
+        when(validation.run("t1.k2")).thenReturn(new ValidationPassResult(true, 0, List.of()));
 
         driver.reconcileLocalTask(task);
 
-        verify(phaseMachine).observe("t1.k2", TaskPhase.AWAITING_PUSH, "local_comments_addressed");
+        verify(phaseMachine).transition(
+                "t1.k2", TaskPhase.AWAITING_PUSH, "local_comments_validated",
+                Actor.AGENT);
         verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void addressingLocalCommentsDoesNotReopenLocalReviewWhenValidationFails()
+    {
+        Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+        Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
+        when(prService.findByTask("t1.k2"))
+                .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, commentAt)));
+        when(prService.comments("pr1")).thenReturn(List.of());
+        Thread thread = mock(Thread.class);
+        when(thread.status()).thenReturn(ThreadStatus.IDLE);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
+        when(validation.run("t1.k2")).thenReturn(new ValidationPassResult(false, 3, List.of()));
+
+        driver.reconcileLocalTask(task);
+
+        verify(validation).run("t1.k2");
+        verify(phaseMachine).transition(
+                "t1.k2", TaskPhase.NEEDS_ATTENTION, "local_comments_validation_failed", Actor.AGENT);
+        verify(phaseMachine, never()).transition(
+                eq("t1.k2"), eq(TaskPhase.AWAITING_PUSH), anyString(), any());
+    }
+
+    @Test
+    void addressingLocalCommentsWaitsForTheFixTurnBeforeValidating()
+    {
+        Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+        when(prService.findByTask("t1.k2"))
+                .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, Instant.now())));
+        when(prService.comments("pr1")).thenReturn(List.of());
+        Thread thread = mock(Thread.class);
+        when(thread.status()).thenReturn(ThreadStatus.RUNNING);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
+
+        driver.reconcileLocalTask(task);
+
+        verify(validation, never()).run(anyString());
+        verify(phaseMachine, never()).transition(anyString(), any(), anyString(), any());
     }
 
     @Test
@@ -349,6 +482,7 @@ class TestTaskLifecycleDriver
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "still open", commentAt, null, null)));
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
         when(thread.status()).thenReturn(ThreadStatus.IDLE);
@@ -375,6 +509,56 @@ class TestTaskLifecycleDriver
 
         verify(phaseMachine, never())
                 .observe(anyString(), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString());
+    }
+
+    @Test
+    void brainFindingsStayOwnedByTheBoundedBrainReviewLoop()
+    {
+        Task task = task(null, TaskPhase.AWAITING_PUSH);
+        Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, null);
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.comments("pr1")).thenReturn(List.of(
+                localComment("cm1", PRTimelineEntry.ACTOR_BRAIN, "still unresolved", commentAt, null, null)));
+
+        driver.reconcileLocalTask(task);
+
+        verify(phaseMachine, never())
+                .observe(anyString(), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void needsAttentionTaskNeverRetriesLocalCommentAddressing()
+    {
+        Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS)
+                .withStatus(TaskStatus.NEEDS_ATTENTION);
+
+        driver.reconcileLocalTask(task);
+
+        verify(prService, never()).findByTask(anyString());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void legacyAwaitingReviewStatusDoesNotBlockCanonicalLocalAddressing()
+    {
+        Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS)
+                .withStatus(TaskStatus.AWAITING_REVIEW);
+        Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
+        when(prService.findByTask("t1.k2"))
+                .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, commentAt)));
+        when(prService.comments("pr1")).thenReturn(
+                List.of(localComment("cm1", "you", "still open", commentAt, null, null)));
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
+        Thread thread = mock(Thread.class);
+        when(thread.id()).thenReturn("t1");
+        when(thread.status()).thenReturn(ThreadStatus.IDLE);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
+
+        driver.reconcileLocalTask(task);
+
+        verify(scheduler).enqueueTaskTurn(eq(thread), anyString(), eq("t1.k2"), any(), any());
     }
 
     @Test

@@ -85,6 +85,34 @@ class TestBranchGuardService
         assertThat(store.row.enabled()).isTrue();
     }
 
+    @Test
+    void explicitlyReEnablingAParkedGuardDoesNotRecoverIt()
+    {
+        store.row = BranchGuard.disabled(TASK_ID)
+                .withEnabled(true)
+                .withState(BranchGuard.STATE_NEEDS_ATTENTION);
+
+        BranchGuard updated = service.update(TASK_ID, true, null);
+
+        assertThat(updated.enabled()).isTrue();
+        assertThat(updated.state()).isEqualTo(BranchGuard.STATE_NEEDS_ATTENTION);
+    }
+
+    @Test
+    void taskResumeRecoversTheParkedGuard()
+    {
+        store.row = BranchGuard.disabled(TASK_ID)
+                .withEnabled(true)
+                .withState(BranchGuard.STATE_NEEDS_ATTENTION);
+
+        service.onPhaseTransitioned(new TaskPhaseTransitionedEvent(
+                TASK_ID, TaskPhase.NEEDS_ATTENTION,
+                TaskPhase.PUSHED_AWAITING_CI, "user_resumed_task"));
+
+        assertThat(store.row.enabled()).isTrue();
+        assertThat(store.row.state()).isEqualTo(BranchGuard.STATE_HEALTHY);
+    }
+
     private static final class FakeStore
             implements BranchGuardStore
     {

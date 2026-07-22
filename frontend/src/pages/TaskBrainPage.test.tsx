@@ -115,6 +115,17 @@ describe('TaskBrainPage locked frame', () => {
     expect(screen.getByPlaceholderText('This task is closed — ask the brain, or reopen to continue…')).toBeTruthy();
   });
 
+  it('forwards task-scoped Resume through the shared frame', () => {
+    const onResume = vi.fn();
+    render(brain({
+      task: { pillLabel: 'TASK #142', title: 'Needs help', finished: false },
+      run: { paused: true, statusLabel: 'needs attention', onResume },
+    }));
+    fireEvent.click(screen.getByRole('button', { name: /NEEDS ATTENTION/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Resume' }));
+    expect(onResume).toHaveBeenCalledOnce();
+  });
+
   it('opens and submits the review drawer', async () => {
     const onSubmitReview = vi.fn();
     render(brain({ onSubmitReview }));

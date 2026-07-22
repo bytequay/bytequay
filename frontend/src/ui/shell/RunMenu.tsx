@@ -42,6 +42,7 @@ export function RunMenu({ statusLabel = 'Running', paused = false, terminal = fa
 
   const pick = (fn?: () => void) => () => { setOpen(false); fn?.(); };
   const hasMenu = onRun !== undefined || onPause !== undefined || onResume !== undefined;
+  const displayedStatus = paused && statusLabel === 'Running' ? 'Paused' : statusLabel;
 
   return (
     <>
@@ -55,7 +56,7 @@ export function RunMenu({ statusLabel = 'Running', paused = false, terminal = fa
             onClick={hasMenu ? () => setOpen(o => !o) : undefined}
           >
             <span className="ic" aria-hidden>{paused ? '⏸' : '▶'}</span>
-            {paused ? 'Paused' : statusLabel}
+            {displayedStatus}
             {hasMenu && <span className="chev" aria-hidden>▾</span>}
           </button>
           {open && hasMenu && (

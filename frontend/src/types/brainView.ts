@@ -319,7 +319,7 @@ export type TaskBrainViewData = {
     statusLabel: string;              // "CI FIXING · iter #3" (server-computed)
     agentRuntime: 'CLI' | 'API';
     agentModel: string;               // "sonnet-3.7"
-    paused: boolean;                  // true at TaskStatus.PAUSED → rail shows Resume
+    paused: boolean;                  // paused or needs-attention → rail offers explicit Resume
     terminal: boolean;                // true at a terminal status (closed/canceled/…) → rail shows closed state
   };
   aggregate: {

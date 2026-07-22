@@ -45,12 +45,16 @@ local PR artifact current:
   none exists, keep the body proportional: a small change gets one clear line;
   only a substantial change warrants a short summary paragraph.
 - Call `record_pr_progress` with `phase: creating-draft`, then call
-  `record_pr_description` with the finished title and body. Pass those exact
-  same values to `ship_task`.
+  `record_pr_description` with the finished title and body.
 - `record_pr_description` records the PR title and body.
 - `record_pr_check` records each local validation result.
 - `record_pr_comment` and `resolve_pr_comment` manage local review notes.
-- `record_local_review` with `request_user_review: true` hands the result to the user.
+- Finish with `record_dev_report`, then call `record_local_review` with
+  `request_user_review: true`. This starts the Brain adversarial review; it
+  hands the private PR to the user only after that bounded review loop ends.
+- Do not call `ship_task`, `push`, or `request_review` during initial
+  Development. The user promotes the private Local PR through its single
+  Local Review gate after all local threads are closed and checks pass.
 
 For current GitHub state, use ByteQuay's live read tools first. In remote-
 development and CI-fixing turns, call `read_remote_pr_status` for freshly
@@ -58,10 +62,16 @@ probed checks and `read_ci_log` for the current failing job. Never treat an
 earlier cached PR snapshot as current CI state. If ByteQuay's read tools do not
 cover a read or cannot expose a log, read-only `gh` commands are allowed.
 
-Anything that changes GitHub goes through ByteQuay's gated publish tools. Never
-use raw `git push`, `gh` writes, or direct GitHub API writes. Normally finish
-with `ship_task`, which parks the push and draft-PR proposal for user approval.
-When a gated tool parks, stop and wait; do not retry or find another route.
+Anything that changes GitHub goes through ByteQuay's controlled publish path.
+Never use raw `git push`, `gh` writes, or direct GitHub API writes. A CI-fix
+turn commits its verified fix locally; ByteQuay auto-pushes it when the turn
+completes because the user's opt-in is standing authorization. Branch-guard
+turns may use their pre-authorized `push` tool. A review-round turn must commit
+its fixes locally, call `record_round_reply` and
+`resolve_review_comment`, and never call generic publish or push tools; the
+server publishes the push and replies together only after the user approves
+the round. When a gated tool parks, stop and wait; do not retry or find another
+route.
 
 Skills explain how to work. They never grant permissions: the active role,
 task scope, and ByteQuay runtime remain authoritative.

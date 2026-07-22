@@ -33,11 +33,11 @@ describe('derivePRCapabilities', () => {
     expect(derivePRCapabilities(pr('external', 'local-open'), 'task').push).toBe(false);
   });
 
-  it('allows merge for any origin once pushed — drafts included (merging a draft marks it ready first)', () => {
-    expect(derivePRCapabilities(pr('task', 'remote-open'), 'task').merge).toBe(true);
-    expect(derivePRCapabilities(pr('task', 'remote-drafted'), 'task').merge).toBe(true);
+  it('allows direct merge only for an open external PR; task PRs use the notification gate', () => {
+    expect(derivePRCapabilities(pr('task', 'remote-open'), 'task').merge).toBe(false);
+    expect(derivePRCapabilities(pr('task', 'remote-drafted'), 'task').merge).toBe(false);
     expect(derivePRCapabilities(pr('external', 'remote-open'), 'task').merge).toBe(true);
-    expect(derivePRCapabilities(pr('external', 'remote-drafted'), 'task').merge).toBe(true);
+    expect(derivePRCapabilities(pr('external', 'remote-drafted'), 'task').merge).toBe(false);
     expect(derivePRCapabilities(pr('task', 'local-open'), 'task').merge).toBe(false);
     expect(derivePRCapabilities(pr('task', 'merged'), 'task').merge).toBe(false);
   });
@@ -85,9 +85,7 @@ describe('derivePRCapabilities', () => {
   // Whitelisted TRUE cells per capability, as `${origin}/${status}` keys
   // (chatAgent depends only on surface, handled separately below).
   const PUSH_TRUE = new Set(['task/local-open']);
-  const MERGE_TRUE = new Set([
-    'task/remote-drafted', 'task/remote-open', 'external/remote-drafted', 'external/remote-open',
-  ]);
+  const MERGE_TRUE = new Set(['external/remote-open']);
   const PUBLISH_REVIEW_TRUE = new Set([
     'external/remote-drafted', 'external/remote-open', 'external/merged', 'external/closed',
   ]);

@@ -115,6 +115,24 @@ First decide whether these failures are caused by this branch's changes.`,
     expect(container.querySelector('.runtime-kickoff-card__prompt')?.textContent).toBe(text);
   });
 
+  it('renders local-comment addressing instructions as Runtime, not as a user message', () => {
+    const text = `New comments arrived on your local PR "Add rankings". Unlike remote review comments, address these directly now — the branch hasn't been pushed yet, so there's nothing to gate on.
+
+For EACH open comment below:
+  1. Fix it and resolve the thread.`;
+    const { container } = render(<>{stageRow(row({ kind: 'user', text }))}</>);
+
+    const card = container.querySelector('.runtime-kickoff-card') as HTMLDetailsElement;
+    expect(card).toBeTruthy();
+    expect(card.open).toBe(false);
+    expect(container.querySelector('.ev--user')).toBeNull();
+    expect(screen.getByText('Address local review comments')).toBeTruthy();
+    expect(screen.getByText('New comments arrived on your local PR "Add rankings".')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Address local review comments'));
+    expect(container.querySelector('.runtime-kickoff-card__prompt')?.textContent).toBe(text);
+  });
+
   it('shows runtime-managed skills on user rows', () => {
     render(<>{stageRow(row({
       kind: 'user',

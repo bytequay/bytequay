@@ -14,8 +14,11 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ReviewTabPendingList } from './PendingCommentsList';
-import { diffInlineCommentFromReviewDto, type DiffInlineComment } from './DiffInlineComments';
+import {
+  diffInlineCommentFromReviewDto, isPublishableReviewDraft, type DiffInlineComment,
+} from './DiffInlineComments';
 import type { ReviewCommentDto } from '../types';
+import type { LocalPRComment } from '../types/localPr';
 
 afterEach(cleanup);
 
@@ -40,6 +43,20 @@ function pending(over: Partial<DiffInlineComment> = {}): DiffInlineComment {
 }
 
 describe('ReviewTabPendingList', () => {
+  it('counts only user-authored local roots as publishable review drafts', () => {
+    const comment = (author: string, over: Partial<LocalPRComment> = {}): LocalPRComment => ({
+      id: author, localPrId: 'pr-1', origin: 'local', scope: 'pr', filePath: null,
+      lineNumber: null, side: 'RIGHT', startLine: null, startSide: null, author,
+      body: 'review note', createdAt: 1, resolvedAt: null, dismissedAt: null,
+      strippedOnPushAt: null, parentCommentId: null, publishedAt: null, ...over,
+    });
+
+    expect(isPublishableReviewDraft(comment('you'))).toBe(true);
+    expect(isPublishableReviewDraft(comment('brain'))).toBe(false);
+    expect(isPublishableReviewDraft(comment('claude-code'))).toBe(false);
+    expect(isPublishableReviewDraft(comment('you', { parentCommentId: 'root' }))).toBe(false);
+  });
+
   it('renders human and agent pending comments with location labels', () => {
     const { container } = render(
       <ReviewTabPendingList

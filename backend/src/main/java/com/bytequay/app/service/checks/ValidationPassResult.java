@@ -18,8 +18,9 @@ import java.util.List;
 /**
  * Outcome of a {@link ValidationPassService#run} call.
  *
- * @param passed    true when the checks came back clean within the cap
- * @param fixRounds how many auto-fix rounds ran before the outcome
+ * @param passed    true when the checks came back clean
+ * @param fixRounds reserved audit field; zero until durable event-driven
+ *                  fix attempts are introduced
  * @param failures  the remaining failures when {@code passed} is false
  */
 public record ValidationPassResult(boolean passed, int fixRounds, List<ValidationFailure> failures)

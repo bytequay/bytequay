@@ -14,6 +14,8 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.ReviewComment;
+import com.bytequay.app.domain.ReviewRound;
+import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import org.springframework.stereotype.Component;
 
@@ -33,10 +35,12 @@ import static java.util.Objects.requireNonNull;
 public class ReviewRoundToolHandlers
 {
     private final StageStore stageStore;
+    private final ReviewRoundStore roundStore;
 
-    public ReviewRoundToolHandlers(StageStore stageStore)
+    public ReviewRoundToolHandlers(StageStore stageStore, ReviewRoundStore roundStore)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.roundStore = requireNonNull(roundStore, "roundStore is null");
     }
 
     /** Args record for {@code record_round_reply}. */
@@ -72,11 +76,29 @@ public class ReviewRoundToolHandlers
             return ToolOutcome.Completed.error("no review comment: " + commentId);
         }
         ReviewComment comment = existing.get();
+        if (!belongsToActiveRound(call, comment)) {
+            return ToolOutcome.Completed.error(
+                    "comment does not belong to this task's active review round");
+        }
         stageStore.saveReviewComment(new ReviewComment(
                 comment.id(), comment.taskId(), comment.file(), comment.line(), comment.body(),
                 comment.createdAt(), comment.source(), comment.remoteLink(), comment.resolved(),
                 comment.remoteCommentId(), comment.roundId(), body, Instant.now(),
                 comment.side(), comment.startLine(), comment.startSide()));
         return ToolOutcome.Completed.ok("Drafted reply on comment " + commentId);
+    }
+
+    private boolean belongsToActiveRound(ToolCall call, ReviewComment comment)
+    {
+        if (call.taskId() == null || !call.taskId().equals(comment.taskId())
+                || comment.roundId() == null) {
+            return false;
+        }
+        return roundStore.findLiveByTask(call.taskId())
+                .filter(round -> round.id().equals(comment.roundId().toString()))
+                .filter(round -> ReviewRound.STATUS_ADDRESSING.equals(round.status()))
+                .filter(round -> call.agentRunId() == null
+                        || call.agentRunId().equals(round.runId()))
+                .isPresent();
     }
 }

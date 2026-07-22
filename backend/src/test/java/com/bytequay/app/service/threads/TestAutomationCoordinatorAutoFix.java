@@ -198,6 +198,23 @@ class TestAutomationCoordinatorAutoFix
         verify(ciFixRunExecutor, never()).closeIfGreen(any());
     }
 
+    @Test
+    void parkedAndTerminalTasksAreSkippedBeforeReadingRemoteCi()
+    {
+        Task parked = newShippedTask("ship-parked", "thread-parked")
+                .withStatus(TaskStatus.NEEDS_ATTENTION);
+        Task completed = newShippedTask("ship-done", "thread-done")
+                .withStatus(TaskStatus.COMPLETED);
+        when(taskStore.listWithLinkedPr(200)).thenReturn(List.of(parked, completed));
+        AutomationCoordinator coordinator = newCoordinator();
+
+        coordinator.scanForFailingCi();
+
+        verify(pullRequests, never()).refreshPullRequestDetail(anyString(), eq(PR_NUMBER));
+        verify(ciFixRunExecutor, never()).driveShippedCiFix(any(), anyString(), any());
+        verify(ciFixRunExecutor, never()).closeIfGreen(any());
+    }
+
     private void wireDashboardFailingCi(Task task)
     {
         when(taskStore.listWithLinkedPr(200)).thenReturn(List.of(task));

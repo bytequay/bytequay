@@ -35,7 +35,7 @@ const activeDevelopmentNodes = buildLivePlan({
 });
 
 describe('TaskSidebar', () => {
-  it('renders task context and stages as flat navigation rows', () => {
+  it('renders the four grouped stages without promoting nested checkpoints', () => {
     render(
       <TaskSidebar
         task={{ title: 'Add cost-meter card', branch: 'feat/cost-meter' }}
@@ -46,28 +46,34 @@ describe('TaskSidebar', () => {
     expect(screen.queryByText(/feat\/cost-meter/)).toBeNull();
     expect(screen.getByText('STAGES')).toBeTruthy();
     expect(screen.getByText('Plan')).toBeTruthy();
-    expect(screen.getByText('Development')).toBeTruthy();
-    expect(screen.getByText('Local review')).toBeTruthy();
-    expect(screen.getByText('CI validation')).toBeTruthy();
-    expect(screen.getByText('Comments')).toBeTruthy();
+    expect(screen.getByText('Local Development')).toBeTruthy();
+    expect(screen.getByText('Remote Development')).toBeTruthy();
     expect(screen.getByText('Cleanup')).toBeTruthy();
+    expect(screen.queryByText('Local review')).toBeNull();
+    expect(screen.queryByText('CI validation')).toBeNull();
   });
 
-  it('shows Development phases while active and lets the user fold them', () => {
+  it('keeps grouped phases collapsed until the user opens them', () => {
     render(
       <TaskSidebar
         task={{ title: 'x', branch: 'b' }}
         nodes={activeDevelopmentNodes}
       />,
     );
+    const localDevelopment = screen.getByText('Local Development').closest('button') as HTMLButtonElement;
+    expect(localDevelopment.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('.workspace-task-stage__plan')).toBeNull();
+    fireEvent.click(localDevelopment);
+    expect(localDevelopment.getAttribute('aria-expanded')).toBe('true');
     expect(document.querySelector('.workspace-task-stage__plan')).not.toBeNull();
     expect(screen.getByText('Implementing')).toBeTruthy();
     expect(screen.getByText('Validation')).toBeTruthy();
     expect(screen.getByText('Brain review')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse Development' }));
+    expect(screen.getByText('Local review')).toBeTruthy();
+    expect(screen.getByText('Push / PR')).toBeTruthy();
+    fireEvent.click(localDevelopment);
+    expect(localDevelopment.getAttribute('aria-expanded')).toBe('false');
     expect(document.querySelector('.workspace-task-stage__plan')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Expand Development' }));
-    expect(document.querySelector('.workspace-task-stage__plan')).not.toBeNull();
   });
 
   it('shows the done-count with the same bottom navigation as Home', () => {
@@ -77,20 +83,15 @@ describe('TaskSidebar', () => {
         nodes={nodes}
       />,
     );
-    expect(screen.getByText(/^\d+ of 8 done$/)).toBeTruthy();
+    expect(screen.getByText(/^\d+ of 11 done$/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Report a bug' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
     expect(screen.queryByText('chenjian2664')).toBeNull();
   });
 
-  it('keeps canonical owner glyphs visible independently of status', () => {
+  it('does not add lifecycle-type glyphs beside the grouped stage labels', () => {
     const { container } = render(<TaskSidebar task={{ title: 'x', branch: 'b' }} nodes={nodes} />);
-    expect(Array.from(container.querySelectorAll('[data-node-type="stage"]')).map(node => node.textContent))
-      .toEqual(['🤖', '🤖', '🤖']);
-    expect(Array.from(container.querySelectorAll('[data-node-type="gate"]')).map(node => node.textContent))
-      .toEqual(['◆', '◆']);
-    expect(Array.from(container.querySelectorAll('[data-node-type="auto"]')).map(node => node.textContent))
-      .toEqual(['○', '○', '○']);
+    expect(container.querySelectorAll('[data-node-type]').length).toBe(0);
   });
 
   it('fires onBack from the traffic-lights back arrow', () => {
@@ -129,8 +130,13 @@ describe('TaskSidebar', () => {
         onOpenStage={onOpenStage}
       />,
     );
-    fireEvent.click(screen.getByText('Development'));
+    const localDevelopment = screen.getByText('Local Development').closest('button') as HTMLButtonElement;
+    fireEvent.click(localDevelopment);
     expect(onOpenStage).toHaveBeenCalledWith('dev-1');
+    expect(localDevelopment.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(localDevelopment);
+    expect(localDevelopment.getAttribute('aria-expanded')).toBe('false');
+    expect(onOpenStage).toHaveBeenCalledOnce();
   });
 
   it('keeps Cleanup disabled while CI validation remains actionable', () => {
@@ -142,6 +148,7 @@ describe('TaskSidebar', () => {
         onOpenTab={onOpenTab}
       />,
     );
+    fireEvent.click(screen.getByText('Remote Development'));
     fireEvent.click(screen.getByText('CI validation'));
     expect(onOpenTab).toHaveBeenCalledWith('pr', 'checks');
     const cleanupButton = screen.getByText('Cleanup').closest('button') as HTMLButtonElement;

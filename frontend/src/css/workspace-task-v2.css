@@ -154,15 +154,21 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
   flex-direction: column;
   gap: var(--left-nav-group-gap);
 }
-/* The node's nav button and its fold-toggle chevron share one row; hover and
-   the active highlight live on the row so both light up together. */
+/* Stage cards use the rail's own background; phase-bearing cards toggle their
+   ladder and open the stage conversation as one action. */
 .workspace-task-stage-row {
   display: flex;
   align-items: center;
-  border-radius: var(--left-nav-row-radius);
+  overflow: hidden;
+  border: 1px solid #e7e9ec;
+  border-radius: 9px;
+  background: transparent;
+  transition: border-color 0.12s;
 }
-.workspace-task-stage-row:hover { background: var(--left-nav-hover-bg); }
-.workspace-task-stage-row.is-active { background: var(--left-nav-active-bg); }
+.workspace-task-stage-row:hover { border-color: #d5dbe1; }
+.workspace-task-stage-row.is-active {
+  border-color: rgba(130, 80, 223, 0.33);
+}
 .workspace-task-stage {
   display: flex;
   width: 100%;
@@ -170,29 +176,12 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
   gap: var(--left-nav-row-gap);
   padding: var(--left-nav-row-padding);
   border: 0;
-  border-radius: var(--left-nav-row-radius);
+  border-radius: 0;
   background: transparent;
   color: #17191c;
   cursor: pointer;
   text-align: left;
 }
-/* With a fold toggle beside it, the nav button flexes to fill the rest. */
-.workspace-task-stage-row > .workspace-task-stage { flex: 1; min-width: 0; width: auto; }
-.workspace-task-stage__toggle {
-  flex-shrink: 0;
-  align-self: stretch;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 7px;
-  border: 0;
-  border-radius: var(--left-nav-row-radius);
-  background: transparent;
-  color: #c6cbd1;
-  cursor: pointer;
-}
-.workspace-task-stage__toggle:hover { color: #57606a; }
-.workspace-task-stage__toggle > svg { transition: transform 0.12s; }
-.workspace-task-stage__toggle.is-open > svg { transform: rotate(90deg); }
 .workspace-task-stage.is-automatic,
 .workspace-task-stage.is-automatic:disabled {
   cursor: default;
@@ -238,6 +227,8 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
 .workspace-task-stage.tone-remote > small.is-done { color: #8250df; }
 .workspace-task-stage > small.is-errored { color: #cf222e; }
 .workspace-task-stage > svg { flex-shrink: 0; color: #c6cbd1; }
+.workspace-task-stage.has-phases > svg { transition: transform 0.12s; }
+.workspace-task-stage.has-phases.is-open > svg { transform: rotate(90deg); }
 .workspace-task-stage__status-icon { width: 13px; display: inline-flex; justify-content: center; flex-shrink: 0; }
 .workspace-task-stage__status-icon.is-done { color: #2da44e; }
 .workspace-task-stage__status-icon.is-cleanup { color: #b6bcc2; }

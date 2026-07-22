@@ -47,7 +47,7 @@ export type LivePlanNav =
  *  checkpoint is machine-driven with no owner of its own. */
 export type LivePlanNodeType = 'stage' | 'gate' | 'auto';
 
-/** One row in Development's internal phase ladder. */
+/** One row in a grouped lifecycle stage's nested phase ladder. */
 export type LivePlanPhaseNode = {
   key: string;
   label: string;
@@ -145,7 +145,7 @@ function glyphFor(status: LivePlanStatus): string {
 /** Which spine nodes always render the 🤖 glyph — done or not, they're
  *  AI-owned stages, so the shape never swaps to ✓ (status still conveys
  *  progress via the node's color/opacity). */
-const ROBOT_KEYS = new Set(['plan', 'local-development', 'comments']);
+const ROBOT_KEYS = new Set(['plan', 'local-development', 'remote-development']);
 
 /** Task phases during which the Development stage is the active work — the
  *  node must read "running" then even if its stage row sits OPEN between
@@ -159,12 +159,36 @@ const DEV_RUNNING_PHASES = new Set<TaskPhase>(
 const REMOTE_DEVELOPMENT_PHASES = new Set<TaskPhase>(
   ['PUSHED_AWAITING_CI', 'AWAITING_READY', 'AWAITING_REMOTE_REVIEW']);
 
-function devNodeStatus(dev: StageDto | undefined, phase: TaskPhase): LivePlanStatus {
-  if (phase === 'AWAITING_PUSH' || REMOTE_DEVELOPMENT_PHASES.has(phase) || phase === 'COMPLETED') return 'done';
+function devNodeStatus(
+  dev: StageDto | undefined,
+  phase: TaskPhase,
+  prNumber: number | null,
+): LivePlanStatus {
+  if (prNumber !== null || REMOTE_DEVELOPMENT_PHASES.has(phase) || phase === 'COMPLETED') return 'done';
   if (dev === undefined) return 'future';
   if (DEV_RUNNING_PHASES.has(phase)) return 'running';
+  if (phase === 'AWAITING_PUSH') return 'awaiting';
   if (dev.state === 'CLOSED') return 'done';
   return stageStatus(dev);
+}
+
+function remoteRunStatus(...runs: Array<AgentRunDto | undefined>): LivePlanStatus | null {
+  const live = runs.filter((run): run is AgentRunDto => run !== undefined);
+  if (live.length === 0) return null;
+  return live.some(run => run.status === 'awaiting_gate') ? 'awaiting' : 'running';
+}
+
+function remoteDevelopmentStatus(
+  remote: StageDto | undefined,
+  phase: TaskPhase,
+  prNumber: number | null,
+  liveRunStatus: LivePlanStatus | null,
+): LivePlanStatus {
+  if (liveRunStatus !== null) return liveRunStatus;
+  if (phase === 'COMPLETED' && prNumber !== null) return 'done';
+  if (REMOTE_DEVELOPMENT_PHASES.has(phase)) return 'monitoring';
+  if (remote !== undefined) return stageStatus(remote);
+  return prNumber !== null ? 'sleep' : 'future';
 }
 
 /** Local Review starts only after Brain's internal review. It remains open
@@ -275,17 +299,6 @@ function derivedDevCorePhases(phase: TaskPhase): LivePlanPhaseNode[] {
   ];
 }
 
-function collapsedDevelopmentMeta(phases: LivePlanPhaseNode[]): string | undefined {
-  const validation = phases.find(p => p.key === 'validation');
-  const brainReview = phases.find(p => p.key === 'brainReview');
-  const parts: string[] = [];
-  if (validation?.status === 'done') parts.push('validated ✓');
-  else if (validation?.meta !== undefined) parts.push(validation.meta);
-  if (brainReview?.meta !== undefined) parts.push(brainReview.meta);
-  else if (brainReview?.status === 'done') parts.push('brain review complete');
-  return parts.length > 0 ? parts.join(' · ') : undefined;
-}
-
 const GUARD_LABELS: Record<BranchGuardDto['state'], string> = {
   healthy: 'in sync with main',
   drifting: 'drifting from main',
@@ -308,9 +321,9 @@ export function buildGuardChip(guard: BranchGuardDto | null | undefined, taskTer
   };
 }
 
-/** Derives the locked eight-node lifecycle. Only Development owns a nested
- * phase ladder; gates and automatic checkpoints remain honest top-level
- * nodes instead of being hidden inside broad local/remote buckets. */
+/** Derives the four grouped stages shown in the task sidebar. Lifecycle
+ * checkpoints remain individually actionable as nested rows without turning
+ * the navigation rail into eight competing top-level destinations. */
 export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const {
     stages, liveRuns: inputLiveRuns = [], liveRound: inputLiveRound = null, task, prStatus = null, mergeReady = false,
@@ -335,6 +348,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const remoteCiFixRun = REMOTE_DEVELOPMENT_PHASES.has(task.currentPhase) || task.prNumber !== null
     ? ciFixRun
     : undefined;
+  const remoteLiveStatus = remoteRunStatus(remoteCiFixRun, roundRun);
   // The Plan node stands in for the plan "stage" — which is really the
   // brain/root conversation, not a drill-in stage. It tracks the plan's
   // progress (planning while the PlanStage is active, done once approved)
@@ -347,7 +361,6 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
     (plan === undefined || plan.state !== 'CLOSED') && task.currentPhase === 'PLANNING'
       ? 'planning'
       : stageStatus(plan, true);
-  const devStatus = devNodeStatus(dev, task.currentPhase);
   const localCorePhases = devPhases.length > 0
     ? buildDevCorePhases(devPhases, liveRuns)
     : derivedDevCorePhases(task.currentPhase);
@@ -358,13 +371,21 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
     brainReviewPhase?.status === 'done',
   );
   const commentsStat = commentsStatus(remote, task.currentPhase, roundRun, liveRound);
+  const devStatus = localReviewStat === 'awaiting' ? 'awaiting'
+    : localReviewStat === 'running' ? 'running'
+      : devNodeStatus(dev, task.currentPhase, task.prNumber);
+  const remoteStatus = remoteDevelopmentStatus(
+    remote,
+    task.currentPhase,
+    task.prNumber,
+    remoteLiveStatus,
+  );
   const cleanupStatus = stageStatus(cleanup);
 
   // Local review / Remote PR / Merge-Close all open the same PR surface
   // (PRView already renders the right actions for whatever state the PR is
   // in), so they share the same `tab` nav once there's something to show.
   const prTabNav: LivePlanNav = { kind: 'tab', tab: 'pr' };
-  const mergeGateNav: LivePlanNav = { kind: 'tab', tab: 'pr', subTab: 'overview' };
   const remotePrStatus: LivePlanStatus = task.prNumber !== null
     || REMOTE_DEVELOPMENT_PHASES.has(task.currentPhase) || task.currentPhase === 'COMPLETED'
     ? 'done'
@@ -400,13 +421,66 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       : mergeStatus === 'awaiting' ? 'ready to merge'
         : mergeStatus === 'sleep' ? 'awaiting' : undefined;
 
-  const developmentMeta = devStatus === 'done' ? collapsedDevelopmentMeta(localCorePhases) : iterMeta(dev);
   const brainReviewMeta = brainReviewPhase?.meta;
+
+  const localPhases: LivePlanPhaseNode[] = [
+    ...localCorePhases,
+    {
+      key: 'local-review', label: 'Local review', status: localReviewStat,
+      glyph: localReviewStat === 'done' ? '✓' : '◆',
+      meta: localReviewStat === 'done' ? 'approved'
+        : localReviewStat === 'running' ? 'in review'
+          : localReviewStat === 'awaiting'
+            ? (brainReviewMeta ?? (task.currentPhase === 'AWAITING_PUSH' ? 'approve & push' : 'needs attention'))
+            : undefined,
+      nav: dev !== undefined && localReviewStat !== 'future' ? prTabNav : { kind: 'none' },
+    },
+    {
+      key: 'push-pr', label: 'Push / PR', status: remotePrStatus,
+      glyph: glyphFor(remotePrStatus),
+      meta: task.prNumber !== null ? `PR #${task.prNumber}`
+        : remotePrStatus === 'done' ? 'draft pushed' : undefined,
+      nav: task.prNumber !== null ? prTabNav : { kind: 'none' },
+    },
+  ];
 
   const commentsMeta = liveRound !== null ? `round ${liveRound.idx} · ${liveRound.stats.open} open`
     : roundRun !== undefined ? runMeta(roundRun)
       : commentsStat === 'monitoring' ? 'watching review'
         : commentsStat === 'sleep' ? 'armed' : undefined;
+  const remotePhases: LivePlanPhaseNode[] = [
+    {
+      key: 'remote-pr', label: 'Remote PR', status: remotePrStatus,
+      glyph: glyphFor(remotePrStatus),
+      meta: task.prNumber !== null ? `PR #${task.prNumber}`
+        : remotePrStatus === 'done' ? 'draft pushed' : undefined,
+      nav: task.prNumber !== null ? prTabNav : { kind: 'none' },
+    },
+    {
+      key: 'ci-validation', label: 'CI validation', status: ciValidationStatus,
+      glyph: glyphFor(ciValidationStatus), meta: ciValidationMeta, nav: ciValidationNav,
+    },
+    {
+      key: 'comments', label: 'Comments', status: commentsStat,
+      glyph: roundRun !== undefined ? glyphFor(commentsStat) : '🤖',
+      meta: commentsMeta,
+      nav: roundRun !== undefined ? { kind: 'run', runId: roundRun.id } : stageNav(remote),
+    },
+    {
+      key: 'merge-close', label: 'Merge / Close', status: mergeStatus,
+      glyph: mergeStatus === 'done' ? '✓' : '◆', meta: mergeMeta,
+      nav: task.prNumber !== null
+        ? { kind: 'tab', tab: 'pr', subTab: 'overview' }
+        : { kind: 'none' },
+    },
+  ];
+
+  const remoteMeta = remoteLiveStatus === 'awaiting' ? 'awaiting you'
+    : remoteCiFixRun !== undefined ? runMeta(remoteCiFixRun)
+      : roundRun !== undefined ? runMeta(roundRun)
+        : task.currentPhase === 'PUSHED_AWAITING_CI' ? 'checking CI'
+          : task.currentPhase === 'AWAITING_REMOTE_REVIEW' ? 'watching review'
+            : iterMeta(remote);
   const nodes: LivePlanNode[] = [
     {
       key: 'plan', label: 'Plan', status: planStatus, glyph: '🤖',
@@ -414,43 +488,15 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       placement: 'full', activeView: viewingBrain, nav: { kind: 'brain' }, nodeType: 'stage',
     },
     {
-      key: 'local-development', label: 'Development', status: devStatus, glyph: '🤖',
-      meta: developmentMeta,
+      key: 'local-development', label: 'Local Development', status: devStatus, glyph: '🤖',
+      meta: iterMeta(dev),
       placement: 'full', activeView: isViewed(dev), nav: stageNav(dev),
-      nodeType: 'stage',
-      phases: devStatus === 'running' ? localCorePhases : undefined,
+      nodeType: 'stage', phases: localPhases,
     },
     {
-      key: 'local-review', label: 'Local review', status: localReviewStat, glyph: '◆',
-      meta: localReviewStat === 'running' ? 'in review'
-        : localReviewStat === 'awaiting'
-          ? (brainReviewMeta ?? (task.currentPhase === 'AWAITING_PUSH' ? 'approve & push' : 'needs attention'))
-          : undefined,
-      placement: 'full', activeView: false,
-      nav: dev !== undefined && localReviewStat !== 'future' ? prTabNav : { kind: 'none' }, nodeType: 'gate',
-    },
-    {
-      key: 'remote-pr', label: 'Remote PR', status: remotePrStatus, glyph: glyphFor(remotePrStatus),
-      meta: task.prNumber !== null ? `PR #${task.prNumber}`
-        : remotePrStatus === 'done' ? 'draft pushed' : undefined,
-      placement: 'full', activeView: false,
-      nav: task.prNumber !== null ? prTabNav : { kind: 'none' }, nodeType: 'auto',
-    },
-    {
-      key: 'ci-validation', label: 'CI validation', status: ciValidationStatus,
-      glyph: glyphFor(ciValidationStatus), meta: ciValidationMeta,
-      placement: 'full', activeView: remoteCiFixRun?.stageId === viewedStageId,
-      nav: ciValidationNav, nodeType: 'auto',
-    },
-    {
-      key: 'comments', label: 'Comments', status: commentsStat, glyph: '🤖',
-      meta: commentsMeta, placement: 'full', activeView: isViewed(remote),
-      nav: roundRun !== undefined ? { kind: 'run', runId: roundRun.id } : stageNav(remote), nodeType: 'stage',
-    },
-    {
-      key: 'merge-close', label: 'Merge / Close', status: mergeStatus, glyph: '◆', meta: mergeMeta,
-      placement: 'full', activeView: false,
-      nav: task.prNumber !== null ? mergeGateNav : { kind: 'none' }, nodeType: 'gate',
+      key: 'remote-development', label: 'Remote Development', status: remoteStatus, glyph: '🤖',
+      meta: remoteMeta, placement: 'full', activeView: isViewed(remote), nav: stageNav(remote),
+      nodeType: 'stage', phases: remotePhases,
     },
     {
       key: 'cleanup', label: 'Cleanup', status: cleanupStatus, glyph: glyphFor(cleanupStatus),

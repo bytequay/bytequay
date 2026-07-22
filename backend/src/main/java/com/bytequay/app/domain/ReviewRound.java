@@ -39,7 +39,7 @@ import java.util.List;
  *                  record_review_verdict} still counts against the budget
  *                  instead of wedging the loop open forever
  * @param budget max review-fix cycles before escalating to the human
- *               (default 3, R23)
+ *               (default 5, R23)
  */
 public record ReviewRound(
         String id,
@@ -72,7 +72,7 @@ public record ReviewRound(
     /** Default review-fix cycles before a brain review escalates to the
      *  human (R23) — deliberately conservative: two agents can deadlock
      *  arguing style or philosophy, and the human is the tiebreaker. */
-    public static final int DEFAULT_BRAIN_BUDGET = 3;
+    public static final int DEFAULT_BRAIN_BUDGET = 5;
 
     public record ReviewRoundStats(int fixed, int replied, int pushedBack, int open)
     {

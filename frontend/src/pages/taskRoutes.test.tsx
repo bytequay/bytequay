@@ -16,7 +16,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TaskBrainRoute } from './TaskBrainRoute';
 import { StageDetailRoute } from './StageDetailRoute';
 import { buildMockBrainView } from '../threads/brain/brainViewFixture';
-import type { PlanCardDto, StageDetailData } from '../types/brainView';
+import type { PlanCardDto, StageDetailData, TaskBrainViewData } from '../types/brainView';
 import type { DiffFileDto, ThreadCommitDto } from '../types';
 import type { LocalPRBundle, LocalPRCommit } from '../types/localPr';
 
@@ -160,6 +160,61 @@ describe('TaskBrainRoute', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close pull request details' }));
     expect(screen.queryByRole('dialog', { name: 'Pull request details' })).toBeNull();
     expect(document.querySelector('.workspace-task-v2')).toBe(taskPage);
+  });
+
+  it('owns Local Review approval in the conversation, not the right Overview panel', async () => {
+    const taskId = 'task-local-review-gate';
+    const bundle: LocalPRBundle = {
+      pr: {
+        id: 'local-review-pr', taskId, branchName: 'dev/local-review', baseBranch: 'main',
+        title: 'Local review change', description: 'Ready for review', status: 'local-open',
+        createdAt: 0, pushedAt: null, remotePrNumber: null, remotePrUrl: null,
+        mergedAt: null, closedAt: null, origin: 'task', repo: 'bytequay/app', author: 'agent',
+        syncedAt: null, syncedAdditions: 2, syncedDeletions: 1, syncedMergeable: null,
+        syncedMergeableState: null, syncedMergeQueueEnabled: false,
+        syncedMergeQueueState: null, branchDeletedAt: null,
+      },
+      commits: [], timeline: [], checks: [{
+        id: 'local-check', localPrId: 'local-review-pr', kind: 'local', name: 'Local tests',
+        status: 'passed', durationMs: 10, startedAt: 1, finishedAt: 11, runId: 'run-1',
+      }], comments: [],
+    };
+    const base = buildMockBrainView(0);
+    const view: TaskBrainViewData = {
+      ...base,
+      task: {
+        ...base.task, id: taskId, prNumber: null, prDraft: false, currentPhase: 'AWAITING_PUSH',
+      },
+      rightRail: { ...base.rightRail, linkedPr: null },
+      devPhases: [
+        { key: 'implementing', status: 'done', meta: null, badgeRunId: null },
+        { key: 'validation', status: 'done', meta: null, badgeRunId: null },
+        { key: 'brainReview', status: 'done', meta: 'brain approved', badgeRunId: null },
+      ],
+    };
+    const approveNotification = vi.fn();
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getPrForTask: vi.fn().mockResolvedValue(bundle.pr),
+      getLocalPrBundle: vi.fn().mockResolvedValue(bundle),
+      listNotificationsForThread: vi.fn().mockResolvedValue([]),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
+      listTaskCommits: vi.fn().mockResolvedValue([]),
+      getAgentReview: vi.fn().mockResolvedValue(null),
+      approveNotification,
+    };
+
+    render(<TaskBrainRoute threadId="t1" taskId={taskId} onOpenStage={() => {}} onClosed={() => {}} />);
+
+    const approve = await screen.findByRole('button', { name: 'Approve & ship' });
+    expect(approve.closest('.workspace-task-v2__conversation')).toBeTruthy();
+    const prPane = document.querySelector('.workspace-task-v2__pr') as HTMLElement;
+    expect(within(prPane).getByText('All checks have passed')).toBeTruthy();
+    expect(prPane.querySelector('.merge-box')).toBeNull();
+    fireEvent.click(approve);
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.getByText('Push to GitHub')).toBeTruthy();
+    expect(approveNotification).not.toHaveBeenCalled();
   });
 
   it('shows the root-node plan with the review bar when the plan awaits the user', async () => {

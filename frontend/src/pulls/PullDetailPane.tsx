@@ -245,7 +245,14 @@ export function PullDetailBody({
   const [submitOpen, setSubmitOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reviewNotice, setReviewNotice] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const det = buildHeader(row, bundle);
+  const copyTitleLink = () => {
+    const url = row.dto.htmlUrl;
+    void navigator.clipboard.writeText(url ? `${det.title} [${det.numS}](${url})` : `${det.title} ${det.numS}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  };
   const isOverview = subTab === 'overview';
   useEffect(() => {
     if (openChangesToken !== undefined) setSubTab('changes');
@@ -285,14 +292,17 @@ export function PullDetailBody({
             <span style={{ fontSize: 21, fontWeight: 600, lineHeight: 1.3, letterSpacing: '-0.01em', color: '#17191c', minWidth: 0, flex: 1 }}>
               {det.title}{' '}
               <span style={{ fontWeight: 300, color: '#8b949e' }}>{det.numS}</span>
-            </span>
-            <span
-              className="pl-hov-ic"
-              title="Copy title"
-              onClick={() => { void navigator.clipboard.writeText(`${det.title} #${row.num}`); }}
-              style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 7, color: '#8b949e', flexShrink: 0, marginTop: 2 }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
+              <span
+                className="pl-hov-ic"
+                title="Copy title and link"
+                onClick={copyTitleLink}
+                style={{ width: 24, height: 24, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', verticalAlign: 'middle', cursor: 'pointer', borderRadius: 7, color: copied ? '#1a7f37' : '#8b949e', marginLeft: 4 }}
+              >
+                {copied
+                  ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                  : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>}
+              </span>
+              {copied && <span style={{ fontSize: 12, fontWeight: 500, color: '#1a7f37', marginLeft: 4, verticalAlign: 'middle' }}>Copied</span>}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginTop: 12 }}>

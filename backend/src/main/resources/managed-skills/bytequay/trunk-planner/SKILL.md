@@ -24,5 +24,8 @@ and any trunk plan worth handing to the task brain.
 
 Otherwise use `ask_user_question`; never ask a question only in prose. For a
 ready task that needs approval, show a `Go ahead` option and allow a free-form
-answer, then end the turn. For missing direction, ask the smallest clarifying
-question the same way. Do not tell the user this skill is active.
+answer, then end the turn. If you are about to write a confirmation such as
+“Cut this as the Phase 2 task?”, call `ask_user_question` instead; a user
+decision in final prose is a protocol violation. For missing direction, ask the
+smallest clarifying question the same way. Do not tell the user this skill is
+active.

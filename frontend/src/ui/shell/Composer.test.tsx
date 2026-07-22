@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Composer } from './Composer';
@@ -29,6 +30,40 @@ describe('Composer', () => {
     render(<Composer value="hello" onChange={() => {}} onSubmit={onSubmit} />);
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
     expect(onSubmit).toHaveBeenCalled();
+  });
+
+  it('sends a suggested reply directly on Enter', () => {
+    const onSubmit = vi.fn();
+    render(
+      <Composer variant="workspace-v2" value="" onChange={() => {}}
+        onSubmit={onSubmit} suggestedReply="go ahead" />,
+    );
+
+    expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+    expect(onSubmit).toHaveBeenCalledWith('go ahead');
+  });
+
+  it('accepts a suggested reply with Tab and hides it as soon as the user types', () => {
+    function Harness() {
+      const [value, setValue] = useState('');
+      return (
+        <Composer variant="workspace-v2" value={value} onChange={setValue}
+          onSubmit={() => {}} suggestedReply="go ahead" />
+      );
+    }
+
+    const { container } = render(<Harness />);
+    const box = screen.getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.keyDown(box, { key: 'Tab' });
+    expect(box.value).toBe('go ahead');
+    expect(container.querySelector('.composer-suggested-reply')).toBeNull();
+
+    fireEvent.change(box, { target: { value: '' } });
+    expect(container.querySelector('.composer-suggested-reply')).toBeTruthy();
+    fireEvent.change(box, { target: { value: 'not yet' } });
+    expect(box.value).toBe('not yet');
+    expect(container.querySelector('.composer-suggested-reply')).toBeNull();
   });
 
   it('a pasted image reaches onImagesChange as a data URL', async () => {

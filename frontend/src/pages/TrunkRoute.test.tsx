@@ -55,6 +55,19 @@ function mockBridge(over: Record<string, unknown> = {}) {
   return bridge;
 }
 
+function mockAssistantQuestion(text: string) {
+  return mockBridge({
+    getTaskIndex: vi.fn().mockResolvedValue({
+      threadId: 't1', totalUserMessages: 1, entries: [], loadedFromSeq: null, nextCursor: null,
+      messages: [
+        { id: 'm1', threadId: 't1', taskId: null, seq: 1, role: 'user', type: 'text', contentJson: JSON.stringify({ text: 'What is next?' }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:00:00Z' },
+        { id: 'm2', threadId: 't1', taskId: null, seq: 2, role: 'assistant', type: 'text', contentJson: JSON.stringify({ text }), durationMs: null, tokensIn: null, ts: '2026-06-24T10:00:05Z' },
+        { id: 'm3', threadId: 't1', taskId: null, seq: 3, role: 'system', type: 'turn_done', contentJson: '{}', durationMs: 1000, tokensIn: null, ts: '2026-06-24T10:00:06Z' },
+      ],
+    }),
+  });
+}
+
 describe('TrunkRoute', () => {
   it('mounts the V3 trunk on live thread data', async () => {
     mockBridge();
@@ -92,6 +105,34 @@ describe('TrunkRoute', () => {
     fireEvent.change(box, { target: { value: 'cut a task' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(bridge.sendTrunkMessage).toHaveBeenCalledWith('t1', 'cut a task', []));
+  });
+
+  it.each([
+    'Phase 2 is unblocked. Want me to put up the plan for approval?',
+    'Cut this as the Phase 2 task?',
+    'Next task: Cut this as the Phase 2 task?',
+  ])('offers go ahead for the direct continuation question: %s', async question => {
+    const bridge = mockAssistantQuestion(question);
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+
+    await screen.findByText('go ahead');
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' });
+
+    await waitFor(() => expect(bridge.sendTrunkMessage).toHaveBeenCalledWith('t1', 'go ahead', []));
+  });
+
+  it.each([
+    'Which branch should I use?',
+    'Cut this from the Phase 2 task?',
+    'Which task should I cut?',
+    'Cut this as the Phase 2 or Phase 3 task?',
+    'Should I use main or release/2.x?',
+  ])('does not offer go ahead for a question needing a real choice: %s', async question => {
+    mockAssistantQuestion(question);
+    render(<TrunkRoute threadId="t1" onOpenTask={() => {}} />);
+
+    await screen.findByText(question);
+    expect(screen.queryByText('go ahead')).toBeNull();
   });
 
   it('revives an errored trunk from the visible recovery action', async () => {

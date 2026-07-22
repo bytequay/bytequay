@@ -35,7 +35,7 @@ export type ComposerUsage =
 export function Composer({
   value, onChange, onSubmit, placeholder, modePill, busy = false, disabled = false,
   queueWhenBusy = false, onAddContext, images = [], onImagesChange, closedNote,
-  variant = 'default', toolbar, meta, usage, suggestedReply,
+  variant = 'default', toolbar, meta, usage, suggestedReply, onStop,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -70,6 +70,9 @@ export function Composer({
   /** Ghost reply for a simple affirmative agent question. Tab inserts it;
    *  Enter or the send button submits it without mutating the textarea. */
   suggestedReply?: string;
+  /** When set, the send button becomes a Stop button while the agent is busy
+   *  with nothing queued — clicking it interrupts the running turn. */
+  onStop?: () => void;
 }) {
   const workspaceVariant = variant === 'workspace-v2';
   const [usageOpen, setUsageOpen] = useState(false);
@@ -83,8 +86,11 @@ export function Composer({
     && (value.trim().length > 0 || images.length > 0 || showSuggestedReply)
     && (!busy || queueWhenBusy);
   // Spinner only when we're blocked (busy with nothing queueable); when a
-  // message can be queued mid-run the button stays active.
-  const spinning = busy && !canSend;
+  // message can be queued mid-run the button stays active. With an onStop
+  // handler that blocked state instead becomes a live Stop button that
+  // interrupts the running turn.
+  const spinning = busy && !canSend && onStop === undefined;
+  const showStop = busy && !canSend && onStop !== undefined;
   const contextPercent = usage !== undefined && 'contextPercent' in usage
     ? Math.max(0, Math.min(100, usage.contextPercent))
     : null;
@@ -251,18 +257,30 @@ export function Composer({
               </svg>
             </button>
           )}
-          <button
-            type="button"
-            className={spinning ? 'send spinning' : 'send'}
-            aria-label={busy && canSend ? 'Queue message' : 'Send'}
-            title={busy && canSend ? 'Queue — sends when the agent is free' : 'Send'}
-            disabled={!canSend}
-            onClick={submit}
-          >
-            {spinning
-              ? <span className="send-spin-dot" aria-hidden />
-              : workspaceVariant ? <SendUpIcon size={14} strokeWidth={2.4} /> : <SendUpIcon />}
-          </button>
+          {showStop ? (
+            <button
+              type="button"
+              className="send send--stop"
+              aria-label="Stop the agent"
+              title="Stop — interrupt the agent"
+              onClick={onStop}
+            >
+              <span className="send-stop-square" aria-hidden />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={spinning ? 'send spinning' : 'send'}
+              aria-label={busy && canSend ? 'Queue message' : 'Send'}
+              title={busy && canSend ? 'Queue — sends when the agent is free' : 'Send'}
+              disabled={!canSend}
+              onClick={submit}
+            >
+              {spinning
+                ? <span className="send-spin-dot" aria-hidden />
+                : workspaceVariant ? <SendUpIcon size={14} strokeWidth={2.4} /> : <SendUpIcon />}
+            </button>
+          )}
         </div>
       </div>
     </div>

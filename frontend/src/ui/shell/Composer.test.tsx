@@ -120,6 +120,31 @@ describe('Composer', () => {
     expect(onSubmit).toHaveBeenCalled();
   });
 
+  it('turns the busy send button into a Stop button that interrupts when nothing is queued', () => {
+    const onStop = vi.fn();
+    const onSubmit = vi.fn();
+    render(
+      <Composer variant="workspace-v2" value="" onChange={() => {}} onSubmit={onSubmit}
+        busy queueWhenBusy onStop={onStop} />,
+    );
+    // Empty + busy would otherwise spin; with onStop it's a live Stop button.
+    const stop = screen.getByLabelText('Stop the agent') as HTMLButtonElement;
+    expect(stop.disabled).toBe(false);
+    fireEvent.click(stop);
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('queues (does not stop) when the user has text to send mid-run', () => {
+    const onStop = vi.fn();
+    render(
+      <Composer variant="workspace-v2" value="do this next" onChange={() => {}} onSubmit={() => {}}
+        busy queueWhenBusy onStop={onStop} />,
+    );
+    expect(screen.queryByLabelText('Stop the agent')).toBeNull();
+    expect(screen.getByLabelText('Queue message')).toBeTruthy();
+  });
+
   it('replaces the input with the closed note when closedNote is set', () => {
     render(
       <Composer value="" onChange={() => {}} onSubmit={() => {}} closedNote="This task is closed." />,

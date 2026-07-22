@@ -377,6 +377,44 @@ class TestInvestigationReviewSchema
     }
 
     @Test
+    void byThreadResolvesStandaloneReviewsButNotTaskOwnedOnes()
+    {
+        // A development trunk that owns a task with an active review must not
+        // be treated as a review thread: openThread's by-thread resolver may
+        // only surface standalone reviews (owner_task_id IS NULL), otherwise
+        // clicking the trunk bounces into the task's review page.
+        String trunkThreadId = saveReviewThread();
+        String taskId = UUID.randomUUID().toString();
+        jdbc.update("""
+                INSERT INTO tasks (id, thread_id, seq, status, created_at_ms)
+                VALUES (?, ?, ?, ?, ?)
+                """, taskId, trunkThreadId, 1, "RUNNING", 1L);
+        String taskReviewPrId = UUID.randomUUID().toString();
+        prs.save(PR.createExternal(
+                taskReviewPrId, "acme/task-" + taskReviewPrId, 41, "https://example.test/41",
+                "octocat", "feature", "main", "Task review", "", PR.STATUS_REMOTE_OPEN,
+                Instant.parse("2026-07-01T00:00:00Z"), null, null));
+        reviews.insertReview(new AgentReviewRow(
+                UUID.randomUUID().toString(), "acme/widget", taskReviewPrId, "base", "head",
+                "ACTIVE", "ws-test", trunkThreadId, taskId), Instant.now());
+
+        assertThat(reviews.findActiveReviewByOwnerThread(trunkThreadId)).isEmpty();
+
+        String standaloneReviewId = UUID.randomUUID().toString();
+        String standalonePrId = UUID.randomUUID().toString();
+        prs.save(PR.createExternal(
+                standalonePrId, "acme/standalone-" + standalonePrId, 42, "https://example.test/42",
+                "octocat", "feature", "main", "Standalone review", "", PR.STATUS_REMOTE_OPEN,
+                Instant.parse("2026-07-01T00:00:00Z"), null, null));
+        reviews.insertReview(new AgentReviewRow(
+                standaloneReviewId, "acme/widget", standalonePrId, "base", "head",
+                "ACTIVE", "ws-test", trunkThreadId, null), Instant.now());
+
+        assertThat(reviews.findActiveReviewByOwnerThread(trunkThreadId))
+                .get().extracting(AgentReviewRow::id).isEqualTo(standaloneReviewId);
+    }
+
+    @Test
     void recordsManualOnlySubmissionAgainstAnInvestigationSession()
             throws Exception
     {

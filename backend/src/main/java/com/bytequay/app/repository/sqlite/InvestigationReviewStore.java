@@ -239,7 +239,8 @@ public class InvestigationReviewStore
                 SELECT id, repo_id, pr_id, base_commit, reviewed_head_commit, status,
                        workspace_id, owner_thread_id, owner_task_id
                 FROM review_session
-                WHERE owner_thread_id = ? AND status IN ('ACTIVE','STALE')
+                WHERE owner_thread_id = ? AND owner_task_id IS NULL
+                      AND status IN ('ACTIVE','STALE')
                 ORDER BY created_at_ms DESC LIMIT 1
                 """, this::review, threadId).stream().findFirst();
     }

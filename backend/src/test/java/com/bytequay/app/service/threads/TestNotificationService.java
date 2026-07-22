@@ -168,6 +168,30 @@ class TestNotificationService
     }
 
     @Test
+    void dismissOpenForTaskClearsBudgetAttentionAndGatesButSparesOthers()
+    {
+        // A terminal task (merged / canceled) must clear both its open publish
+        // gate and its "needs you" budget-cap prompt so no stale card lingers
+        // in the overview panel — while leaving another task's rows, already-read
+        // rows, and passive activity untouched.
+        Notification gate = row("gate", NotificationKind.AWAITING_REVIEW, "task-1", NotificationStatus.UNREAD);
+        Notification budget = row("budget", NotificationKind.NEEDS_ATTENTION, "task-1", NotificationStatus.UNREAD);
+        Notification otherTask = row("other", NotificationKind.NEEDS_ATTENTION, "task-2", NotificationStatus.UNREAD);
+        Notification alreadyRead = row("read", NotificationKind.NEEDS_ATTENTION, "task-1", NotificationStatus.READ);
+        Notification passive = row("passive", NotificationKind.PASSIVE, "task-1", NotificationStatus.UNREAD);
+        when(store.listForThread(eq("thread-1"), anyInt()))
+                .thenReturn(List.of(gate, budget, otherTask, alreadyRead, passive));
+
+        service.dismissOpenForTask("thread-1", "task-1");
+
+        verify(store).dismiss(eq("gate"), anyLong());
+        verify(store).dismiss(eq("budget"), anyLong());
+        verify(store, never()).dismiss(eq("other"), anyLong());
+        verify(store, never()).dismiss(eq("read"), anyLong());
+        verify(store, never()).dismiss(eq("passive"), anyLong());
+    }
+
+    @Test
     void releaseResolutionDelegatesToStore()
     {
         when(store.releaseResolution("notif-1")).thenReturn(true);
@@ -281,5 +305,13 @@ class TestNotificationService
         return new Notification(
                 id, NotificationKind.AWAITING_REVIEW, "thread-1", "task-1",
                 status, "{}", Instant.parse(createdAt), null);
+    }
+
+    private static Notification row(
+            String id, NotificationKind kind, String taskId, NotificationStatus status)
+    {
+        return new Notification(
+                id, kind, "thread-1", taskId, status, "{}",
+                Instant.parse("2026-07-22T12:00:00Z"), null);
     }
 }

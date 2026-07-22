@@ -346,7 +346,22 @@ function WorkspaceOverviewPanel({
                   : `${threadTitle} · ${formatTime(needsItem.occurredAt)}`}</small>
               </span>
               <button type="button" onClick={() => {
-                if (needsItem !== undefined) onOpenActivity(needsItem);
+                if (needsItem !== undefined) {
+                  // Dismiss the pinned notification so this "needs you" card
+                  // clears on return instead of lingering after the user jumps
+                  // in. markRead is a deliberate no-op for actionable
+                  // NEEDS_ATTENTION/AWAITING_REVIEW rows — dismiss is the real
+                  // clear. The backend 409s while the task is genuinely still
+                  // stuck (keeping the affordance), so swallow that and just
+                  // navigate. Guard on the prefix so agent-question items are
+                  // left untouched.
+                  if (needsItem.id.startsWith('notification:')) {
+                    void window.bridge?.dismissNotification(
+                      needsItem.id.slice('notification:'.length))
+                      .then(() => onRefresh()).catch(() => {});
+                  }
+                  onOpenActivity(needsItem);
+                }
                 else if (needsTrunk !== undefined) openPath(`trunks/${needsTrunk.id}`);
               }}>Jump</button>
             </div>

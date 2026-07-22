@@ -474,6 +474,17 @@ public class TaskLifecycleDriver
         // Seal any still-open review round or stage so neither keeps
         // rendering as live once the task itself is terminal.
         sealer.seal(task.id(), merged ? "pr_merged" : "pr_closed");
+        // Clear the task's still-open publish gates and "needs you" prompts
+        // (e.g. a budget-cap pause) — this reconciler path runs when the merge
+        // event never fired, so unlike TaskService.completeTasksForMergedPr it
+        // otherwise leaves a stale card lingering in the overview panel.
+        try {
+            notifications.dismissOpenForTask(task.threadId(), task.id());
+        }
+        catch (RuntimeException e) {
+            log.warn("notification cleanup for terminal task {} failed: {}",
+                    task.id(), e.getMessage());
+        }
         worktrees.reap(task);
         // A merged PR's head branch is dead weight — delete the remote copy
         // too (mirrors GitHub's auto-delete-head-branch). Skip on a plain

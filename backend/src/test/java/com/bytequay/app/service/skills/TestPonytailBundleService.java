@@ -63,7 +63,18 @@ class TestPonytailBundleService
                         .contains("Every commit must build and pass its tests")
                         .contains("at most 50 characters")
                         .contains("Default to a subject-only commit")
-                        .contains("Never add AI or bot attribution"));
+                        .contains("record_pr_progress` with `phase: starting")
+                        .contains("complete base-to-head commit history")
+                        .contains("re-read")
+                        .contains("preserve its headings")
+                        .contains("checklists, and structure")
+                        .contains("same values to `ship_task`")
+                        .contains("Never add AI or bot attribution")
+                        .contains("read_remote_pr_status")
+                        .contains("read_ci_log")
+                        .contains("read-only `gh` commands are allowed")
+                        .contains("Anything that changes GitHub")
+                        .doesNotContain("Anything that reaches GitHub"));
     }
 
     @Test

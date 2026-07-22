@@ -43,6 +43,8 @@ final class PullRequestDetailMapper
             "committed", "reviewed", "review_requested", "commented", "merged", "closed", "reopened",
             "head_ref_force_pushed", "added_to_merge_queue", "removed_from_merge_queue",
             "labeled", "unlabeled", "assigned", "unassigned", "milestoned", "demilestoned", "cross-referenced");
+    private static final Set<String> FAILED_CHECK_CONCLUSIONS = ImmutableSet.of(
+            "failure", "timed_out", "cancelled", "action_required", "startup_failure");
 
     private PullRequestDetailMapper() {}
 
@@ -205,7 +207,7 @@ final class PullRequestDetailMapper
             return PullRequestDetail.CiStatus.NONE;
         }
         boolean anyFailed = latest.stream()
-                .anyMatch(checkRun -> "failure".equals(checkRun.conclusion()) || "cancelled".equals(checkRun.conclusion()));
+                .anyMatch(checkRun -> FAILED_CHECK_CONCLUSIONS.contains(checkRun.conclusion()));
         if (anyFailed) {
             return PullRequestDetail.CiStatus.FAILING;
         }

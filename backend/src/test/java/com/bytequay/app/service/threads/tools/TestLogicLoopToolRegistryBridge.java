@@ -59,7 +59,9 @@ class TestLogicLoopToolRegistryBridge
         // tool selection must never leak back into the provider catalog.
         assertThat(bridged).contains(
                 "recall_memory",
-                "lookup_memory");
+                "lookup_memory",
+                "read_remote_pr_status",
+                "read_ci_log");
         assertThat(bridged).doesNotContain("list_tools", "list_skills", "load_skill");
     }
 

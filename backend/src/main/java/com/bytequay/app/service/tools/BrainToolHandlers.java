@@ -18,6 +18,7 @@ import com.bytequay.app.domain.LocalCommitFile;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
+import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewComment;
@@ -52,9 +53,9 @@ import java.util.regex.Pattern;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The brain agent's read-only introspection tools. Every method is a pure
- * read against existing stores / caches — no mutations. They're registered
- * via {@code @AgentTool} like every other tool and bridged into the API
+ * The brain agent's read-only introspection tools. Methods read local state or
+ * current remote state without mutating either. They're registered via
+ * {@code @AgentTool} like every other tool and bridged into the API
  * lane; the brain agent reaches exactly these because their names are the
  * {@code BRAIN_TOOL_ALLOWLIST}. Each takes an explicit {@code task_id} (the
  * agent is told its task in the system prompt) and, where remote data is
@@ -68,6 +69,9 @@ public class BrainToolHandlers
     private static final int COMMIT_BODY_MAX = 500;
     private static final int COMMIT_FILES_MAX = 5;
     private static final int PHASE_HISTORY_CAP = 50;
+    private static final int CI_LOG_MAX_CHARS = 65_536;
+    private static final int CI_CHECKS_MAX = 100;
+    private static final int CI_CHECK_NAMES_MAX = 20;
 
     /** Matches a JUnit/Jest-ish test case for the coverage heuristic. */
     private static final Pattern TEST_CASE = Pattern.compile(
@@ -347,7 +351,9 @@ public class BrainToolHandlers
 
     @AgentTool(
             name = "read_remote_pr_status",
-            description = "Read the linked PR's status, CI status, approvals, mergeability.",
+            description = "Read the linked PR's status, approvals, mergeability, and current "
+                    + "checks. This always probes GitHub before returning; CI is never served "
+                    + "only from the cached PR-detail snapshot.",
             security = SecurityType.VCS_READ,
             gating = Gating.AUTO,
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
@@ -356,21 +362,137 @@ public class BrainToolHandlers
         if (blank(args.taskId())) {
             return ToolOutcome.Completed.error("task_id is required");
         }
-        Optional<PullRequestDetail> detail = prDetail(args.taskId());
-        if (detail.isEmpty()) {
-            return ToolOutcome.Completed.error("task has no linked PR");
+        if (call != null && !blank(call.taskId()) && !call.taskId().equals(args.taskId())) {
+            return ToolOutcome.Completed.error("task_id must match the current task scope");
         }
-        PullRequestDetail d = detail.get();
+        Optional<RemotePrStatus> status = freshRemotePrStatus(args.taskId());
+        if (status.isEmpty()) {
+            return ToolOutcome.Completed.error("could not read the task's linked PR from GitHub. "
+                    + "A read-only gh command may be used as a fallback.");
+        }
+        PullRequestDetail d = status.get().detail();
+        PrCiSnapshot ci = status.get().ci();
+        List<PullRequestDetail.CheckRun> checkRuns = ci.checkRuns() == null ? List.of() : ci.checkRuns();
         return ok(new PrStatus(
                 d.state(), d.draft(), d.merged(),
-                d.ciStatus() == null ? "UNKNOWN" : d.ciStatus().name(),
+                ci.ciStatus() == null ? "UNKNOWN" : ci.ciStatus().name(),
                 d.approvalCount(), d.changesRequestedCount(),
-                Boolean.TRUE.equals(d.mergeable()), d.mergeableState()));
+                Boolean.TRUE.equals(d.mergeable()), d.mergeableState(),
+                toCiChecks(checkRuns), checkRuns.size() > CI_CHECKS_MAX));
     }
 
     public record PrStatus(
             String state, boolean draft, boolean merged, String ciStatus,
-            int approvals, int changesRequested, boolean mergeable, String mergeableState) {}
+            int approvals, int changesRequested, boolean mergeable, String mergeableState,
+            List<CiCheck> checks, boolean checksTruncated) {}
+
+    // ── read_ci_log ────────────────────────────────────────────────────
+
+    public record ReadCiLogArgs(
+            @ToolParam(description = "Optional exact check name from read_remote_pr_status. "
+                    + "When supplied, any current check can be selected. Omit it to auto-select "
+                    + "the only failing check or list the failures.",
+                    required = false, wireName = "check_name")
+            String checkName) {}
+
+    @AgentTool(
+            name = "read_ci_log",
+            description = "Read a current GitHub Actions log for the task's linked PR. The "
+                    + "check list and selected log are fetched directly from GitHub on every "
+                    + "call, never from ByteQuay's PR-detail cache. Returns the last 64 KiB. "
+                    + "When GitHub cannot expose the log, a read-only gh command remains an "
+                    + "allowed fallback.",
+            security = SecurityType.VCS_READ,
+            gating = Gating.AUTO,
+            roles = AgentRole.TASK)
+    public ToolOutcome readCiLog(ReadCiLogArgs args, ToolCall call)
+    {
+        if (call == null || blank(call.taskId())) {
+            return ToolOutcome.Completed.error("read_ci_log requires a task-scoped turn");
+        }
+        Optional<PullRequestRef> ref = repoFor(call.taskId());
+        if (ref.isEmpty()) {
+            return ToolOutcome.Completed.error("task has no linked PR");
+        }
+
+        PrCiSnapshot snapshot;
+        PullRequestRef pr = ref.get();
+        try {
+            snapshot = pullRequests.getPullRequestCiSnapshot(pr.repoRef().fullName(), pr.number());
+        }
+        catch (RuntimeException e) {
+            return ToolOutcome.Completed.error("could not refresh CI checks: " + e.getMessage()
+                    + ". A read-only gh command may be used as a fallback.");
+        }
+
+        List<PullRequestDetail.CheckRun> checks = snapshot.checkRuns() == null
+                ? List.of()
+                : snapshot.checkRuns();
+        String requested = args == null ? null : args.checkName();
+        PullRequestDetail.CheckRun selected;
+        if (blank(requested)) {
+            List<PullRequestDetail.CheckRun> failing = checks.stream()
+                    .filter(BrainToolHandlers::isFailedCheck)
+                    .toList();
+            if (failing.isEmpty()) {
+                return ToolOutcome.Completed.ok(checks.isEmpty()
+                        ? "GitHub returned no current check runs. If CI is expected, use a read-only gh command to verify."
+                        : "The current PR head has no failing checks.");
+            }
+            if (failing.size() > 1) {
+                return ok(new CiLogChoices(
+                        toCiChecks(failing), failing.size() > CI_CHECKS_MAX));
+            }
+            selected = failing.getFirst();
+        }
+        else {
+            selected = checks.stream()
+                    .filter(check -> check.name() != null && check.name().equalsIgnoreCase(requested.strip()))
+                    .findFirst()
+                    .orElse(null);
+            if (selected == null) {
+                return ToolOutcome.Completed.error("no current check named '" + requested.strip()
+                        + "'. Available checks: " + checkNames(checks));
+            }
+        }
+
+        if (selected.githubId() == null) {
+            return ok(CiLogResult.unavailable(
+                    selected, "GitHub did not provide a check-run id. Use the check URL or a read-only gh command."));
+        }
+        String logText;
+        try {
+            logText = pullRequests.getCheckRunLog(pr.repoRef().fullName(), selected.githubId());
+        }
+        catch (RuntimeException e) {
+            return ToolOutcome.Completed.error("could not fetch the current log for " + selected.name()
+                    + ": " + e.getMessage() + ". A read-only gh command may be used as a fallback.");
+        }
+        if (logText == null || logText.isBlank()) {
+            return ok(CiLogResult.unavailable(selected,
+                    "Raw log unavailable (external CI, expired log, or PAT scope). "
+                            + "A read-only gh command may be used as a fallback."));
+        }
+        boolean truncated = logText.length() > CI_LOG_MAX_CHARS;
+        String tail = truncated
+                ? logText.substring(logText.length() - CI_LOG_MAX_CHARS)
+                : logText;
+        return ok(new CiLogResult(
+                toCiCheck(selected), tail, truncated, null));
+    }
+
+    public record CiCheck(
+            Long githubId, String name, String status, String conclusion) {}
+
+    public record CiLogChoices(List<CiCheck> failingChecks, boolean checksTruncated) {}
+
+    public record CiLogResult(CiCheck check, String log, boolean truncated, String notice)
+    {
+        private static CiLogResult unavailable(PullRequestDetail.CheckRun check, String notice)
+        {
+            return new CiLogResult(toCiCheck(check), "", false, notice);
+        }
+    }
 
     // ── list_unresolved_comments ────────────────────────────────────────
 
@@ -471,6 +593,61 @@ public class BrainToolHandlers
                 return Optional.empty();
             }
         });
+    }
+
+    private Optional<RemotePrStatus> freshRemotePrStatus(String taskId)
+    {
+        return repoFor(taskId).flatMap(r -> {
+            try {
+                String repo = r.repoRef().fullName();
+                PullRequestDetail detail = pullRequests.refreshPullRequestDetail(repo, r.number());
+                PrCiSnapshot ci = pullRequests.getPullRequestCiSnapshot(repo, r.number());
+                return Optional.of(new RemotePrStatus(detail, ci));
+            }
+            catch (RuntimeException e) {
+                log.warn("fresh remote PR status for task {} failed: {}", taskId, e.getMessage());
+                return Optional.empty();
+            }
+        });
+    }
+
+    private record RemotePrStatus(PullRequestDetail detail, PrCiSnapshot ci) {}
+
+    private static boolean isFailedCheck(PullRequestDetail.CheckRun check)
+    {
+        if (check == null || check.conclusion() == null) {
+            return false;
+        }
+        return switch (check.conclusion().toLowerCase(Locale.ROOT)) {
+            case "failure", "timed_out", "cancelled", "action_required", "startup_failure" -> true;
+            default -> false;
+        };
+    }
+
+    private static CiCheck toCiCheck(PullRequestDetail.CheckRun check)
+    {
+        return new CiCheck(check.githubId(), check.name(), check.status(), check.conclusion());
+    }
+
+    private static List<CiCheck> toCiChecks(List<PullRequestDetail.CheckRun> checks)
+    {
+        return checks.stream()
+                .limit(CI_CHECKS_MAX)
+                .map(BrainToolHandlers::toCiCheck)
+                .toList();
+    }
+
+    private static String checkNames(List<PullRequestDetail.CheckRun> checks)
+    {
+        String names = String.join(", ", checks.stream()
+                .map(PullRequestDetail.CheckRun::name)
+                .filter(name -> name != null && !name.isBlank())
+                .limit(CI_CHECK_NAMES_MAX)
+                .toList());
+        if (names.isEmpty()) {
+            return "none";
+        }
+        return checks.size() > CI_CHECK_NAMES_MAX ? names + ", …" : names;
     }
 
     /** Resolve owner/repo + PR number from a task's {@code owner/repo#n} link ref. */

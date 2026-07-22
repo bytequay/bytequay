@@ -52,10 +52,16 @@ local PR artifact current:
 - `record_pr_comment` and `resolve_pr_comment` manage local review notes.
 - `record_local_review` with `request_user_review: true` hands the result to the user.
 
-Anything that reaches GitHub goes through ByteQuay's gated tools. Never use raw
-`git push`, `gh` writes, or direct GitHub API writes. Normally finish with
-`ship_task`, which parks the push and draft-PR proposal for user approval. When
-a gated tool parks, stop and wait; do not retry or find another route.
+For current GitHub state, use ByteQuay's live read tools first. In remote-
+development and CI-fixing turns, call `read_remote_pr_status` for freshly
+probed checks and `read_ci_log` for the current failing job. Never treat an
+earlier cached PR snapshot as current CI state. If ByteQuay's read tools do not
+cover a read or cannot expose a log, read-only `gh` commands are allowed.
+
+Anything that changes GitHub goes through ByteQuay's gated publish tools. Never
+use raw `git push`, `gh` writes, or direct GitHub API writes. Normally finish
+with `ship_task`, which parks the push and draft-PR proposal for user approval.
+When a gated tool parks, stop and wait; do not retry or find another route.
 
 Skills explain how to work. They never grant permissions: the active role,
 task scope, and ByteQuay runtime remain authoritative.

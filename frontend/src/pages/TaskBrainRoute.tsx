@@ -40,6 +40,7 @@ import { AgentReviewHeaderAction } from '../review/AgentReviewHeaderAction';
 import { AgentReviewRoundPage } from '../review/AgentReviewRoundPage';
 import { useAgentReviewState } from '../review/useAgentReviewState';
 import { PullDetailBody } from '../pulls/PullDetailPane';
+import { PullDetailHost } from '../pulls/PullDetailZoom';
 import { pullRowFromLocal } from '../pulls/localRow';
 import type { PullRow } from '../pulls/model';
 import { derivePRCapabilities } from '../pr/prCapabilities';
@@ -92,6 +93,7 @@ export function TaskBrainRoute({
   const [text, setText] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [prZoomed, setPrZoomed] = useState(false);
   // Force-opens the PR tab's own Checks sub-tab — the Remote CI row's
   // click target. Declared ahead of the <PRView> construction below, which
   // reads it.
@@ -638,33 +640,41 @@ export function TaskBrainRoute({
   };
   const taskPullDetail = taskPullRow !== null && displayedTaskBundle !== null
       && displayedTaskBundle !== undefined ? (
-    <PullDetailBody
-      key={taskPullRow.id}
-      row={taskPullRow}
-      bundle={displayedTaskBundle}
-      refresh={refreshLocalPr}
-      openOverviewToken={openOverviewToken}
-      openChangesToken={prSubTabRequest?.subTab === 'changes' ? prSubTabRequest.token : undefined}
-      changesFiles={displayedTaskBundle.pr.remotePrNumber === null ? reviewFiles : undefined}
-      fetchChangesBlob={displayedTaskBundle.pr.remotePrNumber === null
-        ? (path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)
-        : undefined}
-      changesBanner={shipProposal !== null && markReadyPr !== null ? (
-        <MarkReadyPanel
-          notificationId={shipProposal.id}
-          pr={markReadyPr}
-          onMarked={() => {
-            pollFast();
-            refreshLocalPr();
-            void refreshShipProposal();
-          }}
-        />
-      ) : undefined}
-      onComment={onTaskPrComment}
-      onAssignAgent={() => { void agentReview.startReview(); }}
-      onWorkWithAgent={() => openAgentRound()}
-      onOpenInWorkspace={openChanges}
-    />
+    <PullDetailHost
+      zoomed={prZoomed}
+      onClose={() => setPrZoomed(false)}
+      normalStyle={{ display: 'flex', flex: 1, minWidth: 0, minHeight: 0 }}
+    >
+      <PullDetailBody
+        key={taskPullRow.id}
+        row={taskPullRow}
+        bundle={displayedTaskBundle}
+        refresh={refreshLocalPr}
+        openOverviewToken={openOverviewToken}
+        openChangesToken={prSubTabRequest?.subTab === 'changes' ? prSubTabRequest.token : undefined}
+        changesFiles={displayedTaskBundle.pr.remotePrNumber === null ? reviewFiles : undefined}
+        fetchChangesBlob={displayedTaskBundle.pr.remotePrNumber === null
+          ? (path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)
+          : undefined}
+        changesBanner={shipProposal !== null && markReadyPr !== null ? (
+          <MarkReadyPanel
+            notificationId={shipProposal.id}
+            pr={markReadyPr}
+            onMarked={() => {
+              pollFast();
+              refreshLocalPr();
+              void refreshShipProposal();
+            }}
+          />
+        ) : undefined}
+        onComment={onTaskPrComment}
+        onAssignAgent={() => { void agentReview.startReview(); }}
+        onWorkWithAgent={() => openAgentRound()}
+        onOpenInWorkspace={openChanges}
+        zoomed={prZoomed}
+        onToggleZoom={() => setPrZoomed(value => !value)}
+      />
+    </PullDetailHost>
   ) : null;
   const openAgentFinding = (
     findingId: string,

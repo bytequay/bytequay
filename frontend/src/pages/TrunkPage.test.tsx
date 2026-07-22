@@ -13,11 +13,25 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentQuestionDto, BacklogItemDto } from '../types';
+import type { AgentQuestionDto, BacklogItemDto, PullRequestDto } from '../types';
 import type {
   TrunkActivityDto,
 } from '../workspace/workspaceApi';
 import { TrunkPage } from './TrunkPage';
+
+vi.mock('../pulls/PullDetailPane', () => ({
+  default: ({ row, onToggleZoom }: {
+    row: { title: string };
+    onToggleZoom: () => void;
+  }) => (
+    <div data-testid="pull-detail">
+      <span>{row.title}</span>
+      <button type="button" aria-label="Close pull request details" onClick={onToggleZoom}>
+        Close
+      </button>
+    </div>
+  ),
+}));
 
 const EMPTY_ACTIVITY: TrunkActivityDto = {
   trunkId: 't1',
@@ -82,14 +96,53 @@ function backlogItem(overrides: Partial<BacklogItemDto> = {}): BacklogItemDto {
   };
 }
 
+function pullRequest(overrides: Partial<PullRequestDto> = {}): PullRequestDto {
+  return {
+    id: 41,
+    repo: 'acme/bytequay',
+    number: 41,
+    title: 'Recover and surface stranded development stages',
+    author: 'octocat',
+    htmlUrl: 'https://github.com/acme/bytequay/pull/41',
+    createdAt: '2026-07-20T00:00:00Z',
+    updatedAt: '2026-07-21T00:00:00Z',
+    origin: 'REVIEW_REQUESTED',
+    labels: [],
+    labelColors: null,
+    draft: false,
+    viewedAt: null,
+    reviewedAt: null,
+    handledAction: null,
+    requestedReviewers: [],
+    ciStatus: null,
+    additions: 1,
+    deletions: 1,
+    commentCount: 0,
+    attentionReason: null,
+    state: 'open',
+    closedAt: null,
+    mergedAt: null,
+    mergeable: true,
+    mergeableState: 'clean',
+    headPushedAt: null,
+    reviewerVerdicts: null,
+    snoozedUntil: null,
+    snoozeWakeReason: null,
+    reviewRound: null,
+    ...overrides,
+  };
+}
+
 function mockBridge({
   trunkActivity = EMPTY_ACTIVITY,
   questions = [],
   backlog = [],
+  pullRequests = [],
 }: {
   trunkActivity?: TrunkActivityDto;
   questions?: AgentQuestionDto[];
   backlog?: BacklogItemDto[];
+  pullRequests?: PullRequestDto[];
 } = {}) {
   const bridge = {
     listBacklog: vi.fn().mockResolvedValue(backlog),
@@ -101,13 +154,18 @@ function mockBridge({
         return Promise.resolve({
           workspace: { id: 'ws-1', name: 'ByteQuay' },
           repository: { fullName: 'acme/bytequay' },
-          sidebarCounts: { pullRequests: 0 },
+          sidebarCounts: { pullRequests: pullRequests.length },
           today: { needsYou: [], running: [], spendTodayMilliUsd: 1840 },
         });
       }
+      if (path.endsWith('/pull-requests')) return Promise.resolve(pullRequests);
       if (path.endsWith('/backlog')) return Promise.resolve(backlog);
       return Promise.resolve([]);
     }),
+    getPrForRepoPull: vi.fn().mockResolvedValue({ id: 'pr-41' }),
+    getAgentReview: vi.fn().mockResolvedValue(null),
+    startAgentReview: vi.fn().mockResolvedValue({}),
+    recordSurfaceVisit: vi.fn().mockResolvedValue(undefined),
     answerQuestion: vi.fn().mockResolvedValue(undefined),
     startBacklogDevelopment: vi.fn().mockResolvedValue({ item: null, taskId: null }),
     skipBacklogItem: vi.fn().mockResolvedValue(undefined),
@@ -159,6 +217,38 @@ describe('TrunkPage', () => {
     expect(screen.getByText('OPEN PRS')).toBeTruthy();
     expect(screen.getByText('BACKLOG')).toBeTruthy();
     expect(screen.queryByText('USAGE')).toBeNull();
+  });
+
+  it('zooms a compact PR in place and keeps View all as the list navigation', async () => {
+    const hash = '#/workspace/ws-1/trunks/t1';
+    window.location.hash = hash;
+    const bridge = mockBridge({ pullRequests: [pullRequest()] });
+    renderTrunk();
+    const conversation = screen.getByTestId('conv');
+
+    fireEvent.click(await screen.findByRole('button', {
+      name: /Recover and surface stranded development stages/,
+    }));
+
+    const dialog = await screen.findByRole('dialog', { name: 'Pull request details' });
+    expect(await within(dialog).findByText('Recover and surface stranded development stages')).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Close pull request details' })).toBeTruthy();
+    expect(screen.getByTestId('conv')).toBe(conversation);
+    expect(window.location.hash).toBe(hash);
+    expect(bridge.recordSurfaceVisit).toHaveBeenCalledWith({
+      surfaceType: 'PR',
+      surfaceId: 'acme/bytequay#41',
+      title: 'Recover and surface stranded development stages #41',
+      context: 'acme/bytequay',
+    });
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Pull request details' })).toBeNull());
+    expect(screen.getByTestId('conv')).toBe(conversation);
+    expect(window.location.hash).toBe(hash);
+
+    fireEvent.click(screen.getByRole('button', { name: 'View all 1' }));
+    expect(window.location.hash).toBe('#/workspace/ws-1/prs');
   });
 
   it('surfaces a terminal agent error and offers recovery', () => {

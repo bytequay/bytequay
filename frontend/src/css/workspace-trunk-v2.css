@@ -888,11 +888,11 @@
 .workspace-redesign .trunk-page-v2__prs > button > span:nth-child(2) {
   min-width: 0;
   overflow: hidden;
-  font-size: 12px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.workspace-redesign .trunk-page-v2__prs > button > small { margin-left: auto; flex-shrink: 0; color: #8b949e; font-size: 11px; }
+.workspace-redesign .trunk-page-v2__prs > button > small { margin-left: auto; flex-shrink: 0; color: #8b949e; font-size: 12px; }
 .workspace-redesign .trunk-page-v2__prs > button > i { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; }
 
 .workspace-redesign .trunk-page-v2__backlog { display: flex; flex-direction: column; gap: 8px; }

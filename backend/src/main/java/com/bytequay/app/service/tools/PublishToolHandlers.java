@@ -956,8 +956,8 @@ public class PublishToolHandlers
             log.warn("failed to park task {} for review ({}): {}",
                     task.id(), proposal.action(), e.getMessage());
             return ToolOutcome.Completed.ok(
-                    "Could not save the review notification (" + e.getMessage()
-                            + "). The task was not parked — please retry.");
+                    "Could not save the review notification (%s). The task was not parked — please retry."
+                            .formatted(e.getMessage()));
         }
         // A ship / push / next proposal means the agent finished implementing
         // and is awaiting the user's approval to push — fast-forward the

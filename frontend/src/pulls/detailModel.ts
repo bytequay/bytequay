@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { LocalPRBundle, LocalPRCheck } from '../types/localPr';
+import type { LocalPRBundle, LocalPRCheck, LocalPRStatus } from '../types/localPr';
 import type { PullRow } from './model';
 import { agoLabel, displayName } from '../pr/localpr/prViewMeta';
 import { relativeTime } from '../notificationDisplay';
@@ -29,10 +29,25 @@ export function isBotActor(actor: string): boolean {
   return /\[bot]$/i.test(actor) || actor === 'claude-code';
 }
 
+/** The status badge: local phases are blue, remote-open green, merged purple. */
+export type StatePill = { label: string; bg: string; icon: 'open' | 'merged' };
+
+export function statePill(status: LocalPRStatus | null): StatePill {
+  switch (status) {
+    case 'local-drafted': return { label: 'Local Draft', bg: '#0969da', icon: 'open' };
+    case 'local-open': return { label: 'Local Open', bg: '#0969da', icon: 'open' };
+    case 'remote-drafted': return { label: 'Draft', bg: '#6e7781', icon: 'open' };
+    case 'merged': return { label: 'Merged', bg: '#8250df', icon: 'merged' };
+    case 'closed': return { label: 'Closed', bg: '#cf222e', icon: 'open' };
+    default: return { label: 'Open', bg: '#1f883d', icon: 'open' };
+  }
+}
+
 export type PullDetailHeader = {
   title: string;
   numS: string;
   isMerged: boolean;
+  pill: StatePill;
   /** null until the bundle loads — the base/branch chips wait for it. */
   base: string | null;
   branch: string | null;
@@ -44,10 +59,13 @@ export type PullDetailHeader = {
 
 export function buildHeader(row: PullRow, bundle: LocalPRBundle | null | undefined): PullDetailHeader {
   const agentState = row.dto.reviewState ?? (row.hasAgent ? 'done' : 'none');
+  // ponytail: bundle-less rows only know merged-or-open from row.kind.
+  const status = bundle?.pr.status ?? (row.kind === 'merged' ? 'merged' : null);
   return {
     title: bundle?.pr.title ?? row.title,
     numS: bundle?.pr.remotePrNumber === null || row.num <= 0 ? 'Local PR' : `#${row.num}`,
-    isMerged: bundle?.pr.status === 'merged' || row.kind === 'merged',
+    isMerged: status === 'merged',
+    pill: statePill(status),
     base: bundle?.pr.baseBranch ?? null,
     branch: bundle?.pr.branchName ?? null,
     ovCount: bundle?.comments.length ?? row.comments,

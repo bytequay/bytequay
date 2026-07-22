@@ -1673,7 +1673,10 @@
 
 .pr-details-view { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
 .pr-details-view__error { padding: 8px 16px; color: var(--red, #c0392b); font-size: 12.5px; flex-shrink: 0; }
-.pr-view { display: flex; flex-direction: column; gap: 0; flex: 1; min-height: 0; overflow: hidden; }
+/* Without this the PR panel falls back to the browser default serif (body sets
+   no font-family). Match the `.workspace-redesign` system font — the same face
+   the task conversation uses — NOT var(--font) (the Inter-first `.shell` font). */
+.pr-view { display: flex; flex-direction: column; gap: 0; flex: 1; min-height: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
 .pr-view .pr-header { padding: 20px 20px 0 52px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; background: var(--bg); flex-shrink: 0; }
 .pr-view .pr-header > * { width: 100%; }
 .pr-view .pr-header .pr-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

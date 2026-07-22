@@ -255,7 +255,6 @@ export function TrunkPage({
             {paneOpen && (
               <WorkspaceOverviewPanel
                 workspaceId={thread.workspaceId}
-                workspaceName={panel.overview?.workspace.name ?? 'Workspace'}
                 overview={panel.overview}
                 pullRequests={panel.pullRequests}
                 workspaceBacklog={panel.backlog}
@@ -266,7 +265,6 @@ export function TrunkPage({
                 threadTitle={thread.title}
                 formatTime={formatTime}
                 onOpenActivity={openActivity}
-                onCollapse={() => setPaneOpen(false)}
                 onRefresh={pane.refresh}
                 width={paneWidth}
                 onResize={onResize}
@@ -281,7 +279,6 @@ export function TrunkPage({
 
 function WorkspaceOverviewPanel({
   workspaceId,
-  workspaceName,
   overview,
   pullRequests,
   workspaceBacklog,
@@ -292,13 +289,11 @@ function WorkspaceOverviewPanel({
   threadTitle,
   formatTime,
   onOpenActivity,
-  onCollapse,
   onRefresh,
   width,
   onResize,
 }: {
   workspaceId?: string;
-  workspaceName: string;
   overview: WorkspaceOverviewDto | null;
   pullRequests: PullRequestDto[];
   workspaceBacklog: WorkspaceBacklogItemDto[];
@@ -309,7 +304,6 @@ function WorkspaceOverviewPanel({
   threadTitle: string;
   formatTime: (ms: number) => string;
   onOpenActivity: (item: TrunkActivityItemDto) => void;
-  onCollapse: () => void;
   onRefresh: () => void;
   width: number;
   onResize: (clientX: number) => void;
@@ -336,14 +330,6 @@ function WorkspaceOverviewPanel({
         ariaLabel="Resize workspace panel"
         onResize={onResize}
       />
-      <div className="trunk-page-v2__overview-head">
-        <span>{workspaceName.charAt(0).toUpperCase() || 'B'}</span>
-        <strong>{workspaceName}</strong>
-        <small>WORKSPACE</small>
-        <button type="button" title="Collapse panel" aria-label="Collapse workspace panel" onClick={onCollapse}>
-          <CollapsePanelIcon />
-        </button>
-      </div>
       <div className="trunk-page-v2__overview-scroll">
         <section>
           <h3>NEEDS YOU</h3>
@@ -496,10 +482,6 @@ function ciColor(status: string | null): string {
 
 function PanelIcon() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="4" width="18" height="16" rx="2.2" /><path d="M15 4v16" /></svg>;
-}
-
-function CollapsePanelIcon() {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /><path d="M4 4v16" transform="translate(14 0)" /></svg>;
 }
 
 function ChevronRightIcon() {

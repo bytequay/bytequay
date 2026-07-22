@@ -290,6 +290,7 @@ export function MergeBox({
     && remoteDetail.ciStatus === 'PASSING'
     && remoteDetail.changesRequestedCount === 0
     && remoteDetail.mergeable === true
+    && Array.isArray(remoteDetail.reviewThreads)
     && remoteDetail.reviewThreads.every(thread => thread.resolved === true)
     && openComments === 0;
   const showPublishGate = !hidePublishGate && capabilities.publishReview && draftCount > 0;

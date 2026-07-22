@@ -501,7 +501,7 @@ class ReviewRoundServiceImpl
             requirePublishableTask(round, null);
             if (resolvedRoots.add(comment.remoteCommentId())) {
                 pullRequests.setReviewThreadResolved(
-                        ref.repoRef().fullName(), 0L, comment.remoteCommentId(), true);
+                        ref.repoRef().fullName(), ref.number(), 0L, comment.remoteCommentId(), true);
             }
             stageStore.markRemoteThreadResolutionPosted(comment.id(), now());
         }

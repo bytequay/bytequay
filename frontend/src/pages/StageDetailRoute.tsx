@@ -50,8 +50,8 @@ import { formatDuration } from '../threads/brain/format';
 import { TaskChangedFilesCard } from './TaskChangedFilesCard';
 import type { WsNavKey } from '../ui/workspace';
 import PublishGatePane from '../PublishGatePane';
-import { deriveLocalReviewGate } from '../pr/localpr/localReviewGate';
 import { PushDialog } from '../pr/localpr/PushDialog';
+import { deriveLocalReviewApproval, deriveLocalReviewGate } from '../pr/localpr/localReviewGate';
 
 /** Last-known cumulative diff per thread+task, so switching stages within a
  *  task paints the diff at once (the diff is task-wide, identical across the
@@ -149,7 +149,7 @@ export function StageDetailRoute({
     refresh: refreshLocalPr,
     capabilities: prCapabilities,
     deleteLocalComment,
-    confirmPush, pushOpen, setPushOpen, prBusy, runLocalTests, testsBusy,
+    confirmPush, pushOpen, setPushOpen, prBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
 
   // Publishes the Submit-review drawer's body/verdict and this task's
@@ -494,6 +494,18 @@ export function StageDetailRoute({
     [data?.conversation]);
   const currentPhase = data?.task.currentPhase ?? brain.task.currentPhase;
   const localReviewGate = deriveLocalReviewGate(currentPhase, data?.devPhases ?? brain.devPhases);
+  const localReviewApproval = deriveLocalReviewApproval(localPrBundle, localReviewGate);
+  const canonicalLocalReviewPrompt = localReviewApproval === null ? null : (
+    <ShipReviewPrompt
+      onReview={openChanges}
+      onApprove={() => setPushOpen(true)}
+      approveDisabled={!localReviewApproval.enabled}
+      onReviewChanges={() => openTab('pr', 'changes')}
+      note={!localReviewApproval.enabled || localReviewGate.brainReview.state === 'unresolved'
+        ? localReviewApproval.reason
+        : null}
+    />
+  );
   const shipAction = proposalAction(shipProposal);
   const shipGatePrompt = shipAction === 'mark_ready'
     ? <StaleMarkReadyGatePrompt
@@ -501,9 +513,8 @@ export function StageDetailRoute({
         busy={shipBusy}
         note={shipNote}
       />
-    : shipAction !== 'ship_task' || localPrBundle === undefined
-      ? null
-      : localPrBundle === null && currentPhase === 'AWAITING_PUSH'
+    : shipAction === 'ship_task' && localPrBundle !== undefined
+      ? localPrBundle === null && currentPhase === 'AWAITING_PUSH'
         ? <ShipReviewPrompt
             onReview={openChanges}
             onApprove={() => { void approveShip(); }}
@@ -516,7 +527,8 @@ export function StageDetailRoute({
             onDiscard={() => { void discardProposal(); }}
             busy={shipBusy}
             note={shipNote}
-          />;
+          />
+      : canonicalLocalReviewPrompt;
   const conversation = (
     <Conv scrollRef={conversationRef}>
       <Spine>
@@ -635,11 +647,6 @@ export function StageDetailRoute({
             }}
           />
         ) : undefined}
-        localReviewGate={localReviewGate}
-        onPush={() => setPushOpen(true)}
-        onAskAgentToAddress={() => setText('Please address my review comments on the PR, then I\'ll push. ')}
-        onRunLocalTests={runLocalTests}
-        localTestsBusy={testsBusy}
         onClosePullRequest={displayedLocalPrBundle.pr.remotePrNumber !== null
             && displayedLocalPrBundle.pr.repo !== null
             && displayedLocalPrBundle.pr.status !== 'merged'

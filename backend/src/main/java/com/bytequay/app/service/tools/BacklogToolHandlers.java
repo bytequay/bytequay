@@ -101,6 +101,12 @@ public class BacklogToolHandlers
         ObjectNode out = mapper.createObjectNode();
         ArrayNode idsNode = out.putArray("backlogItemIds");
         result.backlogItemIds().forEach(idsNode::add);
+        ArrayNode itemsNode = out.putArray("backlogItems");
+        for (int i = 0; i < result.backlogItemIds().size(); i++) {
+            itemsNode.addObject()
+                    .put("id", result.backlogItemIds().get(i))
+                    .put("title", items.get(i).title());
+        }
         out.put("relatedBacklogGroupId", result.relatedBacklogGroupId());
         out.put("count", result.backlogItemIds().size());
         return ToolOutcome.Completed.ok(out.toString());

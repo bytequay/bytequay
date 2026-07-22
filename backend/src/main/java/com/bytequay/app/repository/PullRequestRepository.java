@@ -169,6 +169,16 @@ public interface PullRequestRepository
     }
 
     /**
+     * Fetches check runs without converting a GitHub read failure into an
+     * empty or partial list. Live CI-fixing reads use this stricter contract;
+     * ordinary cached PR enrichment may keep its best-effort behavior.
+     */
+    default List<PrCheckRunState> fetchPrCheckRunsStrict(String pat, String owner, String repo, String sha)
+    {
+        return fetchPrCheckRuns(pat, owner, repo, sha);
+    }
+
+    /**
      * Fetches the unified diff for a pull request as a single text blob
      * (the same diff shown on the "Files changed" tab).
      * Maps to: GET /repos/{owner}/{repo}/pulls/{number} with Accept: application/vnd.github.diff

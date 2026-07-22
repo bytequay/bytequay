@@ -366,7 +366,7 @@ class TestPullRequestService
                 ImmutableList.of(), "sha",
                 "feat/foo", "owner/repo", "main", "owner/repo");
         when(gitHub.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(raw);
-        when(gitHub.fetchPrCheckRuns("pat", "owner", "repo", "sha")).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrCheckRunsStrict("pat", "owner", "repo", "sha")).thenReturn(ImmutableList.of());
         when(responseCache.getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "repo")), any()))
                 .thenReturn(true);
 
@@ -390,7 +390,7 @@ class TestPullRequestService
                 ImmutableList.of(), ImmutableList.of());
         // GitHub now reports that check re-running.
         when(gitHub.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(raw);
-        when(gitHub.fetchPrCheckRuns("pat", "owner", "repo", "sha"))
+        when(gitHub.fetchPrCheckRunsStrict("pat", "owner", "repo", "sha"))
                 .thenReturn(ImmutableList.of(new PrCheckRunState(1L, "build", "in_progress", null, null, null, null)));
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(7L));
         when(detailStore.find(7L)).thenReturn(Optional.of(stale));
@@ -404,6 +404,24 @@ class TestPullRequestService
         assertThat(result.ciStatus()).isEqualTo(PENDING);
         verify(detailStore).save(eq(7L), argThat(d ->
                 d.checkRuns().size() == 1 && "in_progress".equals(d.checkRuns().get(0).status())));
+    }
+
+    @Test
+    void testGetPullRequestCiSnapshotDoesNotPersistAFailedChecksRead()
+    {
+        PrRawDetail raw = new PrRawDetail(
+                "body", ImmutableList.of(), false, true, "clean", 10, 0, 0, 0,
+                ImmutableList.of(), "sha",
+                "feat/foo", "owner/repo", "main", "owner/repo");
+        when(gitHub.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(raw);
+        when(gitHub.fetchPrCheckRunsStrict("pat", "owner", "repo", "sha"))
+                .thenThrow(new RuntimeException("checks unavailable"));
+
+        assertThatThrownBy(() -> pullRequestService.getPullRequestCiSnapshot("owner/repo", 7))
+                .hasMessageContaining("checks unavailable");
+
+        verify(store, never()).updateCiStatus(anyLong(), any());
+        verify(detailStore, never()).save(anyLong(), any());
     }
 
     @Test
@@ -432,7 +450,7 @@ class TestPullRequestService
         when(gitHub.probeChangedSinceEtag(eq("pat"), any(PullRequestRef.class), eq("etag")))
                 .thenReturn(new PullRequestRepository.ProbeResult(false, "etag"));
         when(gitHub.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(raw);
-        when(gitHub.fetchPrCheckRuns("pat", "owner", "repo", "sha"))
+        when(gitHub.fetchPrCheckRunsStrict("pat", "owner", "repo", "sha"))
                 .thenReturn(ImmutableList.of(new PrCheckRunState(
                         1L, "build", "completed", "failure", null, null, null)));
 
@@ -442,8 +460,21 @@ class TestPullRequestService
         PullRequestDetail result = pullRequestService.refreshPullRequestDetail("owner/repo", 7);
 
         assertThat(result.ciStatus()).isEqualTo(FAILING);
-        verify(gitHub).fetchPrCheckRuns("pat", "owner", "repo", "sha");
+        verify(gitHub).fetchPrCheckRunsStrict("pat", "owner", "repo", "sha");
         verify(store).updateCiStatus(7L, FAILING);
+    }
+
+    @Test
+    void testGetCheckRunLogFetchesFromGitHubOnEveryCall()
+    {
+        RepoRef repo = RepoRef.of("owner", "repo");
+        when(gitHub.fetchCheckRunLog("pat", repo, 99L))
+                .thenReturn(Optional.of("first log"), Optional.of("second log"));
+
+        assertThat(pullRequestService.getCheckRunLog("owner/repo", 99L)).isEqualTo("first log");
+        assertThat(pullRequestService.getCheckRunLog("owner/repo", 99L)).isEqualTo("second log");
+
+        verify(gitHub, times(2)).fetchCheckRunLog("pat", repo, 99L);
     }
 
     // ── countApprovals ─────────────────────────────────────────────────────────

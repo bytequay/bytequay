@@ -81,12 +81,31 @@
 .workspace-task-row-wrap { padding: 0 8px 3px; }
 .workspace-task-row {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: var(--left-nav-row-gap);
   padding: 6px 10px 6px 36px;
   background: var(--left-nav-active-bg);
+  border: 0;
   border-radius: var(--left-nav-row-radius);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
+button.workspace-task-row.is-sibling { background: transparent; }
+button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg); }
+.workspace-task-row-more {
+  width: 100%;
+  padding: 4px 10px 5px 36px;
+  border: 0;
+  background: transparent;
+  color: #8250df;
+  font-size: var(--left-nav-meta-font-size);
+  font-weight: var(--left-nav-font-weight);
+  text-align: left;
+  cursor: pointer;
+}
+.workspace-task-row-more:hover { text-decoration: underline; }
 .workspace-task-row > span:first-child {
   display: inline-flex;
   flex-shrink: 0;

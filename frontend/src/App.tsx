@@ -1134,6 +1134,7 @@ function App() {
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
             onOpenRun={openRun(nav.threadId, nav.taskId)}
+            onOpenTask={taskId => setNav(lastTaskNav(nav.threadId, taskId))}
             onClosed={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
             onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
             onHistoryBack={goBack}
@@ -1156,6 +1157,7 @@ function App() {
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
             onOpenRun={openRun(nav.threadId, nav.taskId)}
+            onOpenTask={taskId => setNav(lastTaskNav(nav.threadId, taskId))}
             onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
             onHistoryBack={goBack}
             onForward={goForward}

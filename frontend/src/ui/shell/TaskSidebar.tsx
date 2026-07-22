@@ -21,6 +21,32 @@ import {
 import type { WsNavKey } from '../workspace';
 import { TrafficLights } from './Sidebar';
 import type { GuardChipData, LivePlanNav, LivePlanNode, LivePlanPhaseNode, LivePlanStatus } from './livePlanModel';
+import { useThreadTasks } from '../../threads/useThreadTasks';
+import { taskLabel } from '../../threads/taskLabel';
+import type { WorkUnitTaskDto } from '../../types';
+
+/** Active = still in flight: not completed/errored and the dev-lifecycle
+ *  phase hasn't reached COMPLETED. Keeps IN_REVIEW (shipped, awaiting merge)
+ *  visible for navigation, unlike the trunk's tighter latest-active test. */
+export function isTaskActive(t: WorkUnitTaskDto): boolean {
+  return t.phase !== 'COMPLETED' && t.status !== 'COMPLETED' && t.status !== 'ERRORED';
+}
+
+/** The active tasks to list under the trunk, capped at `cap` while collapsed.
+ *  The current task is always kept in view even when it isn't active or would
+ *  fall past the cap. Input is oldest-seq first (the hook's order). */
+export function selectSidebarTasks(
+  tasks: WorkUnitTaskDto[], currentTaskId: string | undefined, cap: number, expanded: boolean,
+): { visible: WorkUnitTaskDto[]; hiddenCount: number } {
+  const list = tasks.filter(t => isTaskActive(t) || t.id === currentTaskId);
+  if (expanded || list.length <= cap) return { visible: list, hiddenCount: 0 };
+  let visible = list.slice(0, cap);
+  if (currentTaskId !== undefined && !visible.some(t => t.id === currentTaskId)) {
+    const cur = list.find(t => t.id === currentTaskId);
+    if (cur !== undefined) visible = [...list.slice(0, cap - 1), cur];
+  }
+  return { visible, hiddenCount: list.length - visible.length };
+}
 
 export type TaskAgentReviewTrack = {
   status: 'running' | 'questions' | 'complete' | 'stale' | 'errored';
@@ -80,6 +106,7 @@ type TaskSidebarTask = {
  */
 export function TaskSidebar({
   task, threadLabel = 'Trunk', nodes, highlightActiveStage = true,
+  threadId, currentTaskId, onOpenTask,
   onBack, onForward, backEnabled, forwardEnabled, onToggleCollapse, onOpenTrunk,
   onOpenStage, onOpenPr, onOpenTab, onOpenBrain, onOpenRun,
   onNavigateGlobal, onSwitchWorkspace,
@@ -87,6 +114,11 @@ export function TaskSidebar({
   task: TaskSidebarTask;
   threadLabel?: string;
   nodes: LivePlanNode[];
+  /** Owning trunk — drives the sibling-task list. Omit to keep the single
+   *  current-task row (visual fixtures do). */
+  threadId?: string;
+  currentTaskId?: string;
+  onOpenTask?: (taskId: string) => void;
   guard?: GuardChipData;
   defaultExpandPhases?: boolean;
   highlightActiveStage?: boolean;
@@ -111,6 +143,7 @@ export function TaskSidebar({
   const leaves = nodes.flatMap(node => node.phases?.length ? node.phases : [node]);
   const doneCount = leaves.filter(node => node.status === 'done').length;
   const totalCount = leaves.length;
+  const { tasks: siblingTasks } = useThreadTasks(threadId ?? '');
   const repository = task.repository ?? '';
   const workspaceName = task.workspaceName
     ?? repository.split('/').filter(Boolean).at(-1)
@@ -148,7 +181,9 @@ export function TaskSidebar({
         </button>
       </div>
 
-      <TaskIdentityRow task={task} />
+      {onOpenTask !== undefined && siblingTasks !== null && siblingTasks.length > 0
+        ? <TaskList tasks={siblingTasks} currentTaskId={currentTaskId} onOpenTask={onOpenTask} />
+        : <TaskIdentityRow task={task} />}
 
       <div className="workspace-task-sidebar-v2__stages-heading">
         <span>STAGES</span>
@@ -173,6 +208,44 @@ function TaskIdentityRow({ task }: { task: TaskSidebarTask }) {
         <span aria-hidden><BrainIcon /></span>
         <span>{task.title}</span>
       </div>
+    </div>
+  );
+}
+
+/** The active tasks under the trunk. Caps at three; "Load more" reveals the
+ *  rest so a busy trunk's rail doesn't push the stages out of view. */
+function TaskList({ tasks, currentTaskId, onOpenTask }: {
+  tasks: WorkUnitTaskDto[];
+  currentTaskId?: string;
+  onOpenTask: (taskId: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { visible, hiddenCount } = selectSidebarTasks(tasks, currentTaskId, 3, expanded);
+  return (
+    <div className="workspace-task-row-wrap">
+      {visible.map(t => {
+        const label = taskLabel(t);
+        const current = t.id === currentTaskId;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            className={`workspace-task-row${current ? '' : ' is-sibling'}`}
+            title={label}
+            aria-current={current ? 'true' : undefined}
+            aria-label={`Task ${t.seq}: ${label}`}
+            onClick={() => onOpenTask(t.id)}
+          >
+            <span aria-hidden><BrainIcon /></span>
+            <span>{label}</span>
+          </button>
+        );
+      })}
+      {hiddenCount > 0 && (
+        <button type="button" className="workspace-task-row-more" onClick={() => setExpanded(true)}>
+          Load more ({hiddenCount})
+        </button>
+      )}
     </div>
   );
 }

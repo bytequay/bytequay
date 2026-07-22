@@ -171,6 +171,7 @@
   font-weight: 500;
   line-height: 1.3;
 }
+.md-body.pl-pr-description { font-size: 14px; }
 .md-body.pl-pr-description h1 { font-size: 20px; }
 .md-body.pl-pr-description h2 { font-size: 18px; }
 .md-body.pl-pr-description h3 { font-size: 16px; }

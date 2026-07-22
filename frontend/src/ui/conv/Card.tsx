@@ -85,7 +85,7 @@ export function Card(props: CardProps) {
   if (kind === 'task' && props.mergeReady === true) classes.push('merge-ready');
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (onClick !== undefined && (e.key === 'Enter' || e.key === ' ')) {
+    if (e.target === e.currentTarget && onClick !== undefined && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
       onClick();
     }
@@ -105,7 +105,7 @@ export function Card(props: CardProps) {
           : <span className="diamond" aria-hidden>◆</span>)}
         <span className="title">{title}</span>
       </div>
-      {body !== undefined && <div className="body">{body}</div>}
+      {body !== undefined && body.trim() !== title.trim() && <div className="body">{body}</div>}
       <div className="meta-row">
         {kind === 'task' ? <TaskMeta {...props} /> : <BacklogMeta {...props} />}
       </div>
@@ -176,7 +176,21 @@ function BacklogMeta(
       {tags?.map((t, i) => <Tag key={`${t.label}-${i}`} color={t.color}>{t.label}</Tag>)}
       {createdLabel !== undefined && <span className="created">{createdLabel}</span>}
       {started === true && linkedTaskLabel !== undefined && (
-        <span className="linked" role="link" tabIndex={0} onClick={stop(onOpenLinked)}>{linkedTaskLabel}</span>
+        <span
+          className="linked"
+          role={onOpenLinked === undefined ? undefined : 'link'}
+          tabIndex={onOpenLinked === undefined ? undefined : 0}
+          onClick={onOpenLinked === undefined ? undefined : stop(onOpenLinked)}
+          onKeyDown={event => {
+            if (onOpenLinked !== undefined && (event.key === 'Enter' || event.key === ' ')) {
+              event.preventDefault();
+              event.stopPropagation();
+              onOpenLinked();
+            }
+          }}
+        >
+          {linkedTaskLabel}
+        </span>
       )}
       {started !== true && onDrop !== undefined && (
         <button type="button" className="backlog-drop-btn" onClick={stop(onDrop)}>Drop</button>

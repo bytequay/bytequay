@@ -21,6 +21,7 @@ import {
 import { CreationOriginBadge } from '../ui/CreationOriginBadge';
 
 type BacklogFilter = 'all' | 'open' | 'in-progress' | 'resolved';
+type BacklogTrunk = Pick<WorkspaceTrunkDto, 'id' | 'title' | 'status' | 'kind'>;
 
 type Props = {
   workspaceId: string;
@@ -261,11 +262,13 @@ function BacklogRow({
   );
 }
 
-function BacklogEditor({
+export function BacklogEditor({
   workspaceId,
   item,
   trunks,
   threadNames,
+  fixedTrunkId,
+  readOnly = false,
   onClose,
   onSaved,
   onDiscarded,
@@ -275,8 +278,12 @@ function BacklogEditor({
 }: {
   workspaceId: string;
   item: WorkspaceBacklogItemDto | null;
-  trunks: WorkspaceTrunkDto[];
+  trunks: BacklogTrunk[];
   threadNames: Map<string, string>;
+  /** Locks Start development to the trunk hosting this editor. */
+  fixedTrunkId?: string;
+  /** Shows legacy items that have no workspace key without exposing invalid mutations. */
+  readOnly?: boolean;
   onClose: () => void;
   onSaved: (item: WorkspaceBacklogItemDto) => Promise<void>;
   onDiscarded: () => Promise<void>;
@@ -284,7 +291,8 @@ function BacklogEditor({
   onOpenThread?: (threadId: string) => void;
   onRequestNewTrunk?: (itemKey: string) => void;
 }) {
-  const initialTrunk = item?.links.find(link => link.type === 'trunk')?.id
+  const initialTrunk = fixedTrunkId
+    ?? item?.links.find(link => link.type === 'trunk')?.id
     ?? item?.threadId
     ?? trunks[0]?.id
     ?? '';
@@ -457,20 +465,30 @@ function BacklogEditor({
                 value={title}
                 singleLine
                 autoFocus={item === null}
+                readOnly={readOnly}
                 onChange={setTitle}
               />
             </label>
             <label>
               <span>Summary <b>*</b></span>
-              <EditableField ariaLabel="Summary" className="summary" value={summary} onChange={setSummary} />
+              <EditableField
+                ariaLabel="Summary" className="summary" value={summary}
+                readOnly={readOnly} onChange={setSummary}
+              />
             </label>
             <label>
               <span>Detail <em>· markdown</em></span>
-              <EditableField ariaLabel="Detail" className="detail" value={detail} onChange={setDetail} />
+              <EditableField
+                ariaLabel="Detail" className="detail" value={detail}
+                readOnly={readOnly} onChange={setDetail}
+              />
             </label>
             <label>
               <span>Impact / Risk</span>
-              <EditableField ariaLabel="Impact / Risk" className="risk" value={impactRisk} onChange={setImpactRisk} />
+              <EditableField
+                ariaLabel="Impact / Risk" className="risk" value={impactRisk}
+                readOnly={readOnly} onChange={setImpactRisk}
+              />
             </label>
           </div>
 
@@ -481,12 +499,12 @@ function BacklogEditor({
                 <span
                   key={tag}
                   className="wu-backlog-editor__tag-action"
-                  role="button"
-                  tabIndex={0}
-                  title={`Remove ${tag}`}
-                  onClick={() => setTags(current => current.filter(value => value !== tag))}
+                  role={readOnly ? undefined : 'button'}
+                  tabIndex={readOnly ? undefined : 0}
+                  title={readOnly ? undefined : `Remove ${tag}`}
+                  onClick={readOnly ? undefined : () => setTags(current => current.filter(value => value !== tag))}
                   onKeyDown={event => {
-                    if (event.key === 'Enter' || event.key === ' ') {
+                    if (!readOnly && (event.key === 'Enter' || event.key === ' ')) {
                       event.preventDefault();
                       setTags(current => current.filter(value => value !== tag));
                     }
@@ -495,7 +513,7 @@ function BacklogEditor({
                   <Tag value={tag} />
                 </span>
               ))}
-              {tagEditor
+              {!readOnly && (tagEditor
                 ? (
                   <input
                     value={tagInput}
@@ -524,7 +542,7 @@ function BacklogEditor({
                   >
                     + tag
                   </span>
-                )}
+                ))}
             </div>
 
             <h3>Linked items</h3>
@@ -549,7 +567,7 @@ function BacklogEditor({
                   </span>
                 </div>
               ))}
-              {linkEditor
+              {!readOnly && (linkEditor
                 ? (
                   <select
                     value=""
@@ -577,7 +595,7 @@ function BacklogEditor({
                   >
                     + Link thread, task or item
                   </span>
-                )}
+                ))}
             </div>
 
             {item !== null && (
@@ -593,22 +611,36 @@ function BacklogEditor({
         </div>
 
         {error !== null && <div className="wu-backlog-editor__error">{error}</div>}
-        <footer>
+        {!readOnly && <footer>
           <button type="button" className="discard" disabled={busy} onClick={() => void discard()}>
             {item?.status === 'discarded' ? 'Reopen' : item === null ? 'Cancel' : 'Discard'}
           </button>
           <span />
           <button type="button" className="save" disabled={busy || !valid} onClick={() => void persist()}>Save</button>
           {(item === null || item.status === 'open') && (
-            <TrunkPicker
-              trunks={trunks}
-              label="Start work under a thread"
-              disabled={busy || title.trim().length === 0 || summary.trim().length === 0}
-              onSelect={selected => void start(selected)}
-              onNewTrunk={item === null ? undefined : () => onRequestNewTrunk?.(item.key)}
-            />
+            fixedTrunkId === undefined
+              ? (
+                <TrunkPicker
+                  trunks={trunks}
+                  label="Start work under a thread"
+                  disabled={busy || title.trim().length === 0 || summary.trim().length === 0}
+                  onSelect={selected => void start(selected)}
+                  onNewTrunk={item === null ? undefined : () => onRequestNewTrunk?.(item.key)}
+                />
+              )
+              : (
+                <div className="wu-backlog-trunk-picker">
+                  <button
+                    type="button"
+                    disabled={busy || title.trim().length === 0 || summary.trim().length === 0}
+                    onClick={() => void start(fixedTrunkId)}
+                  >
+                    Start development <span aria-hidden>→</span>
+                  </button>
+                </div>
+              )
           )}
-        </footer>
+        </footer>}
       </section>
     </div>
   );
@@ -619,6 +651,7 @@ function EditableField({
   autoFocus = false,
   className,
   onChange,
+  readOnly = false,
   singleLine = false,
   value,
 }: {
@@ -626,20 +659,22 @@ function EditableField({
   autoFocus?: boolean;
   className: string;
   onChange: (value: string) => void;
+  readOnly?: boolean;
   singleLine?: boolean;
   value: string;
 }) {
   return (
     <div
       aria-label={ariaLabel}
+      aria-readonly={readOnly}
       className={`wu-backlog-editor__control ${className}`}
-      contentEditable
+      contentEditable={!readOnly}
       role="textbox"
       aria-multiline={!singleLine}
       suppressContentEditableWarning
-      tabIndex={0}
+      tabIndex={readOnly ? undefined : 0}
       ref={element => {
-        if (autoFocus && element !== null && element.dataset.autofocused === undefined) {
+        if (!readOnly && autoFocus && element !== null && element.dataset.autofocused === undefined) {
           element.dataset.autofocused = 'true';
           element.focus();
         }
@@ -661,7 +696,7 @@ function TrunkPicker({
   onSelect,
   onNewTrunk,
 }: {
-  trunks: WorkspaceTrunkDto[];
+  trunks: BacklogTrunk[];
   label: string;
   disabled?: boolean;
   onSelect: (trunkId: string) => void;
@@ -771,7 +806,7 @@ function sourceLabel(source: string, threadName?: string): string {
 }
 
 function taskNumber(taskId: string): string {
-  return taskId.replace(/^task-/, '');
+  return taskId.match(/(?:\.k|task-)(\d+)$/)?.[1] ?? taskId.replace(/^task-/, '');
 }
 
 function relativeTime(timestamp: number): string {
@@ -790,7 +825,7 @@ function linkLabel(
   threadNames: Map<string, string>,
 ): string {
   if (link.type === 'trunk') return threadNames.get(link.id) ?? link.id;
-  if (link.type === 'task') return `Task #${link.id}`;
+  if (link.type === 'task') return `Task #${taskNumber(link.id)}`;
   if (link.type === 'backlog') {
     if (link.id === 'BQ-19') return 'BQ-19 property tests';
     return link.id.startsWith('BQ-') ? link.id : `Backlog ${link.id}`;

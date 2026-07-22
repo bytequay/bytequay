@@ -14,9 +14,9 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import ResizeHandle from '../ResizeHandle';
 import type { BacklogItemDto, PullRequestDto } from '../types';
-import { AskUserQuestionCard, BacklogPrompt, pickTopBacklog } from '../ui/conv';
+import { AskUserQuestionCard } from '../ui/conv';
 import { Composer, Main, Shell, usePaneWidth } from '../ui/shell';
-import type { TaskCardData } from '../ui/pane';
+import { BacklogTabContent, type BacklogItemData, type TaskCardData } from '../ui/pane';
 import {
   PullRequestBranchIcon, TrunkLineIcon,
 } from '../ui/workspace/WorkspacePageChrome';
@@ -26,9 +26,9 @@ import {
   type WorkspaceBacklogItemDto,
   type WorkspaceOverviewDto,
 } from '../workspace/workspaceApi';
+import { BacklogEditor } from '../workspace/WorkspaceBacklogPage';
 import { useTrunkPane } from './useTrunkPane';
 
-const READY_BACKLOG_STATUSES = new Set(['open', 'created']);
 const OVERVIEW_WIDTH_KEY = 'bq.trunkOverviewWidth';
 
 /**
@@ -81,29 +81,17 @@ export function TrunkPage({
   const pane = useTrunkPane(threadId);
   const panel = useWorkspacePanelData(thread.workspaceId);
   const [paneOpen, setPaneOpen] = useState(true);
+  const [selectedBacklogId, setSelectedBacklogId] = useState<string | null>(null);
   const { paneWidth, bodyRef, onResize } = usePaneWidth(OVERVIEW_WIDTH_KEY, 318, 240, 520);
 
   const openQuestions = pane.questions.filter(question => question.status === 'open');
-  const readyBacklog = pane.backlog.filter(item => READY_BACKLOG_STATUSES.has(item.status));
-  const ignoreKey = `bq.backlogPrompt.ignore.${threadId}`;
-  const [promptIgnored, setPromptIgnored] = useState(() => {
-    try {
-      return typeof localStorage !== 'undefined' && localStorage.getItem(ignoreKey) === 'true';
-    }
-    catch {
-      return false;
-    }
-  });
-  const ignorePrompt = () => {
-    try {
-      if (typeof localStorage !== 'undefined') localStorage.setItem(ignoreKey, 'true');
-    }
-    catch {
-      // Storage is a convenience for this prompt, never a workflow gate.
-    }
-    setPromptIgnored(true);
-  };
-  const topBacklog = pickTopBacklog(readyBacklog, tasks.active.length > 0, promptIgnored);
+  useEffect(() => {
+    setSelectedBacklogId(null);
+  }, [threadId]);
+  const selectedBacklog = selectedBacklogId === null
+    ? undefined
+    : pane.backlog.find(item => item.id === selectedBacklogId);
+  const editorWorkspaceId = selectedBacklog?.workspaceId ?? thread.workspaceId;
 
   const fallbackTimeline: TrunkActivityItemDto[] = pane.activity.generatedAt === 0
     ? [
@@ -227,16 +215,6 @@ export function TrunkPage({
                   ))}
                 </div>
               )}
-              {!hideConversationPrompts && topBacklog !== undefined && (
-                <BacklogPrompt
-                  title={topBacklog.title}
-                  body={topBacklog.body}
-                  tags={topBacklog.tags}
-                  onApprove={() => { void pane.startDevelopment(topBacklog.id); }}
-                  onIgnore={ignorePrompt}
-                  onDrop={() => { void pane.skip(topBacklog.id); }}
-                />
-              )}
               {conversationFooter ?? (
                 <Composer
                   variant="workspace-v2"
@@ -256,11 +234,11 @@ export function TrunkPage({
             </div>
             {paneOpen && (
               <WorkspaceOverviewPanel
+                key={threadId}
                 workspaceId={thread.workspaceId}
                 overview={panel.overview}
                 pullRequests={panel.pullRequests}
-                workspaceBacklog={panel.backlog}
-                trunkBacklog={readyBacklog}
+                trunkBacklog={pane.backlog}
                 pinned={pane.activity.pinned}
                 timeline={timeline}
                 runningSession={runningSession}
@@ -268,6 +246,11 @@ export function TrunkPage({
                 formatTime={formatTime}
                 onOpenActivity={openActivity}
                 onRefresh={pane.refresh}
+                onOpenBacklog={item => setSelectedBacklogId(item.id)}
+                onStartBacklog={itemId => { void pane.startDevelopment(itemId); }}
+                onDropBacklog={itemId => { void pane.skip(itemId); }}
+                onReopenBacklog={itemId => { void pane.revive(itemId); }}
+                onOpenTask={onOpenTask}
                 width={paneWidth}
                 onResize={onResize}
               />
@@ -275,6 +258,32 @@ export function TrunkPage({
           </div>
         </Main>
       </Shell>
+      {selectedBacklog !== undefined && editorWorkspaceId !== undefined && (
+        <BacklogEditor
+          key={selectedBacklog.id}
+          workspaceId={editorWorkspaceId}
+          item={toWorkspaceBacklogItem(selectedBacklog)}
+          readOnly={selectedBacklog.key === null || selectedBacklog.key === undefined}
+          trunks={[{
+            id: threadId,
+            title: thread.title,
+            status: thread.status ?? 'IDLE',
+            kind: 'dev',
+          }]}
+          threadNames={new Map([[threadId, thread.title]])}
+          fixedTrunkId={threadId}
+          onClose={() => setSelectedBacklogId(null)}
+          onSaved={async () => { pane.refresh(); }}
+          onDiscarded={async () => {
+            setSelectedBacklogId(null);
+            pane.refresh();
+          }}
+          onStarted={async saved => {
+            await pane.startDevelopment(saved.id);
+            setSelectedBacklogId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -283,7 +292,6 @@ function WorkspaceOverviewPanel({
   workspaceId,
   overview,
   pullRequests,
-  workspaceBacklog,
   trunkBacklog,
   pinned,
   timeline,
@@ -292,13 +300,17 @@ function WorkspaceOverviewPanel({
   formatTime,
   onOpenActivity,
   onRefresh,
+  onOpenBacklog,
+  onStartBacklog,
+  onDropBacklog,
+  onReopenBacklog,
+  onOpenTask,
   width,
   onResize,
 }: {
   workspaceId?: string;
   overview: WorkspaceOverviewDto | null;
   pullRequests: PullRequestDto[];
-  workspaceBacklog: WorkspaceBacklogItemDto[];
   trunkBacklog: BacklogItemDto[];
   pinned: TrunkActivityItemDto[];
   timeline: TrunkActivityItemDto[];
@@ -307,6 +319,11 @@ function WorkspaceOverviewPanel({
   formatTime: (ms: number) => string;
   onOpenActivity: (item: TrunkActivityItemDto) => void;
   onRefresh: () => void;
+  onOpenBacklog: (item: BacklogItemDto) => void;
+  onStartBacklog: (itemId: string) => void;
+  onDropBacklog: (itemId: string) => void;
+  onReopenBacklog: (itemId: string) => void;
+  onOpenTask?: (taskId: string) => void;
   width: number;
   onResize: (clientX: number) => void;
 }) {
@@ -315,10 +332,9 @@ function WorkspaceOverviewPanel({
   const needsTrunk = overview?.today.needsYou[0];
   const runningTrunk = overview?.today.running[0];
   const openPullRequests = pullRequests.filter(pr => pr.state !== 'closed' && pr.state !== 'merged').slice(0, 3);
-  const activeTrunkBacklog = trunkBacklog.filter(item => READY_BACKLOG_STATUSES.has(item.status));
-  const backlog = activeTrunkBacklog.length > 0
-    ? activeTrunkBacklog
-    : workspaceBacklog.filter(item => READY_BACKLOG_STATUSES.has(item.status)).slice(0, 3);
+  const [showAllBacklog, setShowAllBacklog] = useState(false);
+  const visibleBacklog = showAllBacklog ? trunkBacklog : trunkBacklog.slice(0, 3);
+  const hiddenBacklogCount = trunkBacklog.length - visibleBacklog.length;
   const pullRequestTotal = overview?.sidebarCounts.pullRequests ?? openPullRequests.length;
   const runningSessionId = runningSession?.sessionId;
 
@@ -411,22 +427,31 @@ function WorkspaceOverviewPanel({
 
         <section>
           <h3>BACKLOG</h3>
-          {backlog.length > 0 ? (
+          {trunkBacklog.length > 0 ? (
             <div className="trunk-page-v2__backlog">
-              {backlog.map(item => (
+              <BacklogTabContent
+                items={visibleBacklog.map(item => backlogCardData(item, formatTime))}
+                onOpenItem={itemId => {
+                  const item = trunkBacklog.find(candidate => candidate.id === itemId);
+                  if (item !== undefined) onOpenBacklog(item);
+                }}
+                onStartDevelopment={onStartBacklog}
+                onDrop={onDropBacklog}
+                onReopen={onReopenBacklog}
+                onOpenLinked={itemId => {
+                  const taskId = trunkBacklog.find(item => item.id === itemId)?.linkedTaskId;
+                  if (taskId !== null && taskId !== undefined) onOpenTask?.(taskId);
+                }}
+              />
+              {hiddenBacklogCount > 0 && (
                 <button
                   type="button"
-                  key={item.id}
-                  aria-label={`Open backlog item ${item.title}`}
-                  disabled={workspaceId === undefined}
-                  onClick={() => openPath(item.key === null || item.key === undefined
-                    ? 'backlog'
-                    : `backlog/${encodeURIComponent(item.key)}`)}
+                  className="trunk-page-v2__backlog-more"
+                  onClick={() => setShowAllBacklog(true)}
                 >
-                  <span aria-hidden="true" />
-                  <span>{item.title}</span>
+                  Load {hiddenBacklogCount} more
                 </button>
-              ))}
+              )}
             </div>
           ) : <p className="trunk-page-v2__overview-empty">Backlog is clear.</p>}
         </section>
@@ -438,32 +463,28 @@ function WorkspaceOverviewPanel({
 type WorkspacePanelData = {
   overview: WorkspaceOverviewDto | null;
   pullRequests: PullRequestDto[];
-  backlog: WorkspaceBacklogItemDto[];
 };
 
 function useWorkspacePanelData(workspaceId: string | undefined): WorkspacePanelData {
   const [data, setData] = useState<WorkspacePanelData>({
-    overview: null, pullRequests: [], backlog: [],
+    overview: null, pullRequests: [],
   });
   const load = useCallback(async () => {
     if (workspaceId === undefined || window.bridge?.workspaceApi === undefined) return;
-    const [overview, pullRequests, backlog] = await Promise.allSettled([
+    const [overview, pullRequests] = await Promise.allSettled([
       workspaceApi.overview(workspaceId),
       workspaceApi.pullRequests(workspaceId),
-      workspaceApi.backlog(workspaceId),
     ]);
     setData(current => ({
       overview: overview.status === 'fulfilled' && isWorkspaceOverview(overview.value)
         ? overview.value : current.overview,
       pullRequests: pullRequests.status === 'fulfilled' && Array.isArray(pullRequests.value)
         ? pullRequests.value : current.pullRequests,
-      backlog: backlog.status === 'fulfilled' && Array.isArray(backlog.value)
-        ? backlog.value : current.backlog,
     }));
   }, [workspaceId]);
 
   useEffect(() => {
-    setData({ overview: null, pullRequests: [], backlog: [] });
+    setData({ overview: null, pullRequests: [] });
     void load();
     const timer = window.setInterval(() => { void load(); }, 5000);
     return () => window.clearInterval(timer);
@@ -474,6 +495,45 @@ function useWorkspacePanelData(workspaceId: string | undefined): WorkspacePanelD
 function isWorkspaceOverview(value: unknown): value is WorkspaceOverviewDto {
   return value !== null && typeof value === 'object'
     && 'sidebarCounts' in value && 'today' in value && 'repository' in value;
+}
+
+function backlogCardData(item: BacklogItemDto, formatTime: (ms: number) => string): BacklogItemData {
+  const resolved = item.status === 'resolved';
+  const exploring = item.status === 'in-progress';
+  const dropped = item.status === 'discarded' || item.status === 'not-to-proceed';
+  const started = resolved || exploring;
+  return {
+    id: item.id,
+    title: item.title,
+    body: item.summary ?? item.body,
+    tags: item.tags.map(label => ({ label })),
+    createdLabel: `Created · ${formatTime(item.createdAt)}`,
+    started,
+    progressLabel: resolved ? 'Task cut' : exploring ? 'Trunk exploring' : 'Started',
+    dropped,
+    linkedTaskLabel: item.linkedTaskId === null
+      ? undefined
+      : `→ Task #${taskNumber(item.linkedTaskId)}`,
+  };
+}
+
+function toWorkspaceBacklogItem(item: BacklogItemDto): WorkspaceBacklogItemDto {
+  const links = [...(item.links ?? [{ type: 'trunk', id: item.threadId }])];
+  if (item.linkedTaskId !== null && !links.some(link => link.type === 'task' && link.id === item.linkedTaskId)) {
+    links.push({ type: 'task', id: item.linkedTaskId });
+  }
+  return {
+    ...item,
+    key: item.key ?? item.id,
+    summary: item.summary ?? item.title,
+    detail: item.detail ?? item.body,
+    impactRisk: item.impactRisk ?? null,
+    links,
+  };
+}
+
+function taskNumber(taskId: string): string {
+  return taskId.match(/(?:\.k|task-)(\d+)$/)?.[1] ?? taskId;
 }
 
 function fallbackTaskActivity(task: TaskCardData, status: string): TrunkActivityItemDto {

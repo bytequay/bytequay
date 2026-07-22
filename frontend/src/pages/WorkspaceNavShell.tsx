@@ -199,6 +199,7 @@ export function WorkspaceNavShell({
             <WorkspaceDestination navKey="backlog" label="Backlog" icon={<WorkspaceIcon kind="backlog" />}
               active={activeNav === 'backlog'} count={sourceSync ? undefined : counts?.backlog}
               trailing={sourceSync ? <WorkspaceCount>0</WorkspaceCount> : undefined}
+              disabled disabledTitle="Backlog is managed inside each trunk"
               onNavigate={onNavigate} />
           </WorkspaceGroup>
           <WorkspaceGroup label="Repo">
@@ -296,7 +297,7 @@ function WorkspaceGroup({ label, children }: { label: string; children: ReactNod
 
 function WorkspaceDestination({
   navKey, label, icon, active, count, attention = false, warning = false,
-  running = false, trailing, disabled = false, onNavigate,
+  running = false, trailing, disabled = false, disabledTitle, onNavigate,
 }: {
   navKey: WsNavKey;
   label: string;
@@ -308,6 +309,7 @@ function WorkspaceDestination({
   running?: boolean;
   trailing?: ReactNode;
   disabled?: boolean;
+  disabledTitle?: string;
   onNavigate?: (key: WsNavKey) => void;
 }) {
   return (
@@ -315,7 +317,7 @@ function WorkspaceDestination({
       className={`ws-destination${active ? ' active' : ''}${disabled ? ' disabled' : ''}`}
       role="button"
       aria-disabled={disabled}
-      title={disabled ? 'Still in progress' : undefined}
+      title={disabled ? disabledTitle ?? 'Still in progress' : undefined}
       tabIndex={disabled ? -1 : 0}
       onClick={() => { if (!disabled) onNavigate?.(navKey); }}
       onKeyDown={event => {

@@ -84,6 +84,20 @@ describe('buildBrainTimeline', () => {
     expect(segs[0].rounds[1].rows.map(item => item.id)).toEqual(['pr']);
   });
 
+  it('gives each pull request preparation milestone its own autonomous round', () => {
+    const segs = buildBrainTimeline([
+      row('o', 'STAGE_OPENED', 'open', 'dev'),
+      row('work', 'ITERATION_SUMMARY', 'finished work'),
+      row('start', 'PULL_REQUEST_PROGRESS', 'Starting pull request', 'dev'),
+      row('draft', 'PULL_REQUEST_PROGRESS', 'Creating draft', 'dev'),
+      row('later', 'ITERATION_SUMMARY', 'later work', 'dev'),
+      row('c', 'STAGE_CLOSED', 'close', 'dev'),
+    ], [DEV]);
+
+    expect(segs[0].rounds.map(round => round.rows.map(item => item.id)))
+      .toEqual([['work'], ['start'], ['draft'], ['later']]);
+  });
+
   it('flags a clean Q&A round (user + single reply)', () => {
     const segs = buildBrainTimeline([
       row('u', 'USER_MESSAGE', 'why?'),

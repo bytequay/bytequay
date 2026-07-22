@@ -97,6 +97,7 @@ export type LocalPRTimelineEventType =
   | 'comment'
   | 'follow-up'
   | 'plan-finalized'
+  | 'pull-request-progress'
   | 'pull-request-created';
 
 export interface LocalPRTimelineEvent {

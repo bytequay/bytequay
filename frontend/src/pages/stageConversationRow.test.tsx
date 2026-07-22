@@ -46,6 +46,19 @@ describe('stageRow tool_call', () => {
     expect(screen.getByText('-3')).toBeTruthy();
   });
 
+  it('renders pull request preparation milestones', () => {
+    render(<>{stageRow(row({
+      kind: 'pull_request_progress',
+      pullRequest: {
+        phase: 'starting', branch: 'feature/timeline', baseBranch: 'main',
+      },
+    }))}</>);
+
+    expect(screen.getByText('Starting pull request')).toBeTruthy();
+    expect(screen.getByText('feature/timeline')).toBeTruthy();
+    expect(screen.getByText('main')).toBeTruthy();
+  });
+
   it('renders the approved-plan kickoff as a collapsed runtime card, not a user message', () => {
     const text = `The plan for this task has been approved — implement it now.
 

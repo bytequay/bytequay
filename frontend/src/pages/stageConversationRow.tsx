@@ -153,6 +153,7 @@ export function stageRow(
     return <RuntimeKickoffCard key={r.id} row={r} kickoff={kickoff} />;
   }
   switch (r.kind) {
+    case 'pull_request_progress':
     case 'pull_request_created':
       return (
         <PullRequestCreatedEvent

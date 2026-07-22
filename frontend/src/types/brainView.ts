@@ -172,9 +172,10 @@ export type StageDto = {
   // Per-stage metrics live on the stage detail endpoint, not here.
 };
 
-/** The first remote pull request created from a task's local development
+/** One PR preparation/publication milestone from a task's local Development
  * branch. Present on the matching Brain and Development conversation event. */
 export type PullRequestCreatedData = {
+  phase?: string | null;
   branch?: string | null;
   baseBranch?: string | null;
   number?: number | null;
@@ -185,7 +186,7 @@ export type PullRequestCreatedData = {
 
 export type BrainFeedRowType =
   | 'STAGE_OPENED' | 'STAGE_CLOSED' | 'PANEL_REVIEW_COMPLETED'
-  | 'PUSHED_PR_CREATED' | 'ITERATION_SUMMARY' | 'USER_MESSAGE'
+  | 'PULL_REQUEST_PROGRESS' | 'PUSHED_PR_CREATED' | 'ITERATION_SUMMARY' | 'USER_MESSAGE'
   | 'BRAIN_AGENT_RESPONSE' | 'NEEDS_ATTENTION' | 'NOTIFY_READY_FOR_MERGE'
   | 'PLAN_RECORDED' | 'PLAN_APPROVED' | 'PLAN_FOLLOWUP_NOTED' | 'TRUNK_MESSAGE';
 
@@ -200,7 +201,7 @@ export type BrainFeedRow = {
   referencedStageId: string | null;   // for the "🔍 Open stage" drill-in chip
   images: string[];                   // attached-screenshot paths — USER_MESSAGE only
   managedSkills: string[];            // runtime-managed skills — USER_MESSAGE only
-  /** Remote PR creation metadata — present only on PUSHED_PR_CREATED. */
+  /** PR milestone metadata — present on PULL_REQUEST_PROGRESS/PUSHED_PR_CREATED. */
   pullRequest?: PullRequestCreatedData | null;
 };
 
@@ -459,7 +460,8 @@ export type StagePrThread = {
 export type StageConversationRow = {
   id: string;
   messageSeq: number | null;
-  kind: 'agent' | 'user' | 'tool_call' | 'iteration_marker' | 'permission' | 'pull_request_created';
+  kind: 'agent' | 'user' | 'tool_call' | 'iteration_marker' | 'permission'
+    | 'pull_request_progress' | 'pull_request_created';
   text: string | null;
   toolTag: string | null;
   toolLabel: string | null;
@@ -479,7 +481,7 @@ export type StageConversationRow = {
   images: string[];
   /** Runtime-managed skills — `user` rows only, empty otherwise. */
   managedSkills: string[];
-  /** Remote PR creation metadata — `pull_request_created` rows only. */
+  /** PR milestone metadata — `pull_request_progress`/`pull_request_created` only. */
   pullRequest?: PullRequestCreatedData | null;
 };
 

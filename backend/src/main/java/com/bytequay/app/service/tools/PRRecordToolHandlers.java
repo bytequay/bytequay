@@ -66,24 +66,56 @@ public class PRRecordToolHandlers
         this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
     }
 
+    /** Args for {@code record_pr_progress}. */
+    public record RecordPrProgressArgs(
+            @ToolParam(description = "PR preparation phase: starting | creating-draft.", required = true)
+            String phase) {}
+
+    @AgentTool(
+            name = "record_pr_progress",
+            description = "Record a durable PR-preparation milestone in the PR, Development, "
+                    + "and Brain timelines. Call starting before inspecting the final branch and "
+                    + "repository template, then creating-draft before writing the title/body. "
+                    + "Repeated calls for the same phase are idempotent.",
+            security = SecurityType.TASK_MANAGE,
+            gating = Gating.AUTO,
+            roles = AgentRole.TASK)
+    public ToolOutcome recordPrProgress(RecordPrProgressArgs args, ToolCall call)
+    {
+        if (!PRTimelineEntry.PHASE_STARTING.equals(args.phase())
+                && !PRTimelineEntry.PHASE_CREATING_DRAFT.equals(args.phase())) {
+            return ToolOutcome.Completed.error("phase must be starting or creating-draft");
+        }
+        return withPr(call, pr -> {
+            prService.recordProgress(pr.id(), args.phase());
+            return ToolOutcome.Completed.ok("recorded PR progress: " + args.phase());
+        });
+    }
+
     /** Args for {@code record_pr_description}. */
     public record RecordPrDescriptionArgs(
             @ToolParam(description = "Optional new PR title (a short, imperative summary).")
             String title,
-            @ToolParam(description = "The PR description as markdown — what the change does and why.",
+            @ToolParam(description = "The complete PR description as markdown. Follow the repository's "
+                    + "pull-request template exactly when present; otherwise keep it proportional to the "
+                    + "change (one line for a small change).",
                     required = true)
             String description) {}
 
     @AgentTool(
             name = "record_pr_description",
-            description = "Write the local PR's title + description. This edits the local PR row "
-                    + "in ByteQuay — it is NOT a GitHub call and nothing is posted remotely.",
+            description = "Write the local PR's final title + complete description after inspecting "
+                    + "the whole branch, its commit history, final diff, and repository template. "
+                    + "This edits only ByteQuay's local PR row; nothing is posted remotely.",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TASK)
     public ToolOutcome recordPrDescription(RecordPrDescriptionArgs args, ToolCall call)
     {
         return withPr(call, pr -> {
+            // Also guarantees the milestone when an older/partial prompt omits
+            // the explicit creating-draft progress call.
+            prService.recordProgress(pr.id(), PRTimelineEntry.PHASE_CREATING_DRAFT);
             prService.updateDetails(pr.id(), args.title(), args.description());
             return ToolOutcome.Completed.ok("recorded PR description");
         });

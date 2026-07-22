@@ -204,7 +204,8 @@ public record TaskBrainViewData(
      * so the frontend renders it with no reinterpretation layer.
      *
      * @param key {@code implementing} / {@code validation} / {@code brainReview}
-     * @param meta short hint text (e.g. iteration count), or null
+     * @param meta short hint text (e.g. iteration count, {@code brain approved},
+     *             or {@code brain unresolved · N}), or null
      * @param badgeRunId the live {@link AgentRun} id to badge this phase with
      *                    (the local {@code ci_fix} run for Validation), or
      *                    null when nothing's live

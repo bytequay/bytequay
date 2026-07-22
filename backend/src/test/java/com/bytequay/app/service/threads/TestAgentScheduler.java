@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.AgentMetrics;
+import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
@@ -47,6 +48,7 @@ import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WorktreeLeaseStore;
 import com.bytequay.app.service.codegraph.CodeGraphFirstRuntime;
+import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.skills.CavemanPrompt;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -83,9 +85,52 @@ import static com.bytequay.app.domain.ThreadTurnStatus.FAILED;
 import static com.bytequay.app.domain.ThreadTurnStatus.QUEUED;
 import static com.bytequay.app.domain.ThreadTurnStatus.RUNNING;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 class TestAgentScheduler
 {
+    @Test
+    void coordinatorOwnedTurnsLeaveTheirEpisodeRunsOpen()
+    {
+        AgentRunService agentRuns = mock(AgentRunService.class);
+        TestHarness harness = new TestHarness(1, 4, agentRuns);
+        Thread thread = thread("thread-ci", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        String stageId = "11111111-1111-1111-1111-111111111111";
+        harness.stageStore.stages.put(UUID.fromString(stageId), new StageInstance(
+                UUID.fromString(stageId), "task-ci", StageType.REMOTE_DEVELOPMENT_STAGE,
+                StageState.OPEN, Instant.parse("2026-07-22T00:00:00Z"), null, null));
+
+        for (String source : List.of(
+                "ci-fix-shipped", "review-round", "brain-review", "brain-review-fix",
+                "branch-guard-fix")) {
+            String runId = "run-" + source;
+            String turnId = harness.scheduler.enqueueTaskTurn(
+                    thread, "coordinator step", "task-ci", stageId,
+                    TurnInitiator.unattended(source), runId);
+            session.completeNext();
+
+            assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                    .isEqualTo(COMPLETED);
+            verify(agentRuns).transition(runId, AgentRun.STATUS_RUNNING, "scheduler started");
+            verify(agentRuns, never()).transition(
+                    eq(runId), eq(AgentRun.STATUS_SUCCEEDED), eq("scheduler turn completed"));
+            verify(agentRuns, never()).transition(
+                    eq(runId), eq(AgentRun.STATUS_FAILED), any());
+        }
+
+        harness.scheduler.enqueueTaskTurn(
+                thread, "ordinary step", "task-ci", stageId,
+                TurnInitiator.user(), "run-ordinary");
+        session.completeNext();
+        verify(agentRuns).transition(
+                "run-ordinary", AgentRun.STATUS_SUCCEEDED, "scheduler turn completed");
+    }
+
     @Test
     void capsCliTurnsAndQueuesOverflow()
     {
@@ -180,8 +225,8 @@ class TestAgentScheduler
         assertThat(session.skillNames).containsExactly(List.of(
                 "task-execution", "codegraph-first", "ponytail", CavemanPrompt.NAME));
         assertThat(session.toolNames.getFirst())
-                .contains("codegraph_explore", "run_checks", "push")
-                .doesNotContain("list_skills", "list_tools", "load_skill");
+                .contains("codegraph_explore", "run_checks")
+                .doesNotContain("push", "list_skills", "list_tools", "load_skill");
     }
 
     @Test
@@ -203,8 +248,8 @@ class TestAgentScheduler
         assertThat(session.skillNames).containsExactly(List.of(
                 "task-execution", "codegraph-first", "ponytail", CavemanPrompt.NAME));
         assertThat(session.toolNames.getFirst())
-                .contains("codegraph_explore", "run_checks", "push")
-                .doesNotContain("list_skills", "list_tools", "load_skill");
+                .contains("codegraph_explore", "run_checks")
+                .doesNotContain("push", "list_skills", "list_tools", "load_skill");
     }
 
     @Test
@@ -574,9 +619,15 @@ class TestAgentScheduler
 
         private TestHarness(int maxCliRunning, int maxApiRunning)
         {
+            this(maxCliRunning, maxApiRunning, null);
+        }
+
+        private TestHarness(int maxCliRunning, int maxApiRunning, AgentRunService agentRuns)
+        {
             scheduler = new AgentScheduler(
                     threads, turns, events, registry, stageStore,
-                    new StubTaskStore(), maxCliRunning, maxApiRunning);
+                    new StubTaskStore(), null, null, null, agentRuns, null,
+                    maxCliRunning, maxApiRunning);
         }
 
         private RecordingSession register(Thread thread)

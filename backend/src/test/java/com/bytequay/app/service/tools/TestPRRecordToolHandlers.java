@@ -13,22 +13,29 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
+import com.bytequay.app.service.tools.PRRecordToolHandlers.RecordLocalReviewArgs;
 import com.bytequay.app.service.tools.PRRecordToolHandlers.RecordPrCheckArgs;
 import com.bytequay.app.service.tools.PRRecordToolHandlers.RecordPrDescriptionArgs;
 import com.bytequay.app.service.tools.PRRecordToolHandlers.RecordPrProgressArgs;
 import com.bytequay.app.service.tools.PRRecordToolHandlers.ResolvePrCommentArgs;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,8 +61,11 @@ class TestPRRecordToolHandlers
     private final BrainReviewService brainReview = mock(BrainReviewService.class);
     private final ReviewRoundStore roundStore = mock(ReviewRoundStore.class);
     private final AgentRunService agentRuns = mock(AgentRunService.class);
+    private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
+    private final GitRunner git = mock(GitRunner.class);
     private final PRRecordToolHandlers handlers =
-            new PRRecordToolHandlers(prService, taskStore, brainReview, roundStore, agentRuns);
+            new PRRecordToolHandlers(
+                    prService, taskStore, brainReview, roundStore, agentRuns, phaseMachine, git);
 
     private final ToolCall taskCall = new ToolCall("thread-1", null, AgentRole.TASK, "task1", null);
 
@@ -124,8 +134,57 @@ class TestPRRecordToolHandlers
     }
 
     @Test
+    void recordLocalReviewCannotStartBrainBeforeValidation()
+            throws Exception
+    {
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(prService.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(pr());
+        when(git.commitCountUniqueTo(Path.of("/tmp/wt/feature-x"), "feature/x", "main"))
+                .thenReturn(1);
+
+        ToolOutcome outcome = handlers.recordLocalReview(new RecordLocalReviewArgs(true), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).text()).contains("validation will start Brain review");
+        verify(phaseMachine).transition(
+                "task1", TaskPhase.VALIDATING, "development_handoff", Actor.AGENT);
+        verify(brainReview, never()).reviewBeforeLocalOpen(any(), any());
+    }
+
+    @Test
+    void recordLocalReviewRejectsADirtyWorktree()
+            throws Exception
+    {
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(prService.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(pr());
+        when(git.hasUncommittedChanges(Path.of("/tmp/wt/feature-x"))).thenReturn(true);
+
+        ToolOutcome outcome = handlers.recordLocalReview(new RecordLocalReviewArgs(true), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
+        assertThat(((ToolOutcome.Completed) outcome).text()).contains("commit or discard");
+        verify(phaseMachine, never()).transition(any(), any(), any(), any());
+    }
+
+    @Test
+    void recordLocalReviewRejectsABranchWithNoCommitAhead()
+            throws Exception
+    {
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(prService.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(pr());
+        when(git.commitCountUniqueTo(Path.of("/tmp/wt/feature-x"), "feature/x", "main"))
+                .thenReturn(0);
+
+        ToolOutcome outcome = handlers.recordLocalReview(new RecordLocalReviewArgs(true), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
+        assertThat(((ToolOutcome.Completed) outcome).text()).contains("at least one commit");
+        verify(phaseMachine, never()).transition(any(), any(), any(), any());
+    }
+
+    @Test
     void resolvePrCommentDefaultsToResolve()
     {
+        stubTaskPrComments(comment("cm1"));
         ToolOutcome outcome = handlers.resolvePrComment(
                 new ResolvePrCommentArgs("cm1", "addressed"), taskCall);
 
@@ -137,12 +196,26 @@ class TestPRRecordToolHandlers
     @Test
     void resolvePrCommentRoutesToDismissWhenResolutionIsDismissed()
     {
+        stubTaskPrComments(comment("cm1"));
         ToolOutcome outcome = handlers.resolvePrComment(
                 new ResolvePrCommentArgs("cm1", "dismissed"), taskCall);
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
         verify(prService).dismissComment("cm1");
         verify(prService, never()).resolveComment(any());
+    }
+
+    @Test
+    void resolvePrCommentRejectsACommentFromAnotherTask()
+    {
+        stubTaskPrComments(comment("own-comment"));
+
+        ToolOutcome outcome = handlers.resolvePrComment(
+                new ResolvePrCommentArgs("foreign-comment", "addressed"), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
+        verify(prService, never()).resolveComment("foreign-comment");
+        verify(prService, never()).dismissComment("foreign-comment");
     }
 
     @Test
@@ -181,5 +254,22 @@ class TestPRRecordToolHandlers
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
         verify(prService, never()).recordCheck(eq("pr1"), any(), any(), any(), any());
+    }
+
+    private void stubTaskPrComments(PRComment... comments)
+    {
+        PR localPr = pr();
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(prService.createForTask("task1", "feature/x", "main", "T", ""))
+                .thenReturn(localPr);
+        when(prService.comments(localPr.id())).thenReturn(List.of(comments));
+    }
+
+    private static PRComment comment(String id)
+    {
+        return new PRComment(
+                id, "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, "brain", "body", NOW,
+                null, null, null, null, null, null, null, null);
     }
 }

@@ -21,6 +21,7 @@ import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.PrDetailStore;
@@ -155,7 +156,9 @@ public class AutomationCoordinator
         List<Task> candidates = taskStore.listWithLinkedPr(CI_SCAN_LIMIT);
         int emitted = 0;
         for (Task task : candidates) {
-            if (task.linkedPrNumber() == null || task.workingDir() == null) {
+            if (isParkedOrTerminal(task)
+                    || task.linkedPrNumber() == null
+                    || task.workingDir() == null) {
                 continue;
             }
             try {
@@ -170,6 +173,21 @@ public class AutomationCoordinator
         if (emitted > 0) {
             log.info("Emitted {} NEEDS_ATTENTION notification(s) for failing CI", emitted);
         }
+    }
+
+    /** A parked or finished task is durable stop-state, not a candidate for
+     *  another CI run. Check both axes so a partially persisted legacy row
+     *  still fails closed. */
+    private static boolean isParkedOrTerminal(Task task)
+    {
+        if (task.phase() == TaskPhase.NEEDS_ATTENTION || task.phase() == TaskPhase.COMPLETED) {
+            return true;
+        }
+        return switch (task.status()) {
+            case AWAITING_REVIEW, NEEDS_ATTENTION, PAUSED,
+                    COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED, ARCHIVED -> true;
+            default -> false;
+        };
     }
 
     /** Returns true when this scan actually wrote a new notification. */

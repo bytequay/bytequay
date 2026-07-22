@@ -221,7 +221,10 @@ class SqliteStageStore
         ReviewCommentEntity entity = comments.findById(id.toString()).orElseGet(ReviewCommentEntity::new);
         entity.setId(id.toString());
         entity.setTaskId(comment.taskId());
-        entity.setFile(comment.file());
+        // SQLite's original review_comment schema made file NOT NULL. An
+        // empty stored value represents a general PR conversation comment;
+        // the domain still exposes that as null.
+        entity.setFile(comment.file() == null ? "" : comment.file());
         entity.setLine(comment.line());
         entity.setBody(comment.body());
         entity.setCreatedAtMs(comment.createdAt().toEpochMilli());
@@ -233,6 +236,8 @@ class SqliteStageStore
         entity.setDraftReplyBody(comment.draftReplyBody());
         entity.setDraftReplyCreatedAtMs(comment.draftReplyCreatedAt() == null
                 ? null : comment.draftReplyCreatedAt().toEpochMilli());
+        entity.setDraftReplyPostedAtMs(comment.draftReplyPostedAt() == null
+                ? null : comment.draftReplyPostedAt().toEpochMilli());
         entity.setSide(DiffSide.normalize(comment.side()));
         entity.setStartLine(comment.startLine());
         entity.setStartSide(comment.startSide());
@@ -243,7 +248,8 @@ class SqliteStageStore
     @Override
     public List<ReviewComment> findUnroundedRemoteComments(String taskId)
     {
-        return comments.findByTaskIdAndSourceAndRoundIdIsNull(taskId, ReviewCommentSource.REMOTE_REVIEWER.name())
+        return comments.findByTaskIdAndSourceAndRoundIdIsNullAndResolvedFalse(
+                        taskId, ReviewCommentSource.REMOTE_REVIEWER.name())
                 .stream()
                 .map(SqliteStageStore::toComment)
                 .toList();
@@ -273,6 +279,13 @@ class SqliteStageStore
     public Optional<ReviewComment> findReviewCommentById(UUID id)
     {
         return comments.findById(id.toString()).map(SqliteStageStore::toComment);
+    }
+
+    @Override
+    public Optional<ReviewComment> findReviewCommentByRemoteLink(String remoteLink)
+    {
+        return remoteLink == null ? Optional.empty() : comments.findByRemoteLink(remoteLink)
+                .map(SqliteStageStore::toComment);
     }
 
     @Override
@@ -311,6 +324,24 @@ class SqliteStageStore
     {
         comments.findById(id.toString()).ifPresent(entity -> {
             entity.setResolved(resolved);
+            comments.save(entity);
+        });
+    }
+
+    @Override
+    public boolean isRemoteThreadResolutionPosted(UUID commentId)
+    {
+        return comments.findById(commentId.toString())
+                .map(entity -> entity.getRemoteThreadResolvedAtMs() != null)
+                .orElse(false);
+    }
+
+    @Override
+    @Transactional
+    public void markRemoteThreadResolutionPosted(UUID commentId, Instant postedAt)
+    {
+        comments.findById(commentId.toString()).ifPresent(entity -> {
+            entity.setRemoteThreadResolvedAtMs(postedAt.toEpochMilli());
             comments.save(entity);
         });
     }
@@ -394,7 +425,7 @@ class SqliteStageStore
         return new ReviewComment(
                 UUID.fromString(e.getId()),
                 e.getTaskId(),
-                e.getFile(),
+                e.getFile() == null || e.getFile().isEmpty() ? null : e.getFile(),
                 e.getLine(),
                 e.getBody(),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
@@ -405,6 +436,7 @@ class SqliteStageStore
                 e.getRoundId() == null ? null : UUID.fromString(e.getRoundId()),
                 e.getDraftReplyBody(),
                 Timestamps.instant(e.getDraftReplyCreatedAtMs()),
+                Timestamps.instant(e.getDraftReplyPostedAtMs()),
                 e.getSide(),
                 e.getStartLine(),
                 e.getStartSide());

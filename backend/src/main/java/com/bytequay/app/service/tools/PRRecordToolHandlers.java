@@ -13,18 +13,24 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -54,16 +60,21 @@ public class PRRecordToolHandlers
     private final BrainReviewService brainReview;
     private final ReviewRoundStore roundStore;
     private final AgentRunService agentRuns;
+    private final TaskPhaseMachine phaseMachine;
+    private final GitRunner git;
 
     public PRRecordToolHandlers(
             PRService prService, TaskStore taskStore, BrainReviewService brainReview,
-            ReviewRoundStore roundStore, AgentRunService agentRuns)
+            ReviewRoundStore roundStore, AgentRunService agentRuns, TaskPhaseMachine phaseMachine,
+            GitRunner git)
     {
         this.prService = requireNonNull(prService, "prService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
         this.roundStore = requireNonNull(roundStore, "roundStore is null");
         this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
+        this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
+        this.git = requireNonNull(git, "git is null");
     }
 
     /** Args for {@code record_pr_progress}. */
@@ -180,14 +191,15 @@ public class PRRecordToolHandlers
 
     /** Args for {@code record_local_review}. */
     public record RecordLocalReviewArgs(
-            @ToolParam(description = "Set true to flip the PR from local-drafted to local-open — "
-                    + "'development done, ready for the user's private review'.",
+            @ToolParam(description = "Set true to finish the Development handoff. Validation then "
+                    + "starts Brain adversarial review; only its conclusion flips the PR local-open.",
                     wireName = "request_user_review", required = true) Boolean requestUserReview) {}
 
     @AgentTool(
             name = "record_local_review",
-            description = "Declare development done and hand the local PR to the user for review "
-                    + "(flips local-drafted -> local-open). No GitHub interaction.",
+            description = "Declare Development done. The idle lifecycle runs validation, then starts "
+                    + "Brain adversarial review; only Brain approval or bounded escalation hands the "
+                    + "private local PR to the user. No GitHub interaction.",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TASK)
@@ -197,11 +209,58 @@ public class PRRecordToolHandlers
             return ToolOutcome.Completed.ok("no-op: request_user_review was not set");
         }
         return withPr(call, pr -> {
-            PR after = brainReview.reviewBeforeLocalOpen(pr.id(), PRTimelineEntry.ACTOR_AGENT);
-            return ToolOutcome.Completed.ok(PR.STATUS_LOCAL_OPEN.equals(after.status())
-                    ? "flipped local PR to local-open for user review"
-                    : "development done — the brain is reviewing the diff before handing it to the user");
+            return TaskPhaseMachine.withTaskLock(pr.taskId(), () -> {
+                Task task = taskStore.findTaskById(pr.taskId()).orElse(null);
+                if (task == null) {
+                    return ToolOutcome.Completed.error("no task for local PR " + pr.id());
+                }
+                if (task.phase() == TaskPhase.IMPLEMENTING) {
+                    String error = handoffError(task);
+                    if (error != null) {
+                        return ToolOutcome.Completed.error(error);
+                    }
+                    phaseMachine.transition(
+                            task.id(), TaskPhase.VALIDATING, "development_handoff", Actor.AGENT);
+                    return ToolOutcome.Completed.ok(
+                            "development handoff recorded — local validation will start Brain review when ready");
+                }
+                if (task.phase() != TaskPhase.INTERNAL_REVIEW) {
+                    return ToolOutcome.Completed.ok(
+                            "development handoff already recorded — waiting for local validation");
+                }
+                PR after = brainReview.reviewBeforeLocalOpen(pr.id(), PRTimelineEntry.ACTOR_AGENT);
+                return ToolOutcome.Completed.ok(PR.STATUS_LOCAL_OPEN.equals(after.status())
+                        ? "flipped local PR to local-open for user review"
+                        : "development done — the brain is reviewing the diff before handing it to the user");
+            });
         });
+    }
+
+    private String handoffError(Task task)
+    {
+        if (task.worktreePath() == null || task.worktreePath().isBlank()
+                || task.branchName() == null || task.branchName().isBlank()
+                || task.baseBranch() == null || task.baseBranch().isBlank()) {
+            return "development handoff requires a task worktree, branch, and base branch";
+        }
+        Path worktree = Path.of(task.worktreePath());
+        try {
+            if (git.hasUncommittedChanges(worktree)) {
+                return "development handoff rejected: commit or discard all worktree changes first";
+            }
+            Integer ahead = git.commitCountUniqueTo(worktree, task.branchName(), task.baseBranch());
+            if (ahead == null || ahead <= 0) {
+                return "development handoff rejected: create at least one commit ahead of the base branch first";
+            }
+            return null;
+        }
+        catch (IOException e) {
+            return "development handoff could not inspect git state: " + e.getMessage();
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return "development handoff interrupted while inspecting git state";
+        }
     }
 
     /** Args for {@code record_pr_comment}. */
@@ -285,17 +344,20 @@ public class PRRecordToolHandlers
         if (args.commentId() == null || args.commentId().isBlank()) {
             return ToolOutcome.Completed.error("comment_id is required");
         }
-        try {
+        return withPr(call, pr -> {
+            boolean belongsToTask = prService.comments(pr.id()).stream()
+                    .anyMatch(comment -> args.commentId().equals(comment.id()));
+            if (!belongsToTask) {
+                return ToolOutcome.Completed.error(
+                        "comment " + args.commentId() + " does not belong to this task's local PR");
+            }
             if ("dismissed".equals(args.resolution())) {
                 prService.dismissComment(args.commentId());
                 return ToolOutcome.Completed.ok("dismissed comment " + args.commentId());
             }
             prService.resolveComment(args.commentId());
             return ToolOutcome.Completed.ok("resolved comment " + args.commentId());
-        }
-        catch (IllegalArgumentException e) {
-            return ToolOutcome.Completed.error(e.getMessage());
-        }
+        });
     }
 
     /** Resolve the running turn's task-scoped local PR — creating the row from

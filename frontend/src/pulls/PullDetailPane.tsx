@@ -13,12 +13,14 @@
  */
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
+import { diffInlineCommentFromLocalPr, isPublishableReviewDraft } from '../diff/DiffInlineComments';
 import { SubmitReviewDrawer, type ReviewVerdict } from '../pages/SubmitReviewDrawer';
 import { usePR } from '../pr/usePR';
 import { derivePRCapabilities } from '../pr/prCapabilities';
 import type { AiReviewDraftDto, DiffFileDto } from '../types';
 import type { LocalPRBundle } from '../types/localPr';
+import type { LocalReviewGate } from '../pr/localpr/localReviewGate';
+import { MergeBox } from '../pr/localpr/MergeBox';
 import { CommentBubbleIcon, PrMergedIcon, PrOpenIcon, RobotIcon } from './atoms';
 import { buildHeader } from './detailModel';
 import type { PullRow } from './model';
@@ -69,6 +71,14 @@ export type PullDetailActions = {
   };
   /** True when the host resolved the repo and found no watched workspace. */
   noWorkspace?: boolean;
+  /** Task-origin Local Review actions. Eligibility remains server-owned. */
+  localReviewGate?: LocalReviewGate;
+  onPush?: () => void;
+  onAskAgentToAddress?: () => void;
+  onRunLocalTests?: () => void;
+  localTestsBusy?: boolean;
+  /** Explicit user-owned remote close action. Omitted for local/terminal PRs. */
+  onClosePullRequest?: () => Promise<void>;
 };
 
 export type PullDetailBodyProps = {
@@ -87,6 +97,8 @@ export type PullDetailBodyProps = {
   fetchChangesBlob?: (path: string) => Promise<{ lines: string[] }>;
   /** Gate/action content shown above the Changes toolbar. */
   changesBanner?: ReactNode;
+  /** Notification-owned terminal action shown on the Overview tab. */
+  overviewBanner?: ReactNode;
 } & PullDetailActions;
 
 function ReviewAction({ children, onClick, title }: {
@@ -242,7 +254,7 @@ function QuickReviewInline({
 }
 
 export function PullDetailBody({
-  row, bundle, refresh, onComment, changesFiles, fetchChangesBlob, changesBanner,
+  row, bundle, refresh, onComment, changesFiles, fetchChangesBlob, changesBanner, overviewBanner,
   openOverviewToken, openChangesToken, ...actions
 }: PullDetailBodyProps) {
   const [subTab, setSubTab] = useState<'overview' | 'changes'>('overview');
@@ -264,9 +276,39 @@ export function PullDetailBody({
   useEffect(() => {
     if (openOverviewToken !== undefined) setSubTab('overview');
   }, [openOverviewToken]);
-  const pending = (bundle?.comments ?? []).filter(isPendingLocalComment);
+  const pending = (bundle?.comments ?? []).filter(isPublishableReviewDraft);
   const canPublish = bundle !== null && bundle !== undefined
     && derivePRCapabilities(bundle.pr, 'details').publishReview;
+  const localReviewPanel = bundle !== null && bundle !== undefined
+      && bundle.pr.origin === 'task' && bundle.pr.status === 'local-open' ? (() => {
+    const localChecks = bundle.checks.filter(check => check.kind === 'local');
+    const latest = localChecks.reduce<typeof localChecks[number] | undefined>(
+      (current, check) => current === undefined || check.startedAt > current.startedAt ? check : current,
+      undefined,
+    );
+    const openComments = bundle.comments.filter(comment => comment.parentCommentId === null
+      && comment.resolvedAt === null && comment.strippedOnPushAt === null).length;
+    const draftCount = bundle.comments.filter(comment => comment.parentCommentId === null
+      && comment.origin === 'local' && comment.publishedAt === null
+      && comment.resolvedAt === null && comment.dismissedAt === null).length;
+    return (
+      <MergeBox
+        pr={bundle.pr}
+        capabilities={derivePRCapabilities(bundle.pr, 'task')}
+        localChecks={localChecks}
+        remoteChecks={[]}
+        openComments={openComments}
+        localTestsFailing={latest?.status === 'failed'}
+        pendingStripCount={bundle.pendingStripCount ?? 0}
+        draftCount={draftCount}
+        localReviewGate={actions.localReviewGate}
+        onPush={actions.onPush}
+        onAskAgent={actions.onAskAgentToAddress}
+        onRunTests={actions.onRunLocalTests}
+        runTestsBusy={actions.localTestsBusy}
+      />
+    );
+  })() : null;
   const removePending = (id: string) => {
     void window.bridge.deleteLocalPrComment(id).then(refresh).catch(() => { /* poll reconciles */ });
   };
@@ -379,11 +421,14 @@ export function PullDetailBody({
               quickReview={actions.quickReview}
               fullReviewPreparation={actions.fullReviewPreparation}
             />
+            {overviewBanner}
+            {localReviewPanel}
             <PullOverview
               row={row}
               bundle={bundle}
               isMerged={det.isMerged}
               onComment={onComment}
+              onClosePullRequest={actions.onClosePullRequest}
               onDescriptionSaved={refresh}
             />
           </div>

@@ -62,4 +62,11 @@ public interface BrainReviewService
     }
 
     void recordVerdict(String taskId, String stageId, String agentRunId, String scope, String verdict);
+
+    /** True only after the Brain spent its review budget and deliberately
+     *  handed unresolved Brain findings to the human promotion gate. */
+    default boolean isBudgetExhaustedEscalation(String taskId)
+    {
+        return false;
+    }
 }

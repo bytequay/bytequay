@@ -131,7 +131,7 @@ export function TaskSidebar({
   onOpenTrunk?: () => void;
   onOpenStage?: (stageId: string) => void;
   onOpenPr?: () => void;
-  onOpenTab?: (tab: 'pr', subTab?: 'checks') => void;
+  onOpenTab?: (tab: 'pr', subTab?: 'overview' | 'checks' | 'changes') => void;
   onOpenBrain?: () => void;
   onOpenRun?: (runId: string) => void;
   onToggleGuard?: (enabled: boolean) => void;
@@ -140,9 +140,8 @@ export function TaskSidebar({
   onNavigateGlobal?: (destination: WsNavKey) => void;
   onSwitchWorkspace?: () => void;
 }) {
-  const leaves = nodes.flatMap(node => node.phases?.length ? node.phases : [node]);
-  const doneCount = leaves.filter(node => node.status === 'done').length;
-  const totalCount = leaves.length;
+  const doneCount = nodes.filter(node => node.status === 'done').length;
+  const totalCount = nodes.length;
   const { tasks: siblingTasks } = useThreadTasks(threadId ?? '');
   const repository = task.repository ?? '';
   const workspaceName = task.workspaceName
@@ -256,19 +255,19 @@ export function StagesList({ nodes, highlightActive = true, onNavigate }: {
   onNavigate: (nav: LivePlanNav) => void;
 }) {
   // Explicit per-node fold state for the phase ladder, keyed by node key.
-  // Absent = collapsed: the sub-steps open only when the user clicks the
-  // node's chevron (mirroring the plan diagram's disclosure), so a running
-  // stage's steps don't bury the rest of the rail.
+  // Development opens its three phases while active; an explicit user
+  // toggle wins afterwards.
   const [openPhases, setOpenPhases] = useState<Record<string, boolean>>({});
   return (
     <div className="workspace-task-stages">
       {nodes.map(node => {
-        const cleanup = node.key === 'cleanup' || node.nodeType === 'auto';
+        const cleanup = node.key === 'cleanup';
         const active = highlightActive && node.activeView && !cleanup;
         const disabled = cleanup || node.nav.kind === 'none';
-        const title = cleanup ? 'Runs automatically — no agent page' : 'Open agent page';
+        const title = cleanup ? 'Runs automatically — no agent page'
+          : node.nodeType === 'stage' ? 'Open agent page' : `Open ${node.label}`;
         const hasPhases = !cleanup && node.phases !== undefined && node.phases.length > 0;
-        const open = openPhases[node.key] ?? false;
+        const open = openPhases[node.key] ?? (node.key === 'local-development' && node.status === 'running');
         return (
           <div className="workspace-task-stage-group" key={node.key}>
             <div className={`workspace-task-stage-row${active ? ' is-active' : ''}`}>
@@ -280,6 +279,7 @@ export function StagesList({ nodes, highlightActive = true, onNavigate }: {
                 onClick={() => onNavigate(node.nav)}
               >
                 <StageStatusIcon node={node} />
+                <NodeOwnerGlyph node={node} />
                 <span className="workspace-task-stage__copy">
                   <strong>{node.label}</strong>
                   <span>{stageMetric(node)}</span>
@@ -310,6 +310,23 @@ export function StagesList({ nodes, highlightActive = true, onNavigate }: {
         );
       })}
     </div>
+  );
+}
+
+function NodeOwnerGlyph({ node }: { node: LivePlanNode }) {
+  const glyph = node.nodeType === 'stage' ? '🤖' : node.nodeType === 'gate' ? '◆' : '○';
+  const title = node.nodeType === 'stage' ? 'Agent-owned stage'
+    : node.nodeType === 'gate' ? 'User decision gate'
+      : 'Automatic checkpoint';
+  return (
+    <span
+      className={`workspace-task-stage__owner is-${node.nodeType}`}
+      data-node-type={node.nodeType}
+      title={title}
+      aria-hidden
+    >
+      {glyph}
+    </span>
   );
 }
 
@@ -350,7 +367,6 @@ function PhaseStatusIcon({ status }: { status: LivePlanStatus }) {
 
 function stageStatusLabel(node: LivePlanNode): string {
   if (node.key === 'plan' && node.status === 'done') return 'approved';
-  if (node.key === 'remote-development' && node.status === 'done') return 'merged';
   switch (node.status) {
     case 'done': return 'done';
     case 'planning': return 'planning';
@@ -375,14 +391,15 @@ function stageMetric(node: LivePlanNode): string {
 
 function stageTone(node: LivePlanNode): 'plan' | 'local' | 'remote' | 'cleanup' {
   if (node.key === 'plan') return 'plan';
-  if (node.key === 'remote-development') return 'remote';
+  if (node.key === 'remote-pr' || node.key === 'ci-validation'
+      || node.key === 'comments' || node.key === 'merge-close') return 'remote';
   if (node.key === 'cleanup' || node.nodeType === 'auto') return 'cleanup';
   return 'local';
 }
 
 function StageStatusIcon({ node }: { node: LivePlanNode }) {
   const { status } = node;
-  if (node.key === 'cleanup' || node.nodeType === 'auto') {
+  if (node.key === 'cleanup') {
     return status === 'done'
       ? <span className="workspace-task-stage__status-icon is-cleanup"><CheckCircleIcon /></span>
       : <span className="workspace-task-stage__status-icon is-idle"><i /></span>;

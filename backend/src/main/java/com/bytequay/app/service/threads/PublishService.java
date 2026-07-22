@@ -25,6 +25,7 @@ import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoRef;
@@ -42,7 +43,9 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PrPushedEvent;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.ReviewPassResolver;
+import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.tools.ParkedProposal;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -144,6 +147,8 @@ public class PublishService
     private final ReviewPassResolver reviewPassResolver;
     private final StageStore stageStore;
     private final PRService prService;
+    private final PullRequestService pullRequestDetails;
+    private final ReadyToMergeService readyToMerge;
     private final ApplicationEventPublisher eventPublisher;
 
     public PublishService(
@@ -160,6 +165,8 @@ public class PublishService
             TaskPhaseMachine phaseMachine,
             StageStore stageStore,
             PRService prService,
+            PullRequestService pullRequestDetails,
+            ReadyToMergeService readyToMerge,
             ApplicationEventPublisher eventPublisher)
     {
         this.notifications = requireNonNull(notifications, "notifications is null");
@@ -175,6 +182,8 @@ public class PublishService
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.prService = requireNonNull(prService, "prService is null");
+        this.pullRequestDetails = requireNonNull(pullRequestDetails, "pullRequestDetails is null");
+        this.readyToMerge = requireNonNull(readyToMerge, "readyToMerge is null");
         this.eventPublisher = requireNonNull(eventPublisher, "eventPublisher is null");
     }
 
@@ -371,22 +380,22 @@ public class PublishService
     {
         return switch (proposal) {
             case ParkedProposal.Push push -> action(
-                    editedBody -> preflightPush(push),
+                    editedBody -> preflightPush(push, original),
                     editedBody -> doPush(push, original));
             case ParkedProposal.PostComment postComment -> action(
                     editedBody -> preflightPostComment(postComment, editedBody),
                     editedBody -> doPostComment(postComment, editedBody));
             case ParkedProposal.ReplyReviewThread replyReviewThread -> action(
-                    editedBody -> preflightReplyReviewThread(replyReviewThread, editedBody),
+                    editedBody -> preflightReplyReviewThread(replyReviewThread, editedBody, original),
                     editedBody -> doReplyReviewThread(replyReviewThread, editedBody));
             case ParkedProposal.ResolveReviewThread resolveReviewThread -> action(
-                    editedBody -> preflightResolveReviewThread(resolveReviewThread),
+                    editedBody -> preflightResolveReviewThread(resolveReviewThread, original),
                     editedBody -> doResolveReviewThread(resolveReviewThread));
             case ParkedProposal.ApprovePr approvePullRequest -> action(
                     editedBody -> preflightApprovePr(approvePullRequest),
                     editedBody -> doApprovePr(approvePullRequest, editedBody));
             case ParkedProposal.MergePr mergePullRequest -> action(
-                    editedBody -> preflightMergePr(mergePullRequest),
+                    editedBody -> preflightMergePr(mergePullRequest, original),
                     editedBody -> doMergePr(mergePullRequest));
             case ParkedProposal.CreateReviewComment createReviewComment -> action(
                     editedBody -> preflightCreateReviewComment(createReviewComment, editedBody),
@@ -407,13 +416,13 @@ public class PublishService
                     editedBody -> preflightSetIssueState(setIssueState),
                     editedBody -> doSetIssueState(setIssueState));
             case ParkedProposal.OpenPr openPullRequest -> action(
-                    editedBody -> preflightOpenPr(openPullRequest),
+                    editedBody -> preflightOpenPr(openPullRequest, original),
                     editedBody -> doOpenPr(openPullRequest, editedBody, original));
             case ParkedProposal.PublishReview publishReview -> action(
-                    editedBody -> preflightPublishReview(publishReview),
+                    editedBody -> preflightPublishReview(publishReview, original),
                     editedBody -> doPublishReview(publishReview, editedBody));
             case ParkedProposal.RequestReview requestReview -> action(
-                    editedBody -> preflightRequestReview(requestReview),
+                    editedBody -> preflightRequestReview(requestReview, original),
                     editedBody -> doRequestReview());
             case ParkedProposal.NextTask nextTask -> action(
                     editedBody -> preflightAdvance(nextTask.baseMode(), original, nextTask.action()),
@@ -440,8 +449,9 @@ public class PublishService
         return worktreePath;
     }
 
-    private static void preflightPush(ParkedProposal.Push push)
+    private void preflightPush(ParkedProposal.Push push, Notification original)
     {
+        rejectPrivateLocalPrLegacyHandoff(original, push.action());
         String worktreePath = requireWorktreePath(push);
         try {
             if (!Path.of(worktreePath).isAbsolute()) {
@@ -461,9 +471,12 @@ public class PublishService
         requireEditableBody(postComment.body(), editedBody, "comment body is blank — nothing to post");
     }
 
-    private static void preflightReplyReviewThread(
-            ParkedProposal.ReplyReviewThread replyReviewThread, String editedBody)
+    private void preflightReplyReviewThread(
+            ParkedProposal.ReplyReviewThread replyReviewThread,
+            String editedBody,
+            Notification original)
     {
+        rejectTaskOriginRemoteReviewAction(original, replyReviewThread.action());
         requirePrRef(replyReviewThread.pr(), replyReviewThread.action());
         if (replyReviewThread.rootCommentId() <= 0L) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
@@ -472,8 +485,11 @@ public class PublishService
         requireEditableBody(replyReviewThread.body(), editedBody, "reply body is blank — nothing to post");
     }
 
-    private static void preflightResolveReviewThread(ParkedProposal.ResolveReviewThread resolve)
+    private void preflightResolveReviewThread(
+            ParkedProposal.ResolveReviewThread resolve,
+            Notification original)
     {
+        rejectTaskOriginRemoteReviewAction(original, resolve.action());
         requirePrRef(resolve.pr(), resolve.action());
         if (resolve.rootCommentId() <= 0L) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
@@ -520,9 +536,15 @@ public class PublishService
         requirePrRef(approvePullRequest.pr(), approvePullRequest.action());
     }
 
-    private static void preflightMergePr(ParkedProposal.MergePr mergePullRequest)
+    private void preflightMergePr(ParkedProposal.MergePr mergePullRequest, Notification original)
     {
-        requirePrRef(mergePullRequest.pr(), mergePullRequest.action());
+        ParkedProposal.PrRef pr = requirePrRef(mergePullRequest.pr(), mergePullRequest.action());
+        PullRequestDetail detail = pullRequestDetails.fetchFreshPullRequestDetail(
+                pr.owner() + "/" + pr.repo(), pr.number());
+        if (!readyToMerge.isReadyForMerge(original.taskId(), detail)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "pull request is no longer ready to merge; refresh the gate after CI, approvals, comments, and review rounds settle");
+        }
     }
 
     private static void preflightCreateReviewComment(
@@ -584,8 +606,11 @@ public class PublishService
         }
     }
 
-    private static void preflightRequestReview(ParkedProposal.RequestReview ignored)
+    private void preflightRequestReview(
+            ParkedProposal.RequestReview ignored,
+            Notification original)
     {
+        rejectPrivateLocalPrLegacyHandoff(original, ignored.action());
         // The MCP park path has already verified it has a diff.
     }
 
@@ -599,8 +624,11 @@ public class PublishService
         }
     }
 
-    private static void preflightOpenPr(ParkedProposal.OpenPr openPullRequest)
+    private void preflightOpenPr(
+            ParkedProposal.OpenPr openPullRequest,
+            Notification original)
     {
+        rejectPrivateLocalPrLegacyHandoff(original, openPullRequest.action());
         ParkedProposal.RepoRef repo = openPullRequest.repo();
         if (repo == null
                 || nullToEmpty(repo.owner()).isBlank()
@@ -616,8 +644,11 @@ public class PublishService
         }
     }
 
-    private static void preflightPublishReview(ParkedProposal.PublishReview publishReview)
+    private void preflightPublishReview(
+            ParkedProposal.PublishReview publishReview,
+            Notification original)
     {
+        rejectTaskOriginRemoteReviewAction(original, publishReview.action());
         requirePrRef(publishReview.pr(), publishReview.action());
         List<ParkedProposal.PublishReview.InlineComment> comments = publishReview.comments();
         if (comments == null) {
@@ -631,6 +662,20 @@ public class PublishService
                         "publish_review comment is missing file_path / line / body");
             }
         }
+    }
+
+    private void rejectTaskOriginRemoteReviewAction(Notification original, String action)
+    {
+        if (original.taskId() == null || original.taskId().isBlank()) {
+            return;
+        }
+        prService.findByTask(original.taskId())
+                .filter(pr -> PR.ORIGIN_TASK.equals(pr.origin()))
+                .ifPresent(pr -> {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                            "task-origin PR reviews stay private in the canonical round gate; "
+                                    + action + " is only available for external PRs");
+                });
     }
 
     /**
@@ -661,6 +706,7 @@ public class PublishService
     private void preflightAdvance(String baseMode, Notification original, String action)
     {
         Task parked = resolveParkedAdvanceTarget(original, action);
+        rejectPrivateLocalPrLegacyHandoff(original, action);
         // Hard ship gate: a ship/advance must not push or open a PR while
         // the user still has open local review comments on the task. This
         // runs before the claim and any remote side effect, so a reject
@@ -679,6 +725,22 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked " + action + " notification has an invalid baseMode");
         }
+    }
+
+    private void rejectPrivateLocalPrLegacyHandoff(Notification original, String action)
+    {
+        if (original.taskId() == null || original.taskId().isBlank()) {
+            return;
+        }
+        prService.findByTask(original.taskId())
+                .filter(pr -> PR.ORIGIN_TASK.equals(pr.origin()))
+                .filter(pr -> PR.STATUS_LOCAL_DRAFTED.equals(pr.status())
+                        || PR.STATUS_LOCAL_OPEN.equals(pr.status()))
+                .ifPresent(pr -> {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                            "this task uses the Local PR workflow — discard the stale " + action
+                                    + " proposal and continue through validation, Brain, and Local Review");
+                });
     }
 
     private int openReviewCommentCount(String taskId)

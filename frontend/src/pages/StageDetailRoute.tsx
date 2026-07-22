@@ -17,9 +17,7 @@ import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { useThreadStream } from '../threads/useThreadStream';
-import { ShipReviewPrompt } from '../threads/ShipReviewPrompt';
-import { MarkReadyPrompt } from '../threads/MarkReadyPrompt';
-import { MarkReadyPanel, markReadyPrRef } from '../threads/MarkReadyPanel';
+import { ShipReviewPrompt, StaleMarkReadyGatePrompt, StaleShipGatePrompt } from '../threads/ShipReviewPrompt';
 import type { DiffFileDto } from '../types';
 import type { AgentRunDto, StageType, TaskPhase } from '../types/brainView';
 import {
@@ -34,7 +32,7 @@ import { StageDetailPage } from './StageDetailPage';
 import type { StageKind } from './StageDetailPage';
 import { WorkModelPill } from '../workspace/WorkModelPill';
 import type { ReviewVerdict } from './SubmitReviewDrawer';
-import { diffInlineCommentFromLocalPr, isPendingLocalComment } from '../diff/DiffInlineComments';
+import { diffInlineCommentFromLocalPr, isPublishableReviewDraft } from '../diff/DiffInlineComments';
 import { PlanCard, planStepComments } from '../threads/brain/TaskRootNode';
 import { PlanOverlay } from './PlanOverlay';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
@@ -51,6 +49,9 @@ import type { AgentReviewNavTarget } from '../pr/localpr/PrDetailsView';
 import { formatDuration } from '../threads/brain/format';
 import { TaskChangedFilesCard } from './TaskChangedFilesCard';
 import type { WsNavKey } from '../ui/workspace';
+import PublishGatePane from '../PublishGatePane';
+import { deriveLocalReviewGate } from '../pr/localpr/localReviewGate';
+import { PushDialog } from '../pr/localpr/PushDialog';
 
 /** Last-known cumulative diff per thread+task, so switching stages within a
  *  task paints the diff at once (the diff is task-wide, identical across the
@@ -146,7 +147,9 @@ export function StageDetailRoute({
   const {
     bundle: localPrBundle,
     refresh: refreshLocalPr,
+    capabilities: prCapabilities,
     deleteLocalComment,
+    confirmPush, pushOpen, setPushOpen, prBusy, runLocalTests, testsBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
 
   // Publishes the Submit-review drawer's body/verdict and this task's
@@ -187,7 +190,7 @@ export function StageDetailRoute({
   }, [agentReview.data?.review, agentReview.latestRound?.id, localPrBundle?.pr,
     onOpenAgentReview, workspaceRepository]);
   const pendingReviewComments = useMemo(
-    () => (localPrBundle?.comments ?? []).filter(isPendingLocalComment).map(diffInlineCommentFromLocalPr),
+    () => (localPrBundle?.comments ?? []).filter(isPublishableReviewDraft).map(diffInlineCommentFromLocalPr),
     [localPrBundle],
   );
 
@@ -223,6 +226,22 @@ export function StageDetailRoute({
       const result = await window.bridge.approveNotification(
         shipProposal.id, null, proposalAction(shipProposal) ?? 'ship_task');
       if (result.resolution !== 'approved') setShipNote(result.message);
+      pollFast();
+      refresh();
+      void refreshShipProposal();
+    }
+    catch (e) { setShipNote(e instanceof Error ? e.message : String(e)); }
+    finally { setShipBusy(false); }
+  }, [shipBusy, shipProposal, pollFast, refresh, refreshShipProposal]);
+  const discardProposal = useCallback(async () => {
+    if (shipBusy || shipProposal === null) return;
+    setShipBusy(true);
+    setShipNote(null);
+    try {
+      const action = proposalAction(shipProposal);
+      if (action === null) throw new Error('This proposal has no supported action.');
+      const result = await window.bridge.discardNotification(shipProposal.id, action);
+      if (!result.ok) setShipNote(result.message);
       pollFast();
       refresh();
       void refreshShipProposal();
@@ -473,6 +492,31 @@ export function StageDetailRoute({
         ? [{ seq: r.messageSeq, preview: (r.text ?? '').trim().slice(0, 80), tsMs: Date.parse(r.ts) }]
         : []),
     [data?.conversation]);
+  const currentPhase = data?.task.currentPhase ?? brain.task.currentPhase;
+  const localReviewGate = deriveLocalReviewGate(currentPhase, data?.devPhases ?? brain.devPhases);
+  const shipAction = proposalAction(shipProposal);
+  const shipGatePrompt = shipAction === 'mark_ready'
+    ? <StaleMarkReadyGatePrompt
+        onDiscard={() => { void discardProposal(); }}
+        busy={shipBusy}
+        note={shipNote}
+      />
+    : shipAction !== 'ship_task' || localPrBundle === undefined
+      ? null
+      : localPrBundle === null && currentPhase === 'AWAITING_PUSH'
+        ? <ShipReviewPrompt
+            onReview={openChanges}
+            onApprove={() => { void approveShip(); }}
+            onDiscard={() => { void discardProposal(); }}
+            onReviewChanges={() => openTab('pr', 'changes')}
+            busy={shipBusy}
+            note={shipNote}
+          />
+        : <StaleShipGatePrompt
+            onDiscard={() => { void discardProposal(); }}
+            busy={shipBusy}
+            note={shipNote}
+          />;
   const conversation = (
     <Conv scrollRef={conversationRef}>
       <Spine>
@@ -490,17 +534,7 @@ export function StageDetailRoute({
           />
         )}
         {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
-        {shipProposal !== null && (proposalAction(shipProposal) === 'mark_ready'
-          ? <MarkReadyPrompt onReview={openChanges} />
-          : (
-            <ShipReviewPrompt
-              onReview={openChanges}
-              onApprove={() => { void approveShip(); }}
-              onReviewChanges={() => openTab('pr', 'changes')}
-              busy={shipBusy}
-              note={shipNote}
-            />
-          ))}
+        {shipGatePrompt}
         <QueuedMessages
           messages={queue}
           onEdit={id => setText(takeForEdit(id))}
@@ -518,6 +552,15 @@ export function StageDetailRoute({
         )}
       </Spine>
       <PlanOverlay open={planOpen} card={planCard} onClose={closePlan} />
+      {pushOpen && localPrBundle != null && (
+        <PushDialog
+          bundle={localPrBundle}
+          repoLabel={data?.task.repoFullName ?? brain.task.repoFullName}
+          busy={prBusy}
+          onPush={confirmPush}
+          onCancel={() => setPushOpen(false)}
+        />
+      )}
     </Conv>
   );
 
@@ -527,7 +570,6 @@ export function StageDetailRoute({
   const pr = data?.pr ?? null;
   const taskCompleted = data?.task.currentPhase === 'COMPLETED';
   const displayedLocalPrBundle = agentReview.displayedBundle ?? localPrBundle;
-  const markReadyPr = proposalAction(shipProposal) === 'mark_ready' ? markReadyPrRef(shipProposal) : null;
   const totalAdds = files?.reduce((n, f) => n + f.additions, 0) ?? 0;
   const totalDels = files?.reduce((n, f) => n + f.deletions, 0) ?? 0;
   const stageRemotePrNumber = displayedLocalPrBundle?.pr.remotePrNumber
@@ -582,17 +624,36 @@ export function StageDetailRoute({
         fetchChangesBlob={displayedLocalPrBundle.pr.remotePrNumber === null
           ? (path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)
           : undefined}
-        changesBanner={shipProposal !== null && markReadyPr !== null ? (
-          <MarkReadyPanel
-            notificationId={shipProposal.id}
-            pr={markReadyPr}
-            onMarked={() => {
+        overviewBanner={shipProposal !== null && shipAction === 'merge_pr' ? (
+          <PublishGatePane
+            notification={shipProposal}
+            prTitle={displayedLocalPrBundle.pr.title}
+            onResolved={() => {
               pollFast();
               refreshLocalPr();
               void refreshShipProposal();
             }}
           />
         ) : undefined}
+        localReviewGate={localReviewGate}
+        onPush={() => setPushOpen(true)}
+        onAskAgentToAddress={() => setText('Please address my review comments on the PR, then I\'ll push. ')}
+        onRunLocalTests={runLocalTests}
+        localTestsBusy={testsBusy}
+        onClosePullRequest={displayedLocalPrBundle.pr.remotePrNumber !== null
+            && displayedLocalPrBundle.pr.repo !== null
+            && displayedLocalPrBundle.pr.status !== 'merged'
+            && displayedLocalPrBundle.pr.status !== 'closed' ? async () => {
+              await window.bridge.commentPr(
+                Number(stagePullRow.dto.id) || 0,
+                displayedLocalPrBundle.pr.repo!,
+                displayedLocalPrBundle.pr.remotePrNumber!,
+                '',
+                true,
+              );
+              refreshLocalPr();
+              pollFast();
+            } : undefined}
         onComment={onStagePrComment}
         onAssignAgent={() => { void agentReview.startReview(); }}
         onWorkWithAgent={() => openAgentRound()}
@@ -726,7 +787,17 @@ export function StageDetailRoute({
         },
         meta: `Stage ${stagePosition} of ${Math.max(1, topLevelStages.length)} · ${formatDuration(stageDurationSec)}`,
       }}
-      run={{ paused: state === 'PAUSED', terminal: state === 'CLOSED', statusLabel: state ?? 'Running' }}
+      run={{
+        paused: brain.task.paused,
+        terminal: brain.task.terminal,
+        statusLabel: brain.task.paused ? brain.task.statusLabel : state ?? 'Running',
+        onPause: () => {
+          void window.bridge.pauseTask(threadId, taskId).then(() => { pollFast(); refresh(); });
+        },
+        onResume: () => {
+          void window.bridge.resumePausedTask(threadId, taskId).then(() => { pollFast(); refresh(); });
+        },
+      }}
       tabs={{
         pr: stagePullDetail ?? undefined,
       }}
@@ -735,7 +806,7 @@ export function StageDetailRoute({
         deletions: totalDels,
         onOpen: () => openTab('pr', 'changes'),
       } : undefined}
-      onSubmitReview={onSubmitReview}
+      onSubmitReview={prCapabilities?.publishReview === true ? onSubmitReview : undefined}
       submittingReview={submittingReview}
       pendingReviewComments={pendingReviewComments}
       onRemovePendingReviewComment={deleteLocalComment}
@@ -744,8 +815,6 @@ export function StageDetailRoute({
         : plan.state === 'locked' ? 'locked'
         : undefined}
       onRevealPlan={plan !== null ? () => setPlanOpen(true) : undefined}
-      markReadyReminder={proposalAction(shipProposal) === 'mark_ready'}
-      onOpenMarkReady={openChanges}
     />
   );
 }

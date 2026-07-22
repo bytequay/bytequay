@@ -32,6 +32,7 @@ import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.SuggestedReviewer;
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PrDetailStore;
@@ -61,6 +62,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.app.domain.PullRequestDetail.CiStatus.FAILING;
@@ -356,6 +358,41 @@ class TestPullRequestService
         assertThat(result.files()).hasSize(1);
         assertThat(result.viewerCanWrite()).isTrue();
         verify(responseCache).getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "my-repo")), any());
+    }
+
+    @Test
+    void testFetchFreshPullRequestDetailInvalidatesBeforeReading()
+    {
+        PullRequestService service = dashboardService();
+        PrRawDetail staleRaw = new PrRawDetail(
+                "stale", ImmutableList.of(), false, true, "clean", 10, 0, 0, 0,
+                ImmutableList.of(), "sha",
+                "feat/foo", "owner/repo", "main", "owner/repo");
+        StoredPrDetail stale = new StoredPrDetail(
+                staleRaw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        PrRawDetail liveRaw = new PrRawDetail(
+                "live", ImmutableList.of(), false, true, "clean", 10, 0, 0, 0,
+                ImmutableList.of(), "sha",
+                "feat/foo", "owner/repo", "main", "owner/repo");
+        AtomicBoolean invalidated = new AtomicBoolean();
+
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(7L));
+        when(detailStore.find(7L)).thenAnswer(ignored ->
+                invalidated.get() ? Optional.empty() : Optional.of(stale));
+        doAnswer(ignored -> {
+            invalidated.set(true);
+            return null;
+        }).when(detailInvalidator).invalidate("owner/repo", 7);
+        when(responseCache.getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "repo")), any()))
+                .thenReturn(true);
+        when(gitHub.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(liveRaw);
+
+        PullRequestDetail result = service.fetchFreshPullRequestDetail("owner/repo", 7);
+
+        assertThat(result.body()).isEqualTo("live");
+        verify(detailInvalidator).invalidate("owner/repo", 7);
+        verify(gitHub).fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7));
     }
 
     @Test
@@ -793,6 +830,22 @@ class TestPullRequestService
     }
 
     @Test
+    void taskOwnedCloseResolvesLegacyIdAndSealsImmediately()
+    {
+        Task owner = Mockito.mock(Task.class);
+        when(owner.id()).thenReturn("task-1");
+        when(taskStore.findTasksByPrRef("owner/repo#7")).thenReturn(List.of(owner));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(77L));
+
+        pullRequestService.commentOnPullRequest("owner/repo", 7, 0L, "", true);
+
+        verify(viewStateStore).markReviewed(77L, HandledAction.DISMISSED);
+        verify(viewStateStore, never()).markReviewed(eq(0L), any());
+        verify(eventPublisher).publishEvent(argThat((Object event) -> event instanceof PullRequestClosedEvent closed
+                && "owner/repo".equals(closed.repoFullName()) && closed.prNumber() == 7));
+    }
+
+    @Test
     void testCommentOnPullRequestAppendsCommentToCachedTimeline()
     {
         PrTimelineEvent posted = new PrTimelineEvent(
@@ -1004,6 +1057,35 @@ class TestPullRequestService
         pullRequestService.mergePullRequest("owner/repo", 7, 99L, "garbage");
 
         assertThat(matcher.captured.mergeMethod()).isEqualTo("rebase");
+    }
+
+    @Test
+    void taskOwnedPullRequestCannotUseLegacyMergePath()
+    {
+        when(taskStore.findTasksByPrRef("owner/repo#7"))
+                .thenReturn(List.of(Mockito.mock(Task.class)));
+
+        assertThatThrownBy(() -> pullRequestService.mergePullRequest(
+                "owner/repo", 7, 99L, "squash"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("task Merge / Close gate");
+
+        verify(gitHub, never()).mergePullRequest(anyString(), any(), any());
+        verify(gitHub, never()).enqueuePullRequest(anyString(), anyString());
+    }
+
+    @Test
+    void taskOwnedPullRequestCannotEnableGitHubAutoMerge()
+    {
+        when(taskStore.findTasksByPrRef("owner/repo#7"))
+                .thenReturn(List.of(Mockito.mock(Task.class)));
+
+        assertThatThrownBy(() -> pullRequestService.enableAutoMerge(
+                "owner/repo", 7, 99L, "squash"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("task Merge / Close gate");
+
+        verify(gitHub, never()).enableAutoMerge(anyString(), any(), anyString());
     }
 
     @Test

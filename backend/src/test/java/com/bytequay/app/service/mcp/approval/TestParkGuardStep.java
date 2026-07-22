@@ -14,6 +14,7 @@
 package com.bytequay.app.service.mcp.approval;
 
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.mcp.McpResponses;
@@ -47,6 +48,29 @@ class TestParkGuardStep
     }
 
     @Test
+    void aParkedSiblingDoesNotBlockATaskScopedToolCall()
+    {
+        Task parked = task("task-1", TaskStatus.NEEDS_ATTENTION);
+        Task running = task("task-2", TaskStatus.RUNNING);
+        when(taskStore.listTasksByThread("thread-1")).thenReturn(List.of(parked, running));
+        when(taskStore.hasActiveTask("thread-1")).thenReturn(true);
+
+        assertThat(step.apply(ctx("task-2", "Edit")))
+                .isInstanceOf(ApprovalStepResult.Continue.class);
+    }
+
+    @Test
+    void phaseOnlyNeedsAttentionStillBlocksItsTask()
+    {
+        Task parked = task("task-1", TaskStatus.IDLE);
+        when(parked.phase()).thenReturn(TaskPhase.NEEDS_ATTENTION);
+        when(taskStore.listTasksByThread("thread-1")).thenReturn(List.of(parked));
+
+        assertThat(step.apply(ctx("task-1", "Edit")))
+                .isInstanceOf(ApprovalStepResult.Resolve.class);
+    }
+
+    @Test
     void deniesWhenParkedAtTheReviewGateWithNoActiveTask()
     {
         Task awaitingReview = task(TaskStatus.AWAITING_REVIEW);
@@ -71,6 +95,43 @@ class TestParkGuardStep
     }
 
     @Test
+    void legacyShipParkDoesNotBlockTheCanonicalLocalFixLoop()
+    {
+        Task stalePark = task("task-1", TaskStatus.AWAITING_REVIEW);
+        when(stalePark.phase()).thenReturn(TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+        when(taskStore.listTasksByThread("thread-1")).thenReturn(List.of(stalePark));
+        when(taskStore.hasActiveTask("thread-1")).thenReturn(false);
+
+        assertThat(step.apply(ctx("task-1", "Edit")))
+                .isInstanceOf(ApprovalStepResult.Continue.class);
+    }
+
+    @Test
+    void legacyExemptionDoesNotUnblockASiblingPublishGate()
+    {
+        Task stalePark = task("task-1", TaskStatus.AWAITING_REVIEW);
+        when(stalePark.phase()).thenReturn(TaskPhase.INTERNAL_REVIEW);
+        Task realGate = task("task-2", TaskStatus.AWAITING_REVIEW);
+        when(taskStore.listTasksByThread("thread-1")).thenReturn(List.of(stalePark, realGate));
+        when(taskStore.hasActiveTask("thread-1")).thenReturn(false);
+
+        assertThat(step.apply(ctx("task-2", "Edit")))
+                .isInstanceOf(ApprovalStepResult.Resolve.class);
+    }
+
+    @Test
+    void legacyExemptionDoesNotUnblockAnUnscopedTrunkCall()
+    {
+        Task stalePark = task("task-1", TaskStatus.AWAITING_REVIEW);
+        when(stalePark.phase()).thenReturn(TaskPhase.INTERNAL_REVIEW);
+        when(taskStore.listTasksByThread("thread-1")).thenReturn(List.of(stalePark));
+        when(taskStore.hasActiveTask("thread-1")).thenReturn(false);
+
+        assertThat(step.apply(ctx("Edit")))
+                .isInstanceOf(ApprovalStepResult.Resolve.class);
+    }
+
+    @Test
     void fallsThroughWhenNothingIsParked()
     {
         Task running = task(TaskStatus.RUNNING);
@@ -83,7 +144,13 @@ class TestParkGuardStep
 
     private static Task task(TaskStatus status)
     {
+        return task("task-1", status);
+    }
+
+    private static Task task(String id, TaskStatus status)
+    {
         Task t = mock(Task.class);
+        when(t.id()).thenReturn(id);
         when(t.status()).thenReturn(status);
         return t;
     }
@@ -92,6 +159,13 @@ class TestParkGuardStep
     {
         return new ApprovalContext(
                 "thread-1", JsonNodeFactory.instance.numberNode(1),
+                toolName, "call-1", mapper.createObjectNode(), Set.of());
+    }
+
+    private ApprovalContext ctx(String taskId, String toolName)
+    {
+        return new ApprovalContext(
+                "thread-1", taskId, JsonNodeFactory.instance.numberNode(1),
                 toolName, "call-1", mapper.createObjectNode(), Set.of());
     }
 }

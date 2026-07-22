@@ -13,11 +13,14 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.threads.ParkedProposalService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
@@ -53,6 +56,8 @@ class TestPublishToolHandlers
     private TaskStore taskStore;
     private ParkedProposalService parkedProposals;
     private PullRequestService pullRequestService;
+    private PRService prService;
+    private TaskPhaseMachine taskPhaseMachine;
     private GitRunner git;
     private PublishToolHandlers handlers;
 
@@ -62,6 +67,8 @@ class TestPublishToolHandlers
         taskStore = mock(TaskStore.class);
         parkedProposals = mock(ParkedProposalService.class);
         pullRequestService = mock(PullRequestService.class);
+        prService = mock(PRService.class);
+        taskPhaseMachine = mock(TaskPhaseMachine.class);
         git = mock(GitRunner.class);
         handlers = new PublishToolHandlers(
                 taskStore,
@@ -69,8 +76,9 @@ class TestPublishToolHandlers
                 parkedProposals,
                 git,
                 new ObjectMapper(),
-                mock(TaskPhaseMachine.class),
-                pullRequestService);
+                taskPhaseMachine,
+                pullRequestService,
+                prService);
     }
 
     @Test
@@ -165,6 +173,40 @@ class TestPublishToolHandlers
         ParkedProposal.ShipTask parked = (ParkedProposal.ShipTask) captor.getValue();
         assertThat(parked.prTitle()).isEqualTo("Add cache layer");
         assertThat(parked.prBody()).isEqualTo("## Summary\nCaches reads.");
+    }
+
+    @Test
+    void legacyPublishToolsCannotBypassTheLocalPrReviewLifecycle()
+    {
+        Task task = taskAt("task-local-pr", TaskStatus.RUNNING);
+        when(taskStore.findTaskById("task-local-pr")).thenReturn(Optional.of(task));
+        when(prService.findByTask("task-local-pr"))
+                .thenReturn(Optional.of(PR.create(
+                        "pr-local", task.id(), task.branchName(), task.baseBranch(),
+                        "Local PR", "", task.createdAt())));
+        ToolCall call = new ToolCall(
+                "thread-task-local-pr", null, AgentRole.TASK, "task-local-pr", null);
+
+        ToolOutcome ship = handlers.shipTask(
+                new PublishToolHandlers.ShipTaskArgs(null, null, "Title", "Body"), call);
+        ToolOutcome push = handlers.push(new PublishToolHandlers.PushArgs(), call);
+        ToolOutcome next = handlers.nextTask(
+                new PublishToolHandlers.NextTaskArgs(null, null), call);
+        ToolOutcome requestReview = handlers.requestReview(
+                new PublishToolHandlers.RequestReviewArgs("Ready", null), call);
+        ToolOutcome validate = handlers.validate(
+                new PublishToolHandlers.ValidateArgs("tests pass"), call);
+
+        assertThat(((ToolOutcome.Completed) ship).text()).contains("record_local_review");
+        assertThat(((ToolOutcome.Completed) push).text()).contains("record_local_review");
+        assertThat(((ToolOutcome.Completed) next).text()).contains("record_local_review");
+        assertThat(((ToolOutcome.Completed) requestReview).text()).contains("record_local_review");
+        assertThat(((ToolOutcome.Completed) validate).text()).contains("record_local_review");
+        assertThat(task.status()).isEqualTo(TaskStatus.RUNNING);
+        assertThat(task.phase()).isEqualTo(TaskPhase.IMPLEMENTING);
+        verify(parkedProposals, never()).park(any(), any());
+        verify(taskPhaseMachine, never()).observe(any(), any(), any());
+        verify(taskPhaseMachine, never()).transition(any(), any(), any(), any());
     }
 
     @Test

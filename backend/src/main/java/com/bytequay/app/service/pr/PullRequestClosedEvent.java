@@ -11,18 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.service.checks;
+package com.bytequay.app.service.pr;
 
-import java.util.List;
-
-/**
- * Fired when a ValidationPass finishes. The {@code TaskPhaseMachine}
- * listens: {@code passed} drives VALIDATING ▶ INTERNAL_REVIEW; a failed
- * check drives VALIDATING ▶ NEEDS_ATTENTION with the failures attached.
- */
-public record ValidationPassFinishedEvent(
-        String taskId,
-        boolean passed,
-        List<ValidationFailure> failures)
-{
-}
+/** A user closed a remote pull request without merging it. */
+public record PullRequestClosedEvent(String repoFullName, int prNumber) {}

@@ -22,6 +22,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -60,10 +61,11 @@ class TestTaskService
     private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
     private final TaskPhaseMachine taskPhaseMachine = mock(TaskPhaseMachine.class);
     private final TaskTerminalSealer sealer = mock(TaskTerminalSealer.class);
+    private final PRService prService = mock(PRService.class);
     private final TaskService service = new TaskService(
             threadStore, taskStore, stageStore, watchedRepoStore, worktreeService, git,
             pullRequestRepository, patResolver, registry, workspaceService, notificationService,
-            new ObjectMapper(), eventPublisher, taskPhaseMachine, sealer);
+            new ObjectMapper(), eventPublisher, taskPhaseMachine, sealer, prService);
 
     private static Task task()
     {

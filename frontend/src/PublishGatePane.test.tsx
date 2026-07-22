@@ -359,6 +359,27 @@ describe('PublishGatePane', () => {
     expect(approveNotification).toHaveBeenCalledWith('notif-merge-1', null, 'merge_pr');
   });
 
+  it('neutralizes a legacy mark_ready gate with discard only', async () => {
+    const approveNotification = vi.fn(async () => approvedResult('mark_ready'));
+    const discardNotification = vi.fn(async () => discardedResult('mark_ready'));
+    installBridge({ approveNotification, discardNotification });
+    render(
+      <PublishGatePane
+        notification={awaitingReview({
+          id: 'legacy-ready',
+          payloadJson: JSON.stringify({ action: 'mark_ready', source: 'legacy' }),
+        })}
+        onResolved={() => {}}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /approve/i })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Discard obsolete gate' }));
+    });
+    expect(discardNotification).toHaveBeenCalledWith('legacy-ready', 'mark_ready');
+    expect(approveNotification).not.toHaveBeenCalled();
+  });
+
   it('exposes an editable body for approve_pr and forwards the user edit', async () => {
     const approveNotification = vi.fn(async () => approvedResult('approve_pr'));
     installBridge({ approveNotification });

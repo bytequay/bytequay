@@ -16,6 +16,7 @@ package com.bytequay.app.service.review;
 import com.bytequay.app.domain.BranchGuard;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.BranchGuardStore;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
@@ -50,14 +51,16 @@ class BranchGuardServiceImpl
     @Transactional
     public BranchGuard update(String taskId, Boolean enabled, String schedule)
     {
-        BranchGuard guard = get(taskId);
-        if (enabled != null) {
-            guard = guard.withEnabled(enabled);
-        }
-        if (schedule != null && !schedule.isBlank()) {
-            guard = guard.withSchedule(schedule);
-        }
-        return store.save(guard);
+        return TaskPhaseMachine.withTaskLock(taskId, () -> {
+            BranchGuard guard = get(taskId);
+            if (enabled != null) {
+                guard = guard.withEnabled(enabled);
+            }
+            if (schedule != null && !schedule.isBlank()) {
+                guard = guard.withSchedule(schedule);
+            }
+            return store.save(guard);
+        });
     }
 
     @Override
@@ -80,6 +83,16 @@ class BranchGuardServiceImpl
     {
         if (event.to() == TaskPhase.PUSHED_AWAITING_CI) {
             enableOnFirstPush(event.taskId());
+        }
+        if (event.from() == TaskPhase.NEEDS_ATTENTION
+                && "user_resumed_task".equals(event.reason())) {
+            TaskPhaseMachine.withTaskLock(event.taskId(), () -> {
+                store.findByTask(event.taskId())
+                        .filter(guard -> BranchGuard.STATE_NEEDS_ATTENTION.equals(guard.state()))
+                        .map(guard -> guard.withState(BranchGuard.STATE_HEALTHY))
+                        .ifPresent(store::save);
+                return null;
+            });
         }
     }
 }

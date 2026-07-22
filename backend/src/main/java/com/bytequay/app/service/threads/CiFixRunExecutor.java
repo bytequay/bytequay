@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
@@ -20,6 +21,8 @@ import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
@@ -98,6 +101,7 @@ public class CiFixRunExecutor
     private final ThreadTurnStore turnStore;
     private final AgentRunService agentRuns;
     private final RemoteDevelopmentStageService remoteStages;
+    private final TaskPhaseMachine phaseMachine;
 
     /** Tracks tasks that already had an auto-fix turn queued during this
      *  process's lifetime — the dashboard/opt-in path's dedup, moved as-is
@@ -120,7 +124,8 @@ public class CiFixRunExecutor
             ObjectMapper mapper,
             ThreadTurnStore turnStore,
             AgentRunService agentRuns,
-            RemoteDevelopmentStageService remoteStages)
+            RemoteDevelopmentStageService remoteStages,
+            TaskPhaseMachine phaseMachine)
     {
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -134,10 +139,11 @@ public class CiFixRunExecutor
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
         this.remoteStages = requireNonNull(remoteStages, "remoteStages is null");
+        this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
     }
 
     /**
-     * After an autonomous shipped CI-fix agent turn finishes, push its commit
+     * After an autonomous CI-fix agent turn finishes, push its commit
      * for it. The agent fixes + commits but cannot push — raw {@code git push}
      * is blocked (it must publish through the app, never raw git). Force-with-
      * lease so a branch the agent rebased onto its base still lands; the lease
@@ -152,19 +158,47 @@ public class CiFixRunExecutor
         }
         ThreadTurn turn = turnStore.findTurnById(event.turnId()).orElse(null);
         if (turn == null || turn.initiator() == null
-                || !"ci-fix-shipped".equals(turn.initiator().source())) {
+                || !("ci-fix-shipped".equals(turn.initiator().source())
+                || "auto-fix-ci-fail".equals(turn.initiator().source()))) {
             return;
         }
-        Task task = taskStore.findTaskById(event.taskId()).orElse(null);
-        if (task == null || task.worktreePath() == null || task.worktreePath().isBlank()) {
+        boolean shippedEpisode = "ci-fix-shipped".equals(turn.initiator().source());
+        java.lang.Thread.startVirtualThread(
+                () -> pushCiFix(event.taskId(), turn.agentRunId(), shippedEpisode));
+    }
+
+    private void pushCiFix(String taskId, String agentRunId, boolean shippedEpisode)
+    {
+        TaskPhaseMachine.withTaskLock(taskId, () -> {
+            pushCiFixLocked(taskId, agentRunId, shippedEpisode);
+            return null;
+        });
+    }
+
+    /** Re-read every durable guard after the async hand-off and while holding
+     *  the task lifecycle lock. A completion event may have been queued just
+     *  before the task was parked, closed, or merged. */
+    private void pushCiFixLocked(String taskId, String agentRunId, boolean shippedEpisode)
+    {
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        AgentRun run = agentRunId == null ? null : agentRuns.findById(agentRunId).orElse(null);
+        if (task == null
+                || isPushBlocked(task)
+                || task.worktreePath() == null
+                || task.worktreePath().isBlank()
+                || run == null
+                || !AgentRun.KIND_CI_FIX.equals(run.kind())
+                || !taskId.equals(run.taskId())
+                // Shipped CI episodes stay RUNNING until live CI turns green;
+                // dashboard fixes complete with their one scheduler turn.
+                // This also rejects delayed shipped completion events after
+                // green has already terminalised the episode.
+                || !(shippedEpisode
+                ? AgentRun.STATUS_RUNNING.equals(run.status())
+                : AgentRun.STATUS_SUCCEEDED.equals(run.status()))) {
             return;
         }
         Path worktree = Path.of(task.worktreePath());
-        java.lang.Thread.startVirtualThread(() -> pushCiFix(task, worktree));
-    }
-
-    private void pushCiFix(Task task, Path worktree)
-    {
         try {
             // Belt-and-braces: if the agent forgot to commit, checkpoint its
             // edits (minus app-managed hook files) so the fix isn't lost.
@@ -295,9 +329,11 @@ public class CiFixRunExecutor
                 .append("Investigate the failure(s) from the CI logs in this worktree, ")
                 .append("propose a fix on the existing branch, and run the local checks ")
                 .append("(`mvn verify` for the backend, `npx tsc --noEmit` + `npm test` ")
-                .append("for the frontend) before requesting review. Do not push or comment ")
-                .append("on the PR yourself — call `request_review` when you have a candidate ")
-                .append("fix and the user will publish.");
+                .append("for the frontend), then commit the fix on the existing branch. ")
+                .append("Do not push or comment on the PR yourself. This repo's CI auto-fix ")
+                .append("setting is the user's standing authorization: ByteQuay pushes the ")
+                .append("commit with force-with-lease after this turn finishes, then CI reruns. ")
+                .append("Commit and stop; do not open a separate review gate.");
         return out.toString();
     }
 
@@ -435,6 +471,7 @@ public class CiFixRunExecutor
     private boolean escalateShippedCiFix(
             AgentRun run, Task task, String repoFullName, AutomationCoordinator.CiAggregate ci)
     {
+        parkTask(task);
         agentRuns.transition(run.id(), AgentRun.STATUS_FAILED, "attempts_exhausted");
         if (hasOpenNotificationForTask(task.id())) {
             return false;
@@ -452,6 +489,47 @@ public class CiFixRunExecutor
                     task.id(), e.getMessage());
             return false;
         }
+    }
+
+    /** Persist both task axes before returning control to the periodic scan.
+     *  Otherwise the failed run is no longer live, so the next scan opens a
+     *  fresh iteration-0 run and silently restarts the exhausted loop. */
+    private void parkTask(Task task)
+    {
+        Task current = taskStore.findTaskById(task.id()).orElse(task);
+        if (isTerminal(current)) {
+            return;
+        }
+        if (current.phase() != TaskPhase.NEEDS_ATTENTION) {
+            phaseMachine.transition(
+                    current.id(), TaskPhase.NEEDS_ATTENTION, "ci_fix_attempts_exhausted", Actor.AGENT);
+        }
+        if (current.status() != TaskStatus.NEEDS_ATTENTION) {
+            taskStore.saveTask(current.withStatus(TaskStatus.NEEDS_ATTENTION));
+        }
+    }
+
+    private static boolean isTerminal(Task task)
+    {
+        if (task.phase() == TaskPhase.COMPLETED) {
+            return true;
+        }
+        return switch (task.status()) {
+            case COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED, ARCHIVED -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean isPushBlocked(Task task)
+    {
+        if (task.phase() == TaskPhase.NEEDS_ATTENTION || task.phase() == TaskPhase.COMPLETED) {
+            return true;
+        }
+        return switch (task.status()) {
+            case AWAITING, AWAITING_REVIEW, NEEDS_ATTENTION, PAUSED,
+                    COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED, ARCHIVED -> true;
+            default -> false;
+        };
     }
 
     /**
@@ -483,11 +561,10 @@ public class CiFixRunExecutor
         return ctx.toString();
     }
 
-    /** The agent's first prompt for an autonomous shipped CI-fix turn.
-     *  Unlike the dashboard auto-fix prompt, this turn pushes its own fix
-     *  (the post-ship loop is autonomous on CI): the agent first decides
-     *  whether the failure is ours, and only changes + pushes code when it
-     *  is — otherwise it stops and the system re-runs. */
+    /** The agent's first prompt for an autonomous shipped CI-fix turn. The
+     *  agent first decides whether the failure is ours and only changes +
+     *  commits code when it is; ByteQuay auto-pushes that commit. Otherwise
+     *  it stops and the system re-runs the failed checks. */
     private static String buildShippedCiFixPrompt(
             Task task, String repoFullName, List<String> failingChecks, String priorContext)
     {

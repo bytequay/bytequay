@@ -96,6 +96,11 @@ function renderView(b: LocalPRBundle, props: Partial<Parameters<typeof PRView>[0
       capabilities={derivePRCapabilities(b.pr, 'task')}
       commentValue="" onCommentChange={noop}
       syncedAt={null} syncing={false} onRefresh={noop}
+      localReviewGate={{
+        eligible: true,
+        reason: 'Validation and Brain review passed.',
+        brainReview: { state: 'approved' },
+      }}
       {...props}
     />,
   );
@@ -112,13 +117,13 @@ describe('PRView', () => {
     expect(screen.getByText('#local')).toBeTruthy();
   });
 
-  it('renders the green open state pill and the merge gate', () => {
+  it('renders the green open state while task merge stays in the lifecycle gate', () => {
     renderView(bundle({ pr: pr('remote-open', { remotePrNumber: 145 }) }), {
       username: 'chenjian2664', onMerge: noop, onAddComment: noop,
     });
     const pill = document.querySelector('.pr-state-pill');
     expect(pill?.className).toContain('open');
-    expect(screen.getByText(/Squash and merge/)).toBeTruthy();
+    expect(screen.queryByText(/Squash and merge/)).toBeNull();
     expect(screen.getByText('#145')).toBeTruthy();
     expect(screen.getByText(/Posts to GitHub as @chenjian2664/)).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Add a comment' })).toBeTruthy();
@@ -185,18 +190,15 @@ describe('PRView', () => {
     await waitFor(() => expect(onSetResolved).toHaveBeenCalledWith('finding-1', false));
   });
 
-  it('disables Merge while an open comment remains and enables Merge anyway', () => {
+  it('never offers a direct task merge or merge-anyway bypass', () => {
     const onMerge = vi.fn();
     renderView(
       bundle({ pr: pr('remote-open', { remotePrNumber: 145 }), comments: [comment()] }),
       { onMerge },
     );
-    const merge = screen.getByText(/Squash and merge/).closest('button') as HTMLButtonElement;
-    expect(merge.disabled).toBe(true);
-    fireEvent.click(merge);
+    expect(screen.queryByText(/Squash and merge/)).toBeNull();
     expect(onMerge).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: /Merge anyway/ })).toBeTruthy();
-    expect(screen.getByText(/open comment.*resolve before merge/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Merge anyway/ })).toBeNull();
   });
 
   it('disables push while an open comment remains (promotion gate)', () => {
@@ -377,12 +379,12 @@ describe('PRView', () => {
     expect(screen.queryByText(/Merge pull request/)).toBeNull();
   });
 
-  it('shows "Brain-reviewed" once the brain\'s dev-end comments are all resolved', () => {
+  it('shows Brain approval only from the authoritative dev-phase verdict', () => {
     renderView(
       bundle({ pr: pr('local-open'), comments: [comment({ id: 'b1', author: 'brain', resolvedAt: Date.now() })] }),
       { onPush: noop, onAskAgent: noop },
     );
-    expect(screen.getByText('✓ Brain-reviewed')).toBeTruthy();
+    expect(screen.getByText('✓ Brain approved')).toBeTruthy();
   });
 
   it('shows "brain unresolved · N" when the brain escalated with open comments', () => {
@@ -394,14 +396,27 @@ describe('PRView', () => {
           comment({ id: 'b2', author: 'brain', resolvedAt: null }),
         ],
       }),
-      { onPush: noop, onAskAgent: noop },
+      {
+        onPush: noop,
+        onAskAgent: noop,
+        localReviewGate: {
+          eligible: true,
+          reason: 'Brain review exhausted its budget with unresolved findings; human approval is required.',
+          brainReview: { state: 'unresolved', unresolved: 2 },
+        },
+      },
     );
     expect(screen.getByText('◆ brain unresolved · 2')).toBeTruthy();
   });
 
-  it('shows no brain-review tag when the brain never reviewed this PR', () => {
-    renderView(bundle({ pr: pr('local-open') }), { onPush: noop, onAskAgent: noop });
-    expect(document.querySelector('.brain-review-tag')).toBeNull();
+  it('fails closed when authoritative Brain state is absent', () => {
+    renderView(bundle({ pr: pr('local-open') }), {
+      onPush: noop,
+      onAskAgent: noop,
+      localReviewGate: undefined,
+    });
+    expect(screen.getByText('◆ Brain review pending')).toBeTruthy();
+    expect((screen.getByRole('button', { name: /Approve & push/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('renders a brain review timeline event as a person-event with its verdict', () => {

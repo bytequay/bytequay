@@ -44,6 +44,7 @@ type Props = {
  *  the Approve / Discard buttons that call the backend's publish
  *  gate. */
 function PublishGatePane({ notification, onResolved, onViewPr, prTitle }: Props) {
+  const rawAction = payloadAction(notification.payloadJson);
   const parsed = parsePayload(notification.payloadJson);
   const isResolving = notification.status === 'RESOLVING';
   // Actions whose parked payload carries an editable body. The user
@@ -59,6 +60,10 @@ function PublishGatePane({ notification, onResolved, onViewPr, prTitle }: Props)
   const [error, setError] = useState<string | null>(null);
   const [resolution, setResolution] = useState<PublishResultDto | null>(null);
   const interrupted = isResolving || resolution?.resolution === 'interrupted';
+
+  if (rawAction === 'mark_ready') {
+    return <LegacyMarkReadyGate notification={notification} onResolved={onResolved} />;
+  }
 
   if (!parsed) {
     return (
@@ -183,6 +188,38 @@ function PublishGatePane({ notification, onResolved, onViewPr, prTitle }: Props)
           style={{ ...discardButtonStyle, marginLeft: 'auto' }}
         >
           Discard
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Legacy recovery only. CI green now undrafts automatically, so this action
+ * may be discarded but must never expose an approval button. */
+function LegacyMarkReadyGate({ notification, onResolved }: Pick<Props, 'notification' | 'onResolved'>) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const discard = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await window.bridge.discardNotification(notification.id, 'mark_ready');
+      if (!result.ok) setError(result.message);
+      else window.setTimeout(onResolved, 400);
+    }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div style={paneStyle} data-testid="publish-gate-pane">
+      <div style={warningStyle} role="status">
+        This ready-for-review gate is obsolete. Green CI now marks the Draft PR ready automatically.
+      </div>
+      {error !== null && <div style={errorStyle} role="alert">{error}</div>}
+      <div style={buttonsStyle}>
+        <button type="button" onClick={() => { void discard(); }} disabled={busy} style={discardButtonStyle}>
+          {busy ? 'Discarding…' : 'Discard obsolete gate'}
         </button>
       </div>
     </div>
@@ -467,6 +504,15 @@ function labelForAction(parsed: ParkedPublishPayload): string {
     case 'publish_review':   return 'Publish review';
     default:                 return 'Approve';
   }
+}
+
+function payloadAction(json: string | null): string | null {
+  if (json === null) return null;
+  try {
+    const action = JSON.parse(json)?.action;
+    return typeof action === 'string' ? action : null;
+  }
+  catch { return null; }
 }
 
 function parsePayload(json: string | null): ParkedPublishPayload | null {

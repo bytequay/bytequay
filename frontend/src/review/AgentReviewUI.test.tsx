@@ -222,6 +222,26 @@ describe('agent review UI', () => {
     expect(props.onOpenRound).toHaveBeenCalledOnce();
   });
 
+  it('keeps Full review but hides Submit review on review-only PR surfaces', () => {
+    const data = fixture();
+    const view = render(
+      <AgentReviewHeaderAction
+        state="done"
+        comments={data.pr_comments}
+        excluded={new Set()}
+        onStart={vi.fn()}
+        onOpenRound={vi.fn()}
+        onToggle={vi.fn()}
+        onEdit={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    const header = within(view.container);
+    expect(header.getByRole('button', { name: /Full review · Round/ })).toBeTruthy();
+    expect(header.queryByRole('button', { name: /Submit review/ })).toBeNull();
+  });
+
   it('keeps the round right panel supplied by the shared PRView owner and jumps timeline findings by anchor', () => {
     const data = fixture();
     const onOpenFinding = vi.fn();

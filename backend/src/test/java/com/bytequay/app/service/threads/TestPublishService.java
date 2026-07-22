@@ -25,6 +25,7 @@ import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoRef;
@@ -41,7 +42,9 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PrPushedEvent;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.ReviewPassResolver;
+import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.threads.PublishService.PublishResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -64,6 +67,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -94,6 +98,9 @@ class TestPublishService
     private TaskPhaseMachine phaseMachine;
     private StageStore stageStore;
     private PRService prService;
+    private PullRequestService pullRequestDetails;
+    private ReadyToMergeService readyToMerge;
+    private PullRequestDetail liveDetail;
     private ApplicationEventPublisher eventPublisher;
     private PublishService service;
 
@@ -112,14 +119,20 @@ class TestPublishService
         phaseMachine = mock(TaskPhaseMachine.class);
         stageStore = mock(StageStore.class);
         prService = mock(PRService.class);
+        pullRequestDetails = mock(PullRequestService.class);
+        readyToMerge = mock(ReadyToMergeService.class);
+        liveDetail = mock(PullRequestDetail.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         service = new PublishService(
                 notifications, taskStore, git, pullRequests, patResolver, issueOrigins, mapper,
                 parkedProposals, taskService,
-                mock(ReviewPassResolver.class), phaseMachine, stageStore, prService, eventPublisher);
+                mock(ReviewPassResolver.class), phaseMachine, stageStore, prService,
+                pullRequestDetails, readyToMerge, eventPublisher);
         when(notifications.claimResolution(anyString())).thenReturn(true);
         when(stageStore.findUnresolvedComments(anyString())).thenReturn(List.of());
         when(prService.findByTask(anyString())).thenReturn(Optional.empty());
+        when(pullRequestDetails.fetchFreshPullRequestDetail(anyString(), anyInt())).thenReturn(liveDetail);
+        when(readyToMerge.isReadyForMerge(anyString(), eq(liveDetail))).thenReturn(true);
     }
 
     @Test
@@ -145,6 +158,29 @@ class TestPublishService
         assertAuditRowWritten(parked, "approved", "push", "Pushed feature/x");
         // The approved push advances the task onto the remote spine.
         verify(phaseMachine).observe("task-1", TaskPhase.PUSHED_AWAITING_CI, "publish_approved");
+    }
+
+    @Test
+    void stalePushProposalCannotBypassThePrivateLocalPrLifecycle()
+            throws Exception
+    {
+        Notification parked = parkedPush(
+                "notif-stale-local-push", "task-stale-local-push",
+                "feature/x", "/tmp/wt/feature-x");
+        Task task = taskAt("task-stale-local-push", TaskStatus.AWAITING_REVIEW);
+        PR localPr = PR.create(
+                "local-stale-push", task.id(), task.branchName(), task.baseBranch(),
+                "Local PR", "", task.createdAt());
+        when(notifications.find(parked.id())).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById(task.id())).thenReturn(Optional.of(task));
+        when(prService.findByTask(task.id())).thenReturn(Optional.of(localPr));
+
+        assertThatThrownBy(() -> service.approve(parked.id(), null, "push"))
+                .hasMessageContaining("discard the stale push proposal");
+
+        verify(notifications, never()).claimResolution(parked.id());
+        verify(git, never()).push(any());
+        verify(git, never()).pushForceWithLease(any());
     }
 
     @Test
@@ -330,6 +366,23 @@ class TestPublishService
         verify(parkedProposals).finishApproved(parked, false);
     }
 
+    @Test
+    void staleMergeGateCannotBypassFreshReadiness()
+    {
+        Notification parked = parkedMergePr("notif-stale-merge", "task-stale-merge", "acme", "widget", 7);
+        when(notifications.find(parked.id())).thenReturn(Optional.of(parked));
+        when(readyToMerge.isReadyForMerge("task-stale-merge", liveDetail)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.approve(parked.id(), null, "merge_pr"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no longer ready to merge");
+
+        verify(pullRequestDetails).fetchFreshPullRequestDetail("acme/widget", 7);
+        verify(notifications, never()).claimResolution(parked.id());
+        verify(pullRequests, never()).mergePullRequest(any(), any(), any());
+        verify(pullRequests, never()).enqueuePullRequest(any(), any());
+    }
+
     private static Notification parkedMergePr(
             String notificationId, String taskId, String owner, String repo, int number)
     {
@@ -481,6 +534,28 @@ class TestPublishService
     }
 
     @Test
+    void directReviewThreadMutationCannotBypassTheTaskOriginRoundGate()
+    {
+        Notification parked = parkedResolveReviewThread(
+                "notif-private-resolve", "task-private-resolve",
+                "acme", "widget", 42, 555L, true);
+        Task task = taskAt("task-private-resolve", TaskStatus.AWAITING_REVIEW);
+        PR localPr = PR.create(
+                "local-private-resolve", task.id(), task.branchName(), task.baseBranch(),
+                "Local PR", "", task.createdAt());
+        when(notifications.find(parked.id())).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById(task.id())).thenReturn(Optional.of(task));
+        when(prService.findByTask(task.id())).thenReturn(Optional.of(localPr));
+
+        assertThatThrownBy(() -> service.approve(parked.id(), null, "resolve_review_thread"))
+                .hasMessageContaining("canonical round gate");
+
+        verify(notifications, never()).claimResolution(parked.id());
+        verify(pullRequests, never()).resolveReviewThread(anyString(), anyString());
+        verify(pullRequests, never()).unresolveReviewThread(anyString(), anyString());
+    }
+
+    @Test
     void approveResolveReviewThreadRefusesWithNotFoundWhenNoThreadMatchesTheRootCommentId()
     {
         Notification parked = parkedResolveReviewThread("notif-miss", "task-miss",
@@ -628,7 +703,7 @@ class TestPublishService
     }
 
     @Test
-    void approveShipTaskRejectedWhenTaskHasUnresolvedPrComments()
+    void approveShipTaskCannotBypassTheTaskOriginLocalPrPromotionGate()
     {
         Notification parked = parkedShipTask("notif-ship-pr-gate", "task-ship-pr-gate");
         when(notifications.find("notif-ship-pr-gate")).thenReturn(Optional.of(parked));
@@ -648,7 +723,7 @@ class TestPublishService
 
         assertThatThrownBy(() -> service.approve("notif-ship-pr-gate", null, "ship_task"))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("open review comment");
+                .hasMessageContaining("Local PR workflow");
 
         verify(notifications, never()).claimResolution("notif-ship-pr-gate");
         verify(taskService, never()).shipApprovedParkedTask(anyString(), anyString(), any());
@@ -1309,6 +1384,27 @@ class TestPublishService
                 eq("ghp_secret"), eq(new PullRequestRef("acme", "widget", 99)), command.capture());
         assertThat(command.getValue().event()).isEqualTo("APPROVE");
         assertThat(command.getValue().body()).isEmpty();
+    }
+
+    @Test
+    void publishReviewCannotExposeTaskOriginLocalReviewFeedback()
+    {
+        Notification parked = parkedPublishReview(
+                "notif-private-review", "task-private-review",
+                "acme", "widget", 99, "REQUEST_CHANGES", "Private finding");
+        Task task = taskAt("task-private-review", TaskStatus.AWAITING_REVIEW);
+        PR localPr = PR.create(
+                "local-private-review", task.id(), task.branchName(), task.baseBranch(),
+                "Local PR", "", task.createdAt());
+        when(notifications.find(parked.id())).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById(task.id())).thenReturn(Optional.of(task));
+        when(prService.findByTask(task.id())).thenReturn(Optional.of(localPr));
+
+        assertThatThrownBy(() -> service.approve(parked.id(), null, "publish_review"))
+                .hasMessageContaining("task-origin PR reviews stay private");
+
+        verify(notifications, never()).claimResolution(parked.id());
+        verify(pullRequests, never()).createReview(anyString(), any(), any());
     }
 
     private void assertAuditRowWritten(

@@ -55,23 +55,25 @@ public enum TaskPhase
     /** Agent is writing code in the worktree. */
     IMPLEMENTING,
 
-    /** Running the bundled checks (tests + checkstyle + repo rules) with
-     *  a bounded auto-fix loop. */
+    /** Running one bundled validation pass (tests + checkstyle + repo rules).
+     *  A failure parks at {@link #NEEDS_ATTENTION}. */
     VALIDATING,
 
     /** A TaskPhase-hosted review pass (Lead + seats) is reviewing the
      *  local diff before anything is pushed. */
     INTERNAL_REVIEW,
 
-    /** Validation + internal review passed; holding for the human to
-     *  approve the first push. Also the wait state the local addressing
+    /** Validation + internal review either passed or reached its explicit
+     *  bounded-escalation handoff; holding for the human to approve the
+     *  first push. Also the wait state the local addressing
      *  loop returns to once a round of local PR comments is addressed —
      *  it's already the de facto "local PR ready for review" state. */
     AWAITING_PUSH,
 
     /** New local PR review comments arrived (pre-push); agent is
      *  addressing them directly (no gate — the unpushed branch is the
-     *  safety buffer), then returns to {@link #AWAITING_PUSH}. The local
+     *  safety buffer), then revalidates before returning to
+     *  {@link #AWAITING_PUSH}. The local
      *  twin of a remote {@code review_round}. */
     ADDRESSING_LOCAL_COMMENTS,
 
@@ -80,8 +82,8 @@ public enum TaskPhase
      *  the run works beside this phase rather than moving it. */
     PUSHED_AWAITING_CI,
 
-    /** CI green on a draft PR; holding for the human to mark the PR ready
-     *  for remote review. */
+    /** Transient automatic checkpoint: CI is green on a draft PR, which is
+     *  being marked ready before remote review begins. */
     AWAITING_READY,
 
     /** PR is ready; waiting on remote reviewers (external humans). Also the

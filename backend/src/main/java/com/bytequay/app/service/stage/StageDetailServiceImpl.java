@@ -260,7 +260,12 @@ public class StageDetailServiceImpl
             return new TaskBrainViewData.DevPhase(
                     "brainReview", "running", "iter " + brainRound.iteration(), brainRound.runId());
         }
-        return new TaskBrainViewData.DevPhase("brainReview", "done", null, null);
+        if (ReviewRound.VERDICT_APPROVED.equals(brainRound.brainVerdict())) {
+            return new TaskBrainViewData.DevPhase("brainReview", "done", "brain approved", null);
+        }
+        int open = brainRound.stats() == null ? 0 : brainRound.stats().open();
+        return new TaskBrainViewData.DevPhase(
+                "brainReview", "done", open > 0 ? "brain unresolved · " + open : "brain unresolved", null);
     }
 
     /** Phases reached only once Validation has finished. */

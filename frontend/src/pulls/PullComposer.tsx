@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import { renderMarkdown } from '../markdown';
 import type { MarkdownRepoContext } from '../markdown';
+import { ConfirmDialog } from '../workspace/ConfirmDialog';
 
 /** The overview composer: Write|Preview segmented control, the prototype's
  *  formatting-toolbar glyph row (decorative, as in the prototype), and the
@@ -36,16 +37,18 @@ function Toolbar() {
   );
 }
 
-export default function PullComposer({ canClose, onComment, repoCtx }: {
-  canClose: boolean;
+export default function PullComposer({ onComment, onClose, repoCtx }: {
   /** Posts a PR-level comment via the same bridge path PRView's hosts use;
    *  undefined while the bundle is still loading (button disabled). */
   onComment?: (body: string) => Promise<void>;
+  onClose?: () => Promise<void>;
   repoCtx: MarkdownRepoContext;
 }) {
   const [seg, setSeg] = useState<'write' | 'preview'>('write');
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
+  const [confirmingClose, setConfirmingClose] = useState(false);
+  const [closing, setClosing] = useState(false);
   const disabled = draft.trim().length === 0 || busy || onComment === undefined;
   const submit = () => {
     const body = draft.trim();
@@ -101,13 +104,14 @@ export default function PullComposer({ canClose, onComment, repoCtx }: {
         )}
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 14 }}>
-        {canClose && (
+        {onClose !== undefined && (
           <button
-            disabled
-            title="Not wired yet"
+            type="button"
+            onClick={() => setConfirmingClose(true)}
+            disabled={closing}
             style={{ padding: '7px 15px', border: '1px solid #d5dbe1', background: '#fff', borderRadius: 8, fontSize: 12.5, fontWeight: 600, color: '#1f2328', cursor: 'pointer' }}
           >
-            Close pull request
+            {closing ? 'Closing…' : 'Close pull request'}
           </button>
         )}
         <button
@@ -119,6 +123,22 @@ export default function PullComposer({ canClose, onComment, repoCtx }: {
           Comment<span style={{ opacity: 0.6, fontSize: 11, fontWeight: 500 }}>⌘⏎</span>
         </button>
       </div>
+      {confirmingClose && onClose !== undefined && (
+        <ConfirmDialog
+          title="Close this pull request?"
+          body="This closes the pull request on GitHub without merging it."
+          confirmLabel="Close pull request"
+          destructive
+          onConfirm={() => {
+            setClosing(true);
+            void onClose()
+              .then(() => setConfirmingClose(false))
+              .catch(() => { /* keep the confirmation open for retry */ })
+              .finally(() => setClosing(false));
+          }}
+          onCancel={() => setConfirmingClose(false)}
+        />
+      )}
     </>
   );
 }

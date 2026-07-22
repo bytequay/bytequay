@@ -16,8 +16,10 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.checks.ValidationPassFinishedEvent;
+import com.bytequay.app.service.localpr.LocalReviewClearedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -28,6 +30,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
@@ -48,6 +52,12 @@ import static java.util.Objects.requireNonNull;
 public class TaskPhaseMachine
 {
     private static final Logger log = LoggerFactory.getLogger(TaskPhaseMachine.class);
+
+    /** Bounded in-process locks for check-then-act lifecycle boundaries. The
+     *  backend is a single local sidecar, so a striped JVM lock is sufficient
+     *  to serialize Local Review promotion against local-comment intake
+     *  without holding one global lock across GitHub network calls. */
+    private static final Object[] TASK_LOCKS = createTaskLocks(64);
 
     /** Consecutive auto-pushes per task before the lifecycle parks at
      *  NEEDS_ATTENTION. Guards against runaway autonomy. */
@@ -70,6 +80,25 @@ public class TaskPhaseMachine
         this.events = requireNonNull(events, "events is null");
     }
 
+    /** Run {@code action} exclusively against one task's lifecycle. Hash
+     *  collisions only serialize unrelated tasks; they never weaken safety. */
+    public static <T> T withTaskLock(String taskId, Supplier<T> action)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(action, "action is null");
+        Object lock = TASK_LOCKS[Math.floorMod(taskId.hashCode(), TASK_LOCKS.length)];
+        synchronized (lock) {
+            return action.get();
+        }
+    }
+
+    private static Object[] createTaskLocks(int count)
+    {
+        Object[] locks = new Object[count];
+        Arrays.setAll(locks, ignored -> new Object());
+        return locks;
+    }
+
     /**
      * Move {@code taskId} to phase {@code to}. Throws on an illegal edge.
      * Enforces the consecutive-auto-push cap: an auto actor pushing past
@@ -80,6 +109,48 @@ public class TaskPhaseMachine
     {
         requireNonNull(to, "to is null");
         requireNonNull(actor, "actor is null");
+        withTaskLock(taskId, () -> {
+            transitionLocked(taskId, to, reason, actor);
+            return null;
+        });
+    }
+
+    /**
+     * Explicit human recovery from a persistent stop. Normal observed state
+     * is deliberately unable to leave {@link TaskPhase#NEEDS_ATTENTION}; this
+     * is the one task-scoped path that clears both lifecycle axes together.
+     */
+    @Transactional
+    public void recover(String taskId, TaskPhase to, String reason)
+    {
+        requireNonNull(to, "to is null");
+        if (to == TaskPhase.NEEDS_ATTENTION || to == TaskPhase.COMPLETED) {
+            throw new IllegalArgumentException("invalid recovery phase: " + to);
+        }
+        withTaskLock(taskId, () -> {
+            Task task = taskStore.findTaskById(taskId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no task: " + taskId));
+            if (task.phase() != TaskPhase.NEEDS_ATTENTION
+                    && task.status() != TaskStatus.NEEDS_ATTENTION) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " is not parked at NEEDS_ATTENTION");
+            }
+
+            taskStore.saveTask(task.withStatus(TaskStatus.IDLE));
+            if (task.phase() != to) {
+                taskStore.updatePhase(taskId, to);
+                taskStore.appendPhaseEvent(
+                        taskId, task.phase(), to, Instant.now(), reason, Actor.HUMAN);
+                events.publishEvent(new TaskPhaseTransitionedEvent(
+                        taskId, task.phase(), to, reason));
+            }
+            return null;
+        });
+    }
+
+    private void transitionLocked(String taskId, TaskPhase to, String reason, Actor actor)
+    {
         Task task = taskStore.findTaskById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
@@ -112,7 +183,7 @@ public class TaskPhaseMachine
 
     /**
      * Validation finishing drives VALIDATING ▶ INTERNAL_REVIEW (clean)
-     * or VALIDATING ▶ NEEDS_ATTENTION (cap-hit failure). Guarded so a
+     * or VALIDATING ▶ NEEDS_ATTENTION (failed check). Guarded so a
      * stray event for a task that has since moved on is ignored rather
      * than throwing an illegal-transition error.
      */
@@ -131,6 +202,19 @@ public class TaskPhaseMachine
         }
     }
 
+    /** Brain review finished (approved or escalated after its bounded
+     *  budget), so the private PR is now local-open for the human. This is
+     *  the only normal INTERNAL_REVIEW -> AWAITING_PUSH transition. */
+    @EventListener
+    public void onLocalReviewCleared(LocalReviewClearedEvent event)
+    {
+        Task task = taskStore.findTaskById(event.taskId()).orElse(null);
+        if (task == null || task.phase() != TaskPhase.INTERNAL_REVIEW) {
+            return;
+        }
+        transition(event.taskId(), TaskPhase.AWAITING_PUSH, "local_review_opened", Actor.AGENT);
+    }
+
     /**
      * Fast-forward a task's phase to match authoritative <em>observed</em>
      * external reality (PR / CI / review state), bypassing the strict
@@ -146,12 +230,38 @@ public class TaskPhaseMachine
     public void observe(String taskId, TaskPhase to, String reason)
     {
         requireNonNull(to, "to is null");
+        withTaskLock(taskId, () -> {
+            observeLocked(taskId, to, reason);
+            return null;
+        });
+    }
+
+    private void observeLocked(String taskId, TaskPhase to, String reason)
+    {
         Task task = taskStore.findTaskById(taskId).orElse(null);
         if (task == null) {
             return;
         }
         TaskPhase from = task.phase();
-        if (from == to || from == TaskPhase.COMPLETED) {
+        if (from == TaskPhase.COMPLETED) {
+            return;
+        }
+
+        // NEEDS_ATTENTION is one durable stop across both task axes. An
+        // observed park must stamp the runtime status too, and a repeated
+        // observation repairs legacy/partially-written rows whose phase was
+        // already parked without appending a duplicate phase event.
+        if (to == TaskPhase.NEEDS_ATTENTION) {
+            if (task.status() != TaskStatus.NEEDS_ATTENTION) {
+                taskStore.saveTask(task.withStatus(TaskStatus.NEEDS_ATTENTION));
+            }
+            if (from == TaskPhase.NEEDS_ATTENTION) {
+                return;
+            }
+        }
+        else if (from == to || (to != TaskPhase.COMPLETED
+                && (from == TaskPhase.NEEDS_ATTENTION
+                        || task.status() == TaskStatus.NEEDS_ATTENTION))) {
             return;
         }
         taskStore.updatePhase(taskId, to);
@@ -164,6 +274,9 @@ public class TaskPhaseMachine
         if (!TaskPhaseTransitions.isLegal(from, to)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "illegal task phase transition " + from + " -> " + to + " (task " + task.id() + ")");
+        }
+        if (to == TaskPhase.NEEDS_ATTENTION && task.status() != TaskStatus.NEEDS_ATTENTION) {
+            taskStore.saveTask(task.withStatus(TaskStatus.NEEDS_ATTENTION));
         }
         taskStore.updatePhase(task.id(), to);
         taskStore.appendPhaseEvent(task.id(), from, to, Instant.now(), reason, actor);

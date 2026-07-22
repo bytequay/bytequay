@@ -197,20 +197,49 @@ class TestSqliteStageStore
     {
         String taskId = seedTask();
         Instant now = Instant.parse("2026-06-20T10:00:00Z");
+        Instant postedAt = Instant.parse("2026-06-20T10:01:00Z");
 
         ReviewComment unresolved = stageStore.saveReviewComment(new ReviewComment(
                 null, taskId, "src/Foo.java", 12, "nit: rename", now,
-                ReviewCommentSource.LOCAL_USER, null, false, null, null, null, null, "RIGHT", null, null));
+                ReviewCommentSource.LOCAL_USER, null, false, 123L, null, "draft", now, postedAt,
+                "RIGHT", null, null));
         stageStore.saveReviewComment(new ReviewComment(
                 null, taskId, "src/Bar.java", 3, "addressed", now,
                 ReviewCommentSource.LOCAL_USER, null, true, null, null, null, null, "RIGHT", null, null));
 
-        assertThat(stageStore.findReviewCommentById(unresolved.id())).isPresent();
+        assertThat(stageStore.findReviewCommentById(unresolved.id()))
+                .get().extracting(ReviewComment::draftReplyPostedAt).isEqualTo(postedAt);
         assertThat(stageStore.findUnresolvedComments(taskId))
                 .extracting(ReviewComment::file)
                 .containsExactly("src/Foo.java");
         assertThat(stageStore.findCommentsBySource(taskId, ReviewCommentSource.LOCAL_USER)).hasSize(2);
         assertThat(stageStore.findCommentsBySource(taskId, ReviewCommentSource.REMOTE_REVIEWER)).isEmpty();
+    }
+
+    @Test
+    void unroundedQueryExcludesResolvedRemoteCommentsAndPersistsGeneralComments()
+    {
+        String taskId = seedTask();
+        Instant now = Instant.parse("2026-06-20T10:00:00Z");
+        ReviewComment openGeneral = stageStore.saveReviewComment(new ReviewComment(
+                null, taskId, null, 0, "question", now,
+                ReviewCommentSource.REMOTE_REVIEWER,
+                "https://github.com/acme/widgets/pull/42#issuecomment-1",
+                false, 1L, null, null, null, "RIGHT", null, null));
+        stageStore.saveReviewComment(new ReviewComment(
+                null, taskId, "src/Foo.java", 12, "already resolved", now,
+                ReviewCommentSource.REMOTE_REVIEWER,
+                "https://github.com/acme/widgets/pull/42#discussion_r2",
+                true, 2L, null, null, null, "RIGHT", null, null));
+
+        assertThat(stageStore.findUnroundedRemoteComments(taskId))
+                .extracting(ReviewComment::id)
+                .containsExactly(openGeneral.id());
+        assertThat(stageStore.findReviewCommentByRemoteLink(openGeneral.remoteLink()))
+                .get().extracting(ReviewComment::file).isNull();
+
+        stageStore.markRemoteThreadResolutionPosted(openGeneral.id(), now);
+        assertThat(stageStore.isRemoteThreadResolutionPosted(openGeneral.id())).isTrue();
     }
 
     private String seedTask()

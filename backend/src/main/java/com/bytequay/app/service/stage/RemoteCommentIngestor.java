@@ -70,17 +70,36 @@ public class RemoteCommentIngestor
      */
     public void ingest(String taskId, String repoFullName, int prNumber, PullRequestDetail detail)
     {
+        ingest(taskId, repoFullName, prNumber, detail, null);
+    }
+
+    /**
+     * @param currentLogin authenticated GitHub login for this task-origin PR;
+     *                     null means unknown and therefore fails open
+     */
+    public void ingest(
+            String taskId,
+            String repoFullName,
+            int prNumber,
+            PullRequestDetail detail,
+            String currentLogin)
+    {
         if (detail == null) {
             return;
         }
-        ingestReviewThreads(taskId, repoFullName, prNumber, detail.reviewThreads());
-        ingestIssueComments(taskId, repoFullName, prNumber, detail.recentActivity());
+        ingestReviewThreads(taskId, repoFullName, prNumber, detail.reviewThreads(), currentLogin);
+        ingestIssueComments(taskId, repoFullName, prNumber, detail.recentActivity(), currentLogin);
     }
 
     /** Diff-anchored comments — a thread with no {@code filePath} is skipped
      *  (it isn't a line review comment; general comments arrive separately
      *  via {@link #ingestIssueComments}). */
-    private void ingestReviewThreads(String taskId, String repoFullName, int prNumber, List<ReviewThread> threads)
+    private void ingestReviewThreads(
+            String taskId,
+            String repoFullName,
+            int prNumber,
+            List<ReviewThread> threads,
+            String currentLogin)
     {
         if (threads == null) {
             return;
@@ -97,7 +116,10 @@ public class RemoteCommentIngestor
             }
             String side = DiffSide.normalize(thread.side());
             for (ReviewMessage message : messages) {
-                saveIfNew(taskId, discussionLink(repoFullName, prNumber, message.githubId()),
+                if (isCurrentUser(message.author(), currentLogin)) {
+                    continue;
+                }
+                saveOrRefresh(taskId, discussionLink(repoFullName, prNumber, message.githubId()),
                         new ReviewComment(
                                 null,
                                 taskId,
@@ -108,7 +130,7 @@ public class RemoteCommentIngestor
                                 ReviewCommentSource.REMOTE_REVIEWER,
                                 discussionLink(repoFullName, prNumber, message.githubId()),
                                 resolved,
-                                message.githubId(),
+                                thread.rootGithubId(),
                                 null,
                                 null,
                                 null,
@@ -122,16 +144,22 @@ public class RemoteCommentIngestor
     /** Plain top-level PR comments — GitHub has no "resolved" concept for
      *  these (there's no thread), so they always ingest as unresolved; the
      *  local {@code resolve_review_comment} tool is what clears them. */
-    private void ingestIssueComments(String taskId, String repoFullName, int prNumber, List<ActivityItem> activity)
+    private void ingestIssueComments(
+            String taskId,
+            String repoFullName,
+            int prNumber,
+            List<ActivityItem> activity,
+            String currentLogin)
     {
         if (activity == null) {
             return;
         }
         for (ActivityItem item : activity) {
-            if (!COMMENTED_EVENT.equals(item.eventType()) || item.githubId() == null) {
+            if (!COMMENTED_EVENT.equals(item.eventType()) || item.githubId() == null
+                    || isCurrentUser(item.actor(), currentLogin)) {
                 continue;
             }
-            saveIfNew(taskId, issueCommentLink(repoFullName, prNumber, item.githubId()),
+            saveOrRefresh(taskId, issueCommentLink(repoFullName, prNumber, item.githubId()),
                     new ReviewComment(
                             null,
                             taskId,
@@ -152,17 +180,45 @@ public class RemoteCommentIngestor
         }
     }
 
-    private void saveIfNew(String taskId, String remoteLink, ReviewComment comment)
+    private void saveOrRefresh(String taskId, String remoteLink, ReviewComment incoming)
     {
+        ReviewComment existing = stageStore.findReviewCommentByRemoteLink(remoteLink).orElse(null);
+        if (existing != null) {
+            boolean refreshResolved = existing.roundId() == null
+                    || incoming.resolved()
+                    || stageStore.isRemoteThreadResolutionPosted(existing.id());
+            boolean resolved = refreshResolved ? incoming.resolved() : existing.resolved();
+            if (resolved != existing.resolved()
+                    || !incoming.remoteCommentId().equals(existing.remoteCommentId())) {
+                try {
+                    stageStore.saveReviewComment(existing.withRemoteState(
+                            resolved, incoming.remoteCommentId()));
+                }
+                catch (RuntimeException e) {
+                    log.warn("failed to refresh remote comment {} for task {}: {}",
+                            remoteLink, taskId, e.getMessage());
+                }
+            }
+            return;
+        }
         if (stageStore.reviewCommentExistsByRemoteLink(remoteLink)) {
             return;
         }
         try {
-            stageStore.saveReviewComment(comment);
+            stageStore.saveReviewComment(incoming);
         }
         catch (RuntimeException e) {
             log.warn("failed to ingest remote comment {} for task {}: {}", remoteLink, taskId, e.getMessage());
         }
+    }
+
+    private static boolean isCurrentUser(String author, String currentLogin)
+    {
+        if (author == null || currentLogin == null) {
+            return false;
+        }
+        String login = currentLogin.startsWith("@") ? currentLogin.substring(1) : currentLogin;
+        return author.equalsIgnoreCase(login);
     }
 
     private static String discussionLink(String repoFullName, int prNumber, long commentGithubId)

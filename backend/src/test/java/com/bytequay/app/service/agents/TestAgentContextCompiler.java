@@ -61,8 +61,8 @@ class TestAgentContextCompiler
         assertThat(cli.skillNames()).containsExactly(
                 "task-execution", "codegraph-first", "ponytail", "caveman");
         assertThat(cli.toolNames())
-                .contains("codegraph_explore", "run_checks", "push")
-                .doesNotContain("list_tools", "list_skills", "load_skill");
+                .contains("codegraph_explore", "run_checks")
+                .doesNotContain("push", "list_tools", "list_skills", "load_skill");
     }
 
     @Test

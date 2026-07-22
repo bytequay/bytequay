@@ -18,15 +18,20 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.localpr.LocalReviewClearedEvent;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -72,10 +77,26 @@ class TestTaskPhaseMachine
         when(taskStore.findTaskById("t1")).thenReturn(Optional.of(taskAt("t1", TaskPhase.PUSHED_AWAITING_CI)));
         machine.transition("t1", TaskPhase.NEEDS_ATTENTION, "stuck", Actor.HUMAN);
         verify(taskStore).updatePhase("t1", TaskPhase.NEEDS_ATTENTION);
+        verify(taskStore).saveTask(argThat(task -> task.status() == TaskStatus.NEEDS_ATTENTION));
 
         when(taskStore.findTaskById("t2")).thenReturn(Optional.of(taskAt("t2", TaskPhase.IMPLEMENTING)));
         machine.transition("t2", TaskPhase.COMPLETED, "closed", Actor.WEBHOOK);
         verify(taskStore).updatePhase("t2", TaskPhase.COMPLETED);
+    }
+
+    @Test
+    void explicitRecoveryClearsStatusAndRestoresTheSelectedPhase()
+    {
+        Task parked = taskAt("t1", TaskPhase.NEEDS_ATTENTION)
+                .withStatus(TaskStatus.NEEDS_ATTENTION);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(parked));
+
+        machine.recover("t1", TaskPhase.AWAITING_REMOTE_REVIEW, "user_resumed_task");
+
+        verify(taskStore).saveTask(argThat(task -> task.status() == TaskStatus.IDLE));
+        verify(taskStore).updatePhase("t1", TaskPhase.AWAITING_REMOTE_REVIEW);
+        verify(taskStore).appendPhaseEvent(eq("t1"), eq(TaskPhase.NEEDS_ATTENTION),
+                eq(TaskPhase.AWAITING_REMOTE_REVIEW), any(), eq("user_resumed_task"), eq(Actor.HUMAN));
     }
 
     @Test
@@ -112,6 +133,19 @@ class TestTaskPhaseMachine
     }
 
     @Test
+    void brainReviewConclusionOpensTheLocalReviewGate()
+    {
+        when(taskStore.findTaskById("t1"))
+                .thenReturn(Optional.of(taskAt("t1", TaskPhase.INTERNAL_REVIEW)));
+
+        machine.onLocalReviewCleared(new LocalReviewClearedEvent("t1", "pr1", true));
+
+        verify(taskStore).updatePhase("t1", TaskPhase.AWAITING_PUSH);
+        verify(taskStore).appendPhaseEvent(eq("t1"), eq(TaskPhase.INTERNAL_REVIEW),
+                eq(TaskPhase.AWAITING_PUSH), any(), eq("local_review_opened"), eq(Actor.AGENT));
+    }
+
+    @Test
     void autoPushAtCapParksAtNeedsAttentionInsteadOfPushing()
     {
         when(taskStore.findTaskById("t1")).thenReturn(Optional.of(taskAt("t1", TaskPhase.AWAITING_PUSH)));
@@ -122,6 +156,102 @@ class TestTaskPhaseMachine
         verify(taskStore).updatePhase("t1", TaskPhase.NEEDS_ATTENTION);
         verify(taskStore, never()).updatePhase("t1", TaskPhase.PUSHED_AWAITING_CI);
         verify(notifications).notifyNeedsAttention(eq("thread-1"), eq("t1"), any());
+    }
+
+    @Test
+    void observedStateCannotUnparkNeedsAttentionButCanCompleteIt()
+    {
+        Task parkedPhase = taskAt("t1", TaskPhase.NEEDS_ATTENTION);
+        Task parkedStatus = taskAt("t2", TaskPhase.AWAITING_REMOTE_REVIEW)
+                .withStatus(TaskStatus.NEEDS_ATTENTION);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(parkedPhase));
+        when(taskStore.findTaskById("t2")).thenReturn(Optional.of(parkedStatus));
+
+        machine.observe("t1", TaskPhase.AWAITING_REMOTE_REVIEW, "pr_state_observed");
+        machine.observe("t2", TaskPhase.PUSHED_AWAITING_CI, "pr_state_observed");
+
+        verify(taskStore, never()).updatePhase("t1", TaskPhase.AWAITING_REMOTE_REVIEW);
+        verify(taskStore, never()).updatePhase("t2", TaskPhase.PUSHED_AWAITING_CI);
+
+        machine.observe("t1", TaskPhase.COMPLETED, "pr_merged_observed");
+
+        verify(taskStore).updatePhase("t1", TaskPhase.COMPLETED);
+        verify(taskStore).appendPhaseEvent(eq("t1"), eq(TaskPhase.NEEDS_ATTENTION),
+                eq(TaskPhase.COMPLETED), any(), eq("pr_merged_observed"), eq(Actor.WEBHOOK));
+    }
+
+    @Test
+    void observedNeedsAttentionWritesBothAxes()
+    {
+        when(taskStore.findTaskById("t1"))
+                .thenReturn(Optional.of(taskAt("t1", TaskPhase.AWAITING_REMOTE_REVIEW)));
+
+        machine.observe("t1", TaskPhase.NEEDS_ATTENTION, "merge_queue_failed");
+
+        verify(taskStore).saveTask(argThat(task -> task.status() == TaskStatus.NEEDS_ATTENTION));
+        verify(taskStore).updatePhase("t1", TaskPhase.NEEDS_ATTENTION);
+        verify(taskStore).appendPhaseEvent(eq("t1"), eq(TaskPhase.AWAITING_REMOTE_REVIEW),
+                eq(TaskPhase.NEEDS_ATTENTION), any(), eq("merge_queue_failed"), eq(Actor.WEBHOOK));
+    }
+
+    @Test
+    void repeatedObservedNeedsAttentionRepairsMissingStatusWithoutDuplicatePhaseEvent()
+    {
+        when(taskStore.findTaskById("t1"))
+                .thenReturn(Optional.of(taskAt("t1", TaskPhase.NEEDS_ATTENTION)));
+
+        machine.observe("t1", TaskPhase.NEEDS_ATTENTION, "repair_park");
+
+        verify(taskStore).saveTask(argThat(task -> task.status() == TaskStatus.NEEDS_ATTENTION));
+        verify(taskStore, never()).updatePhase(any(), any());
+        verify(taskStore, never()).appendPhaseEvent(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void taskLifecycleLockSerializesTheSameTask()
+            throws Exception
+    {
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        CountDownLatch secondEntered = new CountDownLatch(1);
+
+        Thread first = Thread.startVirtualThread(() ->
+                TaskPhaseMachine.withTaskLock("t1", () -> {
+                    firstEntered.countDown();
+                    await(releaseFirst);
+                    return null;
+                }));
+        assertThat(firstEntered.await(1, TimeUnit.SECONDS)).isTrue();
+        Thread second = Thread.startVirtualThread(() -> {
+            secondStarted.countDown();
+            TaskPhaseMachine.withTaskLock("t1", () -> {
+                secondEntered.countDown();
+                return null;
+            });
+        });
+
+        try {
+            assertThat(secondStarted.await(1, TimeUnit.SECONDS)).isTrue();
+            assertThat(secondEntered.await(100, TimeUnit.MILLISECONDS)).isFalse();
+        }
+        finally {
+            releaseFirst.countDown();
+        }
+        assertThat(secondEntered.await(1, TimeUnit.SECONDS)).isTrue();
+        first.join();
+        second.join();
+    }
+
+    private static void await(CountDownLatch latch)
+    {
+        try {
+            latch.await();
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
     }
 
     private static Task taskAt(String id, TaskPhase phase)

@@ -58,13 +58,14 @@ export function TrunkPage({
   composer: {
     value: string;
     onChange: (next: string) => void;
-    onSubmit: () => void;
+    onSubmit: (override?: string) => void;
     busy?: boolean;
     queueWhenBusy?: boolean;
     modePill?: ReactNode;
     placeholder?: string;
     images?: string[];
     onImagesChange?: (next: string[]) => void;
+    suggestedReply?: string;
   };
   tasks: { active: TaskCardData[]; closed: TaskCardData[] };
   /** Completed cuts preceding the one expanded in the conversation. */
@@ -248,6 +249,7 @@ export function TrunkPage({
                   placeholder={composer.placeholder}
                   images={composer.images}
                   onImagesChange={composer.onImagesChange}
+                  suggestedReply={openQuestions.length === 0 ? composer.suggestedReply : undefined}
                   meta={`${taskCount} tasks · ${pullRequestCount} PRs · $${cost.toFixed(2)} this thread`}
                 />
               )}
@@ -313,9 +315,10 @@ function WorkspaceOverviewPanel({
   const needsTrunk = overview?.today.needsYou[0];
   const runningTrunk = overview?.today.running[0];
   const openPullRequests = pullRequests.filter(pr => pr.state !== 'closed' && pr.state !== 'merged').slice(0, 3);
-  const backlog = (workspaceBacklog.length > 0 ? workspaceBacklog : trunkBacklog)
-    .filter(item => READY_BACKLOG_STATUSES.has(item.status))
-    .slice(0, 2);
+  const activeTrunkBacklog = trunkBacklog.filter(item => READY_BACKLOG_STATUSES.has(item.status));
+  const backlog = activeTrunkBacklog.length > 0
+    ? activeTrunkBacklog
+    : workspaceBacklog.filter(item => READY_BACKLOG_STATUSES.has(item.status)).slice(0, 3);
   const pullRequestTotal = overview?.sidebarCounts.pullRequests ?? openPullRequests.length;
   const runningSessionId = runningSession?.sessionId;
 

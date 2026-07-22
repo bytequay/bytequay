@@ -67,7 +67,7 @@ describe('TaskBrainRoute', () => {
     expect(await screen.findByText('Brain is thinking…')).toBeTruthy();
   });
 
-  it('opens the embedded PR Changes tab from a route request and the changed-files controls', async () => {
+  it('opens the embedded PR Changes tab and zooms the same detail in place', async () => {
     const file: DiffFileDto = {
       filename: 'frontend/src/App.tsx', status: 'modified', additions: 3, deletions: 1, patch: null,
     };
@@ -147,6 +147,19 @@ describe('TaskBrainRoute', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open in workspace' }));
     await waitFor(() => expect(changesTab.style.fontWeight).toBe('600'));
+
+    const taskPage = document.querySelector('.workspace-task-v2');
+    const hash = window.location.hash;
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize pull request details' }));
+    const dialog = screen.getByRole('dialog', { name: 'Pull request details' });
+    expect(document.querySelector('.workspace-task-v2')).toBe(taskPage);
+    expect(within(dialog).getByRole('button', { name: /Changes/ })).toBe(changesTab);
+    expect(changesTab.style.fontWeight).toBe('600');
+    expect(window.location.hash).toBe(hash);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close pull request details' }));
+    expect(screen.queryByRole('dialog', { name: 'Pull request details' })).toBeNull();
+    expect(document.querySelector('.workspace-task-v2')).toBe(taskPage);
   });
 
   it('shows the root-node plan with the review bar when the plan awaits the user', async () => {

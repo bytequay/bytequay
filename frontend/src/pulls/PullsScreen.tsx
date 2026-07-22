@@ -22,6 +22,7 @@ import { PULL_TABS, rowsForTab, toRow } from './model';
 import type { PullRow, PullTab } from './model';
 import PullRowItem from './PullRowItem';
 import PullDetailPane from './PullDetailPane';
+import { PullDetailHost } from './PullDetailZoom';
 import { pullRowFromLocal } from './localRow';
 import { PaneToggleIcon } from './atoms';
 import '../css/pulls.css';
@@ -127,6 +128,7 @@ export default function PullsScreen({
   const [tab, setTab] = useState<PullTab>('all');
   const [sel, setSel] = useState<string | null>(null);
   const [paneOpen, setPaneOpen] = useState(true);
+  const [detailZoomed, setDetailZoomed] = useState(false);
   const [detW, setDetW] = useState(DETAIL_DEFAULT);
   const [initialPrError, setInitialPrError] = useState(false);
   // Fallback pane row for a deep-linked PR outside the dashboard list.
@@ -255,6 +257,8 @@ export default function PullsScreen({
     : quickByPr[selRow.id] ?? IDLE_QUICK_REVIEW;
   const selectedWatch = selRow === null ? IDLE_WATCH
     : watchByPr[selRow.id] ?? IDLE_WATCH;
+
+  useEffect(() => setDetailZoomed(false), [sel]);
 
   const refreshQuickReview = useCallback(async (prId: string) => {
     try {
@@ -554,17 +558,25 @@ export default function PullsScreen({
 
       {/* ═══ PR detail pane ═══ */}
       {paneShown && (
-        <div style={{ width: detW, flexShrink: 1, minWidth: 0, borderLeft: '1px solid #e7e9ec', display: 'flex', minHeight: 0, background: '#fff', position: 'relative' }}>
-          <div
-            className="pl-hov-drag"
-            onMouseDown={detDragStart}
-            title="Drag to resize"
-            style={{ position: 'absolute', left: -3, top: 0, bottom: 0, width: 6, cursor: 'col-resize', zIndex: 5 }}
-          />
+        <PullDetailHost
+          zoomed={detailZoomed}
+          onClose={() => setDetailZoomed(false)}
+          normalStyle={{ width: detW, flexShrink: 1, minWidth: 0, borderLeft: '1px solid #e7e9ec', display: 'flex', minHeight: 0, background: '#fff', position: 'relative' }}
+        >
+          {!detailZoomed && (
+            <div
+              className="pl-hov-drag"
+              onMouseDown={detDragStart}
+              title="Drag to resize"
+              style={{ position: 'absolute', left: -3, top: 0, bottom: 0, width: 6, cursor: 'col-resize', zIndex: 5 }}
+            />
+          )}
           {selRow !== null ? (
             <PullDetailPane
               key={selRow.id}
               row={selRow}
+              zoomed={detailZoomed}
+              onToggleZoom={() => setDetailZoomed(value => !value)}
               onWorkWithAgent={onOpenWorkspacePr !== undefined && selWorkspaceId !== undefined
                   && !pendingAgentStarts.has(selRow.id)
                 ? () => onOpenWorkspacePr(selRow.repo, selRow.num, {
@@ -599,7 +611,7 @@ export default function PullsScreen({
                 : `Opening ${initialPr?.repo} #${initialPr?.number}…`}
             </div>
           )}
-        </div>
+        </PullDetailHost>
       )}
     </div>
     {watchTarget !== null && (() => {

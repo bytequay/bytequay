@@ -32,6 +32,7 @@ function num(payload: Record<string, unknown> | null, key: string): number | nul
 
 function pullRequestData(payload: Record<string, unknown> | null): PullRequestCreatedData {
   return {
+    phase: str(payload, 'phase'),
     branch: str(payload, 'branch'),
     baseBranch: str(payload, 'baseBranch'),
     number: num(payload, 'number'),
@@ -83,7 +84,7 @@ function eventBody(event: LocalPRTimelineEvent): ReactNode {
 }
 
 export function TimelineIconEvent({ event }: { event: LocalPRTimelineEvent }) {
-  if (event.eventType === 'pull-request-created') {
+  if (event.eventType === 'pull-request-progress' || event.eventType === 'pull-request-created') {
     return (
       <PullRequestCreatedEvent
         pullRequest={pullRequestData(event.payload)}

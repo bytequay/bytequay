@@ -429,6 +429,7 @@ class TestPRService
         assertThat(created.eventType()).isEqualTo(PRTimelineEntry.TYPE_PULL_REQUEST_CREATED);
         assertThat(created.localOnly()).isFalse();
         assertThat(created.payloadJson()).contains(
+                "\"phase\":\"created\"",
                 "\"branch\":\"dev/x\"", "\"baseBranch\":\"main\"", "\"number\":145",
                 "\"additions\":7", "\"deletions\":2");
         assertThat(events.getAllValues().get(2).eventType()).isEqualTo(PRTimelineEntry.TYPE_STATUS);
@@ -438,10 +439,69 @@ class TestPRService
         verify(stageStore).recordEvent(
                 eq(developmentStageId), eq("task1"), eq(StageEventType.PULL_REQUEST_CREATED), stagePayload.capture());
         assertThat(stagePayload.getValue()).containsEntry("branch", "dev/x")
+                .containsEntry("phase", "created")
                 .containsEntry("baseBranch", "main")
                 .containsEntry("number", 145)
                 .containsEntry("additions", 7)
                 .containsEntry("deletions", 2);
+    }
+
+    @Test
+    void recordProgressDualWritesOneLocalPrAndDevelopmentMilestone()
+    {
+        pr(PR.STATUS_LOCAL_DRAFTED);
+        UUID developmentStageId = UUID.randomUUID();
+        StageInstance development = new StageInstance(
+                developmentStageId, "task1", StageType.DEVELOPMENT_STAGE,
+                StageState.ACTIVE, NOW, null, null);
+        when(stageStore.findStageByType("task1", StageType.DEVELOPMENT_STAGE))
+                .thenReturn(Optional.of(development));
+        when(store.timelineFor("pr1")).thenReturn(List.of());
+
+        service.recordProgress("pr1", PRTimelineEntry.PHASE_STARTING);
+
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo(PRTimelineEntry.TYPE_PULL_REQUEST_PROGRESS);
+        assertThat(event.getValue().actor()).isEqualTo(PRTimelineEntry.ACTOR_AGENT);
+        assertThat(event.getValue().localOnly()).isTrue();
+        assertThat(event.getValue().payloadJson()).contains(
+                "\"phase\":\"starting\"", "\"branch\":\"dev/x\"", "\"baseBranch\":\"main\"");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> stagePayload = ArgumentCaptor.forClass(Map.class);
+        verify(stageStore).recordEvent(
+                eq(developmentStageId), eq("task1"), eq(StageEventType.PULL_REQUEST_PROGRESS),
+                stagePayload.capture());
+        assertThat(stagePayload.getValue()).containsEntry("phase", "starting")
+                .containsEntry("branch", "dev/x")
+                .containsEntry("baseBranch", "main");
+    }
+
+    @Test
+    void recordProgressIsIdempotentPerPhase()
+    {
+        pr(PR.STATUS_LOCAL_DRAFTED);
+        when(store.timelineFor("pr1")).thenReturn(List.of(new PRTimelineEntry(
+                "progress", "pr1", PRTimelineEntry.TYPE_PULL_REQUEST_PROGRESS,
+                PRTimelineEntry.ACTOR_AGENT, true, null, NOW,
+                "{\"phase\":\"starting\"}", null)));
+
+        service.recordProgress("pr1", PRTimelineEntry.PHASE_STARTING);
+
+        verify(store, never()).addEvent(any());
+        verify(stageStore, never()).recordEvent(any(), any(), any(), any());
+    }
+
+    @Test
+    void recordProgressRejectsUnknownPhases()
+    {
+        pr(PR.STATUS_LOCAL_DRAFTED);
+
+        assertThatThrownBy(() -> service.recordProgress("pr1", "pushing"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("starting or creating-draft");
+        verify(store, never()).addEvent(any());
     }
 
     @Test

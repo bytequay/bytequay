@@ -42,6 +42,10 @@ export type BrainSegment = {
 
 const BOUNDARY_TYPES = new Set<BrainFeedRow['type']>(['STAGE_OPENED', 'STAGE_CLOSED']);
 
+function isPullRequestMilestone(row: BrainFeedRow): boolean {
+  return row.type === 'PULL_REQUEST_PROGRESS' || row.type === 'PUSHED_PR_CREATED';
+}
+
 /** Append a non-boundary feed row to a segment's rounds, opening a new round
  *  on each user message and an autonomous round for leading agent rows. */
 function pushRow(seg: BrainSegment, row: BrainFeedRow): void {
@@ -50,15 +54,17 @@ function pushRow(seg: BrainSegment, row: BrainFeedRow): void {
     seg.rounds.push({ id: row.id, userTurn: row, rows: [] });
     return;
   }
-  // A PR creation is a durable stage milestone, not a continuation of the
-  // preceding agent response. Give it its own round so it stays visible when
-  // a completed Development stage is folded.
-  if (row.type === 'PUSHED_PR_CREATED') {
+  // PR preparation/publication events are durable stage milestones, not a
+  // continuation of the preceding agent response. Give each one its own round
+  // so it stays visible when a completed Development stage is folded.
+  if (isPullRequestMilestone(row)) {
     seg.rounds.push({ id: row.id, userTurn: null, rows: [row] });
     return;
   }
   const last = seg.rounds[seg.rounds.length - 1];
-  if (last === undefined) {
+  // Do not let later agent work turn a durable milestone into folded work by
+  // becoming that round's new headline.
+  if (last === undefined || last.rows.some(isPullRequestMilestone)) {
     seg.rounds.push({ id: row.id, userTurn: null, rows: [row] });
   }
   else {

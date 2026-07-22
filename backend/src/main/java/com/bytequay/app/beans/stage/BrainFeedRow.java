@@ -28,8 +28,8 @@ import java.util.List;
  * @param images attached-screenshot file paths — only ever non-empty on a
  *               {@code USER_MESSAGE} row
  * @param managedSkills runtime-managed skills active for this user turn
- * @param pullRequest the typed remote-PR creation payload, present only for
- *                    {@code PUSHED_PR_CREATED}
+ * @param pullRequest the typed PR-milestone payload, present for
+ *                    {@code PULL_REQUEST_PROGRESS} and {@code PUSHED_PR_CREATED}
  */
 public record BrainFeedRow(
         String id,

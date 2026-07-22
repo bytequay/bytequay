@@ -128,6 +128,10 @@ public interface PRService
     /** Edit title / description (a null argument leaves that field unchanged). */
     PR updateDetails(String prId, String title, String description);
 
+    /** Record one idempotent local PR-preparation phase ({@code starting} or
+     *  {@code creating-draft}) in the PR, Development, and Brain timelines. */
+    void recordProgress(String prId, String phase);
+
     /** Correct the head/base branch names once a detail fetch resolves the
      *  real ones (a null argument leaves that field unchanged). */
     PR updateBranches(String prId, String branchName, String baseBranch);

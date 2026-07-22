@@ -51,6 +51,7 @@ class TestPonytailBundleService
                         .contains("Trunk Planner")
                         .contains("ask_user_question")
                         .contains("Go ahead")
+                        .contains("Cut this as")
                         .contains("never ask a question only in prose"));
         assertThat(bundle.select(List.of("codegraph-first")))
                 .singleElement()

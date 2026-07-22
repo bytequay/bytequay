@@ -72,7 +72,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -337,7 +336,7 @@ public class GitHubClient
             ParameterizedTypeReference<List<R>> typeRef,
             Object... uriVars)
     {
-        List<R> out = new ArrayList<>();
+        ImmutableList.Builder<R> out = ImmutableList.builder();
         for (int page = 1; page <= EVIDENCE_MAX_PAGES; page++) {
             final int current = page;
             List<R> rows;
@@ -352,18 +351,18 @@ public class GitHubClient
                         .body(typeRef);
             }
             catch (RestClientResponseException e) {
-                return Paged.partial(ImmutableList.copyOf(out));
+                return Paged.partial(out.build());
             }
             if (rows == null || rows.isEmpty()) {
-                return Paged.complete(ImmutableList.copyOf(out));
+                return Paged.complete(out.build());
             }
             out.addAll(rows);
             if (rows.size() < 100) {
-                return Paged.complete(ImmutableList.copyOf(out));
+                return Paged.complete(out.build());
             }
         }
         // Every fetched page was full up to the cap — more rows exist unread.
-        return Paged.partial(ImmutableList.copyOf(out));
+        return Paged.partial(out.build());
     }
 
     @Override

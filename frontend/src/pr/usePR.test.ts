@@ -11,12 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { usePR } from './usePR';
 import type { LocalPRBundle } from '../types/localPr';
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   delete (globalThis as { bridge?: unknown }).bridge;
 });
@@ -83,5 +84,22 @@ describe('usePR', () => {
     await waitFor(() => expect(result.current.syncing).toBe(true));
     resolveFetch(bundleFor('pr-ext3'));
     await waitFor(() => expect(result.current.syncing).toBe(false));
+  });
+
+  it('polls a local task PR on the live five-second cadence', async () => {
+    vi.useFakeTimers();
+    const bundle = bundleFor('pr-local');
+    bundle.pr.origin = 'task';
+    bundle.pr.status = 'local-drafted';
+    const getLocalPrBundle = vi.fn().mockResolvedValue(bundle);
+    (globalThis as { bridge?: unknown }).bridge = { getLocalPrBundle };
+
+    renderHook(() => usePR('pr-local'));
+    await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+    const before = getLocalPrBundle.mock.calls.length;
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+
+    expect(getLocalPrBundle.mock.calls.length).toBeGreaterThan(before);
   });
 });

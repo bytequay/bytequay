@@ -708,19 +708,22 @@ public class StageServiceImpl
                     null));
         }
 
-        if (e.eventType() == StageEventType.PULL_REQUEST_CREATED) {
+        if (e.eventType() == StageEventType.PULL_REQUEST_PROGRESS
+                || e.eventType() == StageEventType.PULL_REQUEST_CREATED) {
+            boolean progress = e.eventType() == StageEventType.PULL_REQUEST_PROGRESS;
+            PullRequestCreatedData pullRequest = PullRequestCreatedData.fromPayload(e.payloadJson(), mapper);
             return Optional.of(new BrainFeedRow(
                     e.id().toString(),
                     null,
-                    "PUSHED_PR_CREATED",
+                    progress ? "PULL_REQUEST_PROGRESS" : "PUSHED_PR_CREATED",
                     e.stageId().toString(),
                     stageType == null ? null : stageType.name(),
                     e.eventAt().toString(),
-                    "Pull request created",
+                    pullRequestMilestoneLabel(pullRequest, progress),
                     null,
                     List.of(),
                     List.of(),
-                    PullRequestCreatedData.fromPayload(e.payloadJson(), mapper)));
+                    pullRequest));
         }
 
         String type = switch (e.eventType()) {
@@ -757,6 +760,18 @@ public class StageServiceImpl
                 List.of(),
                 List.of(),
                 null));
+    }
+
+    private static String pullRequestMilestoneLabel(PullRequestCreatedData data, boolean progress)
+    {
+        if (data == null) {
+            return progress ? "Pull request preparation" : "Pull request created";
+        }
+        return switch (data.phase()) {
+            case "starting" -> "Starting pull request";
+            case "creating-draft" -> "Creating draft";
+            default -> "Pull request created";
+        };
     }
 
     /** Human-readable line for a finished panel, read from the CLOSED event's
@@ -1056,6 +1071,7 @@ public class StageServiceImpl
     private static final Set<StageEventType> SCRUBBER_MAJOR = EnumSet.of(
             StageEventType.OPENED,
             StageEventType.CLOSED,
+            StageEventType.PULL_REQUEST_PROGRESS,
             StageEventType.PULL_REQUEST_CREATED,
             StageEventType.BUDGET_EXHAUSTED,
             StageEventType.NOTIFY_FIRED);

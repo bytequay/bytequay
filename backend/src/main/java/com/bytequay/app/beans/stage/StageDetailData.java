@@ -115,7 +115,8 @@ public record StageDetailData(
      * iteration_marker} uses {@code iterationNumber}/{@code text} (the loop
      * trigger); {@code permission} (a still-pending prompt) uses {@code
      * toolLabel} (tool name) + {@code text} (summary) + {@code callId} (to
-     * answer it). {@code pull_request_created} carries {@code pullRequest}.
+     * answer it). {@code pull_request_progress}/{@code pull_request_created}
+     * carry {@code pullRequest}.
      * All rows carry {@code ts} for ordering.
      */
     public record ConversationRow(
@@ -142,7 +143,8 @@ public record StageDetailData(
             List<String> images,
             /** Runtime-managed skills active for this user turn. */
             List<String> managedSkills,
-            /** The remote PR payload for a {@code pull_request_created} row. */
+            /** The PR milestone payload for a {@code pull_request_progress}
+             *  or {@code pull_request_created} row. */
             PullRequestCreatedData pullRequest) {}
 
     /**

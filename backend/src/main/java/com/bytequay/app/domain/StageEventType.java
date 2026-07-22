@@ -15,7 +15,7 @@ package com.bytequay.app.domain;
 
 /**
  * The event kinds recorded in {@code task_stage_event} for measurement and
- * audit. Lifecycle events, notifications, and remote pull-request creation
+ * audit. Lifecycle events, notifications, and pull-request milestones
  * are written by their respective services; the remaining values provide
  * stable vocabulary for other stage transitions.
  */
@@ -33,6 +33,12 @@ public enum StageEventType
     OPERATION_FAILED,
     BUDGET_EXHAUSTED,
     BUDGET_EXHAUSTED_DECISION,
+
+    /** The Development agent began one of the two durable PR-preparation
+     *  phases ({@code starting} or {@code creating-draft}). The ordinary git,
+     *  template, and diff tool calls remain in the Development transcript;
+     *  this compact milestone is also projected into Brain and the PR timeline. */
+    PULL_REQUEST_PROGRESS,
 
     /** A task's local branch was published as a new remote pull request.
      *  Payload carries the branch flow, GitHub URL, and local diff totals so

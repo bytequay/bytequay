@@ -168,20 +168,48 @@ class TestPublishToolHandlers
     }
 
     @Test
-    void shipTaskNormalisesBlankPrTitleAndBodyToNull()
+    void shipTaskRejectsBlankPrTitleAndBody()
     {
         Task task = taskAt("task-ship-blank", TaskStatus.RUNNING);
         when(taskStore.findTaskById("task-ship-blank")).thenReturn(Optional.of(task));
 
-        handlers.shipTask(
+        ToolOutcome outcome = handlers.shipTask(
                 new PublishToolHandlers.ShipTaskArgs(null, null, "   ", ""),
                 new ToolCall("thread-ship-blank", null, AgentRole.TASK, "task-ship-blank", null));
+
+        ToolOutcome.Completed completed = (ToolOutcome.Completed) outcome;
+        assertThat(completed.text()).contains("prepare the PR draft").contains("record_pr_description");
+        verify(parkedProposals, never()).park(any(), any());
+    }
+
+    @Test
+    void shipTaskAllowsBlankDraftFieldsWhenTheRemotePrAlreadyExists()
+    {
+        Task task = taskAt("task-ship-existing", TaskStatus.IN_REVIEW).withPrNumber(145);
+        when(taskStore.findTaskById("task-ship-existing")).thenReturn(Optional.of(task));
+
+        handlers.shipTask(
+                new PublishToolHandlers.ShipTaskArgs(null, null, null, null),
+                new ToolCall("thread-ship-existing", null, AgentRole.TASK, "task-ship-existing", null));
 
         ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);
         verify(parkedProposals).park(eq(task), captor.capture());
         ParkedProposal.ShipTask parked = (ParkedProposal.ShipTask) captor.getValue();
         assertThat(parked.prTitle()).isNull();
         assertThat(parked.prBody()).isNull();
+    }
+
+    @Test
+    void shipTaskAllowsBlankDraftFieldsForAWorkItemLinkedToAnExistingPr()
+    {
+        Task task = taskAt("task-ship-linked", TaskStatus.IN_REVIEW).withLinkedPrNumber(145);
+        when(taskStore.findTaskById("task-ship-linked")).thenReturn(Optional.of(task));
+
+        handlers.shipTask(
+                new PublishToolHandlers.ShipTaskArgs(null, null, null, null),
+                new ToolCall("thread-ship-linked", null, AgentRole.TASK, "task-ship-linked", null));
+
+        verify(parkedProposals).park(eq(task), any(ParkedProposal.ShipTask.class));
     }
 
     @Test

@@ -19,6 +19,10 @@ import { makeIdCache } from '../threads/brain/idCache';
  *  enough for a single-user desktop app. Manual refresh (the sync chip, or
  *  right after a mutation) always probes immediately regardless of this. */
 const POLL_MS = 60000;
+/** Local task PRs change while the Development agent is preparing them; use
+ * the same live cadence as the stage/Brain views so progress milestones do
+ * not sit unseen for up to a minute. Remote PRs keep the cheaper cadence. */
+const LOCAL_PR_POLL_MS = 5000;
 
 /** Last-known bundle per PR id — stale-while-revalidate, same pattern as
  *  every other id-keyed hook in this app (see idCache). */
@@ -46,6 +50,7 @@ export function usePR(prId: string | null): UsePRState {
     () => (prId === null ? null : cache.get(prId) ?? undefined),
   );
   const [syncing, setSyncing] = useState(false);
+  const pollMs = bundle?.pr.status.startsWith('local-') ? LOCAL_PR_POLL_MS : POLL_MS;
 
   const shownIdRef = useRef(prId);
   if (shownIdRef.current !== prId) {
@@ -73,9 +78,9 @@ export function usePR(prId: string | null): UsePRState {
       return;
     }
     fetchOnce();
-    const id = window.setInterval(fetchOnce, POLL_MS);
+    const id = window.setInterval(fetchOnce, pollMs);
     return () => window.clearInterval(id);
-  }, [fetchOnce, prId]);
+  }, [fetchOnce, pollMs, prId]);
 
   return { bundle, refresh: fetchOnce, syncing };
 }

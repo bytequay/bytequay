@@ -56,6 +56,8 @@ class PRServiceImpl
      *  written only when a check lands in one of these. */
     private static final Set<String> TERMINAL_CHECK_STATUSES =
             Set.of(PRCheck.STATUS_PASSED, PRCheck.STATUS_FAILED, PRCheck.STATUS_NEUTRAL);
+    private static final Set<String> PR_PROGRESS_PHASES =
+            Set.of(PRTimelineEntry.PHASE_STARTING, PRTimelineEntry.PHASE_CREATING_DRAFT);
 
     private final PRStore store;
     private final DevReportService devReports;
@@ -485,6 +487,47 @@ class PRServiceImpl
     }
 
     @Override
+    @Transactional
+    public void recordProgress(String prId, String phase)
+    {
+        PR pr = require(prId);
+        if (!PR_PROGRESS_PHASES.contains(phase)) {
+            throw new IllegalArgumentException("phase must be starting or creating-draft");
+        }
+        boolean exists = store.timelineFor(prId).stream()
+                .filter(event -> PRTimelineEntry.TYPE_PULL_REQUEST_PROGRESS.equals(event.eventType()))
+                .anyMatch(event -> progressPhase(event).map(phase::equals).orElse(false));
+        if (exists) {
+            return;
+        }
+
+        Instant when = now();
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("phase", phase);
+        data.put("branch", pr.branchName());
+        data.put("baseBranch", pr.baseBranch());
+        appendEvent(prId, PRTimelineEntry.TYPE_PULL_REQUEST_PROGRESS, PRTimelineEntry.ACTOR_AGENT,
+                /* localOnly */ true, when,
+                payload("phase", phase, "branch", pr.branchName(), "baseBranch", pr.baseBranch()));
+        if (pr.taskId() != null) {
+            stageStore.findStageByType(pr.taskId(), StageType.DEVELOPMENT_STAGE)
+                    .ifPresent(stage -> stageStore.recordEvent(
+                            stage.id(), pr.taskId(), StageEventType.PULL_REQUEST_PROGRESS, data));
+        }
+        notifyUpdated(prId);
+    }
+
+    private Optional<String> progressPhase(PRTimelineEntry event)
+    {
+        try {
+            return Optional.ofNullable(mapper.readTree(event.payloadJson()).path("phase").asText(null));
+        }
+        catch (JsonProcessingException | RuntimeException e) {
+            return Optional.empty();
+        }
+    }
+
+    @Override
     public PR updateBranches(String prId, String branchName, String baseBranch)
     {
         PR pr = require(prId);
@@ -700,6 +743,7 @@ class PRServiceImpl
         int additions = commits.stream().mapToInt(PRCommit::additions).sum();
         int deletions = commits.stream().mapToInt(PRCommit::deletions).sum();
         String payload = payload(
+                "phase", PRTimelineEntry.PHASE_CREATED,
                 "branch", pr.branchName(),
                 "baseBranch", pr.baseBranch(),
                 "number", remotePrNumber,
@@ -723,6 +767,7 @@ class PRServiceImpl
                 .ifPresent(stage -> stageStore.recordEvent(
                         stage.id(), pr.taskId(), StageEventType.PULL_REQUEST_CREATED,
                         Map.of(
+                                "phase", PRTimelineEntry.PHASE_CREATED,
                                 "branch", pr.branchName(),
                                 "baseBranch", pr.baseBranch(),
                                 "number", remotePrNumber,

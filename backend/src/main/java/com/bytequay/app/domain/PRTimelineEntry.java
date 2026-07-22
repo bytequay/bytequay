@@ -20,7 +20,7 @@ import java.time.Instant;
  * {@code eventType} wire values match the TypeScript union: {@code commit},
  * {@code ci}, {@code amend}, {@code branch}, {@code status}, {@code review},
  *  {@code comment}, {@code follow-up}, {@code plan-finalized}, {@code
- *  pull-request-created}. {@code
+ *  pull-request-progress}, {@code pull-request-created}. {@code
  * localOnly} events render with a lock marker and are stripped on push —
  * {@code strippedOnPushAt} is stamped (never migrated to GitHub). {@code
  * payloadJson} is the event-specific payload as raw JSON text, or null.
@@ -51,9 +51,16 @@ public record PRTimelineEntry(
      *  approved PlanStage's id in the payload so the timeline row can link
      *  back to it (see {@code PRService#recordPlanApproved}). */
     public static final String TYPE_PLAN_FINALIZED = "plan-finalized";
+    /** One durable local PR-preparation milestone. The payload's phase is
+     *  either {@link #PHASE_STARTING} or {@link #PHASE_CREATING_DRAFT}. */
+    public static final String TYPE_PULL_REQUEST_PROGRESS = "pull-request-progress";
     /** The task's local branch was published as its first remote pull request.
      *  Payload carries the branch flow, GitHub URL, and local diff totals. */
     public static final String TYPE_PULL_REQUEST_CREATED = "pull-request-created";
+
+    public static final String PHASE_STARTING = "starting";
+    public static final String PHASE_CREATING_DRAFT = "creating-draft";
+    public static final String PHASE_CREATED = "created";
 
     public static final String ACTOR_AGENT = "claude-code";
     public static final String ACTOR_USER = "you";

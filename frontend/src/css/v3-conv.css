@@ -158,6 +158,13 @@
   background: var(--green);
   color: #fff;
 }
+.shell .pr-created-event--progress {
+  border-color: var(--blue-border);
+  background: var(--blue-soft);
+}
+.shell .pr-created-event--progress .pr-created-event__icon {
+  background: var(--blue);
+}
 .shell .pr-created-event__body {
   display: flex;
   flex: 1 1 auto;

@@ -697,7 +697,12 @@ class TestMcpPublishGate
                   "method": "tools/call",
                   "params": {
                     "name": "ship_task",
-                    "arguments": { "next_title": %s, "base_mode": %s }
+                    "arguments": {
+                      "next_title": %s,
+                      "base_mode": %s,
+                      "pr_title": "Ship the finished task",
+                      "pr_body": "Describe the completed change."
+                    }
                   }
                 }
                 """.formatted(mapper.writeValueAsString(nextTitle), mapper.writeValueAsString(baseMode));

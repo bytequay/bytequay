@@ -197,6 +197,34 @@ describe('PRTimeline plan-finalized rendering', () => {
 });
 
 describe('PRTimeline composition', () => {
+  it('retains pull request preparation milestones beside the GitHub activity feed', () => {
+    render(<PRTimeline
+      pr={pr({ remotePrNumber: 145, repo: 'acme/widget' })}
+      comments={[]}
+      events={[
+        {
+          id: 'pr-start', localPrId: 'pr1', eventType: 'pull-request-progress', actor: 'claude-code',
+          isLocalOnly: true, strippedOnPushAt: Date.parse('2026-06-20T10:02:00Z'),
+          createdAt: Date.parse('2026-06-20T10:00:00Z'),
+          payload: { phase: 'starting', branch: 'feature/timeline', baseBranch: 'main' },
+        },
+        {
+          id: 'pr-draft', localPrId: 'pr1', eventType: 'pull-request-progress', actor: 'claude-code',
+          isLocalOnly: true, strippedOnPushAt: Date.parse('2026-06-20T10:02:00Z'),
+          createdAt: Date.parse('2026-06-20T10:01:00Z'),
+          payload: { phase: 'creating-draft', branch: 'feature/timeline', baseBranch: 'main' },
+        },
+      ]}
+      activity={[]}
+      reviewThreads={[]}
+      threadActions={noopThreadActions}
+    />);
+
+    expect(screen.getByText('Starting pull request')).toBeTruthy();
+    expect(screen.getByText('Creating draft')).toBeTruthy();
+    expect(screen.getAllByText('feature/timeline')).toHaveLength(2);
+  });
+
   it('retains the remote pull request creation milestone beside the GitHub activity feed', () => {
     render(<PRTimeline
       pr={pr({ remotePrNumber: 145, repo: 'acme/widget' })}

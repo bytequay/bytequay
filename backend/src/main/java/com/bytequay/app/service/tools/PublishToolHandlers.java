@@ -868,9 +868,10 @@ public class PublishToolHandlers
                     + "the user reviews the diff + PR state, then on Approve the server "
                     + "runs the full ship-and-continue flow (push, open or update PR, "
                     + "mark the task COMPLETED, cut the next task). Use when the unit of "
-                    + "work is genuinely done and ready for human sign-off. You SHOULD "
-                    + "pass a clear pr_title and a pr_body (markdown) summarizing the "
-                    + "change so the draft PR opens with a useful description.",
+                    + "work is genuinely done and ready for human sign-off. When this opens "
+                    + "the task's first PR, you MUST pass the final pr_title and complete pr_body "
+                    + "previously recorded with record_pr_description. Existing remote PRs do "
+                    + "not need those fields for another branch push.",
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
@@ -898,9 +899,16 @@ public class PublishToolHandlers
                     + "an empty branch. Commit ALL of your work first: stage every change and "
                     + "commit with a clear message describing it, then call ship_task again.");
         }
-        DiffBundle bundle = collectDiffBundle(worktree, task);
         String prTitle = nullToEmpty(args.prTitle()).trim();
         String prBody = nullToEmpty(args.prBody());
+        boolean opensFirstPr = task.prNumber() == null && task.linkedPrNumber() == null;
+        if (opensFirstPr && (prTitle.isEmpty() || prBody.isBlank())) {
+            return ToolOutcome.Completed.ok(
+                    "Not shipped — prepare the PR draft first. Inspect the complete branch and "
+                    + "repository template, call record_pr_description, then call ship_task again "
+                    + "with the same non-blank pr_title and pr_body.");
+        }
+        DiffBundle bundle = collectDiffBundle(worktree, task);
         return park(task, new ParkedProposal.ShipTask(
                         call.threadId(),
                         task.id(),

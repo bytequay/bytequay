@@ -28,8 +28,25 @@ For every implementation:
 - Never add AI or bot attribution to a commit. Do not add `Co-Authored-By` or
   similar trailers for Claude, Codex, or any other assistant.
 
-Keep the local PR artifact current:
+During initial Development, when the PR-recording tools are available, keep the
+local PR artifact current:
 
+- Before finalizing the PR, call `record_pr_progress` with `phase: starting`.
+  Inspect `git status --short`, the complete base-to-head commit history, and
+  the current change scope. Commit any remaining coherent changes, then re-read
+  the clean status and final committed base-to-head diff so the description
+  summarizes the whole branch rather than the last tool call.
+- Find and read the repository pull-request template from GitHub's standard
+  locations, checking both letter cases: `.github/PULL_REQUEST_TEMPLATE.md`,
+  `.github/pull_request_template.md`, `.github/PULL_REQUEST_TEMPLATE/**`,
+  `.github/pull_request_template/**`, and the root or `docs/` equivalents.
+  If one exists, preserve its headings,
+  checklists, and structure, fill its sections, and add no new sections. If
+  none exists, keep the body proportional: a small change gets one clear line;
+  only a substantial change warrants a short summary paragraph.
+- Call `record_pr_progress` with `phase: creating-draft`, then call
+  `record_pr_description` with the finished title and body. Pass those exact
+  same values to `ship_task`.
 - `record_pr_description` records the PR title and body.
 - `record_pr_check` records each local validation result.
 - `record_pr_comment` and `resolve_pr_comment` manage local review notes.

@@ -24,6 +24,7 @@ import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.tools.PRRecordToolHandlers.RecordPrCheckArgs;
 import com.bytequay.app.service.tools.PRRecordToolHandlers.RecordPrDescriptionArgs;
+import com.bytequay.app.service.tools.PRRecordToolHandlers.RecordPrProgressArgs;
 import com.bytequay.app.service.tools.PRRecordToolHandlers.ResolvePrCommentArgs;
 import org.junit.jupiter.api.Test;
 
@@ -83,7 +84,30 @@ class TestPRRecordToolHandlers
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
         verify(prService).createForTask("task1", "feature/x", "main", "T", "");
+        verify(prService).recordProgress("pr1", "creating-draft");
         verify(prService).updateDetails("pr1", "Better title", "does the thing");
+    }
+
+    @Test
+    void recordProgressMaterialisesThePrThenWritesTheRequestedPhase()
+    {
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(prService.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(pr());
+
+        ToolOutcome outcome = handlers.recordPrProgress(new RecordPrProgressArgs("starting"), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
+        verify(prService).recordProgress("pr1", "starting");
+    }
+
+    @Test
+    void recordProgressRejectsAnUnknownPhaseBeforeMaterialisingThePr()
+    {
+        ToolOutcome outcome = handlers.recordPrProgress(new RecordPrProgressArgs("pushing"), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
+        verify(prService, never()).createForTask(any(), any(), any(), any(), any());
+        verify(prService, never()).recordProgress(any(), any());
     }
 
     @Test

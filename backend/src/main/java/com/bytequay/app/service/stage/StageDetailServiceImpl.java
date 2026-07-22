@@ -682,16 +682,32 @@ public class StageDetailServiceImpl
                     TimeWindow.forIteration(it).start().toString(), null, List.of(), List.of(), null));
         }
         for (StageEvent event : events) {
-            if (event.eventType() != StageEventType.PULL_REQUEST_CREATED) {
+            boolean progress = event.eventType() == StageEventType.PULL_REQUEST_PROGRESS;
+            if (!progress && event.eventType() != StageEventType.PULL_REQUEST_CREATED) {
                 continue;
             }
+            PullRequestCreatedData pullRequest = PullRequestCreatedData.fromPayload(event.payloadJson(), mapper);
             rows.add(new ConversationRow(
-                    event.id().toString(), null, "pull_request_created", "Pull request created",
+                    event.id().toString(), null,
+                    progress ? "pull_request_progress" : "pull_request_created",
+                    pullRequestMilestoneLabel(pullRequest, progress),
                     null, null, null, null, null, null, null, event.eventAt().toString(), null,
-                    List.of(), List.of(), PullRequestCreatedData.fromPayload(event.payloadJson(), mapper)));
+                    List.of(), List.of(), pullRequest));
         }
         rows.sort(Comparator.comparing(ConversationRow::ts));
         return rows;
+    }
+
+    private static String pullRequestMilestoneLabel(PullRequestCreatedData data, boolean progress)
+    {
+        if (data == null) {
+            return progress ? "Pull request preparation" : "Pull request created";
+        }
+        return switch (data.phase()) {
+            case "starting" -> "Starting pull request";
+            case "creating-draft" -> "Creating draft";
+            default -> "Pull request created";
+        };
     }
 
     /** Heuristic for how a summary landed (M3.5's three paths). */

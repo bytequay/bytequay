@@ -18,11 +18,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * The remote pull request created from a task's local development work. This
- * is projected from the {@code PULL_REQUEST_CREATED} stage-event payload into
- * both the Development transcript and the task brain feed.
+ * One pull-request preparation/publication milestone from a task's local
+ * development work. It is projected from {@code PULL_REQUEST_PROGRESS} and
+ * {@code PULL_REQUEST_CREATED} stage events into both the Development
+ * transcript and the task brain feed.
  */
 public record PullRequestCreatedData(
+        String phase,
         String branch,
         String baseBranch,
         int number,
@@ -43,6 +45,7 @@ public record PullRequestCreatedData(
         try {
             JsonNode node = mapper.readTree(payloadJson);
             return new PullRequestCreatedData(
+                    phase(node),
                     text(node, "branch"),
                     text(node, "baseBranch"),
                     node.path("number").asInt(0),
@@ -53,6 +56,12 @@ public record PullRequestCreatedData(
         catch (JsonProcessingException e) {
             return null;
         }
+    }
+
+    private static String phase(JsonNode node)
+    {
+        String phase = text(node, "phase");
+        return phase == null ? "created" : phase;
     }
 
     private static String text(JsonNode node, String field)

@@ -213,11 +213,30 @@ class TestStageDetailService
                 .filter(row -> row.kind().equals("pull_request_created"))
                 .findFirst().orElseThrow();
         assertThat(created.pullRequest()).isNotNull();
+        assertThat(created.pullRequest().phase()).isEqualTo("created");
         assertThat(created.pullRequest().branch()).isEqualTo("feature/timeline");
         assertThat(created.pullRequest().baseBranch()).isEqualTo("main");
         assertThat(created.pullRequest().number()).isEqualTo(145);
         assertThat(created.pullRequest().additions()).isEqualTo(12);
         assertThat(created.pullRequest().deletions()).isEqualTo(3);
+    }
+
+    @Test
+    void developmentConversationProjectsPullRequestPreparation()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        stageStore.recordEvent(stage.id(), taskId, StageEventType.PULL_REQUEST_PROGRESS, Map.of(
+                "phase", "starting", "branch", "feature/timeline", "baseBranch", "main"));
+
+        StageDetailData.ConversationRow progress = detailService.getDetail(stage.id()).conversation().stream()
+                .filter(row -> row.kind().equals("pull_request_progress"))
+                .findFirst().orElseThrow();
+
+        assertThat(progress.text()).isEqualTo("Starting pull request");
+        assertThat(progress.pullRequest().phase()).isEqualTo("starting");
+        assertThat(progress.pullRequest().branch()).isEqualTo("feature/timeline");
     }
 
     @Test

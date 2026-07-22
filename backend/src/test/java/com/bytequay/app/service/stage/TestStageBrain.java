@@ -140,11 +140,30 @@ class TestStageBrain
 
         assertThat(created.stageId()).isEqualTo(development.id().toString());
         assertThat(created.pullRequest()).isNotNull();
+        assertThat(created.pullRequest().phase()).isEqualTo("created");
         assertThat(created.pullRequest().branch()).isEqualTo("feature/timeline");
         assertThat(created.pullRequest().baseBranch()).isEqualTo("main");
         assertThat(created.pullRequest().number()).isEqualTo(145);
         assertThat(created.pullRequest().additions()).isEqualTo(12);
         assertThat(created.pullRequest().deletions()).isEqualTo(3);
+    }
+
+    @Test
+    void brainFeedProjectsPullRequestPreparationFromDevelopment()
+    {
+        String taskId = seedTask();
+        StageInstance development = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        stageStore.recordEvent(development.id(), taskId, StageEventType.PULL_REQUEST_PROGRESS, Map.of(
+                "phase", "creating-draft", "branch", "feature/timeline", "baseBranch", "main"));
+
+        BrainFeedRow progress = stageService.getBrain(taskId).brainFeed().stream()
+                .filter(row -> row.type().equals("PULL_REQUEST_PROGRESS"))
+                .findFirst().orElseThrow();
+
+        assertThat(progress.body()).isEqualTo("Creating draft");
+        assertThat(progress.pullRequest().phase()).isEqualTo("creating-draft");
+        assertThat(progress.pullRequest().branch()).isEqualTo("feature/timeline");
+        assertThat(progress.pullRequest().baseBranch()).isEqualTo("main");
     }
 
     @Test

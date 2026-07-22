@@ -54,6 +54,7 @@ function isBrainReviewFinished(event: LocalPRTimelineEvent): boolean {
 function isImportantLocalEvent(event: LocalPRTimelineEvent): boolean {
   const reviewActivity = str(event.payload, 'reviewEvent');
   return event.eventType === 'plan-finalized'
+    || event.eventType === 'pull-request-progress'
     || event.eventType === 'pull-request-created'
     || (event.eventType === 'review'
       && (reviewActivity === 'started' || reviewActivity === 'finished' || reviewActivity === 'addressing-started')

@@ -95,11 +95,11 @@ export function BrainFeed({
         const collapsed = foldable && !expanded.has(stage.id);
         let autonomous = 0;
         const rounds = seg.rounds.map(r => {
-          const pullRequestCreated = hasPullRequestCreated(r);
-          const tag = r.userTurn === null && !pullRequestCreated ? `R${(autonomous += 1)}` : undefined;
-          // When a closed stage is folded, retain durable PR publication
-          // milestones alongside the user's interventions.
-          if (collapsed && r.userTurn === null && !pullRequestCreated) return null;
+          const pullRequestMilestone = hasPullRequestMilestone(r);
+          const tag = r.userTurn === null && !pullRequestMilestone ? `R${(autonomous += 1)}` : undefined;
+          // When a closed stage is folded, retain durable PR preparation and
+          // publication milestones alongside the user's interventions.
+          if (collapsed && r.userTurn === null && !pullRequestMilestone) return null;
           return (
             <RoundView
               key={r.id}
@@ -150,7 +150,8 @@ function RoundView({ round, tag, full, collapsedStage, segmentStageType, threadI
   const headline = headlineOf(round);
   const qna = isQnA(round);
   const ciFailure = headline !== null && isRemoteCiFailure(headline);
-  const pullRequestCreated = headline?.type === 'PUSHED_PR_CREATED' ? headline : null;
+  const pullRequestMilestone = headline?.type === 'PULL_REQUEST_PROGRESS'
+    || headline?.type === 'PUSHED_PR_CREATED' ? headline : null;
   return (
     <Round tag={tag}>
       {round.userTurn !== null && (
@@ -165,10 +166,10 @@ function RoundView({ round, tag, full, collapsedStage, segmentStageType, threadI
           clampAt={96}
         />
       )}
-      {pullRequestCreated !== null && (
+      {pullRequestMilestone !== null && (
         <PullRequestCreatedEvent
-          pullRequest={pullRequestCreated.pullRequest}
-          timestamp={<EventTimestamp iso={pullRequestCreated.ts} />}
+          pullRequest={pullRequestMilestone.pullRequest}
+          timestamp={<EventTimestamp iso={pullRequestMilestone.ts} />}
         />
       )}
       {/* A folded closed stage keeps the user's intervention and the final
@@ -179,7 +180,7 @@ function RoundView({ round, tag, full, collapsedStage, segmentStageType, threadI
       {!collapsedStage && qna && headline !== null && (
         <Headline body={headline.body} reply />
       )}
-      {!collapsedStage && !qna && pullRequestCreated === null && (
+      {!collapsedStage && !qna && pullRequestMilestone === null && (
         <>
           {foldedWork.length > 0 && (
             <WorkFold
@@ -217,8 +218,8 @@ function RoundView({ round, tag, full, collapsedStage, segmentStageType, threadI
   );
 }
 
-function hasPullRequestCreated(round: BrainRound): boolean {
-  return round.rows.some(row => row.type === 'PUSHED_PR_CREATED');
+function hasPullRequestMilestone(round: BrainRound): boolean {
+  return round.rows.some(row => row.type === 'PULL_REQUEST_PROGRESS' || row.type === 'PUSHED_PR_CREATED');
 }
 
 function isRemoteCiFailure(row: BrainFeedRow): boolean {

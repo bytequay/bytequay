@@ -15,9 +15,8 @@ import type { ReactNode } from 'react';
 import type { PullRequestCreatedData } from '../../types/brainView';
 import { PullRequestIcon } from '../TaskBrainDesignIcons';
 
-/** GitHub-style milestone shared by Development, the task Brain, and the PR
- * timeline. The payload can be absent on older events, which still render as
- * a clear creation notice. */
+/** GitHub-style PR milestone shared by Development, Brain, and the PR timeline.
+ * Older payloads have no phase and therefore render as the created milestone. */
 export function PullRequestCreatedEvent({
   pullRequest, timestamp, timeline = false,
 }: {
@@ -28,18 +27,23 @@ export function PullRequestCreatedEvent({
 }) {
   const branch = pullRequest?.branch?.trim() || 'branch';
   const baseBranch = pullRequest?.baseBranch?.trim() || 'base branch';
+  const phase = pullRequest?.phase ?? 'created';
+  const progress = phase === 'starting' || phase === 'creating-draft';
+  const label = phase === 'starting'
+    ? 'Starting pull request'
+    : phase === 'creating-draft' ? 'Creating draft' : 'Pull request created';
   const number = pullRequest?.number;
   const additions = pullRequest?.additions ?? 0;
   const deletions = pullRequest?.deletions ?? 0;
 
   return (
-    <div className={`pr-created-event${timeline ? ' pr-created-event--timeline' : ''}`}>
+    <div className={`pr-created-event${progress ? ' pr-created-event--progress' : ''}${timeline ? ' pr-created-event--timeline' : ''}`}>
       <span className="pr-created-event__icon" aria-hidden>
         <PullRequestIcon size={16} strokeWidth={2.1} />
       </span>
       <div className="pr-created-event__body">
         <div className="pr-created-event__title">
-          <strong>Pull request created</strong>
+          <strong>{label}</strong>
           {typeof number === 'number' && number > 0 && <span className="pr-created-event__number">#{number}</span>}
         </div>
         <div className="pr-created-event__flow">

@@ -93,6 +93,27 @@ describe('BrainFeed', () => {
     expect(screen.queryByText('R1')).toBeNull();
   });
 
+  it('keeps pull request preparation visible in a folded Development stage', () => {
+    const creatingDraft: BrainFeedRow = {
+      ...row('pr-draft', 'PULL_REQUEST_PROGRESS'),
+      stageId: 'dev',
+      pullRequest: {
+        phase: 'creating-draft', branch: 'feature/timeline', baseBranch: 'main',
+      },
+    };
+    render(<BrainFeed feed={[
+      { ...row('o', 'STAGE_OPENED'), stageId: 'dev' },
+      creatingDraft,
+      { ...row('later', 'ITERATION_SUMMARY', 'later agent work'), stageId: 'dev' },
+      { ...row('c', 'STAGE_CLOSED'), stageId: 'dev' },
+    ]} stages={[DEV]} density="focused" />);
+
+    expect(screen.getByText('Creating draft')).toBeTruthy();
+    expect(screen.getByText('feature/timeline')).toBeTruthy();
+    expect(screen.queryByText('later agent work')).toBeNull();
+    expect(screen.queryByText('R1')).toBeNull();
+  });
+
   it('keeps completed-stage summaries visible in the locked focused feed', () => {
     const { container } = render(
       <BrainFeed feed={FEED} stages={[DEV]} density="focused" foldClosedStages={false} />,

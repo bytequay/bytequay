@@ -68,7 +68,7 @@ describe('TrunkRoute', () => {
     // workspace-level overview replaces the old Activity pane.
     expect(container.querySelector('.trunk-page-v2__branch-row--cut')).toBeTruthy();
     expect(screen.getAllByText('Add meter').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('WORKSPACE')).toBeTruthy();
+    expect(screen.getByText('OPEN PRS')).toBeTruthy();
   });
 
   it('renders task cuts as milestone nodes carrying the task card', async () => {

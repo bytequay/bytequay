@@ -99,7 +99,7 @@ function stageKindLabel(kind: StageKind): string {
  * tab (CI-fix stage only) shows the live check run.
  */
 export function StageDetailRoute({
-  threadId, taskId, stageId, onOpenStage, onOpenRun,
+  threadId, taskId, stageId, onOpenStage, onOpenRun, onOpenTask,
   onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, onToggleCollapse, onOpenBrain,
   trunkLabel, workspaceName, workspaceRepository,
   onNavigateGlobal, onSwitchWorkspace,
@@ -112,6 +112,8 @@ export function StageDetailRoute({
   onOpenStage?: (stageId: string) => void;
   /** Navigate to a live run's own log from the stage feed's run/round episodes. */
   onOpenRun?: (runId: string) => void;
+  /** Navigate to a sibling task under the same trunk from the sidebar list. */
+  onOpenTask?: (taskId: string) => void;
   /** Open the task's owning trunk from the plain trunk row and breadcrumb. */
   onBack?: () => void;
   onHistoryBack?: () => void;
@@ -332,6 +334,14 @@ export function StageDetailRoute({
       .finally(() => setBusy(false));
   }, [stageId, refresh]);
 
+  // Interrupt the running turn — stops the agent doing more and stops it
+  // waiting for further steering. Shared by the working-row Stop and the
+  // composer's Stop button.
+  const stopAgent = useCallback(() => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.interruptTask(threadId).then(refresh).catch(() => { /* poll reconciles */ });
+  }, [threadId, refresh]);
+
   // Live stream of the agent working this stage: its text appears
   // token-by-token (and a non-delta event refreshes the canonical
   // transcript, which clears the live buffer). This is what makes the stage
@@ -396,11 +406,20 @@ export function StageDetailRoute({
   const currentLiveActivity = [...liveActivities].reverse().find(item => !item.done);
   const workingSince = currentLiveActivity?.startedAt
     ?? epochOrNull((lastTool ?? data?.conversation.at(-1))?.ts);
-  const workingLabel = currentLiveActivity !== undefined
-    ? `${currentLiveActivity.label}${currentLiveActivity.detail === null ? '…' : `: ${currentLiveActivity.detail}`}`
-    : toolName === null
-    ? 'Agent is working…'
-    : toolArg !== null ? `Running ${toolName}: ${toolArg}` : `Running ${toolName}…`;
+  const liveVerb = currentLiveActivity?.label
+    ?? (toolName === null ? null : `Running ${toolName}`);
+  const liveArg = currentLiveActivity?.detail ?? toolArg;
+  // Read/Write args are file paths — split them off as a head-truncated tail
+  // so the filename survives the worktree prefix. Bash/MCP args are commands:
+  // leave them in the label so the head (the command itself) stays visible.
+  const isPathArg = liveArg !== null && (currentLiveActivity !== undefined
+    ? /read|writ|edit/i.test(currentLiveActivity.label)
+    : toolName === 'Read' || toolName === 'Write');
+  const workingTail = isPathArg ? liveArg : undefined;
+  const workingLabel = liveVerb === null ? 'Agent is working…'
+    : workingTail !== undefined ? `${liveVerb}:`
+    : liveArg !== null ? `${liveVerb}: ${liveArg}`
+    : `${liveVerb}…`;
   const workingDetail = currentLiveActivity?.detail ?? toolArg ?? undefined;
 
   // Answer a pending permission prompt that the agent raised on this stage
@@ -490,13 +509,11 @@ export function StageDetailRoute({
         {working && liveText.length === 0 && (
           <Working
             label={workingLabel}
+            tail={workingTail}
             detail={workingDetail}
             since={workingSince ?? undefined}
             activities={liveActivities}
-            onStop={() => {
-              const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-              void bridge?.interruptTask(threadId).then(refresh).catch(() => { /* poll reconciles */ });
-            }}
+            onStop={stopAgent}
           />
         )}
       </Spine>
@@ -646,6 +663,9 @@ export function StageDetailRoute({
         finished: taskCompleted || (data === null && brain.task.terminal),
       }}
       threadLabel={trunkLabel}
+      threadId={threadId}
+      currentTaskId={taskId}
+      onOpenTask={onOpenTask}
       nodes={livePlanNodes}
       onBack={onHistoryBack}
       onForward={onForward}
@@ -689,6 +709,7 @@ export function StageDetailRoute({
         onSubmit: submit,
         busy: working,
         queueWhenBusy: true,
+        onStop: stopAgent,
         placeholder: 'Steer this stage…',
         closedNote: state === 'CLOSED'
           ? 'This stage is closed — ask about what happened here…'

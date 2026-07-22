@@ -267,3 +267,6 @@
 }
 .shell .composer--workspace-v2 .send:hover { background: #000; }
 .shell .composer--workspace-v2 .send:disabled { background: #24292f; color: #fff; opacity: 1; cursor: default; }
+/* Stop/interrupt affordance: white square on the dark pill, red on hover. */
+.shell .composer .footer .send.send--stop:hover { background: #cf222e; }
+.shell .composer .send-stop-square { width: 9px; height: 9px; border-radius: 2px; background: currentColor; }

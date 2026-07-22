@@ -63,7 +63,8 @@ public class QuestionToolHandlers
 
     @AgentTool(
             name = "ask_user_question",
-            description = "Ask the user a clarifying question when a decision needs them. Renders as a card "
+            description = "Ask for any user decision or confirmation, including approval to cut or create "
+                    + "a task. Always use this instead of asking only in prose. Renders as a card "
                     + "with optional multiple-choice options plus a free-form reply. This does NOT block: "
                     + "record the question, then END YOUR TURN — the user's answer arrives as the next "
                     + "message. Use during exploration / planning whenever you'd otherwise guess.",

@@ -14,6 +14,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ClipboardEvent, KeyboardEvent, ReactNode } from 'react';
 import { CloseIcon, PlusIcon, SendUpIcon } from '../TaskBrainDesignIcons';
+import { Kbd } from '../primitives';
 import { useSlashCommands, type SlashCommand } from '../../useSlashCommands';
 import { OPEN_WORK_MODEL_EVENT } from '../../workspace/WorkModelPill';
 import { pasteClipboardImages } from './pasteClipboardImages';
@@ -34,11 +35,11 @@ export type ComposerUsage =
 export function Composer({
   value, onChange, onSubmit, placeholder, modePill, busy = false, disabled = false,
   queueWhenBusy = false, onAddContext, images = [], onImagesChange, closedNote,
-  variant = 'default', toolbar, meta, usage,
+  variant = 'default', toolbar, meta, usage, suggestedReply,
 }: {
   value: string;
   onChange: (next: string) => void;
-  onSubmit: () => void;
+  onSubmit: (override?: string) => void;
   placeholder?: string;
   /** The model-selector mode pill (the relocated WORK MODEL card). */
   modePill?: ReactNode;
@@ -66,10 +67,21 @@ export function Composer({
   meta?: ReactNode;
   /** Provider-reported token usage, or context-window usage when available. */
   usage?: ComposerUsage;
+  /** Ghost reply for a simple affirmative agent question. Tab inserts it;
+   *  Enter or the send button submits it without mutating the textarea. */
+  suggestedReply?: string;
 }) {
   const workspaceVariant = variant === 'workspace-v2';
   const [usageOpen, setUsageOpen] = useState(false);
-  const canSend = !disabled && (value.trim().length > 0 || images.length > 0) && (!busy || queueWhenBusy);
+  const showSuggestedReply = workspaceVariant
+    && suggestedReply !== undefined
+    && value.length === 0
+    && images.length === 0
+    && !busy
+    && !disabled;
+  const canSend = !disabled
+    && (value.trim().length > 0 || images.length > 0 || showSuggestedReply)
+    && (!busy || queueWhenBusy);
   // Spinner only when we're blocked (busy with nothing queueable); when a
   // message can be queued mid-run the button stays active.
   const spinning = busy && !canSend;
@@ -94,7 +106,7 @@ export function Composer({
   }, []);
 
   const submit = () => {
-    if (canSend) onSubmit();
+    if (canSend) onSubmit(showSuggestedReply ? suggestedReply : undefined);
   };
 
   // Slash commands. "/model" opens the work-model pill already rendered in
@@ -106,7 +118,14 @@ export function Composer({
   const slash = useSlashCommands({ value, onChange, commands, textareaRef: taRef });
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.nativeEvent.isComposing) return;
     if (slash.onKeyDown(e)) return;
+    if (showSuggestedReply && e.key === 'Tab'
+      && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      onChange(suggestedReply);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       submit();
@@ -159,12 +178,21 @@ export function Composer({
             ))}
           </div>
         )}
+        {showSuggestedReply && (
+          <span className="composer-suggested-reply" aria-hidden="true">
+            <span>{suggestedReply}</span>
+            <Kbd>Tab</Kbd>
+          </span>
+        )}
         <textarea
           ref={taRef}
           className="input"
           value={value}
           rows={1}
-          placeholder={closedNote ?? placeholder}
+          placeholder={showSuggestedReply ? undefined : closedNote ?? placeholder}
+          aria-label={showSuggestedReply
+            ? `Message. Suggested reply: ${suggestedReply}. Press Tab to insert or Enter to send.`
+            : 'Message'}
           disabled={disabled}
           onChange={slash.onChange}
           onKeyDown={onKeyDown}

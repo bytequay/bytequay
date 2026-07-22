@@ -20,7 +20,7 @@ import { useMessageQueue } from '../threads/useMessageQueue';
 import { useThreadStream } from '../threads/useThreadStream';
 import { ConvIndex } from '../threads/ConvIndex';
 import { TrunkFeed } from '../threads/TrunkFeed';
-import { buildTrunkTimeline, parseToolCall } from '../threads/trunkTimeline';
+import { buildTrunkTimeline, extractText, parseToolCall } from '../threads/trunkTimeline';
 import { TERMINAL_TASK_STATUSES, toTaskCard } from '../threads/taskCardData';
 import { proposalAction } from '../threads/usePendingShipProposal';
 import { TrunkPage } from './TrunkPage';
@@ -36,6 +36,25 @@ function epochOrNull(ts: string | undefined): number | null {
   }
   const ms = Date.parse(ts);
   return Number.isNaN(ms) ? null : ms;
+}
+
+const DIRECT_CONTINUATION = /^(?:(?:do you )?want (?:me|us) to|would you like (?:me|us) to|shall (?:i|we)|should (?:i|we)|may i|can (?:i|we)|ready for (?:me|us) to|is it (?:ok|okay) if (?:i|we)|(?:do you want|would you like|are you ready) to (?:continue|proceed|start))\b/i;
+const CUT_TASK_CONFIRMATION = /^cut\s+(?:this|that|it)\s+(?:as|into)\s+(?:(?:an?|the)\s+)?[^?]*\btask(?:s)?\b(?:\s+(?:now|next))?$/i;
+
+/** True only for a direct yes/no offer to continue. A generic trailing
+ *  question ("Which branch?") needs a real answer, not "go ahead". */
+function offersToContinue(text: string): boolean {
+  const normalized = text.replace(/[*_`~>]/g, '').replace(/\s+/g, ' ').trim();
+  if (!normalized.endsWith('?')) return false;
+  const beforeQuestion = normalized.slice(0, -1);
+  let questionStart = 0;
+  for (const separator of ['. ', '! ', '? ', ': ', ' — ', ' – ']) {
+    const at = beforeQuestion.lastIndexOf(separator);
+    if (at >= 0) questionStart = Math.max(questionStart, at + separator.length);
+  }
+  const question = beforeQuestion.slice(questionStart).trim();
+  return !/\bor\b/i.test(question)
+    && (DIRECT_CONTINUATION.test(question) || CUT_TASK_CONFIRMATION.test(question));
 }
 
 /**
@@ -248,8 +267,8 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
   // Messages typed while the trunk is working queue up and auto-send when it
   // goes idle; the user can pull one back into the composer to edit it.
   const { queue, enqueue, takeForEdit, remove } = useMessageQueue(working, sendNow);
-  const submit = () => {
-    const body = text.trim();
+  const submit = (override?: string) => {
+    const body = (override ?? text).trim();
     if (body.length === 0 && images.length === 0) return;
     // Queued (while-busy) sends are text-only — the queue auto-sends via
     // sendNow(text) with no images param, and images can't safely wait
@@ -320,6 +339,17 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
     visible.push(...segment);
     return new Set(visible);
   })();
+
+  // Plain-text fallback for older/non-structured agent questions like
+  // "Want me to put up the plan?". Ignore terminal markers, but let any
+  // newer user/tool/permission/error row suppress the stale offer.
+  const latestTrunkRow = [...messages].reverse().find(message =>
+    message.taskId === null && message.type !== 'turn_done' && message.type !== 'session_ended');
+  const suggestedReply = latestTrunkRow?.role === 'assistant'
+    && latestTrunkRow.type === 'text'
+    && offersToContinue(extractText(latestTrunkRow.contentJson))
+    ? 'go ahead'
+    : undefined;
 
   const conversation = (
     <Conv scrollRef={conversationRef}>
@@ -406,6 +436,7 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
       composer={{
         value: text, onChange: setText, onSubmit: submit, busy: working, queueWhenBusy: true,
         placeholder: 'Do anything — ask the brain, cut a task, or paste an error…',
+        suggestedReply,
         images, onImagesChange: setImages,
         modePill: <WorkModelPill scope={{ kind: 'thread', threadId }} variant="workspace-v2"
           agentLockPending={working} />,

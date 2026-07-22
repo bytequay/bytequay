@@ -232,6 +232,7 @@ public class BacklogServiceImpl
             if (title.isEmpty()) {
                 throw status(400, "each item needs a title");
             }
+            String detail = nullToEmpty(in.body()).strip();
             List<String> siblings = new ArrayList<>(ids);
             siblings.remove(i);
             store.save(BacklogItem.create(
@@ -239,7 +240,7 @@ public class BacklogServiceImpl
                     threadIdValue,
                     workspaceId,
                     title,
-                    nullToEmpty(in.body()).strip(),
+                    detail,
                     in.tags() == null ? List.of() : in.tags(),
                     normalisePriority(in.priority()),
                     BacklogItem.SOURCE_TRUNK_SPLIT,
@@ -247,8 +248,8 @@ public class BacklogServiceImpl
                     now,
                     siblings)
                     .withPublicFields(
-                            allocateKey(workspaceId), title,
-                            nullToEmpty(in.body()).strip(), null,
+                            allocateKey(workspaceId), summaryFrom(title, detail),
+                            detail, null,
                             siblingLinks(threadIdValue, siblings)));
         }
         return new BatchResult(ids, groupId);
@@ -458,6 +459,15 @@ public class BacklogServiceImpl
     private static String blankToNull(String value)
     {
         return value == null || value.isBlank() ? null : value.strip();
+    }
+
+    private static String summaryFrom(String title, String detail)
+    {
+        if (detail.isEmpty()) {
+            return title;
+        }
+        int paragraphEnd = detail.indexOf("\n\n");
+        return paragraphEnd < 0 ? detail : detail.substring(0, paragraphEnd).strip();
     }
 
     /** Clamp a priority to the allowed set, defaulting to {@code medium}. */

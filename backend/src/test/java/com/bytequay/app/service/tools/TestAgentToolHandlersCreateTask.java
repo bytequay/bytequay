@@ -13,12 +13,14 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.BacklogItem;
 import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceRepo;
@@ -220,7 +222,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", /* title */ null,
                         "Clean duplicate and unused code",
-                        null, null, null, plan, null),
+                        null, null, null, plan, null, false),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
@@ -243,7 +245,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", "Clean up backend exception handling",
                         "Clean up a few backend exception-handling spots. Scope is limited to X.",
-                        null, null, null, null, null),
+                        null, null, null, null, null, false),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
@@ -264,7 +266,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/bytequay",
                         "De-duplicate the two identical keyset-pagination recovery loops in "
                                 + "AgentScheduler into one private recoverTurns(status, cursor)",
-                        null, null, null, null, null, null),
+                        null, null, null, null, null, null, false),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
@@ -287,7 +289,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", /* title */ null,
                         "Clean up a few backend exception-handling spots. Scope is limited to X.",
-                        null, null, null, null, null),
+                        null, null, null, null, null, false),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
@@ -308,7 +310,7 @@ class TestAgentToolHandlersCreateTask
 
         handlers.createTask(
                 new AgentToolHandlers.CreateTaskArgs(
-                        "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, "bl-1"),
+                        "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, "bl-1", false),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         verify(backlog).resolve("bl-1", "task-42");
@@ -323,10 +325,267 @@ class TestAgentToolHandlersCreateTask
 
         handlers.createTask(
                 new AgentToolHandlers.CreateTaskArgs(
-                        "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, null),
+                        "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, null, false),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
+    void doesNotLinkASoleBacklogExplorationWithoutMatchingTaskContext()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        Task created = mock(Task.class);
+        when(created.id()).thenReturn("task-42");
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-2", "Phase 2 — PR ranking and evidence bundles")
+                        .markInProgress(NOW),
+                backlogItem("phase-3", "Phase 3 — canonical knowledge")));
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Fix an unrelated notification race",
+                        null, null, null, null, null, null, false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        verify(threads).materialiseTask(eq(THREAD_ID), any());
+        verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
+    void requiresConfirmationForOneMatchingEvidenceChannelBeforeCuttingTask()
+            throws Exception
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-2", "Phase 2 — PR ranking and evidence bundles")
+                        .markInProgress(NOW),
+                backlogItem("phase-3", "Phase 3 — canonical knowledge")));
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Add PR ranking and evidence bundles",
+                        null, null, null, null, null, null, false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        JsonNode payload = mapper.readTree(result.text());
+        assertThat(result.isError()).isFalse();
+        assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
+        assertThat(payload.path("candidates").get(0).path("id").asText())
+                .isEqualTo("phase-2");
+        assertThat(payload.path("candidates").get(0).path("title").asText())
+                .isEqualTo("Phase 2 — PR ranking and evidence bundles");
+        assertThat(payload.path("instruction").asText())
+                .contains(
+                        "ask_user_question",
+                        "Start and link: Phase 2 — PR ranking and evidence bundles",
+                        "backlog_item_id=phase-2",
+                        "Start without backlog",
+                        "skip_backlog_link=true");
+        verify(threads, never()).materialiseTask(any(), any());
+        verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
+    void linksWhenTwoIndependentEvidenceChannelsAgree()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        Task created = mock(Task.class);
+        when(created.id()).thenReturn("task-42");
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking and evidence bundles"),
+                backlogItem("phase-3", "Project Intelligence Phase 3 — canonical knowledge")));
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Add PR ranking and evidence bundles",
+                        "Implement PR ranking and evidence bundles.",
+                        null, null, null,
+                        mapper.createObjectNode().put(
+                                "deferred", "Project Intelligence Phase 3 — canonical knowledge"),
+                        null, false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        verify(backlog).resolve("phase-2", "task-42");
+    }
+
+    @Test
+    void linksWhenTaskTitleAndImmediatelyPrecedingApprovalAgree()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        Task created = mock(Task.class);
+        when(created.id()).thenReturn("task-42");
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking"),
+                backlogItem("phase-3", "Project Intelligence Phase 3 — canonical knowledge")));
+        when(threadStore.listRecentMessages(THREAD_ID, 24)).thenReturn(List.of(
+                textMessage(1, null, "user", "What's next?"),
+                toolCallMessage(2, null, "ask_user_question", mapper.createObjectNode()
+                        .put("question", "Cut this as the Phase 2 task?")
+                        .put("context", "Phase 3 canonical knowledge remains deferred.")),
+                textMessage(3, null, "assistant", "The approval question is ready."),
+                textMessage(4, null, "user", "go ahead")));
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Implement Phase 2 PR ranking",
+                        "Proceed with the agreed plan.", null, null, null,
+                        mapper.createObjectNode().put("status", "finalized"), null, false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        verify(backlog).resolve("phase-2", "task-42");
+    }
+
+    @Test
+    void requiresConfirmationWhenEvidenceChannelsConflict()
+            throws Exception
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking and evidence bundles"),
+                backlogItem("phase-3", "Project Intelligence Phase 3 — extraction and canonical knowledge")));
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Implement Phase 2 PR ranking",
+                        "Implement Phase 3 extraction and canonical knowledge.",
+                        null, null, null, null, null, false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        JsonNode payload = mapper.readTree(result.text());
+        assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
+        assertThat(payload.path("candidates").findValuesAsText("id"))
+                .containsExactly("phase-2", "phase-3");
+        assertThat(payload.path("reason").asText()).contains("conflicting");
+        verify(threads, never()).materialiseTask(any(), any());
+    }
+
+    @Test
+    void skipsBacklogInferenceAfterUserChoosesStartWithoutBacklog()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        Task created = mock(Task.class);
+        when(created.id()).thenReturn("task-42");
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Implement Phase 2 PR ranking",
+                        null, null, null, null, null, null, true),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        verify(threads).materialiseTask(eq(THREAD_ID), any());
+        verify(backlog, never()).list(any());
+        verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
+    void ignoresTaskScopedAndOlderTrunkContextWhenInferringABacklog()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        Task created = mock(Task.class);
+        when(created.id()).thenReturn("task-42");
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking")));
+        when(threadStore.listRecentMessages(THREAD_ID, 24)).thenReturn(List.of(
+                textMessage(1, null, "user", "Discuss Phase 2 next."),
+                textMessage(2, null, "assistant", "Phase 2 is the next roadmap item."),
+                textMessage(3, null, "user", "Instead, investigate the notification race."),
+                textMessage(4, "task-old", "assistant", "Implement Phase 2."),
+                textMessage(5, null, "assistant", "Cut the notification fix as a task?"),
+                textMessage(6, null, "user", "go ahead")));
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Fix the notification race",
+                        "Implement the approved notification fix.",
+                        null, null, null, null, null, false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
+    void aDirectApprovalQuestionIsDecisiveWithoutTwoOtherSignals()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        Task created = mock(Task.class);
+        when(created.id()).thenReturn("task-42");
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking"),
+                backlogItem("phase-3", "Project Intelligence Phase 3 — canonical knowledge")));
+        when(threadStore.listRecentMessages(THREAD_ID, 24)).thenReturn(List.of(
+                textMessage(1, null, "user", "What's next?"),
+                textMessage(2, null, "assistant", "Cut this as the Phase 2 task?"),
+                textMessage(3, null, "user", "go ahead")));
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Implement the approved roadmap step",
+                        "Proceed with the approved roadmap step.", null, null, null,
+                        mapper.createObjectNode().put("status", "finalized"), null, false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        verify(threads).materialiseTask(eq(THREAD_ID), any());
+        verify(backlog).resolve("phase-2", "task-42");
+    }
+
+    @Test
+    void aRedirectingReplyDoesNotApplyThePreviousBacklogApproval()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        Task created = mock(Task.class);
+        when(created.id()).thenReturn("task-42");
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking")));
+        when(threadStore.listRecentMessages(THREAD_ID, 24)).thenReturn(List.of(
+                textMessage(1, null, "user", "What's next?"),
+                textMessage(2, null, "assistant", "Cut this as the Phase 2 task?"),
+                textMessage(3, null, "user", "No — do the notification fix instead")));
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Fix the notification race",
+                        "Proceed with the notification fix.", null, null, null,
+                        null, null, false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        verify(threads).materialiseTask(eq(THREAD_ID), any());
+        verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
+    void explicitBacklogIdWinsEvenWhenSkipIsAlsoTrue()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        Task created = mock(Task.class);
+        when(created.id()).thenReturn("task-42");
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", "Add PR ranking",
+                        null, null, null, null, null, "phase-2", true),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        verify(backlog).resolve("phase-2", "task-42");
+        verify(backlog, never()).list(any());
     }
 
     @Test
@@ -341,7 +600,7 @@ class TestAgentToolHandlersCreateTask
 
         ToolOutcome outcome = handlers.createTask(
                 new AgentToolHandlers.CreateTaskArgs(
-                        "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, "stale-id"),
+                        "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, "stale-id", false),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
@@ -392,7 +651,8 @@ class TestAgentToolHandlersCreateTask
     private ToolOutcome.Completed createTask(String repo)
     {
         ToolOutcome outcome = handlers.createTask(
-                new AgentToolHandlers.CreateTaskArgs(repo, null, null, null, null, null, null, null),
+                new AgentToolHandlers.CreateTaskArgs(
+                        repo, null, null, null, null, null, null, null, false),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
         return (ToolOutcome.Completed) outcome;
     }
@@ -400,6 +660,46 @@ class TestAgentToolHandlersCreateTask
     private static WatchedRepo watchedRepo(String owner, String repo, String clonePath)
     {
         return new WatchedRepo(1L, owner, repo, 0, clonePath, null, null);
+    }
+
+    private static BacklogItem backlogItem(String id, String title)
+    {
+        return BacklogItem.create(
+                id,
+                THREAD_ID,
+                "ws-default",
+                title,
+                title,
+                List.of("project-intelligence"),
+                BacklogItem.PRIORITY_MEDIUM,
+                BacklogItem.SOURCE_AGENT,
+                BacklogItem.CREATED_BY_TRUNK_AGENT,
+                NOW,
+                List.of());
+    }
+
+    private ThreadMessage textMessage(long seq, String taskId, String role, String text)
+    {
+        return message(seq, taskId, role, "text",
+                mapper.createObjectNode().put("text", text));
+    }
+
+    private ThreadMessage toolCallMessage(
+            long seq, String taskId, String toolName, JsonNode input)
+    {
+        return message(seq, taskId, "tool", "tool_call",
+                mapper.createObjectNode()
+                        .put("callId", "call-" + seq)
+                        .put("toolName", toolName)
+                        .set("input", input));
+    }
+
+    private static ThreadMessage message(
+            long seq, String taskId, String role, String type, JsonNode content)
+    {
+        return new ThreadMessage(
+                "message-" + seq, THREAD_ID, taskId, seq, role, type,
+                content.toString(), null, null, null, null, NOW);
     }
 
     private static Thread trunkThread()

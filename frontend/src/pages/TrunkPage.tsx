@@ -27,7 +27,7 @@ import {
   type WorkspaceBacklogItemDto,
   type WorkspaceOverviewDto,
 } from '../workspace/workspaceApi';
-import { BacklogEditor } from '../workspace/WorkspaceBacklogPage';
+import { BacklogEditor, backlogTitleMap } from '../workspace/WorkspaceBacklogPage';
 import { useTrunkPane } from './useTrunkPane';
 
 const OVERVIEW_WIDTH_KEY = 'bq.trunkOverviewWidth';
@@ -282,6 +282,7 @@ export function TrunkPage({
             kind: 'dev',
           }]}
           threadNames={new Map([[threadId, thread.title]])}
+          backlogNames={backlogTitleMap(pane.backlog)}
           fixedTrunkId={threadId}
           onClose={() => setSelectedBacklogId(null)}
           onSaved={async () => { pane.refresh(); }}
@@ -515,10 +516,12 @@ function backlogCardData(item: BacklogItemDto, formatTime: (ms: number) => strin
   const exploring = item.status === 'in-progress';
   const dropped = item.status === 'discarded' || item.status === 'not-to-proceed';
   const started = resolved || exploring;
+  const body = item.summary?.trim() || item.body;
   return {
     id: item.id,
     title: item.title,
-    body: item.summary ?? item.body,
+    body: body.trim().toLocaleLowerCase() === item.title.trim().toLocaleLowerCase()
+      ? undefined : body,
     tags: item.tags.map(label => ({ label })),
     createdLabel: `Created · ${formatTime(item.createdAt)}`,
     started,

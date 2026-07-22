@@ -49,6 +49,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -177,6 +178,26 @@ class TestTaskLifecycleDriver
         // A still-open review round (e.g. mid-"Addressing") must not keep
         // rendering as live now that the task itself is terminal.
         verify(sealer).seal("t1.k2", "pr_merged");
+        // No merge event fired on this path, so the driver itself must clear
+        // the task's open notifications (publish gates, budget-cap "needs you")
+        // — otherwise a stale card lingers in the overview panel after merge.
+        verify(notifications).dismissOpenForTask("t1", "t1.k2");
+    }
+
+    @Test
+    void notificationCleanupFailureDoesNotBlockTerminalResourceCleanup()
+    {
+        Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
+        PullRequestDetail merged = mock(PullRequestDetail.class);
+        when(merged.merged()).thenReturn(true);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(merged);
+        doThrow(new RuntimeException("notification store unavailable"))
+                .when(notifications).dismissOpenForTask("t1", "t1.k2");
+
+        driver.reconcileTask(task);
+
+        verify(worktrees).reap(task);
+        verify(worktrees).deleteRemoteBranch(task);
     }
 
     @Test

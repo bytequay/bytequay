@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceApiRequest } from '../types';
 import WorkspaceBacklogPage from './WorkspaceBacklogPage';
@@ -72,11 +72,17 @@ const TRUNKS: WorkspaceTrunkDto[] = [{
   endedAt: null,
 }];
 
-function mockBridge(rows: WorkspaceBacklogItemDto[]) {
+function mockBridge(
+  rows: WorkspaceBacklogItemDto[],
+  linkRows: WorkspaceBacklogItemDto[] = rows,
+  workspaceTrunks: WorkspaceTrunkDto[] = TRUNKS,
+) {
+  let backlogReads = 0;
   const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
-    if (request.path === '/api/workspaces/w1/backlog') return rows;
-    if (request.path === '/api/workspaces/w1/trunks') return TRUNKS;
+    if (request.path === '/api/workspaces/w1/backlog') return backlogReads++ === 0 ? rows : linkRows;
+    if (request.path === '/api/workspaces/w1/trunks') return workspaceTrunks;
     if (request.path.endsWith('/start')) return { item: rows[0], taskId: 'task-1' };
+    if (request.path === '/api/workspaces/w1/backlog/BQ-1' && request.method === 'PATCH') return rows[0];
     throw new Error(`Unexpected workspace request: ${request.path}`);
   });
   (window as unknown as { bridge: unknown }).bridge = { workspaceApi };
@@ -150,6 +156,92 @@ describe('WorkspaceBacklogPage', () => {
     expect(screen.getByText('Shipped telemetry')).toBeTruthy();
     expect(workspaceApi.mock.calls.filter(([request]) =>
       (request as WorkspaceApiRequest).path === '/api/workspaces/w1/backlog')).toHaveLength(1);
+  });
+
+  it('labels linked backlog items with their loaded titles instead of ids', async () => {
+    mockBridge([
+      item({ links: [
+        { type: 'trunk', id: 't1' },
+        { type: 'trunk', id: 't2' },
+        { type: 'backlog', id: 'b2' },
+      ] }),
+      item({
+        id: 'b2',
+        key: 'BQ-2',
+        title: 'Preserve cache evidence',
+        summary: 'Keep evidence after refresh',
+        status: 'discarded',
+      }),
+    ]);
+    render(<WorkspaceBacklogPage workspaceId="w1" />);
+
+    fireEvent.click(await screen.findByText('Reply templates'));
+
+    expect(screen.getByText('Preserve cache evidence')).toBeTruthy();
+    expect(screen.getByText('linked thread')).toBeTruthy();
+    expect(screen.queryByText(/Backlog b2/)).toBeNull();
+  });
+
+  it('hides a duplicated summary and exposes separate link actions', async () => {
+    const current = item({ summary: 'Reply templates' });
+    const other = item({
+      id: 'b2',
+      key: 'BQ-2',
+      title: 'Preserve cache evidence',
+      summary: 'Keep evidence after refresh',
+    });
+    const otherTrunk: WorkspaceTrunkDto = {
+      ...TRUNKS[0],
+      id: 't2',
+      title: 'Frontend follow-up',
+    };
+    const workspaceApi = mockBridge([current], [current, other], [...TRUNKS, otherTrunk]);
+    window.bridge.listTasksForThread = vi.fn().mockResolvedValue([{
+      id: 'task-9',
+      seq: 2,
+      name: 'Rank evidence bundles',
+    }]);
+    render(<WorkspaceBacklogPage workspaceId="w1" />);
+
+    fireEvent.click(await screen.findByText('Reply templates'));
+    const dialog = screen.getByRole('dialog', { name: 'Backlog item BQ-1' });
+    expect(screen.queryByRole('textbox', { name: 'Summary' })).toBeNull();
+    expect(screen.getByRole('button', { name: /Link thread/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Link task/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Link other item/ })).toBeTruthy();
+
+    const trunkReads = workspaceApi.mock.calls.filter(([request]) =>
+      (request as WorkspaceApiRequest).path === '/api/workspaces/w1/trunks').length;
+    fireEvent.click(screen.getByRole('button', { name: /Link thread/ }));
+    const threadPicker = await screen.findByRole('combobox', { name: 'Link thread' });
+    expect(within(threadPicker).getByRole('option', { name: 'Frontend follow-up' })).toBeTruthy();
+    expect(workspaceApi.mock.calls.filter(([request]) =>
+      (request as WorkspaceApiRequest).path === '/api/workspaces/w1/trunks')).toHaveLength(trunkReads + 1);
+    fireEvent.change(threadPicker, { target: { value: 't2' } });
+    expect(within(dialog).getByText(/Frontend follow-up/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Link other item/ }));
+    const itemPicker = await screen.findByRole('combobox', { name: 'Link other item' });
+    fireEvent.change(itemPicker, { target: { value: 'b2' } });
+    expect(within(dialog).getByText('Preserve cache evidence')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Link task/ }));
+    const taskPicker = await screen.findByRole('combobox', { name: 'Link task' });
+    expect(within(taskPicker).getByRole('option', { name: 'Rank evidence bundles' })).toBeTruthy();
+    fireEvent.change(taskPicker, { target: { value: 'task-9' } });
+    expect(within(dialog).getByText(/Task #9/)).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(workspaceApi).toHaveBeenCalledWith(expect.objectContaining({
+      path: '/api/workspaces/w1/backlog/BQ-1',
+      method: 'PATCH',
+      body: expect.objectContaining({
+        links: expect.arrayContaining([
+          { type: 'backlog', id: 'b2' },
+          { type: 'task', id: 'task-9' },
+        ]),
+      }),
+    })));
   });
 
   it('starts work through the shared trunk picker', async () => {

@@ -13,11 +13,13 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.BacklogItem;
 import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
+import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.PullRequestStore;
@@ -32,6 +34,7 @@ import com.bytequay.app.service.local.TestRunnerDetector;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.threads.WorktreeService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,10 +47,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import static java.util.Objects.requireNonNull;
 
@@ -70,6 +75,16 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class AgentToolHandlers
 {
+    /** Enough rows for the immediately preceding trunk exchange, without
+     *  turning old roadmap discussion into current task intent. */
+    private static final int BACKLOG_CONTEXT_MESSAGE_LIMIT = 24;
+
+    private static final Pattern PHASE_IDENTIFIER =
+            Pattern.compile("\\bphase\\s+(\\d+)\\b");
+
+    private static final Pattern DIRECT_TASK_APPROVAL =
+            Pattern.compile("\\b(cut|start|create)\\b.*\\b(task|backlog|phase\\s+\\d+)\\b");
+
     /** Hard upper bound on recall_thread's {@code limit}. */
     private static final int RECALL_THREAD_MAX_LIMIT = 20;
 
@@ -779,10 +794,15 @@ public class AgentToolHandlers
                     + "finalize it. When given, it seeds the task's plan so the brain validates or "
                     + "revises it instead of planning from scratch.",
                     wireName = "trunk_plan") JsonNode trunkPlan,
-            @ToolParam(description = "If this task originates from a backlog item, its id (the "
-                    + "kickoff message told you this) — resolves and links that item to the task "
-                    + "you're cutting.",
-                    wireName = "backlog_item_id") String backlogItemId) {}
+            @ToolParam(description = "The id of the backlog item this task implements, when known "
+                    + "from a backlog kickoff or the current trunk discussion. Passing it resolves "
+                    + "and links that item to the task; when omitted, the server requires either "
+                    + "two agreeing context signals or user confirmation.",
+                    wireName = "backlog_item_id") String backlogItemId,
+            @ToolParam(description = "Set true only after the user chooses to start this task "
+                    + "without linking a suggested backlog item. This bypasses backlog inference "
+                    + "and prevents another confirmation loop.",
+                    wireName = "skip_backlog_link") boolean skipBacklogLink) {}
 
     @AgentTool(
             name = "create_task",
@@ -791,7 +811,10 @@ public class AgentToolHandlers
                     + "once — each gets its own branch and worktree — so this cuts immediately "
                     + "whether or not other tasks are already live. This is the only way to "
                     + "start a task. Call it only after presenting the plan, asking the user to "
-                    + "confirm, and receiving explicit approval in the immediately preceding turn.",
+                    + "confirm, and receiving explicit approval in the immediately preceding turn. "
+                    + "When backlog evidence is suggestive but not decisive, it returns "
+                    + "confirmation_required and creates no task; ask the user, then retry with "
+                    + "backlog_item_id or skip_backlog_link=true.",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TRUNK)
@@ -837,6 +860,29 @@ public class AgentToolHandlers
                 ? args.title().strip()
                 : createTaskTitle(initialPrompt, thread.title());
         String title = shortTitle(rawTitle);
+        String backlogItemId = args.backlogItemId();
+        if ((backlogItemId == null || backlogItemId.isBlank())
+                && !args.skipBacklogLink()) {
+            BacklogLinkDecision decision = inferBacklogLink(
+                    threadId, rawTitle, initialPrompt, args.trunkPlan());
+            if (decision.requiresConfirmation()) {
+                List<BacklogLinkCandidate> candidates = decision.candidates().stream()
+                        .map(item -> new BacklogLinkCandidate(item.id(), item.title()))
+                        .toList();
+                String linkOptions = String.join("; ", candidates.stream()
+                        .map(candidate -> "\"Start and link: " + candidate.title()
+                                + "\" (retry with backlog_item_id=" + candidate.id() + ")")
+                        .toList());
+                return toolOutcome(new BacklogLinkConfirmationResult(
+                        true,
+                        decision.reason(),
+                        candidates,
+                        "No task was created. Call ask_user_question now with these options: "
+                                + linkOptions + "; \"Start without backlog\" (retry create_task "
+                                + "with skip_backlog_link=true)."));
+            }
+            backlogItemId = decision.itemId();
+        }
         ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
                 thread.kind(),
                 thread.provider(),
@@ -856,7 +902,7 @@ public class AgentToolHandlers
                 args.trunkPlan()).withOrigin(Task.ORIGIN_AGENT);
         try {
             Task created = threads.materialiseTask(threadId, request);
-            resolveBacklogItemIfGiven(args.backlogItemId(), created.id());
+            resolveBacklogItem(backlogItemId, created.id());
             return toolOutcome(new CreatedTaskResult(
                     created.id(),
                     created.threadId(),
@@ -872,10 +918,10 @@ public class AgentToolHandlers
         }
     }
 
-    /** Best-effort: link the new task back to the backlog item it came from.
-     *  Never fails {@code create_task} itself over a stale/bad id — the task
-     *  is already cut by the time this runs. */
-    private void resolveBacklogItemIfGiven(String backlogItemId, String taskId)
+    /** Best-effort: link the new task after it has been cut. A stale id or a
+     *  transient backlog failure must not turn successful task creation into
+     *  a tool failure. */
+    private void resolveBacklogItem(String backlogItemId, String taskId)
     {
         if (backlogItemId == null || backlogItemId.isBlank()) {
             return;
@@ -887,6 +933,333 @@ public class AgentToolHandlers
             log.warn("create_task: failed to resolve backlog item {} for task {}: {}",
                     backlogItemId, taskId, e.getMessage());
         }
+    }
+
+    /** Decide before materialising the task: a direct task-cut approval is
+     *  decisive; otherwise automatic linking requires two independent
+     *  evidence channels which agree on the same item. A lone suggestion or
+     *  unresolved ambiguity is handed back to trunk for an explicit user
+     *  choice. A backlog read failure remains best-effort and cuts unlinked. */
+    private BacklogLinkDecision inferBacklogLink(
+            String threadId, String title, String initialPrompt, JsonNode trunkPlan)
+    {
+        try {
+            List<BacklogItem> candidates = backlog.list(threadId).stream()
+                    .filter(item -> BacklogItem.STATUS_OPEN.equals(item.status())
+                            || BacklogItem.STATUS_IN_PROGRESS.equals(item.status()))
+                    .toList();
+            List<EvidenceMatch> matches = new ArrayList<>();
+            for (String evidence : new String[] {
+                    title,
+                    initialPrompt,
+                    trunkPlan == null ? null : trunkPlan.toString()}) {
+                addMatch(matches, matchBacklogEvidence(candidates, evidence));
+            }
+            ApprovalContext approvalContext = precedingTrunkApprovalContext(threadId);
+            if (approvalContext.genericAffirmative()) {
+                ApprovalMatch approval = matchApprovalEvidence(
+                        candidates, approvalContext.evidence());
+                if (approval.decisiveItemId() != null) {
+                    return BacklogLinkDecision.link(approval.decisiveItemId());
+                }
+                addMatch(matches, approval.match());
+            }
+
+            List<BacklogItem> matched = candidates.stream()
+                    .filter(item -> matches.stream().anyMatch(match -> match.contains(item)))
+                    .toList();
+            if (matched.isEmpty()) {
+                return BacklogLinkDecision.none();
+            }
+            List<BacklogItem> strong = matched.stream()
+                    .filter(item -> matches.stream()
+                            .filter(EvidenceMatch::isUnique)
+                            .filter(match -> match.contains(item))
+                            .count() >= 2)
+                    .toList();
+            if (strong.size() == 1) {
+                return BacklogLinkDecision.link(strong.getFirst().id());
+            }
+            boolean conflicting = matched.size() > 1
+                    || matches.stream().anyMatch(match -> !match.isUnique());
+            String reason = conflicting
+                    ? "Backlog context contains conflicting or ambiguous matches."
+                    : "Backlog context is not strong enough to link automatically.";
+            return BacklogLinkDecision.confirm(reason, matched);
+        }
+        catch (RuntimeException e) {
+            log.warn("create_task: failed to infer backlog link for thread {}: {}",
+                    threadId, e.getMessage());
+            return BacklogLinkDecision.none();
+        }
+    }
+
+    private static void addMatch(List<EvidenceMatch> matches, EvidenceMatch match)
+    {
+        if (!match.candidates().isEmpty()) {
+            matches.add(match);
+        }
+    }
+
+    /** The approval exchange is one evidence channel. Within it, prefer the
+     *  first specific question over broader explanatory context so a deferred
+     *  later phase does not erase the item the user was asked to approve. */
+    private static ApprovalMatch matchApprovalEvidence(
+            List<BacklogItem> candidates, List<String> evidence)
+    {
+        List<BacklogItem> ambiguous = new ArrayList<>();
+        for (String value : evidence) {
+            EvidenceMatch match = matchBacklogEvidence(candidates, value);
+            if (match.isUnique()) {
+                return new ApprovalMatch(
+                        match,
+                        isDirectTaskApproval(value)
+                                ? match.candidates().getFirst().id()
+                                : null);
+            }
+            for (BacklogItem item : match.candidates()) {
+                if (ambiguous.stream().noneMatch(existing -> existing.id().equals(item.id()))) {
+                    ambiguous.add(item);
+                }
+            }
+        }
+        return new ApprovalMatch(new EvidenceMatch(ambiguous), null);
+    }
+
+    private static boolean isDirectTaskApproval(String value)
+    {
+        if (value == null || !value.stripTrailing().endsWith("?")) {
+            return false;
+        }
+        return DIRECT_TASK_APPROVAL.matcher(normaliseBacklogText(value)).find();
+    }
+
+    /** Exact title / summary / suffix matches are stronger than the compact
+     *  "Phase N" fallback. */
+    private static EvidenceMatch matchBacklogEvidence(
+            List<BacklogItem> candidates, String evidence)
+    {
+        List<BacklogItem> exact = matchingBacklogItems(candidates, evidence);
+        if (exact.size() == 1) {
+            return new EvidenceMatch(exact);
+        }
+        if (exact.size() > 1) {
+            List<BacklogItem> phase = matchingBacklogPhases(exact, evidence);
+            return new EvidenceMatch(phase.isEmpty() ? exact : phase);
+        }
+        return new EvidenceMatch(matchingBacklogPhases(candidates, evidence));
+    }
+
+    /** Context for a generic approval such as "go ahead": only the trunk
+     *  exchange immediately before the current user message. Task rows and
+     *  older trunk rounds are deliberately excluded so stale plans cannot
+     *  claim an unrelated task. */
+    private ApprovalContext precedingTrunkApprovalContext(String threadId)
+    {
+        List<ThreadMessage> messages =
+                threadStore.listRecentMessages(threadId, BACKLOG_CONTEXT_MESSAGE_LIMIT);
+        int currentUser = -1;
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ThreadMessage message = messages.get(i);
+            if (isTrunkMessage(message)
+                    && "user".equals(message.role())
+                    && "text".equals(message.type())) {
+                currentUser = i;
+                break;
+            }
+        }
+        if (currentUser < 0) {
+            return new ApprovalContext(false, List.of());
+        }
+
+        boolean genericAffirmative = isGenericAffirmative(
+                textMessage(messages.get(currentUser)));
+        List<String> evidence = new ArrayList<>();
+        for (int i = currentUser - 1; i >= 0; i--) {
+            ThreadMessage message = messages.get(i);
+            if (!isTrunkMessage(message)) {
+                continue;
+            }
+            if ("user".equals(message.role()) && "text".equals(message.type())) {
+                addEvidence(evidence, textMessage(message));
+                break;
+            }
+            if ("assistant".equals(message.role()) && "text".equals(message.type())) {
+                String text = textMessage(message);
+                addEvidence(evidence, trailingQuestion(text));
+                addEvidence(evidence, text);
+            }
+            else if ("tool_call".equals(message.type())) {
+                addQuestionToolEvidence(evidence, message);
+            }
+        }
+        return new ApprovalContext(genericAffirmative, evidence);
+    }
+
+    private static boolean isGenericAffirmative(String value)
+    {
+        return switch (normaliseBacklogText(value)) {
+            case "yes", "yes please", "go ahead", "go ahead with it", "proceed",
+                    "please proceed", "do it", "start it", "cut it", "ok", "okay",
+                    "sounds good", "sure" -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean isTrunkMessage(ThreadMessage message)
+    {
+        return message.taskId() == null && message.stageId() == null;
+    }
+
+    private String textMessage(ThreadMessage message)
+    {
+        try {
+            return mapper.readTree(message.contentJson()).path("text").asText("");
+        }
+        catch (JsonProcessingException | RuntimeException ignored) {
+            return "";
+        }
+    }
+
+    private void addQuestionToolEvidence(List<String> evidence, ThreadMessage message)
+    {
+        try {
+            JsonNode call = mapper.readTree(message.contentJson());
+            if (!"ask_user_question".equals(call.path("toolName").asText())) {
+                return;
+            }
+            JsonNode input = call.path("input");
+            // The confirmation itself is more specific than its explanatory
+            // context (which commonly names later deferred phases).
+            addEvidence(evidence, input.path("question").asText(""));
+            addEvidence(evidence, input.path("context").asText(""));
+        }
+        catch (JsonProcessingException | RuntimeException ignored) {
+            // Malformed history is not allowed to fail task creation.
+        }
+    }
+
+    private static void addEvidence(List<String> evidence, String value)
+    {
+        if (value != null && !value.isBlank()) {
+            evidence.add(value);
+        }
+    }
+
+    private static String trailingQuestion(String text)
+    {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        String stripped = text.stripTrailing();
+        if (!stripped.endsWith("?")) {
+            return null;
+        }
+        int start = Math.max(stripped.lastIndexOf('\n'), stripped.lastIndexOf(". "));
+        start = Math.max(start, stripped.lastIndexOf("! "));
+        return stripped.substring(start < 0 ? 0 : start + 1).strip();
+    }
+
+    private static List<BacklogItem> matchingBacklogPhases(
+            List<BacklogItem> candidates, String evidence)
+    {
+        Set<String> phases = phaseIdentifiers(evidence);
+        if (phases.size() != 1) {
+            return List.of();
+        }
+        String phase = phases.iterator().next();
+        return candidates.stream()
+                .filter(item -> phaseIdentifiers(item.title()).contains(phase))
+                .toList();
+    }
+
+    private static Set<String> phaseIdentifiers(String value)
+    {
+        Set<String> phases = new HashSet<>();
+        var matcher = PHASE_IDENTIFIER.matcher(normaliseBacklogText(value));
+        while (matcher.find()) {
+            phases.add(matcher.group(1));
+        }
+        return phases;
+    }
+
+    private record EvidenceMatch(List<BacklogItem> candidates)
+    {
+        boolean isUnique()
+        {
+            return candidates.size() == 1;
+        }
+
+        boolean contains(BacklogItem item)
+        {
+            return candidates.stream().anyMatch(candidate -> candidate.id().equals(item.id()));
+        }
+    }
+
+    private record ApprovalMatch(EvidenceMatch match, String decisiveItemId) {}
+
+    private record ApprovalContext(boolean genericAffirmative, List<String> evidence) {}
+
+    private record BacklogLinkDecision(
+            String itemId, String reason, List<BacklogItem> candidates)
+    {
+        static BacklogLinkDecision none()
+        {
+            return new BacklogLinkDecision(null, null, List.of());
+        }
+
+        static BacklogLinkDecision link(String itemId)
+        {
+            return new BacklogLinkDecision(itemId, null, List.of());
+        }
+
+        static BacklogLinkDecision confirm(String reason, List<BacklogItem> candidates)
+        {
+            return new BacklogLinkDecision(null, reason, candidates);
+        }
+
+        boolean requiresConfirmation()
+        {
+            return !candidates.isEmpty();
+        }
+    }
+
+    private static List<BacklogItem> matchingBacklogItems(
+            List<BacklogItem> candidates, String evidence)
+    {
+        String context = normaliseBacklogText(evidence);
+        if (context.isEmpty()) {
+            return List.of();
+        }
+        return candidates.stream()
+                .filter(item -> backlogTitleMatches(item, context))
+                .toList();
+    }
+
+    private static boolean backlogTitleMatches(BacklogItem item, String normalisedContext)
+    {
+        List<String> phrases = new ArrayList<>();
+        phrases.add(normaliseBacklogText(item.title()));
+        phrases.add(normaliseBacklogText(item.summary()));
+        String[] titleParts = item.title().split("\\s+[—–-]\\s+", 2);
+        if (titleParts.length == 2) {
+            phrases.add(normaliseBacklogText(titleParts[1]));
+        }
+        String boundedContext = " " + normalisedContext + " ";
+        return phrases.stream()
+                .filter(phrase -> phrase.split(" ").length >= 3)
+                .distinct()
+                .anyMatch(phrase -> boundedContext.contains(" " + phrase + " "));
+    }
+
+    private static String normaliseBacklogText(String value)
+    {
+        if (value == null) {
+            return "";
+        }
+        return value.toLowerCase(Locale.ROOT)
+                .replaceAll("[^\\p{L}\\p{N}]+", " ")
+                .strip();
     }
 
     /** Display cap for a task title, in words — a task row / branch name reads
@@ -953,6 +1326,16 @@ public class AgentToolHandlers
             String worktreePath,
             String workingDir,
             String baseBranch) {}
+
+    /** Wire shape returned instead of cutting a task when backlog evidence is
+     *  suggestive but not safe to apply automatically. */
+    public record BacklogLinkConfirmationResult(
+            @JsonProperty("confirmation_required") boolean confirmationRequired,
+            String reason,
+            List<BacklogLinkCandidate> candidates,
+            String instruction) {}
+
+    public record BacklogLinkCandidate(String id, String title) {}
 
     /** Adapt a record (or any Jackson-serialisable value) to a {@link
      *  ToolOutcome.Completed} carrying the JSON bytes. This is the single

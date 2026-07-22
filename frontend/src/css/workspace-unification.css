@@ -6725,8 +6725,8 @@ button.workspace-redesign .wu-table-row,
 
 .workspace-redesign .wu-backlog-editor {
   display: flex;
-  width: min(680px, calc(100vw - 48px));
-  max-height: min(630px, calc(100vh - 48px));
+  width: min(900px, calc(100vw - 48px));
+  max-height: min(760px, calc(100vh - 48px));
   overflow: visible;
   flex-direction: column;
   border: 1px solid rgba(0, 0, 0, .12);
@@ -6805,18 +6805,17 @@ button.workspace-redesign .wu-table-row,
 
 .workspace-redesign .wu-backlog-editor__body {
   display: grid;
-  height: 364.5px;
+  height: min(520px, calc(100vh - 160px));
   min-height: 0;
-  flex: 0 0 364.5px;
+  flex: 1 1 520px;
   overflow: auto;
-  grid-template-columns: 406px minmax(0, 218px);
-  gap: 18px;
-  padding: 16px 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
+  gap: 24px;
+  padding: 20px 24px;
 }
 
 .workspace-redesign .wu-backlog-editor__form {
   display: flex;
-  height: 332.5px;
   min-width: 0;
   flex-direction: column;
   gap: 12px;
@@ -6857,14 +6856,14 @@ button.workspace-redesign .wu-table-row,
 
 .workspace-redesign .wu-backlog-editor__control.title {
   color: #1f2328;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   line-height: normal;
   white-space: nowrap;
 }
 
 .workspace-redesign .wu-backlog-editor__control.detail {
-  min-height: 64px;
+  min-height: 210px;
   line-height: 1.6;
 }
 
@@ -6931,7 +6930,7 @@ button.workspace-redesign .wu-table-row,
   padding-top: 1px;
 }
 
-.workspace-redesign .wu-backlog-editor__links > div {
+.workspace-redesign .wu-backlog-editor__links > .wu-backlog-editor__link {
   display: flex;
   width: 100%;
   align-items: center;
@@ -6941,14 +6940,14 @@ button.workspace-redesign .wu-table-row,
   cursor: pointer;
 }
 
-.workspace-redesign .wu-backlog-editor__links > div > span {
+.workspace-redesign .wu-backlog-editor__links > .wu-backlog-editor__link > span {
   overflow: hidden;
   flex: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.workspace-redesign .wu-backlog-editor__links > div svg {
+.workspace-redesign .wu-backlog-editor__links > .wu-backlog-editor__link svg {
   width: 12px;
   height: 12px;
   flex: 0 0 12px;
@@ -6959,25 +6958,57 @@ button.workspace-redesign .wu-table-row,
   stroke-linejoin: round;
 }
 
-.workspace-redesign .wu-backlog-editor__links > div.link-task svg {
+.workspace-redesign .wu-backlog-editor__links > .wu-backlog-editor__link.link-task svg {
   stroke: #8250df;
 }
 
-.workspace-redesign .wu-backlog-editor__links > div.link-backlog svg {
+.workspace-redesign .wu-backlog-editor__links > .wu-backlog-editor__link.link-backlog svg {
   stroke: #57606a;
   stroke-width: 1.7;
 }
 
-.workspace-redesign .wu-backlog-editor__links > div em {
+.workspace-redesign .wu-backlog-editor__links > .wu-backlog-editor__link em {
   color: #8c959f;
   font-style: normal;
 }
 
-.workspace-redesign .wu-backlog-editor__links .wu-backlog-editor__add-link {
+.workspace-redesign .wu-backlog-editor__link-actions {
+  display: grid;
+  width: 100%;
+  gap: 7px;
+  margin-top: 5px;
+}
+
+.workspace-redesign .wu-backlog-editor__link-actions button {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  padding: 0 11px;
+  align-items: center;
+  border: 1px solid rgba(9, 105, 218, .32);
+  border-radius: 7px;
+  background: #f6f8fa;
   color: #0969da;
-  font-size: 11px;
+  font: inherit;
+  font-size: 11.5px;
   font-weight: 600;
   cursor: pointer;
+}
+
+.workspace-redesign .wu-backlog-editor__link-actions button:hover,
+.workspace-redesign .wu-backlog-editor__link-actions button:focus-visible {
+  border-color: #0969da;
+  background: #ddf4ff;
+  outline: none;
+}
+
+.workspace-redesign .wu-backlog-editor__link-actions button:disabled {
+  cursor: default;
+  opacity: .46;
+}
+
+.workspace-redesign .wu-backlog-editor__links > select {
+  width: 100%;
 }
 
 .workspace-redesign .wu-backlog-editor__audit {

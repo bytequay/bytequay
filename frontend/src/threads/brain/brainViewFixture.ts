@@ -168,6 +168,10 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
     {
       id: 'feed-3', messageSeq: null, type: 'PUSHED_PR_CREATED', stageId: DEV, stageType: 'DEVELOPMENT_STAGE',
       ts: ago(12), referencedStageId: null, images: [], managedSkills: [],
+      pullRequest: {
+        branch: 'jack/cost-meter', baseBranch: 'main', number: 5680,
+        url: 'https://github.com/trinodb/trino/pull/5680', additions: 214, deletions: 18,
+      },
       body: 'Branch `jack/cost-meter` pushed to origin. Draft PR `#5680` created. '
         + '**DevelopmentStage closed**. **CiFixingStage** and **ReviewMonitorStage** armed.',
     },

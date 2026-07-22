@@ -50,6 +50,13 @@ function pushRow(seg: BrainSegment, row: BrainFeedRow): void {
     seg.rounds.push({ id: row.id, userTurn: row, rows: [] });
     return;
   }
+  // A PR creation is a durable stage milestone, not a continuation of the
+  // preceding agent response. Give it its own round so it stays visible when
+  // a completed Development stage is folded.
+  if (row.type === 'PUSHED_PR_CREATED') {
+    seg.rounds.push({ id: row.id, userTurn: null, rows: [row] });
+    return;
+  }
   const last = seg.rounds[seg.rounds.length - 1];
   if (last === undefined) {
     seg.rounds.push({ id: row.id, userTurn: null, rows: [row] });

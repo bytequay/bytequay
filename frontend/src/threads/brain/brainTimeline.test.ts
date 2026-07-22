@@ -70,6 +70,20 @@ describe('buildBrainTimeline', () => {
     expect(workOf(round).map(r => r.id)).toEqual(['w1', 'w2']);
   });
 
+  it('gives a pull request creation milestone its own autonomous round', () => {
+    const segs = buildBrainTimeline([
+      row('o', 'STAGE_OPENED', 'open', 'dev'),
+      row('work', 'ITERATION_SUMMARY', 'finished work'),
+      row('pr', 'PUSHED_PR_CREATED', 'Pull request created', 'dev'),
+      row('c', 'STAGE_CLOSED', 'close', 'dev'),
+    ], [DEV]);
+
+    expect(segs[0].rounds).toHaveLength(2);
+    expect(segs[0].rounds[0].rows.map(item => item.id)).toEqual(['work']);
+    expect(segs[0].rounds[1].userTurn).toBeNull();
+    expect(segs[0].rounds[1].rows.map(item => item.id)).toEqual(['pr']);
+  });
+
   it('flags a clean Q&A round (user + single reply)', () => {
     const segs = buildBrainTimeline([
       row('u', 'USER_MESSAGE', 'why?'),

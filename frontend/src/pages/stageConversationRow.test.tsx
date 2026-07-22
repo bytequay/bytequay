@@ -29,6 +29,23 @@ function row(over: Partial<StageConversationRow>): StageConversationRow {
 }
 
 describe('stageRow tool_call', () => {
+  it('renders a remote pull request creation milestone', () => {
+    render(<>{stageRow(row({
+      kind: 'pull_request_created',
+      pullRequest: {
+        branch: 'feature/timeline', baseBranch: 'main', number: 145,
+        additions: 12, deletions: 3,
+      },
+    }))}</>);
+
+    expect(screen.getByText('Pull request created')).toBeTruthy();
+    expect(screen.getByText('#145')).toBeTruthy();
+    expect(screen.getByText('feature/timeline')).toBeTruthy();
+    expect(screen.getByText('main')).toBeTruthy();
+    expect(screen.getByText('+12')).toBeTruthy();
+    expect(screen.getByText('-3')).toBeTruthy();
+  });
+
   it('renders the approved-plan kickoff as a collapsed runtime card, not a user message', () => {
     const text = `The plan for this task has been approved — implement it now.
 

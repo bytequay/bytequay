@@ -684,7 +684,7 @@ class PRServiceImpl
     @Transactional
     public PR recordPush(String prId, String repo, int remotePrNumber, String remotePrUrl)
     {
-        require(prId);
+        PR pr = require(prId);
         Instant when = now();
         // Strip the private local record before it can be confused with what
         // migrated — local-only events + local-origin comments never leave
@@ -696,7 +696,39 @@ class PRServiceImpl
             store.saveComment(comment.withStripped(when));
         }
         recordPushed(prId, repo, remotePrNumber, remotePrUrl);
+        List<PRCommit> commits = store.commitsFor(prId);
+        int additions = commits.stream().mapToInt(PRCommit::additions).sum();
+        int deletions = commits.stream().mapToInt(PRCommit::deletions).sum();
+        String payload = payload(
+                "branch", pr.branchName(),
+                "baseBranch", pr.baseBranch(),
+                "number", remotePrNumber,
+                "url", remotePrUrl,
+                "additions", additions,
+                "deletions", deletions);
+        appendEvent(prId, PRTimelineEntry.TYPE_PULL_REQUEST_CREATED, PRTimelineEntry.ACTOR_USER,
+                /* localOnly */ false, when, payload);
+        recordPullRequestCreated(pr, remotePrNumber, remotePrUrl, additions, deletions);
         return transition(prId, PR.STATUS_REMOTE_DRAFTED, PRTimelineEntry.ACTOR_USER);
+    }
+
+    /** Records the one remote-PR milestone on the Development stage so the
+     * stage transcript and task brain receive the exact same publish event as
+     * the PR timeline. A local PR only calls {@link #recordPush} on its first
+     * remote promotion, so subsequent remote branch pushes do not duplicate it. */
+    private void recordPullRequestCreated(
+            PR pr, int remotePrNumber, String remotePrUrl, int additions, int deletions)
+    {
+        stageStore.findStageByType(pr.taskId(), StageType.DEVELOPMENT_STAGE)
+                .ifPresent(stage -> stageStore.recordEvent(
+                        stage.id(), pr.taskId(), StageEventType.PULL_REQUEST_CREATED,
+                        Map.of(
+                                "branch", pr.branchName(),
+                                "baseBranch", pr.baseBranch(),
+                                "number", remotePrNumber,
+                                "url", remotePrUrl,
+                                "additions", additions,
+                                "deletions", deletions)));
     }
 
     @Override

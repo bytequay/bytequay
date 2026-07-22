@@ -122,6 +122,32 @@ class TestStageBrain
     }
 
     @Test
+    void brainFeedProjectsRemotePullRequestCreationFromDevelopment()
+    {
+        String taskId = seedTask();
+        StageInstance development = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        stageStore.recordEvent(development.id(), taskId, StageEventType.PULL_REQUEST_CREATED, Map.of(
+                "branch", "feature/timeline",
+                "baseBranch", "main",
+                "number", 145,
+                "url", "https://github.com/acme/widget/pull/145",
+                "additions", 12,
+                "deletions", 3));
+
+        BrainFeedRow created = stageService.getBrain(taskId).brainFeed().stream()
+                .filter(row -> row.type().equals("PUSHED_PR_CREATED"))
+                .findFirst().orElseThrow();
+
+        assertThat(created.stageId()).isEqualTo(development.id().toString());
+        assertThat(created.pullRequest()).isNotNull();
+        assertThat(created.pullRequest().branch()).isEqualTo("feature/timeline");
+        assertThat(created.pullRequest().baseBranch()).isEqualTo("main");
+        assertThat(created.pullRequest().number()).isEqualTo(145);
+        assertThat(created.pullRequest().additions()).isEqualTo(12);
+        assertThat(created.pullRequest().deletions()).isEqualTo(3);
+    }
+
+    @Test
     void brainFeedIncludesConversationWithStageRefAndUserScrubber()
     {
         String taskId = seedTask();

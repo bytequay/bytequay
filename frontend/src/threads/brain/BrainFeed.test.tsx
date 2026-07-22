@@ -69,6 +69,30 @@ describe('BrainFeed', () => {
     expect(screen.getByText('All sites routed')).toBeTruthy();
   });
 
+  it('keeps the remote pull request milestone visible in a folded Development stage', () => {
+    const pullRequestCreated: BrainFeedRow = {
+      ...row('pr-created', 'PUSHED_PR_CREATED'),
+      stageId: 'dev',
+      pullRequest: {
+        branch: 'feature/timeline', baseBranch: 'main', number: 145,
+        additions: 12, deletions: 3,
+      },
+    };
+    render(<BrainFeed feed={[
+      { ...row('o', 'STAGE_OPENED'), stageId: 'dev' },
+      pullRequestCreated,
+      { ...row('c', 'STAGE_CLOSED'), stageId: 'dev' },
+    ]} stages={[DEV]} density="focused" />);
+
+    expect(screen.getByText('Pull request created')).toBeTruthy();
+    expect(screen.getByText('#145')).toBeTruthy();
+    expect(screen.getByText('feature/timeline')).toBeTruthy();
+    expect(screen.getByText('main')).toBeTruthy();
+    expect(screen.getByText('+12')).toBeTruthy();
+    expect(screen.getByText('-3')).toBeTruthy();
+    expect(screen.queryByText('R1')).toBeNull();
+  });
+
   it('keeps completed-stage summaries visible in the locked focused feed', () => {
     const { container } = render(
       <BrainFeed feed={FEED} stages={[DEV]} density="focused" foldClosedStages={false} />,

@@ -197,6 +197,30 @@ describe('PRTimeline plan-finalized rendering', () => {
 });
 
 describe('PRTimeline composition', () => {
+  it('retains the remote pull request creation milestone beside the GitHub activity feed', () => {
+    render(<PRTimeline
+      pr={pr({ remotePrNumber: 145, repo: 'acme/widget' })}
+      comments={[]}
+      events={[{
+        id: 'pr-created', localPrId: 'pr1', eventType: 'pull-request-created', actor: 'you',
+        isLocalOnly: false, strippedOnPushAt: null, createdAt: Date.parse('2026-06-20T10:00:00Z'),
+        payload: {
+          branch: 'feature/timeline', baseBranch: 'main', number: 145,
+          url: 'https://github.com/acme/widget/pull/145', additions: 12, deletions: 3,
+        },
+      }]}
+      activity={[]}
+      reviewThreads={[]}
+      threadActions={noopThreadActions}
+    />);
+
+    expect(screen.getByText('Pull request created')).toBeTruthy();
+    expect(screen.getByText('#145')).toBeTruthy();
+    expect(screen.getByText('feature/timeline')).toBeTruthy();
+    expect(screen.getByText('+12')).toBeTruthy();
+    expect(screen.getByText('-3')).toBeTruthy();
+  });
+
   it('always renders the description as the first bubble', () => {
     render(<PRTimeline pr={pr({ description: 'Adds a cache layer.' })} comments={[]} events={[]} />);
 

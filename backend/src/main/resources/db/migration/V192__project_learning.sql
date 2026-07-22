@@ -1,4 +1,4 @@
--- Phase 1 of Project Intelligence: the durable, model-free learning run
+-- Project Intelligence phase 1: the durable, model-free learning run
 -- that indexes local docs, derives a bounded project capsule, and catalogs
 -- the complete merged-PR history. Everything here is deterministic — no
 -- model calls, no vector/graph store — and lives beside (never inside) the

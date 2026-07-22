@@ -286,6 +286,7 @@ describe('WorkspaceNavShell', () => {
     const workspaceRows = Array.from(workspaceItems?.querySelectorAll('.workspace-page-row') ?? []);
     expect(workspaceRows.find(row => row.textContent?.includes('Pull requests'))?.textContent).toContain('4');
     expect(workspaceRows.find(row => row.textContent?.includes('Issues'))?.textContent).toContain('5');
+    expect((screen.getByRole('button', { name: /Backlog/ }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: /Sessions/ }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Memory' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByText('Review PR #42')).toBeNull();

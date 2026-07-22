@@ -227,7 +227,8 @@ export function TrunkWorkspaceSidebar({
               onClick={() => onNavigate?.('pull-requests')} />
             <WorkspaceItem icon={<IssueIcon />} label="Issues" count={counts?.issues ?? undefined}
               onClick={() => onNavigate?.('issues')} />
-            <WorkspaceItem icon={<BacklogIcon />} label="Backlog" count={counts?.backlog}
+            <WorkspaceItem icon={<BacklogIcon />} label="Backlog" count={counts?.backlog} disabled
+              disabledTitle="Backlog is managed inside each trunk"
               onClick={() => onNavigate?.('backlog')} />
             <WorkspaceItem icon={<BranchIcon />} label="Branches" count={counts?.branches ?? undefined}
               onClick={() => onNavigate?.('branches')} />
@@ -287,19 +288,22 @@ function taskStateIcon(state: ReturnType<typeof taskState> | 'quiet'): ReactNode
   return <span className="trunk-page-v2-nav__task-dot" />;
 }
 
-function WorkspaceItem({ icon, label, count, running = false, disabled = false, onClick }: {
+function WorkspaceItem({
+  icon, label, count, running = false, disabled = false, disabledTitle, onClick,
+}: {
   icon: ReactNode;
   label: string;
   count?: number;
   running?: boolean;
   disabled?: boolean;
+  disabledTitle?: string;
   onClick: () => void;
 }) {
   return (
     <SidebarRow icon={icon} trailing={running
       ? <span className="trunk-page-v2-nav__live"><i />{count}</span>
       : count !== undefined && count > 0 ? count : undefined} disabled={disabled}
-      title={disabled ? 'Still in progress' : undefined} onClick={onClick}>
+      title={disabled ? disabledTitle ?? 'Still in progress' : undefined} onClick={onClick}>
       {label}
     </SidebarRow>
   );

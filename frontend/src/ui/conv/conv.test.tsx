@@ -173,6 +173,28 @@ describe('Card', () => {
     expect(onOpenLinked).toHaveBeenCalledOnce();
   });
 
+  it('keeps nested backlog actions separate from card keyboard activation', () => {
+    const onClick = vi.fn();
+    const onStart = vi.fn();
+    const onOpenLinked = vi.fn();
+    const { container, rerender } = render(
+      <Card kind="backlog" title="Queued idea" onClick={onClick} onStartDevelopment={onStart} />,
+    );
+
+    fireEvent.keyDown(container.querySelector('.start-dev-btn') as HTMLElement, { key: 'Enter' });
+    expect(onClick).not.toHaveBeenCalled();
+
+    rerender(
+      <Card kind="backlog" title="Cut idea" started linkedTaskLabel="→ Task #12"
+        onClick={onClick} onOpenLinked={onOpenLinked} />,
+    );
+    const linked = screen.getByRole('link', { name: '→ Task #12' });
+    fireEvent.keyDown(linked, { key: 'Enter' });
+    fireEvent.keyDown(linked, { key: ' ' });
+    expect(onOpenLinked).toHaveBeenCalledTimes(2);
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
   it('fires onClick and is keyboard-activable', () => {
     const onClick = vi.fn();
     const { container } = render(<Card kind="task" title="t" onClick={onClick} />);

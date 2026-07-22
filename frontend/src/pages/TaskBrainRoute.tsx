@@ -56,7 +56,7 @@ import type { WsNavKey } from '../ui/workspace';
  * mounted across trunk, task, and stage routes.
  */
 export function TaskBrainRoute({
-  threadId, taskId, onOpenStage, onOpenRun, onClosed,
+  threadId, taskId, onOpenStage, onOpenRun, onOpenTask, onClosed,
   onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
   trunkLabel, workspaceName, workspaceRepository,
   onNavigateGlobal, onSwitchWorkspace,
@@ -66,6 +66,8 @@ export function TaskBrainRoute({
   taskId: string;
   onOpenStage: (stageId: string) => void;
   onOpenRun?: (runId: string) => void;
+  /** Navigate to a sibling task under the same trunk from the sidebar list. */
+  onOpenTask?: (taskId: string) => void;
   /** Closing a task seals it terminal + reaps its worktree, so the page is
    *  a dead end afterwards — navigate away (back to the thread trunk). */
   onClosed: () => void;
@@ -567,6 +569,9 @@ export function TaskBrainRoute({
         finished,
       }}
       threadLabel={trunkLabel}
+      threadId={threadId}
+      currentTaskId={taskId}
+      onOpenTask={onOpenTask}
       nodes={buildLivePlan({
         stages,
         subStages,

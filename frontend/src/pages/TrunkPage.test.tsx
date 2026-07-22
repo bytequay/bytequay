@@ -113,6 +113,8 @@ function mockBridge({
     startBacklogDevelopment: vi.fn().mockResolvedValue({ item: null, taskId: null }),
     skipBacklogItem: vi.fn().mockResolvedValue(undefined),
     openInAppBrowser: vi.fn().mockResolvedValue(undefined),
+    markNotificationRead: vi.fn().mockResolvedValue({ id: 'n1', status: 'read' }),
+    dismissNotification: vi.fn().mockResolvedValue({ id: 'n1', status: 'dismissed' }),
   };
   (window as unknown as { bridge: unknown }).bridge = bridge;
   return bridge;
@@ -294,6 +296,36 @@ describe('TrunkPage', () => {
     await screen.findByText('Review round complete');
     fireEvent.click(screen.getByRole('button', { name: 'Jump' }));
     expect(window.location.hash).toBe('#/workspace/ws-1/prs/148');
+  });
+
+  it('dismisses a pinned notification when the user jumps into it', async () => {
+    const bridge = mockBridge({
+      trunkActivity: activity({
+        pinned: [{
+          id: 'notification:n1',
+          kind: 'attention',
+          title: 'Session paused at budget cap',
+          summary: 'Review the usage, then resume or restart.',
+          status: 'unread',
+          itemPath: '#/workspace/ws-1/sessions/run-1',
+          taskId: 'task-9',
+          sessionId: null,
+          occurredAt: 9,
+          actionable: true,
+        }],
+      }),
+    });
+    const { onOpenTask } = renderTrunk();
+
+    await screen.findByText('Session paused at budget cap');
+    fireEvent.click(screen.getByRole('button', { name: 'Jump' }));
+
+    // The card must clear on return, so jumping dismisses the notification
+    // (id stripped of its "notification:" prefix) and still opens the task.
+    // markRead is a no-op for NEEDS_ATTENTION rows, so dismiss is what clears it.
+    expect(bridge.dismissNotification).toHaveBeenCalledWith('n1');
+    expect(bridge.markNotificationRead).not.toHaveBeenCalled();
+    expect(onOpenTask).toHaveBeenCalledWith('task-9');
   });
 
   it('collapses and reopens the workspace overview', async () => {

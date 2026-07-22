@@ -260,19 +260,22 @@ public class NotificationService
     }
 
     /**
-     * Dismiss a task's still-open publish gates — its {@code UNREAD}
-     * {@code AWAITING_REVIEW} notifications — when the task goes terminal
-     * (closed / merged). Otherwise a stale push / ship / merge gate could be
-     * "approved" after the task's worktree was reaped, which resolves the
-     * notification without doing anything. {@code RESOLVING} rows are skipped:
-     * an approval is mid-flight, so let the publish gate finish it.
+     * Dismiss a task's still-open actionable notifications — its {@code UNREAD}
+     * {@code AWAITING_REVIEW} publish gates and {@code NEEDS_ATTENTION} prompts
+     * (e.g. a budget-cap pause) — when the task goes terminal (closed / merged).
+     * Otherwise a stale push / ship / merge gate could be "approved" after the
+     * task's worktree was reaped, resolving the notification without doing
+     * anything, and a "needs you" card would linger in the overview panel for a
+     * task that's already done. {@code RESOLVING} rows are skipped: an approval
+     * is mid-flight, so let the publish gate finish it.
      */
     public void dismissOpenForTask(String threadId, String taskId)
     {
         requireNonNull(taskId, "taskId is null");
         for (Notification n : store.listForThread(threadId, DEFAULT_LIMIT)) {
             if (taskId.equals(n.taskId())
-                    && n.kind() == NotificationKind.AWAITING_REVIEW
+                    && (n.kind() == NotificationKind.AWAITING_REVIEW
+                            || n.kind() == NotificationKind.NEEDS_ATTENTION)
                     && n.status() == NotificationStatus.UNREAD) {
                 store.dismiss(n.id(), Instant.now().toEpochMilli());
             }

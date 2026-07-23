@@ -292,16 +292,21 @@ public class ProjectLearningService
     private void analyze(ProjectLearningRun run, String repoFullName, Path clone, String head)
     {
         markState(run, "analyzing", head);
-        selectBatch(run);
-
         String pat = patResolver.resolve(repoFullName);
-        while (true) {
-            var selected = store.selectedSources(run.workspaceId(), run.repo(), ANALYZE_BATCH);
-            if (selected.isEmpty()) {
-                break;
-            }
-            for (RepoPrSource source : selected) {
-                analyzeOne(run, repoFullName, pat, clone, head, source);
+
+        // Drain the whole catalog in SELECT_LIMIT waves: promote a
+        // module-covering batch, analyze it, then re-select until no
+        // 'cataloged' rows remain. Without the outer loop only the first 50
+        // PRs of a large repo would ever be analyzed.
+        while (selectBatch(run) > 0) {
+            while (true) {
+                var selected = store.selectedSources(run.workspaceId(), run.repo(), ANALYZE_BATCH);
+                if (selected.isEmpty()) {
+                    break;
+                }
+                for (RepoPrSource source : selected) {
+                    analyzeOne(run, repoFullName, pat, clone, head, source);
+                }
             }
         }
 
@@ -310,12 +315,16 @@ public class ProjectLearningService
                 counts(run), now, null, now);
     }
 
-    /** Pre-rank cataloged rows and promote a module-covering batch to 'selected'. */
-    private void selectBatch(ProjectLearningRun run)
+    /**
+     * Pre-rank cataloged rows and promote a module-covering batch to 'selected'.
+     * Returns the number of rows promoted; 0 means the catalog is drained, which
+     * stops the analyze loop.
+     */
+    private int selectBatch(ProjectLearningRun run)
     {
         var cataloged = store.catalogedSources(run.workspaceId(), run.repo(), PRERANK_LIMIT);
         if (cataloged.isEmpty()) {
-            return;
+            return 0;
         }
         Map<Integer, Double> scoreByPr = new LinkedHashMap<>();
         var candidates = new ArrayList<ModuleCoverageSelector.Candidate>();
@@ -325,10 +334,13 @@ public class ProjectLearningService
             candidates.add(new ModuleCoverageSelector.Candidate(
                     source.prNumber(), pre, modulesOf(source)));
         }
+        int promoted = 0;
         for (int prNumber : selector.select(candidates, SELECT_LIMIT)) {
             store.markSelected(run.workspaceId(), run.repo(), prNumber,
                     scoreByPr.getOrDefault(prNumber, 0.0));
+            promoted++;
         }
+        return promoted;
     }
 
     private void analyzeOne(
@@ -360,7 +372,13 @@ public class ProjectLearningService
         return metaText(source, "author");
     }
 
-    /** Coarse module hints from the head branch name, for coverage selection. */
+    /**
+     * Coarse module hints from the head branch name, for coverage selection.
+     * Best-effort only: changed-file paths aren't available before evidence
+     * fetch, so this leans on the branch's leading token. Branches with unique
+     * per-PR names (e.g. {@code chenjian2664-patch-1}) yield unique modules, in
+     * which case coverage selection degrades toward pure priority ranking.
+     */
     private Set<String> modulesOf(RepoPrSource source)
     {
         String headRef = metaText(source, "headRef");

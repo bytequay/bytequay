@@ -17,8 +17,9 @@ import { diffInlineCommentFromLocalPr, isPublishableReviewDraft } from '../diff/
 import { SubmitReviewDrawer, type ReviewVerdict } from '../pages/SubmitReviewDrawer';
 import { usePR } from '../pr/usePR';
 import { derivePRCapabilities } from '../pr/prCapabilities';
-import type { AiReviewDraftDto, DiffFileDto } from '../types';
+import type { AiReviewDraftDto, DiffFileDto, UserProfileDto } from '../types';
 import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
+import { getCached, setCached } from '../dataCache';
 import { CommentBubbleIcon, PrMergedIcon, PrOpenIcon, RobotIcon } from './atoms';
 import { buildHeader } from './detailModel';
 import type { PullRow } from './model';
@@ -254,6 +255,21 @@ export function PullDetailBody({
   const [submitting, setSubmitting] = useState(false);
   const [reviewNotice, setReviewNotice] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // The signed-in GitHub handle, so "You" comments render the real avatar
+  // instead of a github.com/You.png placeholder.
+  const [currentUser, setCurrentUser] = useState<UserProfileDto | null>(
+    () => getCached<UserProfileDto>('home:profile') ?? null,
+  );
+  useEffect(() => {
+    if (currentUser !== null || typeof window === 'undefined'
+      || typeof window.bridge?.getUserProfile !== 'function') return;
+    let cancelled = false;
+    window.bridge.getUserProfile()
+      .then(profile => { if (!cancelled) { setCached('home:profile', profile); setCurrentUser(profile); } })
+      .catch(() => { /* avatar falls back to the display name */ });
+    return () => { cancelled = true; };
+  }, [currentUser]);
+  const currentUserLogin = currentUser?.login ?? null;
   const det = buildHeader(row, bundle);
   const copyTitleLink = () => {
     const url = row.dto.htmlUrl;
@@ -315,6 +331,16 @@ export function PullDetailBody({
   const resolveLocalComment = bundle === null || bundle === undefined || !canActOnLocalThreads ? undefined
     : async (commentId: string) => {
         await window.bridge.resolveLocalPrComment(commentId);
+        refresh();
+      };
+  const reopenLocalComment = bundle === null || bundle === undefined || !canActOnLocalThreads ? undefined
+    : async (commentId: string) => {
+        await window.bridge.reopenLocalPrComment(commentId);
+        refresh();
+      };
+  const dismissLocalComment = bundle === null || bundle === undefined || !canActOnLocalThreads ? undefined
+    : async (commentId: string) => {
+        await window.bridge.dismissLocalPrComment(commentId);
         refresh();
       };
   const submitPendingReviewToDev = bundle?.pr.taskId == null
@@ -425,6 +451,9 @@ export function PullDetailBody({
               onDescriptionSaved={refresh}
               onLocalReply={replyLocalComment}
               onLocalResolve={resolveLocalComment}
+              onLocalReopen={reopenLocalComment}
+              onLocalDismiss={dismissLocalComment}
+              currentUserLogin={currentUserLogin}
               onSubmitLocalReview={submitPendingReviewToDev}
             />
           </div>

@@ -58,7 +58,7 @@ function dragStart(e: ReactMouseEvent, start: number, apply: (w: number) => void
 }
 
 export default function PullChanges({
-  row, bundle, refresh, onComment, filesOverride, fetchBlobOverride, banner,
+  row, bundle, refresh, onComment, filesOverride, fetchBlobOverride, banner, jumpTarget,
 }: {
   row: PullRow;
   bundle: LocalPRBundle | null | undefined;
@@ -68,6 +68,8 @@ export default function PullChanges({
   filesOverride?: DiffFileDto[] | null;
   fetchBlobOverride?: (path: string) => Promise<{ lines: string[] }>;
   banner?: ReactNode;
+  /** Set by the Overview timeline to scroll a file-line comment into view when this tab opens. */
+  jumpTarget?: { filePath: string; side: 'LEFT' | 'RIGHT'; line: number | null } | null;
 }) {
   const [files, setFiles] = useState<DiffFileDto[] | null>(null);
   const [filesError, setFilesError] = useState<string | null>(null);
@@ -170,6 +172,23 @@ export default function PullChanges({
     cells.forEach(td => { td.style.transition = 'background 0.4s'; td.style.background = '#fff8c5'; });
     window.setTimeout(() => cells.forEach(td => { td.style.background = ''; }), 1400);
   };
+
+  // When the Overview timeline asks to jump to a comment's line, force its file card
+  // open and scroll to the anchor once the diff has rendered.
+  const jumpKey = jumpTarget === null || jumpTarget === undefined
+    ? null : `${jumpTarget.filePath}:${jumpTarget.side}:${jumpTarget.line ?? ''}`;
+  useEffect(() => {
+    if (jumpTarget === null || jumpTarget === undefined || files === null) return;
+    const { filePath, side, line } = jumpTarget;
+    setOpenCards(prev => ({ ...prev, [filePath]: true }));
+    setSelFile(filePath);
+    const raf = window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      if (line !== null) jumpToLine(filePath, side, line);
+      else scrollToFile(filePath);
+    }));
+    return () => window.cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpKey, files]);
 
   return (
     <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>

@@ -116,6 +116,11 @@
   color: #8b949e;
 }
 
+.workspace-redesign .trunk-page-v2-nav__directory .tree-folder {
+  color: #57606a;
+  opacity: 1;
+}
+
 .workspace-redesign .trunk-page-v2-nav__trunk-icon {
   display: inline-flex;
   flex-shrink: 0;

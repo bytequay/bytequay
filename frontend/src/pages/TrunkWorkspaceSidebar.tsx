@@ -188,10 +188,10 @@ export function TrunkWorkspaceSidebar({
                 <span className="trunk-page-v2-nav__directory">
                   <FolderIcon open={open} />
                 </span>
+                <span className="trunk-page-v2-nav__trunk-name">{thread.title}</span>
                 <span className={`trunk-page-v2-nav__trunk-icon${thread.status === 'RUNNING' ? ' is-running' : ''}`}>
                   <TrunkLineIcon />
                 </span>
-                <span className="trunk-page-v2-nav__trunk-name">{thread.title}</span>
                 {!open && thread.unread === true && <i title="Needs you" />}
                 {!open && thread.unread !== true && taskCount > 0 && <small>{taskCount}</small>}
               </button>

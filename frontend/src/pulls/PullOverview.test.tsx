@@ -165,15 +165,15 @@ describe('PullOverview', () => {
 
     expect(screen.getByText('src/Foo.java:41')).toBeTruthy();
     expect(screen.getByText('PENDING REVIEW')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.click(screen.getByPlaceholderText('Reply…'));
     fireEvent.change(screen.getByPlaceholderText('Write a reply'), { target: { value: 'One more detail.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
     await waitFor(() => expect(onLocalReply).toHaveBeenCalledWith(local.comments[0], 'One more detail.'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve conversation' }));
     await waitFor(() => expect(onLocalResolve).toHaveBeenCalledWith('local-1'));
     expect(screen.getByRole('button', { name: 'Send to dev' }).hasAttribute('disabled')).toBe(true);
-    expect(screen.getByRole('button', { name: 'Reply' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByPlaceholderText('Reply…').hasAttribute('disabled')).toBe(true);
     expect(onSubmitLocalReview).not.toHaveBeenCalled();
   });
 
@@ -219,7 +219,7 @@ describe('PullOverview', () => {
     expect(screen.queryByRole('button', { name: 'Send to dev' })).toBeNull();
     // Both the user finding and the brain finding are manually resolvable now
     // (brain findings used to have no resolve control).
-    expect(screen.getAllByRole('button', { name: 'Resolve' })).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Resolve conversation' })).toHaveLength(2);
   });
 
   it('renders the real user avatar and can unresolve a resolved comment', async () => {
@@ -253,7 +253,7 @@ describe('PullOverview', () => {
     fireEvent.click(screen.getByTitle('Expand thread'));
     expect(screen.getAllByAltText('octocat').some(
       img => img.getAttribute('src')?.includes('github.com/octocat.png'))).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Unresolve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Unresolve conversation' }));
     await waitFor(() => expect(onLocalReopen).toHaveBeenCalledWith('mine'));
   });
 
@@ -378,12 +378,12 @@ describe('PullOverview', () => {
     fireEvent.click(screen.getByTitle('Expand thread'));
     expect(screen.getByText('Please keep the current value here.')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.click(screen.getByPlaceholderText('Reply…'));
     fireEvent.change(screen.getByPlaceholderText('Write a reply'), { target: { value: 'Looks good now.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
     await waitFor(() => expect(replyToReviewThread).toHaveBeenCalledWith('trinodb/trino', 1, 501, 'Looks good now.'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve conversation' }));
     await waitFor(() => expect(setReviewThreadResolved).toHaveBeenCalledWith('trinodb/trino', 0, 501, true));
   });
 

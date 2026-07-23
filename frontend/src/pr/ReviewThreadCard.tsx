@@ -382,49 +382,44 @@ export function ReviewThreadCard({
           full Write/Preview composer (with PolishButtons + Send) once
           the user clicks into it. The Resolve / Unresolve button lives
           on its own row underneath, matching github.com's placement. */}
-      {!visibleFolded && compact && (onReply !== undefined || onSetResolved !== undefined || footerActions !== undefined) && (
-        <div className="prc-review-thread__compact-footer">
-          {onReply !== undefined && (!replyExpanded && body.length === 0 ? (
-            <button
-              type="button"
-              className="prc-review-thread__compact-reply"
-              disabled={actionsDisabled}
-              onClick={() => { if (!actionsDisabled) setReplyExpanded(true); }}
-            >
-              Reply
-            </button>
-          ) : (
-            <div className="prc-review-thread__compact-editor">{replyEditor}</div>
-          ))}
-          {!replyExpanded && resolveButton(true)}
-          {!replyExpanded && footerActions}
+      {!visibleFolded && (onReply !== undefined || onSetResolved !== undefined || footerActions !== undefined) && (
+        <div className={`prc-review-thread__reply${compact ? ' prc-review-thread__reply--compact' : ' prc-review-thread__reply--inline'}`}>
+          {/* Always-visible reply box (avatar + input) matching github.com;
+              clicking the stub expands the full Write/Preview composer. */}
+          {onReply !== undefined && (
+            <div className="prc-review-thread__reply-row">
+              <Avatar
+                login={currentUserLogin ?? ''}
+                size={compact ? 24 : 28}
+                className="prc-review-thread__reply-avatar"
+              />
+              {!replyExpanded && body.length === 0 ? (
+                <input
+                  type="text"
+                  className="prc-review-thread__reply-stub-input"
+                  placeholder="Reply…"
+                  onFocus={() => { if (!actionsDisabled) setReplyExpanded(true); }}
+                  onClick={() => { if (!actionsDisabled) setReplyExpanded(true); }}
+                  disabled={actionsDisabled}
+                  readOnly
+                />
+              ) : (
+                <div className="prc-review-thread__reply-editor">{replyEditor}</div>
+              )}
+            </div>
+          )}
           {error && <div className="pr-comment-box__error">{error}</div>}
-        </div>
-      )}
-      {!visibleFolded && !compact && (onReply !== undefined || onSetResolved !== undefined || footerActions !== undefined) && (
-        <div className="prc-review-thread__reply prc-review-thread__reply--inline">
-          {onReply !== undefined && (!replyExpanded && body.length === 0 ? (
-            <input
-              type="text"
-              className="prc-review-thread__reply-stub-input"
-              placeholder="Reply…"
-              onFocus={() => { if (!actionsDisabled) setReplyExpanded(true); }}
-              onClick={() => { if (!actionsDisabled) setReplyExpanded(true); }}
-              disabled={actionsDisabled}
-              readOnly
-            />
-          ) : (
-            replyEditor
-          ))}
-          {error && <div className="pr-comment-box__error">{error}</div>}
-          {/* Resolve / Unresolve toggle. Only renders when the backend
-              has a GraphQL node id for the thread (i.e. resolved is
-              not null) — without it the GraphQL mutation has nothing
-              to target. Button text mirrors github.com's
-              "Resolve conversation" / "Unresolve conversation". */}
-          {(footerActions !== undefined || (onSetResolved && thread.resolved != null)) && (
+          {/* Resolve / Unresolve on its own row under the reply box, with the
+              "X marked this conversation as resolved" attribution — github.com
+              placement. Button text mirrors "Resolve/Unresolve conversation". */}
+          {(footerActions !== undefined || (onSetResolved !== undefined && thread.resolved != null)) && (
             <div className="prc-review-thread__resolve-row">
               {resolveButton(false)}
+              {thread.resolved === true && thread.resolvedBy != null && thread.resolvedBy !== '' && (
+                <span className="prc-review-thread__resolved-attr">
+                  <strong>{thread.resolvedBy}</strong> marked this conversation as resolved.
+                </span>
+              )}
               {footerActions}
             </div>
           )}

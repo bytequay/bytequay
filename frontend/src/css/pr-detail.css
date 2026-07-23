@@ -1425,14 +1425,43 @@ button.prc-branches__ref--clickable:hover {
   border-color: var(--text-3);
 }
 
+/* Always-visible reply row: avatar on the left, the input box (or expanded
+   composer) taking the rest of the width — github.com's reply layout. */
+.prc-review-thread__reply-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.prc-review-thread__reply-avatar {
+  flex-shrink: 0;
+  border-radius: 50%;
+  margin-top: 2px;
+}
+.prc-review-thread__reply-editor {
+  flex: 1;
+  min-width: 0;
+}
+.prc-review-thread__reply-row .prc-review-thread__reply-stub-input {
+  flex: 1;
+}
+
 /* Row holding the Resolve / Unresolve conversation button under the
-   reply composer. Left-aligned with a small top margin so it reads as
-   a final action rather than part of the composer chrome. */
+   reply composer, plus the "X marked this conversation as resolved"
+   attribution — github.com placement. */
 .prc-review-thread__resolve-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
   margin-top: 2px;
+}
+.prc-review-thread__resolved-attr {
+  font-size: var(--font-size-md);
+  color: var(--text-3);
+}
+.prc-review-thread__resolved-attr strong {
+  color: var(--text-2);
+  font-weight: 600;
 }
 
 /* Fold chevron at the start of the thread header. The whole header stays

@@ -186,7 +186,7 @@ function toPipelinePlan(dto: PlanCardDto, policy: PlanPolicy): Plan {
     .filter(s => s !== '' && s !== goal);
   return {
     rev: dto.revisionCount,
-    status: dto.state === 'locked' ? 'approved' : 'ready',
+    status: dto.state === 'locked' ? 'approved' : dto.state === 'awaiting' ? 'ready' : 'draft',
     goal,
     risk: dto.signals.riskLevel,
     effort: dto.signals.estimatedComplexity,

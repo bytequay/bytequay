@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -221,7 +222,12 @@ public class ProjectLearningStore
      * Persist a bundle's snapshot-pinned evidence, replacing any prior rows for
      * the PR so a re-analysis is idempotent. Asserts the no-cross-SHA invariant:
      * every ref's commit SHA must be one of the bundle's pinned snapshots.
+     *
+     * <p>Transactional so the delete + bundle + ref + chain inserts commit
+     * all-or-nothing: a mid-loop failure rolls back rather than leaving a
+     * half-written bundle that {@code markAnalyzed} would then freeze in place.
      */
+    @Transactional
     public void persistEvidence(PrEvidenceBundle bundle, double priorityScore, long builtAtMs)
     {
         Set<String> pinned = bundle.pinnedShas();

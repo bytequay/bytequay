@@ -1088,7 +1088,7 @@ class PRServiceImpl
     {
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
-        PRComment saved = store.saveComment(comment.withResolved(now()));
+        PRComment saved = store.saveComment(comment.withResolved(now(), PRTimelineEntry.ACTOR_USER));
         notifyUpdated(comment.prId());
         return saved;
     }
@@ -1233,7 +1233,7 @@ class PRServiceImpl
         }
         PRComment saved = store.saveComment(dismissed
                 ? comment.withDismissed(now())
-                : comment.withResolved(now()));
+                : comment.withResolved(now(), PRTimelineEntry.ACTOR_AGENT));
         notifyUpdated(comment.prId());
         return saved;
     }

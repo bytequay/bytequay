@@ -158,6 +158,9 @@ export interface LocalPRComment {
   /** Investigation finding backing this comment. Null/absent for ordinary
    * human and draft comments. */
   findingId?: string | null;
+  /** Actor who resolved the thread ('you' / dev agent id), for the
+   *  "X marked this conversation as resolved" attribution. Null while open. */
+  resolvedBy?: string | null;
 }
 
 /** Everything the `<PRView>` needs, as one bundle a bridge hook resolves. */

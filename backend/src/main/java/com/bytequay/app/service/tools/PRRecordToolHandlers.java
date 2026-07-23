@@ -352,10 +352,10 @@ public class PRRecordToolHandlers
                         "comment " + args.commentId() + " does not belong to this task's local PR");
             }
             if ("dismissed".equals(args.resolution())) {
-                prService.dismissComment(args.commentId());
+                prService.dismissCommentForAgent(args.commentId());
                 return ToolOutcome.Completed.ok("dismissed comment " + args.commentId());
             }
-            prService.resolveComment(args.commentId());
+            prService.resolveCommentForAgent(args.commentId());
             return ToolOutcome.Completed.ok("resolved comment " + args.commentId());
         });
     }

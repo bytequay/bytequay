@@ -3840,12 +3840,16 @@ export type Bridge = {
   resolveReviewComment: (id: string) => Promise<void>;
   /** Re-open a resolved review comment. */
   reopenReviewComment: (id: string) => Promise<void>;
-  /** Publish the task's unresolved local review comments — plus an optional
-   *  top-level body and verdict from the Submit-review drawer — to GitHub.
-   *  Returns how many comments were submitted; turnId is always null. */
+  /** Submit selected (or all) unresolved task-local review comments to the
+   *  Development agent. The review stays private; lifecycle dispatch is
+   *  observed through task state, so turnId is currently null. */
   submitReview: (
     taskId: string,
-    payload?: { body?: string; verdict?: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES' },
+    payload?: {
+      body?: string;
+      verdict?: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
+      commentIds?: string[];
+    },
   ) => Promise<{ submitted: number; turnId: string | null }>;
   /** Backlog items on a thread, oldest-first (trunk Backlog tab). */
   listBacklog: (threadId: string) => Promise<BacklogItemDto[]>;

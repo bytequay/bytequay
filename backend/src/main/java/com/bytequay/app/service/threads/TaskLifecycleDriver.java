@@ -26,19 +26,24 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.checks.ValidationPassResult;
 import com.bytequay.app.service.checks.ValidationPassService;
+import com.bytequay.app.service.localpr.LocalReviewSubmittedEvent;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
@@ -48,9 +53,11 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -81,6 +88,8 @@ public class TaskLifecycleDriver
      *  remote spine in SQL, so this bounds only in-flight tasks — a set
      *  that's tiny in practice and never approaches this ceiling. */
     private static final int SCAN_LIMIT = 200;
+    private static final int TURN_SCAN_LIMIT = 100;
+    private static final String SOURCE_ADDRESS_LOCAL_COMMENTS = "address-local-comments";
 
     /** Phases that are waiting on the PR's remote state, so the linked PR
      *  is worth polling. A task outside these isn't waiting on CI/review,
@@ -90,18 +99,19 @@ public class TaskLifecycleDriver
             TaskPhase.AWAITING_READY,
             TaskPhase.AWAITING_REMOTE_REVIEW);
 
-    /** Phases the local-comments loop watches: the wait state itself, plus
-     *  the addressing state (so a finished or still-in-progress round is
-     *  re-checked every sweep). */
+    /** Phases the local-comments loop watches: the wait state, the addressing
+     *  state, and the post-addressing Brain review recovery state. */
     static final Set<TaskPhase> LOCAL_SPINE = EnumSet.of(
             TaskPhase.AWAITING_PUSH,
-            TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+            TaskPhase.ADDRESSING_LOCAL_COMMENTS,
+            TaskPhase.INTERNAL_REVIEW);
 
     private final TaskStore taskStore;
     private final PullRequestService pullRequests;
     private final TaskPhaseMachine phaseMachine;
     private final WorktreeService worktrees;
     private final ThreadStore threadStore;
+    private final ThreadTurnStore turnStore;
     private final ThreadTurnScheduler scheduler;
     private final NotificationService notifications;
     private final RemoteCommentIngestor commentIngestor;
@@ -112,6 +122,7 @@ public class TaskLifecycleDriver
     private final PRService prService;
     private final TaskTerminalSealer sealer;
     private final ValidationPassService validation;
+    private final BrainReviewService brainReview;
 
     public TaskLifecycleDriver(
             TaskStore taskStore,
@@ -119,6 +130,7 @@ public class TaskLifecycleDriver
             TaskPhaseMachine phaseMachine,
             WorktreeService worktrees,
             ThreadStore threadStore,
+            ThreadTurnStore turnStore,
             ThreadTurnScheduler scheduler,
             NotificationService notifications,
             RemoteCommentIngestor commentIngestor,
@@ -128,13 +140,15 @@ public class TaskLifecycleDriver
             StageStore stageStore,
             PRService prService,
             TaskTerminalSealer sealer,
-            ValidationPassService validation)
+            ValidationPassService validation,
+            BrainReviewService brainReview)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.commentIngestor = requireNonNull(commentIngestor, "commentIngestor is null");
@@ -145,6 +159,7 @@ public class TaskLifecycleDriver
         this.prService = requireNonNull(prService, "prService is null");
         this.sealer = requireNonNull(sealer, "sealer is null");
         this.validation = requireNonNull(validation, "validation is null");
+        this.brainReview = requireNonNull(brainReview, "brainReview is null");
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
@@ -164,12 +179,9 @@ public class TaskLifecycleDriver
         }
     }
 
-    /** Local twin of {@link #reconcile()}: watches a task's local PR for new
-     *  review comments while it holds at {@link TaskPhase#AWAITING_PUSH},
-     *  addresses them autonomously (no gate — the unpushed branch is the
-     *  safety buffer), and returns it to the wait state. A local-only
-     *  concern, so — unlike the remote spine — this never touches the PR /
-     *  GitHub at all. */
+    /** Local twin of {@link #reconcile()}: watches a task's local PR for
+     *  explicitly submitted review batches, dispatches Development, then
+     *  starts a fresh Brain pass before returning to the push gate. */
     @Scheduled(fixedDelay = 60_000, initialDelay = 100_000)
     public void reconcileLocalComments()
     {
@@ -181,6 +193,22 @@ public class TaskLifecycleDriver
                 log.warn("local-comments reconcile for task {} failed: {}", task.id(), e.getMessage());
             }
         }
+    }
+
+    /** Fast path for explicit submission; the scheduled sweep above remains
+     *  the recovery path if the task thread was busy or enqueue failed. */
+    @EventListener
+    public void onLocalReviewSubmitted(LocalReviewSubmittedEvent event)
+    {
+        taskStore.findTaskById(event.taskId()).ifPresent(task -> {
+            try {
+                reconcileLocalTask(task);
+            }
+            catch (RuntimeException e) {
+                log.warn("immediate local-review dispatch for task {} failed: {}",
+                        task.id(), e.getMessage());
+            }
+        });
     }
 
     /** Terminal states whose worktree should already be gone — if one still
@@ -321,9 +349,8 @@ public class TaskLifecycleDriver
         };
     }
 
-    /** Visible for the unit test: check one task's local PR for unaddressed
-     *  comments and drive the {@code AWAITING_PUSH ⇄ ADDRESSING_LOCAL_COMMENTS}
-     *  loop. */
+    /** Visible for the unit test: drive submitted local comments through
+     *  Development and back through Brain review. */
     void reconcileLocalTask(Task task)
     {
         if (task.status() == TaskStatus.NEEDS_ATTENTION
@@ -338,53 +365,116 @@ public class TaskLifecycleDriver
         if (!PR.STATUS_LOCAL_OPEN.equals(pr.status())) {
             return; // nothing to review yet, or already promoted/terminal.
         }
+        if (task.phase() == TaskPhase.INTERNAL_REVIEW) {
+            // INTERNAL_REVIEW is also used by the initial Brain pass. Only a
+            // local-review marker proves this is the post-addressing pass.
+            if (pr.localAddressedThroughAt() != null) {
+                brainReview.reviewAfterLocalComments(pr.id());
+            }
+            return;
+        }
         List<PRComment> comments = prService.comments(pr.id());
-        boolean anyUnaddressed = comments.stream().anyMatch(TaskLifecycleDriver::isUnaddressedLocalComment);
+        List<PRService.LocalReviewSubmission> submissions = prService.localReviewSubmissions(pr.id());
+        Set<String> submittedIds = submissions.stream()
+                .flatMap(submission -> submission.commentIds().stream())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<PRComment> submittedOpen = comments.stream()
+                .filter(TaskLifecycleDriver::isOpenSubmittedRoot)
+                .filter(comment -> submittedIds.contains(comment.id())
+                        || isLegacySubmitted(task, pr, submissions, comment))
+                .toList();
         if (task.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS) {
-            if (anyUnaddressed) {
+            if (!submittedOpen.isEmpty()) {
                 // Still (or newly) has open threads — keep the loop going once
                 // the current turn (if any) goes idle.
-                startAddressLocalComments(task, pr, comments);
+                startAddressLocalComments(
+                        task, pr, submittedOpen, comments,
+                        newestSubmissionAt(pr, submissions, submittedOpen));
             }
             else {
-                Thread thread = threadStore.findThreadById(task.threadId()).orElse(null);
-                if (thread == null || thread.status() != ThreadStatus.IDLE) {
-                    return;
-                }
-                ValidationPassResult result = validation.run(task.id());
-                if (result.passed()) {
+                boolean startBrain = TaskPhaseMachine.withTaskLock(task.id(), () -> {
+                    Task current = taskStore.findTaskById(task.id()).orElse(null);
+                    if (current == null || current.phase() != TaskPhase.ADDRESSING_LOCAL_COMMENTS) {
+                        return false;
+                    }
+                    Thread thread = threadStore.findThreadById(current.threadId()).orElse(null);
+                    if (thread == null || thread.status() != ThreadStatus.IDLE
+                            || hasPendingLocalAddressTurn(current)) {
+                        return false;
+                    }
+                    ValidationPassResult result = validation.run(current.id());
+                    if (!result.passed()) {
+                        phaseMachine.transition(
+                                current.id(), TaskPhase.NEEDS_ATTENTION,
+                                "local_comments_validation_failed", Actor.AGENT);
+                        return false;
+                    }
                     phaseMachine.transition(
-                            task.id(), TaskPhase.AWAITING_PUSH, "local_comments_validated", Actor.AGENT);
-                }
-                else {
-                    phaseMachine.transition(
-                            task.id(), TaskPhase.NEEDS_ATTENTION,
-                            "local_comments_validation_failed", Actor.AGENT);
+                            current.id(), TaskPhase.INTERNAL_REVIEW,
+                            "local_comments_validated", Actor.AGENT);
+                    return true;
+                });
+                if (startBrain) {
+                    brainReview.reviewAfterLocalComments(pr.id());
                 }
             }
             return;
         }
-        // task.phase() == AWAITING_PUSH: only a genuinely new comment (past
-        // the marker) re-triggers the loop — an already-known open thread
-        // means the last round's turn never got to it (thread was busy) and
-        // is retried from the ADDRESSING_LOCAL_COMMENTS branch above instead,
-        // not re-entered here every sweep.
+        // task.phase() == AWAITING_PUSH: only an explicitly submitted review
+        // event past the marker dispatches Development. Open draft comments
+        // remain pending until the user submits them.
         Instant marker = pr.localAddressedThroughAt();
-        boolean hasNew = comments.stream()
-                .filter(TaskLifecycleDriver::isUnaddressedLocalComment)
-                .anyMatch(c -> marker == null || c.createdAt().isAfter(marker));
-        if (hasNew) {
-            startAddressLocalComments(task, pr, comments);
+        List<PRService.LocalReviewSubmission> fresh = submissions.stream()
+                .filter(submission -> marker == null || submission.submittedAt().isAfter(marker))
+                .toList();
+        Set<String> freshIds = fresh.stream()
+                .flatMap(submission -> submission.commentIds().stream())
+                .collect(Collectors.toSet());
+        List<PRComment> freshOpen = submittedOpen.stream()
+                .filter(comment -> freshIds.contains(comment.id()))
+                .toList();
+        if (!freshOpen.isEmpty()) {
+            Instant newest = fresh.stream()
+                    .map(PRService.LocalReviewSubmission::submittedAt)
+                    .max(Instant::compareTo)
+                    .orElseThrow();
+            startAddressLocalComments(task, pr, submittedOpen, comments, newest);
         }
     }
 
-    /** A comment that still needs the agent's attention: not yet resolved or
-     *  dismissed, and not the agent's own comment/reply. */
-    private static boolean isUnaddressedLocalComment(PRComment comment)
+    private static boolean isOpenSubmittedRoot(PRComment comment)
     {
-        return comment.resolvedAt() == null && comment.dismissedAt() == null
-                && !PRTimelineEntry.ACTOR_AGENT.equals(comment.author())
-                && !PRTimelineEntry.ACTOR_BRAIN.equals(comment.author());
+        return PRComment.ORIGIN_LOCAL.equals(comment.origin())
+                && (PRTimelineEntry.ACTOR_USER.equals(comment.author())
+                        || "agent".equals(comment.author()) && comment.findingId() != null)
+                && comment.parentCommentId() == null
+                && comment.resolvedAt() == null
+                && comment.dismissedAt() == null;
+    }
+
+    /** Keep an already-running pre-submission-model batch alive across an
+     *  upgrade without turning newer drafts into submitted comments. */
+    private static boolean isLegacySubmitted(
+            Task task, PR pr, List<PRService.LocalReviewSubmission> submissions, PRComment comment)
+    {
+        if (task.phase() != TaskPhase.ADDRESSING_LOCAL_COMMENTS || !submissions.isEmpty()) {
+            return false;
+        }
+        Instant marker = pr.localAddressedThroughAt();
+        return marker == null || !comment.createdAt().isAfter(marker);
+    }
+
+    private static Instant newestSubmissionAt(
+            PR pr, List<PRService.LocalReviewSubmission> submissions, List<PRComment> comments)
+    {
+        return submissions.stream()
+                .map(PRService.LocalReviewSubmission::submittedAt)
+                .max(Instant::compareTo)
+                .orElseGet(() -> Optional.ofNullable(pr.localAddressedThroughAt())
+                        .orElseGet(() -> comments.stream()
+                                .map(PRComment::createdAt)
+                                .max(Instant::compareTo)
+                                .orElseThrow()));
     }
 
     /**
@@ -393,76 +483,81 @@ public class TaskLifecycleDriver
      * local PR comment directly — no analysis-then-wait step like the remote
      * loop: the branch hasn't been pushed yet, so there's nothing to gate.
      */
-    private void startAddressLocalComments(Task task, PR pr, List<PRComment> comments)
+    private void startAddressLocalComments(
+            Task task, PR pr, List<PRComment> roots, List<PRComment> threadComments, Instant submittedAt)
     {
-        Instant newest = comments.stream()
-                .filter(TaskLifecycleDriver::isUnaddressedLocalComment)
-                .map(PRComment::createdAt)
-                .max(Instant::compareTo)
-                .orElse(null);
-        if (newest == null) {
-            return; // resolved between the caller's check and here.
-        }
-        boolean addressing = TaskPhaseMachine.withTaskLock(task.id(), () -> {
+        TaskPhaseMachine.withTaskLock(task.id(), () -> {
             // Re-read under the same per-task lock Local Review promotion
             // holds through its remote side effects. Exactly one path wins:
             // either this strict edge blocks Push, or Push completes and this
             // stale sweep leaves the now-remote task alone.
             Task current = taskStore.findTaskById(task.id()).orElse(null);
             if (current == null) {
-                return false;
+                return null;
             }
-            if (current.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS) {
-                return true;
-            }
-            if (current.phase() != TaskPhase.AWAITING_PUSH) {
-                return false;
-            }
-            try {
-                phaseMachine.transition(
-                        task.id(), TaskPhase.ADDRESSING_LOCAL_COMMENTS,
-                        "new_local_comments", Actor.AGENT);
-                return true;
-            }
-            catch (ResponseStatusException e) {
-                if (e.getStatusCode().value() == 409) {
-                    return false; // Push won the race; do not mark or enqueue.
+            if (current.phase() != TaskPhase.ADDRESSING_LOCAL_COMMENTS) {
+                if (current.phase() != TaskPhase.AWAITING_PUSH) {
+                    return null;
                 }
-                throw e;
+                try {
+                    phaseMachine.transition(
+                            task.id(), TaskPhase.ADDRESSING_LOCAL_COMMENTS,
+                            "new_local_comments", Actor.AGENT);
+                }
+                catch (ResponseStatusException e) {
+                    if (e.getStatusCode().value() == 409) {
+                        return null; // Push won the race; do not mark or enqueue.
+                    }
+                    throw e;
+                }
             }
+            Optional<Thread> threadOpt = threadStore.findThreadById(current.threadId());
+            if (threadOpt.isEmpty()) {
+                log.warn("address-local-comments: thread {} not found (task {})",
+                        current.threadId(), current.id());
+                return null;
+            }
+            Thread thread = threadOpt.get();
+            if (thread.status() != ThreadStatus.IDLE || hasPendingLocalAddressTurn(current)) {
+                // Busy or durably queued — retried after that turn completes;
+                // never stack a duplicate while scheduler capacity is pending.
+                log.info("address-local-comments: task {} already has active work; retrying next sweep",
+                        current.id());
+                return null;
+            }
+            String prompt = buildLocalAddressingPrompt(pr, roots, threadComments);
+            try {
+                String stageId = stageStore.findLiveStageByType(current.id(), StageType.DEVELOPMENT_STAGE)
+                        .map(s -> s.id().toString())
+                        .orElse(null);
+                scheduler.enqueueTaskTurn(
+                        thread, prompt, current.id(), stageId,
+                        TurnInitiator.unattended(SOURCE_ADDRESS_LOCAL_COMMENTS));
+                // This marker is the revision actually carried by the queued
+                // turn. A newer resubmission that arrives while the turn is
+                // busy stays beyond it and cannot be closed by stale work.
+                prService.markLocalAddressed(pr.id(), submittedAt);
+                log.info("address-local-comments: turn queued for task {}", current.id());
+            }
+            catch (RuntimeException e) {
+                log.warn("address-local-comments enqueue failed for task {}: {}", current.id(), e.getMessage());
+            }
+            return null;
         });
-        if (!addressing) {
-            return;
+    }
+
+    private boolean hasPendingLocalAddressTurn(Task task)
+    {
+        for (ThreadTurnStatus status : List.of(ThreadTurnStatus.QUEUED, ThreadTurnStatus.RUNNING)) {
+            boolean found = turnStore.listTurnsByTaskIdAndStatus(task.threadId(), status, TURN_SCAN_LIMIT).stream()
+                    .anyMatch(turn -> task.id().equals(turn.taskId())
+                            && turn.initiator() != null
+                            && SOURCE_ADDRESS_LOCAL_COMMENTS.equals(turn.initiator().source()));
+            if (found) {
+                return true;
+            }
         }
-        // Advance the marker up front, same reasoning as the remote loop: a
-        // later sweep shouldn't treat this same batch as newly arrived.
-        prService.markLocalAddressed(pr.id(), newest);
-        Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
-        if (threadOpt.isEmpty()) {
-            log.warn("address-local-comments: thread {} not found (task {})", task.threadId(), task.id());
-            return;
-        }
-        Thread thread = threadOpt.get();
-        if (thread.status() != ThreadStatus.IDLE) {
-            // Busy thread — retried next sweep from the ADDRESSING_LOCAL_COMMENTS
-            // branch of reconcileLocalTask; don't stack a turn on a running one.
-            log.info("address-local-comments: thread {} is {} (task {}); retrying next sweep",
-                    thread.id(), thread.status(), task.id());
-            return;
-        }
-        String prompt = buildLocalAddressingPrompt(pr, comments);
-        try {
-            String stageId = stageStore.findLiveStageByType(task.id(), StageType.DEVELOPMENT_STAGE)
-                    .map(s -> s.id().toString())
-                    .orElse(null);
-            scheduler.enqueueTaskTurn(
-                    thread, prompt, task.id(), stageId,
-                    TurnInitiator.unattended("address-local-comments"));
-            log.info("address-local-comments: turn queued for task {}", task.id());
-        }
-        catch (RuntimeException e) {
-            log.warn("address-local-comments enqueue failed for task {}: {}", task.id(), e.getMessage());
-        }
+        return false;
     }
 
     /** The local-addressing turn's prompt: every still-open comment, and a
@@ -470,7 +565,8 @@ public class TaskLifecycleDriver
      *  of {@link #buildReviewAnalysisPrompt}, minus the "stop and wait" step
      *  (decision: local addressing is autonomous; the unpushed branch is the
      *  safety net, not a human gate). */
-    private static String buildLocalAddressingPrompt(PR pr, List<PRComment> comments)
+    private static String buildLocalAddressingPrompt(
+            PR pr, List<PRComment> roots, List<PRComment> threadComments)
     {
         StringBuilder out = new StringBuilder();
         out.append("New comments arrived on your local PR \"").append(pr.title()).append("\". ")
@@ -488,8 +584,8 @@ public class TaskLifecycleDriver
                         + "resolution='dismissed').\n\n")
                 .append("Open comments:\n");
         int i = 1;
-        for (PRComment comment : comments) {
-            if (!isUnaddressedLocalComment(comment)) {
+        for (PRComment comment : roots) {
+            if (!isOpenSubmittedRoot(comment)) {
                 continue;
             }
             out.append('\n').append(i++).append(". [id: ").append(comment.id()).append("] ");
@@ -503,6 +599,13 @@ public class TaskLifecycleDriver
                     .append("   @").append(comment.author()).append(": ")
                     .append(comment.body() == null ? "" : comment.body().strip())
                     .append('\n');
+            for (PRComment reply : threadComments) {
+                if (comment.id().equals(reply.parentCommentId())) {
+                    out.append("   Reply @").append(reply.author()).append(": ")
+                            .append(reply.body() == null ? "" : reply.body().strip())
+                            .append('\n');
+                }
+            }
         }
         return out.toString();
     }

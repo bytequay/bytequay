@@ -48,6 +48,7 @@ import { TaskChangedFilesCard } from './TaskChangedFilesCard';
 import type { WsNavKey } from '../ui/workspace';
 import PublishGatePane from '../PublishGatePane';
 import { deriveLocalReviewApproval, deriveLocalReviewGate } from '../pr/localpr/localReviewGate';
+import { activelySubmittedCommentIds } from '../pr/localpr/localReviewSubmission';
 
 /**
  * Data adapter that mounts the V3 {@link TaskBrainPage} on the live brain
@@ -113,26 +114,35 @@ export function TaskBrainRoute({
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
+  const pendingLocalReviewRoots = useMemo(() => {
+    const submitted = activelySubmittedCommentIds(localPrBundle?.timeline ?? []);
+    return (localPrBundle?.comments ?? [])
+      .filter(comment => isPublishableReviewDraft(comment) && !submitted.has(comment.id));
+  }, [localPrBundle]);
 
-  // Publishes the Submit-review drawer's body/verdict and this task's
-  // unresolved diff comments to GitHub.
+  // Submits the selected private review comments to Development. Task-owned
+  // comments never publish to GitHub.
   const [submittingReview, setSubmittingReview] = useState(false);
   const onSubmitReview = useCallback(async (body: string, verdict: ReviewVerdict) => {
     setSubmittingReview(true);
     try {
-      await window.bridge.submitReview(taskId, { body, verdict });
+      await window.bridge.submitReview(taskId, {
+        body, verdict, commentIds: pendingLocalReviewRoots.map(comment => comment.id),
+      });
       pollFast();
     } finally {
       setSubmittingReview(false);
     }
-  }, [taskId, pollFast]);
-  const submitAgentFindingsToTask = useCallback(async (verdict: ReviewVerdict, comments: Array<{ body: string }>) => {
+  }, [taskId, pendingLocalReviewRoots, pollFast]);
+  const submitAgentFindingsToTask = useCallback(async (verdict: ReviewVerdict, comments: Array<{ id: string }>) => {
     await window.bridge.submitReview(taskId, {
-      body: comments.map(comment => comment.body).join('\n\n'), verdict,
+      commentIds: comments.map(comment => comment.id), verdict,
     });
     pollFast();
   }, [pollFast, taskId]);
   const agentReview = useAgentReviewState(localPrBundle, refreshLocalPr, submitAgentFindingsToTask);
+  const canSubmitLocalReview = localPrBundle?.pr.origin === 'task'
+    && localPrBundle.pr.status === 'local-open';
   const [agentRoundId, setAgentRoundId] = useState<string | null>(null);
   const [selectedAgentFinding, setSelectedAgentFinding] = useState<string | null>(null);
   const [selectedAgentFile, setSelectedAgentFile] = useState<string | null>(null);
@@ -158,8 +168,8 @@ export function TaskBrainRoute({
     setAgentRoundId(selected);
   };
   const pendingReviewComments = useMemo(
-    () => (localPrBundle?.comments ?? []).filter(isPublishableReviewDraft).map(diffInlineCommentFromLocalPr),
-    [localPrBundle],
+    () => pendingLocalReviewRoots.map(diffInlineCommentFromLocalPr),
+    [pendingLocalReviewRoots],
   );
 
   // Force-opens the right-pane PR tab from task actions. A fresh token
@@ -779,7 +789,9 @@ export function TaskBrainRoute({
       onToggle={agentReview.toggleFinding}
       onEdit={agentReview.updateComment}
       onRemove={removeReviewComment}
-      onSubmit={prCapabilities?.publishReview === true ? agentReview.submitReview : undefined}
+      onSubmit={prCapabilities?.publishReview === true || canSubmitLocalReview
+        ? agentReview.submitReview
+        : undefined}
     />
   );
   const taskPrView = displayedTaskBundle != null && prCapabilities !== null ? (
@@ -814,7 +826,9 @@ export function TaskBrainRoute({
           onAnswerFinding={agentReview.answerFinding}
           onSetFindingResolved={agentReview.setFindingResolved}
           onBack={() => setReviewOpen(false)}
-          onSubmitReview={prCapabilities.publishReview ? onSubmitReview : undefined}
+          onSubmitReview={prCapabilities.publishReview || canSubmitLocalReview
+            ? onSubmitReview
+            : undefined}
           submittingReview={submittingReview}
           reviewData={agentReview.data ?? undefined}
           selectedFindingId={selectedAgentFinding}
@@ -943,7 +957,9 @@ export function TaskBrainRoute({
           ?? displayedTaskBundle.commits.reduce((sum, commit) => sum + commit.deletions, 0),
         onOpen: () => openTab('pr', 'changes'),
       } : undefined}
-      onSubmitReview={prCapabilities?.publishReview === true ? onSubmitReview : undefined}
+      onSubmitReview={prCapabilities?.publishReview === true || canSubmitLocalReview
+        ? onSubmitReview
+        : undefined}
       submittingReview={submittingReview}
       pendingReviewComments={pendingReviewComments}
       onRemovePendingReviewComment={deleteLocalComment}

@@ -40,6 +40,16 @@ import java.util.Set;
  */
 public interface PRService
 {
+    /** One private user-review submission recorded on the local PR timeline. */
+    record LocalReviewSubmission(
+            Instant submittedAt, List<String> commentIds, String body, String verdict, String bodyCommentId)
+    {
+        public LocalReviewSubmission
+        {
+            commentIds = List.copyOf(commentIds == null ? List.of() : commentIds);
+        }
+    }
+
     // ── reads ────────────────────────────────────────────────────────────
     Optional<PR> findByTask(String taskId);
 
@@ -65,6 +75,12 @@ public interface PRService
     List<PRCommit> commits(String prId);
 
     List<PRTimelineEntry> timeline(String prId);
+
+    /** Private user-review batches submitted to Development, with each
+     *  batch's comment ids reduced to the latest transition for that root.
+     *  A later {@code updated}/{@code reopened} event makes the root pending;
+     *  a later submission reactivates it. */
+    List<LocalReviewSubmission> localReviewSubmissions(String prId);
 
     List<PRCheck> checks(String prId);
 
@@ -251,12 +267,20 @@ public interface PRService
     /** Resolve a comment (marks {@code resolvedAt}) — the agent addressed it. */
     PRComment resolveComment(String commentId);
 
+    /** Resolve from an agent turn only if the submitted root has not changed
+     *  since the batch was dispatched to that turn. */
+    PRComment resolveCommentForAgent(String commentId);
+
     /** Reopen a previously resolved/dismissed comment thread. */
     PRComment reopenComment(String commentId);
 
     /** Dismiss a comment (marks {@code dismissedAt}) — closed without action,
      *  the other terminal state alongside {@code resolveComment}. */
     PRComment dismissComment(String commentId);
+
+    /** Agent equivalent of {@link #dismissComment}, with the same submitted-
+     *  revision guard as {@link #resolveCommentForAgent}. */
+    PRComment dismissCommentForAgent(String commentId);
 
     /** Mark a draft comment published — {@code publish-review} batched it into
      *  one GitHub review (external PRs only; task-origin drafts are stripped
@@ -291,6 +315,11 @@ public interface PRService
      *  {@link #hasRemoteEvent}. */
     void recordRemoteReview(
             String prId, String reviewer, String verdict, String body, Instant when, long remoteReviewId);
+
+    /** Record a private user-review batch. This is the local dispatch signal;
+     *  it never calls GitHub. */
+    void recordLocalReviewSubmission(
+            String prId, List<String> commentIds, String body, String verdict, String bodyCommentId);
 
     /** Append a local investigation-review event to the unified PR timeline. */
     void recordReviewEvent(String prId, String actor, String payloadJson);

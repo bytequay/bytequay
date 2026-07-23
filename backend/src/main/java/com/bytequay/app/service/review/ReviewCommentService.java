@@ -28,8 +28,8 @@ import java.util.UUID;
  */
 public interface ReviewCommentService
 {
-    /** The handle {@link #submitReview} returns: how many unresolved local
-     *  comments were published. The turn id remains null for compatibility. */
+    /** The handle {@link #submitReview} returns: how many local roots were
+     *  submitted to Development. The turn id remains null for compatibility. */
     record SubmitResult(int submitted, String turnId) {}
 
     /** Add a new user-authored local PR comment on {@code taskId}'s diff at
@@ -50,12 +50,16 @@ public interface ReviewCommentService
     void reopen(UUID commentId);
 
     /**
-     * Bundle the task's unresolved {@code LOCAL_USER} comments — plus an
-     * optional top-level {@code body} and {@code verdict} label ({@code
-     * COMMENT}/{@code APPROVE}/{@code REQUEST_CHANGES}) — into a markdown
-     * turn and steer the task's active development stage's dev agent to
-     * address them. No-op (0 submitted, null turn) when there are no
-     * unresolved local comments and {@code body} is blank.
+     * Persist a private review batch and dispatch it to Development. A null
+     * {@code commentIds} selects pending user roots; explicit ids may also
+     * select finding-backed Agent Review roots. A nonblank body is persisted
+     * as a replyable PR-scoped root in the same batch. Nothing is sent to
+     * GitHub.
      */
-    SubmitResult submitReview(String taskId, String body, String verdict);
+    default SubmitResult submitReview(String taskId, String body, String verdict)
+    {
+        return submitReview(taskId, body, verdict, null);
+    }
+
+    SubmitResult submitReview(String taskId, String body, String verdict, List<String> commentIds);
 }

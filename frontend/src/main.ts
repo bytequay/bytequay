@@ -4673,10 +4673,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof taskId !== 'string' || taskId.trim().length === 0) {
       throw new Error('taskId must be a non-empty string');
     }
-    const params = (payload ?? {}) as { body?: unknown; verdict?: unknown };
+    const params = (payload ?? {}) as { body?: unknown; verdict?: unknown; commentIds?: unknown };
     const body = {
       body: typeof params.body === 'string' ? params.body : '',
       verdict: typeof params.verdict === 'string' ? params.verdict : '',
+      commentIds: Array.isArray(params.commentIds)
+        ? params.commentIds.filter((id): id is string => typeof id === 'string')
+        : null,
     };
     const res = await fetch(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/submit-review`,

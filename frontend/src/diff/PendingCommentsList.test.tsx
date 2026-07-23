@@ -15,7 +15,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ReviewTabPendingList } from './PendingCommentsList';
 import {
-  diffInlineCommentFromReviewDto, isPublishableReviewDraft, type DiffInlineComment,
+  diffInlineCommentFromLocalPr, diffInlineCommentFromReviewDto, isPublishableReviewDraft, type DiffInlineComment,
 } from './DiffInlineComments';
 import type { ReviewCommentDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
@@ -69,9 +69,9 @@ describe('ReviewTabPendingList', () => {
           }),
           pending({
             id: 'c2',
-            author: 'AI Reviewer',
+            author: 'brain',
             body: 'This can silently swallow an error.',
-            sourceLabel: 'AGENT',
+            sourceLabel: 'BRAIN',
             lineNumber: 89,
           }),
         ]}
@@ -83,7 +83,7 @@ describe('ReviewTabPendingList', () => {
     expect(screen.getByText('IcebergMetadata.java · R55')).toBeTruthy();
     expect(screen.getByText('IcebergMetadata.java · R89')).toBeTruthy();
     expect(screen.getByAltText('chenjian2664')).toBeTruthy();
-    expect(screen.getByText('AGENT')).toBeTruthy();
+    expect(screen.getByText('BRAIN')).toBeTruthy();
     expect(container.querySelector('.review-pending__card--bot')).not.toBeNull();
     expect(container.querySelector('.review-pending__card--you')).not.toBeNull();
   });
@@ -105,5 +105,36 @@ describe('ReviewTabPendingList', () => {
     } satisfies ReviewCommentDto);
 
     expect(mapped.author).toBe('chenjian2664');
+  });
+
+  it('maps local review findings to the Brain role without leaking their persisted author id', () => {
+    const mapped = diffInlineCommentFromReviewDto({
+      id: 'b1', taskId: 'task-1', file: 'src/Foo.ts', line: 12, side: 'RIGHT',
+      startLine: null, startSide: null, body: 'review finding', createdAt: Date.now(),
+      source: 'LOCAL_AGENT', author: 'openai', resolved: false,
+    } satisfies ReviewCommentDto);
+
+    expect(mapped.author).toBe('brain');
+    expect(mapped.sourceLabel).toBe('BRAIN');
+  });
+
+  it('presents finding authors as Brain and implementation replies as Dev', () => {
+    const comment = (author: string, findingId: string | null): LocalPRComment => ({
+      id: author, localPrId: 'pr-1', origin: 'local', scope: 'file-line', filePath: 'src/Foo.ts',
+      lineNumber: 12, side: 'RIGHT', startLine: null, startSide: null, author, body: 'reply',
+      createdAt: 1, resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
+      parentCommentId: null, publishedAt: null, findingId,
+    });
+
+    expect(diffInlineCommentFromLocalPr(comment('openai', 'finding-1'))).toMatchObject({
+      author: 'brain', sourceLabel: 'BRAIN',
+    });
+    expect(diffInlineCommentFromLocalPr(comment('claude-code', null))).toMatchObject({
+      author: 'dev', sourceLabel: 'DEV',
+    });
+    const ordinaryUserComment: LocalPRComment = { ...comment('you', null), findingId: undefined };
+    expect(diffInlineCommentFromLocalPr(ordinaryUserComment)).toMatchObject({
+      author: 'you', sourceLabel: undefined,
+    });
   });
 });

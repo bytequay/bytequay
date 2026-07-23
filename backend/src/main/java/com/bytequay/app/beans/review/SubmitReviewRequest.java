@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.beans.review;
 
-/** Body for submitting a review: an optional free-text top-level comment and
- *  verdict ({@code COMMENT} / {@code APPROVE} / {@code REQUEST_CHANGES}) —
- *  folded into the steering turn alongside any unresolved line comments.
- *  Both fields are optional; either may be blank/null. */
-public record SubmitReviewRequest(String body, String verdict)
+import java.util.List;
+
+/** Body for submitting a private local review: optional selected comment ids,
+ *  a free-text PR-level comment, and a verdict ({@code COMMENT} / {@code
+ *  APPROVE} / {@code REQUEST_CHANGES}). A null {@code commentIds} selects all
+ *  pending user roots; an explicit list dispatches only those roots. */
+public record SubmitReviewRequest(String body, String verdict, List<String> commentIds)
 {
 }

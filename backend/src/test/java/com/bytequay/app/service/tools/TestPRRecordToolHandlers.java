@@ -189,8 +189,8 @@ class TestPRRecordToolHandlers
                 new ResolvePrCommentArgs("cm1", "addressed"), taskCall);
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
-        verify(prService).resolveComment("cm1");
-        verify(prService, never()).dismissComment(any());
+        verify(prService).resolveCommentForAgent("cm1");
+        verify(prService, never()).dismissCommentForAgent(any());
     }
 
     @Test
@@ -201,8 +201,8 @@ class TestPRRecordToolHandlers
                 new ResolvePrCommentArgs("cm1", "dismissed"), taskCall);
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
-        verify(prService).dismissComment("cm1");
-        verify(prService, never()).resolveComment(any());
+        verify(prService).dismissCommentForAgent("cm1");
+        verify(prService, never()).resolveCommentForAgent(any());
     }
 
     @Test
@@ -214,8 +214,8 @@ class TestPRRecordToolHandlers
                 new ResolvePrCommentArgs("foreign-comment", "addressed"), taskCall);
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
-        verify(prService, never()).resolveComment("foreign-comment");
-        verify(prService, never()).dismissComment("foreign-comment");
+        verify(prService, never()).resolveCommentForAgent("foreign-comment");
+        verify(prService, never()).dismissCommentForAgent("foreign-comment");
     }
 
     @Test
@@ -225,8 +225,8 @@ class TestPRRecordToolHandlers
                 new ResolvePrCommentArgs(null, null), taskCall);
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
-        verify(prService, never()).resolveComment(any());
-        verify(prService, never()).dismissComment(any());
+        verify(prService, never()).resolveCommentForAgent(any());
+        verify(prService, never()).dismissCommentForAgent(any());
     }
 
     @Test

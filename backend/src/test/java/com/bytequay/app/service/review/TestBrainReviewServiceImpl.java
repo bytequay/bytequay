@@ -375,6 +375,66 @@ class TestBrainReviewServiceImpl
     }
 
     @Test
+    void localUserFixesOpenAFreshBrainRoundOnTheAlreadyOpenPr()
+    {
+        PR open = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW)
+                .withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        when(prService.findById("pr1")).thenReturn(Optional.of(open));
+        Task task = taskAt(TaskPhase.INTERNAL_REVIEW);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        when(roundStore.findByTask(TASK_ID)).thenReturn(List.of(brainRound(ReviewRound.STATUS_CLOSED)));
+        when(roundStore.nextIndex(TASK_ID)).thenReturn(2);
+        AgentRun run = new AgentRun(
+                "run2", TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "stage2", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.open(eq(TASK_ID), eq(AgentRun.KIND_REVIEW_ROUND), eq(AgentRun.SOURCE_LOCAL),
+                any(), eq(StageType.REVIEW_ROUND_STAGE), any())).thenReturn(run);
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+
+        service.reviewAfterLocalComments("pr1");
+
+        verify(roundStore).save(argThat(round -> round.idx() == 2
+                && ReviewRound.ORIGIN_BRAIN.equals(round.origin())
+                && ReviewRound.STATUS_TRIAGING.equals(round.status())
+                && "run2".equals(round.runId())));
+        verify(scheduler).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq("stage2"),
+                argThat(initiator -> "brain-review".equals(initiator.source())), eq("run2"));
+        verify(prService, never()).requestUserReview(any(), any());
+    }
+
+    @Test
+    void freshBrainRoundAdoptsAnyOlderOpenBrainRootsBeforeReviewingAgain()
+    {
+        PR open = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW)
+                .withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        when(prService.findById("pr1")).thenReturn(Optional.of(open));
+        when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(open));
+        when(prService.comments("pr1")).thenReturn(List.of(brainComment(
+                "older-root", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 12, "Still open")));
+        Task task = taskAt(TaskPhase.INTERNAL_REVIEW);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        when(roundStore.findByTask(TASK_ID)).thenReturn(List.of(brainRound(ReviewRound.STATUS_CLOSED)));
+        when(roundStore.nextIndex(TASK_ID)).thenReturn(2);
+        AgentRun run = new AgentRun(
+                "run2", TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "stage2", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.open(eq(TASK_ID), eq(AgentRun.KIND_REVIEW_ROUND), eq(AgentRun.SOURCE_LOCAL),
+                any(), eq(StageType.REVIEW_ROUND_STAGE), any())).thenReturn(run);
+        when(threadStore.findThreadById(task.threadId())).thenReturn(Optional.of(idleTaskThread()));
+
+        service.reviewAfterLocalComments("pr1");
+
+        verify(scheduler).enqueueTaskTurn(
+                any(), argThat(prompt -> prompt.contains("[id: older-root]")), eq(TASK_ID), eq("stage2"),
+                argThat(initiator -> "brain-review-fix".equals(initiator.source())), eq("run2"));
+        verify(roundStore).save(argThat(round -> round.idx() == 2
+                && round.iteration() == 0
+                && ReviewRound.STATUS_ADDRESSING.equals(round.status())));
+        verify(prService, never()).recordBrainReviewStarted(anyString(), anyString(), anyInt(), anyString());
+    }
+
+    @Test
     void aChangesRequestedVerdictWithBudgetRemainingEnqueuesAFixTurn()
     {
         ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING).withBrainVerdict(
@@ -391,16 +451,23 @@ class TestBrainReviewServiceImpl
         when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(taskThread));
         PR drafted = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
         when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
-        when(prService.comments("pr1")).thenReturn(List.of(brainComment(
-                "c1", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Guard the null branch")));
+        PRComment root = brainComment(
+                "c1", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Guard the null branch");
+        PRComment clarification = new PRComment(
+                "c2", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java", 42, PRTimelineEntry.ACTOR_USER,
+                "Please preserve the original exception too.", NOW,
+                null, null, null, root.id(), null, "RIGHT", null, null);
+        when(prService.comments("pr1")).thenReturn(List.of(root, clarification));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-5", false));
 
         verify(scheduler).enqueueTaskTurn(
                 eq(taskThread),
                 argThat(prompt -> prompt.contains("[id: c1]")
-                        && prompt.contains("src/Foo.java:42")
+                          && prompt.contains("src/Foo.java:42")
                           && prompt.contains("Guard the null branch")
+                          && prompt.contains("Reply @you: Please preserve the original exception too.")
                           && prompt.contains("parent_comment_id")
                           && prompt.contains("push back if you disagree")
                           && prompt.contains("resolution='dismissed'")
@@ -494,6 +561,131 @@ class TestBrainReviewServiceImpl
         // auto_merge's push trigger listens for this instead of the manual
         // Local Review button.
         verify(events).publishEvent(new LocalReviewClearedEvent(TASK_ID, "pr1", true));
+    }
+
+    @Test
+    void approvedVerdictCannotBypassAnOpenBrainRoot()
+    {
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING).withBrainVerdict(
+                ReviewRound.VERDICT_APPROVED);
+        when(turnStore.findTurnById("approved-with-root")).thenReturn(Optional.of(turn(
+                "run-stage", TurnInitiator.unattended("brain-review"))));
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(triaging));
+        Task task = taskAt(TaskPhase.INTERNAL_REVIEW);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        AgentRun run = new AgentRun(
+                triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
+        when(threadStore.findThreadById(task.threadId())).thenReturn(Optional.of(idleTaskThread()));
+        PR open = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW)
+                .withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(open));
+        when(prService.comments("pr1")).thenReturn(List.of(brainComment(
+                "still-open", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 10, "Fix this first")));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "approved-with-root", false));
+
+        verify(scheduler).enqueueTaskTurn(
+                any(), argThat(prompt -> prompt.contains("[id: still-open]")), eq(TASK_ID), eq("run-stage"),
+                argThat(initiator -> "brain-review-fix".equals(initiator.source())), eq(triaging.runId()));
+        verify(roundStore, never()).save(argThat(round -> ReviewRound.STATUS_CLOSED.equals(round.status())));
+        verify(phaseMachine, never()).transition(
+                eq(TASK_ID), eq(TaskPhase.AWAITING_PUSH), anyString(), any());
+        verify(prService, never()).requestUserReview(anyString(), anyString());
+    }
+
+    @Test
+    void approvedReReviewOfAnOpenLocalPrReturnsToThePushGateWithoutFlippingItAgain()
+    {
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING).withBrainVerdict(
+                ReviewRound.VERDICT_APPROVED);
+        when(turnStore.findTurnById("local-rereview")).thenReturn(Optional.of(turn(
+                "run-stage", TurnInitiator.unattended("brain-review"))));
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(triaging));
+        Task task = taskAt(TaskPhase.INTERNAL_REVIEW);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        AgentRun run = new AgentRun(
+                triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
+        PR open = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW)
+                .withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(open));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "local-rereview", false));
+
+        verify(phaseMachine).transition(
+                TASK_ID, TaskPhase.AWAITING_PUSH, "local_review_reverified", Actor.AGENT);
+        verify(prService, never()).requestUserReview(anyString(), anyString());
+        verify(events, never()).publishEvent(any(LocalReviewClearedEvent.class));
+    }
+
+    @Test
+    void completedBrainFixRetriesDevelopmentWhileABrainRootRemainsOpen()
+    {
+        ReviewRound addressing = brainRound(ReviewRound.STATUS_ADDRESSING).withIterationBumped();
+        ThreadTurn completed = runTurn(
+                "run-stage", "brain-review-fix", ThreadTurnStatus.COMPLETED, addressing.runId(),
+                "prompt\n\n[brain-fix-iteration:1]");
+        when(turnStore.findTurnById("brain-fix-open")).thenReturn(Optional.of(completed));
+        when(turnStore.listTurnsByAgentRunId(addressing.runId(), 100)).thenReturn(List.of(completed));
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(addressing));
+        Task task = taskAt(TaskPhase.INTERNAL_REVIEW);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        AgentRun run = new AgentRun(
+                addressing.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(addressing.runId())).thenReturn(Optional.of(run));
+        when(threadStore.findThreadById(task.threadId())).thenReturn(Optional.of(idleTaskThread()));
+        PR open = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW)
+                .withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(open));
+        when(prService.comments("pr1")).thenReturn(List.of(brainComment(
+                "still-open", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 10, "Fix this first")));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "brain-fix-open", false));
+
+        verify(validation, never()).run(anyString());
+        verify(scheduler).enqueueTaskTurn(
+                any(), argThat(prompt -> prompt.contains("[id: still-open]")), eq(TASK_ID), eq("run-stage"),
+                argThat(initiator -> "brain-review-fix".equals(initiator.source())), eq(addressing.runId()));
+        verify(roundStore, never()).save(argThat(round -> ReviewRound.STATUS_TRIAGING.equals(round.status())));
+    }
+
+    @Test
+    void repeatedCompletedFixesThatLeaveBrainRootsOpenParkForTheUser()
+    {
+        ReviewRound addressing = brainRound(ReviewRound.STATUS_ADDRESSING).withIterationBumped();
+        ThreadTurn completed = runTurn(
+                "run-stage", "brain-review-fix", ThreadTurnStatus.COMPLETED, addressing.runId(),
+                "prompt\n\n[brain-fix-iteration:1]");
+        when(turnStore.findTurnById("brain-fix-open")).thenReturn(Optional.of(completed));
+        when(turnStore.listTurnsByAgentRunId(addressing.runId(), 100)).thenReturn(List.of(
+                completed,
+                runTurn("run-stage", "brain-review-fix", ThreadTurnStatus.COMPLETED, addressing.runId(),
+                        "retry 2\n\n[brain-fix-iteration:1]"),
+                runTurn("run-stage", "brain-review-fix", ThreadTurnStatus.COMPLETED, addressing.runId(),
+                        "retry 1\n\n[brain-fix-iteration:1]")));
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(addressing));
+        Task task = taskAt(TaskPhase.INTERNAL_REVIEW);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        AgentRun run = new AgentRun(
+                addressing.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(addressing.runId())).thenReturn(Optional.of(run));
+        PR open = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW)
+                .withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(open));
+        when(prService.comments("pr1")).thenReturn(List.of(brainComment(
+                "still-open", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 10, "Fix this first")));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "brain-fix-open", false));
+
+        verify(phaseMachine).transition(
+                TASK_ID, TaskPhase.NEEDS_ATTENTION, "brain_findings_unresolved", Actor.AGENT);
+        verify(scheduler, never()).enqueueTaskTurn(
+                any(), anyString(), anyString(), anyString(), any(), anyString());
     }
 
     @Test
@@ -717,6 +909,35 @@ class TestBrainReviewServiceImpl
                         && r.iteration() == 2
                         && r.brainVerdict() == null));
         verify(phaseMachine, never()).transition(anyString(), any(), anyString(), any());
+    }
+
+    @Test
+    void adoptedOpenFindingsAdvanceFromTheirZeroIterationFixIntoTheFirstReview()
+    {
+        ReviewRound addressing = brainRound(ReviewRound.STATUS_ADDRESSING);
+        when(roundStore.findAllLive()).thenReturn(List.of(addressing));
+        Task task = taskAt(TaskPhase.INTERNAL_REVIEW);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        AgentRun run = new AgentRun(
+                addressing.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(addressing.runId())).thenReturn(Optional.of(run));
+        when(threadStore.findThreadById(task.threadId())).thenReturn(Optional.of(idleTaskThread()));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+        when(validation.run(TASK_ID)).thenReturn(new ValidationPassResult(true, 0, List.of()));
+        when(turnStore.listTurnsByAgentRunId(addressing.runId(), 100)).thenReturn(List.of(
+                runTurn("run-stage", "brain-review-fix", ThreadTurnStatus.COMPLETED, addressing.runId())));
+
+        service.reconcileStalledRounds();
+
+        verify(scheduler).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq("run-stage"),
+                argThat(i -> "brain-review".equals(i.source())), anyString());
+        verify(roundStore).save(argThat(
+                r -> ReviewRound.STATUS_TRIAGING.equals(r.status())
+                        && r.iteration() == 1
+                        && r.brainVerdict() == null));
+        verify(prService).recordBrainReviewStarted(TASK_ID, "dev", 1, addressing.id());
     }
 
     @Test

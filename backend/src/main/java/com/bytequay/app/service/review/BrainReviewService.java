@@ -39,6 +39,11 @@ public interface BrainReviewService
      */
     PR reviewBeforeLocalOpen(String prId, String actor);
 
+    /** Start a fresh adversarial round after Development addressed an
+     *  explicitly submitted local user-review batch. The PR is already
+     *  {@code local-open}; approval returns the task to the same push gate. */
+    void reviewAfterLocalComments(String prId);
+
     /**
      * The R21(b) round lock point: called once an external round's
      * addressing turn finishes, instead of arming {@code awaiting_gate}

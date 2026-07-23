@@ -18,6 +18,7 @@ import type { WorkspaceRepoDto } from '../types';
 import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
 import type { AgentReviewHeaderState, AgentReviewStartOptions } from './AgentReviewHeaderAction';
 import type { AgentReviewData } from './agentReviewTypes';
+import { localReviewSubmissionTransitions } from '../pr/localpr/localReviewSubmission';
 
 type ReviewIdentity = { prId: string | null; generation: number };
 type PendingEdit = {
@@ -51,6 +52,8 @@ function keepPendingEditBodies(
 export function useAgentReviewState(
   bundle: LocalPRBundle | null | undefined,
   refreshPr: () => void,
+  /** Task-owned PRs dispatch the selected private comments to Development
+   *  through this callback. External PRs keep using GitHub's review API. */
   beforePublish?: (verdict: ReviewVerdict, comments: LocalPRComment[]) => Promise<void>,
   workspaceId?: string | null,
   /** AgentColumn can be opened immediately after an optimistic start. Keep
@@ -63,6 +66,9 @@ export function useAgentReviewState(
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [publishedCommentIds, setPublishedCommentIds] = useState(() => new Set<string>());
+  const [optimisticSubmissions, setOptimisticSubmissions] = useState(
+    () => new Map<string, string | null>(),
+  );
   const pendingEdits = useRef(new Map<string, PendingEdit>());
   const identity = useRef({ prId, generation: 0 });
   const dataOrigin = useRef<ReviewIdentity | null>(null);
@@ -118,6 +124,7 @@ export function useAgentReviewState(
     setError(null);
     setStarting(false);
     setPublishedCommentIds(new Set());
+    setOptimisticSubmissions(new Map());
     if (prId === null) return;
     const generation = identity.current.generation;
     setLoading(true);
@@ -311,17 +318,38 @@ export function useAgentReviewState(
     }));
   }, [data, mutate]);
 
+  const submissionTransitions = useMemo(() => localReviewSubmissionTransitions([
+    ...(bundle?.timeline ?? []), ...(data?.pr_timeline_events ?? []),
+  ]), [bundle?.timeline, data?.pr_timeline_events]);
+  const submittedCommentIds = useMemo(() => {
+    const ids = new Set([...submissionTransitions]
+      .filter(([, state]) => state.submitted)
+      .map(([id]) => id));
+    for (const [id, baseEventId] of optimisticSubmissions) {
+      if ((submissionTransitions.get(id)?.eventId ?? null) === baseEventId) ids.add(id);
+    }
+    return ids;
+  }, [optimisticSubmissions, submissionTransitions]);
+
   const submitReview = useCallback((verdict: ReviewVerdict) => {
     if (prId === null || data === null) return;
+    const taskOwned = bundle?.pr.origin === 'task';
+    if (taskOwned && bundle?.pr.status !== 'local-open') {
+      setError('Local Review is closed; task findings can no longer be sent to Development.');
+      return;
+    }
+    const alreadyHandled = (commentId: string) => taskOwned
+      ? submittedCommentIds.has(commentId)
+      : publishedCommentIds.has(commentId);
     const includedFindings = data.pr_comments.filter(comment => {
       const finding = data.findings.find(row => row.id === comment.findingId);
       return comment.parentCommentId === null && comment.findingId != null
-        && !publishedCommentIds.has(comment.id) && isPendingLocalComment(comment)
+        && !alreadyHandled(comment.id) && isPendingLocalComment(comment)
         && finding?.lifecycle_status === 'included';
     });
     const manualDrafts = bundle?.comments.filter(comment => comment.findingId == null
       && comment.parentCommentId === null
-      && !publishedCommentIds.has(comment.id)
+      && !alreadyHandled(comment.id)
       && isPendingLocalComment(comment)) ?? [];
     const included = [...includedFindings, ...manualDrafts];
     const origin = { ...identity.current };
@@ -346,21 +374,36 @@ export function useAgentReviewState(
       assertOrigin();
       await beforePublish?.(verdict, included);
       assertOrigin();
-      await window.bridge.publishLocalPrReview(prId, {
-        verdict,
-        findingIds: includedFindings.flatMap(comment => comment.findingId == null ? [] : [comment.findingId]),
-        comments: included.map(comment => comment.id),
-      });
+      if (taskOwned) {
+        if (beforePublish === undefined) {
+          throw new Error('task review dispatch is unavailable');
+        }
+        setOptimisticSubmissions(current => {
+          const next = new Map(current);
+          for (const comment of included) {
+            next.set(comment.id, submissionTransitions.get(comment.id)?.eventId ?? null);
+          }
+          return next;
+        });
+      }
+      else {
+        await window.bridge.publishLocalPrReview(prId, {
+          verdict,
+          findingIds: includedFindings.flatMap(comment => comment.findingId == null ? [] : [comment.findingId]),
+          comments: included.map(comment => comment.id),
+        });
+        setPublishedCommentIds(current => new Set([
+          ...current,
+          ...included.map(comment => comment.id),
+        ]));
+      }
       assertOrigin();
       const publishedAt = Date.now();
-      setPublishedCommentIds(current => new Set([
-        ...current,
-        ...included.map(comment => comment.id),
-      ]));
       refreshPr();
       return {
         ...data,
-        pr_comments: data.pr_comments.map(comment => includedFindings.some(row => row.id === comment.id)
+        pr_comments: data.pr_comments.map(comment => !taskOwned
+          && includedFindings.some(row => row.id === comment.id)
           ? { ...comment, publishedAt }
           : comment),
       };
@@ -368,11 +411,13 @@ export function useAgentReviewState(
       if (result.succeeded && identity.current.prId === origin.prId
         && identity.current.generation === origin.generation) void load(true);
     });
-  }, [beforePublish, bundle, data, load, mutate, prId, publishedCommentIds, refreshPr]);
+  }, [beforePublish, bundle, data, load, mutate, prId, publishedCommentIds, refreshPr,
+    submissionTransitions, submittedCommentIds]);
 
   const displayedBundle = useMemo(() => {
     if (bundle == null || data === null) return bundle;
     const commentIds = new Set(data.pr_comments.map(comment => comment.id));
+    const bundleComments = new Map(bundle.comments.map(comment => [comment.id, comment]));
     const eventIds = new Set(data.pr_timeline_events.map(event => event.id));
     return {
       ...bundle,
@@ -381,7 +426,16 @@ export function useAgentReviewState(
           publishedCommentIds.has(comment.id) && comment.publishedAt === null
             ? { ...comment, publishedAt: Date.now() }
             : comment),
-        ...data.pr_comments,
+        ...data.pr_comments.map(comment => {
+          const current = bundleComments.get(comment.id);
+          return current === undefined ? comment : {
+            ...comment,
+            resolvedAt: current.resolvedAt,
+            dismissedAt: current.dismissedAt,
+            strippedOnPushAt: current.strippedOnPushAt,
+            publishedAt: current.publishedAt,
+          };
+        }),
       ],
       timeline: [...bundle.timeline.filter(event => !eventIds.has(event.id)), ...data.pr_timeline_events],
     };
@@ -392,14 +446,21 @@ export function useAgentReviewState(
     .map(finding => finding.id) ?? []), [data]);
   const agentPendingComments = data?.pr_comments.filter(comment => {
     const finding = data.findings.find(row => row.id === comment.findingId);
-    return comment.findingId != null && !publishedCommentIds.has(comment.id) && isPendingLocalComment(comment)
+    const handled = bundle?.pr.origin === 'task'
+      ? submittedCommentIds.has(comment.id)
+      : publishedCommentIds.has(comment.id);
+    return comment.findingId != null && !handled && isPendingLocalComment(comment)
       && finding?.lifecycle_status !== 'dismissed' && finding?.lifecycle_status !== 'dropped';
   }) ?? [];
   const manualDrafts = data === null ? [] : bundle?.comments.filter(comment => comment.findingId == null
     && comment.parentCommentId === null
-    && !publishedCommentIds.has(comment.id)
+    && !(bundle.pr.origin === 'task'
+      ? submittedCommentIds.has(comment.id)
+      : publishedCommentIds.has(comment.id))
     && isPendingLocalComment(comment)) ?? [];
-  const pendingComments = [...agentPendingComments, ...manualDrafts];
+  const pendingComments = bundle?.pr.origin === 'task' && bundle.pr.status !== 'local-open'
+    ? []
+    : [...agentPendingComments, ...manualDrafts];
   const latestRound = data?.rounds.reduceRight<AgentReviewData['rounds'][number] | undefined>(
     (selected, round) => selected ?? (round.status === 'RUNNING' || round.status === 'QUEUED' ? round : undefined),
     undefined,

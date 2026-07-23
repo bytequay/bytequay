@@ -11,9 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { LocalPRBundle, LocalPRCheck, LocalPRStatus } from '../types/localPr';
+import type { LocalPRBundle, LocalPRCheck, LocalPRComment, LocalPRStatus } from '../types/localPr';
 import type { PullRow } from './model';
 import { agoLabel, displayName } from '../pr/localpr/prViewMeta';
+import { activelySubmittedCommentIds } from '../pr/localpr/localReviewSubmission';
 import { relativeTime } from '../notificationDisplay';
 import { shortCount } from './atoms';
 
@@ -24,9 +25,9 @@ import { shortCount } from './atoms';
  * {@link LocalPRBundle} + dashboard row instead of the prototype's mock data.
  */
 
-/** Bot actors render the square avatar per the prototype's legend. */
+/** GitHub Bot actors render the square avatar per the prototype's legend. */
 export function isBotActor(actor: string): boolean {
-  return /\[bot]$/i.test(actor) || actor === 'claude-code';
+  return /\[bot]$/i.test(actor);
 }
 
 /** The status badge: local phases are blue, remote-open green, merged purple. */
@@ -125,8 +126,11 @@ export type TimelineReviewVerdict = 'approved' | 'changes' | 'commented' | 'dism
 
 export type TimelineItem =
   | { kind: 'commit'; id: string; at: number; time: string; message: string; sha: string }
+  | { kind: 'review-activity'; id: string; at: number; time: string; author: string;
+      activity: 'started' | 'addressing-started'; iteration: number | null }
   | { kind: 'review'; id: string; at: number; time: string; author: string; bot: boolean;
       verdict: TimelineReviewVerdict; body: string | null; remoteId: number | null }
+  | { kind: 'local-thread'; id: string; at: number; comments: LocalPRComment[]; submitted: boolean }
   | { kind: 'comment'; id: string; at: number; time: string; author: string; bot: boolean;
       body: string; replies: TimelineReply[]; remoteId: number | null }
   | { kind: 'merged'; id: string; at: number; time: string; author: string; sha: string | null; base: string };
@@ -134,6 +138,11 @@ export type TimelineItem =
 function str(payload: Record<string, unknown> | null, key: string): string | null {
   const v = payload?.[key];
   return typeof v === 'string' ? v : null;
+}
+
+function num(payload: Record<string, unknown> | null, key: string): number | null {
+  const value = payload?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function reviewVerdict(value: string | null): TimelineReviewVerdict {
@@ -184,16 +193,16 @@ function duplicateLocalReviewIds(bundle: LocalPRBundle): Set<string> {
 }
 
 /**
- * Maps the local timeline + PR-level comments to the template's card shapes:
- * commit rows, review cards (concluded reviews only — the brain's
- * started/addressing lifecycle rows have no counterpart card), comment cards
- * with grouped replies, and a synthetic merged row. Event types with no
+ * Maps the local timeline + comments to the template's card shapes: commit
+ * rows, review lifecycle rows, review cards, local conversation threads,
+ * remote PR-level comment cards, and a synthetic merged row. Event types with no
  * template counterpart (ci/amend/branch/status/follow-up/plan-finalized,
  * plus `comment` events which render from `comments`) are omitted.
  */
 export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
   const items: TimelineItem[] = [];
   const remoteCommentIds = new Map<string, number>();
+  const submittedCommentIds = activelySubmittedCommentIds(bundle.timeline);
   const duplicateReviews = duplicateLocalReviewIds(bundle);
   for (const event of bundle.timeline) {
     if (event.eventType === 'comment') {
@@ -214,7 +223,22 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
     if (event.eventType === 'review') {
       if (duplicateReviews.has(event.id)) continue;
       const reviewEvent = str(event.payload, 'reviewEvent');
-      if (reviewEvent === 'started' || reviewEvent === 'addressing-started') continue;
+      const scope = str(event.payload, 'scope');
+      if (reviewEvent === 'submitted' && event.actor === 'you' && bundle.pr.origin === 'task') {
+        // The selected threads are the task-local review UI. A second empty
+        // "You commented" card adds no information and makes the dispatch
+        // look like a GitHub review, which task PRs never publish.
+        continue;
+      }
+      if (reviewEvent === 'started' || reviewEvent === 'addressing-started') {
+        if (scope !== 'dev' && scope !== 'round') continue;
+        items.push({
+          kind: 'review-activity', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
+          author: displayName(event.actor), activity: reviewEvent,
+          iteration: num(event.payload, 'iteration'),
+        });
+        continue;
+      }
       const verdict = str(event.payload, 'verdict');
       const body = str(event.payload, 'body');
       if (verdict === null && (body === null || body.trim().length === 0)) continue;
@@ -227,7 +251,41 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
       });
     }
   }
-  const prComments = bundle.comments.filter(c => c.scope === 'pr');
+
+  // Once an external draft is published, GitHub's canonical review thread is
+  // the timeline source. Keep task-local (stripped-on-push) audit threads, but
+  // never render the published external draft a second time.
+  const localComments = bundle.comments.filter(comment => comment.origin === 'local'
+    && comment.publishedAt === null);
+  const allLocalById = new Map(bundle.comments
+    .filter(comment => comment.origin === 'local')
+    .map(comment => [comment.id, comment]));
+  const localById = new Map(localComments.map(comment => [comment.id, comment]));
+  const localGroups = new Map<string, LocalPRComment[]>();
+  for (const comment of localComments) {
+    // A child left behind after its external draft root was published belongs
+    // to GitHub's canonical thread; it is not a new top-level local draft.
+    if (comment.parentCommentId !== null
+        && allLocalById.has(comment.parentCommentId)
+        && !localById.has(comment.parentCommentId)) continue;
+    const rootId = comment.parentCommentId !== null && localById.has(comment.parentCommentId)
+      ? comment.parentCommentId
+      : comment.id;
+    const group = localGroups.get(rootId);
+    if (group === undefined) localGroups.set(rootId, [comment]);
+    else group.push(comment);
+  }
+  for (const [rootId, comments] of localGroups) {
+    comments.sort((a, b) => a.createdAt - b.createdAt);
+    const root = comments[0];
+    if (root === undefined) continue;
+    items.push({
+      kind: 'local-thread', id: `local-thread-${rootId}`, at: root.createdAt,
+      comments, submitted: submittedCommentIds.has(rootId),
+    });
+  }
+
+  const prComments = bundle.comments.filter(c => c.scope === 'pr' && c.origin !== 'local');
   const ids = new Set(prComments.map(c => c.id));
   for (const root of prComments) {
     // Same root rule as groupLocalCommentThreads: a missing parent makes

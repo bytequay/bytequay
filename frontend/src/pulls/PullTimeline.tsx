@@ -16,8 +16,10 @@ import { renderMarkdown } from '../markdown';
 import type { MarkdownRepoContext } from '../markdown';
 import { ReactionAddButton } from '../pr/Reactions';
 import { ReviewThreadCard } from '../pr/ReviewThreadCard';
+import { ReviewThreadCard as LocalReviewThreadCard } from '../pr/localpr/ReviewThreadCard';
 import type { ReactionContent } from '../pr/utils';
 import type { ReviewThreadDto } from '../types';
+import type { LocalPR, LocalPRComment } from '../types/localPr';
 import { Av } from './atoms';
 import type { TimelineItem } from './detailModel';
 
@@ -193,7 +195,8 @@ function ReviewCard({
 
 export default function PullTimeline({
   items, repo, prAuthor = null, prHtmlUrl = '', reviewThreadsByRemoteId, onCommentReaction,
-  onThreadReply, onThreadReact, onThreadSetResolved,
+  onThreadReply, onThreadReact, onThreadSetResolved, localPr,
+  onLocalReply, onLocalResolve, onSubmitLocalReview,
 }: {
   items: TimelineItem[];
   repo: string;
@@ -204,6 +207,10 @@ export default function PullTimeline({
   onThreadReply?: (rootGithubId: number, body: string) => Promise<void>;
   onThreadReact?: (commentGithubId: number, content: ReactionContent) => Promise<void>;
   onThreadSetResolved?: (rootGithubId: number, resolved: boolean) => Promise<void>;
+  localPr?: LocalPR;
+  onLocalReply?: (root: LocalPRComment, body: string) => Promise<void>;
+  onLocalResolve?: (commentId: string) => Promise<void>;
+  onSubmitLocalReview?: (commentIds: string[]) => Promise<void>;
 }) {
   const [owner, name] = repo.split('/');
   const repoCtx: MarkdownRepoContext = { owner: owner ?? repo, repo: name ?? repo };
@@ -254,6 +261,57 @@ export default function PullTimeline({
                 onThreadSetResolved={onThreadSetResolved}
               />
             );
+          case 'review-activity':
+            return (
+              <div key={item.id} style={iconRowStyle}>
+                <span style={{ width: 26, height: 26, borderRadius: '50%', background: '#f3e8ff', border: '2px solid #fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#8250df', flexShrink: 0 }}>
+                  {item.activity === 'started' ? '◉' : '↻'}
+                </span>
+                <span style={iconRowTextStyle}>
+                  <span style={{ color: '#17191c', fontWeight: 400 }}>{item.author}</span>{' '}
+                  {item.activity === 'started'
+                    ? 'started an adversarial code review'
+                    : 'started addressing the adversarial review comments'}
+                  {item.iteration !== null && ` · pass ${item.iteration}`} · {item.time}
+                </span>
+              </div>
+            );
+          case 'local-thread': {
+            const root = item.comments[0];
+            if (root === undefined || localPr === undefined) return null;
+            const resolved = root.resolvedAt !== null || root.dismissedAt !== null;
+            const findingBacked = root.author === 'agent' && root.findingId != null;
+            const taskReviewClosed = localPr.origin === 'task' && localPr.status !== 'local-open';
+            const statusLabel = resolved || taskReviewClosed
+              ? undefined
+              : root.author === 'brain'
+                ? 'WAITING FOR DEV'
+                : findingBacked
+                  ? item.submitted ? 'WAITING FOR DEV' : 'PENDING REVIEW'
+                : root.author === 'you'
+                  ? item.submitted ? 'SENT TO DEV' : 'PENDING REVIEW'
+                  : undefined;
+            return (
+              <div key={item.id} style={{ marginLeft: 36 }}>
+                <LocalReviewThreadCard
+                  pr={localPr}
+                  comments={item.comments}
+                  compact
+                  statusLabel={statusLabel}
+                  onReply={onLocalReply === undefined || resolved && root.author === 'brain'
+                    ? undefined
+                    : (_rootId, body) => onLocalReply(root, body)}
+                  onResolve={!resolved && root.author === 'you' && onLocalResolve !== undefined
+                    ? () => onLocalResolve(root.id)
+                    : undefined}
+                  onSubmitToDev={!resolved && (root.author === 'you' || findingBacked) && !item.submitted
+                      && onSubmitLocalReview !== undefined
+                    ? () => onSubmitLocalReview([root.id])
+                    : undefined}
+                />
+              </div>
+            );
+          }
           case 'comment':
             return <CommentCard key={item.id} item={item} repoCtx={repoCtx} onReaction={onCommentReaction} />;
         }

@@ -29,9 +29,12 @@ import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.review.DevReportService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -52,6 +55,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.StreamSupport;
 
 import static java.util.Objects.requireNonNull;
 
@@ -65,32 +69,36 @@ class PRServiceImpl
             Set.of(PRCheck.STATUS_PASSED, PRCheck.STATUS_FAILED, PRCheck.STATUS_NEUTRAL);
     private static final Set<String> PR_PROGRESS_PHASES =
             Set.of(PRTimelineEntry.PHASE_STARTING, PRTimelineEntry.PHASE_CREATING_DRAFT);
+    private static final String SOURCE_BRAIN_REVIEW_FIX = "brain-review-fix";
+    private static final int TURN_SCAN_LIMIT = 100;
 
     private final PRStore store;
     private final DevReportService devReports;
     private final ObjectMapper mapper;
     private final StageStore stageStore;
     private final TaskStore taskStore;
+    private final ThreadTurnStore turnStore;
     private final ApplicationEventPublisher events;
     private final Clock clock;
 
     @Autowired
     PRServiceImpl(
             PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore,
-            TaskStore taskStore, ApplicationEventPublisher events)
+            TaskStore taskStore, ThreadTurnStore turnStore, ApplicationEventPublisher events)
     {
-        this(store, devReports, mapper, stageStore, taskStore, events, Clock.systemUTC());
+        this(store, devReports, mapper, stageStore, taskStore, turnStore, events, Clock.systemUTC());
     }
 
     PRServiceImpl(
             PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore,
-            TaskStore taskStore, ApplicationEventPublisher events, Clock clock)
+            TaskStore taskStore, ThreadTurnStore turnStore, ApplicationEventPublisher events, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.devReports = requireNonNull(devReports, "devReports is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.events = requireNonNull(events, "events is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -129,6 +137,56 @@ class PRServiceImpl
     public List<PRTimelineEntry> timeline(String prId)
     {
         return store.timelineFor(prId);
+    }
+
+    @Override
+    public List<LocalReviewSubmission> localReviewSubmissions(String prId)
+    {
+        List<PRTimelineEntry> events = store.timelineFor(prId).stream()
+                .filter(event -> PRTimelineEntry.TYPE_REVIEW.equals(event.eventType()))
+                .filter(event -> PRTimelineEntry.ACTOR_USER.equals(event.actor()))
+                .toList();
+        Map<String, LocalReviewSubmission> submissions = new LinkedHashMap<>();
+        Map<String, String> activeSubmissionByComment = new LinkedHashMap<>();
+        for (PRTimelineEntry event : events) {
+            try {
+                var payload = mapper.readTree(event.payloadJson());
+                String reviewEvent = payload.path("reviewEvent").asText();
+                if ("submitted".equals(reviewEvent)) {
+                    List<String> commentIds = payload.path("commentIds").isArray()
+                            ? StreamSupport.stream(payload.path("commentIds").spliterator(), false)
+                                    .map(node -> node.asText(""))
+                                    .filter(id -> !id.isBlank())
+                                    .toList()
+                            : List.of();
+                    String body = payload.path("body").isNull() ? null : payload.path("body").asText(null);
+                    String verdict = payload.path("verdict").isNull()
+                            ? null : payload.path("verdict").asText(null);
+                    String bodyCommentId = payload.path("bodyCommentId").isNull()
+                            ? null : payload.path("bodyCommentId").asText(null);
+                    submissions.put(event.id(), new LocalReviewSubmission(
+                            event.createdAt(), commentIds, body, verdict, bodyCommentId));
+                    commentIds.forEach(commentId -> activeSubmissionByComment.put(commentId, event.id()));
+                }
+                else if ("updated".equals(reviewEvent) || "reopened".equals(reviewEvent)) {
+                    activeSubmissionByComment.remove(payload.path("commentId").asText());
+                }
+            }
+            catch (JsonProcessingException | RuntimeException ignored) {
+                // One malformed timeline event must not hide the valid batches around it.
+            }
+        }
+        return submissions.entrySet().stream()
+                .map(entry -> {
+                    LocalReviewSubmission submission = entry.getValue();
+                    List<String> activeIds = submission.commentIds().stream()
+                            .filter(id -> entry.getKey().equals(activeSubmissionByComment.get(id)))
+                            .toList();
+                    return new LocalReviewSubmission(
+                            submission.submittedAt(), activeIds, submission.body(),
+                            submission.verdict(), submission.bodyCommentId());
+                })
+                .toList();
     }
 
     @Override
@@ -862,6 +920,16 @@ class PRServiceImpl
         requireText(author, "author");
         requireText(body, "body");
         PRComment parent = resolveParentComment(pr, parentCommentId);
+        if (parent != null
+                && PR.ORIGIN_TASK.equals(pr.origin())
+                && PRComment.ORIGIN_LOCAL.equals(origin)
+                && PRTimelineEntry.ACTOR_USER.equals(author)
+                && PRTimelineEntry.ACTOR_BRAIN.equals(parent.author())
+                && (parent.resolvedAt() != null || parent.dismissedAt() != null)) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "This Brain finding is already resolved; add a new review comment for new feedback");
+        }
         if (parent != null) {
             scope = parent.scope();
             filePath = parent.filePath();
@@ -902,6 +970,23 @@ class PRServiceImpl
         if (PRComment.SCOPE_PR.equals(scope)) {
             appendEvent(pr.id(), PRTimelineEntry.TYPE_COMMENT, author,
                     PRComment.ORIGIN_LOCAL.equals(origin), when, payload("commentId", comment.id()));
+        }
+        boolean userReplyToTaskLocalRoot = PR.ORIGIN_TASK.equals(pr.origin())
+                && PRComment.ORIGIN_LOCAL.equals(origin)
+                && PRTimelineEntry.ACTOR_USER.equals(author)
+                && parent != null
+                && parent.parentCommentId() == null
+                && PRComment.ORIGIN_LOCAL.equals(parent.origin());
+        if (userReplyToTaskLocalRoot
+                && (parent.resolvedAt() != null || parent.dismissedAt() != null)) {
+            store.saveComment(parent.withReopened());
+        }
+        if (userReplyToTaskLocalRoot
+                && localReviewSubmissions(pr.id()).stream()
+                        .anyMatch(submission -> submission.commentIds().contains(parent.id()))) {
+            appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                    /* localOnly */ true, when,
+                    payload("reviewEvent", "updated", "commentId", parent.id()));
         }
         notifyUpdated(pr.id());
         return comment;
@@ -971,6 +1056,26 @@ class PRServiceImpl
     }
 
     @Override
+    public void recordLocalReviewSubmission(
+            String prId, List<String> commentIds, String body, String verdict, String bodyCommentId)
+    {
+        PR pr = require(prId);
+        List<String> ids = commentIds == null ? List.of() : commentIds.stream()
+                .filter(Objects::nonNull)
+                .map(String::strip)
+                .filter(id -> !id.isEmpty())
+                .distinct()
+                .toList();
+        appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                /* localOnly */ true, now(),
+                payload("reviewEvent", "submitted", "verdict", verdict,
+                        "commentIds", ids, "findingCount", ids.size(), "body", body,
+                        "bodyCommentId", bodyCommentId));
+        notifyUpdated(pr.id());
+        events.publishEvent(new LocalReviewSubmittedEvent(pr.taskId(), pr.id()));
+    }
+
+    @Override
     public void recordReviewEvent(String prId, String actor, String payloadJson)
     {
         PR pr = require(prId);
@@ -986,6 +1091,12 @@ class PRServiceImpl
         PRComment saved = store.saveComment(comment.withResolved(now()));
         notifyUpdated(comment.prId());
         return saved;
+    }
+
+    @Override
+    public PRComment resolveCommentForAgent(String commentId)
+    {
+        return closeCommentForAgent(commentId, false);
     }
 
     @Override
@@ -1011,6 +1122,14 @@ class PRServiceImpl
             requireOpenTaskLocalReview(pr);
         }
         PRComment saved = store.saveComment(comment.withReopened());
+        if (PR.ORIGIN_TASK.equals(pr.origin())
+                && PRComment.ORIGIN_LOCAL.equals(comment.origin())
+                && comment.parentCommentId() == null
+                && (comment.resolvedAt() != null || comment.dismissedAt() != null)) {
+            appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                    /* localOnly */ true, now(),
+                    payload("reviewEvent", "reopened", "commentId", comment.id()));
+        }
         notifyUpdated(comment.prId());
         return saved;
     }
@@ -1021,7 +1140,8 @@ class PRServiceImpl
         boolean activeLocalReview = task != null
                 && task.status() != TaskStatus.NEEDS_ATTENTION
                 && (task.phase() == TaskPhase.AWAITING_PUSH
-                        || task.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+                        || task.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS
+                        || task.phase() == TaskPhase.INTERNAL_REVIEW);
         if (!PR.STATUS_LOCAL_OPEN.equals(pr.status()) || !activeLocalReview) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(409),
@@ -1035,6 +1155,85 @@ class PRServiceImpl
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         PRComment saved = store.saveComment(comment.withDismissed(now()));
+        notifyUpdated(comment.prId());
+        return saved;
+    }
+
+    @Override
+    public PRComment dismissCommentForAgent(String commentId)
+    {
+        return closeCommentForAgent(commentId, true);
+    }
+
+    private PRComment closeCommentForAgent(String commentId, boolean dismissed)
+    {
+        PRComment comment = store.findCommentById(commentId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        PR pr = require(comment.prId());
+        if (pr.taskId() != null) {
+            return TaskPhaseMachine.withTaskLock(pr.taskId(), () ->
+                    closeCommentForAgent(require(pr.id()), commentId, dismissed));
+        }
+        return closeCommentForAgent(pr, commentId, dismissed);
+    }
+
+    private PRComment closeCommentForAgent(PR pr, String commentId, boolean dismissed)
+    {
+        PRComment comment = store.findCommentById(commentId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
+        if (!pr.id().equals(comment.prId())) {
+            throw new IllegalArgumentException("comment " + commentId + " belongs to another PR");
+        }
+        boolean submittedDevelopmentRoot = PR.ORIGIN_TASK.equals(pr.origin())
+                && PRComment.ORIGIN_LOCAL.equals(comment.origin())
+                && comment.parentCommentId() == null
+                && (PRTimelineEntry.ACTOR_USER.equals(comment.author())
+                        || PRTimelineEntry.ACTOR_AGENT.equals(comment.author()) && comment.findingId() != null);
+        if (submittedDevelopmentRoot) {
+            List<LocalReviewSubmission> submissions = localReviewSubmissions(pr.id());
+            Optional<Instant> activeSubmission = submissions.stream()
+                    .filter(submission -> submission.commentIds().contains(comment.id()))
+                    .map(LocalReviewSubmission::submittedAt)
+                    .max(Instant::compareTo);
+            Task task = taskStore.findTaskById(pr.taskId()).orElse(null);
+            boolean legacyAddressing = task != null
+                    && task.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS
+                    && submissions.isEmpty();
+            Instant dispatchedThrough = pr.localAddressedThroughAt();
+            if (!legacyAddressing && (activeSubmission.isEmpty() || dispatchedThrough == null
+                    || activeSubmission.get().isAfter(dispatchedThrough))) {
+                throw new IllegalArgumentException(
+                        "comment " + commentId
+                                + " changed after this Development turn began; leave it open for the next submitted review");
+            }
+        }
+        boolean brainFindingRoot = PR.ORIGIN_TASK.equals(pr.origin())
+                && PRComment.ORIGIN_LOCAL.equals(comment.origin())
+                && comment.parentCommentId() == null
+                && PRTimelineEntry.ACTOR_BRAIN.equals(comment.author());
+        if (brainFindingRoot) {
+            Task task = taskStore.findTaskById(pr.taskId()).orElse(null);
+            ThreadTurn fixTurn = task == null ? null : turnStore
+                    .listTurnsByTaskIdAndStatus(task.threadId(), ThreadTurnStatus.RUNNING, TURN_SCAN_LIMIT)
+                    .stream()
+                    .filter(turn -> pr.taskId().equals(turn.taskId()))
+                    .filter(turn -> turn.initiator() != null
+                            && SOURCE_BRAIN_REVIEW_FIX.equals(turn.initiator().source()))
+                    .max((left, right) -> left.createdAt().compareTo(right.createdAt()))
+                    .orElse(null);
+            boolean newerUserReply = fixTurn != null && store.commentsFor(pr.id()).stream()
+                    .filter(reply -> comment.id().equals(reply.parentCommentId()))
+                    .filter(reply -> PRTimelineEntry.ACTOR_USER.equals(reply.author()))
+                    .anyMatch(reply -> !reply.createdAt().isBefore(fixTurn.createdAt()));
+            if (fixTurn == null || newerUserReply) {
+                throw new IllegalArgumentException(
+                        "comment " + commentId
+                                + " changed after this Development turn began; leave it open for the next Brain fix turn");
+            }
+        }
+        PRComment saved = store.saveComment(dismissed
+                ? comment.withDismissed(now())
+                : comment.withResolved(now()));
         notifyUpdated(comment.prId());
         return saved;
     }

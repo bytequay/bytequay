@@ -14,6 +14,7 @@
 import type { LocalPR, LocalPRComment } from '../../types/localPr';
 import { MarkdownProse } from '../../threads/MarkdownProse';
 import { ReviewThreadCard } from './ReviewThreadCard';
+import { displayName } from './prViewMeta';
 
 function roots(comments: LocalPRComment[]): LocalPRComment[] {
   return comments.filter(comment => comment.parentCommentId === null);
@@ -64,7 +65,7 @@ export function BrainReviewCard({
           <MarkdownProse text={comment.body} />
           {threadFor(comment, comments).slice(1).map(reply => (
             <div className="brain-pr-review-card__reply" key={reply.id}>
-              <strong>{reply.author}</strong> · <MarkdownProse text={reply.body} />
+              <strong>{displayName(reply.author)}</strong> · <MarkdownProse text={reply.body} />
             </div>
           ))}
         </div>

@@ -24,7 +24,8 @@ export type PRSurface = 'task' | 'details';
  *  `<CodeDiffView>` take this object instead of testing `pr.origin` /
  *  `pr.status` themselves. */
 export interface PRCapabilities {
-  /** Draft local (never-auto-posted) comments — everywhere except terminal states. */
+  /** Draft local (never-auto-posted) comments. Task PRs may draft only in
+   *  Local Review; external PRs may draft until they become terminal. */
   draftLocalComments: boolean;
   /** "Submit review" — batch local drafts into one GitHub review. External PRs only. */
   publishReview: boolean;
@@ -47,7 +48,9 @@ const REMOTE_COMMENT_STATUSES = new Set(['remote-drafted', 'remote-open', 'merge
  *  component (unified-pr-view.md U7/U8). */
 export function derivePRCapabilities(pr: LocalPR, surface: PRSurface): PRCapabilities {
   return {
-    draftLocalComments: !TERMINAL_STATUSES.has(pr.status),
+    draftLocalComments: pr.origin === 'task'
+      ? pr.status === 'local-open'
+      : !TERMINAL_STATUSES.has(pr.status),
     publishReview: pr.origin === 'external',
     push: pr.origin === 'task' && pr.status === 'local-open',
     merge: pr.origin === 'external' && pr.status === 'remote-open',

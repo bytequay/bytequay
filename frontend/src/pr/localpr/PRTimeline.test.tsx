@@ -158,6 +158,8 @@ describe('PRTimeline review rendering', () => {
     expect(screen.getByText('Pass 1 · Audit the completed implementation for bugs before Local Review')).toBeTruthy();
     expect(screen.getByText('Fix pass 1 · Resolve findings before verification pass 2')).toBeTruthy();
     expect(screen.getByText('Pass 2 · Verify fixes from pass 1 and check for regressions before Local Review')).toBeTruthy();
+    expect(screen.getAllByText('dev').length).toBeGreaterThan(0);
+    expect(screen.queryByText('claude-code')).toBeNull();
   });
 
   it('falls back to the generic review event when agent-review data is unavailable', () => {
@@ -268,7 +270,7 @@ describe('PRTimeline composition', () => {
       {
         id: 'c2', localPrId: 'pr1', origin: 'local', scope: 'file-line',
         filePath: 'src/Foo.java', lineNumber: 42, side: 'RIGHT', startLine: null, startSide: null,
-        author: 'claude-code', body: 'Fixed.',
+        author: 'agent', body: 'Fixed.',
         createdAt: 3, resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
         parentCommentId: 'c1', publishedAt: null,
       },
@@ -277,6 +279,9 @@ describe('PRTimeline composition', () => {
     expect(screen.getByText('src/Foo.java:42', { exact: false })).toBeTruthy();
     expect(screen.getByText('Fix this.')).toBeTruthy();
     expect(screen.getByText('Fixed.')).toBeTruthy();
+    expect(screen.getAllByText('dev').length).toBeGreaterThan(0);
+    expect(screen.getByText('DEV')).toBeTruthy();
+    expect(screen.queryByText('agent')).toBeNull();
   });
 
   it('renders a PR-level agent finding as Markdown and persists local replies', async () => {
@@ -316,6 +321,8 @@ describe('PRTimeline composition', () => {
     const card = within(findingCard);
     expect(findingCard).toBeTruthy();
     expect(card.getByText('Pull request review')).toBeTruthy();
+    expect(card.getByText('brain')).toBeTruthy();
+    expect(card.getByText('BRAIN')).toBeTruthy();
     expect(findingCard.querySelector('.prc-comment-role--local')?.textContent).toBe('LOCAL');
     expect(container.querySelector('.rail-thread__agent-marker')).toBeNull();
     expect([...container.querySelectorAll('code')].map(node => node.textContent)).toEqual(expect.arrayContaining([

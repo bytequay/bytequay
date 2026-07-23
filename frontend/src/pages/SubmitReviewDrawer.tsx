@@ -27,7 +27,9 @@ const VERDICT_OPTIONS: Array<{ value: ReviewVerdict; label: string; desc: string
  * Right-side drawer for submitting a review on the task's own diff — a
  * top-level comment plus a verdict, mirroring github.com's "Finish your
  * review" panel. It sends the selected verdict, overall body, and unresolved
- * local line comments to GitHub as one review.
+ * local line comments as one review. The caller owns the boundary: a
+ * task-local review dispatches Development, while an external PR publishes
+ * through GitHub.
  */
 export function SubmitReviewDrawer({
   open, submitting = false, onClose, onSubmit, pendingComments = [], onRemovePending,
@@ -36,7 +38,7 @@ export function SubmitReviewDrawer({
   submitting?: boolean;
   onClose: () => void;
   onSubmit: (body: string, verdict: ReviewVerdict) => void | Promise<void>;
-  /** Draft comments not yet published — shown above the overall body so the
+  /** Draft comments not yet submitted — shown above the overall body so the
    *  reviewer sees exactly what this submission will send, and can drop one
    *  before submitting. Omit where no draft-comment source is wired up. */
   pendingComments?: DiffInlineComment[];

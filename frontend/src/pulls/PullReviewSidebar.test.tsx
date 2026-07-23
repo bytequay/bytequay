@@ -14,6 +14,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { invalidate } from '../dataCache';
+import type { DiffFileDto } from '../types';
 import type { LocalPR, LocalPRBundle, LocalPRComment } from '../types/localPr';
 import PullChanges from './PullChanges';
 import PullReviewSidebar from './PullReviewSidebar';
@@ -125,5 +126,35 @@ describe('PullReviewSidebar', () => {
     await waitFor(() => expect(window.bridge.fetchPrDiffFiles).toHaveBeenCalled());
     const toggle = screen.getByRole('button', { name: 'Toggle review comments panel (2 pending)' });
     expect(toggle.querySelector('.pl-review-toggle-count')?.textContent).toBe('2');
+  });
+
+  it('does not open a local review composer on a pushed task PR', () => {
+    const pushedTask = bundle([]);
+    pushedTask.pr = {
+      ...pushedTask.pr,
+      taskId: 'task-1', origin: 'task', status: 'remote-open', author: null,
+    };
+    const file: DiffFileDto = {
+      filename: 'src/review/Guard.java', status: 'modified', additions: 1, deletions: 1,
+      patch: '@@ -1 +1 @@\n-old guard\n+new guard\n',
+    };
+    window.bridge = {
+      fetchPullRequestDetail: vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] }),
+      addLocalPrComment: vi.fn(),
+    } as unknown as typeof window.bridge;
+
+    const { container } = render(
+      <PullChanges
+        row={row()} bundle={pushedTask} refresh={vi.fn()} filesOverride={[file]}
+      />,
+    );
+    const addedLine = container.querySelector('[data-pl-anchor="src/review/Guard.java:RIGHT:1"]');
+    if (addedLine === null) throw new Error('expected added diff line');
+    expect(addedLine.getAttribute('title')).toBeNull();
+
+    fireEvent.click(addedLine);
+
+    expect(container.querySelector('.pl-code textarea[placeholder="Leave a comment"]')).toBeNull();
+    expect(window.bridge.addLocalPrComment).not.toHaveBeenCalled();
   });
 });

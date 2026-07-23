@@ -238,6 +238,109 @@ describe('useAgentReviewState', () => {
     }));
   });
 
+  it('dispatches selected task review findings to Development without publishing to GitHub', async () => {
+    const source = bundle('task-pr');
+    source.pr = {
+      ...source.pr,
+      taskId: 'task-1', origin: 'task', status: 'local-open', pushedAt: null,
+      remotePrNumber: null, remotePrUrl: null, repo: null, author: null,
+    };
+    const live = createAgentReviewFixture(source, [{
+      filename: 'src/A.ts', status: 'modified', additions: 2, deletions: 1,
+      patch: '@@ -1 +1 @@\n-old\n+new',
+    }]);
+    live.findings[0] = { ...live.findings[0], lifecycle_status: 'included' };
+    const dispatchToDevelopment = vi.fn(async (_verdict: ReviewVerdict, _comments: LocalPRComment[]) => {});
+    const publishLocalPrReview = vi.fn(async () => source.pr);
+    window.bridge = {
+      getAgentReview: vi.fn(async () => live),
+      publishLocalPrReview,
+    } as unknown as typeof window.bridge;
+    const { result } = renderHook(() =>
+      useAgentReviewState(source, vi.fn(), dispatchToDevelopment));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    act(() => result.current.submitReview('REQUEST_CHANGES'));
+
+    await waitFor(() => expect(dispatchToDevelopment).toHaveBeenCalledOnce());
+    expect(dispatchToDevelopment.mock.calls[0][0]).toBe('REQUEST_CHANGES');
+    expect(dispatchToDevelopment.mock.calls[0][1].map(comment => comment.id))
+      .toEqual(['fixture-comment-1']);
+    expect(publishLocalPrReview).not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.pendingComments.map(comment => comment.id))
+      .not.toContain('fixture-comment-1'));
+  });
+
+  it('makes a reopened task finding pending again and blocks task dispatch after push', async () => {
+    const source = bundle('task-pr');
+    source.pr = {
+      ...source.pr,
+      taskId: 'task-1', origin: 'task', status: 'local-open', pushedAt: null,
+      remotePrNumber: null, remotePrUrl: null, repo: null, author: null,
+    };
+    source.timeline = [{
+      id: 'submitted', localPrId: 'task-pr', eventType: 'review', actor: 'you',
+      isLocalOnly: true, strippedOnPushAt: null, createdAt: 1000,
+      payload: { reviewEvent: 'submitted', commentIds: ['fixture-comment-1'] },
+    }, {
+      id: 'reopened', localPrId: 'task-pr', eventType: 'review', actor: 'you',
+      isLocalOnly: true, strippedOnPushAt: null, createdAt: 2000,
+      payload: { reviewEvent: 'reopened', commentId: 'fixture-comment-1' },
+    }];
+    const live = createAgentReviewFixture(source, [{
+      filename: 'src/A.ts', status: 'modified', additions: 2, deletions: 1,
+      patch: '@@ -1 +1 @@\n-old\n+new',
+    }]);
+    live.findings[0] = { ...live.findings[0], lifecycle_status: 'included' };
+    const dispatchToDevelopment = vi.fn(async () => {});
+    window.bridge = {
+      getAgentReview: vi.fn(async () => live),
+      publishLocalPrReview: vi.fn(),
+    } as unknown as typeof window.bridge;
+    const { result, rerender } = renderHook(
+      ({ reviewBundle }) => useAgentReviewState(reviewBundle, vi.fn(), dispatchToDevelopment),
+      { initialProps: { reviewBundle: source } },
+    );
+    await waitFor(() => expect(result.current.pendingComments.map(comment => comment.id))
+      .toContain('fixture-comment-1'));
+
+    rerender({ reviewBundle: { ...source, pr: { ...source.pr, status: 'remote-drafted' } } });
+    await waitFor(() => expect(result.current.pendingComments).toEqual([]));
+    act(() => result.current.submitReview('REQUEST_CHANGES'));
+
+    expect(dispatchToDevelopment).not.toHaveBeenCalled();
+    expect(result.current.error).toContain('Local Review is closed');
+  });
+
+  it('keeps live PR resolution state and replies when a completed review snapshot is stale', async () => {
+    const live = data();
+    const source = bundle();
+    const root = live.pr_comments[0];
+    source.comments = [{
+      ...root,
+      resolvedAt: 5_000,
+    }, {
+      ...root,
+      id: 'dev-reply',
+      author: 'claude-code',
+      body: 'Fixed in the latest commit.',
+      createdAt: 4_000,
+      parentCommentId: root.id,
+      findingId: null,
+    }];
+    window.bridge = {
+      getAgentReview: vi.fn(async () => live),
+    } as unknown as typeof window.bridge;
+
+    const { result } = renderHook(() => useAgentReviewState(source, vi.fn()));
+
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+    expect(result.current.displayedBundle?.comments.find(comment => comment.id === root.id)?.resolvedAt)
+      .toBe(5_000);
+    expect(result.current.displayedBundle?.comments.find(comment => comment.id === 'dev-reply')?.body)
+      .toBe('Fixed in the latest commit.');
+  });
+
   it('discards a completed mutation when the hook has moved to another pull request', async () => {
     const started = deferred<ReturnType<typeof data>>();
     const getAgentReview = vi.fn(async (): Promise<ReturnType<typeof data> | null> => null);

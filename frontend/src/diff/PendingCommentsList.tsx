@@ -125,7 +125,7 @@ export function ReviewTabPendingList({
                     </span>
                   )}
                   <span className="review-pending__author">{c.author}</span>
-                  {c.sourceLabel === 'AGENT' && <span className="review-pending__agent-badge">AGENT</span>}
+                  {c.sourceLabel !== undefined && <span className="review-pending__agent-badge">{c.sourceLabel}</span>}
                   {onRemove !== undefined && (
                     <button
                       type="button"

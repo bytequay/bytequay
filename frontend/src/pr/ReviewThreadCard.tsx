@@ -48,6 +48,7 @@ export function ReviewThreadCard({
   renderMessageBadges,
   avatarLoginFor,
   onLocationClick,
+  onAskAgent,
   footerActions,
   compact = false,
   actionsDisabled = false,
@@ -84,6 +85,9 @@ export function ReviewThreadCard({
   locationLabel?: string;
   /** When set, the file:line label becomes a button that jumps to the code. */
   onLocationClick?: () => void;
+  /** When set, an "⚡ Ask agent" action routes this thread's context into the
+   *  owning stage composer. Provided only where a stage composer owns the PR. */
+  onAskAgent?: () => void;
   /** Lets local findings keep their richer evidence rendering while using
    *  this same GitHub-shaped thread chrome. */
   renderMessageBody?: (message: ReviewMessageDto, index: number) => ReactNode;
@@ -382,7 +386,8 @@ export function ReviewThreadCard({
           full Write/Preview composer (with PolishButtons + Send) once
           the user clicks into it. The Resolve / Unresolve button lives
           on its own row underneath, matching github.com's placement. */}
-      {!visibleFolded && (onReply !== undefined || onSetResolved !== undefined || footerActions !== undefined) && (
+      {!visibleFolded && (onReply !== undefined || onSetResolved !== undefined
+          || onAskAgent !== undefined || footerActions !== undefined) && (
         <div className={`prc-review-thread__reply${compact ? ' prc-review-thread__reply--compact' : ' prc-review-thread__reply--inline'}`}>
           {/* Always-visible reply box (avatar + input) matching github.com;
               clicking the stub expands the full Write/Preview composer. */}
@@ -412,9 +417,20 @@ export function ReviewThreadCard({
           {/* Resolve / Unresolve on its own row under the reply box, with the
               "X marked this conversation as resolved" attribution — github.com
               placement. Button text mirrors "Resolve/Unresolve conversation". */}
-          {(footerActions !== undefined || (onSetResolved !== undefined && thread.resolved != null)) && (
+          {(footerActions !== undefined || onAskAgent !== undefined
+              || (onSetResolved !== undefined && thread.resolved != null)) && (
             <div className="prc-review-thread__resolve-row">
               {resolveButton(false)}
+              {onAskAgent !== undefined && (
+                <button
+                  type="button"
+                  className="prc-review-thread__resolve-btn prc-review-thread__ask-agent-btn"
+                  onClick={onAskAgent}
+                  title="Route this comment into the agent composer"
+                >
+                  ⚡ Ask agent
+                </button>
+              )}
               {thread.resolved === true && thread.resolvedBy != null && thread.resolvedBy !== '' && (
                 <span className="prc-review-thread__resolved-attr">
                   <strong>{thread.resolvedBy}</strong> marked this conversation as resolved.

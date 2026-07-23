@@ -72,6 +72,9 @@ export type PullDetailActions = {
   noWorkspace?: boolean;
   /** Explicit user-owned remote close action. Omitted for local/terminal PRs. */
   onClosePullRequest?: () => Promise<void>;
+  /** Route a review thread's context into the owning stage composer. Supplied
+   *  only by the task/stage routes that own a composer (⚡ Ask agent). */
+  onAskAgentThread?: (root: LocalPRComment) => void;
 };
 
 export type PullDetailBodyProps = {
@@ -455,6 +458,7 @@ export function PullDetailBody({
               onLocalDismiss={dismissLocalComment}
               currentUserLogin={currentUserLogin}
               onSubmitLocalReview={submitPendingReviewToDev}
+              onAskAgentThread={actions.onAskAgentThread}
             />
           </div>
         </div>

@@ -714,6 +714,15 @@ export function TaskBrainRoute({
         row={taskPullRow}
         bundle={displayedTaskBundle}
         refresh={refreshLocalPr}
+        onAskAgentThread={task.terminal ? undefined : (root) => {
+          const loc = root.filePath !== null
+            ? ` on ${root.filePath}${root.lineNumber !== null ? `:${root.lineNumber}` : ''}`
+            : '';
+          setText(`Please address this review comment${loc}:\n\n> ${root.body.replace(/\n/g, '\n> ')}\n\n`);
+          requestAnimationFrame(() => {
+            document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus();
+          });
+        }}
         openOverviewToken={openOverviewToken}
         openChangesToken={prSubTabRequest?.subTab === 'changes' ? prSubTabRequest.token : undefined}
         changesFiles={displayedTaskBundle.pr.remotePrNumber === null ? reviewFiles : undefined}

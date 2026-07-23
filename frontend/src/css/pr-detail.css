@@ -1463,6 +1463,9 @@ button.prc-branches__ref--clickable:hover {
   color: var(--text-2);
   font-weight: 600;
 }
+.prc-review-thread__ask-agent-btn {
+  color: var(--accent, #6f42c1);
+}
 
 /* Fold chevron at the start of the thread header. The whole header stays
    clickable via the chevron — keeping the row tight so a folded thread

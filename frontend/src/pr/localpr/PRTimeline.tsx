@@ -443,7 +443,11 @@ export function PRTimeline({
     const root = thread[0];
     if (root === undefined) continue;
     const findingId = root.findingId ?? null;
-    if (root.scope === 'pr' && findingId === null) {
+    // Brain review roots — even PR-level ones without a finding id — are
+    // counted as open findings by the review loop, so they need the resolvable
+    // ReviewThreadCard (Resolve / Discard), not the reply-only bubble. Only
+    // plain PR-level discussion falls through to the bubble.
+    if (root.scope === 'pr' && findingId === null && root.author !== 'brain') {
       const resolvedBrainRoot = root.author === 'brain'
         && (root.resolvedAt !== null || root.dismissedAt !== null);
       rows.push({
@@ -489,6 +493,7 @@ export function PRTimeline({
             pr={pr}
             comments={thread}
             resolved={resolved}
+            currentUserLogin={currentUserLogin}
             onSetResolved={findingId !== null && onSetFindingResolved !== undefined
               ? next => onSetFindingResolved(findingId, next)
               : onResolveThread !== undefined

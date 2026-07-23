@@ -656,4 +656,46 @@ describe('PRTimeline GitHub-native feed', () => {
     expect(screen.getByText(/started addressing the adversarial review comments/)).toBeTruthy();
     expect(screen.getByText(/Push approved automatically because auto-merge is enabled/)).toBeTruthy();
   });
+
+  it('offers Resolve and Discard on a PR-scoped brain finding, not just Reply', async () => {
+    const onResolveThread = vi.fn();
+    const onDismissThread = vi.fn();
+    const comments: LocalPRComment[] = [{
+      id: 'brain-pr', localPrId: 'pr1', origin: 'local', scope: 'pr',
+      filePath: null, lineNumber: null, side: 'RIGHT', startLine: null, startSide: null,
+      author: 'brain', body: 'The whole ranking pass lacks a null guard.', createdAt: 5,
+      resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, publishedAt: null,
+    }];
+
+    render(<PRTimeline
+      pr={pr()} events={[]} comments={comments}
+      activity={[]} reviewThreads={[]} threadActions={noopThreadActions}
+      onResolveThread={onResolveThread} onDismissThread={onDismissThread}
+    />);
+
+    expect(screen.getByText('The whole ranking pass lacks a null guard.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Discard local comment' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve conversation' }));
+    await waitFor(() => expect(onResolveThread).toHaveBeenCalledWith('brain-pr'));
+  });
+
+  it('renders the signed-in user\'s real avatar on their own review comment', () => {
+    const comments: LocalPRComment[] = [{
+      id: 'mine', localPrId: 'pr1', origin: 'local', scope: 'file-line',
+      filePath: 'src/Foo.java', lineNumber: 10, side: 'RIGHT', startLine: null, startSide: null,
+      author: 'you', body: 'use ImmutableList here directly', createdAt: 5,
+      resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, publishedAt: null,
+    }];
+
+    render(<PRTimeline
+      pr={pr()} events={[]} comments={comments}
+      activity={[]} reviewThreads={[]} threadActions={noopThreadActions} currentUserLogin="chenjian2664"
+    />);
+
+    // "You" stays the display name, but the avatar resolves to the real handle
+    // (github.com/chenjian2664.png) rather than github.com/You.png.
+    expect(screen.getByText('You')).toBeTruthy();
+    expect(screen.getAllByAltText('chenjian2664').some(
+      img => img.getAttribute('src')?.includes('github.com/chenjian2664.png'))).toBe(true);
+  });
 });

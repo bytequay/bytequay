@@ -182,15 +182,28 @@ class TestPRRecordToolHandlers
     }
 
     @Test
-    void resolvePrCommentDefaultsToResolve()
+    void resolvePrCommentRepliesThenResolves()
     {
         stubTaskPrComments(comment("cm1"));
         ToolOutcome outcome = handlers.resolvePrComment(
-                new ResolvePrCommentArgs("cm1", "addressed"), taskCall);
+                new ResolvePrCommentArgs("cm1", "addressed", "Fixed the null guard."), taskCall);
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
+        verify(prService).addComment(any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                eq("Fixed the null guard."), eq("cm1"));
         verify(prService).resolveCommentForAgent("cm1");
         verify(prService, never()).dismissCommentForAgent(any());
+    }
+
+    @Test
+    void resolvePrCommentAddressingRequiresAReply()
+    {
+        stubTaskPrComments(comment("cm1"));
+        ToolOutcome outcome = handlers.resolvePrComment(
+                new ResolvePrCommentArgs("cm1", "addressed", null), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
+        verify(prService, never()).resolveCommentForAgent(any());
     }
 
     @Test
@@ -198,7 +211,7 @@ class TestPRRecordToolHandlers
     {
         stubTaskPrComments(comment("cm1"));
         ToolOutcome outcome = handlers.resolvePrComment(
-                new ResolvePrCommentArgs("cm1", "dismissed"), taskCall);
+                new ResolvePrCommentArgs("cm1", "dismissed", null), taskCall);
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
         verify(prService).dismissCommentForAgent("cm1");
@@ -211,7 +224,7 @@ class TestPRRecordToolHandlers
         stubTaskPrComments(comment("own-comment"));
 
         ToolOutcome outcome = handlers.resolvePrComment(
-                new ResolvePrCommentArgs("foreign-comment", "addressed"), taskCall);
+                new ResolvePrCommentArgs("foreign-comment", "addressed", "fix"), taskCall);
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
         verify(prService, never()).resolveCommentForAgent("foreign-comment");
@@ -222,7 +235,7 @@ class TestPRRecordToolHandlers
     void resolvePrCommentRequiresCommentId()
     {
         ToolOutcome outcome = handlers.resolvePrComment(
-                new ResolvePrCommentArgs(null, null), taskCall);
+                new ResolvePrCommentArgs(null, null, null), taskCall);
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
         verify(prService, never()).resolveCommentForAgent(any());

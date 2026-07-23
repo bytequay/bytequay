@@ -49,6 +49,10 @@ local PR artifact current:
 - `record_pr_description` records the PR title and body.
 - `record_pr_check` records each local validation result.
 - `record_pr_comment` and `resolve_pr_comment` manage local review notes.
+  When you address a review comment, call `resolve_pr_comment` with a `reply`
+  summarising the fix — it posts your reply under the comment, then resolves
+  it. Use `resolution: dismissed` (no reply) only to close one you are not
+  acting on.
 - Finish with `record_dev_report`, then call `record_local_review` with
   `request_user_review: true`. This starts the Brain adversarial review; it
   hands the private PR to the user only after that bounded review loop ends.

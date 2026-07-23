@@ -129,6 +129,22 @@ describe('PipelinePlanCard', () => {
     expect(screen.getByText(/Plan approved at 2026-07-20/)).toBeTruthy();
   });
 
+  it('explains why Approve is disabled while the plan is still drafting', () => {
+    render(<PipelinePlanCard plan={plan({ status: 'draft' })} onPolicyChange={noop} onRequestRevision={noop} />);
+    expect(screen.getByText('Plan drafting')).toBeTruthy();
+    const approveButton = screen.getByText('Approve & start dev').closest('button') as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+    expect(screen.getByText(/Still drafting/)).toBeTruthy();
+  });
+
+  it('does not show the drafting note for a finalized plan awaiting approval', () => {
+    render(<PipelinePlanCard plan={plan({ status: 'ready' })} onPolicyChange={noop} onApprove={noop} onRequestRevision={noop} />);
+    expect(screen.getByText('Plan ready')).toBeTruthy();
+    expect(screen.queryByText(/Still drafting/)).toBeNull();
+    const approveButton = screen.getByText('Approve & start dev').closest('button') as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(false);
+  });
+
   it('collapses phases with no steps to a Skipped column', () => {
     render(
       <PipelinePlanCard

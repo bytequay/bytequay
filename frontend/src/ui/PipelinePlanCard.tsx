@@ -40,7 +40,10 @@ export interface PlanPolicy {
 
 export interface Plan {
   rev: number;
-  status: 'ready' | 'running' | 'approved';
+  /** 'draft' — still being written/revised, not yet finalized; Approve stays
+   *  disabled (the card explains why). 'ready' — finalized, awaiting the
+   *  user's approval. */
+  status: 'draft' | 'ready' | 'running' | 'approved';
   /** ONE concise sentence: what + why. Backtick-wrapped spans render as
    *  inline mono chips (e.g. "…new param `maxSize`."). */
   goal: string;
@@ -85,9 +88,17 @@ const PHASES: Array<{ key: PlanStep['phase']; name: string; weight: number }> = 
 const EMPTY_WEIGHT = 0.42;
 
 const STATUS_LABEL: Record<Plan['status'], string> = {
+  draft: 'Plan drafting',
   ready: 'Plan ready',
   running: 'Plan running',
   approved: 'Plan approved',
+};
+
+const STATUS_DOT_COLOR: Record<Plan['status'], string> = {
+  draft: '#9a6700',
+  ready: '#2da44e',
+  running: '#2da44e',
+  approved: '#2da44e',
 };
 
 const MONO = "'SF Mono', Menlo, ui-monospace, monospace";
@@ -303,7 +314,10 @@ export function PipelinePlanCard({ plan, approvedAt, onPolicyChange, onApprove, 
       {/* goal band */}
       <div style={{ padding: '15px 20px', borderBottom: '1px solid #eef0f2' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 10 }}>
-          <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#2da44e', boxShadow: '0 0 0 3px rgba(45,164,78,0.15)' }} />
+          <span style={{
+            width: 9, height: 9, borderRadius: '50%', background: STATUS_DOT_COLOR[plan.status],
+            boxShadow: `0 0 0 3px ${plan.status === 'draft' ? 'rgba(212,167,44,0.2)' : 'rgba(45,164,78,0.15)'}`,
+          }} />
           <span style={{ fontSize: 13.5, fontWeight: 700, color: '#17191c' }}>{STATUS_LABEL[plan.status]}</span>
           <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', color: '#57606a', background: '#f0f2f4', borderRadius: 5, padding: '2px 7px' }}>
             REV {plan.rev}
@@ -372,25 +386,36 @@ export function PipelinePlanCard({ plan, approvedAt, onPolicyChange, onApprove, 
             Plan approved{approvedAt !== undefined ? ` at ${fmtApprovedAt(approvedAt)}` : ' — development under way.'}
           </div>
         ) : !revOpen ? (
-          <div style={{ display: 'flex', gap: 9 }}>
-            <button
-              type="button" className="ppc-primary" onClick={onApprove} disabled={onApprove === undefined}
-              style={{
-                flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 10,
-                border: '1px solid #1f2328', background: '#24292f', borderRadius: 9, fontSize: 13, fontWeight: 600, color: '#fff',
-                cursor: onApprove === undefined ? 'not-allowed' : 'pointer', opacity: onApprove === undefined ? 0.5 : 1,
-              }}
-            >
-              <CheckIcon /> Approve &amp; start dev
-            </button>
-            {onRequestRevision !== undefined && (
-              <button
-                type="button" className="ppc-secondary" onClick={() => setRevOpen(true)}
-                style={{ padding: '10px 16px', border: '1px solid #d5dbe1', background: '#fff', borderRadius: 9, fontSize: 13, fontWeight: 600, color: '#57606a', cursor: 'pointer' }}
-              >
-                Request revision
-              </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+            {plan.status === 'draft' && onApprove === undefined && (
+              <div style={{
+                fontSize: 12, color: '#9a6700', background: '#fff8e0', border: '1px solid rgba(212,167,44,.4)',
+                borderRadius: 7, padding: '7px 10px',
+              }}>
+                Still drafting — Approve is disabled until this plan is finalized. Reply above or use Request
+                revision to move it forward.
+              </div>
             )}
+            <div style={{ display: 'flex', gap: 9 }}>
+              <button
+                type="button" className="ppc-primary" onClick={onApprove} disabled={onApprove === undefined}
+                style={{
+                  flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 10,
+                  border: '1px solid #1f2328', background: '#24292f', borderRadius: 9, fontSize: 13, fontWeight: 600, color: '#fff',
+                  cursor: onApprove === undefined ? 'not-allowed' : 'pointer', opacity: onApprove === undefined ? 0.5 : 1,
+                }}
+              >
+                <CheckIcon /> Approve &amp; start dev
+              </button>
+              {onRequestRevision !== undefined && (
+                <button
+                  type="button" className="ppc-secondary" onClick={() => setRevOpen(true)}
+                  style={{ padding: '10px 16px', border: '1px solid #d5dbe1', background: '#fff', borderRadius: 9, fontSize: 13, fontWeight: 600, color: '#57606a', cursor: 'pointer' }}
+                >
+                  Request revision
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>

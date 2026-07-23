@@ -902,7 +902,7 @@
   padding: 18px 30px 28px;
 }
 
-.task-brain .shell .conv > :not(.plan-overlay) {
+.task-brain .shell .conv > :not(.plan-overlay):not(.push-dialog-overlay) {
   width: min(800px, 100%);
 }
 

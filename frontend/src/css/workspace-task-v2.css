@@ -439,7 +439,7 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
   gap: 12px;
   padding: 18px 28px 10px;
 }
-.task-brain.workspace-task-v2 .shell .conv > :not(.plan-overlay) { width: min(760px, 100%); }
+.task-brain.workspace-task-v2 .shell .conv > :not(.plan-overlay):not(.push-dialog-overlay) { width: min(760px, 100%); }
 .task-brain.workspace-task-v2 .shell .spine { padding-left: 36px; }
 .task-brain.workspace-task-v2 .shell .spine::before {
   left: 11px;

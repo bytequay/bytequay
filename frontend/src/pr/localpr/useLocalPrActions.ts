@@ -52,11 +52,18 @@ export function useLocalPrActions(taskId: string, opts: {
       .catch(() => { /* poll reconciles */ });
   }, [capabilities?.postRemoteComment, localComment, localPr, refresh]);
 
-  const confirmPush = useCallback(() => {
+  const confirmPush = useCallback((description?: string) => {
     if (localPr === null) return;
-    setPrBusy(true);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.pushLocalPr(localPr.id)
+    if (bridge === undefined) return;
+    setPrBusy(true);
+    // Persist an edited body first (the push opens the PR from the stored
+    // description), then push. Skip the write when the text is unchanged.
+    const prep = description !== undefined && description !== localPr.description
+      ? bridge.updateLocalPrDetails(localPr.id, { description })
+      : Promise.resolve(null);
+    void prep
+      .then(() => bridge.pushLocalPr(localPr.id))
       .then(() => { setPushOpen(false); refresh(); onAfterTransition?.(); })
       .catch(() => { /* poll reconciles; dialog stays open on failure */ })
       .finally(() => setPrBusy(false));

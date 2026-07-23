@@ -585,7 +585,7 @@ export function StageDetailRoute({
       {pushOpen && localPrBundle != null && (
         <PushDialog
           bundle={localPrBundle}
-          repoLabel={data?.task.repoFullName ?? brain.task.repoFullName}
+          repoLabel={workspaceRepository ?? data?.task.repoFullName ?? brain.task.repoFullName}
           busy={prBusy}
           onPush={confirmPush}
           onCancel={() => setPushOpen(false)}

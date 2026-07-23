@@ -4204,6 +4204,9 @@ export type Bridge = {
   /** The whole PR (row + commits + timeline + checks + comments + strip
    *  count) in one call, keyed by PR id, or null if it doesn't exist. */
   getLocalPrBundle: (prId: string) => Promise<LocalPRBundle | null>;
+  /** Edit a local PR's title/description (PATCH /api/prs/{id}) — used to
+   *  tweak the body in the push dialog before it opens the PR on GitHub. */
+  updateLocalPrDetails: (prId: string, body: { title?: string; description?: string }) => Promise<LocalPR>;
   /** User-gated push: push the branch, open a Draft PR, strip local-only
    *  history, and flip local-open → remote-drafted. */
   pushLocalPr: (prId: string) => Promise<LocalPR>;

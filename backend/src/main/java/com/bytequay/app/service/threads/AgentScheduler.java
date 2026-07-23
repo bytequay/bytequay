@@ -40,6 +40,7 @@ import com.bytequay.app.service.agents.AgentContextCompiler;
 import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.agents.ToolExposurePolicy;
 import com.bytequay.app.service.codegraph.CodeGraphFirstRuntime;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.runs.SessionBudgetPolicy;
 import com.bytequay.app.service.skills.ManagedSkillPolicy;
@@ -52,6 +53,8 @@ import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -116,9 +119,14 @@ public class AgentScheduler
     private final ActiveAgentContextRegistry activeContexts;
     private final AgentRunService agentRuns;
     private final SessionBudgetPolicy sessionBudgets;
+    private final GitRunner git;
     /** Agent metrics are cumulative; snapshot each turn's starting point so
      *  only that turn's delta is added to its public Session. */
     private final ConcurrentHashMap<String, AgentMetrics> usageBaselines = new ConcurrentHashMap<>();
+    // HEAD sha per running turn, captured at dispatch. A different sha by the
+    // time the turn finishes means the round touched code — the signal that
+    // local CI should run as part of the round.
+    private final ConcurrentHashMap<String, String> headBaselines = new ConcurrentHashMap<>();
     private final EnumMap<ThreadResourceLane, LaneState> lanes = new EnumMap<>(ThreadResourceLane.class);
     /** Per-agent-identity run gate: holds the agent key of every turn
      *  currently dispatched, so two turns for the SAME agent serialize
@@ -147,12 +155,13 @@ public class AgentScheduler
             ActiveAgentContextRegistry activeContexts,
             AgentRunService agentRuns,
             SessionBudgetPolicy sessionBudgets,
+            GitRunner git,
             @Value("${bytequay.threads.scheduler.max-cli-running:4}") int maxCliRunning,
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
         this(threads, turns, events, sessions, stages, tasks,
                 managedSkillPolicy, contextCompiler, activeContexts, agentRuns, sessionBudgets,
-                maxCliRunning, maxApiRunning, true);
+                git, maxCliRunning, maxApiRunning, true);
     }
 
     public AgentScheduler(
@@ -166,7 +175,7 @@ public class AgentScheduler
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
         this(threads, turns, events, sessions, stages, tasks,
-                null, null, null, null, null, maxCliRunning, maxApiRunning, true);
+                null, null, null, null, null, null, maxCliRunning, maxApiRunning, true);
     }
 
     private AgentScheduler(
@@ -181,6 +190,7 @@ public class AgentScheduler
             ActiveAgentContextRegistry activeContexts,
             AgentRunService agentRuns,
             SessionBudgetPolicy sessionBudgets,
+            GitRunner git,
             int maxCliRunning,
             int maxApiRunning,
             @SuppressWarnings("unused") boolean ignored)
@@ -198,6 +208,9 @@ public class AgentScheduler
         this.activeContexts = activeContexts == null ? new ActiveAgentContextRegistry() : activeContexts;
         this.agentRuns = agentRuns;
         this.sessionBudgets = sessionBudgets;
+        // Nullable: the minimal test constructor omits it, disabling per-round
+        // HEAD-delta detection (codeChanged stays false).
+        this.git = git;
         lanes.put(CLI, new LaneState(checkedLimit(maxCliRunning, "maxCliRunning")));
         lanes.put(API, new LaneState(checkedLimit(maxApiRunning, "maxApiRunning")));
     }
@@ -712,6 +725,7 @@ public class AgentScheduler
                     context);
             CodeGraphFirstRuntime.beginTurn(runningTurn.threadId(), agentKeyOf(runningTurn));
             usageBaselines.put(runningTurn.id(), session.metrics());
+            captureHeadBaseline(runningTurn, session);
             completion = requireNonNull(
                     session.send(runningTurn.input()),
                     "session send returned null");
@@ -728,6 +742,7 @@ public class AgentScheduler
         Throwable unwrapped = unwrap(failure);
         boolean failed = unwrapped != null
                 || (session != null && session.status() == ThreadStatus.ERRORED);
+        boolean codeChanged = detectCodeChanged(runningTurn, session, failed);
         Instant now = Instant.now();
         // Prefer the thrown exception's message; when the session failed
         // without throwing (a subprocess that exited non-zero and went
@@ -788,8 +803,55 @@ public class AgentScheduler
             }
             if (taskId != null) {
                 eventPublisher.publishEvent(
-                        new TaskTurnFinishedEvent(taskId, finished.id(), failed));
+                        new TaskTurnFinishedEvent(taskId, finished.id(), failed, codeChanged));
             }
+        }
+    }
+
+    /** Records the worktree HEAD at dispatch so completeTurn can tell whether
+     *  the round moved it. Task turns only; best-effort (a missing baseline
+     *  just means the round won't be classified as code-changed). */
+    private void captureHeadBaseline(ThreadTurn turn, ThreadAgent session)
+    {
+        if (git == null || turn.taskId() == null) {
+            return;
+        }
+        String workingDir = session.workingDir();
+        if (workingDir == null || workingDir.isBlank()) {
+            return;
+        }
+        try {
+            headBaselines.put(turn.id(), git.headSha(Path.of(workingDir)));
+        }
+        catch (IOException ignored) {
+            // No baseline captured — the round won't count as code-changed.
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+        }
+    }
+
+    /** True when this round moved the worktree HEAD (i.e. touched code).
+     *  Always clears the baseline entry so the map can't leak. */
+    private boolean detectCodeChanged(ThreadTurn turn, ThreadAgent session, boolean failed)
+    {
+        String baseline = headBaselines.remove(turn.id());
+        if (failed || baseline == null || git == null || session == null) {
+            return false;
+        }
+        String workingDir = session.workingDir();
+        if (workingDir == null || workingDir.isBlank()) {
+            return false;
+        }
+        try {
+            return !baseline.equals(git.headSha(Path.of(workingDir)));
+        }
+        catch (IOException e) {
+            return false;
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+            return false;
         }
     }
 

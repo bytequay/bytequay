@@ -626,7 +626,7 @@ class TestAgentScheduler
         {
             scheduler = new AgentScheduler(
                     threads, turns, events, registry, stageStore,
-                    new StubTaskStore(), null, null, null, agentRuns, null,
+                    new StubTaskStore(), null, null, null, agentRuns, null, null,
                     maxCliRunning, maxApiRunning);
         }
 

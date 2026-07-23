@@ -20,7 +20,14 @@ package com.bytequay.app.service.threads;
  * write mutex so a held lock can never outlive the turn that took it.
  *
  * @param taskId the turn's focused task (non-null; trunk turns don't fire this)
+ * @param codeChanged whether this round moved HEAD in the task's worktree —
+ *        the signal that local CI should run as part of the round
  */
-public record TaskTurnFinishedEvent(String taskId, String turnId, boolean failed)
+public record TaskTurnFinishedEvent(String taskId, String turnId, boolean failed, boolean codeChanged)
 {
+    /** Back-compat for listeners/tests that don't care whether code changed. */
+    public TaskTurnFinishedEvent(String taskId, String turnId, boolean failed)
+    {
+        this(taskId, turnId, failed, false);
+    }
 }

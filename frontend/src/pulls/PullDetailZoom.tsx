@@ -44,14 +44,14 @@ export function PullDetailHost({ zoomed, onClose, normalStyle, children }: {
     justifyContent: 'center',
     minWidth: 0,
     minHeight: 0,
-    padding: 32,
+    padding: 20,
     background: 'rgba(20,16,30,0.42)',
   } : normalStyle ?? {};
   const panelStyle: CSSProperties = zoomed ? {
     position: 'relative',
     display: 'flex',
-    width: 'min(1248px, 100%)',
-    height: 'min(900px, calc(100vh - 64px))',
+    width: 'min(1680px, 100%)',
+    height: 'calc(100vh - 40px)',
     minWidth: 0,
     minHeight: 0,
     overflow: 'hidden',

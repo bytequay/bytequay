@@ -51,7 +51,6 @@ const GROUPS: GroupDef[] = [
   {
     label: 'Team',
     links: [
-      { id: 'teams', label: 'Teams', icon: '👥', disabled: true },
       { id: 'watched-repos', label: 'Watched repos', icon: '📦' },
       { id: 'workspace-memory', label: 'Workspace memory', icon: '🧠' },
     ],

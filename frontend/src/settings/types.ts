@@ -18,7 +18,6 @@ export type SettingsSection =
   // Kept in the union for back-compat with onboarding deep links and
   // older URLs; the SettingsShell aliases it to 'credentials' on render.
   | 'github-token'
-  | 'teams'
   | 'ai-review'
   | 'local-ai'
   | 'skills'

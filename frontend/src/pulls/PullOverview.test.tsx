@@ -217,7 +217,44 @@ describe('PullOverview', () => {
     expect(screen.getByText('BRAIN')).toBeTruthy();
     expect(screen.queryByText('claude-code')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Send to dev' })).toBeNull();
-    expect(screen.getAllByRole('button', { name: 'Resolve' })).toHaveLength(1);
+    // Both the user finding and the brain finding are manually resolvable now
+    // (brain findings used to have no resolve control).
+    expect(screen.getAllByRole('button', { name: 'Resolve' })).toHaveLength(2);
+  });
+
+  it('renders the real user avatar and can unresolve a resolved comment', async () => {
+    const local = {
+      ...bundle,
+      pr: {
+        ...bundle.pr, id: 'pr-1', taskId: 'task-1', status: 'local-open',
+        origin: 'task', repo: null, remotePrNumber: null, remotePrUrl: null,
+      },
+      comments: [{
+        id: 'mine', localPrId: 'pr-1', origin: 'local', scope: 'file-line', filePath: 'src/A.java',
+        lineNumber: 7, side: 'RIGHT', startLine: null, startSide: null, author: 'you', body: 'Fix A',
+        createdAt: 1000, resolvedAt: 2000, dismissedAt: null, strippedOnPushAt: null,
+        parentCommentId: null, publishedAt: null,
+      }],
+    } as LocalPRBundle;
+    const onLocalReopen = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <PullTimeline
+        items={buildTimeline(local)}
+        repo="trinodb/trino"
+        localPr={local.pr}
+        currentUserLogin="octocat"
+        onLocalResolve={vi.fn()}
+        onLocalReopen={onLocalReopen}
+      />,
+    );
+
+    // Resolved comment folds; expand to reveal the message + action.
+    fireEvent.click(screen.getByTitle('Expand thread'));
+    expect(screen.getAllByAltText('octocat').some(
+      img => img.getAttribute('src')?.includes('github.com/octocat.png'))).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Unresolve' }));
+    await waitFor(() => expect(onLocalReopen).toHaveBeenCalledWith('mine'));
   });
 
   it('does not reopen a resolved Brain finding through an unrouteable reply', () => {

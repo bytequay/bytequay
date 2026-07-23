@@ -56,7 +56,7 @@ function LoadingTimeline() {
 
 export default function PullOverview({
   row, bundle, isMerged, onComment, onClosePullRequest, onDescriptionSaved,
-  onLocalReply, onLocalResolve, onSubmitLocalReview,
+  onLocalReply, onLocalResolve, onLocalReopen, onLocalDismiss, currentUserLogin, onSubmitLocalReview,
 }: {
   row: PullRow;
   bundle: LocalPRBundle | null | undefined;
@@ -66,6 +66,9 @@ export default function PullOverview({
   onDescriptionSaved?: () => void;
   onLocalReply?: (root: LocalPRComment, body: string) => Promise<void>;
   onLocalResolve?: (commentId: string) => Promise<void>;
+  onLocalReopen?: (commentId: string) => Promise<void>;
+  onLocalDismiss?: (commentId: string) => Promise<void>;
+  currentUserLogin?: string | null;
   onSubmitLocalReview?: (commentIds: string[]) => Promise<void>;
 }) {
   const loading = bundle === undefined;
@@ -217,6 +220,9 @@ export default function PullOverview({
               localPr={bundle?.pr}
               onLocalReply={onLocalReply}
               onLocalResolve={onLocalResolve}
+              onLocalReopen={onLocalReopen}
+              onLocalDismiss={onLocalDismiss}
+              currentUserLogin={currentUserLogin}
               onSubmitLocalReview={onSubmitLocalReview}
             />
             {checks !== null && <PullChecksCard model={checks} />}

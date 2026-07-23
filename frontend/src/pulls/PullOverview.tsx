@@ -57,6 +57,7 @@ function LoadingTimeline() {
 export default function PullOverview({
   row, bundle, isMerged, onComment, onClosePullRequest, onDescriptionSaved,
   onLocalReply, onLocalResolve, onLocalReopen, onLocalDismiss, currentUserLogin, onSubmitLocalReview,
+  onAskAgentThread,
 }: {
   row: PullRow;
   bundle: LocalPRBundle | null | undefined;
@@ -70,6 +71,7 @@ export default function PullOverview({
   onLocalDismiss?: (commentId: string) => Promise<void>;
   currentUserLogin?: string | null;
   onSubmitLocalReview?: (commentIds: string[]) => Promise<void>;
+  onAskAgentThread?: (root: LocalPRComment) => void;
 }) {
   const loading = bundle === undefined;
   const opened = buildOpenedCard(row, bundle);
@@ -224,6 +226,7 @@ export default function PullOverview({
               onLocalDismiss={onLocalDismiss}
               currentUserLogin={currentUserLogin}
               onSubmitLocalReview={onSubmitLocalReview}
+              onAskAgentThread={onAskAgentThread}
             />
             {checks !== null && <PullChecksCard model={checks} />}
           </>

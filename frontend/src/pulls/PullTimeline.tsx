@@ -197,6 +197,7 @@ export default function PullTimeline({
   items, repo, prAuthor = null, prHtmlUrl = '', reviewThreadsByRemoteId, onCommentReaction,
   onThreadReply, onThreadReact, onThreadSetResolved, localPr,
   onLocalReply, onLocalResolve, onLocalReopen, onLocalDismiss, currentUserLogin, onSubmitLocalReview,
+  onAskAgentThread,
 }: {
   items: TimelineItem[];
   repo: string;
@@ -214,6 +215,7 @@ export default function PullTimeline({
   onLocalDismiss?: (commentId: string) => Promise<void>;
   currentUserLogin?: string | null;
   onSubmitLocalReview?: (commentIds: string[]) => Promise<void>;
+  onAskAgentThread?: (root: LocalPRComment) => void;
 }) {
   const [owner, name] = repo.split('/');
   const repoCtx: MarkdownRepoContext = { owner: owner ?? repo, repo: name ?? repo };
@@ -317,6 +319,7 @@ export default function PullTimeline({
                       && onSubmitLocalReview !== undefined
                     ? () => onSubmitLocalReview([root.id])
                     : undefined}
+                  onAskAgent={onAskAgentThread !== undefined ? () => onAskAgentThread(root) : undefined}
                 />
               </div>
             );

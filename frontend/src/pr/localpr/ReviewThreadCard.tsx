@@ -45,6 +45,7 @@ export function ReviewThreadCard({
   onSubmitToDev,
   currentUserLogin,
   onOpenLocation,
+  onAskAgent,
 }: {
   pr: LocalPR;
   filePath?: string;
@@ -73,6 +74,8 @@ export function ReviewThreadCard({
   /** Jump to this comment's line in the Changes diff. Wired only for
    *  file-line comments (a PR-level comment has no line to jump to). */
   onOpenLocation?: (filePath: string, lineNumber: number | null, side: 'LEFT' | 'RIGHT') => void;
+  /** Route this thread's context into the owning stage composer. */
+  onAskAgent?: () => void;
 }) {
   const [action, setAction] = useState<'resolve' | 'submit' | 'resolve-done' | 'submit-done' | null>(null);
   const [resolutionTarget, setResolutionTarget] = useState<boolean | null>(null);
@@ -158,6 +161,7 @@ export function ReviewThreadCard({
       onLocationClick={root.scope !== 'pr' && thread.filePath !== null && onOpenLocation !== undefined
         ? () => onOpenLocation(thread.filePath!, thread.line, root.side)
         : undefined}
+      onAskAgent={onAskAgent}
       onReply={canReply ? async body => {
         await onReply(root.id, body);
         if (root.findingId !== null && root.findingId !== undefined) {

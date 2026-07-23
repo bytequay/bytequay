@@ -222,6 +222,35 @@ describe('PullOverview', () => {
     expect(screen.getAllByRole('button', { name: 'Resolve conversation' })).toHaveLength(2);
   });
 
+  it('routes a review thread into the agent composer via Ask agent', () => {
+    const onAskAgentThread = vi.fn();
+    const local = {
+      ...bundle,
+      pr: {
+        ...bundle.pr, id: 'pr-1', taskId: 'task-1', status: 'local-open',
+        origin: 'task', repo: null, remotePrNumber: null, remotePrUrl: null,
+      },
+      comments: [{
+        id: 'c1', localPrId: 'pr-1', origin: 'local', scope: 'file-line', filePath: 'src/A.java',
+        lineNumber: 7, side: 'RIGHT', startLine: null, startSide: null, author: 'you', body: 'Fix A',
+        createdAt: 1000, resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
+        parentCommentId: null, publishedAt: null,
+      }],
+    } as LocalPRBundle;
+
+    render(
+      <PullTimeline
+        items={buildTimeline(local)}
+        repo="trinodb/trino"
+        localPr={local.pr}
+        onAskAgentThread={onAskAgentThread}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Ask agent/ }));
+    expect(onAskAgentThread).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }));
+  });
+
   it('renders the real user avatar and can unresolve a resolved comment', async () => {
     const local = {
       ...bundle,

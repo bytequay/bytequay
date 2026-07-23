@@ -38,7 +38,7 @@ import { PullDetailHost } from '../pulls/PullDetailZoom';
 import { pullRowFromLocal } from '../pulls/localRow';
 import type { PullRow } from '../pulls/model';
 import { derivePRCapabilities } from '../pr/prCapabilities';
-import type { AgentReviewNavTarget } from '../pr/localpr/PrDetailsView';
+import type { AgentReviewNavTarget } from '../pulls/agentColumnModel';
 import { formatCost, formatDuration } from '../threads/brain/format';
 import { TaskChangedFilesCard } from './TaskChangedFilesCard';
 import type { WsNavKey } from '../ui/workspace';

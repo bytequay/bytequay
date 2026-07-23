@@ -254,6 +254,7 @@ export function PullDetailBody({
   openOverviewToken, openChangesToken, ...actions
 }: PullDetailBodyProps) {
   const [subTab, setSubTab] = useState<'overview' | 'changes'>('overview');
+  const [jumpTarget, setJumpTarget] = useState<{ filePath: string; side: 'LEFT' | 'RIGHT'; line: number | null } | null>(null);
   const [submitOpen, setSubmitOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reviewNotice, setReviewNotice] = useState<string | null>(null);
@@ -402,12 +403,12 @@ export function PullDetailBody({
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 6 }}>
-            <button onClick={() => setSubTab('overview')} style={{ ...tabBtnStyle, borderBottom: `2px solid ${isOverview ? '#c2632a' : 'transparent'}`, fontWeight: isOverview ? 600 : 500, color: isOverview ? '#17191c' : '#6e7781' }}>
+            <button onClick={() => { setJumpTarget(null); setSubTab('overview'); }} style={{ ...tabBtnStyle, borderBottom: `2px solid ${isOverview ? '#c2632a' : 'transparent'}`, fontWeight: isOverview ? 600 : 500, color: isOverview ? '#17191c' : '#6e7781' }}>
               <CommentBubbleIcon size={14} />
               Overview
               <span style={{ fontSize: 10.5, fontWeight: 700, background: isOverview ? 'rgba(194,99,42,0.12)' : '#eceef0', color: isOverview ? '#c2632a' : '#59636e', borderRadius: 999, padding: '1px 7px' }}>{det.ovCount}</span>
             </button>
-            <button onClick={() => setSubTab('changes')} style={{ ...tabBtnStyle, borderBottom: `2px solid ${!isOverview ? '#c2632a' : 'transparent'}`, fontWeight: !isOverview ? 600 : 500, color: !isOverview ? '#17191c' : '#6e7781' }}>
+            <button onClick={() => { setJumpTarget(null); setSubTab('changes'); }} style={{ ...tabBtnStyle, borderBottom: `2px solid ${!isOverview ? '#c2632a' : 'transparent'}`, fontWeight: !isOverview ? 600 : 500, color: !isOverview ? '#17191c' : '#6e7781' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3" /><path d="M16 3h3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-3" /><path d="M12 8v8" /><path d="M8 12h8" /></svg>
               Changes
               <span style={{ fontSize: 10.5, fontWeight: 700, background: '#dafbe1', color: '#1a7f37', borderRadius: 999, padding: '1px 7px' }}>{det.addP}</span>
@@ -459,6 +460,7 @@ export function PullDetailBody({
               currentUserLogin={currentUserLogin}
               onSubmitLocalReview={submitPendingReviewToDev}
               onAskAgentThread={actions.onAskAgentThread}
+              onOpenCommentLocation={(filePath, line, side) => { setJumpTarget({ filePath, side, line }); setSubTab('changes'); }}
             />
           </div>
         </div>
@@ -471,6 +473,7 @@ export function PullDetailBody({
           filesOverride={changesFiles}
           fetchBlobOverride={fetchChangesBlob}
           banner={changesBanner}
+          jumpTarget={jumpTarget}
         />
       )}
       <SubmitReviewDrawer

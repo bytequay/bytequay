@@ -129,6 +129,7 @@ function CommentCard({ item, repoCtx, onReaction }: {
 
 function ReviewCard({
   item, repoCtx, threads, prAuthor, prHtmlUrl, onThreadReply, onThreadReact, onThreadSetResolved,
+  onOpenCommentLocation,
 }: {
   item: Extract<TimelineItem, { kind: 'review' }>;
   repoCtx: MarkdownRepoContext;
@@ -138,6 +139,7 @@ function ReviewCard({
   onThreadReply?: (rootGithubId: number, body: string) => Promise<void>;
   onThreadReact?: (commentGithubId: number, content: ReactionContent) => Promise<void>;
   onThreadSetResolved?: (rootGithubId: number, resolved: boolean) => Promise<void>;
+  onOpenCommentLocation?: (filePath: string, line: number | null, side: 'LEFT' | 'RIGHT') => void;
 }) {
   const reviewSummary = (
     <div style={cardStyle}>
@@ -186,6 +188,9 @@ function ReviewCard({
               : body => onThreadReply(thread.rootGithubId, body)}
             onReact={onThreadReact}
             onSetResolved={onThreadSetResolved}
+            onLocationClick={onOpenCommentLocation === undefined || thread.filePath === null
+              ? undefined
+              : () => onOpenCommentLocation(thread.filePath!, thread.line, (thread.side ?? 'RIGHT') as 'LEFT' | 'RIGHT')}
           />
         ))}
       </div>
@@ -197,7 +202,7 @@ export default function PullTimeline({
   items, repo, prAuthor = null, prHtmlUrl = '', reviewThreadsByRemoteId, onCommentReaction,
   onThreadReply, onThreadReact, onThreadSetResolved, localPr,
   onLocalReply, onLocalResolve, onLocalReopen, onLocalDismiss, currentUserLogin, onSubmitLocalReview,
-  onAskAgentThread,
+  onAskAgentThread, onOpenCommentLocation,
 }: {
   items: TimelineItem[];
   repo: string;
@@ -216,6 +221,8 @@ export default function PullTimeline({
   currentUserLogin?: string | null;
   onSubmitLocalReview?: (commentIds: string[]) => Promise<void>;
   onAskAgentThread?: (root: LocalPRComment) => void;
+  /** Jump to a file-line comment's location on the Changes tab. */
+  onOpenCommentLocation?: (filePath: string, line: number | null, side: 'LEFT' | 'RIGHT') => void;
 }) {
   const [owner, name] = repo.split('/');
   const repoCtx: MarkdownRepoContext = { owner: owner ?? repo, repo: name ?? repo };
@@ -264,6 +271,7 @@ export default function PullTimeline({
                 onThreadReply={onThreadReply}
                 onThreadReact={onThreadReact}
                 onThreadSetResolved={onThreadSetResolved}
+                onOpenCommentLocation={onOpenCommentLocation}
               />
             );
           case 'review-activity':
@@ -297,7 +305,7 @@ export default function PullTimeline({
                   ? item.submitted ? 'SENT TO DEV' : 'PENDING REVIEW'
                   : undefined;
             return (
-              <div key={item.id} style={{ marginLeft: 36 }}>
+              <div key={item.id} style={{ margin: '16px 0', marginLeft: 36 }}>
                 <LocalReviewThreadCard
                   pr={localPr}
                   comments={item.comments}
@@ -320,6 +328,7 @@ export default function PullTimeline({
                     ? () => onSubmitLocalReview([root.id])
                     : undefined}
                   onAskAgent={onAskAgentThread !== undefined ? () => onAskAgentThread(root) : undefined}
+                  onOpenLocation={onOpenCommentLocation}
                 />
               </div>
             );

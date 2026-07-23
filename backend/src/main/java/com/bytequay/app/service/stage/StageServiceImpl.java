@@ -207,7 +207,7 @@ public class StageServiceImpl
                 buildBrainReviewPhase(brainRound));
     }
 
-    private static TaskBrainViewData.DevPhase buildBrainReviewPhase(ReviewRound brainRound)
+    static TaskBrainViewData.DevPhase buildBrainReviewPhase(ReviewRound brainRound)
     {
         if (brainRound == null) {
             return new TaskBrainViewData.DevPhase("brainReview", "future", "next", null);
@@ -216,10 +216,15 @@ public class StageServiceImpl
             return new TaskBrainViewData.DevPhase(
                     "brainReview", "running", "iter " + brainRound.iteration(), brainRound.runId());
         }
-        if (ReviewRound.VERDICT_APPROVED.equals(brainRound.brainVerdict())) {
+        int open = brainRound.stats() == null ? 0 : brainRound.stats().open();
+        // "brain approved" only when the reviewer's own findings are all
+        // cleared. A recorded APPROVED verdict with open roots means the loop
+        // ran out of budget mid-fix (advanceAfterReviewTurn forces the pass to
+        // changes-requested but the round keeps the last verdict). Surface it
+        // as unresolved so the frontend's human-override ship path engages.
+        if (ReviewRound.VERDICT_APPROVED.equals(brainRound.brainVerdict()) && open == 0) {
             return new TaskBrainViewData.DevPhase("brainReview", "done", "brain approved", null);
         }
-        int open = brainRound.stats() == null ? 0 : brainRound.stats().open();
         return new TaskBrainViewData.DevPhase(
                 "brainReview", "done", open > 0 ? "brain unresolved · " + open : "brain unresolved", null);
     }

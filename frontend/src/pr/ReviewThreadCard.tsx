@@ -46,6 +46,7 @@ export function ReviewThreadCard({
   locationLabel,
   renderMessageBody,
   renderMessageBadges,
+  avatarLoginFor,
   footerActions,
   compact = false,
   actionsDisabled = false,
@@ -85,6 +86,10 @@ export function ReviewThreadCard({
   renderMessageBody?: (message: ReviewMessageDto, index: number) => ReactNode;
   /** Local-only status pills (for example Local / queued for review). */
   renderMessageBadges?: (message: ReviewMessageDto, index: number) => ReactNode;
+  /** Resolve the avatar's GitHub handle for a message when its display author
+   *  isn't a real login (local threads show "You"/"brain"). Returns undefined
+   *  to fall back to the message author. */
+  avatarLoginFor?: (message: ReviewMessageDto, index: number) => string | undefined;
   /** Extra local actions beside Resolve, without changing remote threads. */
   footerActions?: ReactNode;
   /** Compact desktop timeline treatment: full hunk, flat messages, action footer. */
@@ -295,7 +300,7 @@ export function ReviewThreadCard({
             const isPrAuthor = !!msg.author && prAuthor === msg.author;
             return (
               <div key={msg.githubId} className="prc-review-thread__msg">
-                <Avatar login={msg.author ?? ''} size={compact ? 24 : 20} className="prc-review-thread__avatar" />
+                <Avatar login={avatarLoginFor?.(msg, index) ?? msg.author ?? ''} size={compact ? 24 : 20} className="prc-review-thread__avatar" />
                 <div className="prc-review-thread__msg-body">
                   <div className="prc-review-thread__msg-head">
                     <span className="prc-review-thread__msg-head-left">

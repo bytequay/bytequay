@@ -43,6 +43,7 @@ export function ReviewThreadCard({
   compact = false,
   statusLabel,
   onSubmitToDev,
+  currentUserLogin,
 }: {
   pr: LocalPR;
   filePath?: string;
@@ -65,6 +66,9 @@ export function ReviewThreadCard({
   statusLabel?: string;
   /** Explicitly dispatch this pending local review thread to Development. */
   onSubmitToDev?: () => void | Promise<void>;
+  /** GitHub handle of the signed-in user, used to render their real avatar on
+   *  their own ("You") messages instead of a placeholder. */
+  currentUserLogin?: string | null;
 }) {
   const [action, setAction] = useState<'resolve' | 'submit' | 'resolve-done' | 'submit-done' | null>(null);
   const [resolutionTarget, setResolutionTarget] = useState<boolean | null>(null);
@@ -150,6 +154,9 @@ export function ReviewThreadCard({
         }
       } : undefined}
       onSetResolved={setResolved}
+      avatarLoginFor={(_message, index) => comments[index]?.author === 'you'
+        ? (currentUserLogin ?? undefined)
+        : undefined}
       renderMessageBadges={(_message, index) => {
         const comment = comments[index];
         if (comment === undefined) return null;

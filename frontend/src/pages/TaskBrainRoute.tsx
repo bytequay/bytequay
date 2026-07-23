@@ -500,11 +500,15 @@ export function TaskBrainRoute({
     <ShipReviewPrompt
       onReview={openChanges}
       onApprove={() => setPushOpen(true)}
-      approveDisabled={!localReviewApproval.enabled}
-      onAskAgent={() => {
+      // The human is the final authority: once the task is parked at the push
+      // gate, Approve & ship stays enabled even with open findings or a failing
+      // test — those surface as a warning note, not a hard block. Only mid-flight
+      // (agent still working) keeps it disabled.
+      approveDisabled={task.currentPhase !== 'AWAITING_PUSH'}
+      onAskAgent={task.currentPhase === 'AWAITING_PUSH' && !localReviewApproval.enabled ? () => {
         const body = 'Address the remaining review comments and fix the failing local test, then I\'ll ship.';
         if (working) enqueue(body); else sendNow(body);
-      }}
+      } : undefined}
       onReviewChanges={() => openTab('pr', 'changes')}
       note={!localReviewApproval.enabled || localReviewGate.brainReview.state === 'unresolved'
         ? localReviewApproval.reason

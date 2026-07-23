@@ -331,11 +331,16 @@ public class PRRecordToolHandlers
             @ToolParam(description = "The comment id to resolve.",
                     wireName = "comment_id", required = true) String commentId,
             @ToolParam(description = "How it was resolved: 'addressed' or 'dismissed'.")
-            String resolution) {}
+            String resolution,
+            @ToolParam(description = "A short reply, posted under the comment, describing how you "
+                    + "addressed it. Required when addressing (mirrors replying on a github.com review "
+                    + "thread before resolving it); omit only when dismissing.")
+            String reply) {}
 
     @AgentTool(
             name = "resolve_pr_comment",
-            description = "Mark a local PR comment resolved after addressing or dismissing it.",
+            description = "Reply under a local PR comment describing the fix, then mark it resolved — "
+                    + "or dismiss it without a reply when you are not acting on it.",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TASK)
@@ -345,9 +350,11 @@ public class PRRecordToolHandlers
             return ToolOutcome.Completed.error("comment_id is required");
         }
         return withPr(call, pr -> {
-            boolean belongsToTask = prService.comments(pr.id()).stream()
-                    .anyMatch(comment -> args.commentId().equals(comment.id()));
-            if (!belongsToTask) {
+            PRComment parent = prService.comments(pr.id()).stream()
+                    .filter(comment -> args.commentId().equals(comment.id()))
+                    .findFirst()
+                    .orElse(null);
+            if (parent == null) {
                 return ToolOutcome.Completed.error(
                         "comment " + args.commentId() + " does not belong to this task's local PR");
             }
@@ -355,8 +362,20 @@ public class PRRecordToolHandlers
                 prService.dismissCommentForAgent(args.commentId());
                 return ToolOutcome.Completed.ok("dismissed comment " + args.commentId());
             }
+            if (args.reply() == null || args.reply().isBlank()) {
+                return ToolOutcome.Completed.error(
+                        "provide a 'reply' describing how you addressed comment " + args.commentId()
+                                + " before resolving it (or set resolution='dismissed' to close it without a fix)");
+            }
+            // Reply under the comment before resolving so the reviewer sees how
+            // it was addressed — the local analog of replying on a github.com
+            // review thread and then resolving it.
+            prService.addComment(
+                    pr.id(), PRComment.ORIGIN_LOCAL, parent.scope(), parent.filePath(),
+                    parent.lineNumber(), parent.side(), parent.startLine(), parent.startSide(),
+                    PRTimelineEntry.ACTOR_AGENT, args.reply().strip(), args.commentId());
             prService.resolveCommentForAgent(args.commentId());
-            return ToolOutcome.Completed.ok("resolved comment " + args.commentId());
+            return ToolOutcome.Completed.ok("replied and resolved comment " + args.commentId());
         });
     }
 

@@ -698,4 +698,44 @@ describe('PRTimeline GitHub-native feed', () => {
     expect(screen.getAllByAltText('chenjian2664').some(
       img => img.getAttribute('src')?.includes('github.com/chenjian2664.png'))).toBe(true);
   });
+
+  it('unresolves a resolved plain comment via onUnresolveThread', async () => {
+    const onUnresolveThread = vi.fn();
+    const comments: LocalPRComment[] = [{
+      id: 'mine', localPrId: 'pr1', origin: 'local', scope: 'file-line',
+      filePath: 'src/Foo.java', lineNumber: 10, side: 'RIGHT', startLine: null, startSide: null,
+      author: 'you', body: 'use ImmutableList here directly', createdAt: 5,
+      resolvedAt: 6, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, publishedAt: null,
+    }];
+
+    render(<PRTimeline
+      pr={pr()} events={[]} comments={comments}
+      activity={[]} reviewThreads={[]} threadActions={noopThreadActions}
+      onResolveThread={vi.fn()} onUnresolveThread={onUnresolveThread}
+    />);
+
+    // Resolved threads fold by default — expand to reveal the action row.
+    fireEvent.click(screen.getByTitle('Expand thread'));
+    fireEvent.click(screen.getByRole('button', { name: 'Unresolve conversation' }));
+    await waitFor(() => expect(onUnresolveThread).toHaveBeenCalledWith('mine'));
+  });
+
+  it('jumps to the code when the file:line label of a review comment is clicked', () => {
+    const onOpenCommentLocation = vi.fn();
+    const comments: LocalPRComment[] = [{
+      id: 'mine', localPrId: 'pr1', origin: 'local', scope: 'file-line',
+      filePath: 'src/Foo.java', lineNumber: 10, side: 'RIGHT', startLine: null, startSide: null,
+      author: 'you', body: 'use ImmutableList here directly', createdAt: 5,
+      resolvedAt: null, dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, publishedAt: null,
+    }];
+
+    render(<PRTimeline
+      pr={pr()} events={[]} comments={comments}
+      activity={[]} reviewThreads={[]} threadActions={noopThreadActions}
+      onOpenCommentLocation={onOpenCommentLocation}
+    />);
+
+    fireEvent.click(screen.getByRole('button', { name: /src\/Foo\.java:10/ }));
+    expect(onOpenCommentLocation).toHaveBeenCalledWith('src/Foo.java', 10, 'RIGHT');
+  });
 });

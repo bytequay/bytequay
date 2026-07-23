@@ -72,6 +72,19 @@ describe('ShipReviewPrompt', () => {
     expect(screen.getByText('Resolve the local review comment first.')).toBeTruthy();
   });
 
+  it('offers "Ask agent to address & fix" only while shipping is blocked', () => {
+    const onAskAgent = vi.fn();
+    const { rerender } = render(
+      <ShipReviewPrompt onReview={vi.fn()} onApprove={vi.fn()} approveDisabled onAskAgent={onAskAgent} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Ask agent to address/ }));
+    expect(onAskAgent).toHaveBeenCalledOnce();
+
+    // Once approval is unblocked, the forward-action button disappears.
+    rerender(<ShipReviewPrompt onReview={vi.fn()} onApprove={vi.fn()} onAskAgent={onAskAgent} />);
+    expect(screen.queryByRole('button', { name: /Ask agent to address/ })).toBeNull();
+  });
+
   it('recovers an obsolete gate without offering an approval action', () => {
     const onDiscard = vi.fn();
     render(<StaleShipGatePrompt onDiscard={onDiscard} />);

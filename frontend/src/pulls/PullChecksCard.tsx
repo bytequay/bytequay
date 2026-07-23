@@ -85,6 +85,11 @@ export default function PullChecksCard({ model }: { model: ChecksModel }) {
                   <RowIcon state={cr.state} />
                   <span style={{ fontSize: 13, color: '#1f2328', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cr.name}</span>
                   <span style={{ fontSize: 12, color: '#8b949e' }}>{cr.note}</span>
+                  {cr.time !== '' && (
+                    <span title={cr.title} style={{ marginLeft: 'auto', paddingLeft: 10, fontSize: 12, color: '#8b949e', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                      {cr.time}
+                    </span>
+                  )}
                 </div>
               ))}
             </div>

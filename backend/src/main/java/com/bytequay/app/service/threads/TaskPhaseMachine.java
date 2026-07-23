@@ -69,15 +69,18 @@ public class TaskPhaseMachine
     private final TaskStore taskStore;
     private final NotificationService notifications;
     private final ApplicationEventPublisher events;
+    private final LocalCiFixExecutor localCiFix;
 
     public TaskPhaseMachine(
             TaskStore taskStore,
             NotificationService notifications,
-            ApplicationEventPublisher events)
+            ApplicationEventPublisher events,
+            LocalCiFixExecutor localCiFix)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.events = requireNonNull(events, "events is null");
+        this.localCiFix = requireNonNull(localCiFix, "localCiFix is null");
     }
 
     /** Run {@code action} exclusively against one task's lifecycle. Hash
@@ -182,10 +185,11 @@ public class TaskPhaseMachine
     }
 
     /**
-     * Validation finishing drives VALIDATING ▶ INTERNAL_REVIEW (clean)
-     * or VALIDATING ▶ NEEDS_ATTENTION (failed check). Guarded so a
-     * stray event for a task that has since moved on is ignored rather
-     * than throwing an illegal-transition error.
+     * Validation finishing drives VALIDATING ▶ INTERNAL_REVIEW (clean). A
+     * failed check first tries the bounded local-CI fix loop; only when no
+     * fix turn can be queued (budget spent or nothing to run on) does it park
+     * at NEEDS_ATTENTION. Guarded so a stray event for a task that has since
+     * moved on is ignored rather than throwing an illegal-transition error.
      */
     @EventListener
     public void onValidationFinished(ValidationPassFinishedEvent event)
@@ -195,9 +199,12 @@ public class TaskPhaseMachine
             return;
         }
         if (event.passed()) {
+            localCiFix.closeIfGreen(event.taskId());
             transition(event.taskId(), TaskPhase.INTERNAL_REVIEW, "validation_passed", Actor.AGENT);
         }
-        else {
+        else if (!localCiFix.tryFix(task, event.failures())) {
+            // No fix turn was queued (budget spent or nothing to run on) —
+            // hand the failing checks back to the human.
             transition(event.taskId(), TaskPhase.NEEDS_ATTENTION, "validation_failed", Actor.AGENT);
         }
     }

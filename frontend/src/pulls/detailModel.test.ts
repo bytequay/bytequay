@@ -110,21 +110,25 @@ describe('buildTimeline', () => {
     expect(items[0]).toMatchObject({ kind: 'commit', sha: 'abcdef0', message: 'Fix it' });
   });
 
-  it('keeps concluded reviews, drops lifecycle rows, and maps verdicts', () => {
+  it('keeps review lifecycle rows and maps concluded verdicts', () => {
     const items = buildTimeline(bundle({
       timeline: [
-        event({ id: 'r1', eventType: 'review', actor: 'brain', payload: { reviewEvent: 'started', scope: 'dev' } }),
+        event({ id: 'r1', eventType: 'review', actor: 'brain', payload: { reviewEvent: 'started', scope: 'dev', iteration: 2 } }),
+        event({ id: 'r1-fix', eventType: 'review', actor: 'agent', createdAt: 1250,
+          payload: { reviewEvent: 'addressing-started', scope: 'dev', iteration: 2 } }),
         event({ id: 'r2', eventType: 'review', actor: '@rev', createdAt: 1500, payload: { verdict: 'APPROVED' } }),
         event({ id: 'r3', eventType: 'review', actor: '@rev', createdAt: 1600, payload: { verdict: 'request-changes', body: 'nope' } }),
         event({ id: 'r4', eventType: 'review', actor: '@rev', createdAt: 1700, payload: { verdict: 'COMMENTED' } }),
         event({ id: 'r5', eventType: 'review', actor: '@rev', createdAt: 1800, payload: { verdict: 'DISMISSED' } }),
       ],
     }));
-    expect(items.map(i => i.id)).toEqual(['r2', 'r3', 'r4', 'r5']);
-    expect(items[0]).toMatchObject({ kind: 'review', verdict: 'approved', author: 'rev' });
-    expect(items[1]).toMatchObject({ kind: 'review', verdict: 'changes', body: 'nope' });
-    expect(items[2]).toMatchObject({ kind: 'review', verdict: 'commented' });
-    expect(items[3]).toMatchObject({ kind: 'review', verdict: 'dismissed' });
+    expect(items.map(i => i.id)).toEqual(['r1', 'r1-fix', 'r2', 'r3', 'r4', 'r5']);
+    expect(items[0]).toMatchObject({ kind: 'review-activity', activity: 'started', author: 'brain', iteration: 2 });
+    expect(items[1]).toMatchObject({ kind: 'review-activity', activity: 'addressing-started', author: 'dev', iteration: 2 });
+    expect(items[2]).toMatchObject({ kind: 'review', verdict: 'approved', author: 'rev' });
+    expect(items[3]).toMatchObject({ kind: 'review', verdict: 'changes', body: 'nope' });
+    expect(items[4]).toMatchObject({ kind: 'review', verdict: 'commented' });
+    expect(items[5]).toMatchObject({ kind: 'review', verdict: 'dismissed' });
   });
 
   it('shows a locally published GitHub review once using the canonical remote event', () => {
@@ -145,24 +149,99 @@ describe('buildTimeline', () => {
     expect(items[0]).toMatchObject({ id: 'remote', kind: 'review', author: 'me', verdict: 'commented' });
   });
 
-  it('groups PR-level comment replies under their root and skips file-line comments', () => {
+  it('presents the persisted development actor as a role, not a provider or bot', () => {
     const items = buildTimeline(bundle({
+      timeline: [event({
+        id: 'dev-review', eventType: 'review', actor: 'claude-code',
+        payload: { verdict: 'REQUEST_CHANGES', body: 'Please address this.' },
+      })],
+    }));
+
+    expect(items).toEqual([
+      expect.objectContaining({ id: 'dev-review', kind: 'review', author: 'dev', bot: false }),
+    ]);
+  });
+
+  it('groups remote PR comments and preserves local file-line threads with submission state', () => {
+    const items = buildTimeline(bundle({
+      pr: { origin: 'task', taskId: 'task-1', status: 'local-open' },
       timeline: [event({
         id: 'root-event', eventType: 'comment', remoteEventId: 4357983764,
         payload: { commentId: 'root' },
+      }), event({
+        id: 'submitted', eventType: 'review', actor: 'you', createdAt: 4000,
+        payload: { reviewEvent: 'submitted', verdict: 'COMMENT', commentIds: ['line'] },
       })],
       comments: [
         comment({ id: 'root' }),
         comment({ id: 'reply', parentCommentId: 'root', createdAt: 3000, author: 'github-actions[bot]' }),
-        comment({ id: 'line', scope: 'file-line', filePath: 'a.ts', lineNumber: 3 }),
+        comment({ id: 'line', origin: 'local', author: 'you', scope: 'file-line', filePath: 'a.ts', lineNumber: 3, createdAt: 2500 }),
+        comment({ id: 'line-reply', origin: 'local', author: 'claude-code', scope: 'file-line',
+          filePath: 'a.ts', lineNumber: 3, parentCommentId: 'line', createdAt: 3500 }),
       ],
     }));
-    expect(items).toHaveLength(1);
+    expect(items).toHaveLength(2);
     expect(items[0]).toMatchObject({ kind: 'comment', id: 'root', remoteId: 4357983764 });
+    expect(items[1]).toMatchObject({ kind: 'local-thread', submitted: true });
     const root = items[0];
     if (root.kind !== 'comment') throw new Error('expected comment');
     expect(root.replies.map(r => r.id)).toEqual(['reply']);
     expect(root.replies[0].bot).toBe(true);
+    const local = items[1];
+    if (local.kind !== 'local-thread') throw new Error('expected local thread');
+    expect(local.comments.map(row => row.id)).toEqual(['line', 'line-reply']);
+  });
+
+  it('does not duplicate published external drafts or mislabel standalone review activity', () => {
+    const items = buildTimeline(bundle({
+      timeline: [event({
+        id: 'standalone-start', eventType: 'review', actor: 'you',
+        payload: { reviewEvent: 'started' },
+      })],
+      comments: [comment({
+        id: 'published', origin: 'local', author: 'you', scope: 'file-line',
+        filePath: 'src/A.java', lineNumber: 4, publishedAt: 5000,
+      }), comment({
+        id: 'orphaned-local-reply', origin: 'local', author: 'you', scope: 'file-line',
+        filePath: 'src/A.java', lineNumber: 4, parentCommentId: 'published',
+      })],
+    }));
+
+    expect(items).toEqual([]);
+  });
+
+  it('requires a fresh submission after a local review thread is reopened or updated', () => {
+    const root = comment({
+      id: 'local-root', origin: 'local', author: 'you', scope: 'file-line',
+      filePath: 'src/A.java', lineNumber: 4,
+    });
+    const reviewEvent = (id: string, createdAt: number, payload: Record<string, unknown>) => event({
+      id, eventType: 'review', actor: 'you', isLocalOnly: true, createdAt, payload,
+    });
+    const reopened = buildTimeline(bundle({
+      pr: { origin: 'task', taskId: 'task-1', status: 'local-open' },
+      comments: [root],
+      timeline: [
+        reviewEvent('submitted-1', 1000, { reviewEvent: 'submitted', commentIds: ['local-root'] }),
+        reviewEvent('reopened', 2000, { reviewEvent: 'reopened', commentId: 'local-root' }),
+      ],
+    }));
+    expect(reopened).toEqual([
+      expect.objectContaining({ kind: 'local-thread', submitted: false }),
+    ]);
+
+    const resubmitted = buildTimeline(bundle({
+      pr: { origin: 'task', taskId: 'task-1', status: 'local-open' },
+      comments: [root],
+      timeline: [
+        reviewEvent('submitted-1', 1000, { reviewEvent: 'submitted', commentIds: ['local-root'] }),
+        reviewEvent('updated', 2000, { reviewEvent: 'updated', commentId: 'local-root' }),
+        reviewEvent('submitted-2', 3000, { reviewEvent: 'submitted', commentIds: ['local-root'] }),
+      ],
+    }));
+    expect(resubmitted).toEqual([
+      expect.objectContaining({ kind: 'local-thread', submitted: true }),
+    ]);
   });
 
   it('appends a merged row from the PR when status is merged', () => {
@@ -175,9 +254,9 @@ describe('buildTimeline', () => {
 });
 
 describe('isBotActor', () => {
-  it('flags [bot] logins and claude-code', () => {
+  it('flags GitHub bot logins without treating the dev role as a bot', () => {
     expect(isBotActor('github-actions[bot]')).toBe(true);
-    expect(isBotActor('claude-code')).toBe(true);
+    expect(isBotActor('claude-code')).toBe(false);
     expect(isBotActor('@octocat')).toBe(false);
   });
 });

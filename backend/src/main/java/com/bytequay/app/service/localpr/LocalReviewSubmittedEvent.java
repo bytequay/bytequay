@@ -11,14 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.beans.review;
+package com.bytequay.app.service.localpr;
 
-import java.util.List;
-
-/** Body for submitting a private local review: optional selected comment ids,
- *  a free-text PR-level comment, and a verdict ({@code COMMENT} / {@code
- *  APPROVE} / {@code REQUEST_CHANGES}). A null {@code commentIds} selects all
- *  pending user roots; an explicit list dispatches only those roots. */
-public record SubmitReviewRequest(String body, String verdict, List<String> commentIds)
+/** A private local-review batch was explicitly submitted to Development. */
+public record LocalReviewSubmittedEvent(String taskId, String prId)
 {
 }

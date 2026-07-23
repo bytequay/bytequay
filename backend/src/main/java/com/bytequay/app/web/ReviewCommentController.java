@@ -36,8 +36,8 @@ import static java.util.Objects.requireNonNull;
  * user leaves inline comments before the branch is pushed
  * ({@code POST /api/tasks/{taskId}/review-comments}), the diff page lists
  * them, resolve/reopen flip a single comment, and
- * {@code POST /api/tasks/{taskId}/submit-review} publishes the selected
- * comments and verdict to the task's remote GitHub pull request.
+ * {@code POST /api/tasks/{taskId}/submit-review} submits the selected local
+ * comments to Development. Nothing on this surface is posted to GitHub.
  */
 @RestController
 public class ReviewCommentController
@@ -83,7 +83,9 @@ public class ReviewCommentController
     {
         String bodyValue = body == null ? null : body.body();
         String verdictValue = body == null ? null : body.verdict();
-        ReviewCommentService.SubmitResult result = reviewComments.submitReview(taskId, bodyValue, verdictValue);
+        List<String> commentIds = body == null ? null : body.commentIds();
+        ReviewCommentService.SubmitResult result = reviewComments.submitReview(
+                taskId, bodyValue, verdictValue, commentIds);
         return new SubmitReviewResponse(result.submitted(), result.turnId());
     }
 

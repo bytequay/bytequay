@@ -18,7 +18,7 @@ import { PullRequestCreatedEvent } from '../../ui/conv';
 import {
   CheckIcon, ClockIcon, CloseIcon, CommitIcon,
 } from '../../ui/TaskBrainDesignIcons';
-import { agoLabel, isFailedCiPayload } from './prViewMeta';
+import { agoLabel, displayName, isFailedCiPayload } from './prViewMeta';
 
 function str(payload: Record<string, unknown> | null, key: string): string | null {
   const v = payload?.[key];
@@ -49,7 +49,7 @@ function pullRequestData(payload: Record<string, unknown> | null): PullRequestCr
  *  from the comment it references, not from this timeline row). */
 function eventBody(event: LocalPRTimelineEvent): ReactNode {
   const p = event.payload;
-  const actor = <span className="who">{event.actor}</span>;
+  const actor = <span className="who">{displayName(event.actor)}</span>;
   switch (event.eventType) {
     case 'commit': {
       const sha = str(p, 'sha');

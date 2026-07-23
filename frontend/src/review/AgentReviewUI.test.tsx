@@ -57,7 +57,8 @@ describe('agent review UI', () => {
   it('renders a pending finding through the shared comment card and expands SUPPORTS/REFUTES citations', () => {
     const data = fixture();
     render(<DiffInlineComments comments={[diffInlineCommentFromLocalPr(data.pr_comments[0], data)]} allowLocalComments={false} />);
-    expect(screen.getByText('AGENT')).toBeTruthy();
+    expect(screen.getByText('BRAIN')).toBeTruthy();
+    expect(screen.getByText('brain')).toBeTruthy();
     expect(screen.getByText('MAJOR')).toBeTruthy();
     expect(screen.getByText('Pending')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /evidence/ }));

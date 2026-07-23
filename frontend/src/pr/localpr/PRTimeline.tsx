@@ -18,7 +18,7 @@ import { MarkdownProse } from '../../threads/MarkdownProse';
 import { groupTimelineEntries } from '../timelineGrouping';
 import { buildRawTimelineEntries } from './githubActivityRows';
 import { GitHubTimelineRow, type GitHubThreadActions } from './GitHubTimelineRow';
-import { actorRole, agoLabel } from './prViewMeta';
+import { actorRole, agoLabel, displayName } from './prViewMeta';
 import { BrainReviewCard } from './BrainReviewCard';
 import { TimelineBubble } from './TimelineBubble';
 import { TimelinePersonEvent } from './TimelinePersonEvent';
@@ -360,7 +360,7 @@ export function PRTimeline({
             <div className="pr-tl-icon-row brain-review-activity" key={event.id}>
               <span className="tic">{started ? '◉' : '↻'}</span>
               <div className="tb">
-                <span className="who">{event.actor}</span>{' '}
+                <span className="who">{displayName(event.actor)}</span>{' '}
                 {started ? 'started an adversarial code review' : 'started addressing the adversarial review comments'}
                 {iteration !== null && ` · pass ${iteration}`}
                 <span className="lock-tag">🔒 local</span>
@@ -444,6 +444,8 @@ export function PRTimeline({
     if (root === undefined) continue;
     const findingId = root.findingId ?? null;
     if (root.scope === 'pr' && findingId === null) {
+      const resolvedBrainRoot = root.author === 'brain'
+        && (root.resolvedAt !== null || root.dismissedAt !== null);
       rows.push({
         key: root.id,
         time: root.createdAt,
@@ -453,7 +455,7 @@ export function PRTimeline({
           pr={pr}
           comments={thread}
           reviewData={reviewData}
-          onReply={onReplyThread}
+          onReply={resolvedBrainRoot ? undefined : onReplyThread}
         />
         ),
       });
@@ -464,7 +466,9 @@ export function PRTimeline({
     const finding = findingId === null ? undefined : reviewData?.findings.find(row => row.id === findingId);
     const prReply = findingId === null ? onReplyThread : onReplyFindingThread ?? onReplyThread;
     const lineReply = findingId === null ? onReplyLineThread : onReplyFindingLineThread ?? onReplyLineThread;
-    const reply = root.scope === 'file-line' && root.filePath !== null && root.lineNumber !== null
+    const reply = resolved && root.author === 'brain'
+      ? undefined
+      : root.scope === 'file-line' && root.filePath !== null && root.lineNumber !== null
       && lineReply !== undefined
       ? (rootCommentId: string, body: string) => lineReply(
           rootCommentId,

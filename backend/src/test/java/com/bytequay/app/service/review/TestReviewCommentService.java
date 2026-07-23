@@ -19,11 +19,12 @@ import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.service.localpr.PRPublishService;
 import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -32,6 +33,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,7 +55,6 @@ class TestReviewCommentService
     private StageStore stageStore;
     private ReviewRoundService reviewRounds;
     private PRService prService;
-    private PRPublishService publish;
     private TaskStore taskStore;
     private ReviewCommentServiceImpl service;
 
@@ -61,9 +64,12 @@ class TestReviewCommentService
         stageStore = mock(StageStore.class);
         reviewRounds = mock(ReviewRoundService.class);
         prService = mock(PRService.class);
-        publish = mock(PRPublishService.class);
         taskStore = mock(TaskStore.class);
-        service = new ReviewCommentServiceImpl(stageStore, reviewRounds, prService, publish, taskStore);
+        service = new ReviewCommentServiceImpl(stageStore, reviewRounds, prService, taskStore);
+        Task reviewTask = mock(Task.class);
+        when(reviewTask.phase()).thenReturn(TaskPhase.AWAITING_PUSH);
+        when(reviewTask.status()).thenReturn(TaskStatus.IDLE);
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(reviewTask));
     }
 
     @Test
@@ -197,64 +203,241 @@ class TestReviewCommentService
     }
 
     @Test
-    void submitReviewPublishesTheSelectedCommentsToGitHub()
+    void submitReviewRecordsAPrivateLocalBatchForDevelopment()
     {
         PRComment resolved = prComment("resolved-id", true);
         PRComment open = prComment("open-id", false);
-        PR remotePr = TASK_PR.withRemote("acme/widget", 42, "https://github.com/acme/widget/pull/42", NOW);
-        when(prService.findByTask("task-1")).thenReturn(Optional.of(remotePr));
+        PR localOpen = TASK_PR.withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(localOpen));
         when(prService.comments("pr-1")).thenReturn(List.of(resolved, open));
-        when(publish.publishReview("pr-1", "COMMENT", List.of(), List.of("open-id"), ""))
-                .thenReturn(remotePr);
 
         ReviewCommentService.SubmitResult result = service.submitReview("task-1", null, null);
 
         assertThat(result.submitted()).isEqualTo(1);
         assertThat(result.turnId()).isNull();
-        verify(publish).publishReview("pr-1", "COMMENT", List.of(), List.of("open-id"), "");
+        verify(prService).recordLocalReviewSubmission(
+                "pr-1", List.of("open-id"), "", "COMMENT", null);
     }
 
     @Test
     void submitReviewIsANoOpWithNoUnresolvedCommentsAndNoBody()
     {
-        when(prService.findByTask("task-1")).thenReturn(Optional.of(TASK_PR));
+        when(prService.findByTask("task-1"))
+                .thenReturn(Optional.of(TASK_PR.withStatus(PR.STATUS_LOCAL_OPEN, NOW)));
         when(prService.comments("pr-1")).thenReturn(List.of(prComment("resolved-id", true)));
 
         ReviewCommentService.SubmitResult result = service.submitReview("task-1", "", null);
 
         assertThat(result.submitted()).isZero();
         assertThat(result.turnId()).isNull();
-        verify(publish, never()).publishReview(any(), any(), any(), any(), any());
+        verify(prService, never()).recordLocalReviewSubmission(any(), any(), any(), any(), any());
     }
 
     @Test
-    void submitReviewApprovesARemotePr()
+    void submitReviewCanRecordApprovalWithoutComments()
     {
-        PR remotePr = TASK_PR.withRemote("acme/widget", 42, "https://github.com/acme/widget/pull/42", NOW);
-        when(prService.findByTask("task-1")).thenReturn(Optional.of(remotePr));
+        PR localOpen = TASK_PR.withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(localOpen));
         when(prService.comments("pr-1")).thenReturn(List.of());
-        when(publish.publishReview("pr-1", "APPROVE", List.of(), List.of(), "")).thenReturn(remotePr);
 
         ReviewCommentService.SubmitResult result = service.submitReview("task-1", "", "APPROVE");
 
         assertThat(result.submitted()).isZero();
         assertThat(result.turnId()).isNull();
-        verify(publish).publishReview("pr-1", "APPROVE", List.of(), List.of(), "");
+        verify(prService).recordLocalReviewSubmission("pr-1", List.of(), "", "APPROVE", null);
     }
 
     @Test
-    void submitReviewPublishesTheBodyAndVerdict()
+    void submitReviewRejectsAnInvalidTaskPhase()
     {
-        PR remotePr = TASK_PR.withRemote("acme/widget", 42, "https://github.com/acme/widget/pull/42", NOW);
-        when(prService.findByTask("task-1")).thenReturn(Optional.of(remotePr));
-        when(prService.comments("pr-1")).thenReturn(List.of(prComment("resolved-id", true)));
-        when(publish.publishReview("pr-1", "APPROVE", List.of(), List.of(), "Looks great overall."))
-                .thenReturn(remotePr);
+        Task task = mock(Task.class);
+        when(task.phase()).thenReturn(TaskPhase.PUSHED_AWAITING_CI);
+        when(task.status()).thenReturn(TaskStatus.IDLE);
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task));
+        when(prService.findByTask("task-1"))
+                .thenReturn(Optional.of(TASK_PR.withStatus(PR.STATUS_LOCAL_OPEN, NOW)));
 
-        ReviewCommentService.SubmitResult result = service.submitReview("task-1", "Looks great overall.", "APPROVE");
+        assertThatThrownBy(() -> service.submitReview(
+                "task-1", "", "APPROVE", List.of()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not accepting Local Review submissions");
 
+        verify(prService, never()).recordLocalReviewSubmission(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void submitReviewQueuesFeedbackThatArrivesDuringBrainReReview()
+    {
+        Task task = mock(Task.class);
+        when(task.phase()).thenReturn(TaskPhase.INTERNAL_REVIEW);
+        when(task.status()).thenReturn(TaskStatus.IDLE);
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task));
+        when(prService.findByTask("task-1"))
+                .thenReturn(Optional.of(TASK_PR.withStatus(PR.STATUS_LOCAL_OPEN, NOW)));
+        when(prService.comments("pr-1")).thenReturn(List.of(prComment("open-id", false)));
+
+        ReviewCommentService.SubmitResult result = service.submitReview(
+                "task-1", "", "COMMENT", List.of("open-id"));
+
+        assertThat(result.submitted()).isEqualTo(1);
+        verify(prService).recordLocalReviewSubmission(
+                "pr-1", List.of("open-id"), "", "COMMENT", null);
+    }
+
+    @Test
+    void submitReviewRejectsANeedsAttentionTaskAtTheLocalPhase()
+    {
+        Task task = mock(Task.class);
+        when(task.phase()).thenReturn(TaskPhase.AWAITING_PUSH);
+        when(task.status()).thenReturn(TaskStatus.NEEDS_ATTENTION);
+        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task));
+        when(prService.findByTask("task-1"))
+                .thenReturn(Optional.of(TASK_PR.withStatus(PR.STATUS_LOCAL_OPEN, NOW)));
+
+        assertThatThrownBy(() -> service.submitReview(
+                "task-1", "", "APPROVE", List.of()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not accepting Local Review submissions");
+
+        verify(prService, never()).recordLocalReviewSubmission(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void submitReviewHoldsTheTaskLockThroughPersistence()
+            throws Exception
+    {
+        PR localOpen = TASK_PR.withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(localOpen));
+        CountDownLatch insideSelection = new CountDownLatch(1);
+        CountDownLatch releaseSelection = new CountDownLatch(1);
+        when(prService.comments("pr-1")).thenAnswer(ignored -> {
+            insideSelection.countDown();
+            if (!releaseSelection.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("timed out waiting to release selection");
+            }
+            return List.of(prComment("open", false));
+        });
+        CountDownLatch competitorStarted = new CountDownLatch(1);
+        CountDownLatch competitorEntered = new CountDownLatch(1);
+
+        CompletableFuture<ReviewCommentService.SubmitResult> submission = CompletableFuture.supplyAsync(
+                () -> service.submitReview("task-1", "", "REQUEST_CHANGES"));
+        assertThat(insideSelection.await(5, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<Void> competingLifecycleAction = CompletableFuture.runAsync(() -> {
+            competitorStarted.countDown();
+            TaskPhaseMachine.withTaskLock("task-1", () -> {
+                competitorEntered.countDown();
+                return null;
+            });
+        });
+        assertThat(competitorStarted.await(5, TimeUnit.SECONDS)).isTrue();
+        try {
+            assertThat(competitorEntered.await(250, TimeUnit.MILLISECONDS)).isFalse();
+        }
+        finally {
+            releaseSelection.countDown();
+        }
+
+        assertThat(submission.get(5, TimeUnit.SECONDS).submitted()).isOne();
+        competingLifecycleAction.get(5, TimeUnit.SECONDS);
+        assertThat(competitorEntered.getCount()).isZero();
+    }
+
+    @Test
+    void submitReviewRecordsTheBodyVerdictAndOnlySelectedPendingComments()
+    {
+        PR localOpen = TASK_PR.withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(localOpen));
+        when(prService.comments("pr-1")).thenReturn(List.of(
+                prComment("first", false), prComment("second", false)));
+        when(prService.localReviewSubmissions("pr-1")).thenReturn(List.of(
+                new PRService.LocalReviewSubmission(
+                        NOW.minusSeconds(1), List.of("first"), "", "COMMENT", null)));
+        PRComment summary = new PRComment(
+                "summary", "pr-1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, PRTimelineEntry.ACTOR_USER, "Please handle the selected concern.",
+                NOW, null, null, null, null, null, "RIGHT", null, null);
+        when(prService.addComment(eq("pr-1"), eq(PRComment.ORIGIN_LOCAL), eq(PRComment.SCOPE_PR),
+                any(), any(), any(), any(), any(), eq(PRTimelineEntry.ACTOR_USER), anyString(), any()))
+                .thenReturn(summary);
+
+        ReviewCommentService.SubmitResult result = service.submitReview(
+                "task-1", "Please handle the selected concern.", "REQUEST_CHANGES", List.of("second"));
+
+        assertThat(result.submitted()).isEqualTo(2);
         assertThat(result.turnId()).isNull();
-        verify(publish).publishReview("pr-1", "APPROVE", List.of(), List.of(), "Looks great overall.");
+        verify(prService).recordLocalReviewSubmission(
+                "pr-1", List.of("second", "summary"), "Please handle the selected concern.",
+                "REQUEST_CHANGES", "summary");
+    }
+
+    @Test
+    void submitReviewRejectsASelectedCommentOutsideTheOpenUserRoots()
+    {
+        PR localOpen = TASK_PR.withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(localOpen));
+        when(prService.comments("pr-1")).thenReturn(List.of(prComment("open", false)));
+
+        assertThatThrownBy(() -> service.submitReview(
+                "task-1", "", "COMMENT", List.of("not-on-this-review")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not an open actionable root");
+
+        verify(prService, never()).recordLocalReviewSubmission(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void explicitSelectionAcceptsAnOpenAgentFindingButDefaultSelectionDoesNot()
+    {
+        PR localOpen = TASK_PR.withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        PRComment finding = new PRComment(
+                "finding-comment", "pr-1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java", 9, "agent", "Possible null dereference", NOW,
+                null, null, null, null, null, "RIGHT", null, null, "finding-1");
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(localOpen));
+        when(prService.comments("pr-1")).thenReturn(List.of(finding));
+
+        assertThat(service.submitReview("task-1", "", "COMMENT").submitted()).isZero();
+        assertThat(service.submitReview(
+                "task-1", "", "REQUEST_CHANGES", List.of("finding-comment")).submitted()).isOne();
+
+        verify(prService).recordLocalReviewSubmission(
+                "pr-1", List.of("finding-comment"), "", "REQUEST_CHANGES", null);
+    }
+
+    @Test
+    void explicitSelectionRedispatchesAReopenedPreviouslySubmittedRoot()
+    {
+        PR localOpen = TASK_PR.withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        PRComment reopened = prComment("reopened", false);
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(localOpen));
+        when(prService.comments("pr-1")).thenReturn(List.of(reopened));
+        when(prService.localReviewSubmissions("pr-1")).thenReturn(List.of(
+                new PRService.LocalReviewSubmission(
+                        NOW.minusSeconds(30), List.of("reopened"), "", "COMMENT", null)));
+
+        assertThat(service.submitReview(
+                "task-1", "", "REQUEST_CHANGES", List.of("reopened")).submitted()).isOne();
+
+        verify(prService).recordLocalReviewSubmission(
+                "pr-1", List.of("reopened"), "", "REQUEST_CHANGES", null);
+    }
+
+    @Test
+    void implicitSelectionIncludesAnInvalidatedPreviouslySubmittedRoot()
+    {
+        PR localOpen = TASK_PR.withStatus(PR.STATUS_LOCAL_OPEN, NOW);
+        PRComment invalidated = prComment("invalidated", false);
+        when(prService.findByTask("task-1")).thenReturn(Optional.of(localOpen));
+        when(prService.comments("pr-1")).thenReturn(List.of(invalidated));
+        when(prService.localReviewSubmissions("pr-1")).thenReturn(List.of(
+                new PRService.LocalReviewSubmission(
+                        NOW.minusSeconds(30), List.of(), "", "COMMENT", null)));
+
+        assertThat(service.submitReview("task-1", "", "REQUEST_CHANGES").submitted()).isOne();
+
+        verify(prService).recordLocalReviewSubmission(
+                "pr-1", List.of("invalidated"), "", "REQUEST_CHANGES", null);
     }
 
     private static PRComment prComment(String id, boolean resolved)

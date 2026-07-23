@@ -18,17 +18,25 @@ import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.service.localpr.PRPublishService;
 import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.Strings.nullToEmpty;
 import static java.util.Objects.requireNonNull;
@@ -40,20 +48,17 @@ public class ReviewCommentServiceImpl
     private final StageStore stageStore;
     private final ReviewRoundService reviewRounds;
     private final PRService prService;
-    private final PRPublishService publish;
     private final TaskStore taskStore;
 
     public ReviewCommentServiceImpl(
             StageStore stageStore,
             ReviewRoundService reviewRounds,
             PRService prService,
-            PRPublishService publish,
             TaskStore taskStore)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
         this.prService = requireNonNull(prService, "prService is null");
-        this.publish = requireNonNull(publish, "publish is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
     }
 
@@ -148,29 +153,87 @@ public class ReviewCommentServiceImpl
     }
 
     @Override
-    public SubmitResult submitReview(String taskId, String body, String verdict)
+    public SubmitResult submitReview(String taskId, String body, String verdict, List<String> commentIds)
     {
         String taskIdValue = nullToEmpty(taskId).strip();
         if (taskIdValue.isEmpty()) {
             throw status(400, "taskId is required");
         }
         String bodyValue = nullToEmpty(body).strip();
-        PR pr = prService.findByTask(taskIdValue)
-                .orElseThrow(() -> status(409, "task " + taskIdValue + " has no pull request to review"));
-        List<PRComment> unresolved = prService.comments(pr.id()).stream()
-                .filter(ReviewCommentServiceImpl::isOpenUserComment)
-                .toList();
+        return TaskPhaseMachine.withTaskLock(taskIdValue,
+                () -> submitReviewLocked(taskIdValue, bodyValue, verdict, commentIds));
+    }
+
+    private SubmitResult submitReviewLocked(
+            String taskId, String body, String verdict, List<String> commentIds)
+    {
+        PR pr = prService.findByTask(taskId)
+                .orElseThrow(() -> status(409, "task " + taskId + " has no pull request to review"));
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        boolean acceptingLocalReview = task != null
+                && task.status() != TaskStatus.NEEDS_ATTENTION
+                && (task.phase() == TaskPhase.AWAITING_PUSH
+                        || task.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS
+                        || task.phase() == TaskPhase.INTERNAL_REVIEW);
+        if (!acceptingLocalReview) {
+            throw status(409, "task " + taskId + " is not accepting Local Review submissions");
+        }
+        if (!PR.ORIGIN_TASK.equals(pr.origin()) || !PR.STATUS_LOCAL_OPEN.equals(pr.status())) {
+            throw status(409, "task " + taskId + " is not in Local Review");
+        }
+        Map<String, PRComment> eligible = prService.comments(pr.id()).stream()
+                .filter(ReviewCommentServiceImpl::isOpenSubmittedRoot)
+                .collect(LinkedHashMap::new, (comments, comment) -> comments.put(comment.id(), comment), Map::putAll);
+        Map<String, PRComment> unresolved = eligible.values().stream()
+                .filter(comment -> PRTimelineEntry.ACTOR_USER.equals(comment.author()))
+                .collect(LinkedHashMap::new, (comments, comment) -> comments.put(comment.id(), comment), Map::putAll);
+        Set<String> submitted = prService.localReviewSubmissions(pr.id()).stream()
+                .flatMap(review -> review.commentIds().stream())
+                .collect(Collectors.toSet());
+        List<String> selected;
+        if (commentIds == null) {
+            selected = unresolved.keySet().stream()
+                    .filter(id -> !submitted.contains(id))
+                    .toList();
+        }
+        else {
+            LinkedHashSet<String> requested = new LinkedHashSet<>();
+            for (String commentId : commentIds) {
+                String id = nullToEmpty(commentId).strip();
+                if (!id.isEmpty()) {
+                    requested.add(id);
+                }
+            }
+            requested.stream()
+                    .filter(id -> !eligible.containsKey(id))
+                    .findFirst()
+                    .ifPresent(id -> {
+                        throw status(409, "comment " + id + " is not an open actionable root on this review");
+                    });
+            // An explicit Send is also how a reopened/already-submitted root
+            // gets a fresh dispatch timestamp without another DB state bit.
+            selected = List.copyOf(requested);
+        }
         String event = switch (nullToEmpty(verdict).strip()) {
             case "APPROVE" -> "APPROVE";
             case "REQUEST_CHANGES" -> "REQUEST_CHANGES";
             default -> "COMMENT";
         };
-        if (unresolved.isEmpty() && bodyValue.isEmpty() && !"APPROVE".equals(event)) {
+        if (selected.isEmpty() && body.isEmpty() && !"APPROVE".equals(event)) {
             return new SubmitResult(0, null);
         }
-        publish.publishReview(pr.id(), event, List.of(),
-                unresolved.stream().map(PRComment::id).toList(), bodyValue);
-        return new SubmitResult(unresolved.size(), null);
+        selected = new ArrayList<>(selected);
+        String bodyCommentId = null;
+        if (!body.isEmpty()) {
+            PRComment summary = prService.addComment(
+                    pr.id(), PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                    null, null, null, null, null,
+                    PRTimelineEntry.ACTOR_USER, body, null);
+            selected.add(summary.id());
+            bodyCommentId = summary.id();
+        }
+        prService.recordLocalReviewSubmission(pr.id(), selected, body, event, bodyCommentId);
+        return new SubmitResult(selected.size(), null);
     }
 
     private PR localPrForTask(String taskId)
@@ -189,10 +252,11 @@ public class ReviewCommentServiceImpl
         return prService.createForTask(task.id(), task.branchName(), base, title, "");
     }
 
-    private static boolean isOpenUserComment(PRComment comment)
+    private static boolean isOpenSubmittedRoot(PRComment comment)
     {
         return PRComment.ORIGIN_LOCAL.equals(comment.origin())
-                && PRTimelineEntry.ACTOR_USER.equals(comment.author())
+                && (PRTimelineEntry.ACTOR_USER.equals(comment.author())
+                        || "agent".equals(comment.author()) && comment.findingId() != null)
                 && comment.parentCommentId() == null
                 && comment.resolvedAt() == null
                 && comment.dismissedAt() == null;

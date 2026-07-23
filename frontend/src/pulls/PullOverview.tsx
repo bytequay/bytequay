@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState, type MouseEvent } from 'react';
-import type { LocalPRBundle } from '../types/localPr';
+import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
 import { renderMarkdown } from '../markdown';
 import type { MarkdownRepoContext } from '../markdown';
 import { CommentActionsMenu } from '../pr/CommentActionsMenu';
@@ -54,13 +54,19 @@ function LoadingTimeline() {
   );
 }
 
-export default function PullOverview({ row, bundle, isMerged, onComment, onClosePullRequest, onDescriptionSaved }: {
+export default function PullOverview({
+  row, bundle, isMerged, onComment, onClosePullRequest, onDescriptionSaved,
+  onLocalReply, onLocalResolve, onSubmitLocalReview,
+}: {
   row: PullRow;
   bundle: LocalPRBundle | null | undefined;
   isMerged: boolean;
   onComment?: (body: string) => Promise<void>;
   onClosePullRequest?: () => Promise<void>;
   onDescriptionSaved?: () => void;
+  onLocalReply?: (root: LocalPRComment, body: string) => Promise<void>;
+  onLocalResolve?: (commentId: string) => Promise<void>;
+  onSubmitLocalReview?: (commentIds: string[]) => Promise<void>;
 }) {
   const loading = bundle === undefined;
   const opened = buildOpenedCard(row, bundle);
@@ -208,6 +214,10 @@ export default function PullOverview({ row, bundle, isMerged, onComment, onClose
                 await window.bridge.setReviewThreadResolved(row.repo, Number(row.dto.id) || 0, rootGithubId, resolved);
                 refreshGitHubFeed(true);
               }}
+              localPr={bundle?.pr}
+              onLocalReply={onLocalReply}
+              onLocalResolve={onLocalResolve}
+              onSubmitLocalReview={onSubmitLocalReview}
             />
             {checks !== null && <PullChecksCard model={checks} />}
           </>

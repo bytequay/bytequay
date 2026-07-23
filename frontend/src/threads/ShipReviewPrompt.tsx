@@ -24,8 +24,8 @@ export function ShipReviewPrompt({
   onReview: () => void;
   onApprove?: () => void;
   approveDisabled?: boolean;
-  /** Steer the dev agent to address findings + fix the tests. Rendered only
-   *  while shipping is blocked, as the forward action out of that state. */
+  /** Steer the dev agent to address findings + fix the tests. The caller
+   *  passes it only when there are outstanding warnings to address. */
   onAskAgent?: () => void;
   onDiscard?: () => void;
   onReviewChanges?: () => void;
@@ -60,7 +60,7 @@ export function ShipReviewPrompt({
               Review changes
             </button>
           )}
-          {onAskAgent !== undefined && approveDisabled && (
+          {onAskAgent !== undefined && (
             <button type="button" className="review-callout__btn" onClick={onAskAgent} disabled={busy}>
               Ask agent to address &amp; fix
             </button>

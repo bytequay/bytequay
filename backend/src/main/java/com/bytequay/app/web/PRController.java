@@ -292,7 +292,10 @@ public class PRController
     @PostMapping("/api/prs/{prId}/push")
     public PRDto push(@PathVariable String prId)
     {
-        return PRDto.from(publish.push(prId));
+        // User-gated Approve & ship: the human is the final authority, so this
+        // path may override the review-quality gate (open comments, failing
+        // local checks). Auto-merge still keeps the gate via push(prId).
+        return PRDto.from(publish.push(prId, true));
     }
 
     /** User-gated merge of a pushed task-origin PR, then flip it to {@code merged}. */

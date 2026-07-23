@@ -536,6 +536,29 @@ class TestPRPublishService
     }
 
     @Test
+    void userOverridePushesPastOpenCommentsAndAFailingCheck()
+            throws Exception
+    {
+        // A plain open comment and a failing local check both block the normal
+        // (automation) path; the human's explicit Approve & ship overrides them.
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
+        when(prService.comments("pr1")).thenReturn(List.of(comment(null, null)));
+        when(prService.checks("pr1")).thenReturn(List.of(
+                check(Instant.parse("2026-07-01T00:05:00Z"), PRCheck.STATUS_FAILED)));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
+        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
+        when(git.refExists(any(), any())).thenReturn(true);
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
+        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
+
+        service.push("pr1", true);
+
+        verify(pullRequests).createPullRequest(any(), any(), any());
+        verify(git).push(Path.of("/tmp/wt/feature-x"));
+    }
+
+    @Test
     void pushAllowsAFixedRunEvenAfterAnEarlierFailure()
             throws Exception
     {

@@ -72,17 +72,37 @@ describe('ShipReviewPrompt', () => {
     expect(screen.getByText('Resolve the local review comment first.')).toBeTruthy();
   });
 
-  it('offers "Ask agent to address & fix" only while shipping is blocked', () => {
+  it('shows "Ask agent to address & fix" when provided, hides it otherwise', () => {
     const onAskAgent = vi.fn();
+    // Provided (caller decides there are warnings) → button present and fires.
     const { rerender } = render(
-      <ShipReviewPrompt onReview={vi.fn()} onApprove={vi.fn()} approveDisabled onAskAgent={onAskAgent} />,
+      <ShipReviewPrompt onReview={vi.fn()} onApprove={vi.fn()} onAskAgent={onAskAgent} />,
     );
     fireEvent.click(screen.getByRole('button', { name: /Ask agent to address/ }));
     expect(onAskAgent).toHaveBeenCalledOnce();
 
-    // Once approval is unblocked, the forward-action button disappears.
-    rerender(<ShipReviewPrompt onReview={vi.fn()} onApprove={vi.fn()} onAskAgent={onAskAgent} />);
+    // Omitted (nothing to address) → no forward-action button.
+    rerender(<ShipReviewPrompt onReview={vi.fn()} onApprove={vi.fn()} />);
     expect(screen.queryByRole('button', { name: /Ask agent to address/ })).toBeNull();
+  });
+
+  it('keeps Approve & ship clickable when blocked so the human can override', () => {
+    const onApprove = vi.fn();
+    // approveDisabled reflects structural readiness only; a warning note does
+    // not disable the button.
+    render(
+      <ShipReviewPrompt
+        onReview={vi.fn()}
+        onApprove={onApprove}
+        onAskAgent={vi.fn()}
+        note="Resolve or dismiss 3 open local review comments before shipping."
+      />,
+    );
+    const approve = screen.getByRole('button', { name: 'Approve & ship' }) as HTMLButtonElement;
+    expect(approve.disabled).toBe(false);
+    fireEvent.click(approve);
+    expect(onApprove).toHaveBeenCalledOnce();
+    expect(screen.getByText(/3 open local review comments/)).toBeTruthy();
   });
 
   it('recovers an obsolete gate without offering an approval action', () => {

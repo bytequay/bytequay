@@ -188,28 +188,42 @@ public class PRPublishService
     }
 
     /** Push {@code prId}'s branch and open a Draft PR, then strip locals + flip
-     *  {@code local-open → remote-drafted}. */
+     *  {@code local-open → remote-drafted}. The automation path keeps the
+     *  review-quality gate (open comments, failing local checks). */
     public synchronized PR push(String prId)
+    {
+        return push(prId, false);
+    }
+
+    /**
+     * As {@link #push(String)}, but {@code userOverride} lets the human's
+     * explicit Approve &amp; ship proceed past the review-quality gate (open
+     * comment threads, a failing local check) — the user is the final
+     * authority on whether their own PR ships. Structural preconditions
+     * (status, phase, working dir) still apply. Only the user-gated push
+     * endpoint passes {@code true}; auto-merge keeps the gate.
+     */
+    public synchronized PR push(String prId, boolean userOverride)
     {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
         if (pr.taskId() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " has no task");
         }
-        return TaskPhaseMachine.withTaskLock(pr.taskId(), () -> pushLocked(prId));
+        return TaskPhaseMachine.withTaskLock(pr.taskId(), () -> pushLocked(prId, userOverride));
     }
 
-    private PR pushLocked(String prId)
+    private PR pushLocked(String prId, boolean userOverride)
     {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
         if (PR.STATUS_REMOTE_DRAFTED.equals(pr.status()) && pr.remotePrNumber() != null) {
             return recoverAlreadyPushed(pr);
         }
-        return pushLocal(pr);
+        return pushLocal(pr, userOverride);
     }
 
-    private PR pushLocal(PR pr)
+    private PR pushLocal(PR pr, boolean userOverride)
     {
         String prId = pr.id();
         if (!PR.STATUS_LOCAL_OPEN.equals(pr.status())) {
@@ -217,12 +231,12 @@ public class PRPublishService
                     HttpStatus.CONFLICT, "local PR " + prId + " is not ready to push (status=" + pr.status() + ")");
         }
         long openComments = openCommentCount(prId);
-        if (openComments > 0 && !onlyEscalatedBrainCommentsRemain(pr)) {
+        if (!userOverride && openComments > 0 && !onlyEscalatedBrainCommentsRemain(pr)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "local PR " + prId + " has " + openComments + " open comment thread(s) — "
                             + "resolve or dismiss them before promoting");
         }
-        if (latestLocalCheckFailed(prId)) {
+        if (!userOverride && latestLocalCheckFailed(prId)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "local PR " + prId + " has a failing local test run — fix it before promoting");
         }
@@ -248,7 +262,7 @@ public class PRPublishService
         Task gateTask = taskStore.findTaskById(task.id()).orElse(task);
         if (gateTask.phase() != TaskPhase.AWAITING_PUSH
                 || gateTask.status() == TaskStatus.NEEDS_ATTENTION
-                || openCommentCount(prId) > 0 && !onlyEscalatedBrainCommentsRemain(pr)) {
+                || !userOverride && openCommentCount(prId) > 0 && !onlyEscalatedBrainCommentsRemain(pr)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Local Review changed while Push was starting; review the latest comments and try again");
         }

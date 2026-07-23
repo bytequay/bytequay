@@ -1240,6 +1240,16 @@ function registerIpc(): void {
     }
     return res.json();
   });
+  ipcMain.handle('pr:reopenComment', async (_event, commentId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/comments/${encodeURIComponent(commentId)}/reopen`, {
+      method: 'PATCH',
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR reopen comment returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
   ipcMain.handle('pr:runTests', async (_event, prId: string) => {
     // A full test suite can run for minutes — no client-side timeout here;
     // the backend's own runner is what bounds the wall-clock (5 min).

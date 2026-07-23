@@ -510,6 +510,10 @@ export function StageDetailRoute({
       onReview={openChanges}
       onApprove={() => setPushOpen(true)}
       approveDisabled={!localReviewApproval.enabled}
+      onAskAgent={() => {
+        const body = 'Address the remaining review comments and fix the failing local test, then I\'ll ship.';
+        if (working) enqueue(body); else sendNow(body);
+      }}
       onReviewChanges={() => openTab('pr', 'changes')}
       note={!localReviewApproval.enabled || localReviewGate.brainReview.state === 'unresolved'
         ? localReviewApproval.reason

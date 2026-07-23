@@ -1065,6 +1065,7 @@ const bridge: Bridge = {
   resolveLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:resolveComment', commentId),
   deleteLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:deleteComment', commentId),
   dismissLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:dismissComment', commentId),
+  reopenLocalPrComment: (commentId: string) => ipcRenderer.invoke('pr:reopenComment', commentId),
   runLocalPrTests: (prId: string) => ipcRenderer.invoke('pr:runTests', prId),
   fetchDashboardPrs: () => ipcRenderer.invoke('pr:dashboardList'),
   syncDashboardPrs: () => ipcRenderer.invoke('pr:dashboardSync'),

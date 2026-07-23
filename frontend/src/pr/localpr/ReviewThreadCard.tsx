@@ -44,6 +44,7 @@ export function ReviewThreadCard({
   statusLabel,
   onSubmitToDev,
   currentUserLogin,
+  onOpenLocation,
 }: {
   pr: LocalPR;
   filePath?: string;
@@ -69,6 +70,9 @@ export function ReviewThreadCard({
   /** GitHub handle of the signed-in user, used to render their real avatar on
    *  their own ("You") messages instead of a placeholder. */
   currentUserLogin?: string | null;
+  /** Jump to this comment's line in the Changes diff. Wired only for
+   *  file-line comments (a PR-level comment has no line to jump to). */
+  onOpenLocation?: (filePath: string, lineNumber: number | null, side: 'LEFT' | 'RIGHT') => void;
 }) {
   const [action, setAction] = useState<'resolve' | 'submit' | 'resolve-done' | 'submit-done' | null>(null);
   const [resolutionTarget, setResolutionTarget] = useState<boolean | null>(null);
@@ -147,6 +151,9 @@ export function ReviewThreadCard({
       locationLabel={root.scope === 'pr'
         ? 'Pull request review'
         : `${thread.filePath ?? '?'}${thread.line === null ? '' : `:${thread.line}`}`}
+      onLocationClick={root.scope !== 'pr' && thread.filePath !== null && onOpenLocation !== undefined
+        ? () => onOpenLocation(thread.filePath!, thread.line, root.side)
+        : undefined}
       onReply={canReply ? async body => {
         await onReply(root.id, body);
         if (root.findingId !== null && root.findingId !== undefined) {

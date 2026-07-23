@@ -423,4 +423,10 @@ public class PRController
     {
         return PRCommentDto.from(prService.dismissComment(commentId));
     }
+
+    @PatchMapping("/api/prs/comments/{commentId}/reopen")
+    public PRCommentDto reopenComment(@PathVariable String commentId)
+    {
+        return PRCommentDto.from(prService.reopenComment(commentId));
+    }
 }

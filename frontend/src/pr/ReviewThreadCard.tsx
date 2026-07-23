@@ -47,6 +47,7 @@ export function ReviewThreadCard({
   renderMessageBody,
   renderMessageBadges,
   avatarLoginFor,
+  onLocationClick,
   footerActions,
   compact = false,
   actionsDisabled = false,
@@ -81,6 +82,8 @@ export function ReviewThreadCard({
   repoContext?: MarkdownRepoContext;
   /** Overrides the file/line label for local PR-level review threads. */
   locationLabel?: string;
+  /** When set, the file:line label becomes a button that jumps to the code. */
+  onLocationClick?: () => void;
   /** Lets local findings keep their richer evidence rendering while using
    *  this same GitHub-shaped thread chrome. */
   renderMessageBody?: (message: ReviewMessageDto, index: number) => ReactNode;
@@ -240,7 +243,18 @@ export function ReviewThreadCard({
           </svg>
         </button>
         <span className="prc-review-thread__loc">
-          <code>{locationLabel ?? `${thread.filePath ?? '?'}${thread.line != null ? `:${thread.line}` : ''}`}</code>
+          {onLocationClick !== undefined ? (
+            <button
+              type="button"
+              className="prc-review-thread__loc-btn"
+              onClick={onLocationClick}
+              title="Jump to this line in the diff"
+            >
+              <code>{locationLabel ?? `${thread.filePath ?? '?'}${thread.line != null ? `:${thread.line}` : ''}`}</code>
+            </button>
+          ) : (
+            <code>{locationLabel ?? `${thread.filePath ?? '?'}${thread.line != null ? `:${thread.line}` : ''}`}</code>
+          )}
         </span>
         {thread.outdated && (
           <span className="prc-review-thread__outdated-pill" title="Anchored to a line that no longer exists in the current diff">outdated</span>

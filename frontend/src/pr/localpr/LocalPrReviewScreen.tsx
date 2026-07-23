@@ -384,12 +384,16 @@ export function LocalPrReviewScreen({
   }, [openTabRequest]);
 
   useEffect(() => {
-    if (selectedFindingId == null || activeTab !== 'files') return;
+    // Jump either to a specific finding, or (for a plain review comment with no
+    // finding id) to its file:line anchor.
+    const hasLineTarget = selectedFindingFilePath != null && selectedFindingLineNumber != null;
+    if ((selectedFindingId == null && !hasLineTarget) || activeTab !== 'files') return;
+    const findFinding = () => selectedFindingId == null ? null : document.querySelector<HTMLElement>(
+      `[data-finding-id="${CSS.escape(selectedFindingId)}"]`,
+    );
     requestAnimationFrame(() => {
-      const finding = document.querySelector<HTMLElement>(
-        `[data-finding-id="${CSS.escape(selectedFindingId)}"]`,
-      );
-      const line = selectedFindingFilePath == null || selectedFindingLineNumber == null ? null
+      const finding = findFinding();
+      const line = !hasLineTarget ? null
         : document.querySelector<HTMLElement>(`[data-anchor="${CSS.escape(
           `${selectedFindingFilePath}:RIGHT:${selectedFindingLineNumber}`,
         )}"]`);
@@ -402,12 +406,11 @@ export function LocalPrReviewScreen({
       }
       const fold = file?.querySelector<HTMLButtonElement>('.diff-file-section__fold[aria-expanded="false"]');
       fold?.click();
-      requestAnimationFrame(() => (document.querySelector<HTMLElement>(
-        `[data-finding-id="${CSS.escape(selectedFindingId)}"]`,
-      ) ?? (selectedFindingFilePath == null || selectedFindingLineNumber == null ? null
-        : document.querySelector<HTMLElement>(`[data-anchor="${CSS.escape(
-          `${selectedFindingFilePath}:RIGHT:${selectedFindingLineNumber}`,
-        )}"]`)) ?? file)?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+      requestAnimationFrame(() => (findFinding()
+        ?? (!hasLineTarget ? null
+          : document.querySelector<HTMLElement>(`[data-anchor="${CSS.escape(
+            `${selectedFindingFilePath}:RIGHT:${selectedFindingLineNumber}`,
+          )}"]`)) ?? file)?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
     });
   }, [activeTab, files, selectedFindingFilePath, selectedFindingId, selectedFindingLineNumber, selectedFindingRequestToken]);
 

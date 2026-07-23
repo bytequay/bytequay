@@ -234,11 +234,11 @@ function groupLocalCommentThreads(comments: LocalPRComment[]): LocalPRComment[][
  * The description renders as the first bubble.
  */
 export function PRTimeline({
-  pr, events, comments, onReviewChanges, onResolveThread, onDismissThread, onReplyThread, onReplyLineThread, onOpenStage,
+  pr, events, comments, onReviewChanges, onResolveThread, onUnresolveThread, onDismissThread, onReplyThread, onReplyLineThread, onOpenStage,
   commits = [], activity, reviewThreads, remoteDetail, threadActions, currentUserLogin,
   reviewData, onOpenReviewRound, onAnswerFinding, onReviewRoundAction,
   onReplyFindingThread, onReplyFindingLineThread,
-  onSetFindingResolved, onToggleFindingPromotion, canPromoteFindings = false,
+  onSetFindingResolved, onToggleFindingPromotion, canPromoteFindings = false, onOpenCommentLocation,
 }: {
   pr: LocalPR;
   events: LocalPRTimelineEvent[];
@@ -246,6 +246,8 @@ export function PRTimeline({
   commits?: LocalPRCommit[];
   onReviewChanges?: () => void;
   onResolveThread?: (rootCommentId: string) => void;
+  onUnresolveThread?: (rootCommentId: string) => void;
+  onOpenCommentLocation?: (filePath: string, lineNumber: number | null, side: 'LEFT' | 'RIGHT') => void;
   onDismissThread?: (rootCommentId: string) => void;
   onReplyThread?: (rootCommentId: string, body: string) => void | Promise<void>;
   onReplyLineThread?: (
@@ -494,10 +496,11 @@ export function PRTimeline({
             comments={thread}
             resolved={resolved}
             currentUserLogin={currentUserLogin}
+            onOpenLocation={onOpenCommentLocation}
             onSetResolved={findingId !== null && onSetFindingResolved !== undefined
               ? next => onSetFindingResolved(findingId, next)
-              : onResolveThread !== undefined
-                ? next => { if (next) onResolveThread(root.id); }
+              : (onResolveThread !== undefined || onUnresolveThread !== undefined)
+                ? next => { if (next) onResolveThread?.(root.id); else onUnresolveThread?.(root.id); }
                 : undefined}
             onDismiss={onDismissThread !== undefined ? () => onDismissThread(root.id) : undefined}
             onReply={reply}

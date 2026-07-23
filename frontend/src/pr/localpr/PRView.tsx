@@ -43,10 +43,10 @@ import type { LocalReviewGate } from './localReviewGate';
 export function PRView({
   bundle, capabilities, commentValue, onCommentChange, username,
   onAddComment, onPush, onAskAgent, onMerge, onDequeue, onDeleteBranch, onReviewChanges,
-  onRunTests, runTestsBusy = false, onResolveThread, onDismissThread, onReplyThread, onReplyLineThread, onOpenStage,
+  onRunTests, runTestsBusy = false, onResolveThread, onUnresolveThread, onDismissThread, onReplyThread, onReplyLineThread, onOpenStage,
   onPublishReview, onDiscardDrafts, syncedAt, syncing, onRefresh, headerAction, openSubTabRequest,
   changesContent, reviewData, onOpenReviewRound, onAnswerFinding, onReviewRoundAction,
-  onSetFindingResolved, onToggleFindingPromotion, localReviewGate,
+  onSetFindingResolved, onToggleFindingPromotion, localReviewGate, onOpenCommentLocation,
 }: {
   bundle: LocalPRBundle;
   capabilities: PRCapabilities;
@@ -71,6 +71,8 @@ export function PRView({
   onRunTests?: () => void;
   runTestsBusy?: boolean;
   onResolveThread?: (commentId: string) => void;
+  onUnresolveThread?: (commentId: string) => void;
+  onOpenCommentLocation?: (filePath: string, lineNumber: number | null, side: 'LEFT' | 'RIGHT') => void;
   onDismissThread?: (commentId: string) => void;
   onReplyThread?: (rootCommentId: string, body: string) => void | Promise<void>;
   onReplyLineThread?: (
@@ -231,6 +233,7 @@ export function PRView({
             commits={commits}
             onReviewChanges={onReviewChanges === undefined ? undefined : openChanges}
             onResolveThread={capabilities.draftLocalComments ? onResolveThread : undefined}
+            onUnresolveThread={capabilities.draftLocalComments ? onUnresolveThread : undefined}
             onDismissThread={capabilities.draftLocalComments ? onDismissThread : undefined}
             onReplyThread={capabilities.draftLocalComments ? onReplyThread : undefined}
             onReplyLineThread={capabilities.draftLocalComments ? onReplyLineThread : undefined}
@@ -249,6 +252,7 @@ export function PRView({
             onSetFindingResolved={onSetFindingResolved}
             onToggleFindingPromotion={onToggleFindingPromotion}
             canPromoteFindings={capabilities.publishReview}
+            onOpenCommentLocation={onOpenCommentLocation}
           />
         )}
 

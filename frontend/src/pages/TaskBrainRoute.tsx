@@ -109,7 +109,7 @@ export function TaskBrainRoute({
     bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, capabilities: prCapabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
-    addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, deleteLocalComment,
+    addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, reopenLocalComment, deleteLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,
@@ -501,6 +501,10 @@ export function TaskBrainRoute({
       onReview={openChanges}
       onApprove={() => setPushOpen(true)}
       approveDisabled={!localReviewApproval.enabled}
+      onAskAgent={() => {
+        const body = 'Address the remaining review comments and fix the failing local test, then I\'ll ship.';
+        if (working) enqueue(body); else sendNow(body);
+      }}
       onReviewChanges={() => openTab('pr', 'changes')}
       note={!localReviewApproval.enabled || localReviewGate.brainReview.state === 'unresolved'
         ? localReviewApproval.reason
@@ -747,7 +751,7 @@ export function TaskBrainRoute({
     </PullDetailHost>
   ) : null;
   const openAgentFinding = (
-    findingId: string,
+    findingId: string | null,
     filePath: string | null = null,
     lineNumber: number | null = null,
   ) => {
@@ -843,6 +847,11 @@ export function TaskBrainRoute({
       onRunTests={runLocalTests}
       runTestsBusy={testsBusy}
       onResolveThread={task.terminal ? undefined : resolveLocalComment}
+      onUnresolveThread={task.terminal ? undefined : reopenLocalComment}
+      onOpenCommentLocation={(filePath, lineNumber) => {
+        setReviewOpen(true);
+        openAgentFinding(null, filePath, lineNumber);
+      }}
       onDismissThread={task.terminal ? undefined : (commentId) => {
         if (agentReview.hasAgentComment(commentId)) agentReview.dismissComment(commentId);
         else deleteLocalComment(commentId);

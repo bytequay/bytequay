@@ -4297,6 +4297,8 @@ export type Bridge = {
   deleteLocalPrComment: (commentId: string) => Promise<void>;
   /** Dismiss a local PR comment (closed without action). */
   dismissLocalPrComment: (commentId: string) => Promise<LocalPRComment>;
+  /** Reopen a resolved/dismissed local PR comment. */
+  reopenLocalPrComment: (commentId: string) => Promise<LocalPRComment>;
   /** On-demand local test run (design doc slice 4); returns the local PR's
    *  updated check list. */
   runLocalPrTests: (prId: string) => Promise<LocalPRCheck[]>;

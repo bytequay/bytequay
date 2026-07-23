@@ -19,11 +19,14 @@ import { CheckIcon, WarnTriangleIcon } from '../ui/TaskBrainDesignIcons';
  * task with no local PR may still resolve its parked `ship_task` here.
  */
 export function ShipReviewPrompt({
-  onReview, onApprove, approveDisabled = false, onDiscard, onReviewChanges, busy = false, note,
+  onReview, onApprove, approveDisabled = false, onAskAgent, onDiscard, onReviewChanges, busy = false, note,
 }: {
   onReview: () => void;
   onApprove?: () => void;
   approveDisabled?: boolean;
+  /** Steer the dev agent to address findings + fix the tests. Rendered only
+   *  while shipping is blocked, as the forward action out of that state. */
+  onAskAgent?: () => void;
   onDiscard?: () => void;
   onReviewChanges?: () => void;
   busy?: boolean;
@@ -55,6 +58,11 @@ export function ShipReviewPrompt({
           {onReviewChanges !== undefined && (
             <button type="button" className="review-callout__btn" onClick={onReviewChanges}>
               Review changes
+            </button>
+          )}
+          {onAskAgent !== undefined && approveDisabled && (
+            <button type="button" className="review-callout__btn" onClick={onAskAgent} disabled={busy}>
+              Ask agent to address &amp; fix
             </button>
           )}
           {onDiscard !== undefined && (

@@ -141,6 +141,13 @@ export function useLocalPrActions(taskId: string, opts: {
       .catch(() => { /* poll reconciles */ });
   }, [refresh]);
 
+  const reopenLocalComment = useCallback((commentId: string) => {
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    void bridge?.reopenLocalPrComment(commentId)
+      .then(() => refresh())
+      .catch(() => { /* poll reconciles */ });
+  }, [refresh]);
+
   const runLocalTests = useCallback(() => {
     if (localPr === null) return;
     setTestsBusy(true);
@@ -155,7 +162,7 @@ export function useLocalPrActions(taskId: string, opts: {
     bundle, refresh, syncing, localPr, capabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
-    addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, deleteLocalComment, dismissLocalComment,
+    addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, deleteLocalComment, dismissLocalComment, reopenLocalComment,
     pushOpen, setPushOpen,
     reviewOpen, setReviewOpen, prBusy,
     runLocalTests, testsBusy,

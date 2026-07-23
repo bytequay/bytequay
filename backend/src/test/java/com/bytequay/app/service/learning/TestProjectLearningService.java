@@ -78,6 +78,9 @@ class TestProjectLearningService
         resolver = mock(WorkspaceRepositoryResolver.class);
         watchedRepos = mock(WatchedRepoStore.class);
         PatResolver patResolver = mock(PatResolver.class);
+        PrPriorityScorer scorer = new PrPriorityScorer(new ObjectMapper());
+        ModuleCoverageSelector selector = new ModuleCoverageSelector();
+        PrEvidenceFetcher evidenceFetcher = mock(PrEvidenceFetcher.class);
 
         when(resolver.resolve("ws-1")).thenReturn(new WorkspaceRepositoryResolver
                 .RepositoryIdentity("acme", "widget", "acme/widget", "main"));
@@ -88,7 +91,7 @@ class TestProjectLearningService
                 .thenReturn(new DocumentIndexer.IndexResult(0, "capsule", "digest"));
 
         service = new ProjectLearningService(store, resolver, watchedRepos, indexer,
-                catalog, patResolver, new ObjectMapper());
+                catalog, scorer, selector, evidenceFetcher, patResolver, new ObjectMapper());
     }
 
     @Test
@@ -151,6 +154,28 @@ class TestProjectLearningService
         verify(indexer, never()).index(anyString(), anyString(), any(), any());
         assertThat(store.findRun("run-1")).get()
                 .extracting(ProjectLearningRun::state).isEqualTo("caught-up");
+    }
+
+    @Test
+    void testAnalyzeDrainsWholeCatalogNotJustFirstBatch()
+    {
+        when(catalog.catalog(anyString(), anyString(), anyString(), anyInt(), any(), any()))
+                .thenAnswer(inv -> new MergedPrCatalog.Outcome(
+                        inv.getArgument(4), MergedPrCatalog.State.CAUGHT_UP, null));
+        store.insertRun(new ProjectLearningRun("run-1", "ws-1", "acme/widget", "clone",
+                "queued", null, null, "{}", 1, 1, 1, null, null));
+        // More cataloged PRs than a single SELECT_LIMIT (50) wave can promote.
+        for (int pr = 1; pr <= 60; pr++) {
+            store.upsertPrSource(new RepoPrSource("ws-1", "acme/widget", pr,
+                    "2020-01-" + String.format("%02d", (pr % 28) + 1), null, "{}", "{}",
+                    "d" + pr, null, "cataloged", 1, null, null));
+        }
+
+        service.execute("run-1");
+
+        // Every cataloged PR was worked through in SELECT_LIMIT waves, not just
+        // the first 50 — the whole catalog drained to 'analyzed'.
+        assertThat(store.countAnalyzed("ws-1", "acme/widget")).isEqualTo(60);
     }
 
     @Test

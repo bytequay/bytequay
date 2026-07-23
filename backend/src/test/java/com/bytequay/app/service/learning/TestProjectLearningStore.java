@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.learning;
 
+import com.bytequay.app.domain.PullRequestCommit;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,9 +22,13 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Store-level tests against the real {@code V192} schema (full Flyway
@@ -102,6 +107,69 @@ class TestProjectLearningStore
 
         Optional<ProjectLearningRun> reloaded = store.findRun("run-1");
         assertThat(reloaded).get().extracting(ProjectLearningRun::catalogCursor).isEqualTo(cursor);
+    }
+
+    @Test
+    void testSelectionAndAnalysisLifecycle()
+    {
+        store.insertRun(run("run-1", "cataloging", "{}"));
+        store.upsertPrSource(source(42, "digest-a"));
+
+        store.markSelected("ws-1", "acme/widget", 42, 3.5);
+        assertThat(store.selectedSources("ws-1", "acme/widget", 10))
+                .singleElement()
+                .satisfies(s -> {
+                    assertThat(s.prNumber()).isEqualTo(42);
+                    assertThat(s.priorityScore()).isEqualTo(3.5);
+                });
+
+        store.markAnalyzed("ws-1", "acme/widget", 42, 9.0, "merge-sha", 100L);
+        assertThat(store.countAnalyzed("ws-1", "acme/widget")).isEqualTo(1);
+        assertThat(store.selectedSources("ws-1", "acme/widget", 10)).isEmpty();
+    }
+
+    @Test
+    void testEvidenceRoundTripsAgainstRealSchema()
+    {
+        store.persistEvidence(bundle(List.of(
+                ref("file", null, "repoSha", "core/Scheduler.java"),
+                ref("commit", "c1", "c1", null))), 5.0, 100L);
+
+        assertThat(store.countEvidenceRefs("ws-1", "acme/widget", 7)).isEqualTo(2);
+        assertThat(jdbc.queryForObject(
+                "SELECT overall_completeness FROM repo_pr_evidence_bundle WHERE pr_number = 7",
+                String.class)).isEqualTo("complete");
+
+        // Re-persisting replaces rather than duplicates.
+        store.persistEvidence(bundle(List.of(ref("file", null, "repoSha", "core/Only.java"))), 5.0, 200L);
+        assertThat(store.countEvidenceRefs("ws-1", "acme/widget", 7)).isEqualTo(1);
+    }
+
+    @Test
+    void testPersistRejectsRefCrossingPinnedSnapshot()
+    {
+        PrEvidenceBundle crossing = bundle(List.of(
+                ref("thread", "9", "sha-from-a-later-push", "core/X.java")));
+        assertThatThrownBy(() -> store.persistEvidence(crossing, 1.0, 100L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("crosses pinned repository SHA");
+    }
+
+    private static PrEvidenceBundle bundle(List<PrEvidenceBundle.EvidenceRef> refs)
+    {
+        return new PrEvidenceBundle("ws-1", "acme/widget", 7, "alice",
+                "base", "head", "merge", "repoSha",
+                List.of(), List.of(), List.of(new PullRequestCommit("c1", "alice", "alice",
+                        Instant.parse("2020-01-01T00:00:00Z"), "msg")),
+                List.of(), List.of(),
+                Map.of("reviews", "complete"), "complete", refs, List.of());
+    }
+
+    private static PrEvidenceBundle.EvidenceRef ref(
+            String kind, String githubId, String commitSha, String filePath)
+    {
+        return new PrEvidenceBundle.EvidenceRef(kind, githubId, null, commitSha,
+                filePath, null, null, "digest");
     }
 
     private static ProjectLearningRun run(String id, String state, String cursor)

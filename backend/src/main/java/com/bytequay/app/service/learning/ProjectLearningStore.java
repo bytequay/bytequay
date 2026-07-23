@@ -13,14 +13,19 @@
  */
 package com.bytequay.app.service.learning;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -83,7 +88,7 @@ public class ProjectLearningStore
     {
         return jdbc.queryForList("""
                 SELECT id FROM repo_learning_run
-                WHERE state IN ('queued', 'indexing', 'cataloging', 'partial')
+                WHERE state IN ('queued', 'indexing', 'cataloging', 'partial', 'analyzing')
                 """, String.class);
     }
 
@@ -154,6 +159,141 @@ public class ProjectLearningStore
                 SELECT count(*) FROM repo_pr_source
                 WHERE workspace_id = ? AND repo = ? AND analysis_state = 'analyzed'
                 """, Integer.class, workspaceId, repo);
+        return n == null ? 0 : n;
+    }
+
+    // ── Phase 2 selection + analysis lifecycle ──────────────────────
+
+    /** Cataloged (not-yet-selected) sources, newest merges first, for pre-rank. */
+    public List<RepoPrSource> catalogedSources(String workspaceId, String repo, int limit)
+    {
+        return jdbc.query("""
+                SELECT * FROM repo_pr_source
+                WHERE workspace_id = ? AND repo = ? AND analysis_state = 'cataloged'
+                ORDER BY merged_at DESC, pr_number DESC
+                LIMIT ?
+                """, SOURCE_MAPPER, workspaceId, repo, limit);
+    }
+
+    /** Sources chosen for analysis but not yet analyzed — the resumable batch. */
+    public List<RepoPrSource> selectedSources(String workspaceId, String repo, int limit)
+    {
+        return jdbc.query("""
+                SELECT * FROM repo_pr_source
+                WHERE workspace_id = ? AND repo = ? AND analysis_state = 'selected'
+                ORDER BY priority_score DESC, pr_number DESC
+                LIMIT ?
+                """, SOURCE_MAPPER, workspaceId, repo, limit);
+    }
+
+    /** Advance cataloged -> selected and record the pre-rank score. */
+    public void markSelected(String workspaceId, String repo, int prNumber, double priorityScore)
+    {
+        jdbc.update("""
+                UPDATE repo_pr_source
+                SET analysis_state = 'selected', priority_score = ?
+                WHERE workspace_id = ? AND repo = ? AND pr_number = ?
+                  AND analysis_state = 'cataloged'
+                """, priorityScore, workspaceId, repo, prNumber);
+    }
+
+    /** Advance selected -> analyzed, backfilling merge_sha and the refined score. */
+    public void markAnalyzed(
+            String workspaceId,
+            String repo,
+            int prNumber,
+            double priorityScore,
+            String mergeSha,
+            long analyzedAtMs)
+    {
+        jdbc.update("""
+                UPDATE repo_pr_source
+                SET analysis_state = 'analyzed',
+                    priority_score = ?,
+                    merge_sha = COALESCE(?, merge_sha),
+                    analyzed_at_ms = ?
+                WHERE workspace_id = ? AND repo = ? AND pr_number = ?
+                """, priorityScore, mergeSha, analyzedAtMs, workspaceId, repo, prNumber);
+    }
+
+    // ── Phase 2 evidence store ──────────────────────────────────────
+
+    /**
+     * Persist a bundle's snapshot-pinned evidence, replacing any prior rows for
+     * the PR so a re-analysis is idempotent. Asserts the no-cross-SHA invariant:
+     * every ref's commit SHA must be one of the bundle's pinned snapshots.
+     *
+     * <p>Transactional so the delete + bundle + ref + chain inserts commit
+     * all-or-nothing: a mid-loop failure rolls back rather than leaving a
+     * half-written bundle that {@code markAnalyzed} would then freeze in place.
+     */
+    @Transactional
+    public void persistEvidence(PrEvidenceBundle bundle, double priorityScore, long builtAtMs)
+    {
+        Set<String> pinned = bundle.pinnedShas();
+        for (PrEvidenceBundle.EvidenceRef ref : bundle.refs()) {
+            if (ref.commitSha() != null && !pinned.contains(ref.commitSha())) {
+                throw new IllegalStateException(
+                        "evidence ref crosses pinned repository SHA: " + ref.commitSha());
+            }
+        }
+
+        deleteEvidence(bundle.workspaceId(), bundle.repo(), bundle.prNumber());
+        jdbc.update("""
+                INSERT INTO repo_pr_evidence_bundle (
+                    workspace_id, repo, pr_number, base_sha, head_sha, merge_sha,
+                    repo_sha, overall_completeness, completeness_json, priority_score,
+                    extractor_version, built_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                bundle.workspaceId(), bundle.repo(), bundle.prNumber(),
+                bundle.baseSha(), bundle.headSha(), bundle.mergeSha(), bundle.repoSha(),
+                bundle.overallCompleteness(), writeJson(bundle.completeness()),
+                priorityScore, 1, builtAtMs);
+
+        for (PrEvidenceBundle.EvidenceRef ref : bundle.refs()) {
+            jdbc.update("""
+                    INSERT INTO repo_pr_evidence_ref (
+                        workspace_id, repo, pr_number, ref_kind, github_id, url,
+                        commit_sha, file_path, line_start, line_end, content_digest, detail_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}')
+                    """,
+                    bundle.workspaceId(), bundle.repo(), bundle.prNumber(),
+                    ref.kind(), ref.githubId(), ref.url(), ref.commitSha(),
+                    ref.filePath(), ref.lineStart(), ref.lineEnd(), ref.contentDigest());
+        }
+
+        for (OutcomeChain chain : bundle.chains()) {
+            jdbc.update("""
+                    INSERT INTO repo_pr_evidence_outcome_chain (
+                        workspace_id, repo, pr_number, concern_author, concern_path,
+                        concern_ref, addressed_by_commit, resolved, merged, depth,
+                        content_digest, detail_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}')
+                    """,
+                    bundle.workspaceId(), bundle.repo(), bundle.prNumber(),
+                    chain.concernAuthor(), chain.concernPath(), chain.concernRef(),
+                    chain.addressedByCommit(), chain.resolved() ? 1 : 0,
+                    chain.merged() ? 1 : 0, chain.depth(), chain.contentDigest());
+        }
+    }
+
+    public void deleteEvidence(String workspaceId, String repo, int prNumber)
+    {
+        jdbc.update("DELETE FROM repo_pr_evidence_ref WHERE workspace_id = ? AND repo = ? AND pr_number = ?",
+                workspaceId, repo, prNumber);
+        jdbc.update("DELETE FROM repo_pr_evidence_outcome_chain WHERE workspace_id = ? AND repo = ? AND pr_number = ?",
+                workspaceId, repo, prNumber);
+        jdbc.update("DELETE FROM repo_pr_evidence_bundle WHERE workspace_id = ? AND repo = ? AND pr_number = ?",
+                workspaceId, repo, prNumber);
+    }
+
+    public int countEvidenceRefs(String workspaceId, String repo, int prNumber)
+    {
+        Integer n = jdbc.queryForObject("""
+                SELECT count(*) FROM repo_pr_evidence_ref
+                WHERE workspace_id = ? AND repo = ? AND pr_number = ?
+                """, Integer.class, workspaceId, repo, prNumber);
         return n == null ? 0 : n;
     }
 
@@ -232,6 +372,43 @@ public class ProjectLearningStore
         return jdbc.queryForList("""
                 SELECT source_digest FROM repo_project_capsule WHERE workspace_id = ?
                 """, String.class, workspaceId).stream().findFirst();
+    }
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    private static String writeJson(Map<String, String> value)
+    {
+        try {
+            return JSON.writeValueAsString(value);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("failed to serialize completeness", e);
+        }
+    }
+
+    private static final RowMapper<RepoPrSource> SOURCE_MAPPER = ProjectLearningStore::mapSource;
+
+    private static RepoPrSource mapSource(ResultSet rs, int rowNum)
+            throws SQLException
+    {
+        Double priority = rs.getObject("priority_score") == null
+                ? null : rs.getDouble("priority_score");
+        Long analyzedAt = rs.getObject("analyzed_at_ms") == null
+                ? null : rs.getLong("analyzed_at_ms");
+        return new RepoPrSource(
+                rs.getString("workspace_id"),
+                rs.getString("repo"),
+                rs.getInt("pr_number"),
+                rs.getString("merged_at"),
+                rs.getString("merge_sha"),
+                rs.getString("metadata_json"),
+                rs.getString("completeness_json"),
+                rs.getString("source_digest"),
+                priority,
+                rs.getString("analysis_state"),
+                rs.getInt("extractor_version"),
+                analyzedAt,
+                rs.getString("last_error"));
     }
 
     private static final RowMapper<ProjectLearningRun> RUN_MAPPER = ProjectLearningStore::mapRun;

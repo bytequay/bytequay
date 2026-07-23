@@ -32,6 +32,7 @@ public record GitHubPullRequestDetailResponse(
         Base base,
         Boolean mergeable,
         @JsonProperty("mergeable_state") String mergeableState,
+        @JsonProperty("merge_commit_sha") String mergeCommitSha,
         String state,
         Boolean merged)
 {
@@ -50,9 +51,11 @@ public record GitHubPullRequestDetailResponse(
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Head(String sha, String ref, Repo repo) {}
 
-    /** The PR's target side (almost always the same repo's default branch). */
+    /** The PR's target side (almost always the same repo's default branch).
+     *  {@code sha} is the base-side commit the PR was opened against — needed
+     *  to pin an evidence bundle to the repository snapshot. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Base(String ref, Repo repo) {}
+    public record Base(String ref, String sha, Repo repo) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Repo(@JsonProperty("full_name") String fullName) {}

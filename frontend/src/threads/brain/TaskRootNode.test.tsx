@@ -109,6 +109,16 @@ describe('PlanCard (pipeline adapter)', () => {
     expect(screen.getByText(/development under way/)).toBeTruthy();
   });
 
+  it('a draft plan (not yet finalized) reads "Plan drafting", not "Plan ready"', () => {
+    // The caller only wires onApprove once plan.state === 'awaiting' (draft
+    // stays disabled), so the card must say so instead of claiming "ready".
+    render(<PlanCard plan={plan({ state: 'draft' })} onRequestRevision={noop} />);
+    expect(screen.getByText('Plan drafting')).toBeTruthy();
+    expect(screen.queryByText('Plan ready')).toBeNull();
+    const approveButton = screen.getByText('Approve & start dev').closest('button') as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+  });
+
   it('does not surface per-step comment affordances (dropped in the pipeline design)', () => {
     const feed: BrainFeedRow[] = [{
       id: 'comment-1', messageSeq: 4, type: 'USER_MESSAGE', stageId: null, stageType: null,

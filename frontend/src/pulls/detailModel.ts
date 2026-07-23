@@ -322,16 +322,26 @@ export type ChecksGroup = {
   key: string;
   label: string;
   defaultOpen: boolean;
-  rows: { name: string; note: string; state: CheckRowState }[];
+  /** `time` is the last-run label ("3h ago"), empty for never-run/skipped
+   *  checks; `title` is the absolute timestamp shown on hover. */
+  rows: { name: string; note: string; time: string; title: string; state: CheckRowState }[];
 };
 export type ChecksModel = { state: 'fail' | 'prog' | 'ok'; title: string; sub: string; groups: ChecksGroup[] };
 
 /** Prototype checksFor() shapes from real checks; null (omit card) when empty. */
 export function buildChecks(checks: LocalPRCheck[]): ChecksModel | null {
   if (checks.length === 0) return null;
-  const row = (c: LocalPRCheck, state: CheckRowState) => ({
-    name: c.name, state, note: state === 'skip' ? 'skipped' : c.kind === 'local' ? 'local' : 'ci',
-  });
+  const row = (c: LocalPRCheck, state: CheckRowState) => {
+    // "Last time it ran" = when it finished, falling back to when it started
+    // (still-running checks have no finish yet). Skipped checks never ran.
+    const ranAt = c.finishedAt ?? c.startedAt;
+    return {
+      name: c.name, state,
+      note: state === 'skip' ? 'skipped' : c.kind === 'local' ? 'local' : 'ci',
+      time: state === 'skip' ? '' : agoLabel(ranAt),
+      title: state === 'skip' ? '' : new Date(ranAt).toLocaleString(),
+    };
+  };
   const failing = checks.filter(c => c.status === 'failed');
   const inProgress = checks.filter(c => c.status === 'pending' || c.status === 'running');
   const ok = checks.filter(c => c.status === 'passed');

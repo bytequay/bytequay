@@ -88,7 +88,6 @@ export function StageDetailPage({
       taskTitle={taskTitle ?? stage.title}
       taskNumber={taskNumber}
       trunkLabel={trunkLabel}
-      branch={stage.branch}
       run={{ ...run, statusLabel: run.statusLabel?.toUpperCase() }}
       sidebar={sidebar}
       conversation={conversation}

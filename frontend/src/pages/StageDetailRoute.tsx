@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStageDetailData } from '../threads/brain/useStageDetailData';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
+import { prUrl } from '../activityNarrative';
 import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
 import { useThreadStream } from '../threads/useThreadStream';
@@ -742,6 +743,10 @@ export function StageDetailRoute({
     number: stageRemotePrNumber,
     status: taskCompleted ? 'merged' : (pr?.status ?? displayedLocalPrBundle?.pr.status ?? 'open'),
     onOpen: () => openTab('pr', 'overview'),
+    onOpenRemote: () => {
+      void window.bridge.openInAppBrowser(
+        prUrl(data?.task.repoFullName ?? brain.task.repoFullName, stageRemotePrNumber));
+    },
   } : undefined;
   const sidebar = (
     <TaskSidebar

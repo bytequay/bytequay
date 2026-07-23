@@ -1213,7 +1213,7 @@ public class InvestigationReviewStore
                 SELECT s.* FROM investigation_step s JOIN review_assignment a ON a.id = s.assignment_id
                 JOIN review_round r ON r.id = a.round_id WHERE r.session_id = ? ORDER BY s.rowid
                 """, (rs, n) -> new InvestigationStepRow(rs.getString("id"), rs.getString("assignment_id"),
-                rs.getString("hypothesis_id"), rs.getString("action_type"), tree(rs.getString("arguments_json")),
+                rs.getString("hypothesis_id"), rs.getString("action_type"), argumentsTree(rs.getString("arguments_json")),
                 rs.getString("reason"), rs.getInt("planned") != 0, rs.getInt("cost_cents"),
                 rs.getString("status")), reviewId);
     }
@@ -1388,6 +1388,24 @@ public class InvestigationReviewStore
     private List<String> nullableStrings(String json)
     {
         return json == null ? null : strings(json);
+    }
+
+    // Heals step rows written before arguments were normalized: a JSON object
+    // encoded as a string (a text node) is re-parsed so consumers always see an
+    // object, never a bare string that breaks `key in arguments` in the UI.
+    private JsonNode argumentsTree(String json)
+    {
+        JsonNode node = tree(json);
+        if (node.isTextual()) {
+            try {
+                JsonNode reparsed = mapper.readTree(node.asText());
+                return reparsed.isContainerNode() ? reparsed : mapper.createObjectNode();
+            }
+            catch (JsonProcessingException e) {
+                return mapper.createObjectNode();
+            }
+        }
+        return node;
     }
 
     private JsonNode tree(String json)

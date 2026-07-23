@@ -997,6 +997,8 @@ const bridge: Bridge = {
   getPrForRepoPull: (owner: string, repo: string, number: number) =>
     ipcRenderer.invoke('pr:forRepoPull', owner, repo, number),
   getLocalPrBundle: (prId: string) => ipcRenderer.invoke('pr:bundle', prId),
+  updateLocalPrDetails: (prId: string, body: { title?: string; description?: string }) =>
+      ipcRenderer.invoke('pr:updateDetails', prId, body),
   pushLocalPr: (prId: string) => ipcRenderer.invoke('pr:push', prId),
   mergeLocalPr: (prId: string, method: string) => ipcRenderer.invoke('pr:merge', prId, method),
   dequeueLocalPr: (prId: string) => ipcRenderer.invoke('pr:dequeue', prId),

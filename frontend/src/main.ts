@@ -984,6 +984,18 @@ function registerIpc(): void {
     }
     return res.json();
   });
+  ipcMain.handle('pr:updateDetails', async (_event, prId: string, body: { title?: string; description?: string }) => {
+    const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PR update returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
   ipcMain.handle('pr:push', async (_event, prId: string) => {
     const res = await fetch(`${BACKEND_BASE}/api/prs/${encodeURIComponent(prId)}/push`, { method: 'POST' });
     if (!res.ok) {

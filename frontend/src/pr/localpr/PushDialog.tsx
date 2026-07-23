@@ -11,16 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MarkdownProse } from '../../threads/MarkdownProse';
 import type { LocalPRBundle } from '../../types/localPr';
 
 /**
  * The push confirmation modal (mockup frame 16, decisions #47 + #53). It is a
- * one-way action: it summarises what migrates (repo, branch flow, commits, the
- * description) and warns — with the exact count — which local review comments
- * will be stripped and never pushed. Confirm with the Push button or ⌘↵; Esc
- * or the backdrop cancels. Draft is fixed (a stated row, not a toggle).
+ * one-way action: it summarises what migrates (repo, branch flow, commits) and
+ * warns — with the exact count — which local review comments will be stripped
+ * and never pushed. The description is editable here (the push opens the PR
+ * from it), so the body can be tweaked before it lands on GitHub. Confirm with
+ * the Push button or ⌘↵; Esc or the backdrop cancels. Draft is fixed.
  */
 export function PushDialog({
   bundle, repoLabel, onPush, onCancel, busy = false,
@@ -28,7 +29,8 @@ export function PushDialog({
   bundle: LocalPRBundle;
   /** "owner/repo" — resolved by the host from the task. */
   repoLabel?: string;
-  onPush: () => void;
+  /** Push with the (possibly edited) description; the host persists it first. */
+  onPush: (description: string) => void;
   onCancel: () => void;
   busy?: boolean;
 }) {
@@ -37,11 +39,19 @@ export function PushDialog({
   const deletions = commits.reduce((n, c) => n + c.deletions, 0);
   const stripped = bundle.pendingStripCount
     ?? bundle.comments.filter(c => c.origin === 'local' && c.strippedOnPushAt === null).length;
+  const [description, setDescription] = useState(pr.description);
+  // Show the rendered markdown by default; drop to the editor only when there
+  // is nothing to render yet.
+  const [tab, setTab] = useState<'write' | 'preview'>(pr.description.trim().length > 0 ? 'preview' : 'write');
+  // Keep the latest draft reachable from the keydown handler without
+  // re-binding the listener on every keystroke.
+  const descRef = useRef(description);
+  descRef.current = description;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
-      else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); if (!busy) onPush(); }
+      else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); if (!busy) onPush(descRef.current); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -57,8 +67,33 @@ export function PushDialog({
           <button type="button" className="pd-close" aria-label="Close" onClick={onCancel}>✕</button>
         </div>
         <div className="pd-body">
+          <div className="pd-desc-head">
+            <span className="pr-section-h">Summary</span>
+            <div className="pd-tabs" role="tablist">
+              <button type="button" role="tab" aria-selected={tab === 'write'}
+                className={tab === 'write' ? 'is-active' : ''} onClick={() => setTab('write')}>Write</button>
+              <button type="button" role="tab" aria-selected={tab === 'preview'}
+                className={tab === 'preview' ? 'is-active' : ''} onClick={() => setTab('preview')}>Preview</button>
+            </div>
+          </div>
+          {tab === 'write' ? (
+            <textarea
+              className="push-desc"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Describe this pull request…"
+              spellCheck={false}
+            />
+          ) : (
+            <div className="push-desc push-desc--preview">
+              {description.trim().length > 0
+                ? <MarkdownProse text={description} />
+                : <span style={{ color: 'var(--text-4)' }}>Nothing to preview.</span>}
+            </div>
+          )}
+
           <div className="push-summary">
-            {repoLabel !== undefined && (
+            {repoLabel !== undefined && repoLabel.trim().length > 0 && (
               <div className="push-info-row">
                 <span className="label">Repository</span>
                 <span className="value"><code>{repoLabel}</code></span>
@@ -80,13 +115,6 @@ export function PushDialog({
             </div>
           </div>
 
-          <div className="pr-section-h">Description preview</div>
-          <div className="push-desc">
-            {pr.description.trim().length > 0
-              ? <MarkdownProse text={pr.description} />
-              : <span style={{ color: 'var(--text-4)' }}>No description.</span>}
-          </div>
-
           {stripped > 0 && (
             <div className="push-warning">
               <span className="ic" aria-hidden>⚠</span>
@@ -102,7 +130,7 @@ export function PushDialog({
           <span className="left-hint">Will open as Draft PR · you&apos;ll land on the PR view</span>
           <span style={{ flex: 1 }} />
           <button type="button" className="cancel-btn" onClick={onCancel}>Cancel</button>
-          <button type="button" className="push-btn" onClick={onPush} disabled={busy}>
+          <button type="button" className="push-btn" onClick={() => onPush(description)} disabled={busy}>
             ↑ Push to GitHub<span className="kbd">⌘↵</span>
           </button>
         </div>

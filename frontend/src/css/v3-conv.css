@@ -2018,13 +2018,18 @@
    .modal / .modal-overlay in modals.css. Confirms the one-way local→remote
    push and warns which local comments get stripped (design #47, #53). */
 .push-dialog-overlay { position: fixed; inset: 0; background: rgba(20,20,20,0.32); backdrop-filter: blur(2px); display: flex; align-items: center; justify-content: center; z-index: 200; }
-.push-dialog { width: 540px; max-width: 92%; background: var(--bg-elev); border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,0.22), 0 4px 12px rgba(0,0,0,0.10); display: flex; flex-direction: column; overflow: hidden; }
+.push-dialog { width: 840px; max-width: 94%; max-height: 92vh; background: var(--bg-elev); border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,0.22), 0 4px 12px rgba(0,0,0,0.10); display: flex; flex-direction: column; overflow: hidden; }
 .push-dialog .pd-head { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
 .push-dialog .pd-head .push-icon { width: 22px; height: 22px; border-radius: 5px; background: linear-gradient(135deg,#22c55e,#16a34a); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
 .push-dialog .pd-head .pd-title { font-size: 14px; font-weight: 700; color: var(--text-1); }
 .push-dialog .pd-head .pd-sub { font-size: 11px; color: var(--text-4); }
 .push-dialog .pd-head .pd-close { margin-left: auto; width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--text-3); cursor: pointer; font-size: 14px; border: 0; background: transparent; }
-.push-dialog .pd-body { padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.push-dialog .pd-body { padding: 8px 18px 16px; display: flex; flex-direction: column; gap: 14px; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.push-dialog .pd-desc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: -11px; }
+.push-dialog .pd-desc-head .pr-section-h { padding: 0; }
+.push-dialog .pd-tabs { display: inline-flex; gap: 2px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 6px; padding: 2px; }
+.push-dialog .pd-tabs button { border: 0; background: transparent; color: var(--text-3); font-size: 10.5px; font-weight: 600; padding: 2px 10px; border-radius: 4px; cursor: pointer; }
+.push-dialog .pd-tabs button.is-active { background: var(--bg-elev); color: var(--text-1); box-shadow: 0 1px 2px rgba(0,0,0,0.10); }
 .push-dialog .push-summary { display: flex; flex-direction: column; gap: 10px; }
 .push-dialog .push-info-row { display: flex; align-items: center; gap: 10px; padding: 8px 11px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px; }
 .push-dialog .push-info-row .label { color: var(--text-3); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; min-width: 90px; }
@@ -2032,7 +2037,13 @@
 .push-dialog .push-info-row .value code { font-family: var(--mono); font-size: 11.5px; }
 .push-dialog .push-info-row .value .add { color: var(--green); }
 .push-dialog .push-info-row .value .del { color: var(--red); }
-.push-dialog .push-desc { padding: 10px 12px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 7px; font-size: 12px; color: var(--text-1); line-height: 1.55; max-height: 100px; overflow-y: auto; }
+.push-dialog .push-desc { box-sizing: border-box; width: 100%; padding: 13px 15px; background: var(--bg-input); border: 1px solid var(--border); border-radius: 7px; font-size: 12.5px; color: var(--text-1); line-height: 1.6; min-height: 440px; max-height: 66vh; overflow-y: auto; }
+.push-dialog textarea.push-desc { display: block; font-family: var(--font); resize: vertical; }
+.push-dialog textarea.push-desc:focus { outline: none; border-color: var(--accent); }
+.push-dialog .push-desc--preview { background: var(--bg-elev); padding-top: 6px; }
+/* Drop the markdown's leading heading/paragraph top margin (an inline style,
+   so it needs !important) that otherwise leaves a tall blank band up top. */
+.push-dialog .push-desc--preview > div > :first-child { margin-top: 0 !important; }
 .push-dialog .push-warning { padding: 9px 12px; background: rgba(217,119,6,0.06); border: 1px solid rgba(217,119,6,0.30); border-left: 3px solid var(--orange); border-radius: 6px; display: flex; align-items: flex-start; gap: 8px; font-size: 11.5px; color: var(--text-1); line-height: 1.5; }
 .push-dialog .push-warning .ic { color: var(--orange); font-size: 14px; flex-shrink: 0; margin-top: 1px; }
 .push-dialog .push-warning .b { color: var(--orange); font-weight: 700; }

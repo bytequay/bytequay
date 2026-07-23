@@ -86,6 +86,18 @@ describe('PushDialog', () => {
     expect(onPush).toHaveBeenCalledTimes(2);
   });
 
+  it('pushes with the edited description', () => {
+    const onPush = vi.fn();
+    render(<PushDialog bundle={bundle()} onPush={onPush} onCancel={() => {}} />);
+    // Opens on the rendered preview when a description exists; switch to edit.
+    fireEvent.click(screen.getByRole('tab', { name: 'Write' }));
+    const box = screen.getByPlaceholderText(/Describe this pull request/) as HTMLTextAreaElement;
+    expect(box.value).toBe('Adds a `CostMeterCard`.');
+    fireEvent.change(box, { target: { value: 'Adds a `CostMeterCard`.\n\nNow with a chart.' } });
+    fireEvent.click(screen.getByRole('button', { name: /Push to GitHub/ }));
+    expect(onPush).toHaveBeenCalledWith('Adds a `CostMeterCard`.\n\nNow with a chart.');
+  });
+
   it('cancels on Escape, backdrop click, and the ✕ button', () => {
     const onCancel = vi.fn();
     render(<PushDialog bundle={bundle()} onPush={() => {}} onCancel={onCancel} />);

@@ -146,6 +146,7 @@ export function ReviewThreadCard({
       thread={thread}
       prAuthor={pr.author?.replace(/^@/, '') ?? null}
       prHtmlUrl={pr.remotePrUrl ?? ''}
+      currentUserLogin={currentUserLogin}
       compact={compact}
       actionsDisabled={action !== null}
       locationLabel={root.scope === 'pr'

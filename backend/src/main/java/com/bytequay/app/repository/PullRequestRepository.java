@@ -316,6 +316,77 @@ public interface PullRequestRepository
         throw new UnsupportedOperationException("createInlineReviewComment not implemented");
     }
 
+    // ── Exhaustive paged evidence (archival, learning-owned) ────────────────
+
+    /**
+     * A page-walked list plus whether the walk reached the natural end of the
+     * data. {@code complete == false} means later pages were dropped (a mid-walk
+     * error or a page cap), so the caller must mark the source partial rather
+     * than claim success. Distinct from the dashboard's single-page fetchers,
+     * which intentionally read one page and never signal exhaustiveness.
+     */
+    record Paged<T>(List<T> items, boolean complete)
+    {
+        public static <T> Paged<T> complete(List<T> items)
+        {
+            return new Paged<>(items, true);
+        }
+
+        public static <T> Paged<T> partial(List<T> items)
+        {
+            return new Paged<>(items, false);
+        }
+    }
+
+    /**
+     * Fetches every submitted review across all pages. Unlike
+     * {@link #fetchPrReviews}, walks pages to exhaustion and reports whether
+     * it got there. Learning/archival only — never feeds the dashboard cache.
+     * Maps to: GET /repos/{owner}/{repo}/pulls/{number}/reviews
+     */
+    default Paged<PrReviewState> fetchAllPrReviews(String pat, PullRequestRef pr)
+    {
+        throw new UnsupportedOperationException("fetchAllPrReviews not implemented");
+    }
+
+    /**
+     * Fetches every changed file across all pages, reporting exhaustiveness.
+     * Maps to: GET /repos/{owner}/{repo}/pulls/{number}/files
+     */
+    default Paged<PullRequestDetail.ChangedFile> fetchAllPrFiles(String pat, PullRequestRef pr)
+    {
+        throw new UnsupportedOperationException("fetchAllPrFiles not implemented");
+    }
+
+    /**
+     * Fetches every commit across all pages, oldest first, reporting
+     * exhaustiveness.
+     * Maps to: GET /repos/{owner}/{repo}/pulls/{number}/commits
+     */
+    default Paged<PullRequestCommit> fetchAllPrCommits(String pat, PullRequestRef pr)
+    {
+        throw new UnsupportedOperationException("fetchAllPrCommits not implemented");
+    }
+
+    /**
+     * Fetches every per-line review comment across all pages, reporting
+     * exhaustiveness. Threaded downstream by {@code inReplyTo}.
+     * Maps to: GET /repos/{owner}/{repo}/pulls/{number}/comments
+     */
+    default Paged<PrReviewThreadMessage> fetchAllPrReviewComments(String pat, PullRequestRef pr)
+    {
+        throw new UnsupportedOperationException("fetchAllPrReviewComments not implemented");
+    }
+
+    /**
+     * Fetches the full timeline across all pages, reporting exhaustiveness.
+     * Maps to: GET /repos/{owner}/{repo}/issues/{number}/timeline
+     */
+    default Paged<PrTimelineEvent> fetchAllPrTimeline(String pat, PullRequestRef pr)
+    {
+        throw new UnsupportedOperationException("fetchAllPrTimeline not implemented");
+    }
+
     // ── Pulls API ─────────────────────────────────────────────────────────────
 
     /**

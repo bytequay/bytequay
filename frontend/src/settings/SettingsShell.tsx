@@ -26,7 +26,6 @@ import AgentRolesPage from './pages/AgentRolesPage';
 import ConceptsPage from './pages/ConceptsPage';
 import SavedViewsPage from './pages/SavedViewsPage';
 import SkillsPage from './pages/SkillsPage';
-import TeamsPage from './pages/TeamsPage';
 import WatchedReposPage from './pages/WatchedReposPage';
 import WorkspaceMemoryPage from './pages/WorkspaceMemoryPage';
 
@@ -36,14 +35,12 @@ type Props = {
   onSelectSection: (section: SettingsSection) => void;
   /** Forwarded to AccountPage so the Disconnect button lands the user back on first-run setup. */
   onClearPat?: () => void;
-  /** Forwarded to TeamsPage so a team-row click navigates to the top-level TeamDetailPage. */
-  onOpenTeam?: (id: number) => void;
   /** Forwarded to WorkspaceMemoryPage so back-link chips in the
    *  memory proposal banner can navigate to the source thread. */
   onOpenThread?: (threadId: string) => void;
 };
 
-function SettingsShell({ section, workspaceId, onSelectSection, onClearPat, onOpenTeam, onOpenThread }: Props) {
+function SettingsShell({ section, workspaceId, onSelectSection, onClearPat, onOpenThread }: Props) {
   // 'github-token' is kept in the section union so existing onboarding
   // deep links resolve cleanly; the Credentials → Git PAT tab owns the
   // PAT now, so we alias the old id at render time.
@@ -56,7 +53,6 @@ function SettingsShell({ section, workspaceId, onSelectSection, onClearPat, onOp
           {resolved === 'account' && <AccountPage onClearPat={onClearPat} />}
           {resolved === 'appearance' && <AppearancePage />}
           {resolved === 'credentials' && <CredentialsPage />}
-          {resolved === 'teams' && <TeamsPage onOpenTeam={onOpenTeam} />}
           {resolved === 'ai-review' && <AiReviewPage />}
           {resolved === 'local-ai' && <LocalAiPage />}
           {resolved === 'skills' && <SkillsPage />}

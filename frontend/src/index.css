@@ -18,7 +18,6 @@
 @import './css/v3-fullpage.css';
 @import './css/v3-workspace.css';
 @import './css/dashboard.css';
-@import './css/kanban.css';
 @import './css/settings.css';
 @import './css/ai.css';
 @import './css/home.css';
@@ -27,7 +26,6 @@
 @import './css/repos.css';
 @import './css/inbox.css';
 @import './css/issue-detail.css';
-@import './css/teams.css';
 @import './css/email.css';
 @import './css/pr-detail.css';
 @import './css/inapp-browser.css';

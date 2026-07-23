@@ -14,9 +14,6 @@
 import { Component, useCallback, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import SettingsShell from './settings/SettingsShell';
 import NotificationsScreen from './NotificationsScreen';
-import TeamDetailPage from './teams/TeamDetailPage';
-import TeamHomePage from './teams/TeamHomePage';
-import TeamsManagePage from './teams/TeamsManagePage';
 import EmailPage from './email/EmailPage';
 import ThreadCreatePage from './threads/ThreadCreatePage';
 import ControlBar, { type PageContextTag } from './control/ControlBar';
@@ -75,9 +72,6 @@ export type Nav =
    *  returns the user where they came from — Repository home, Local
    *  repo, Team kanban, or just Home. Defaults to Home when unset. */
   | { view: 'repo'; owner: string; repo: string; prNumber?: number; initialTab?: 'pulls' | 'issues'; diffCommitSha?: string; openDiff?: boolean; back?: Nav }
-  | { view: 'teams' }
-  | { view: 'team'; teamId: number }
-  | { view: 'team-kanban'; teamId: number }
   | { view: 'email' }
   | { view: 'thread-create'; initialGroupId?: string }
   /** When {@code taskId} is omitted the nav lands on the thread's
@@ -1296,42 +1290,11 @@ function App() {
             hideRail
           />
         )}
-        {nav.view === 'teams' && (
-          <TeamsManagePage
-            onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
-            onBack={() => setNav({ view: 'pulls' })}
-          />
-        )}
-        {nav.view === 'team' && (
-          <TeamHomePage
-            teamId={nav.teamId}
-            onOpenKanban={() => setNav({ view: 'team-kanban', teamId: nav.teamId })}
-            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber, back: nav })}
-            onBack={() => setNav({ view: 'teams' })}
-          />
-        )}
-        {nav.view === 'team-kanban' && (
-          <TeamDetailPage
-            teamId={nav.teamId}
-            onBack={() => setNav({ view: 'team', teamId: nav.teamId })}
-            onOpenLocalBranch={(owner, repo, branch) =>
-              setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
-            onStartReview={openStartedReview}
-            onOpenAgentReview={openAgentReview}
-            onOpenReviewSetup={(action, repo, number) => setNav({
-              view: 'pulls',
-              initialPr: { repo, number },
-              initialReviewAction: action,
-            })}
-            workspaceId={activeWorkspaceId}
-          />
-        )}
         {nav.view === 'settings' && (
           <SettingsShell
             section={nav.section ?? 'account'}
             workspaceId={activeWorkspaceId}
             onSelectSection={(section) => setNav({ view: 'settings', section })}
-            onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
             onOpenThread={openThread}
             onClearPat={async () => {
               await window.bridge.clearPat();

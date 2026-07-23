@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useEffect, useState } from 'react';
 import type { ReviewMessageDto, ReviewThreadDto } from '../../types';
 import type { LocalPR, LocalPRComment } from '../../types/localPr';
 import { MarkdownProse } from '../../threads/MarkdownProse';
@@ -39,6 +40,9 @@ export function ReviewThreadCard({
   canPromote = false,
   promoted = false,
   onTogglePromotion,
+  compact = false,
+  statusLabel,
+  onSubmitToDev,
 }: {
   pr: LocalPR;
   filePath?: string;
@@ -56,14 +60,34 @@ export function ReviewThreadCard({
   canPromote?: boolean;
   promoted?: boolean;
   onTogglePromotion?: () => void | Promise<unknown>;
+  compact?: boolean;
+  /** Local workflow state shown on the root message (for example pending or sent to Dev). */
+  statusLabel?: string;
+  /** Explicitly dispatch this pending local review thread to Development. */
+  onSubmitToDev?: () => void | Promise<void>;
 }) {
+  const [action, setAction] = useState<'resolve' | 'submit' | 'resolve-done' | 'submit-done' | null>(null);
+  const [resolutionTarget, setResolutionTarget] = useState<boolean | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const root = comments[0];
+  const resolved = resolvedOverride ?? (root !== undefined
+    && (root.resolvedAt !== null || root.dismissedAt !== null));
+  useEffect(() => {
+    if (action === 'resolve-done' && resolutionTarget === resolved) {
+      setAction(null);
+      setResolutionTarget(null);
+    }
+    if (action === 'submit-done' && onSubmitToDev === undefined) setAction(null);
+  }, [action, onSubmitToDev, resolutionTarget, resolved]);
   if (root === undefined) return null;
 
-  const resolved = resolvedOverride ?? (root.resolvedAt !== null || root.dismissedAt !== null);
   const rootFinding = root.findingId == null || reviewData === undefined
     ? undefined
     : presentFinding(reviewData, root.findingId);
+  const commentDisplayName = (comment: LocalPRComment, index: number) =>
+    comment.author === 'agent' && index === 0 && comment.findingId != null
+      ? 'brain'
+      : displayName(comment.author);
   const thread: ReviewThreadDto = {
     rootGithubId: -1,
     filePath: root.filePath ?? filePath ?? null,
@@ -72,7 +96,7 @@ export function ReviewThreadCard({
     diffHunk: null,
     messages: comments.map<ReviewMessageDto>((comment, index) => ({
       githubId: -(index + 1),
-      author: displayName(comment.author),
+      author: commentDisplayName(comment, index),
       body: comment.body,
       createdAt: new Date(comment.createdAt).toISOString(),
       reactions: null,
@@ -92,8 +116,20 @@ export function ReviewThreadCard({
   const canReply = root.dismissedAt === null && onReply !== undefined;
   const setResolved = onSetResolved !== undefined || onResolve !== undefined
     ? async (_rootId: number, next: boolean) => {
-        if (onSetResolved !== undefined) await onSetResolved(next);
-        else if (next) await onResolve?.();
+        if (action !== null) return;
+        setAction('resolve');
+        setResolutionTarget(next);
+        setActionError(null);
+        try {
+          if (onSetResolved !== undefined) await onSetResolved(next);
+          else if (next) await onResolve?.();
+          setAction('resolve-done');
+        }
+        catch {
+          setActionError('Could not update this conversation. Try again.');
+          setAction(null);
+          setResolutionTarget(null);
+        }
       }
     : undefined;
 
@@ -102,6 +138,8 @@ export function ReviewThreadCard({
       thread={thread}
       prAuthor={pr.author?.replace(/^@/, '') ?? null}
       prHtmlUrl={pr.remotePrUrl ?? ''}
+      compact={compact}
+      actionsDisabled={action !== null}
       locationLabel={root.scope === 'pr'
         ? 'Pull request review'
         : `${thread.filePath ?? '?'}${thread.line === null ? '' : `:${thread.line}`}`}
@@ -118,8 +156,9 @@ export function ReviewThreadCard({
         const role = actorRole(comment.author, pr);
         return (
           <>
-            {role === 'agent' && <span className="prc-comment-role">AGENT</span>}
+            {role === 'agent' && <span className="prc-comment-role">{commentDisplayName(comment, index).toUpperCase()}</span>}
             {comment.origin === 'local' && <span className="prc-comment-role prc-comment-role--local">LOCAL</span>}
+            {index === 0 && statusLabel !== undefined && <span className="prc-comment-role prc-comment-role--queued">{statusLabel}</span>}
             {index === 0 && promoted && <span className="prc-comment-role prc-comment-role--queued">REMOTE REVIEW DRAFT</span>}
             {index === 0 && comment.publishedAt !== null && <span className="prc-comment-role">PUBLISHED</span>}
           </>
@@ -132,8 +171,30 @@ export function ReviewThreadCard({
           ? <AgentFindingContent view={rootFinding} body={comment.body} pending={!resolved && comment.publishedAt === null} />
           : <MarkdownProse text={comment.body} />;
       }}
-      footerActions={(canPromote && onTogglePromotion !== undefined) || (!resolved && onDismiss !== undefined) ? (
+      footerActions={(canPromote && onTogglePromotion !== undefined)
+          || (!resolved && onDismiss !== undefined) || (!resolved && onSubmitToDev !== undefined)
+          || actionError !== null ? (
         <>
+          {!resolved && onSubmitToDev !== undefined && (
+            <button
+              type="button"
+              className="prc-review-thread__resolve-btn prc-review-thread__promote-btn"
+              disabled={action !== null}
+              onClick={() => {
+                if (action !== null) return;
+                setAction('submit');
+                setActionError(null);
+                void Promise.resolve(onSubmitToDev())
+                  .then(() => setAction('submit-done'))
+                  .catch(() => {
+                    setActionError('Could not send this review to dev. Try again.');
+                    setAction(null);
+                  });
+              }}
+            >
+              {action === 'submit' ? 'Sending…' : 'Send to dev'}
+            </button>
+          )}
           {canPromote && onTogglePromotion !== undefined && (
             <button
               type="button"
@@ -153,6 +214,7 @@ export function ReviewThreadCard({
               Discard local comment
             </button>
           )}
+          {actionError !== null && <span role="alert" className="pr-comment-box__error">{actionError}</span>}
         </>
       ) : undefined}
     />

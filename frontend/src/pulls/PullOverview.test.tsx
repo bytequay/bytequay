@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { invalidate } from '../dataCache';
 import type { LocalPRBundle } from '../types/localPr';
 import type { DashboardPR } from '../types/dashboardPr';
-import type { TimelineItem } from './detailModel';
+import { buildTimeline, type TimelineItem } from './detailModel';
 import type { PullRow } from './model';
 import PullOverview from './PullOverview';
 import PullTimeline from './PullTimeline';
@@ -131,6 +131,154 @@ describe('PullOverview', () => {
 
     expect(screen.getByText('Commented')).toBeTruthy();
     expect(screen.queryByText('Changes requested')).toBeNull();
+  });
+
+  it('renders a pending local code review thread with location, reply, resolve, and send actions', async () => {
+    const local = {
+      ...bundle,
+      pr: {
+        ...bundle.pr,
+        id: 'pr-1', taskId: 'task-1', branchName: 'dev/review', baseBranch: 'main', title: 'Review me',
+        status: 'local-open', origin: 'task', repo: null, remotePrNumber: null, remotePrUrl: null,
+      },
+      comments: [{
+        id: 'local-1', localPrId: 'pr-1', origin: 'local', scope: 'file-line',
+        filePath: 'src/Foo.java', lineNumber: 41, side: 'RIGHT', startLine: null, startSide: null,
+        author: 'you', body: 'Please make this null-safe.', createdAt: 1000, resolvedAt: null,
+        dismissedAt: null, strippedOnPushAt: null, parentCommentId: null, publishedAt: null,
+      }],
+    } as LocalPRBundle;
+    const onLocalReply = vi.fn().mockResolvedValue(undefined);
+    const onLocalResolve = vi.fn().mockResolvedValue(undefined);
+    const onSubmitLocalReview = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <PullTimeline
+        items={buildTimeline(local)}
+        repo="trinodb/trino"
+        localPr={local.pr}
+        onLocalReply={onLocalReply}
+        onLocalResolve={onLocalResolve}
+        onSubmitLocalReview={onSubmitLocalReview}
+      />,
+    );
+
+    expect(screen.getByText('src/Foo.java:41')).toBeTruthy();
+    expect(screen.getByText('PENDING REVIEW')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    fireEvent.change(screen.getByPlaceholderText('Write a reply'), { target: { value: 'One more detail.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    await waitFor(() => expect(onLocalReply).toHaveBeenCalledWith(local.comments[0], 'One more detail.'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
+    await waitFor(() => expect(onLocalResolve).toHaveBeenCalledWith('local-1'));
+    expect(screen.getByRole('button', { name: 'Send to dev' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Reply' }).hasAttribute('disabled')).toBe(true);
+    expect(onSubmitLocalReview).not.toHaveBeenCalled();
+  });
+
+  it('shows submitted user findings and open brain findings as waiting workflow roles', () => {
+    const local = {
+      ...bundle,
+      pr: {
+        ...bundle.pr,
+        id: 'pr-1', taskId: 'task-1', branchName: 'dev/review', baseBranch: 'main', title: 'Review me',
+        status: 'local-open', origin: 'task', repo: null, remotePrNumber: null, remotePrUrl: null,
+      },
+      timeline: [{
+        id: 'submitted', localPrId: 'pr-1', eventType: 'review', actor: 'you', isLocalOnly: true,
+        strippedOnPushAt: null, createdAt: 1200,
+        payload: { reviewEvent: 'submitted', verdict: 'COMMENT', commentIds: ['user-1'] },
+      }],
+      comments: [{
+        id: 'user-1', localPrId: 'pr-1', origin: 'local', scope: 'file-line', filePath: 'src/A.java',
+        lineNumber: 7, side: 'RIGHT', startLine: null, startSide: null, author: 'you', body: 'Fix A',
+        createdAt: 1000, resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
+        parentCommentId: null, publishedAt: null,
+      }, {
+        id: 'brain-1', localPrId: 'pr-1', origin: 'local', scope: 'file-line', filePath: 'src/B.java',
+        lineNumber: 9, side: 'RIGHT', startLine: null, startSide: null, author: 'brain', body: 'Fix B',
+        createdAt: 1100, resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
+        parentCommentId: null, publishedAt: null,
+      }],
+    } as LocalPRBundle;
+
+    render(
+      <PullTimeline
+        items={buildTimeline(local)}
+        repo="trinodb/trino"
+        localPr={local.pr}
+        onLocalResolve={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    expect(screen.getByText('SENT TO DEV')).toBeTruthy();
+    expect(screen.getByText('WAITING FOR DEV')).toBeTruthy();
+    expect(screen.getByText('BRAIN')).toBeTruthy();
+    expect(screen.queryByText('claude-code')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Send to dev' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Resolve' })).toHaveLength(1);
+  });
+
+  it('does not reopen a resolved Brain finding through an unrouteable reply', () => {
+    const local = {
+      ...bundle,
+      pr: {
+        ...bundle.pr,
+        id: 'pr-1', taskId: 'task-1', status: 'local-open', origin: 'task', repo: null,
+      },
+      comments: [{
+        id: 'brain-1', localPrId: 'pr-1', origin: 'local', scope: 'file-line', filePath: 'src/B.java',
+        lineNumber: 9, side: 'RIGHT', startLine: null, startSide: null, author: 'brain', body: 'Fix B',
+        createdAt: 1000, resolvedAt: 1200, dismissedAt: null, strippedOnPushAt: null,
+        parentCommentId: null, publishedAt: null,
+      }],
+    } as LocalPRBundle;
+
+    render(
+      <PullTimeline
+        items={buildTimeline(local)}
+        repo="trinodb/trino"
+        localPr={local.pr}
+        onLocalReply={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+
+    fireEvent.click(screen.getByTitle('Expand thread'));
+    expect(screen.getByText('Fix B')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull();
+  });
+
+  it('lets a pending finding-backed review thread be sent to Development', async () => {
+    const local = {
+      ...bundle,
+      pr: {
+        ...bundle.pr,
+        id: 'pr-1', taskId: 'task-1', branchName: 'dev/review', baseBranch: 'main', title: 'Review me',
+        status: 'local-open', origin: 'task', repo: null, remotePrNumber: null, remotePrUrl: null,
+      },
+      comments: [{
+        id: 'agent-1', localPrId: 'pr-1', origin: 'local', scope: 'file-line', filePath: 'src/C.java',
+        lineNumber: 12, side: 'RIGHT', startLine: null, startSide: null, author: 'agent', body: 'Fix C',
+        createdAt: 1000, resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
+        parentCommentId: null, publishedAt: null, findingId: 'finding-1',
+      }],
+    } as LocalPRBundle;
+    const onSubmitLocalReview = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <PullTimeline
+        items={buildTimeline(local)}
+        repo="trinodb/trino"
+        localPr={local.pr}
+        onSubmitLocalReview={onSubmitLocalReview}
+      />,
+    );
+
+    expect(screen.getByText('src/C.java:12')).toBeTruthy();
+    expect(screen.getByText('PENDING REVIEW')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Send to dev' }));
+    await waitFor(() => expect(onSubmitLocalReview).toHaveBeenCalledWith(['agent-1']));
   });
 
   it('renders GitHub review threads as compact actionable desktop cards', async () => {

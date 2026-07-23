@@ -14,14 +14,43 @@
 import type { LocalPR } from '../../types/localPr';
 
 /** Who an actor is, relative to this PR — drives bubble tinting + badges
- *  (U15): `agent` (claude-code / brain) gets the purple tint + Agent badge,
+ *  (U15): `agent` (the persisted dev / brain actor ids) gets the purple tint,
  *  `author` (matches `pr.author` on an external PR) gets the blue tint +
  *  Author badge, `you` is the local user (no tint), anyone else is a
  *  third-party reviewer/commenter (no tint, no badge — we don't have their
  *  real GitHub role association synced). */
 export type ActorRole = 'agent' | 'author' | 'you' | 'other';
 
-const AGENT_ACTORS = new Set(['claude-code', 'brain']);
+export type WorkflowActorRole = 'dev' | 'brain';
+
+const DEV_ACTORS = new Set(['claude-code', 'agent']);
+const BRAIN_ACTORS = new Set([
+  'brain',
+  'ai reviewer',
+  'ai-reviewer',
+  'agent-reviewer',
+  'review-planner',
+  'independent-verifier',
+  'verifier',
+  'claude',
+  'claude-cli',
+  'codex',
+  'codex-cli',
+  'openai',
+  'anthropic',
+  'deepseek',
+]);
+
+/** Canonical workflow role for an internal actor id. GitHub actors are
+ * prefixed with `@`, so a remote login that resembles a provider id is left
+ * alone. */
+export function workflowActorRole(actor: string): WorkflowActorRole | null {
+  if (actor.startsWith('@')) return null;
+  const normalized = actor.trim().toLowerCase();
+  if (DEV_ACTORS.has(normalized)) return 'dev';
+  if (BRAIN_ACTORS.has(normalized)) return 'brain';
+  return null;
+}
 
 function sameActor(a: string, b: string): boolean {
   const normalise = (value: string) => value.startsWith('@') ? value.slice(1).toLowerCase() : value.toLowerCase();
@@ -29,7 +58,7 @@ function sameActor(a: string, b: string): boolean {
 }
 
 export function actorRole(actor: string, pr: LocalPR): ActorRole {
-  if (AGENT_ACTORS.has(actor)) return 'agent';
+  if (workflowActorRole(actor) !== null) return 'agent';
   if (actor === 'you') return 'you';
   if (pr.author !== null && sameActor(actor, pr.author)) return 'author';
   return 'other';
@@ -38,16 +67,19 @@ export function actorRole(actor: string, pr: LocalPR): ActorRole {
 /** Short avatar-glyph label for an actor (2 letters max, matching the
  *  mockup's circular avatar chips). */
 export function avatarLabel(actor: string): string {
-  if (actor === 'claude-code') return 'CC';
-  if (actor === 'brain') return 'B';
+  const role = workflowActorRole(actor);
+  if (role === 'dev') return 'D';
+  if (role === 'brain') return 'B';
   if (actor === 'you') return 'Y';
   const handle = actor.startsWith('@') ? actor.slice(1) : actor;
   return handle.slice(0, 2).toUpperCase();
 }
 
-/** Display name for an actor row — "you" capitalizes, a synced GitHub
- *  `@handle` drops the `@` (the badge/tint already says who they are). */
+/** Display name for an actor row. Persisted task actors are implementation
+ *  ids, so present their workflow role instead of leaking the CLI provider. */
 export function displayName(actor: string): string {
+  const role = workflowActorRole(actor);
+  if (role !== null) return role;
   if (actor === 'you') return 'You';
   return actor.startsWith('@') ? actor.slice(1) : actor;
 }

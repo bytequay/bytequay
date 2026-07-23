@@ -21,6 +21,7 @@ import type { ReviewCommentDto, UserProfileDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
 import { AgentFindingContent, presentFinding, type AgentFindingPresentation } from '../review/AgentEvidence';
 import type { AgentReviewData } from '../review/agentReviewTypes';
+import { workflowActorRole } from '../pr/localpr/prViewMeta';
 
 export function initials(author: string): string {
   const cleaned = author.replace(/^@/, '');
@@ -30,16 +31,7 @@ export function initials(author: string): string {
 }
 
 function isAgentAuthor(author: string): boolean {
-  const normalized = author.trim().replace(/^@/, '').toLowerCase();
-  return normalized === 'agent'
-    || normalized === 'ai reviewer'
-    || normalized === 'ai-reviewer'
-    || normalized === 'agent-reviewer'
-    || normalized === 'verifier'
-    || normalized === 'brain'
-    || normalized === 'claude'
-    || normalized === 'claude-code'
-    || normalized === 'codex';
+  return workflowActorRole(author) !== null;
 }
 
 /** "R42" for a single line, or "L40 to R42" for a multi-line range — shared
@@ -90,7 +82,7 @@ export type DiffInlineComment = {
  *  Exported so the Review tab's pending cards (ReviewTabPendingList) use the
  *  same avatar coloring as the inline thread cards. */
 export function avatarKind(c: Pick<DiffInlineComment, 'sourceLabel' | 'author' | 'origin'>): 'bot' | 'ext' | 'you' {
-  if (c.sourceLabel === 'AGENT' || isAgentAuthor(c.author)) return 'bot';
+  if (c.sourceLabel === 'BRAIN' || c.sourceLabel === 'DEV' || isAgentAuthor(c.author)) return 'bot';
   if (c.origin === 'remote') return 'ext';
   return 'you';
 }
@@ -105,22 +97,25 @@ export function githubAvatarLogin(c: Pick<DiffInlineComment, 'sourceLabel' | 'au
   return author;
 }
 
-/** Still-open local drafts that would be swept into the next publish — the
+/** Still-open local drafts that would be swept into the next submission — the
  *  set the Submit-review drawer's pending list and toolbar count show. */
 export function isPendingLocalComment(c: LocalPRComment): boolean {
   return c.parentCommentId === null && c.origin === 'local' && c.publishedAt === null
     && c.resolvedAt === null && c.dismissedAt === null;
 }
 
-/** A human-authored draft the backend can include in `publish-review`.
- * Agent/Brain findings are local review input, not drafts from the user. */
+/** A human-authored draft the backend can include in the next review batch.
+ * The owning surface decides whether that batch goes to Development (task
+ * Local Review) or GitHub (an external PR). */
 export function isPublishableReviewDraft(c: LocalPRComment): boolean {
   return isPendingLocalComment(c) && c.author.trim().toLowerCase() === 'you';
 }
 
 export function diffInlineCommentFromLocalPr(c: LocalPRComment, reviewOrIndex?: AgentReviewData | number): DiffInlineComment {
   const review = typeof reviewOrIndex === 'number' ? undefined : reviewOrIndex;
-  const agent = c.origin === 'local' && isAgentAuthor(c.author);
+  const role = c.origin === 'local'
+    ? (c.findingId != null ? 'brain' : workflowActorRole(c.author))
+    : null;
   return {
     id: c.id,
     filePath: c.filePath,
@@ -128,21 +123,23 @@ export function diffInlineCommentFromLocalPr(c: LocalPRComment, reviewOrIndex?: 
     side: c.side,
     startLine: c.startLine,
     startSide: c.startSide,
-    author: agent ? 'AI Reviewer' : c.author,
+    author: role ?? c.author,
     body: c.body,
     origin: c.origin,
     parentCommentId: c.parentCommentId,
     resolved: c.resolvedAt !== null,
     dismissed: c.dismissedAt !== null,
     pending: isPendingLocalComment(c),
-    sourceLabel: agent ? 'AGENT' : undefined,
+    sourceLabel: role?.toUpperCase(),
     createdAtMs: c.createdAt,
     finding: c.findingId == null || review === undefined ? undefined : presentFinding(review, c.findingId),
   };
 }
 
 export function diffInlineCommentFromReviewDto(c: ReviewCommentDto): DiffInlineComment {
-  const author = commentAuthor(c.author, sourceAuthor(c.source));
+  const author = c.source === 'LOCAL_AGENT'
+    ? 'brain'
+    : commentAuthor(c.author, sourceAuthor(c.source));
   return {
     id: c.id,
     filePath: c.file,
@@ -173,13 +170,12 @@ function commentAuthor(author: string | null | undefined, fallback: string): str
 }
 
 function sourceAuthor(source: string): string {
-  if (source === 'LOCAL_AGENT') return 'AI Reviewer';
   if (source === 'REMOTE_REVIEWER') return 'reviewer';
   return 'you';
 }
 
 function sourceLabel(source: string): string | undefined {
-  if (source === 'LOCAL_AGENT') return 'AGENT';
+  if (source === 'LOCAL_AGENT') return 'BRAIN';
   return undefined;
 }
 

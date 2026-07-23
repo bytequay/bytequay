@@ -52,6 +52,7 @@ import type { WsNavKey } from '../ui/workspace';
 import PublishGatePane from '../PublishGatePane';
 import { PushDialog } from '../pr/localpr/PushDialog';
 import { deriveLocalReviewApproval, deriveLocalReviewGate } from '../pr/localpr/localReviewGate';
+import { activelySubmittedCommentIds } from '../pr/localpr/localReviewSubmission';
 
 /** Last-known cumulative diff per thread+task, so switching stages within a
  *  task paints the diff at once (the diff is task-wide, identical across the
@@ -151,26 +152,35 @@ export function StageDetailRoute({
     deleteLocalComment,
     confirmPush, pushOpen, setPushOpen, prBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
+  const pendingLocalReviewRoots = useMemo(() => {
+    const submitted = activelySubmittedCommentIds(localPrBundle?.timeline ?? []);
+    return (localPrBundle?.comments ?? [])
+      .filter(comment => isPublishableReviewDraft(comment) && !submitted.has(comment.id));
+  }, [localPrBundle]);
 
-  // Publishes the Submit-review drawer's body/verdict and this task's
-  // unresolved diff comments to GitHub.
+  // Submits the selected private review comments to Development. Task-owned
+  // comments never publish to GitHub.
   const [submittingReview, setSubmittingReview] = useState(false);
   const onSubmitReview = useCallback(async (body: string, verdict: ReviewVerdict) => {
     setSubmittingReview(true);
     try {
-      await window.bridge.submitReview(taskId, { body, verdict });
+      await window.bridge.submitReview(taskId, {
+        body, verdict, commentIds: pendingLocalReviewRoots.map(comment => comment.id),
+      });
       pollFast();
     } finally {
       setSubmittingReview(false);
     }
-  }, [taskId, pollFast]);
-  const submitAgentFindingsToTask = useCallback(async (verdict: ReviewVerdict, comments: Array<{ body: string }>) => {
+  }, [taskId, pendingLocalReviewRoots, pollFast]);
+  const submitAgentFindingsToTask = useCallback(async (verdict: ReviewVerdict, comments: Array<{ id: string }>) => {
     await window.bridge.submitReview(taskId, {
-      body: comments.map(comment => comment.body).join('\n\n'), verdict,
+      commentIds: comments.map(comment => comment.id), verdict,
     });
     pollFast();
   }, [pollFast, taskId]);
   const agentReview = useAgentReviewState(localPrBundle, refreshLocalPr, submitAgentFindingsToTask);
+  const canSubmitLocalReview = localPrBundle?.pr.origin === 'task'
+    && localPrBundle.pr.status === 'local-open';
   const openAgentRound = useCallback((roundId?: string) => {
     const selected = roundId ?? agentReview.latestRound?.id;
     const review = agentReview.data?.review;
@@ -190,8 +200,8 @@ export function StageDetailRoute({
   }, [agentReview.data?.review, agentReview.latestRound?.id, localPrBundle?.pr,
     onOpenAgentReview, workspaceRepository]);
   const pendingReviewComments = useMemo(
-    () => (localPrBundle?.comments ?? []).filter(isPublishableReviewDraft).map(diffInlineCommentFromLocalPr),
-    [localPrBundle],
+    () => pendingLocalReviewRoots.map(diffInlineCommentFromLocalPr),
+    [pendingLocalReviewRoots],
   );
 
   // Force-opens the right-pane PR tab from task actions. A fresh token
@@ -813,7 +823,9 @@ export function StageDetailRoute({
         deletions: totalDels,
         onOpen: () => openTab('pr', 'changes'),
       } : undefined}
-      onSubmitReview={prCapabilities?.publishReview === true ? onSubmitReview : undefined}
+      onSubmitReview={prCapabilities?.publishReview === true || canSubmitLocalReview
+        ? onSubmitReview
+        : undefined}
       submittingReview={submittingReview}
       pendingReviewComments={pendingReviewComments}
       onRemovePendingReviewComment={deleteLocalComment}

@@ -48,6 +48,7 @@ export function ReviewThreadCard({
   renderMessageBadges,
   footerActions,
   compact = false,
+  actionsDisabled = false,
 }: {
   thread: ReviewThreadDto;
   prAuthor: string | null;
@@ -88,6 +89,8 @@ export function ReviewThreadCard({
   footerActions?: ReactNode;
   /** Compact desktop timeline treatment: full hunk, flat messages, action footer. */
   compact?: boolean;
+  /** Prevents mutually exclusive local workflow actions racing each other. */
+  actionsDisabled?: boolean;
 }) {
   const [resolving, setResolving] = useState(false);
   // Which message is in edit mode (by GitHub id), so the per-message
@@ -117,7 +120,7 @@ export function ReviewThreadCard({
 
   const submit = async () => {
     const trimmed = body.trim();
-    if (!trimmed || onReply === undefined) return;
+    if (!trimmed || onReply === undefined || actionsDisabled) return;
     setPending(true);
     setError(null);
     try {
@@ -155,7 +158,7 @@ export function ReviewThreadCard({
       type="button"
       className={`prc-review-thread__resolve-btn${thread.resolved ? ' prc-review-thread__resolve-btn--unresolve' : ''}`}
       onClick={async () => {
-        if (resolving) return;
+        if (resolving || actionsDisabled) return;
         setResolving(true);
         try {
           await onSetResolved(thread.rootGithubId, !thread.resolved);
@@ -163,7 +166,7 @@ export function ReviewThreadCard({
           setResolving(false);
         }
       }}
-      disabled={resolving}
+      disabled={resolving || actionsDisabled}
       title={thread.resolved ? 'Mark this conversation unresolved' : 'Mark this conversation resolved'}
     >
       {shortLabel && !thread.resolved && (
@@ -184,7 +187,7 @@ export function ReviewThreadCard({
         onChange={setBody}
         placeholder="Write a reply"
         rows={4}
-        disabled={pending}
+        disabled={pending || actionsDisabled}
         autoFocus
         textareaClassName="prc-review-thread__reply-input"
       />
@@ -193,7 +196,7 @@ export function ReviewThreadCard({
           type="button"
           className="button button--primary"
           onClick={submit}
-          disabled={pending || !body.trim()}
+          disabled={pending || actionsDisabled || !body.trim()}
         >
           {pending ? 'Sending…' : 'Reply'}
         </button>
@@ -201,7 +204,7 @@ export function ReviewThreadCard({
           value={body}
           onChange={setBody}
           onError={setError}
-          disabled={pending}
+          disabled={pending || actionsDisabled}
         />
         <button
           type="button"
@@ -310,7 +313,7 @@ export function ReviewThreadCard({
                       {!compact && isPrAuthor && (
                         <span className="prc-comment-role">AUTHOR</span>
                       )}
-                      {!compact && renderMessageBadges?.(msg, index)}
+                      {renderMessageBadges?.(msg, index)}
                       {!compact && msg.githubId > 0 && (
                         <CommentActionsMenu
                           linkHref={reviewCommentLink(prHtmlUrl, msg.githubId)}
@@ -363,7 +366,12 @@ export function ReviewThreadCard({
       {!visibleFolded && compact && (onReply !== undefined || onSetResolved !== undefined || footerActions !== undefined) && (
         <div className="prc-review-thread__compact-footer">
           {onReply !== undefined && (!replyExpanded && body.length === 0 ? (
-            <button type="button" className="prc-review-thread__compact-reply" onClick={() => setReplyExpanded(true)}>
+            <button
+              type="button"
+              className="prc-review-thread__compact-reply"
+              disabled={actionsDisabled}
+              onClick={() => { if (!actionsDisabled) setReplyExpanded(true); }}
+            >
               Reply
             </button>
           ) : (
@@ -381,8 +389,9 @@ export function ReviewThreadCard({
               type="text"
               className="prc-review-thread__reply-stub-input"
               placeholder="Reply…"
-              onFocus={() => setReplyExpanded(true)}
-              onClick={() => setReplyExpanded(true)}
+              onFocus={() => { if (!actionsDisabled) setReplyExpanded(true); }}
+              onClick={() => { if (!actionsDisabled) setReplyExpanded(true); }}
+              disabled={actionsDisabled}
               readOnly
             />
           ) : (

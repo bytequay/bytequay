@@ -125,7 +125,8 @@ export default function PullChanges({
     return m;
   }, [reviewThreads]);
 
-  const addLineComment = bundle === null || bundle === undefined ? null
+  const addLineComment = bundle === null || bundle === undefined
+      || capabilities?.draftLocalComments !== true ? null
     : async (filePath: string, side: 'LEFT' | 'RIGHT', line: number, startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string) => {
         await window.bridge.addLocalPrComment(bundle.pr.id, { scope: 'file-line', filePath, lineNumber: line, side, startLine, startSide, body });
         refresh();
@@ -205,7 +206,7 @@ export default function PullChanges({
                 onToggle={() => setOpenCards(prev => ({ ...prev, [file.filename]: !(prev[file.filename] ?? file.patch !== null) }))}
                 threads={threadsByFile.get(file.filename) ?? []}
                 threadCtx={threadCtx}
-                allowComments={capabilities?.draftLocalComments === true && addLineComment !== null}
+                allowComments={addLineComment !== null}
                 onAddComment={addLineComment}
                 fetchBlob={fetchBlob}
                 repoCtx={repoCtx}

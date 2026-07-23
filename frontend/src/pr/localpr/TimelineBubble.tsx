@@ -41,7 +41,7 @@ export function TimelineBubble({
       <div className={`pr-bubble ${bubbleCls}`}>
         <div className="bh">
           <span><span className="who">{displayName(actor)}</span> {action} · {agoLabel(time)}</span>
-          {role === 'agent' && <span className="pr-badge agent">Agent</span>}
+          {role === 'agent' && <span className="pr-badge agent">{displayName(actor) === 'dev' ? 'Dev' : 'Brain'}</span>}
           {role === 'author' && <span className="pr-badge author">Author</span>}
           {local && <span className="pr-badge local">Local</span>}
           {pending && <span className="pr-badge pending">Pending</span>}

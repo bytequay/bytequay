@@ -18,7 +18,7 @@ import { SubmitReviewDrawer, type ReviewVerdict } from '../pages/SubmitReviewDra
 import { usePR } from '../pr/usePR';
 import { derivePRCapabilities } from '../pr/prCapabilities';
 import type { AiReviewDraftDto, DiffFileDto } from '../types';
-import type { LocalPRBundle } from '../types/localPr';
+import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
 import { CommentBubbleIcon, PrMergedIcon, PrOpenIcon, RobotIcon } from './atoms';
 import { buildHeader } from './detailModel';
 import type { PullRow } from './model';
@@ -269,8 +269,11 @@ export function PullDetailBody({
     if (openOverviewToken !== undefined) setSubTab('overview');
   }, [openOverviewToken]);
   const pending = (bundle?.comments ?? []).filter(isPublishableReviewDraft);
-  const canPublish = bundle !== null && bundle !== undefined
-    && derivePRCapabilities(bundle.pr, 'details').publishReview;
+  const detailCapabilities = bundle === null || bundle === undefined
+    ? null
+    : derivePRCapabilities(bundle.pr, 'details');
+  const canPublish = detailCapabilities?.publishReview === true;
+  const canActOnLocalThreads = detailCapabilities?.draftLocalComments === true;
   const removePending = (id: string) => {
     void window.bridge.deleteLocalPrComment(id).then(refresh).catch(() => { /* poll reconciles */ });
   };
@@ -280,7 +283,8 @@ export function PullDetailBody({
     setReviewNotice(null);
     try {
       await window.bridge.publishLocalPrReview(bundle.pr.id, {
-        verdict, findingIds: [], comments: [], body: body.trim().length > 0 ? body : null,
+        verdict, findingIds: [], comments: pending.map(comment => comment.id),
+        body: body.trim().length > 0 ? body : null,
       });
       setReviewNotice(verdict === 'APPROVE'
         ? 'Review approved on GitHub. The timeline may take a moment to update.'
@@ -291,6 +295,34 @@ export function PullDetailBody({
     }
     finally { setSubmitting(false); }
   };
+  const replyLocalComment = bundle === null || bundle === undefined || !canActOnLocalThreads ? undefined
+    : async (root: LocalPRComment, body: string) => {
+        await window.bridge.addLocalPrComment(bundle.pr.id, {
+          scope: root.scope,
+          filePath: root.filePath,
+          lineNumber: root.lineNumber,
+          side: root.side,
+          startLine: root.startLine,
+          startSide: root.startSide,
+          body,
+          parentCommentId: root.id,
+        });
+        if (root.findingId != null) {
+          await window.bridge.answerAgentReviewFinding(root.findingId, body);
+        }
+        refresh();
+      };
+  const resolveLocalComment = bundle === null || bundle === undefined || !canActOnLocalThreads ? undefined
+    : async (commentId: string) => {
+        await window.bridge.resolveLocalPrComment(commentId);
+        refresh();
+      };
+  const submitPendingReviewToDev = bundle?.pr.taskId == null
+      || bundle.pr.origin !== 'task' || bundle.pr.status !== 'local-open' ? undefined
+    : async (commentIds: string[]) => {
+        await window.bridge.submitReview(bundle.pr.taskId!, { verdict: 'COMMENT', commentIds });
+        refresh();
+      };
 
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -391,6 +423,9 @@ export function PullDetailBody({
               onComment={onComment}
               onClosePullRequest={actions.onClosePullRequest}
               onDescriptionSaved={refresh}
+              onLocalReply={replyLocalComment}
+              onLocalResolve={resolveLocalComment}
+              onSubmitLocalReview={submitPendingReviewToDev}
             />
           </div>
         </div>

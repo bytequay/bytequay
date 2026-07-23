@@ -132,7 +132,7 @@ describe('PullDetailPane', () => {
     );
     expect(screen.queryByRole('dialog', { name: 'Submit review' })).toBeNull();
     expect(publishLocalPrReview).toHaveBeenCalledWith('task-pr', {
-      verdict: 'APPROVE', findingIds: [], comments: [], body: null,
+      verdict: 'APPROVE', findingIds: [], comments: ['comment-0'], body: null,
     });
     expect(refresh).toHaveBeenCalledOnce();
 
@@ -147,6 +147,44 @@ describe('PullDetailPane', () => {
     );
     expect(screen.getByRole('button', { name: 'Submit review' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Submit review • 0' })).toBeNull();
+  });
+
+  it('renders pushed task-local review threads as read-only history', () => {
+    window.bridge = {
+      fetchPullRequestDetail: vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] }),
+    } as unknown as typeof window.bridge;
+    const dto: DashboardPR = {
+      id: 'task-pushed', repo: 'acme/widget', number: 42, title: 'Pushed task', author: 'octocat',
+      htmlUrl: '', createdAt: null, updatedAt: null, origin: 'AUTHORED', labels: [], labelColors: null,
+      draft: true, viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [],
+      ciStatus: null, additions: 1, deletions: 0, commentCount: 1, attentionReason: null,
+      state: 'open', closedAt: null, mergedAt: null, mergeable: null, mergeableState: null,
+      headPushedAt: null, reviewerVerdicts: null, snoozedUntil: null, snoozeWakeReason: null,
+    };
+    const pushed: LocalPRBundle = {
+      pr: {
+        id: 'task-pushed', taskId: 'task-1', branchName: 'dev/task', baseBranch: 'main',
+        title: 'Pushed task', description: '', status: 'remote-drafted', createdAt: 1, pushedAt: 2,
+        remotePrNumber: 42, remotePrUrl: 'https://example.test/42', mergedAt: null, closedAt: null,
+        origin: 'task', repo: 'acme/widget', author: 'octocat', syncedAt: null,
+        syncedAdditions: 1, syncedDeletions: 0, syncedMergeable: null, syncedMergeableState: null,
+        syncedMergeQueueEnabled: false, syncedMergeQueueState: null, branchDeletedAt: null,
+      },
+      commits: [], timeline: [], checks: [], comments: [{
+        id: 'historical', localPrId: 'task-pushed', origin: 'local', scope: 'file-line',
+        filePath: 'src/A.ts', lineNumber: 8, side: 'RIGHT', startLine: null, startSide: null,
+        author: 'you', body: 'Historical local concern', createdAt: 1, resolvedAt: null,
+        dismissedAt: null, strippedOnPushAt: 2, parentCommentId: null, publishedAt: null,
+      }],
+    };
+
+    render(<PullDetailBody row={toRow(dto)} bundle={pushed} refresh={vi.fn()} />);
+
+    expect(screen.getByText('Historical local concern')).toBeTruthy();
+    expect(screen.queryByText('PENDING REVIEW')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Resolve' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Send to dev' })).toBeNull();
   });
 
   it('offers non-navigating quick review and watch-plus-full-review actions for an unwatched repo', () => {

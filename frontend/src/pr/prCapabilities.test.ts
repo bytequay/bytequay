@@ -48,8 +48,11 @@ describe('derivePRCapabilities', () => {
     expect(derivePRCapabilities(pr('task', 'remote-open'), 'task').publishReview).toBe(false);
   });
 
-  it('allows draftLocalComments everywhere except terminal states', () => {
-    expect(derivePRCapabilities(pr('task', 'local-drafted'), 'task').draftLocalComments).toBe(true);
+  it('allows task drafts only during Local Review and external drafts until terminal', () => {
+    expect(derivePRCapabilities(pr('task', 'local-drafted'), 'task').draftLocalComments).toBe(false);
+    expect(derivePRCapabilities(pr('task', 'local-open'), 'task').draftLocalComments).toBe(true);
+    expect(derivePRCapabilities(pr('task', 'remote-drafted'), 'task').draftLocalComments).toBe(false);
+    expect(derivePRCapabilities(pr('task', 'remote-open'), 'task').draftLocalComments).toBe(false);
     expect(derivePRCapabilities(pr('external', 'remote-open'), 'details').draftLocalComments).toBe(true);
     expect(derivePRCapabilities(pr('task', 'merged'), 'task').draftLocalComments).toBe(false);
     expect(derivePRCapabilities(pr('external', 'closed'), 'details').draftLocalComments).toBe(false);
@@ -93,8 +96,8 @@ describe('derivePRCapabilities', () => {
     'task/remote-drafted', 'task/remote-open', 'external/remote-drafted', 'external/remote-open',
     'task/merged', 'external/merged',
   ]);
-  const DRAFT_LOCAL_COMMENTS_FALSE = new Set([
-    'task/merged', 'task/closed', 'external/merged', 'external/closed',
+  const DRAFT_LOCAL_COMMENTS_TRUE = new Set([
+    'task/local-open', 'external/remote-drafted', 'external/remote-open',
   ]);
 
   describe('capability matrix', () => {
@@ -106,7 +109,7 @@ describe('derivePRCapabilities', () => {
           it(`${key}/${surface}`, () => {
             const caps = derivePRCapabilities(pr(origin, status), surface);
             expect(caps).toEqual({
-              draftLocalComments: !DRAFT_LOCAL_COMMENTS_FALSE.has(key),
+              draftLocalComments: DRAFT_LOCAL_COMMENTS_TRUE.has(key),
               publishReview: PUBLISH_REVIEW_TRUE.has(key),
               push: PUSH_TRUE.has(key),
               merge: MERGE_TRUE.has(key),

@@ -60,11 +60,11 @@ final class TaskPhaseTransitions
         m.put(TaskPhase.INTERNAL_REVIEW,
                 EnumSet.of(TaskPhase.IMPLEMENTING, TaskPhase.AWAITING_PUSH));
         // A new local PR comment can arrive at any point while the task holds
-        // here (the local addressing loop's reactive detour); addressing
-        // returns straight back to AWAITING_PUSH.
+        // here (the local addressing loop's reactive detour); addressed
+        // changes are adversarially re-reviewed before returning to the gate.
         m.put(TaskPhase.AWAITING_PUSH,
                 EnumSet.of(TaskPhase.PUSHED_AWAITING_CI, TaskPhase.ADDRESSING_LOCAL_COMMENTS));
-        m.put(TaskPhase.ADDRESSING_LOCAL_COMMENTS, EnumSet.of(TaskPhase.AWAITING_PUSH));
+        m.put(TaskPhase.ADDRESSING_LOCAL_COMMENTS, EnumSet.of(TaskPhase.INTERNAL_REVIEW));
         // CI green on a draft passes through automatic mark-ready; a ready
         // PR goes straight to remote review. CI red no longer moves the
         // phase — a ci_fix AgentRun fixes and re-pushes beside this phase.

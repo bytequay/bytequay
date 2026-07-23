@@ -26,9 +26,14 @@ import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.review.DevReportService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -69,9 +74,11 @@ class TestPRService
     private final DevReportService devReports = mock(DevReportService.class);
     private final StageStore stageStore = mock(StageStore.class);
     private final TaskStore taskStore = mock(TaskStore.class);
+    private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final PRService service = new PRServiceImpl(
-            store, devReports, new ObjectMapper(), stageStore, taskStore, events, Clock.fixed(NOW, ZoneOffset.UTC));
+            store, devReports, new ObjectMapper(), stageStore, taskStore, turnStore,
+            events, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private PR pr(String status)
     {
@@ -88,7 +95,32 @@ class TestPRService
         Task task = mock(Task.class);
         when(task.phase()).thenReturn(phase);
         when(task.status()).thenReturn(TaskStatus.IDLE);
+        when(task.threadId()).thenReturn("thread1");
         when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task));
+    }
+
+    private static PRComment brainFinding(String id, Instant createdAt)
+    {
+        return new PRComment(
+                id, "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                PRTimelineEntry.ACTOR_BRAIN, "finding", createdAt,
+                null, null, null, null, null, "RIGHT", null, null);
+    }
+
+    private static PRComment userReply(String id, String parentId, Instant createdAt)
+    {
+        return new PRComment(
+                id, "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                PRTimelineEntry.ACTOR_USER, "clarification", createdAt,
+                null, null, null, parentId, null, "RIGHT", null, null);
+    }
+
+    private static ThreadTurn brainFixTurn(Instant createdAt)
+    {
+        return new ThreadTurn(
+                "turn1", "thread1", "task1", ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING,
+                "fix", createdAt, createdAt, createdAt, null, null,
+                TurnInitiator.unattended("brain-review-fix"));
     }
 
     @Test
@@ -215,6 +247,40 @@ class TestPRService
     }
 
     @Test
+    void taskLocalReviewAcceptsFeedbackQueuedDuringBrainReReview()
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+        taskAt(TaskPhase.INTERNAL_REVIEW);
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        PRComment saved = service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, PRTimelineEntry.ACTOR_USER,
+                "one more concern", null);
+
+        assertThat(saved.body()).isEqualTo("one more concern");
+    }
+
+    @Test
+    void resolvedBrainFindingCannotBeReopenedByAReplyThatHasNoWorkflowOwner()
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+        PRComment brainRoot = new PRComment(
+                "brain-1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, PRTimelineEntry.ACTOR_BRAIN, "original finding", NOW.minusSeconds(30),
+                NOW.minusSeconds(10), null, null, null, null, "RIGHT", null, null);
+        when(store.findCommentById("brain-1")).thenReturn(Optional.of(brainRoot));
+
+        assertThatThrownBy(() -> service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, PRTimelineEntry.ACTOR_USER,
+                "I found a new case", "brain-1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("already resolved");
+        verify(store, never()).saveComment(any());
+    }
+
+    @Test
     void addCommentAnchorsToTheRemovedSideAndDefaultsBlankSideToRight()
     {
         pr(PR.STATUS_LOCAL_OPEN);
@@ -299,6 +365,99 @@ class TestPRService
     }
 
     @Test
+    void userReplyToSubmittedTaskLocalRootInvalidatesTheSubmission()
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+        PRComment parent = new PRComment(
+                "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Parent.java", 15, PRTimelineEntry.ACTOR_USER, "question", NOW.minusSeconds(2),
+                null, null, null, null, null, "RIGHT", null, null);
+        PRTimelineEntry submitted = new PRTimelineEntry(
+                "review-1", "pr1", PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                true, null, NOW.minusSeconds(1),
+                "{\"reviewEvent\":\"submitted\",\"commentIds\":[\"cm1\"]}", null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(parent));
+        when(store.timelineFor("pr1")).thenReturn(List.of(submitted));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, PRTimelineEntry.ACTOR_USER,
+                "One more constraint", "cm1");
+
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo(PRTimelineEntry.TYPE_REVIEW);
+        assertThat(event.getValue().actor()).isEqualTo(PRTimelineEntry.ACTOR_USER);
+        assertThat(event.getValue().localOnly()).isTrue();
+        assertThat(event.getValue().payloadJson())
+                .contains("\"reviewEvent\":\"updated\"")
+                .contains("\"commentId\":\"cm1\"");
+    }
+
+    @Test
+    void userReplyToResolvedSubmittedRootReopensItBeforeInvalidatingTheSubmission()
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+        PRComment parent = new PRComment(
+                "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Parent.java", 15, PRTimelineEntry.ACTOR_USER, "question", NOW.minusSeconds(2),
+                NOW.minusSeconds(1), null, null, null, null, "RIGHT", null, null);
+        PRTimelineEntry submitted = new PRTimelineEntry(
+                "review-1", "pr1", PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                true, null, NOW.minusSeconds(1),
+                "{\"reviewEvent\":\"submitted\",\"commentIds\":[\"cm1\"]}", null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(parent));
+        when(store.timelineFor("pr1")).thenReturn(List.of(submitted));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, PRTimelineEntry.ACTOR_USER,
+                "This still needs work", "cm1");
+
+        ArgumentCaptor<PRComment> saved = ArgumentCaptor.forClass(PRComment.class);
+        verify(store, times(2)).saveComment(saved.capture());
+        PRComment reopened = saved.getAllValues().get(1);
+        assertThat(reopened.id()).isEqualTo("cm1");
+        assertThat(reopened.resolvedAt()).isNull();
+        assertThat(reopened.dismissedAt()).isNull();
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().payloadJson())
+                .contains("\"reviewEvent\":\"updated\"")
+                .contains("\"commentId\":\"cm1\"");
+    }
+
+    @Test
+    void developmentAndBrainRepliesDoNotInvalidateAUserSubmission()
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+        PRComment parent = new PRComment(
+                "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Parent.java", 15, PRTimelineEntry.ACTOR_USER, "question", NOW.minusSeconds(2),
+                null, null, null, null, null, "RIGHT", null, null);
+        PRTimelineEntry submitted = new PRTimelineEntry(
+                "review-1", "pr1", PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                true, null, NOW.minusSeconds(1),
+                "{\"reviewEvent\":\"submitted\",\"commentIds\":[\"cm1\"]}", null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(parent));
+        when(store.timelineFor("pr1")).thenReturn(List.of(submitted));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, PRTimelineEntry.ACTOR_AGENT,
+                "Development reply", "cm1");
+        service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, PRTimelineEntry.ACTOR_BRAIN,
+                "Brain reply", "cm1");
+
+        verify(store, never()).addEvent(any());
+    }
+
+    @Test
     void addCommentRejectsAParentFromAnotherPr()
     {
         pr(PR.STATUS_LOCAL_DRAFTED);
@@ -376,6 +535,87 @@ class TestPRService
     }
 
     @Test
+    void agentCanResolveTheSubmittedRevisionCarriedByItsTurn()
+    {
+        Instant submittedAt = NOW.minusSeconds(30);
+        PR current = pr(PR.STATUS_LOCAL_OPEN).withLocalAddressedThrough(NOW.minusSeconds(20));
+        when(store.findById("pr1")).thenReturn(Optional.of(current));
+        PRComment comment = new PRComment(
+                "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                "you", "note", NOW.minusSeconds(40), null, null, null, null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
+        when(store.timelineFor("pr1")).thenReturn(List.of(new PRTimelineEntry(
+                "review-1", "pr1", PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                true, null, submittedAt,
+                "{\"reviewEvent\":\"submitted\",\"commentIds\":[\"cm1\"]}", null)));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        PRComment resolved = service.resolveCommentForAgent("cm1");
+
+        assertThat(resolved.resolvedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void agentCannotResolveAUserClarificationAddedAfterItsTurnWasDispatched()
+    {
+        Instant submittedAt = NOW.minusSeconds(30);
+        PR current = pr(PR.STATUS_LOCAL_OPEN).withLocalAddressedThrough(NOW.minusSeconds(20));
+        when(store.findById("pr1")).thenReturn(Optional.of(current));
+        PRComment comment = new PRComment(
+                "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                "you", "note", NOW.minusSeconds(40), null, null, null, null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
+        when(store.timelineFor("pr1")).thenReturn(List.of(
+                new PRTimelineEntry(
+                        "review-1", "pr1", PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                        true, null, submittedAt,
+                        "{\"reviewEvent\":\"submitted\",\"commentIds\":[\"cm1\"]}", null),
+                new PRTimelineEntry(
+                        "review-2", "pr1", PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                        true, null, NOW.minusSeconds(10),
+                        "{\"reviewEvent\":\"updated\",\"commentId\":\"cm1\"}", null)));
+
+        assertThatThrownBy(() -> service.resolveCommentForAgent("cm1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("changed after this Development turn began");
+        verify(store, never()).saveComment(any());
+    }
+
+    @Test
+    void agentCannotResolveABrainFindingChangedAfterItsFixTurnWasDispatched()
+    {
+        pr(PR.STATUS_LOCAL_DRAFTED);
+        PRComment finding = brainFinding("brain1", NOW.minusSeconds(40));
+        PRComment clarification = userReply("reply1", finding.id(), NOW.minusSeconds(10));
+        when(store.findCommentById(finding.id())).thenReturn(Optional.of(finding));
+        when(store.commentsFor("pr1")).thenReturn(List.of(finding, clarification));
+        when(turnStore.listTurnsByTaskIdAndStatus("thread1", ThreadTurnStatus.RUNNING, 100))
+                .thenReturn(List.of(brainFixTurn(NOW.minusSeconds(20))));
+
+        assertThatThrownBy(() -> service.resolveCommentForAgent(finding.id()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("changed after this Development turn began");
+        verify(store, never()).saveComment(any());
+    }
+
+    @Test
+    void agentCanResolveABrainFindingAfterARetryIncludesTheUserClarification()
+    {
+        pr(PR.STATUS_LOCAL_DRAFTED);
+        PRComment finding = brainFinding("brain1", NOW.minusSeconds(40));
+        PRComment clarification = userReply("reply1", finding.id(), NOW.minusSeconds(20));
+        when(store.findCommentById(finding.id())).thenReturn(Optional.of(finding));
+        when(store.commentsFor("pr1")).thenReturn(List.of(finding, clarification));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(turnStore.listTurnsByTaskIdAndStatus("thread1", ThreadTurnStatus.RUNNING, 100))
+                .thenReturn(List.of(brainFixTurn(NOW.minusSeconds(10))));
+
+        PRComment resolved = service.resolveCommentForAgent(finding.id());
+
+        assertThat(resolved.resolvedAt()).isEqualTo(NOW);
+    }
+
+    @Test
     void dismissCommentStampsDismissedAt()
     {
         PRComment comment = new PRComment(
@@ -418,6 +658,29 @@ class TestPRService
 
         assertThat(reopened.resolvedAt()).isNull();
         assertThat(reopened.dismissedAt()).isNull();
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo(PRTimelineEntry.TYPE_REVIEW);
+        assertThat(event.getValue().actor()).isEqualTo(PRTimelineEntry.ACTOR_USER);
+        assertThat(event.getValue().localOnly()).isTrue();
+        assertThat(event.getValue().payloadJson())
+                .contains("\"reviewEvent\":\"reopened\"")
+                .contains("\"commentId\":\"cm1\"");
+    }
+
+    @Test
+    void reopeningAnAlreadyOpenRootDoesNotWriteAFalseReopenedEvent()
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+        PRComment comment = new PRComment(
+                "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                "you", "note", NOW, null, null, null, null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.reopenComment("cm1");
+
+        verify(store, never()).addEvent(any());
     }
 
     @Test
@@ -714,6 +977,71 @@ class TestPRService
         service.recordBrainReview("task1", "plan", "approved", 1, null, null);
 
         verify(store, never()).addEvent(any());
+    }
+
+    @Test
+    void localReviewSubmissionIsAPrivateTimelineBatchAndDispatchSignal()
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+
+        service.recordLocalReviewSubmission(
+                "pr1", List.of("c1", "summary"), "Please fix both.",
+                "REQUEST_CHANGES", "summary");
+
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        PRTimelineEntry submitted = event.getValue();
+        assertThat(submitted.eventType()).isEqualTo(PRTimelineEntry.TYPE_REVIEW);
+        assertThat(submitted.actor()).isEqualTo(PRTimelineEntry.ACTOR_USER);
+        assertThat(submitted.localOnly()).isTrue();
+        assertThat(submitted.payloadJson())
+                .contains("\"reviewEvent\":\"submitted\"")
+                .contains("\"verdict\":\"REQUEST_CHANGES\"")
+                .contains("\"commentIds\":[\"c1\",\"summary\"]")
+                .contains("\"findingCount\":2")
+                .contains("\"body\":\"Please fix both.\"")
+                .contains("\"bodyCommentId\":\"summary\"");
+        verify(events).publishEvent(new LocalReviewSubmittedEvent("task1", "pr1"));
+
+        when(store.timelineFor("pr1")).thenReturn(List.of(submitted));
+        assertThat(service.localReviewSubmissions("pr1")).containsExactly(
+                new PRService.LocalReviewSubmission(
+                        NOW, List.of("c1", "summary"), "Please fix both.",
+                        "REQUEST_CHANGES", "summary"));
+    }
+
+    @Test
+    void localReviewSubmissionsKeepOnlyEachRootsLatestTransitionActive()
+    {
+        Instant firstAt = NOW.minusSeconds(40);
+        Instant updatedAt = NOW.minusSeconds(30);
+        Instant reopenedAt = NOW.minusSeconds(20);
+        Instant resubmittedAt = NOW.minusSeconds(10);
+        PRTimelineEntry first = new PRTimelineEntry(
+                "review-1", "pr1", PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                true, null, firstAt,
+                "{\"reviewEvent\":\"submitted\",\"commentIds\":[\"a\",\"b\"],"
+                        + "\"body\":\"first\",\"verdict\":\"REQUEST_CHANGES\"}", null);
+        PRTimelineEntry updated = new PRTimelineEntry(
+                "review-2", "pr1", PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                true, null, updatedAt,
+                "{\"reviewEvent\":\"updated\",\"commentId\":\"a\"}", null);
+        PRTimelineEntry reopened = new PRTimelineEntry(
+                "review-3", "pr1", PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                true, null, reopenedAt,
+                "{\"reviewEvent\":\"reopened\",\"commentId\":\"b\"}", null);
+        PRTimelineEntry resubmitted = new PRTimelineEntry(
+                "review-4", "pr1", PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                true, null, resubmittedAt,
+                "{\"reviewEvent\":\"submitted\",\"commentIds\":[\"a\"],"
+                        + "\"body\":\"again\",\"verdict\":\"COMMENT\"}", null);
+        when(store.timelineFor("pr1")).thenReturn(List.of(first, updated, reopened, resubmitted));
+
+        assertThat(service.localReviewSubmissions("pr1")).containsExactly(
+                new PRService.LocalReviewSubmission(
+                        firstAt, List.of(), "first", "REQUEST_CHANGES", null),
+                new PRService.LocalReviewSubmission(
+                        resubmittedAt, List.of("a"), "again", "COMMENT", null));
     }
 
     @Test

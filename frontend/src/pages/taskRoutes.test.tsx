@@ -193,6 +193,7 @@ describe('TaskBrainRoute', () => {
       ],
     };
     const approveNotification = vi.fn();
+    const submitReview = vi.fn().mockResolvedValue({ submitted: 0, turnId: null });
     (window as unknown as { bridge: unknown }).bridge = {
       getBrainView: vi.fn().mockResolvedValue(view),
       getPrForTask: vi.fn().mockResolvedValue(bundle.pr),
@@ -202,6 +203,7 @@ describe('TaskBrainRoute', () => {
       listTaskCommits: vi.fn().mockResolvedValue([]),
       getAgentReview: vi.fn().mockResolvedValue(null),
       approveNotification,
+      submitReview,
     };
 
     render(<TaskBrainRoute threadId="t1" taskId={taskId} onOpenStage={() => {}} onClosed={() => {}} />);
@@ -211,6 +213,12 @@ describe('TaskBrainRoute', () => {
     const prPane = document.querySelector('.workspace-task-v2__pr') as HTMLElement;
     expect(within(prPane).getByText('All checks have passed')).toBeTruthy();
     expect(prPane.querySelector('.merge-box')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review • 0' }));
+    const reviewDialog = screen.getByRole('dialog', { name: 'Submit review' });
+    fireEvent.click(within(reviewDialog).getByRole('button', { name: 'Submit review' }));
+    await waitFor(() => expect(submitReview).toHaveBeenCalledWith(
+      taskId, { body: '', verdict: 'COMMENT', commentIds: [] },
+    ));
     fireEvent.click(approve);
     expect(await screen.findByRole('dialog')).toBeTruthy();
     expect(screen.getByText('Push to GitHub')).toBeTruthy();

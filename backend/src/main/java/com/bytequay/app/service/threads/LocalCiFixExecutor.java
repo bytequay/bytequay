@@ -47,7 +47,7 @@ public class LocalCiFixExecutor
     private static final Logger log = LoggerFactory.getLogger(LocalCiFixExecutor.class);
 
     /** Autonomous local-CI fix turns before the task is parked for the human. */
-    static final int MAX_ATTEMPTS = 3;
+    static final int MAX_ATTEMPTS = 5;
 
     private final ThreadStore threadStore;
     private final StageStore stageStore;

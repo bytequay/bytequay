@@ -24,6 +24,7 @@ import type { PullRow } from './model';
 import PullDiffCard, { type ThreadRowContext } from './PullDiffCard';
 import PullFileTree from './PullFileTree';
 import PullReviewSidebar from './PullReviewSidebar';
+import { CommitsDropdown, type CommitOption } from '../ui/fullpage';
 
 /**
  * The Changes tab of the redesigned PR detail pane — the DC prototype's
@@ -77,6 +78,18 @@ export default function PullChanges({
   const [selFile, setSelFile] = useState<string | null>(null);
   const [openCards, setOpenCards] = useState<Record<string, boolean>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
+  // null = the cumulative "All commits" diff; a sha scopes to that one commit.
+  // Only honoured when this component owns the fetch (no filesOverride).
+  const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
+  useEffect(() => { setSelectedCommit(null); }, [row.repo, row.num]);
+
+  const commitOptions: CommitOption[] = useMemo(() => (bundle?.commits ?? []).map(commit => {
+    const subject = commit.message.split(/\r?\n/, 1)[0] ?? '';
+    return {
+      sha: commit.sha,
+      label: `${commit.sha.slice(0, 7)}  ${subject.length > 46 ? `${subject.slice(0, 45)}…` : subject}`,
+    };
+  }).reverse(), [bundle?.commits]);
 
   useEffect(() => {
     if (filesOverride !== undefined) {
@@ -87,11 +100,14 @@ export default function PullChanges({
     let cancelled = false;
     setFiles(null);
     setFilesError(null);
-    void window.bridge.fetchPrDiffFiles(row.repo, row.num)
+    const request = selectedCommit === null
+      ? window.bridge.fetchPrDiffFiles(row.repo, row.num)
+      : window.bridge.fetchPrCommitDiff(row.repo, row.num, selectedCommit);
+    void request
       .then(list => { if (!cancelled) setFiles(list); })
       .catch(e => { if (!cancelled) setFilesError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
-  }, [filesOverride, row.repo, row.num]);
+  }, [filesOverride, row.repo, row.num, selectedCommit]);
 
   const remoteNumber = bundle?.pr.remotePrNumber ?? null;
   const { activity, reviewThreads, refresh: refreshFeed } = useGitHubActivityFeed(row.repo, remoteNumber);
@@ -163,11 +179,9 @@ export default function PullChanges({
         <span className="pl-hov-ic" onClick={() => setTreeOpen(o => !o)} title="Toggle file tree" style={{ width: 26, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 6, color: '#57606a', flexShrink: 0 }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.2" /><path d="M9 4v16" /></svg>
         </span>
-        <button className="pl-hov-btn" title="Not wired yet" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '4px 11px', border: '1px solid #d5dbe1', background: '#fff', borderRadius: 7, fontSize: 12.5, fontWeight: 500, color: '#454c54', cursor: 'pointer', flexShrink: 0 }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M12 3v6" /><path d="M12 15v6" /></svg>
-          All commits
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-        </button>
+        {filesOverride === undefined && (
+          <CommitsDropdown commits={commitOptions} selected={selectedCommit} onSelect={setSelectedCommit} />
+        )}
         <span style={{ flex: 1 }} />
         <button
           type="button"

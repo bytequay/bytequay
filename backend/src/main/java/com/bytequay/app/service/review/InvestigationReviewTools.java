@@ -179,7 +179,7 @@ public class InvestigationReviewTools
         if (!store.mutateWhileAssignmentRoundRunning(assignmentId, () ->
                 store.insertStep(new InvestigationStepRow(
                         id, assignmentId, optional(input, "hypothesis_id"),
-                        required(input, "action_type"), input.path("arguments"),
+                        required(input, "action_type"), arguments(input),
                         required(input, "reason"), input.path("planned").asBoolean(true),
                         0, "running")))) {
             return error("review round is no longer running");
@@ -454,6 +454,26 @@ public class InvestigationReviewTools
         catch (JsonProcessingException e) {
             throw new IllegalStateException("invalid built-in investigation schema", e);
         }
+    }
+
+    // Some models return tool arguments as a JSON-encoded string instead of a
+    // nested object. Parse it so the step is stored as a real object; readers
+    // otherwise blow up (e.g. the UI's `key in arguments`).
+    private JsonNode arguments(JsonNode input)
+    {
+        JsonNode node = input.path("arguments");
+        if (node.isTextual()) {
+            try {
+                JsonNode parsed = mapper.readTree(node.asText());
+                if (parsed.isContainerNode()) {
+                    return parsed;
+                }
+            }
+            catch (JsonProcessingException ignored) {
+                // Not JSON — the read path coerces the stray text to an empty object.
+            }
+        }
+        return node;
     }
 
     private static String diffFile(String diff, String path)

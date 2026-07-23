@@ -948,7 +948,7 @@ class TestPRPublishService
                 "cm1", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42, "Publish this.");
         PRComment resolved = draft(
                 "cm2", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 43, "Already resolved.")
-                .withResolved(NOW);
+                .withResolved(NOW, PRTimelineEntry.ACTOR_USER);
         when(prService.comments("pr-ext")).thenReturn(List.of(pending, resolved));
         when(patResolver.resolve("acme/widget")).thenReturn("ghp");
 

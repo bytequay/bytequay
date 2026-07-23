@@ -253,6 +253,30 @@ class TestAgentScheduler
     }
 
     @Test
+    void brainThreadTaskTurnRoutesToBrainAgentNotStageAgent()
+    {
+        // A plan self-review turn runs on the BRAIN_AGENT thread but is
+        // stamped with the task id + the PLAN_STAGE's id. That stage has no
+        // per-stage CLI agent, so it must route to the brain agent — not the
+        // stage-agent path (which rejects PLAN_STAGE and fails the turn).
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("brain-1", ThreadKind.BRAIN_AGENT);
+        RecordingSession session = harness.register(thread);
+        String stageId = "11111111-1111-1111-1111-111111111111";
+        Instant now = Instant.parse("2026-07-24T00:00:00Z");
+        harness.stageStore.stages.put(UUID.fromString(stageId), new StageInstance(
+                UUID.fromString(stageId), "task-1", StageType.PLAN_STAGE,
+                StageState.OPEN, now, null, null));
+
+        harness.scheduler.enqueueTaskTurn(
+                thread, "self-review the plan", "task-1", stageId,
+                TurnInitiator.unattended("brain-plan-self-review"));
+
+        assertThat(harness.registry.lastRouted).isEqualTo("brain");
+        assertThat(session.inputs).containsExactly("self-review the plan");
+    }
+
+    @Test
     void everyTrunkTurnActivatesTrunkPlannerAndCavemanWithoutChangingUserInput()
     {
         TestHarness harness = new TestHarness(1, 4);
@@ -643,6 +667,8 @@ class TestAgentScheduler
             extends ThreadRegistry
     {
         private final Map<String, ThreadAgent> sessions = new LinkedHashMap<>();
+        /** Which factory the scheduler routed the last turn through. */
+        private String lastRouted;
 
         private RecordingRegistry()
         {
@@ -683,6 +709,27 @@ class TestAgentScheduler
             // The scheduler tests don't distinguish trunk vs task agents.
             // Both return the recorded session for the thread.
             return getOrCreate(thread);
+        }
+
+        @Override
+        public StageAgent getOrCreateStageAgent(Thread thread, Task task, String stageId)
+        {
+            lastRouted = "stage";
+            return super.getOrCreateStageAgent(thread, task, stageId);
+        }
+
+        @Override
+        public TaskBrainAgent getOrCreateTaskBrainAgent(Thread thread)
+        {
+            lastRouted = "brain";
+            return super.getOrCreateTaskBrainAgent(thread);
+        }
+
+        @Override
+        public TrunkAgent getOrCreateTrunkAgent(Thread thread)
+        {
+            lastRouted = "trunk";
+            return super.getOrCreateTrunkAgent(thread);
         }
     }
 

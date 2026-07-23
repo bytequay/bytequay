@@ -688,17 +688,22 @@ public class AgentScheduler
 
         ThreadAgent session;
         try {
-            // Trunk turn (task_id IS NULL) routes to the trunk-scope
-            // agent — no worktree lease, planning altitude. A task turn
+            // A brain thread always drives the TaskBrainAgent, even for a
+            // task-scoped turn like plan self-review (task_id + plan stage
+            // id both set) — the PLAN_STAGE has no per-stage CLI agent, so
+            // routing it through getOrCreateStageAgent throws. Otherwise:
+            // a trunk turn (task_id IS NULL) routes to the trunk-scope
+            // agent — no worktree lease, planning altitude; a task turn
             // routes to the per-stage agent keyed off the turn's stamped
             // stage id (each stage — Development, CI-fixing, Comments-
             // addressing — gets its own fresh agent); a task-level turn
             // with no stage falls back to keying by task id inside the
             // registry.
-            if (runningTurn.taskId() == null) {
-                session = thread.kind() == ThreadKind.BRAIN_AGENT
-                        ? sessions.getOrCreateTaskBrainAgent(thread)
-                        : sessions.getOrCreateTrunkAgent(thread);
+            if (thread.kind() == ThreadKind.BRAIN_AGENT) {
+                session = sessions.getOrCreateTaskBrainAgent(thread);
+            }
+            else if (runningTurn.taskId() == null) {
+                session = sessions.getOrCreateTrunkAgent(thread);
             }
             else {
                 Task task = tasks.findTaskById(runningTurn.taskId()).orElse(null);

@@ -78,6 +78,9 @@ class PrCommentEntity
     @Column(name = "finding_id")
     private String findingId;
 
+    @Column(name = "resolved_by")
+    private String resolvedBy;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -131,4 +134,7 @@ class PrCommentEntity
 
     String getFindingId() { return findingId; }
     void setFindingId(String findingId) { this.findingId = findingId; }
+
+    String getResolvedBy() { return resolvedBy; }
+    void setResolvedBy(String resolvedBy) { this.resolvedBy = resolvedBy; }
 }

@@ -233,7 +233,7 @@ describe('PullOverview', () => {
         id: 'mine', localPrId: 'pr-1', origin: 'local', scope: 'file-line', filePath: 'src/A.java',
         lineNumber: 7, side: 'RIGHT', startLine: null, startSide: null, author: 'you', body: 'Fix A',
         createdAt: 1000, resolvedAt: 2000, dismissedAt: null, strippedOnPushAt: null,
-        parentCommentId: null, publishedAt: null,
+        parentCommentId: null, publishedAt: null, resolvedBy: 'you',
       }],
     } as LocalPRBundle;
     const onLocalReopen = vi.fn().mockResolvedValue(undefined);
@@ -253,6 +253,7 @@ describe('PullOverview', () => {
     fireEvent.click(screen.getByTitle('Expand thread'));
     expect(screen.getAllByAltText('octocat').some(
       img => img.getAttribute('src')?.includes('github.com/octocat.png'))).toBe(true);
+    expect(screen.getByText(/marked this conversation as resolved/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Unresolve conversation' }));
     await waitFor(() => expect(onLocalReopen).toHaveBeenCalledWith('mine'));
   });

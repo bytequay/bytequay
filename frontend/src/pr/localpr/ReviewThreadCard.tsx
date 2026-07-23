@@ -112,6 +112,9 @@ export function ReviewThreadCard({
       authorAssociation: null,
     })),
     resolved,
+    resolvedBy: resolved && root.resolvedBy != null && root.resolvedBy !== ''
+      ? displayName(root.resolvedBy)
+      : null,
     outdated: false,
     startLine: root.startLine,
     startSide: root.startSide,

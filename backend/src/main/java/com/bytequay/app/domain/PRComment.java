@@ -52,7 +52,8 @@ public record PRComment(
         String side,
         Integer startLine,
         String startSide,
-        String findingId)
+        String findingId,
+        String resolvedBy)
 {
     public static final String ORIGIN_LOCAL = "local";
     public static final String ORIGIN_REMOTE = "remote";
@@ -70,26 +71,41 @@ public record PRComment(
     {
         this(id, prId, origin, scope, filePath, lineNumber, author, body, createdAt,
                 resolvedAt, dismissedAt, strippedOnPushAt, parentCommentId, publishedAt,
-                side, startLine, startSide, null);
+                side, startLine, startSide, null, null);
     }
 
-    /** Copy marked resolved at {@code when} (no-op fields otherwise). */
-    public PRComment withResolved(Instant when)
+    /** Backward-compatible constructor carrying a finding id but no resolver. */
+    public PRComment(
+            String id, String prId, String origin, String scope, String filePath,
+            Integer lineNumber, String author, String body, Instant createdAt,
+            Instant resolvedAt, Instant dismissedAt, Instant strippedOnPushAt,
+            String parentCommentId, Instant publishedAt, String side,
+            Integer startLine, String startSide, String findingId)
+    {
+        this(id, prId, origin, scope, filePath, lineNumber, author, body, createdAt,
+                resolvedAt, dismissedAt, strippedOnPushAt, parentCommentId, publishedAt,
+                side, startLine, startSide, findingId, null);
+    }
+
+    /** Copy marked resolved at {@code when} by {@code by} — the actor whose
+     *  resolution powers the "X marked this conversation as resolved" line. */
+    public PRComment withResolved(Instant when, String by)
     {
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
                 createdAt, when, dismissedAt, strippedOnPushAt, parentCommentId, publishedAt,
-                side, startLine, startSide, findingId);
+                side, startLine, startSide, findingId, by);
     }
 
-    /** Copy marked open again after a user reopens the thread. */
+    /** Copy marked open again after a user reopens the thread — the resolver
+     *  attribution clears with it. */
     public PRComment withReopened()
     {
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
                 createdAt, /* resolvedAt */ null, /* dismissedAt */ null,
                 strippedOnPushAt, parentCommentId, publishedAt,
-                side, startLine, startSide, findingId);
+                side, startLine, startSide, findingId, /* resolvedBy */ null);
     }
 
     /** Copy marked dismissed at {@code when} — closed without the agent
@@ -99,7 +115,7 @@ public record PRComment(
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
                 createdAt, resolvedAt, when, strippedOnPushAt, parentCommentId, publishedAt,
-                side, startLine, startSide, findingId);
+                side, startLine, startSide, findingId, resolvedBy);
     }
 
     /** Copy stamped stripped-on-push — a local comment never migrates to
@@ -109,7 +125,7 @@ public record PRComment(
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
                 createdAt, resolvedAt, dismissedAt, when, parentCommentId, publishedAt,
-                side, startLine, startSide, findingId);
+                side, startLine, startSide, findingId, resolvedBy);
     }
 
     /** Copy stamped published-at — an {@code origin=external} draft that
@@ -120,7 +136,7 @@ public record PRComment(
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
                 createdAt, resolvedAt, dismissedAt, strippedOnPushAt, parentCommentId, when,
-                side, startLine, startSide, findingId);
+                side, startLine, startSide, findingId, resolvedBy);
     }
 
     public PRComment withFinding(String newFindingId)
@@ -128,7 +144,7 @@ public record PRComment(
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, body,
                 createdAt, resolvedAt, dismissedAt, strippedOnPushAt, parentCommentId,
-                publishedAt, side, startLine, startSide, newFindingId);
+                publishedAt, side, startLine, startSide, newFindingId, resolvedBy);
     }
 
     public PRComment withBody(String newBody)
@@ -136,6 +152,6 @@ public record PRComment(
         return new PRComment(
                 id, prId, origin, scope, filePath, lineNumber, author, newBody,
                 createdAt, resolvedAt, dismissedAt, strippedOnPushAt, parentCommentId,
-                publishedAt, side, startLine, startSide, findingId);
+                publishedAt, side, startLine, startSide, findingId, resolvedBy);
     }
 }

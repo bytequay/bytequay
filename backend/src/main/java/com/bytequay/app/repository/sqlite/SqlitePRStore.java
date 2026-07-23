@@ -469,6 +469,7 @@ class SqlitePRStore
         e.setParentCommentId(comment.parentCommentId());
         e.setPublishedAtMs(epochOrNull(comment.publishedAt()));
         e.setFindingId(comment.findingId());
+        e.setResolvedBy(comment.resolvedBy());
         e.setSide(DiffSide.normalize(comment.side()));
         e.setStartLine(comment.startLine());
         e.setStartSide(comment.startSide());
@@ -651,7 +652,8 @@ class SqlitePRStore
                 e.getSide(),
                 e.getStartLine(),
                 e.getStartSide(),
-                e.getFindingId());
+                e.getFindingId(),
+                e.getResolvedBy());
     }
 
     private static Long epochOrNull(Instant instant)

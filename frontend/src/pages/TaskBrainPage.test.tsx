@@ -50,7 +50,6 @@ describe('TaskBrainPage locked frame', () => {
     expect(screen.getByRole('separator', { name: 'Resize the sidebar' })).toBeTruthy();
     expect(container.querySelector('.workspace-task-header__badge')?.textContent).toBe('BRAIN');
     expect(screen.getByText('Add cost-meter card')).toBeTruthy();
-    expect(screen.getByText('feat/cost')).toBeTruthy();
     expect(screen.getByText('Claude Opus')).toBeTruthy();
     expect(screen.getByText('Task #142 · 23m · $0.42')).toBeTruthy();
   });
@@ -115,15 +114,16 @@ describe('TaskBrainPage locked frame', () => {
     expect(screen.getByPlaceholderText('This task is closed — ask the brain, or reopen to continue…')).toBeTruthy();
   });
 
-  it('forwards task-scoped Resume through the shared frame', () => {
-    const onResume = vi.fn();
+  it('hides the run-status control in the top bar but keeps Close task', () => {
+    const onClose = vi.fn();
     render(brain({
       task: { pillLabel: 'TASK #142', title: 'Needs help', finished: false },
-      run: { paused: true, statusLabel: 'needs attention', onResume },
+      run: { paused: true, statusLabel: 'needs attention', onClose },
     }));
-    fireEvent.click(screen.getByRole('button', { name: /NEEDS ATTENTION/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Resume' }));
-    expect(onResume).toHaveBeenCalledOnce();
+    // The phase / run-status pill (and its Pause/Resume menu) moved out of the
+    // top bar — the phase is shown in the sidebar instead. Close task stays.
+    expect(screen.queryByRole('button', { name: /NEEDS ATTENTION/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Close task/ })).toBeTruthy();
   });
 
   it('opens and submits the review drawer', async () => {

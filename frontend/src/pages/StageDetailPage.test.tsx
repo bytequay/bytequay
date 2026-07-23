@@ -95,12 +95,13 @@ describe('StageDetailPage locked frame', () => {
     expect(screen.getByPlaceholderText('This stage is closed — ask about what happened here…')).toBeTruthy();
   });
 
-  it('forwards task-scoped Resume from a stage page', () => {
-    const onResume = vi.fn();
-    render(stage('dev', { run: { paused: true, statusLabel: 'needs attention', onResume } }));
-    fireEvent.click(screen.getByRole('button', { name: /NEEDS ATTENTION/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Resume' }));
-    expect(onResume).toHaveBeenCalledOnce();
+  it('hides the run-status control on a stage page but keeps Close task', () => {
+    const onClose = vi.fn();
+    render(stage('dev', { run: { paused: true, statusLabel: 'needs attention', onClose } }));
+    // The run-status pill (and its Pause/Resume menu) no longer sits in the
+    // top bar; the phase shows in the sidebar. Close task stays.
+    expect(screen.queryByRole('button', { name: /NEEDS ATTENTION/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Close task/ })).toBeTruthy();
   });
 
   it('opens and submits the review drawer', async () => {

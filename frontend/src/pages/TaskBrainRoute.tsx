@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useBrainViewData } from '../threads/brain/useBrainViewData';
+import { prUrl } from '../activityNarrative';
 import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
 import { PushDialog } from '../pr/localpr/PushDialog';
 import type { DiffFileDto } from '../types';
@@ -599,6 +600,7 @@ export function TaskBrainRoute({
         number: task.prNumber,
         status: finished ? 'merged' : (linkedPr?.status ?? (task.prDraft ? 'draft' : 'open')),
         onOpen: () => openTab('pr', 'overview'),
+        onOpenRemote: () => { void window.bridge.openInAppBrowser(prUrl(task.repoFullName, task.prNumber)); },
       }
     : undefined;
 

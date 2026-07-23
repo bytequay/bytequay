@@ -39,7 +39,7 @@ export function TaskBrainPage({
     taskNumber?: number;
     trunkLabel?: string;
   };
-  pr?: { number: number; status: string; onOpen: () => void };
+  pr?: { number: number; status: string; onOpen: () => void; onOpenRemote?: () => void };
   sidebar?: ReactNode;
   conversation: ReactNode;
   conversationIndex?: ReactNode;
@@ -88,7 +88,6 @@ export function TaskBrainPage({
       taskTitle={task.title}
       taskNumber={parsedTaskNumber}
       trunkLabel={task.trunkLabel}
-      branch={task.branch}
       run={{
         ...run,
         statusLabel: (run.statusLabel ?? (task.finished === true ? 'COMPLETED' : undefined))?.toUpperCase(),

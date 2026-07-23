@@ -43,6 +43,8 @@ export type TaskPagePr = {
   number: number;
   status: string;
   onOpen?: () => void;
+  /** Opens the pull request on GitHub (the header #N chip); falls back to onOpen. */
+  onOpenRemote?: () => void;
 };
 
 export type TaskPageChanges = {
@@ -61,7 +63,7 @@ export type TaskPageRun = {
 };
 
 export function TaskPageFrame({
-  surface, pageTitle, taskTitle, taskNumber, branch, trunkLabel = 'Trunk', statusLabel,
+  surface, pageTitle, taskTitle, taskNumber, trunkLabel = 'Trunk', statusLabel,
   sidebar, conversation, conversationIndex, composer, run, pr, prPane, changes, stageKey,
   onOpenTrunk, onOpenTask, onSubmitReview, submittingReview = false,
   pendingReviewComments = [], onRemovePendingReviewComment, openPrToken,
@@ -71,7 +73,6 @@ export function TaskPageFrame({
   pageTitle: string;
   taskTitle: string;
   taskNumber?: number;
-  branch?: string;
   trunkLabel?: string;
   statusLabel?: string;
   run?: TaskPageRun;
@@ -124,16 +125,16 @@ export function TaskPageFrame({
       )}
       <span className={`workspace-task-header__badge is-${surface}`}>{badge}</span>
       <strong className="workspace-task-header__title">{pageTitle}</strong>
-      {branch !== undefined && <code className="workspace-task-header__branch">{branch}</code>}
       {pr !== undefined && (
-        <button type="button" className="workspace-task-header__pr" title="Open pull request overview"
-          onClick={pr.onOpen ?? (() => setPrOpen(true))}>
+        <button type="button" className="workspace-task-header__pr" title="Open pull request on GitHub"
+          onClick={pr.onOpenRemote ?? pr.onOpen ?? (() => setPrOpen(true))}>
           <PullRequestBranchIcon size={10} />#{pr.number} {displayPrStatus(pr.status)}
         </button>
       )}
       <span className="workspace-task-header__grow" />
       {runControls !== undefined && (
         <RunMenu
+          hideStatus
           statusLabel={runControls.statusLabel}
           paused={runControls.paused}
           terminal={runControls.terminal}

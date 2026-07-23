@@ -94,6 +94,15 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
   // <TrunkRoute> isn't keyed). Reset synchronously so a stale-while-
   // revalidate flash never shows the PREVIOUS thread's content under the
   // new one's header, and stamp the id `load()` checks against below.
+  // True until this TrunkRoute instance unmounts (the user navigates away
+  // from thread-detail entirely, not just to a different thread — that case
+  // is shownIdRef's job below). load()'s fetch can resolve after that, and
+  // onWorkspaceResolved is a PARENT callback: calling it post-navigation
+  // would silently overwrite the sidebar's workspace with this stale
+  // thread's, with nothing left to ever reset it back since the sidebar
+  // only clears it when the viewed thread id itself changes.
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
   const shownIdRef = useRef(threadId);
   if (shownIdRef.current !== threadId) {
     shownIdRef.current = threadId;
@@ -168,7 +177,7 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
       // The user may have navigated to a different thread while this fetch
       // was in flight — a slow response for a thread they've since left
       // must never overwrite what's now on screen for the current one.
-      if (shownIdRef.current !== requestedId) return;
+      if (shownIdRef.current !== requestedId || !mountedRef.current) return;
       setThread(t);
       onWorkspaceResolved?.(t.workspaceId);
       setMessages(page.messages);

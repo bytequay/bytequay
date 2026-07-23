@@ -860,6 +860,10 @@
   font-size: 12px;
   font-weight: 600;
 }
+.workspace-redesign .trunk-page-v2__running-card > button:last-child:disabled {
+  color: #8b949e;
+  cursor: default;
+}
 .workspace-redesign .trunk-page-v2__running-card > i,
 .workspace-redesign .trunk-page-v2__running-dot {
   width: 8px;

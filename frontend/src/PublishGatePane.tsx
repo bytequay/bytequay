@@ -38,12 +38,15 @@ type Props = {
   /** Title of the PR this gate targets, resolved from the cached PR list.
    *  Shown above the action review so the user sees what they're approving. */
   prTitle?: string;
+  /** Overrides the approve button's label (e.g. "Merge when ready" when the
+   *  target branch runs a merge queue). Falls back to the per-action label. */
+  approveLabelOverride?: string;
 };
 
 /** Render reviewable content for an AWAITING_REVIEW notification plus
  *  the Approve / Discard buttons that call the backend's publish
  *  gate. */
-function PublishGatePane({ notification, onResolved, onViewPr, prTitle }: Props) {
+function PublishGatePane({ notification, onResolved, onViewPr, prTitle, approveLabelOverride }: Props) {
   const rawAction = payloadAction(notification.payloadJson);
   const parsed = parsePayload(notification.payloadJson);
   const isResolving = notification.status === 'RESOLVING';
@@ -122,7 +125,7 @@ function PublishGatePane({ notification, onResolved, onViewPr, prTitle }: Props)
 
   const approveLabel = interrupted
     ? 'Finish locally'
-    : labelForAction(parsed);
+    : (approveLabelOverride ?? labelForAction(parsed));
   const approveDisabled = busy
       || (parsed.action === 'post_comment' && editedBody.trim().length === 0)
       || (hasEditableBody(parsed) && requiresEditedBody(parsed.action) && editedBody.trim().length === 0)

@@ -499,6 +499,14 @@ export function TaskBrainRoute({
         busy={shipBusy}
         note={shipNote}
       />
+    : shipAction === 'merge_pr' && shipProposal !== null
+      ? <PublishGatePane
+          notification={shipProposal}
+          prTitle={localPrBundle?.pr.title ?? task.title}
+          approveLabelOverride={localPrBundle?.pr.syncedMergeQueueEnabled === true ? 'Merge when ready' : undefined}
+          onResolved={() => { pollFast(); refreshLocalPr(); void refreshShipProposal(); }}
+          onViewPr={() => openTab('pr', 'overview')}
+        />
     : shipAction === 'ship_task' && localPrBundle !== undefined
       ? localPrBundle === null && task.currentPhase === 'AWAITING_PUSH'
         ? <ShipReviewPrompt
@@ -706,17 +714,6 @@ export function TaskBrainRoute({
         fetchChangesBlob={displayedTaskBundle.pr.remotePrNumber === null
           ? (path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)
           : undefined}
-        overviewBanner={shipProposal !== null && shipAction === 'merge_pr' ? (
-          <PublishGatePane
-            notification={shipProposal}
-            prTitle={displayedTaskBundle.pr.title}
-            onResolved={() => {
-              pollFast();
-              refreshLocalPr();
-              void refreshShipProposal();
-            }}
-          />
-        ) : undefined}
         onClosePullRequest={displayedTaskBundle.pr.remotePrNumber !== null
             && displayedTaskBundle.pr.repo !== null
             && displayedTaskBundle.pr.status !== 'merged'

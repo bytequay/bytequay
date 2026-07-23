@@ -531,6 +531,14 @@ export function StageDetailRoute({
         busy={shipBusy}
         note={shipNote}
       />
+    : shipAction === 'merge_pr' && shipProposal !== null
+      ? <PublishGatePane
+          notification={shipProposal}
+          prTitle={localPrBundle?.pr.title ?? data?.task.title ?? brain.task.title}
+          approveLabelOverride={localPrBundle?.pr.syncedMergeQueueEnabled === true ? 'Merge when ready' : undefined}
+          onResolved={() => { pollFast(); refreshLocalPr(); void refreshShipProposal(); }}
+          onViewPr={() => openTab('pr', 'overview')}
+        />
     : shipAction === 'ship_task' && localPrBundle !== undefined
       ? localPrBundle === null && currentPhase === 'AWAITING_PUSH'
         ? <ShipReviewPrompt
@@ -663,17 +671,6 @@ export function StageDetailRoute({
         fetchChangesBlob={displayedLocalPrBundle.pr.remotePrNumber === null
           ? (path) => window.bridge.fetchTaskFileBlob(threadId, taskId, path)
           : undefined}
-        overviewBanner={shipProposal !== null && shipAction === 'merge_pr' ? (
-          <PublishGatePane
-            notification={shipProposal}
-            prTitle={displayedLocalPrBundle.pr.title}
-            onResolved={() => {
-              pollFast();
-              refreshLocalPr();
-              void refreshShipProposal();
-            }}
-          />
-        ) : undefined}
         onClosePullRequest={displayedLocalPrBundle.pr.remotePrNumber !== null
             && displayedLocalPrBundle.pr.repo !== null
             && displayedLocalPrBundle.pr.status !== 'merged'

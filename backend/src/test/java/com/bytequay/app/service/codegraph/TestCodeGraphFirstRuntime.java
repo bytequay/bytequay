@@ -92,6 +92,10 @@ class TestCodeGraphFirstRuntime
         // mirror the provider command shape. Skip where zsh isn't installed
         // (e.g. a stock Linux CI runner) rather than fail on a missing binary.
         assumeTrue(new File("/bin/zsh").canExecute(), "/bin/zsh not available");
+        // The shim resolves the real ripgrep before classifying; without it the
+        // shim exits 127, not the blocked-broad-search 2 this test asserts. Skip
+        // where ripgrep is absent (e.g. some CI runners) instead of failing.
+        assumeTrue(hasExecutable("rg"), "ripgrep (rg) not installed");
         Files.writeString(checkout.resolve("Known.java"), "class Known {}\n", StandardCharsets.UTF_8);
         String threadId = unique("thread");
         String agentKey = unique("agent");
@@ -146,6 +150,22 @@ class TestCodeGraphFirstRuntime
     private static String unique(String prefix)
     {
         return prefix + "-" + UUID.randomUUID();
+    }
+
+    /** True when a real {@code name} binary is on PATH (a shell function or
+     *  alias does not count — the shim runs under /bin/sh). */
+    private static boolean hasExecutable(String name)
+    {
+        String path = System.getenv("PATH");
+        if (path == null) {
+            return false;
+        }
+        for (String directory : path.split(File.pathSeparator)) {
+            if (!directory.isEmpty() && new File(directory, name).canExecute()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private record CommandResult(int exitCode, String stdout, String stderr) {}

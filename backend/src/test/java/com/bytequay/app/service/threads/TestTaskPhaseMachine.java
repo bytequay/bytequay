@@ -43,8 +43,11 @@ class TestTaskPhaseMachine
     private final TaskStore taskStore = mock(TaskStore.class);
     private final NotificationService notifications = mock(NotificationService.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
+    // Default mock: tryFix returns false, so a failed validation still parks —
+    // exactly the pre-fix-loop behaviour these tests assert.
+    private final LocalCiFixExecutor localCiFix = mock(LocalCiFixExecutor.class);
     private final TaskPhaseMachine machine =
-            new TaskPhaseMachine(taskStore, notifications, events);
+            new TaskPhaseMachine(taskStore, notifications, events, localCiFix);
 
     @Test
     void legalForwardTransitionPersistsAuditsAndPublishes()

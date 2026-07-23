@@ -196,7 +196,7 @@ function ReviewCard({
 export default function PullTimeline({
   items, repo, prAuthor = null, prHtmlUrl = '', reviewThreadsByRemoteId, onCommentReaction,
   onThreadReply, onThreadReact, onThreadSetResolved, localPr,
-  onLocalReply, onLocalResolve, onSubmitLocalReview,
+  onLocalReply, onLocalResolve, onLocalReopen, onLocalDismiss, currentUserLogin, onSubmitLocalReview,
 }: {
   items: TimelineItem[];
   repo: string;
@@ -210,6 +210,9 @@ export default function PullTimeline({
   localPr?: LocalPR;
   onLocalReply?: (root: LocalPRComment, body: string) => Promise<void>;
   onLocalResolve?: (commentId: string) => Promise<void>;
+  onLocalReopen?: (commentId: string) => Promise<void>;
+  onLocalDismiss?: (commentId: string) => Promise<void>;
+  currentUserLogin?: string | null;
   onSubmitLocalReview?: (commentIds: string[]) => Promise<void>;
 }) {
   const [owner, name] = repo.split('/');
@@ -298,11 +301,17 @@ export default function PullTimeline({
                   comments={item.comments}
                   compact
                   statusLabel={statusLabel}
+                  currentUserLogin={currentUserLogin}
                   onReply={onLocalReply === undefined || resolved && root.author === 'brain'
                     ? undefined
                     : (_rootId, body) => onLocalReply(root, body)}
-                  onResolve={!resolved && root.author === 'you' && onLocalResolve !== undefined
-                    ? () => onLocalResolve(root.id)
+                  onSetResolved={(root.author === 'you' || root.author === 'brain' || findingBacked)
+                      && (onLocalResolve !== undefined || onLocalReopen !== undefined)
+                    ? next => { if (next) onLocalResolve?.(root.id); else onLocalReopen?.(root.id); }
+                    : undefined}
+                  onDismiss={!resolved && (root.author === 'you' || root.author === 'brain' || findingBacked)
+                      && onLocalDismiss !== undefined
+                    ? () => onLocalDismiss(root.id)
                     : undefined}
                   onSubmitToDev={!resolved && (root.author === 'you' || findingBacked) && !item.submitted
                       && onSubmitLocalReview !== undefined

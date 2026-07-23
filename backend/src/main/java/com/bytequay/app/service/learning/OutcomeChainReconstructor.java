@@ -21,6 +21,7 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Reconstructs reviewer-concern -> author-change -> resolution -> merge chains
@@ -42,6 +43,17 @@ public class OutcomeChainReconstructor
 {
     public List<OutcomeChain> reconstruct(PrEvidenceBundle bundle)
     {
+        return reconstruct(bundle, Set.of());
+    }
+
+    /**
+     * @param resolvedRootIds REST database ids of inline-thread roots GitHub
+     * reports as resolved. The REST comments endpoint can't carry thread
+     * resolution (it's GraphQL-only), so the fetcher joins it and passes it in
+     * here; without it the resolution leg of an inline chain never populates.
+     */
+    public List<OutcomeChain> reconstruct(PrEvidenceBundle bundle, Set<Long> resolvedRootIds)
+    {
         List<OutcomeChain> chains = new ArrayList<>();
         String author = bundle.author();
         boolean merged = bundle.merged();
@@ -55,7 +67,8 @@ public class OutcomeChainReconstructor
                 continue;                       // the author's own note is not a concern
             }
             String commit = laterAuthorCommit(bundle.commits(), author, message.createdAt());
-            boolean resolved = Boolean.TRUE.equals(message.resolved());
+            boolean resolved = Boolean.TRUE.equals(message.resolved())
+                    || resolvedRootIds.contains(message.githubId());
             chains.add(chain(
                     message.author(),
                     message.filePath(),

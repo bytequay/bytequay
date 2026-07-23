@@ -27,6 +27,7 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -122,10 +123,32 @@ public class PrEvidenceFetcher
                 List.of(),
                 List.of());
 
-        List<OutcomeChain> chains = reconstructor.reconstruct(bundle);
+        List<OutcomeChain> chains = reconstructor.reconstruct(bundle, resolvedThreadRoots(pat, ref));
         List<PrEvidenceBundle.EvidenceRef> refs = buildRefs(bundle, checkout, repoSha);
 
         return withChainsAndRefs(bundle, chains, refs);
+    }
+
+    /**
+     * Root-comment ids GitHub marks resolved, joined from the GraphQL
+     * review-thread query the REST comments endpoint can't supply. Degrades to
+     * "none" when GraphQL is unavailable rather than failing the whole bundle.
+     */
+    private Set<Long> resolvedThreadRoots(String pat, PullRequestRef ref)
+    {
+        try {
+            Set<Long> resolved = new HashSet<>();
+            for (PullRequestRepository.ReviewThreadMeta meta
+                    : gitHub.fetchReviewThreadResolution(pat, ref)) {
+                if (meta.resolved()) {
+                    resolved.add(meta.rootCommentDatabaseId());
+                }
+            }
+            return resolved;
+        }
+        catch (RuntimeException e) {
+            return Set.of();
+        }
     }
 
     private List<PrEvidenceBundle.EvidenceRef> buildRefs(
@@ -155,6 +178,18 @@ public class PrEvidenceFetcher
                     "review", null, null, null, null, null, null,
                     MergedPrCatalog.sha256(
                             "review|" + review.login() + "|" + review.state() + "|" + review.submittedAt())));
+        }
+        // Stable, queryable timeline events (those carrying a GitHub id); a
+        // force-push's after-SHA is pinned when it lands in the snapshot set.
+        for (PrTimelineEvent event : bundle.timeline()) {
+            if (event.githubId() == null) {
+                continue;
+            }
+            refs.add(new PrEvidenceBundle.EvidenceRef(
+                    "timeline", String.valueOf(event.githubId()), null,
+                    pin(event.afterSha(), pinned), null, null, null,
+                    MergedPrCatalog.sha256(
+                            "timeline|" + event.githubId() + "|" + event.event() + "|" + event.timestamp())));
         }
         // Current-code file/symbol refs, all pinned to repoSha.
         refs.addAll(codeGraphMapper.attach(bundle, checkout, repoSha));

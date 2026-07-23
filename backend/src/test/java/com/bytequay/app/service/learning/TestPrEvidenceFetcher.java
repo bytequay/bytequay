@@ -26,6 +26,7 @@ import com.bytequay.app.service.codegraph.CodeGraphUpdateCoordinator;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -115,6 +116,46 @@ class TestPrEvidenceFetcher
         assertThat(crossing.commitSha()).isNull();
     }
 
+    @Test
+    void testTimelineEventsWithIdsBecomeRefs()
+    {
+        FakeGitHub github = new FakeGitHub()
+                .withTimeline(PullRequestRepository.Paged.complete(List.of(
+                        timeline(9001L, "merged"),
+                        timeline(null, "labeled"))));
+
+        PrEvidenceBundle bundle = fetcher(github)
+                .fetch("pat", "ws-1", "acme/widget", 7, "alice", null, "repoSha");
+
+        // The fetched timeline now yields queryable refs — but only for events
+        // carrying a stable GitHub id; the id-less one is skipped.
+        assertThat(bundle.refs().stream().filter(r -> "timeline".equals(r.kind())).toList())
+                .extracting(PrEvidenceBundle.EvidenceRef::githubId)
+                .containsExactly("9001");
+    }
+
+    @Test
+    void testResolvedThreadJoinPopulatesChainResolution()
+    {
+        // A reviewer thread that was addressed by a later author commit and
+        // marked resolved on GitHub (GraphQL-only) reaches full depth 3.
+        FakeGitHub github = new FakeGitHub()
+                .withCommits(PullRequestRepository.Paged.complete(List.of(
+                        commitAt("c1", Instant.parse("2020-01-02T00:00:00Z")))))
+                .withComments(PullRequestRepository.Paged.complete(List.of(
+                        root(301, "bob", "core/Scheduler.java", "c1"))))
+                .withResolvedRoot(301L);
+
+        PrEvidenceBundle bundle = fetcher(github)
+                .fetch("pat", "ws-1", "acme/widget", 7, "alice", null, "repoSha");
+
+        OutcomeChain chain = bundle.chains().stream()
+                .filter(c -> "comment:301".equals(c.concernRef()))
+                .findFirst().orElseThrow();
+        assertThat(chain.resolved()).isTrue();
+        assertThat(chain.depth()).isEqualTo(3);   // addressed + resolved + merged
+    }
+
     // ── fake ────────────────────────────────────────────────────────
 
     private static PullRequestDetail.ChangedFile file(String path)
@@ -125,6 +166,17 @@ class TestPrEvidenceFetcher
     private static PullRequestCommit commit(String sha)
     {
         return new PullRequestCommit(sha, "alice", "alice", T0, "message " + sha);
+    }
+
+    private static PullRequestCommit commitAt(String sha, Instant authoredAt)
+    {
+        return new PullRequestCommit(sha, "alice", "alice", authoredAt, "message " + sha);
+    }
+
+    private static PrTimelineEvent timeline(Long githubId, String event)
+    {
+        return new PrTimelineEvent(githubId, event, "bob", null, T0, null, null, null,
+                null, null, null, Reactions.EMPTY);
     }
 
     private static PrReviewThreadMessage root(long id, String author, String path, String commitId)
@@ -143,6 +195,7 @@ class TestPrEvidenceFetcher
         private PullRequestRepository.Paged<PullRequestCommit> commits = Paged.complete(List.of());
         private PullRequestRepository.Paged<PrReviewThreadMessage> comments = Paged.complete(List.of());
         private PullRequestRepository.Paged<PrTimelineEvent> timeline = Paged.complete(List.of());
+        private final List<ReviewThreadMeta> resolutions = new ArrayList<>();
 
         FakeGitHub withReviews(Paged<PrReviewState> p)
         {
@@ -165,6 +218,18 @@ class TestPrEvidenceFetcher
         FakeGitHub withComments(Paged<PrReviewThreadMessage> p)
         {
             this.comments = p;
+            return this;
+        }
+
+        FakeGitHub withTimeline(Paged<PrTimelineEvent> p)
+        {
+            this.timeline = p;
+            return this;
+        }
+
+        FakeGitHub withResolvedRoot(long rootCommentDatabaseId)
+        {
+            this.resolutions.add(new ReviewThreadMeta(rootCommentDatabaseId, "node", true, "bob"));
             return this;
         }
 
@@ -204,6 +269,12 @@ class TestPrEvidenceFetcher
         public Paged<PrTimelineEvent> fetchAllPrTimeline(String pat, PullRequestRef pr)
         {
             return timeline;
+        }
+
+        @Override
+        public List<ReviewThreadMeta> fetchReviewThreadResolution(String pat, PullRequestRef pr)
+        {
+            return resolutions;
         }
     }
 }

@@ -250,6 +250,7 @@ public class GitHubClient
                     .map(GitHubPullRequestDetailResponse.Repo::fullName)
                     .orElse(null);
             String baseRef = Optional.ofNullable(r.base()).map(GitHubPullRequestDetailResponse.Base::ref).orElse(null);
+            String baseSha = Optional.ofNullable(r.base()).map(GitHubPullRequestDetailResponse.Base::sha).orElse(null);
             String baseRepo = Optional.ofNullable(r.base())
                     .map(GitHubPullRequestDetailResponse.Base::repo)
                     .map(GitHubPullRequestDetailResponse.Repo::fullName)
@@ -271,7 +272,9 @@ public class GitHubClient
                     baseRef,
                     baseRepo,
                     r.state(),
-                    Boolean.TRUE.equals(r.merged()));
+                    Boolean.TRUE.equals(r.merged()),
+                    baseSha,
+                    r.mergeCommitSha());
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
@@ -314,6 +317,132 @@ public class GitHubClient
         catch (RestClientResponseException e) {
             return ImmutableList.of();
         }
+    }
+
+    // ── Exhaustive paged evidence (archival, learning-owned) ────────────────
+
+    /** Page cap for archival walks: 20 * 100 = 2,000 rows, far past any real PR. */
+    private static final int EVIDENCE_MAX_PAGES = 20;
+
+    /**
+     * Walks a paginated GitHub list endpoint to exhaustion, reporting whether
+     * the walk reached the natural end. A short/empty page means complete; a
+     * mid-walk error or hitting {@link #EVIDENCE_MAX_PAGES} with full pages the
+     * whole way means the tail was dropped, so the result is marked partial.
+     */
+    private <R> Paged<R> walkEvidencePages(
+            String pat,
+            String pathTemplate,
+            ParameterizedTypeReference<List<R>> typeRef,
+            Object... uriVars)
+    {
+        ImmutableList.Builder<R> out = ImmutableList.builder();
+        for (int page = 1; page <= EVIDENCE_MAX_PAGES; page++) {
+            final int current = page;
+            List<R> rows;
+            try {
+                rows = gitHubRestClient.get()
+                        .uri(u -> u.path(pathTemplate)
+                                .queryParam("per_page", 100)
+                                .queryParam("page", current)
+                                .build(uriVars))
+                        .header("Authorization", authorization(pat))
+                        .retrieve()
+                        .body(typeRef);
+            }
+            catch (RestClientResponseException e) {
+                return Paged.partial(out.build());
+            }
+            if (rows == null || rows.isEmpty()) {
+                return Paged.complete(out.build());
+            }
+            out.addAll(rows);
+            if (rows.size() < 100) {
+                return Paged.complete(out.build());
+            }
+        }
+        // Every fetched page was full up to the cap — more rows exist unread.
+        return Paged.partial(out.build());
+    }
+
+    @Override
+    public Paged<PrReviewState> fetchAllPrReviews(String pat, PullRequestRef pr)
+    {
+        Paged<GitHubReview> raw = walkEvidencePages(pat,
+                "/repos/{owner}/{repo}/pulls/{number}/reviews",
+                new ParameterizedTypeReference<>() {}, pr.owner(), pr.repo(), pr.number());
+        List<PrReviewState> items = raw.items().stream()
+                .filter(r -> r.user() != null)
+                .map(r -> new PrReviewState(r.user().login(), r.state(), r.submittedAt()))
+                .collect(toImmutableList());
+        return new Paged<>(items, raw.complete());
+    }
+
+    @Override
+    public Paged<PullRequestDetail.ChangedFile> fetchAllPrFiles(String pat, PullRequestRef pr)
+    {
+        Paged<GitHubPullRequestFile> raw = walkEvidencePages(pat,
+                "/repos/{owner}/{repo}/pulls/{number}/files",
+                new ParameterizedTypeReference<>() {}, pr.owner(), pr.repo(), pr.number());
+        List<PullRequestDetail.ChangedFile> items = raw.items().stream()
+                .map(f -> new PullRequestDetail.ChangedFile(
+                        f.filename(), f.additions(), f.deletions(), f.status()))
+                .collect(toImmutableList());
+        return new Paged<>(items, raw.complete());
+    }
+
+    @Override
+    public Paged<PullRequestCommit> fetchAllPrCommits(String pat, PullRequestRef pr)
+    {
+        Paged<GitHubPullRequestCommit> raw = walkEvidencePages(pat,
+                "/repos/{owner}/{repo}/pulls/{number}/commits",
+                new ParameterizedTypeReference<>() {}, pr.owner(), pr.repo(), pr.number());
+        List<PullRequestCommit> items = raw.items().stream()
+                .map(GitHubClient::toPullRequestCommit)
+                .collect(toImmutableList());
+        return new Paged<>(items, raw.complete());
+    }
+
+    @Override
+    public Paged<PrReviewThreadMessage> fetchAllPrReviewComments(String pat, PullRequestRef pr)
+    {
+        Paged<GitHubReviewComment> raw = walkEvidencePages(pat,
+                "/repos/{owner}/{repo}/pulls/{number}/comments",
+                new ParameterizedTypeReference<>() {}, pr.owner(), pr.repo(), pr.number());
+        List<PrReviewThreadMessage> items = raw.items().stream()
+                .map(GitHubClient::toReviewThreadMessage)
+                .collect(toImmutableList());
+        return new Paged<>(items, raw.complete());
+    }
+
+    @Override
+    public Paged<PrTimelineEvent> fetchAllPrTimeline(String pat, PullRequestRef pr)
+    {
+        Paged<GitHubTimelineEvent> raw = walkEvidencePages(pat,
+                "/repos/{owner}/{repo}/issues/{number}/timeline",
+                new ParameterizedTypeReference<>() {}, pr.owner(), pr.repo(), pr.number());
+        List<PrTimelineEvent> items = raw.items().stream()
+                .map(GitHubClient::toTimelineEvent)
+                .collect(toImmutableList());
+        return new Paged<>(items, raw.complete());
+    }
+
+    private static PullRequestCommit toPullRequestCommit(GitHubPullRequestCommit commit)
+    {
+        return new PullRequestCommit(
+                commit.sha(),
+                Optional.ofNullable(commit.author()).map(GitHubPullRequestCommit.Author::login).orElse(null),
+                Optional.ofNullable(commit.commit())
+                        .map(GitHubPullRequestCommit.CommitInfo::author)
+                        .map(GitHubPullRequestCommit.GitSignature::name)
+                        .orElse(null),
+                Optional.ofNullable(commit.commit())
+                        .map(GitHubPullRequestCommit.CommitInfo::author)
+                        .map(GitHubPullRequestCommit.GitSignature::date)
+                        .orElse(null),
+                Optional.ofNullable(commit.commit())
+                        .map(GitHubPullRequestCommit.CommitInfo::message)
+                        .orElse(null));
     }
 
     @Override

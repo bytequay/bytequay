@@ -28,6 +28,17 @@ import { formatCents, roundPlanObjectives } from '../review/agentReviewTypes';
 export type RoundChipTone = 'complete' | 'questions' | 'running' | 'queued' | 'cancelled' | 'errored';
 export type RoundChip = { label: string; tone: RoundChipTone };
 
+/** Where "open this review round" navigates — the PR-owned agent column. */
+export type AgentReviewNavTarget = {
+  threadId: string | null;
+  taskId: string | null;
+  roundId: string;
+  workspaceId: string;
+  prId: string;
+  repo: string;
+  prNumber: number | null;
+};
+
 /** Same vocabulary as AgentReviewRoundPage's roundStatus(). */
 export function roundChip(round: ReviewRoundRow): RoundChip {
   if (round.status === 'QUEUED') return { label: 'queued', tone: 'queued' };

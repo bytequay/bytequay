@@ -42,7 +42,7 @@ import type {
 import type { SettingsSection } from './settings/types';
 import PullsScreen from './pulls/PullsScreen';
 import HomePage from './home/HomePage';
-import type { AgentReviewNavTarget } from './pr/localpr/PrDetailsView';
+import type { AgentReviewNavTarget } from './pulls/agentColumnModel';
 import InAppBrowser from './InAppBrowser';
 import FindBar from './FindBar';
 import LogoLoading from './LogoLoading';

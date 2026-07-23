@@ -351,6 +351,9 @@ function WorkspaceOverviewPanel({
   const hiddenBacklogCount = trunkBacklog.length - visibleBacklog.length;
   const pullRequestTotal = overview?.sidebarCounts.pullRequests ?? openPullRequests.length;
   const runningSessionId = runningSession?.sessionId;
+  // A running task opens its (finished) task page; a live agent session/trunk would
+  // jump to the still-in-progress session view — disable Watch for those.
+  const runningOpensTask = runningItem !== undefined && runningItem.taskId !== null && runningItem.sessionId === null;
 
   const openPath = (suffix: string) => {
     if (workspaceId !== undefined) window.location.hash = `#/workspace/${workspaceId}/${suffix}`;
@@ -412,10 +415,11 @@ function WorkspaceOverviewPanel({
                 <strong>{runningItem?.title ?? runningTrunk?.title ?? 'Review session'}</strong>
                 <small>{runningItem?.summary ?? `${runningTrunk?.provider ?? 'agent'} · ${runningTrunk?.model ?? 'working'}`}</small>
               </span>
-              <button type="button" onClick={() => {
-                if (runningItem !== undefined) onOpenActivity(runningItem);
-                else if (runningTrunk !== undefined) openPath(`trunks/${runningTrunk.id}`);
-              }}>Watch</button>
+              {runningOpensTask ? (
+                <button type="button" onClick={() => { if (runningItem !== undefined) onOpenActivity(runningItem); }}>Watch</button>
+              ) : (
+                <button type="button" disabled title="Live session view coming soon">Watch</button>
+              )}
             </div>
           ) : <p className="trunk-page-v2__overview-empty">No sessions running.</p>}
         </section>

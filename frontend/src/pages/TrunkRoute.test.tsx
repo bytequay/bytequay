@@ -270,6 +270,27 @@ describe('TrunkRoute', () => {
     await waitFor(() => expect(onWorkspaceResolved).toHaveBeenCalledWith('ws-1'));
   });
 
+  it('does not report a workspace id for a slow fetch that resolves after unmount', async () => {
+    // The parent renders <TrunkRoute> only while nav.view === 'thread-detail';
+    // navigating anywhere else (a different workspace, the landing grid)
+    // unmounts it entirely rather than switching threadId. onWorkspaceResolved
+    // is a parent callback (App.tsx's sidebar-workspace state), so firing it
+    // post-unmount would silently pin the sidebar to this stale thread's
+    // workspace with nothing left to ever reset it.
+    let resolveTask: (v: unknown) => void = () => {};
+    const taskPromise = new Promise(resolve => { resolveTask = resolve; });
+    const onWorkspaceResolved = vi.fn();
+    mockBridge({ getTask: vi.fn(() => taskPromise) });
+
+    const { unmount } = render(
+      <TrunkRoute threadId="t1" onOpenTask={() => {}} onWorkspaceResolved={onWorkspaceResolved} />,
+    );
+    unmount();
+    resolveTask({ id: 't1', title: 'Backend cleanup', createdAt: '2026-06-24T00:00:00Z', workspaceId: 'ws-1' });
+    await new Promise(r => setTimeout(r, 0));
+    expect(onWorkspaceResolved).not.toHaveBeenCalled();
+  });
+
   it('discards a slow response for a thread the user has since navigated away from', async () => {
     let resolveT1Task: (v: unknown) => void = () => {};
     const t1TaskPromise = new Promise(resolve => { resolveT1Task = resolve; });

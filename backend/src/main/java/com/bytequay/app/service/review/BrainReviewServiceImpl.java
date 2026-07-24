@@ -1711,9 +1711,9 @@ public class BrainReviewServiceImpl
 
     private static final String BRAIN_FIX_PROMPT =
             "The brain left review comments on this diff (local only — see the PR's open comments). "
-            + "For each comment, decide deliberately: make the fix and commit it, reply via "
-            + "record_pr_comment with parent_comment_id if it's a question or explanation, or "
-            + "push back if you disagree by replying with your reasoning. Then call "
-            + "resolve_pr_comment with resolution='addressed' for handled comments or "
-            + "resolution='dismissed' for justified pushback. Do not push.";
+            + "For each comment, decide deliberately: make the fix and commit it, then call "
+            + "resolve_pr_comment with resolution='addressed' and its required reply describing "
+            + "the fix; answer a question directly through that same reply; or, if you disagree, "
+            + "reply via record_pr_comment with parent_comment_id and then call "
+            + "resolve_pr_comment with resolution='dismissed'. Do not push.";
 }

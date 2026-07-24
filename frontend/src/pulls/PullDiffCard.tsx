@@ -17,6 +17,7 @@ import type { LoadedGap } from '../diffExpand';
 import { rangeLabel } from '../diff/DiffInlineComments';
 import { useDiffRangeComposer } from '../diff/useDiffRangeComposer';
 import type { MarkdownRepoContext } from '../markdown';
+import type { InlineCommentTarget } from '../pr/prCapabilities';
 import type { DiffFileDto, ReviewThreadDto } from '../types';
 import { diffRowsFor, fullGapRange } from './changesModel';
 import { Av, sqsFor } from './atoms';
@@ -44,7 +45,7 @@ const MONO = "'SF Mono',ui-monospace,Menlo,monospace";
  * Parsing and expand math come from diffParse / diffExpand via changesModel.
  */
 export default function PullDiffCard({
-  file, open, onToggle, threads, threadCtx, allowComments, onAddComment, fetchBlob, repoCtx,
+  file, open, onToggle, threads, threadCtx, inlineCommentTarget, onSubmitComment, onAddToReview, fetchBlob, repoCtx,
 }: {
   file: DiffFileDto;
   open: boolean;
@@ -52,8 +53,9 @@ export default function PullDiffCard({
   /** Live GitHub review threads anchored in this file (outdated ones excluded). */
   threads: ReviewThreadDto[];
   threadCtx: ThreadRowContext | null;
-  allowComments: boolean;
-  onAddComment: ((filePath: string, side: 'LEFT' | 'RIGHT', line: number, startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string) => Promise<void>) | null;
+  inlineCommentTarget: InlineCommentTarget | null;
+  onSubmitComment: ((filePath: string, side: 'LEFT' | 'RIGHT', line: number, startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string, persistedCommentId: string | null) => Promise<void>) | null;
+  onAddToReview: ((filePath: string, side: 'LEFT' | 'RIGHT', line: number, startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string) => Promise<string>) | null;
   fetchBlob: ((path: string) => Promise<{ lines: string[] }>) | null;
   repoCtx: MarkdownRepoContext;
 }) {
@@ -93,6 +95,8 @@ export default function PullDiffCard({
 
   const hasPatch = file.patch !== null;
   const showRows = hasPatch && open;
+  const allowComments = inlineCommentTarget !== null
+    && onSubmitComment !== null && onAddToReview !== null;
   return (
     <div data-file-card={file.filename} style={{ border: '1px solid #d5dbe1', borderRadius: 10, overflow: 'hidden', background: '#fff' }}>
       <div onClick={hasPatch ? onToggle : undefined} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 14px', background: '#f6f8fa', borderBottom: '1px solid #e7e9ec', cursor: 'pointer' }}>
@@ -169,13 +173,16 @@ export default function PullDiffCard({
                     onChanged={threadCtx.onChanged}
                   />
                 ))}
-                {composerHere && onAddComment !== null && (
+                {composerHere && allowComments && (
                   <InlineComposerRow
                     label={rangeLabel(composer.side, composer.line, composer.startLine, composer.startSide)}
                     repoCtx={repoCtx}
-                    onSubmit={async body => {
-                      await onAddComment(file.filename, composer.side, composer.line, composer.startLine, composer.startSide, body);
-                      closeComposer();
+                    target={inlineCommentTarget}
+                    onSubmit={async (body, persistedCommentId) => {
+                      await onSubmitComment(file.filename, composer.side, composer.line, composer.startLine, composer.startSide, body, persistedCommentId);
+                    }}
+                    onAddToReview={async body => {
+                      return onAddToReview(file.filename, composer.side, composer.line, composer.startLine, composer.startSide, body);
                     }}
                     onCancel={closeComposer}
                   />

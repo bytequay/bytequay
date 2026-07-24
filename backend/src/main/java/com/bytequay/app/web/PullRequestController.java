@@ -599,8 +599,9 @@ public class PullRequestController
             String startSide) {}
 
     /**
-     * Posts a single per-line review comment on a diff line. The frontend
-     * resolves {@code commitId} from the PR head SHA before calling.
+     * Posts a single per-line review comment on a diff line. The service
+     * resolves the authoritative PR head immediately before posting;
+     * {@code commitId} remains in the request for transport compatibility.
      * POST /prs/review-comments?repo=&number=
      */
     @PostMapping("/prs/review-comments")

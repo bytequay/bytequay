@@ -74,6 +74,14 @@ describe('derivePRCapabilities', () => {
     expect(derivePRCapabilities(pr('external', 'closed'), 'details').postRemoteComment).toBe(false);
   });
 
+  it('routes inline comments to Development locally and GitHub once remote', () => {
+    expect(derivePRCapabilities(pr('task', 'local-open'), 'task').inlineCommentTarget).toBe('agent');
+    expect(derivePRCapabilities(pr('task', 'remote-open'), 'task').inlineCommentTarget).toBe('remote');
+    expect(derivePRCapabilities(pr('external', 'remote-drafted'), 'details').inlineCommentTarget).toBe('remote');
+    expect(derivePRCapabilities(pr('task', 'local-drafted'), 'task').inlineCommentTarget).toBeNull();
+    expect(derivePRCapabilities(pr('external', 'closed'), 'details').inlineCommentTarget).toBeNull();
+  });
+
   // Exhaustive matrix — every (origin, status, surface) cell the unified PR
   // aggregate can actually reach, checked against an explicit whitelist per
   // capability (not the same boolean expressions derivePRCapabilities uses)
@@ -120,6 +128,9 @@ describe('derivePRCapabilities', () => {
               merge: MERGE_TRUE.has(key),
               chatAgent: surface === 'task',
               postRemoteComment: POST_REMOTE_COMMENT_TRUE.has(key),
+              inlineCommentTarget: key === 'task/local-open'
+                ? 'agent'
+                : DRAFT_LOCAL_COMMENTS_TRUE.has(key) ? 'remote' : null,
             });
           });
         }

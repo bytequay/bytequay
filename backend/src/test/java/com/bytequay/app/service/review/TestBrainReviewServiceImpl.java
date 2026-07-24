@@ -914,8 +914,10 @@ class TestBrainReviewServiceImpl
                           && prompt.contains("src/Foo.java:42")
                           && prompt.contains("Guard the null branch")
                           && prompt.contains("Reply @you: Please preserve the original exception too.")
-                          && prompt.contains("parent_comment_id")
-                          && prompt.contains("push back if you disagree")
+                          && prompt.contains("resolution='addressed' and its required reply")
+                          && !prompt.contains("reply via record_pr_comment with parent_comment_id "
+                                  + "if it's a question")
+                          && prompt.contains("if you disagree")
                           && prompt.contains("resolution='dismissed'")
                           && !prompt.contains("record_round_reply")),
                 eq(TASK_ID), eq("run-stage"),

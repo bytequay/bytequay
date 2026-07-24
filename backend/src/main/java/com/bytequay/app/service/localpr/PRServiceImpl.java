@@ -984,12 +984,17 @@ class PRServiceImpl
         if (PR.ORIGIN_TASK.equals(pr.origin())
                 && PRTimelineEntry.ACTOR_USER.equals(author)
                 && PRComment.ORIGIN_LOCAL.equals(origin)) {
-            requireOpenTaskLocalReview(pr);
+            requireTaskReviewDraftOpen(pr);
         }
         requireText(origin, "origin");
         requireText(author, "author");
         requireText(body, "body");
         PRComment parent = resolveParentComment(pr, parentCommentId);
+        if (parent != null
+                && PR.ORIGIN_TASK.equals(pr.origin())
+                && parent.strippedOnPushAt() != null) {
+            throw notCurrentRemoteReviewDraft();
+        }
         if (parent != null
                 && PR.ORIGIN_TASK.equals(pr.origin())
                 && PRComment.ORIGIN_LOCAL.equals(origin)
@@ -1188,8 +1193,11 @@ class PRServiceImpl
         if (!pr.id().equals(comment.prId())) {
             throw new IllegalArgumentException("comment " + commentId + " belongs to another PR");
         }
-        if (PR.ORIGIN_TASK.equals(pr.origin()) && !PR.STATUS_LOCAL_DRAFTED.equals(pr.status())) {
-            requireOpenTaskLocalReview(pr);
+        if (PR.ORIGIN_TASK.equals(pr.origin())) {
+            requireTaskReviewDraftOpen(pr);
+            if (isRemoteTaskReview(pr)) {
+                requireCurrentRemoteTaskReviewDraft(comment);
+            }
         }
         PRComment saved = store.saveComment(comment.withReopened());
         if (PR.ORIGIN_TASK.equals(pr.origin())
@@ -1204,19 +1212,47 @@ class PRServiceImpl
         return saved;
     }
 
-    private void requireOpenTaskLocalReview(PR pr)
+    private void requireTaskReviewDraftOpen(PR pr)
     {
-        Task task = taskStore.findTaskById(pr.taskId()).orElse(null);
-        boolean activeLocalReview = task != null
-                && task.status() != TaskStatus.NEEDS_ATTENTION
-                && (task.phase() == TaskPhase.AWAITING_PUSH
-                        || task.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS
-                        || task.phase() == TaskPhase.INTERNAL_REVIEW);
-        if (!PR.STATUS_LOCAL_OPEN.equals(pr.status()) || !activeLocalReview) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(409),
-                    "Local Review is not open for comments; refresh and use the current review surface");
+        if (isRemoteTaskReview(pr)) {
+            return;
         }
+        if (PR.STATUS_LOCAL_OPEN.equals(pr.status())) {
+            Task task = taskStore.findTaskById(pr.taskId()).orElse(null);
+            boolean activeLocalReview = task != null
+                    && task.status() != TaskStatus.NEEDS_ATTENTION
+                    && (task.phase() == TaskPhase.AWAITING_PUSH
+                            || task.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS
+                            || task.phase() == TaskPhase.INTERNAL_REVIEW);
+            if (activeLocalReview) {
+                return;
+            }
+        }
+        throw new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "Review is not open for comments; refresh and use the current review surface");
+    }
+
+    private static boolean isRemoteTaskReview(PR pr)
+    {
+        return PR.STATUS_REMOTE_DRAFTED.equals(pr.status()) || PR.STATUS_REMOTE_OPEN.equals(pr.status());
+    }
+
+    private static void requireCurrentRemoteTaskReviewDraft(PRComment comment)
+    {
+        if (!PRComment.ORIGIN_LOCAL.equals(comment.origin())
+                || comment.parentCommentId() != null
+                || comment.publishedAt() != null
+                || comment.strippedOnPushAt() != null) {
+            throw notCurrentRemoteReviewDraft();
+        }
+    }
+
+    private static ResponseStatusException notCurrentRemoteReviewDraft()
+    {
+        return new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "This comment is not a current remote review draft; add a new review comment");
     }
 
     @Override

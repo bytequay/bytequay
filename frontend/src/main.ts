@@ -1905,7 +1905,6 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     path: string,
     line: number,
     side: 'LEFT' | 'RIGHT',
-    commitId: string,
     startLine: number | null,
     startSide: 'LEFT' | 'RIGHT' | null,
   ) => {
@@ -1918,7 +1917,7 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body, path, line, side, commitId, startLine, startSide }),
+      body: JSON.stringify({ body, path, line, side, startLine, startSide }),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');

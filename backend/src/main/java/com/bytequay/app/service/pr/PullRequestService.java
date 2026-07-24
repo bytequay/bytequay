@@ -1207,10 +1207,10 @@ public class PullRequestService
 
     /**
      * Posts a single per-line review comment on a diff line, mirroring
-     * GitHub's "Add single comment" action. {@code commitId} should be the
-     * PR head SHA at the time the user clicked the line — caller resolves it
-     * client-side. Drops the cached detail so the next detail fetch picks
-     * up the new thread.
+     * GitHub's "Add single comment" action. Resolves the current PR head
+     * directly from GitHub immediately before posting; {@code commitId} is
+     * retained for transport compatibility but is not trusted. Drops the
+     * cached detail so the next detail fetch picks up the new thread.
      */
     public void createInlineReviewComment(
             String repo,
@@ -1226,7 +1226,6 @@ public class PullRequestService
         String pat = patResolver.resolve(repo);
         requireNotBlank(body, "comment body must not be blank");
         requireNotBlank(path, "path must not be blank");
-        requireNotBlank(commitId, "commitId must not be blank");
 
         String resolvedSide = DiffSide.normalize(side);
         // Multi-line range: validate startLine sits before line on the
@@ -1242,8 +1241,15 @@ public class PullRequestService
             resolvedStartLine = startLine;
             resolvedStartSide = DiffSide.normalizeOptional(startSide, resolvedSide);
         }
-        gitHub.createInlineReviewComment(pat, parseRef(repo, number),
-                body, path, line, resolvedSide, commitId,
+        PullRequestRef ref = parseRef(repo, number);
+        PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
+        String headSha = raw == null ? null : raw.headSha();
+        if (headSha == null || headSha.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                    "Pull request head SHA is unavailable");
+        }
+        gitHub.createInlineReviewComment(pat, ref,
+                body, path, line, resolvedSide, headSha,
                 resolvedStartLine, resolvedStartSide);
         invalidatePullRequestDetail(repo, number);
     }

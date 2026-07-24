@@ -11,11 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import {
+  useEffect, useMemo, useRef, useState,
+  type MouseEvent as ReactMouseEvent, type ReactNode,
+} from 'react';
 import { getCached } from '../dataCache';
 import { isPendingLocalComment } from '../diff/DiffInlineComments';
 import { derivePRCapabilities } from '../pr/prCapabilities';
+import { activelySubmittedCommentIds } from '../pr/localpr/localReviewSubmission';
 import { useGitHubActivityFeed } from '../pr/useGitHubActivityFeed';
 import type { DiffFileDto, ReviewThreadDto, UserProfileDto } from '../types';
 import type { LocalPRBundle } from '../types/localPr';
@@ -114,7 +117,18 @@ export default function PullChanges({
   const remoteNumber = bundle?.pr.remotePrNumber ?? null;
   const { activity, reviewThreads, refresh: refreshFeed } = useGitHubActivityFeed(row.repo, remoteNumber);
   const capabilities = bundle === null || bundle === undefined ? null : derivePRCapabilities(bundle.pr, 'details');
-  const pending = useMemo(() => (bundle?.comments ?? []).filter(isPendingLocalComment), [bundle]);
+  // A historical commit diff has coordinates for that snapshot, while direct
+  // GitHub comments intentionally target the live PR head. Keep composing on
+  // the cumulative current diff so an old line cannot be rejected or misplaced.
+  const historicalCommitSelected = filesOverride === undefined && selectedCommit !== null;
+  const inlineCommentTarget = historicalCommitSelected
+    ? null
+    : capabilities?.inlineCommentTarget ?? null;
+  const pending = useMemo(() => {
+    const submitted = activelySubmittedCommentIds(bundle?.timeline ?? []);
+    return (bundle?.comments ?? []).filter(comment =>
+      isPendingLocalComment(comment) && !submitted.has(comment.id));
+  }, [bundle]);
   const login = getCached<UserProfileDto>('home:profile')?.login ?? 'you';
   const [owner, repoName] = row.repo.split('/');
   const repoCtx: MarkdownRepoContext = { owner: owner ?? '', repo: repoName ?? '' };
@@ -143,11 +157,35 @@ export default function PullChanges({
     return m;
   }, [reviewThreads]);
 
-  const addLineComment = bundle === null || bundle === undefined
-      || capabilities?.draftLocalComments !== true ? null
+  const addToReview = bundle === null || bundle === undefined
+      || inlineCommentTarget === null ? null
     : async (filePath: string, side: 'LEFT' | 'RIGHT', line: number, startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string) => {
-        await window.bridge.addLocalPrComment(bundle.pr.id, { scope: 'file-line', filePath, lineNumber: line, side, startLine, startSide, body });
+        const created = await window.bridge.addLocalPrComment(bundle.pr.id, {
+          scope: 'file-line', filePath, lineNumber: line, side, startLine, startSide, body,
+        });
         refresh();
+        return created.id;
+      };
+  const submitLineComment = bundle === null || bundle === undefined
+      || inlineCommentTarget === null ? null
+    : async (filePath: string, side: 'LEFT' | 'RIGHT', line: number, startLine: number | undefined, startSide: 'LEFT' | 'RIGHT' | undefined, body: string, persistedCommentId: string | null) => {
+        if (inlineCommentTarget === 'agent') {
+          if (bundle.pr.taskId === null) throw new Error('This pull request is not linked to a task.');
+          if (persistedCommentId === null) throw new Error('Save the review comment before submitting it.');
+          await window.bridge.submitReview(bundle.pr.taskId, {
+            verdict: 'COMMENT', commentIds: [persistedCommentId],
+          });
+          refresh();
+          return;
+        }
+        if (remoteNumber === null) throw new Error('This pull request does not have a remote number yet.');
+        const repo = bundle.pr.repo ?? row.repo;
+        await window.bridge.createInlineReviewComment(
+          repo, remoteNumber, body, filePath, line, side,
+          startLine ?? null, startSide ?? null,
+        );
+        refresh();
+        refreshFeed(true);
       };
   const resolvePending = (id: string) => { void window.bridge.resolveLocalPrComment(id).then(refresh).catch(() => { /* poll reconciles */ }); };
   const deletePending = (id: string) => { void window.bridge.deleteLocalPrComment(id).then(refresh).catch(() => { /* poll reconciles */ }); };
@@ -201,6 +239,11 @@ export default function PullChanges({
         {filesOverride === undefined && (
           <CommitsDropdown commits={commitOptions} selected={selectedCommit} onSelect={setSelectedCommit} />
         )}
+        {historicalCommitSelected && (
+          <span role="note" style={{ fontSize: 11.5, color: '#59636e' }}>
+            Select All commits to add review comments.
+          </span>
+        )}
         <span style={{ flex: 1 }} />
         <button
           type="button"
@@ -239,8 +282,9 @@ export default function PullChanges({
                 onToggle={() => setOpenCards(prev => ({ ...prev, [file.filename]: !(prev[file.filename] ?? file.patch !== null) }))}
                 threads={threadsByFile.get(file.filename) ?? []}
                 threadCtx={threadCtx}
-                allowComments={addLineComment !== null}
-                onAddComment={addLineComment}
+                inlineCommentTarget={inlineCommentTarget}
+                onSubmitComment={submitLineComment}
+                onAddToReview={addToReview}
                 fetchBlob={fetchBlob}
                 repoCtx={repoCtx}
               />

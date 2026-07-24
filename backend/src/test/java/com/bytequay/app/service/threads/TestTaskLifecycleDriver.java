@@ -520,6 +520,154 @@ class TestTaskLifecycleDriver
     }
 
     @Test
+    void submissionDuringInternalReviewDispatchesAsSoonAsBrainReleasesThePhase()
+    {
+        Task reviewing = task(null, TaskPhase.INTERNAL_REVIEW);
+        Task awaitingPush = task(null, TaskPhase.AWAITING_PUSH);
+        Instant oldMarker = Instant.parse("2026-07-01T09:00:00Z");
+        Instant submittedAt = oldMarker.plusSeconds(30);
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, oldMarker);
+        when(taskStore.findTaskById("t1.k2")).thenReturn(
+                Optional.of(reviewing), Optional.of(awaitingPush), Optional.of(awaitingPush));
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.comments("pr1")).thenReturn(List.of(localComment(
+                "cm1", "you", "new concern during review",
+                submittedAt.minusSeconds(10), null, null)));
+        when(prService.localReviewSubmissions("pr1"))
+                .thenReturn(List.of(submission(submittedAt, "cm1")));
+        Thread thread = mock(Thread.class);
+        when(thread.id()).thenReturn("t1");
+        when(thread.status()).thenReturn(ThreadStatus.IDLE);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
+
+        driver.onLocalReviewSubmitted(new LocalReviewSubmittedEvent("t1.k2", "pr1"));
+
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
+        verify(brainReview, never()).reviewAfterLocalComments(anyString());
+
+        driver.onInternalReviewCompleted(new TaskPhaseTransitionedEvent(
+                "t1.k2", TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_PUSH,
+                "local_review_reverified"));
+
+        verify(phaseMachine).transition(
+                "t1.k2", TaskPhase.ADDRESSING_LOCAL_COMMENTS, "new_local_comments", Actor.AGENT);
+        verify(scheduler).enqueueTaskTurn(eq(thread), anyString(), eq("t1.k2"), any(), any());
+        verify(prService).markLocalAddressed("pr1", submittedAt);
+    }
+
+    @Test
+    void completedLocalAddressTurnImmediatelyRunsFinalValidationAndBrainReview()
+    {
+        Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+        Instant addressedAt = Instant.parse("2026-07-01T09:00:00Z");
+        ThreadTurn completed = addressingTurn("t1.k2", ThreadTurnStatus.COMPLETED);
+        when(turnStore.findTurnById("address-turn"))
+                .thenReturn(Optional.of(completed));
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
+        when(prService.findByTask("t1.k2"))
+                .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, addressedAt)));
+        when(prService.comments("pr1")).thenReturn(List.of(localComment(
+                "cm1", "you", "please fix this", addressedAt, addressedAt, null)));
+        Thread thread = mock(Thread.class);
+        when(thread.status()).thenReturn(ThreadStatus.IDLE);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
+        when(validation.run("t1.k2")).thenReturn(new ValidationPassResult(true, 0, List.of()));
+
+        driver.onLocalAddressTurnFinished(
+                new TaskTurnFinishedEvent("t1.k2", "address-turn", false));
+
+        verify(validation).run("t1.k2");
+        verify(phaseMachine).transition(
+                "t1.k2", TaskPhase.INTERNAL_REVIEW, "local_comments_validated", Actor.AGENT);
+        verify(brainReview).reviewAfterLocalComments("pr1");
+    }
+
+    @Test
+    void completedLocalAddressTurnImmediatelyDispatchesTheNextComment()
+    {
+        Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+        Instant submittedAt = Instant.parse("2026-07-01T09:00:00Z");
+        PRComment resolved = localComment(
+                "cm1", "you", "first concern", submittedAt.minusSeconds(2), submittedAt, null);
+        PRComment next = localComment(
+                "cm2", "you", "second concern", submittedAt.minusSeconds(1), null, null);
+        ThreadTurn completed = addressingTurn("t1.k2", ThreadTurnStatus.COMPLETED);
+        when(turnStore.findTurnById("address-turn"))
+                .thenReturn(Optional.of(completed));
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
+        when(prService.findByTask("t1.k2"))
+                .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, submittedAt)));
+        when(prService.comments("pr1")).thenReturn(List.of(resolved, next));
+        when(prService.localReviewSubmissions("pr1"))
+                .thenReturn(List.of(submission(submittedAt, "cm1", "cm2")));
+        Thread thread = mock(Thread.class);
+        when(thread.id()).thenReturn("t1");
+        when(thread.status()).thenReturn(ThreadStatus.IDLE);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+
+        driver.onLocalAddressTurnFinished(
+                new TaskTurnFinishedEvent("t1.k2", "address-turn", false));
+
+        verify(scheduler).enqueueTaskTurn(
+                eq(thread), prompt.capture(), eq("t1.k2"), any(), any());
+        assertThat(prompt.getValue())
+                .contains("[id: cm2]", "second concern")
+                .doesNotContain("[id: cm1]", "first concern");
+        verify(validation, never()).run(anyString());
+        verify(brainReview, never()).reviewAfterLocalComments(anyString());
+    }
+
+    @Test
+    void completedLocalAddressTurnWithoutClosingItsTargetWaitsForRecoverySweep()
+    {
+        Instant submittedAt = Instant.parse("2026-07-01T09:00:00Z");
+        ThreadTurn completed = addressingTurn("t1.k2", ThreadTurnStatus.COMPLETED);
+        when(turnStore.findTurnById("address-turn")).thenReturn(Optional.of(completed));
+        when(prService.findByTask("t1.k2"))
+                .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, submittedAt)));
+        when(prService.comments("pr1")).thenReturn(List.of(
+                localComment("cm1", "you", "still open", submittedAt, null, null),
+                localComment("cm2", "you", "already closed", submittedAt, submittedAt, null)));
+
+        driver.onLocalAddressTurnFinished(
+                new TaskTurnFinishedEvent("t1.k2", "address-turn", false));
+
+        verify(taskStore, never()).findTaskById(anyString());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
+        verify(validation, never()).run(anyString());
+    }
+
+    @Test
+    void failedLocalAddressTurnWaitsForTheScheduledRecoverySweep()
+    {
+        driver.onLocalAddressTurnFinished(
+                new TaskTurnFinishedEvent("t1.k2", "failed-address-turn", true));
+
+        verify(turnStore, never()).findTurnById(anyString());
+        verify(taskStore, never()).findTaskById(anyString());
+    }
+
+    @Test
+    void nonCompletedOrUnrelatedTurnDoesNotDriveLocalAddressing()
+    {
+        ThreadTurn stillRunning = addressingTurn("t1.k2", ThreadTurnStatus.RUNNING);
+        ThreadTurn unrelated = mock(ThreadTurn.class);
+        when(unrelated.taskId()).thenReturn("t1.k2");
+        when(unrelated.status()).thenReturn(ThreadTurnStatus.COMPLETED);
+        when(unrelated.initiator()).thenReturn(TurnInitiator.unattended("some-other-source"));
+        when(turnStore.findTurnById("still-running")).thenReturn(Optional.of(stillRunning));
+        when(turnStore.findTurnById("unrelated")).thenReturn(Optional.of(unrelated));
+
+        driver.onLocalAddressTurnFinished(
+                new TaskTurnFinishedEvent("t1.k2", "still-running", false));
+        driver.onLocalAddressTurnFinished(
+                new TaskTurnFinishedEvent("t1.k2", "unrelated", false));
+
+        verify(taskStore, never()).findTaskById(anyString());
+    }
+
+    @Test
     void submissionTimeRatherThanDraftCreationTimeDrivesTheMarker()
     {
         Task task = task(null, TaskPhase.AWAITING_PUSH);
@@ -589,7 +737,7 @@ class TestTaskLifecycleDriver
         PRComment finding = new PRComment(
                 "finding-comment", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
                 "src/Foo.java", 9, "agent", "Possible null dereference", submittedAt.minusSeconds(30),
-                null, null, null, null, null, "RIGHT", null, null, "finding-1");
+                null, null, null, null, null, "LEFT", 6, "LEFT", "finding-1");
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(List.of(finding));
         when(prService.localReviewSubmissions("pr1")).thenReturn(
@@ -604,7 +752,19 @@ class TestTaskLifecycleDriver
         driver.reconcileLocalTask(task);
 
         verify(scheduler).enqueueTaskTurn(eq(thread), prompt.capture(), eq("t1.k2"), any(), any());
-        assertThat(prompt.getValue()).contains("finding-comment", "src/Foo.java:9", "Possible null dereference");
+        assertThat(prompt.getValue())
+                .contains(
+                        "exactly this one open comment",
+                        "current diff",
+                        "focused check",
+                        "resolve_pr_comment(comment_id, resolution='addressed',",
+                        "reply='<concise description of the verified fix>'",
+                        "Target comment id: finding-comment",
+                        "Anchor: src/Foo.java; line=9; side=LEFT; start_line=6; start_side=LEFT",
+                        "Possible null dereference",
+                        "final whole-change validation",
+                        "fresh Brain review")
+                .doesNotContain("reply with record_pr_comment");
     }
 
     @Test
@@ -951,8 +1111,15 @@ class TestTaskLifecycleDriver
 
     private static ThreadTurn addressingTurn(String taskId)
     {
+        return addressingTurn(taskId, null);
+    }
+
+    private static ThreadTurn addressingTurn(String taskId, ThreadTurnStatus status)
+    {
         ThreadTurn turn = mock(ThreadTurn.class);
         when(turn.taskId()).thenReturn(taskId);
+        when(turn.status()).thenReturn(status);
+        when(turn.input()).thenReturn("Target comment id: cm1\n");
         when(turn.initiator()).thenReturn(TurnInitiator.unattended("address-local-comments"));
         return turn;
     }

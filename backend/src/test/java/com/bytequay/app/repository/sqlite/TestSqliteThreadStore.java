@@ -136,6 +136,29 @@ class TestSqliteThreadStore
     }
 
     @Test
+    void listActivePlanningRepoRootsFiltersByRecencyAndDedupes()
+    {
+        Instant now = Instant.parse("2026-05-15T12:00:00Z");
+        String activeRoot = "/tmp/planning-active-" + UUID.randomUUID();
+        String staleRoot = "/tmp/planning-stale-" + UUID.randomUUID();
+
+        Thread active = newTask(ThreadKind.CLI_AGENT, ThreadStatus.IDLE);
+        store.saveThread(active);
+        store.setPlanningSnapshot(active.id(), new ThreadStore.PlanningSnapshot(activeRoot, "sha-a"));
+        Thread activeToo = newTask(ThreadKind.CLI_AGENT, ThreadStatus.IDLE);
+        store.saveThread(activeToo);
+        store.setPlanningSnapshot(activeToo.id(), new ThreadStore.PlanningSnapshot(activeRoot, "sha-a2"));
+        Thread stale = withTimestamps(
+                newTask(ThreadKind.CLI_AGENT, ThreadStatus.IDLE),
+                now.minusSeconds(7200), now.minusSeconds(7200));
+        store.saveThread(stale);
+        store.setPlanningSnapshot(stale.id(), new ThreadStore.PlanningSnapshot(staleRoot, "sha-b"));
+
+        List<String> roots = store.listActivePlanningRepoRoots(now.minusSeconds(3600));
+        assertThat(roots).containsOnlyOnce(activeRoot).doesNotContain(staleRoot);
+    }
+
+    @Test
     void saveTaskUpdatesInPlaceWhenIdMatches()
     {
         Thread initial = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING);

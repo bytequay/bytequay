@@ -63,6 +63,15 @@ public interface ThreadStore
         return false;
     }
 
+    /** Distinct {@code planning_repo_root} values across threads updated
+     *  since {@code since} — the clones whose base remote a background
+     *  refresher keeps fetched. Empty default for test stores; the
+     *  SQLite store overrides. */
+    default List<String> listActivePlanningRepoRoots(Instant since)
+    {
+        return List.of();
+    }
+
     /** The brain thread bound 1:1 to a task, if one has been created.
      *  Empty default for test stores; the SQLite store overrides. */
     default Optional<Thread> findBrainThreadByTask(String taskId)

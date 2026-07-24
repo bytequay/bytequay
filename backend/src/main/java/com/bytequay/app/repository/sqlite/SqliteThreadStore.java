@@ -256,6 +256,16 @@ class SqliteThreadStore
     }
 
     @Override
+    public List<String> listActivePlanningRepoRoots(Instant since)
+    {
+        return threads.findByUpdatedAtMsGreaterThanEqualOrderByUpdatedAtMsDesc(since.toEpochMilli()).stream()
+                .map(ThreadEntity::getPlanningRepoRoot)
+                .filter(root -> root != null && !root.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    @Override
     public Optional<Thread> findBrainThreadByTask(String taskId)
     {
         return threads.findFirstByKindAndParentTaskId(ThreadKind.BRAIN_AGENT.name(), taskId)

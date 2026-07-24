@@ -545,6 +545,33 @@ public class WorktreeService
         }
     }
 
+    /**
+     * Background fetch of the planning base remote so its remote-tracking
+     * refs stay current without any network on an agent-turn path. Touches
+     * refs only, never a planning worktree — a moved tip is applied later,
+     * at a trunk turn boundary. Fetch failures (offline) are logged and
+     * tolerated; turns keep planning from the last-known refs.
+     */
+    public void fetchPlanningBase(Path repoRoot)
+    {
+        requireNonNull(repoRoot, "repoRoot is null");
+        if (!git.isAvailable()) {
+            return;
+        }
+        synchronized (planningLockFor(repoRoot)) {
+            String remote = baseRemoteName(repoRoot);
+            try {
+                git.fetchRemote(repoRoot, remote);
+            }
+            catch (IOException | RuntimeException e) {
+                log.warn("Background fetch of {} in {} failed: {}", remote, repoRoot, e.getMessage());
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
     /** Best-effort cleanup when a thread is permanently deleted. */
     public void removePlanningWorktree(Path repoRoot, String threadId)
     {

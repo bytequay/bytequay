@@ -179,7 +179,10 @@ class TestBrainService
                 .contains("read-only")
                 .contains("Do not delegate trivial tasks")
                 .contains("synthesize")
-                .contains("record_plan");
+                .contains("record_plan")
+                .contains("After record_plan succeeds, do not restate or summarize the plan")
+                .contains("Plan recorded; Brain self-review is starting.")
+                .contains("If record_plan fails, instead report the failure concisely");
     }
 
     @Test

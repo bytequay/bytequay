@@ -215,7 +215,10 @@ public class BrainServiceImpl
                 you intend to do (numbered steps, validation strategy, push strategy), and the \
                 risk / effort / value signals. Set status to "finalized" when the plan is ready \
                 for the user to review. Do NOT write code — the user approves the plan before \
-                any development starts.""".formatted(request, trunkNote, taskId);
+                any development starts. After record_plan succeeds, do not restate or summarize \
+                the plan in your assistant reply. Reply with exactly one concise status line: \
+                "Plan recorded; Brain self-review is starting." If record_plan fails, instead \
+                report the failure concisely so the user can act.""".formatted(request, trunkNote, taskId);
     }
 
     private Thread createBrainThread(Task task)

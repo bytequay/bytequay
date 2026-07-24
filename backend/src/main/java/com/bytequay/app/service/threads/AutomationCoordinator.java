@@ -27,6 +27,7 @@ import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -37,6 +38,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -94,6 +98,8 @@ public class AutomationCoordinator
     private final PullRequestService pullRequests;
     private final ObjectMapper mapper;
     private final CiFixRunExecutor ciFixRunExecutor;
+    private final ThreadStore threadStore;
+    private final WorktreeService worktreeService;
 
     public AutomationCoordinator(
             WorktreeLeaseService leaseService,
@@ -104,7 +110,9 @@ public class AutomationCoordinator
             NotificationService notificationService,
             PullRequestService pullRequests,
             ObjectMapper mapper,
-            CiFixRunExecutor ciFixRunExecutor)
+            CiFixRunExecutor ciFixRunExecutor,
+            ThreadStore threadStore,
+            WorktreeService worktreeService)
     {
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -115,6 +123,8 @@ public class AutomationCoordinator
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.ciFixRunExecutor = requireNonNull(ciFixRunExecutor, "ciFixRunExecutor is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
     }
 
     /**
@@ -140,6 +150,57 @@ public class AutomationCoordinator
         }
         if (reaped > 0) {
             log.info("Released {} stale worktree lease(s)", reaped);
+        }
+    }
+
+    /** Planning worktrees whose trunk went quiet for this long are
+     *  removed; the turn-start sync rebuilds one on demand from the
+     *  persisted SHA, so this only trades disk for a one-off checkout
+     *  + re-index when an old trunk wakes up. */
+    private static final long IDLE_PLANNING_AGE_MS = 7L * 24 * 60 * 60 * 1000;
+
+    /**
+     * Periodic disk-hygiene sweep over the per-thread planning worktrees
+     * ({@code <clone>/.worktrees/_planning/<threadId>}): removes the
+     * checkout when its thread no longer exists (orphan) or hasn't been
+     * touched for {@link #IDLE_PLANNING_AGE_MS}. Safe against a
+     * concurrent turn start — {@code removePlanningWorktree} holds the
+     * same per-clone lock as the turn's sync.
+     */
+    @Scheduled(fixedDelay = 6 * 60 * 60 * 1000, initialDelay = 300_000)
+    public void reapIdlePlanningWorktrees()
+    {
+        Instant cutoff = Instant.now().minusMillis(IDLE_PLANNING_AGE_MS);
+        for (WatchedRepo repo : watchedRepoStore.findAll()) {
+            String clonePath = repo.localClonePath();
+            if (clonePath == null || clonePath.isBlank()) {
+                continue;
+            }
+            Path planningRoot = Path.of(clonePath)
+                    .resolve(WorktreeService.WORKTREE_ROOT_REL)
+                    .resolve(WorktreeService.PLANNING_WORKTREE_REL);
+            if (!Files.isDirectory(planningRoot)) {
+                continue;
+            }
+            try (DirectoryStream<Path> dirs = Files.newDirectoryStream(planningRoot)) {
+                for (Path dir : dirs) {
+                    if (!Files.isDirectory(dir)) {
+                        continue;
+                    }
+                    String threadId = dir.getFileName().toString();
+                    boolean reapable = threadStore.findThreadById(threadId)
+                            .map(thread -> thread.updatedAt() != null
+                                    && thread.updatedAt().isBefore(cutoff))
+                            .orElse(true);
+                    if (reapable) {
+                        log.info("Reaping planning worktree {} (idle or orphaned)", dir);
+                        worktreeService.removePlanningWorktree(Path.of(clonePath), threadId);
+                    }
+                }
+            }
+            catch (IOException e) {
+                log.warn("Planning-worktree sweep failed for {}: {}", clonePath, e.getMessage());
+            }
         }
     }
 

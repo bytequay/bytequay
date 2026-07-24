@@ -24,15 +24,25 @@ import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -70,12 +80,51 @@ class TestAutomationCoordinatorAutoFix
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final CiFixRunExecutor ciFixRunExecutor = mock(CiFixRunExecutor.class);
+    private final ThreadStore threadStore = mock(ThreadStore.class);
+    private final WorktreeService worktreeService = mock(WorktreeService.class);
 
     private AutomationCoordinator newCoordinator()
     {
         return new AutomationCoordinator(
                 leaseService, taskStore, watchedRepoStore, pullRequestStore, prDetailStore,
-                notificationService, pullRequests, mapper, ciFixRunExecutor);
+                notificationService, pullRequests, mapper, ciFixRunExecutor,
+                threadStore, worktreeService);
+    }
+
+    @Test
+    void reapIdlePlanningWorktreesRemovesOrphansAndIdleThreadsOnly(@TempDir Path tempDir)
+            throws IOException
+    {
+        Path clone = tempDir.resolve("clone");
+        Path planningRoot = clone.resolve(".worktrees").resolve("_planning");
+        Files.createDirectories(planningRoot.resolve("thread-live"));
+        Files.createDirectories(planningRoot.resolve("thread-idle"));
+        Files.createDirectories(planningRoot.resolve("thread-gone"));
+
+        when(watchedRepoStore.findAll()).thenReturn(List.of(
+                new WatchedRepo(1, "acme", "widgets", 0, clone.toString(), null, null)));
+        when(threadStore.findThreadById("thread-live"))
+                .thenReturn(Optional.of(threadTouchedAt("thread-live", Instant.now())));
+        when(threadStore.findThreadById("thread-idle"))
+                .thenReturn(Optional.of(threadTouchedAt(
+                        "thread-idle", Instant.now().minus(Duration.ofDays(30)))));
+        when(threadStore.findThreadById("thread-gone"))
+                .thenReturn(Optional.empty());
+
+        newCoordinator().reapIdlePlanningWorktrees();
+
+        verify(worktreeService).removePlanningWorktree(Path.of(clone.toString()), "thread-idle");
+        verify(worktreeService).removePlanningWorktree(Path.of(clone.toString()), "thread-gone");
+        verify(worktreeService, never()).removePlanningWorktree(any(), eq("thread-live"));
+    }
+
+    private static Thread threadTouchedAt(String id, Instant updatedAt)
+    {
+        return new Thread(
+                id, ThreadKind.CLI_AGENT, "claude-code", null,
+                "Trunk", ThreadStatus.IDLE, "claude-sonnet-4-6",
+                0L, 0L, 0L, NOW, updatedAt, null, null,
+                ThreadFlow.BUILD, "ws-default", null, null);
     }
 
     @Test

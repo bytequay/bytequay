@@ -456,8 +456,9 @@ public class AgentToolHandlers
             description = "Fetch the latest base branch and refresh the trunk's read-only "
                     + "planning worktree to it — upstream/master for a fork, origin's default "
                     + "branch for a direct clone — so your code search reflects the current "
-                    + "base. A planning snapshot normally stays fixed across follow-up turns; "
-                    + "call this only to explicitly replace it before continuing the plan.",
+                    + "base. Each turn already starts from the latest fetched base; call this "
+                    + "only when you need to re-sync mid-turn (e.g. a PR just merged and you "
+                    + "must see it before finishing this turn).",
             security = SecurityType.GIT_LOCAL,
             gating = Gating.AUTO,
             roles = AgentRole.TRUNK)

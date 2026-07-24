@@ -789,7 +789,10 @@ public class ThreadRegistry
         if (agent instanceof AbstractCliThreadAgent cli && boundTask != null) {
             Optional<Path> checkout = taskCheckout(boundTask);
             checkout.ifPresent(path -> {
-                cli.setPreTurnHook(() -> codeGraph.ensureFreshWithin(path, "before-agent-turn", 15_000));
+                cli.setPreTurnHook(() -> {
+                    codeGraph.ensureFreshWithin(path, "before-agent-turn", 15_000);
+                    return null;
+                });
                 cli.setPostTurnHook(() -> codeGraph.requestRefreshAsync(path, "after-agent-turn"));
             });
         }
@@ -865,10 +868,7 @@ public class ThreadRegistry
                                 ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
                                 cliModelOverride(resolved),
                                 cliReasoningEffort(resolved));
-                agent.setPreTurnHook(() -> {
-                    String synced = trunkCwdResolver.apply(thread);
-                    log.debug("trunk {} planning snapshot ready at {}", thread.id(), synced);
-                });
+                agent.setPreTurnHook(trunkPlanningPreTurnHook(thread));
                 yield withManagedSkillBundle(agent);
             }
             case LOGIC_LOOP -> {
@@ -880,16 +880,45 @@ public class ThreadRegistry
                                 roleRegistry == null ? null : roleRegistry.trunkTemplate(),
                                 thread, trunkAudience(thread)),
                         toolRegistry, ds4, ds4Instrumentation, gate);
-                agent.setPreTurnHook(() -> {
-                    String ready = trunkCwdResolver.apply(thread);
-                    log.debug("trunk {} planning snapshot ready at {}", thread.id(), ready);
-                });
+                agent.setPreTurnHook(trunkPlanningPreTurnHook(thread));
                 yield withManagedSkillBundle(agent);
             }
             // Brain turns carry no task id in the turn row, but the thread
             // kind still builds the task-brain runtime, not a trunk planner.
             case BRAIN_AGENT -> buildBrain(thread);
         };
+    }
+
+    /**
+     * Pre-turn hook for trunk sessions: sync the planning worktree via the
+     * cwd resolver, and when the base actually moved return a note for this
+     * turn's model input so the agent re-verifies earlier assumptions
+     * instead of planning against memories of the old checkout.
+     */
+    private Supplier<String> trunkPlanningPreTurnHook(Thread thread)
+    {
+        return () -> {
+            String before = store.findPlanningSnapshot(thread.id())
+                    .map(ThreadStore.PlanningSnapshot::baseSha)
+                    .orElse(null);
+            String synced = trunkCwdResolver.apply(thread);
+            log.debug("trunk {} planning snapshot ready at {}", thread.id(), synced);
+            String after = store.findPlanningSnapshot(thread.id())
+                    .map(ThreadStore.PlanningSnapshot::baseSha)
+                    .orElse(null);
+            if (before == null || after == null || after.equals(before)) {
+                return null;
+            }
+            return "[Planning base updated " + shortSha(before) + " -> " + shortSha(after)
+                    + ": the base branch moved since your last turn (e.g. a PR merged). "
+                    + "File contents and line numbers read in earlier turns may be stale — "
+                    + "re-verify against the refreshed checkout before relying on them.]";
+        };
+    }
+
+    private static String shortSha(String sha)
+    {
+        return sha.length() <= 12 ? sha : sha.substring(0, 12);
     }
 
     /**

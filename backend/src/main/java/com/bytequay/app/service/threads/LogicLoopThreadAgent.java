@@ -78,6 +78,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
@@ -163,7 +164,7 @@ public class LogicLoopThreadAgent
     /** Null keeps the legacy role/kind filter; non-null is the scheduler's
      * bounded tool set, including an intentionally empty set. */
     private volatile Set<String> activeToolNames;
-    private volatile Runnable preTurnHook = () -> {};
+    private volatile Supplier<String> preTurnHook = () -> null;
     private final ObjectMapper mapper;
     private final ExecutorService executor;
     private final CredentialService credentialService;
@@ -547,8 +548,9 @@ public class LogicLoopThreadAgent
 
     private void runTurn(String userInput)
     {
+        String note = null;
         try {
-            preTurnHook.run();
+            note = preTurnHook.get();
         }
         catch (RuntimeException e) {
             log.warn("Pre-turn hook for thread {} failed: {}", threadId, e.getMessage());
@@ -565,15 +567,20 @@ public class LogicLoopThreadAgent
         persistUserMessage(decoded.text(), now, decoded.images());
         publish(new StreamEvent.UserMessage(now, decoded.text(), decoded.images()));
         publish(new StreamEvent.SessionStarted(now, sessionId, workingDir, model()));
+        // A pre-turn note (e.g. "planning base moved") reaches the model
+        // input for this turn only; the persisted user row stays clean.
+        String modelInput = note == null || note.isBlank()
+                ? decoded.text()
+                : note + "\n\n" + decoded.text();
 
         try {
             String provider = resolvedModel.agentOrProvider();
             if (ANTHROPIC_PROVIDER_ID.equalsIgnoreCase(provider)) {
-                runAnthropicTurn(decoded.text(), decoded.images(), now);
+                runAnthropicTurn(modelInput, decoded.images(), now);
             }
             else if (OPENAI_PROVIDER_ID.equalsIgnoreCase(provider)
                     || DEEPSEEK_PROVIDER_ID.equalsIgnoreCase(provider)) {
-                runOpenAiCompatibleTurn(decoded.text(), decoded.images(), now);
+                runOpenAiCompatibleTurn(modelInput, decoded.images(), now);
             }
             else {
                 emitFatal("Provider '" + provider + "' is not supported by the API lane. "
@@ -598,11 +605,12 @@ public class LogicLoopThreadAgent
     }
 
     /** Run a lightweight lifecycle check before each API-lane turn. Trunk
-     * sessions use this to start a new planning snapshot only after the prior
-     * one was consumed by task creation. */
-    public void setPreTurnHook(Runnable hook)
+     * sessions use this to sync the planning worktree to the latest fetched
+     * base; a non-blank return value is prepended to this turn's model
+     * input (the persisted transcript stays clean). */
+    public void setPreTurnHook(Supplier<String> hook)
     {
-        this.preTurnHook = hook == null ? () -> {} : hook;
+        this.preTurnHook = hook == null ? () -> null : hook;
     }
 
     // ── Anthropic transport ───────────────────────────────────────────────

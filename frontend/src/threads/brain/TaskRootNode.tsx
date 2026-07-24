@@ -23,7 +23,7 @@ import {
 /**
  * The task root node: the planning seed + the typed plan card. The seed
  * renders collapsed as scannable chips (raw markdown one click away); the plan
- * card is the phased-pipeline {@link PipelinePlanCard}, driven by the structured
+ * card is the ordered {@link PipelinePlanCard}, driven by the structured
  * {@link PlanCardDto}.
  */
 export function TaskRootNode({
@@ -103,14 +103,14 @@ function Chip({ k, v, warn, mono }: { k: string; v: string; warn?: boolean; mono
 
 /**
  * The typed plan card. An adapter over {@link PipelinePlanCard} (the visual
- * source of truth): it maps the structured {@link PlanCardDto} onto the phased
- * pipeline model and decomposes the pipeline's single `onPolicyChange` back
+ * source of truth): it maps the structured {@link PlanCardDto} onto the display
+ * model and decomposes the card's single `onPolicyChange` back
  * into the task's individual min-approvals / auto-approve / auto-merge
  * handlers. Exported under the same name + prop shape so both call sites render
  * the new design unchanged.
  *
- * The pipeline design has no per-step comment thread, per-step expansion, or
- * plan-edit affordance, so `onCommentStep` / `onEdit` / `onHoldAuto` /
+ * The card has no per-step comment thread or plan-edit affordance, so
+ * `onCommentStep` / `onEdit` / `onHoldAuto` /
  * `stepComments` are accepted for call-site compatibility but not rendered.
  */
 export function PlanCard(props: {
@@ -194,9 +194,13 @@ function toPipelinePlan(dto: PlanCardDto, policy: PlanPolicy): Plan {
     effort: dto.signals.estimatedComplexity,
     confidence,
     why: why.length > 0 ? why : undefined,
-    validation: dto.validationStrategy.trim() !== '' ? dto.validationStrategy : undefined,
+    validation: dto.validationStrategy.trim() !== '' ? dto.validationStrategy.trim() : undefined,
+    outOfScope: dto.outOfScope?.map(item => item.trim()).filter(item => item !== ''),
+    pushStrategy: dto.pushStrategy,
     value: dto.signals.expectedGain.trim() !== '' ? dto.signals.expectedGain : undefined,
-    steps: withDefaultPrepare(dto.steps.map(toPipelineStep)),
+    steps: dto.steps
+      .map(step => toPipelineStep(step, dto.signals.riskLevel))
+      .sort((left, right) => left.n - right.n),
     policy,
   };
 }
@@ -208,39 +212,14 @@ export function isPlanSelfReviewing(plan: PlanCardDto): boolean {
   return plan.state === 'draft' && plan.status === 'finalized';
 }
 
-// A refactor plan often has no explicit setup step; rather than show an empty
-// Prepare column, seed it with the always-true precondition so the pipeline
-// reads as a complete execution flow.
-function withDefaultPrepare(steps: PipelineStep[]): PipelineStep[] {
-  if (steps.some(step => step.phase === 'prepare')) {
-    return steps;
-  }
-  return [
-    { n: 0, short: 'Ensure the main branch is synced before development starts', phase: 'prepare', synthetic: true },
-    ...steps,
-  ];
-}
-
-function toPipelineStep(step: PlanStepDto): PipelineStep {
+function toPipelineStep(step: PlanStepDto, planRisk: PlanCardDto['signals']['riskLevel']): PipelineStep {
   return {
     n: step.ordinal,
     short: step.action,
     detail: step.detail,
-    code: step.files !== undefined && step.files.length > 0 ? step.files[0] : undefined,
-    phase: phaseForStep(step),
+    files: step.files,
+    risk: step.risk ?? (planRisk === 'medium' ? 'med' : planRisk),
   };
-}
-
-// ponytail: keyword heuristic — PlanStepDto carries no phase. Good enough to
-// group the four pipeline columns; swap for a planner-emitted `phase` when the
-// backend plan schema gains one. Verify is tested BEFORE ship so a
-// "run mvn verify, then push" step lands under Verify, not Ship.
-function phaseForStep(step: PlanStepDto): PipelineStep['phase'] {
-  const t = `${step.action} ${step.detail ?? ''}`.toLowerCase();
-  if (/\b(mvn|maven|gradle|checkstyle|spotless|lint|format|inspections?|error[\s-]?prone|compile|coverage|run (?:the )?tests?|tests? (?:pass|green)|unit tests?|integration tests?)\b/.test(t)) return 'verify';
-  if (/\b(commit|push|open (?:a |the )?pr|pull request|merge|watch ci|monitor|release|deploy)\b/.test(t)) return 'ship';
-  if (/\b(check ?out|checkout|sync|pull latest|fetch|clone|branch|set ?up|read|gather|collect|understand|review the comments)\b/.test(t)) return 'prepare';
-  return 'implement';
 }
 
 function clampApprovals(n?: number): 0 | 1 | 2 {

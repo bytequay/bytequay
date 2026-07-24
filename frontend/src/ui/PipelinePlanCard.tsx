@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useState, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, useId, useState, type CSSProperties, type ReactNode } from 'react';
 import { CheckIcon, ChevronRightIcon } from './TaskBrainDesignIcons';
 import '../css/plan-pipeline-card.css';
 
@@ -22,14 +22,12 @@ export interface PlanStep {
   n: number;
   /** One-line label for the pipeline card. */
   short: string;
-  /** Longer rationale — not shown in the pipeline; kept for other views. */
+  /** Longer rationale shown when the step is expanded. */
   detail?: string;
-  /** Optional mono identifier chip (branch, class, command). */
-  code?: string;
-  phase: 'prepare' | 'implement' | 'verify' | 'ship';
-  /** A card the app supplied to fill an otherwise-empty phase (e.g. the
-   *  default "sync main" prepare step) — rendered muted, with no ordinal. */
-  synthetic?: boolean;
+  /** Every path attached to the authored step. */
+  files?: string[];
+  /** Per-step risk, as recorded by the planning agent. */
+  risk: 'low' | 'med' | 'high' | 'opt';
 }
 
 export interface PlanPolicy {
@@ -53,8 +51,12 @@ export interface Plan {
   confidence: Risk;
   /** Background & caveats (folded, default closed). */
   why?: string[];
-  /** How steps are checked (folded, default closed). */
+  /** How steps are checked. */
   validation?: string;
+  /** Explicit scope boundaries recorded by the planner. */
+  outOfScope?: string[];
+  /** Whether the agent may push autonomously after validation. */
+  pushStrategy: 'autonomous' | 'await_approval';
   /** Why it's worth doing (folded, default closed). */
   value?: string;
   steps: PlanStep[];
@@ -75,17 +77,6 @@ export interface PipelinePlanCardProps {
    *  hide the Request-revision affordance. */
   onRequestRevision?: (text: string) => void;
 }
-
-// `weight` is the column's grid `fr` when it has steps; an empty phase collapses
-// to EMPTY_WEIGHT so the populated columns absorb the freed width (bigger cards
-// for long-text steps). Implement gets the most room.
-const PHASES: Array<{ key: PlanStep['phase']; name: string; weight: number }> = [
-  { key: 'prepare', name: 'Prepare', weight: 1 },
-  { key: 'implement', name: 'Implement', weight: 1.5 },
-  { key: 'verify', name: 'Verify', weight: 1.05 },
-  { key: 'ship', name: 'Ship & monitor', weight: 0.8 },
-];
-const EMPTY_WEIGHT = 0.42;
 
 const STATUS_LABEL: Record<Plan['status'], string> = {
   draft: 'Plan drafting',
@@ -154,64 +145,82 @@ function SendIcon() {
   );
 }
 
+const stepRiskLabel: Record<PlanStep['risk'], string> = {
+  low: 'Low risk', med: 'Medium risk', high: 'High risk', opt: 'Optional',
+};
+
 function StepCard({ step }: { step: PlanStep }) {
-  const synthetic = step.synthetic === true;
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const detail = step.detail?.trim();
+  const files = step.files?.filter(path => path.trim() !== '') ?? [];
+  const riskLabel = stepRiskLabel[step.risk];
   return (
-    <div style={{
-      border: synthetic ? '1px dashed #d5dbe1' : '1px solid #e7e9ec', borderRadius: 9, padding: '9px 10px',
-      background: synthetic ? '#fafbfc' : '#fff',
+    <li style={{
+      border: '1px solid #e7e9ec', borderRadius: 9, background: '#fff', overflow: 'hidden',
     }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 7 }}>
-        <span style={{ fontFamily: MONO, fontSize: 10.5, fontWeight: 700, color: '#b6bcc2', flexShrink: 0 }}>
-          {synthetic ? '•' : step.n}
+      <button
+        type="button"
+        className="ppc-step-toggle"
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-label={`${open ? 'Collapse' : 'Expand'} step ${step.n}: ${step.short}. ${riskLabel}`}
+        onClick={() => setOpen(value => !value)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', gap: 9, padding: '10px 12px',
+          color: '#1f2328', background: '#fff', border: 'none', cursor: 'pointer', textAlign: 'left',
+        }}
+      >
+        <span style={{
+          width: 21, height: 21, borderRadius: 6, background: '#24292f', color: '#fff', fontFamily: MONO,
+          fontSize: 10.5, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }}>
+          {step.n}
         </span>
-        {/* minWidth:0 lets this flex item shrink; overflowWrap breaks dense
-            code-like tokens (e.g. `foo(bar.baz().qux(...))`) so they can't
-            spill past the card in a narrow phase column. */}
-        <span style={{ fontSize: 12, fontWeight: 500, color: synthetic ? '#8b949e' : '#1f2328', lineHeight: 1.4, minWidth: 0, overflowWrap: 'anywhere' }}>{step.short}</span>
-      </div>
-      {step.code !== undefined && step.code !== '' && (
-        <div style={{ marginTop: 6 }}>
-          <span
-            style={{
-              fontFamily: MONO, fontSize: 10, color: '#57606a', background: '#f6f8fa',
-              border: '1px solid #eceef0', borderRadius: 5, padding: '1px 6px', display: 'inline-block',
-              maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'bottom',
-            }}
-            title={step.code}
-          >
-            {step.code}
-          </span>
+        <span className="ppc-step-title" style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, lineHeight: 1.45, overflowWrap: 'anywhere' }}>
+          {step.short}
+        </span>
+        <span style={pillStyle}>{riskLabel}</span>
+        <span aria-hidden style={{ display: 'inline-flex', transform: open ? 'rotate(90deg)' : undefined, transition: 'transform .15s' }}>
+          <ChevronRightIcon size={10} />
+        </span>
+      </button>
+      {open && (
+        <div id={panelId} style={{ padding: '0 12px 12px 42px', borderTop: '1px solid #f0f2f4', color: '#57606a', fontSize: 12, lineHeight: 1.55 }}>
+          <div style={{ marginTop: 10 }}>
+            <strong style={{ color: '#1f2328' }}>Rationale</strong>
+            <div>{detail !== undefined && detail !== '' ? detail : 'No additional rationale recorded.'}</div>
+          </div>
+          <div style={{ marginTop: 9 }}>
+            <strong style={{ color: '#1f2328' }}>Files</strong>
+            {files.length === 0 ? (
+              <div>No files specified.</div>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                {files.map((path, index) => (
+                  <span key={`${path}-${index}`} style={{
+                    fontFamily: MONO, fontSize: 10.5, color: '#57606a', background: '#f6f8fa',
+                    border: '1px solid #eceef0', borderRadius: 5, padding: '2px 6px', overflowWrap: 'anywhere',
+                  }}>
+                    {path}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
-    </div>
+    </li>
   );
 }
 
-function PhaseColumn({ name, num, steps }: { name: string; num: number; steps: PlanStep[] }) {
-  const empty = steps.length === 0;
+function SummarySection({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 7, paddingBottom: 9,
-        borderBottom: empty ? '2px solid #e7e9ec' : '2px solid #24292f',
-      }}>
-        <span style={{
-          width: 19, height: 19, borderRadius: 5, background: empty ? '#c9ced4' : '#24292f', color: '#fff', fontSize: 10.5,
-          fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-        }}>{num}</span>
-        <span style={{ fontSize: 12, fontWeight: 700, color: empty ? '#a5abb2' : '#17191c', minWidth: 0, overflowWrap: 'anywhere' }}>{name}</span>
-        {!empty && (
-          <span style={{ marginLeft: 'auto', fontSize: 10, color: '#a5abb2', flexShrink: 0 }}>
-            {steps.length} {steps.length === 1 ? 'step' : 'steps'}
-          </span>
-        )}
+    <div style={{ minWidth: 0, padding: '11px 12px', background: '#f6f8fa', border: '1px solid #eceef0', borderRadius: 9 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', color: '#57606a', textTransform: 'uppercase', marginBottom: 5 }}>
+        {label}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-        {empty
-          ? <span style={{ fontSize: 11, fontWeight: 600, color: '#b6bcc2', letterSpacing: '0.02em' }}>Skipped</span>
-          : steps.map(step => <StepCard key={step.n} step={step} />)}
-      </div>
+      <div style={{ fontSize: 12, color: '#1f2328', lineHeight: 1.5, overflowWrap: 'anywhere' }}>{children}</div>
     </div>
   );
 }
@@ -275,7 +284,6 @@ function Segmented<T extends string | number | boolean>({
 
 export function PipelinePlanCard({ plan, approvedAt, onPolicyChange, onApprove, onRequestRevision }: PipelinePlanCardProps) {
   const [whyOpen, setWhyOpen] = useState(false);
-  const [valOpen, setValOpen] = useState(false);
   const [valueOpen, setValueOpen] = useState(false);
   const [revOpen, setRevOpen] = useState(false);
   const [revText, setRevText] = useState('');
@@ -293,15 +301,9 @@ export function PipelinePlanCard({ plan, approvedAt, onPolicyChange, onApprove, 
 
   const hasWhy = plan.why !== undefined && plan.why.length > 0;
   const hasValidation = plan.validation !== undefined && plan.validation !== '';
+  const hasOutOfScope = plan.outOfScope !== undefined && plan.outOfScope.length > 0;
   const hasValue = plan.value !== undefined && plan.value !== '';
   const approved = plan.status === 'approved';
-
-  const columns = PHASES.map((phase, i) => ({
-    ...phase, num: i + 1, steps: plan.steps.filter(step => step.phase === phase.key),
-  }));
-  const gridTemplateColumns = columns
-    .map(column => `${column.steps.length > 0 ? column.weight : EMPTY_WEIGHT}fr`)
-    .join(' ');
 
   return (
     <div
@@ -332,18 +334,33 @@ export function PipelinePlanCard({ plan, approvedAt, onPolicyChange, onApprove, 
         </div>
       </div>
 
-      {/* pipeline */}
+      {/* authored plan */}
       <div style={{ padding: '16px 20px 6px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: gridTemplateColumns, gap: 12 }}>
-          {columns.map(column => (
-            <PhaseColumn key={column.key} name={column.name} num={column.num} steps={column.steps} />
-          ))}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 9 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#17191c' }}>Steps</span>
+          <span style={{ fontSize: 10.5, color: '#8b949e' }}>{plan.steps.length} {plan.steps.length === 1 ? 'step' : 'steps'}</span>
+        </div>
+        <ol style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8, padding: 0, margin: 0 }}>
+          {plan.steps.map((step, index) => <StepCard key={`${step.n}-${index}`} step={step} />)}
+        </ol>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 9, marginTop: 14 }}>
+          {hasValidation && <SummarySection label="Validation">{plan.validation}</SummarySection>}
+          {hasOutOfScope && (
+            <SummarySection label="Out of scope">
+              <ul style={{ paddingLeft: 17, margin: 0 }}>
+                {plan.outOfScope?.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+              </ul>
+            </SummarySection>
+          )}
+          <SummarySection label="Push scope">
+            {plan.pushStrategy === 'autonomous' ? 'Push autonomously after validation.' : 'Wait for approval before pushing.'}
+          </SummarySection>
         </div>
 
-        {(hasWhy || hasValidation || hasValue) && (
+        {(hasWhy || hasValue) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 14, paddingTop: 12, borderTop: '1px solid #f0f2f4' }}>
             {hasWhy && <FoldToggle label="Why this plan" open={whyOpen} onToggle={() => setWhyOpen(v => !v)} />}
-            {hasValidation && <FoldToggle label="Validation" open={valOpen} onToggle={() => setValOpen(v => !v)} />}
             {hasValue && <FoldToggle label="Value" open={valueOpen} onToggle={() => setValueOpen(v => !v)} />}
           </div>
         )}
@@ -352,7 +369,6 @@ export function PipelinePlanCard({ plan, approvedAt, onPolicyChange, onApprove, 
             {plan.why?.map((para, i) => <div key={i}>{para}</div>)}
           </div>
         )}
-        {hasValidation && valOpen && <div style={foldPanelStyle}>{plan.validation}</div>}
         {hasValue && valueOpen && <div style={foldPanelStyle}>{plan.value}</div>}
       </div>
 

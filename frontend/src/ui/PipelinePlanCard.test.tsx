@@ -27,13 +27,15 @@ function plan(overrides: Partial<Plan> = {}): Plan {
     confidence: 'high',
     why: ['Because the old length was stale.'],
     validation: 'Run the three cache test classes.',
+    outOfScope: ['Changing the cache eviction policy.'],
+    pushStrategy: 'await_approval',
     value: 'Unblocks a correctness fix.',
     steps: [
-      { n: 1, short: 'Collect comments', phase: 'prepare' },
-      { n: 2, short: 'Check out branch', code: 'jack/fix-cache', phase: 'prepare' },
-      { n: 3, short: 'Address in code', code: 'MemoryFileSystemCache', phase: 'implement' },
-      { n: 4, short: 'Format & inspect', phase: 'verify' },
-      { n: 5, short: 'Push & watch CI', phase: 'ship' },
+      { n: 1, short: 'Collect comments', detail: 'Confirm the failing behavior.', files: ['src/cache.ts', 'src/cache.test.ts'], risk: 'low' },
+      { n: 2, short: 'Check out branch', risk: 'low' },
+      { n: 3, short: 'Address in code', risk: 'med' },
+      { n: 4, short: 'Format & inspect', risk: 'low' },
+      { n: 5, short: 'Push & watch CI', risk: 'opt' },
     ],
     policy: { minApprovals: 0, autoApprove: false, autoMerge: false },
     ...overrides,
@@ -43,13 +45,33 @@ function plan(overrides: Partial<Plan> = {}): Plan {
 function noop() { /* callbacks not under test */ }
 
 describe('PipelinePlanCard', () => {
-  it('groups steps under the four phases with per-column counts', () => {
-    render(<PipelinePlanCard plan={plan()} onPolicyChange={noop} onApprove={noop} onRequestRevision={noop} />);
-    for (const name of ['Prepare', 'Implement', 'Verify', 'Ship & monitor']) {
-      expect(screen.getByText(name)).toBeTruthy();
-    }
-    expect(screen.getByText('2 steps')).toBeTruthy(); // Prepare
-    expect(screen.getAllByText('1 step').length).toBe(3); // Implement, Verify, Ship
+  it('renders the authored steps as one ordered list', () => {
+    const { container } = render(<PipelinePlanCard plan={plan()} onPolicyChange={noop} onApprove={noop} onRequestRevision={noop} />);
+    expect(Array.from(container.querySelectorAll('.ppc-step-title')).map(node => node.textContent)).toEqual([
+      'Collect comments', 'Check out branch', 'Address in code', 'Format & inspect', 'Push & watch CI',
+    ]);
+    expect(screen.queryByText('Prepare')).toBeNull();
+    expect(screen.queryByText('Ship & monitor')).toBeNull();
+  });
+
+  it('expands each step accessibly to show its rationale and every file path', () => {
+    render(<PipelinePlanCard plan={plan()} onApprove={noop} />);
+    const toggle = screen.getByRole('button', { name: 'Expand step 1: Collect comments. Low risk' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('Confirm the failing behavior.')).toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.getByRole('button', { name: 'Collapse step 1: Collect comments. Low risk' }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('Confirm the failing behavior.')).toBeTruthy();
+    expect(screen.getByText('src/cache.ts')).toBeTruthy();
+    expect(screen.getByText('src/cache.test.ts')).toBeTruthy();
+    expect(screen.getAllByText('Low risk').length).toBeGreaterThan(0);
+  });
+
+  it('shows validation, scope boundaries, and push scope without expanding a fold', () => {
+    render(<PipelinePlanCard plan={plan()} onApprove={noop} />);
+    expect(screen.getByText('Run the three cache test classes.')).toBeTruthy();
+    expect(screen.getByText('Changing the cache eviction policy.')).toBeTruthy();
+    expect(screen.getByText('Wait for approval before pushing.')).toBeTruthy();
   });
 
   it('renders backtick spans in the goal as mono chips', () => {
@@ -154,15 +176,4 @@ describe('PipelinePlanCard', () => {
     expect(approveButton.disabled).toBe(false);
   });
 
-  it('collapses phases with no steps to a Skipped column', () => {
-    render(
-      <PipelinePlanCard
-        plan={plan({ steps: [{ n: 1, short: 'Do the work', phase: 'implement' }] })}
-        onApprove={noop}
-      />,
-    );
-    // Prepare, Verify, Ship & monitor are all empty → each reads "Skipped".
-    expect(screen.getAllByText('Skipped').length).toBe(3);
-    expect(screen.getByText('Do the work')).toBeTruthy();
-  });
 });

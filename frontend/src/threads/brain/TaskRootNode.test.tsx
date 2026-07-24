@@ -24,11 +24,12 @@ function plan(over: Partial<PlanCardDto> = {}): PlanCardDto {
     goal: 'Add one canonical parse() and route all sites through it',
     understandingSummary: 'eight copies disagree on validation', intentSummary: 'fullName already renders the string',
     steps: [
-      { ordinal: 1, action: 'Check out the PR branch', files: ['domain/PullRequestRef.java'] },
-      { ordinal: 2, action: 'Add parse(String ref) to PullRequestRef, route all sites through it' },
+      { ordinal: 1, action: 'Check out the PR branch', detail: 'Work from the reviewed branch.', files: ['domain/PullRequestRef.java', 'domain/PullRequestRefTest.java'], risk: 'low' },
+      { ordinal: 2, action: 'Add parse(String ref) to PullRequestRef, route all sites through it', risk: 'med' },
       { ordinal: 3, action: 'Run mvn verify' },
       { ordinal: 4, action: 'Commit and push, watch CI' },
     ],
+    outOfScope: ['Changing pull-request display names'],
     validationStrategy: 'Round-trip parse(fullName()) + mvn verify',
     pushStrategy: 'await_approval',
     signals: { riskLevel: 'low', estimatedComplexity: 'medium', componentsCount: 5, expectedGain: 'High', confidence: 'high' },
@@ -40,17 +41,18 @@ function plan(over: Partial<PlanCardDto> = {}): PlanCardDto {
 function noop() { /* not under test */ }
 
 describe('PlanCard (pipeline adapter)', () => {
-  it('renders goal, the four phases, and buckets steps by keyword', () => {
-    render(<PlanCard plan={plan()} onApprove={noop} />);
+  it('renders the goal and authored steps in ordinal order without inferred phases', () => {
+    const { container } = render(<PlanCard plan={plan({ steps: [
+      { ordinal: 3, action: 'Run mvn verify' },
+      { ordinal: 1, action: 'Check out the PR branch' },
+      { ordinal: 2, action: 'Implement the parser' },
+    ] })} onApprove={noop} />);
     expect(screen.getByText(/one canonical parse/)).toBeTruthy();
-    for (const name of ['Prepare', 'Implement', 'Verify', 'Ship & monitor']) {
-      expect(screen.getByText(name)).toBeTruthy();
-    }
-    // "Check out the PR branch" → Prepare; "Run mvn verify" → Verify;
-    // "Commit and push, watch CI" → Ship; the parse step → Implement.
-    expect(screen.getAllByText('1 step').length).toBe(4);
-    // First file of a step becomes its mono code chip.
-    expect(screen.getByText('domain/PullRequestRef.java')).toBeTruthy();
+    expect(Array.from(container.querySelectorAll('.ppc-step-title')).map(node => node.textContent)).toEqual([
+      'Check out the PR branch', 'Implement the parser', 'Run mvn verify',
+    ]);
+    expect(screen.queryByText('Prepare')).toBeNull();
+    expect(screen.queryByText(/Ensure the main branch is synced/)).toBeNull();
   });
 
   it('maps rev + effort onto the header pills', () => {
@@ -87,20 +89,15 @@ describe('PlanCard (pipeline adapter)', () => {
     expect(onRequestRevision).toHaveBeenCalledWith('keep step 2, redo step 3');
   });
 
-  it('seeds an empty Prepare phase with the default main-branch-sync step', () => {
-    render(
-      <PlanCard
-        plan={plan({ steps: [
-          { ordinal: 1, action: 'Rewrite the payloads to use ObjectMapper' }, // → implement
-          { ordinal: 2, action: 'Run mvn verify and push if green' }, // → verify (not ship)
-        ] })}
-        onApprove={noop}
-      />,
-    );
-    expect(screen.getByText(/Ensure the main branch is synced/)).toBeTruthy();
-    expect(screen.getByText('Run mvn verify and push if green')).toBeTruthy();
-    // Verify won the mvn-vs-push tie, so it is not the skipped column.
-    expect(screen.getAllByText('Skipped').length).toBe(1); // only Ship & monitor
+  it('preserves all step metadata and plan scope from the structured card', () => {
+    render(<PlanCard plan={plan()} onApprove={noop} />);
+    fireEvent.click(screen.getByRole('button', { name: /Expand step 1/ }));
+    expect(screen.getByText('Work from the reviewed branch.')).toBeTruthy();
+    expect(screen.getByText('domain/PullRequestRef.java')).toBeTruthy();
+    expect(screen.getByText('domain/PullRequestRefTest.java')).toBeTruthy();
+    expect(screen.getByText('Changing pull-request display names')).toBeTruthy();
+    expect(screen.getByText('Round-trip parse(fullName()) + mvn verify')).toBeTruthy();
+    expect(screen.getByText('Wait for approval before pushing.')).toBeTruthy();
   });
 
   it('a locked plan shows the approved footer, not the action row', () => {

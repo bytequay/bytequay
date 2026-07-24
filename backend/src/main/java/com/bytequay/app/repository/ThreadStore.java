@@ -47,7 +47,8 @@ public interface ThreadStore
     /** Single-row lookup by id. Empty when no such thread exists. */
     Optional<Thread> findThreadById(String id);
 
-    /** Null-by-absence is the refresh signal: no separate stale flag. */
+    /** The SHA the thread's planning worktree currently sits on; refreshed
+     *  by the turn-start sync whenever the fetched base moved. */
     default Optional<PlanningSnapshot> findPlanningSnapshot(String threadId)
     {
         return Optional.empty();
@@ -55,12 +56,6 @@ public interface ThreadStore
 
     default void setPlanningSnapshot(String threadId, PlanningSnapshot snapshot)
     {
-    }
-
-    /** Consume the snapshot only if it is still the one the task used. */
-    default boolean clearPlanningSnapshot(String threadId, String expectedBaseSha)
-    {
-        return false;
     }
 
     /** Distinct {@code planning_repo_root} values across threads updated

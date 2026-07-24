@@ -14,8 +14,11 @@
 package com.bytequay.app.service.backlog;
 
 import com.bytequay.app.domain.BacklogItem;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.BacklogStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.distillation.DistillationSignalService;
 import com.bytequay.app.service.threads.ThreadService;
@@ -45,6 +48,7 @@ class TestBacklogService
     private BacklogStore store;
     private ThreadService threadService;
     private ThreadStore threadStore;
+    private TaskStore taskStore;
     private DistillationSignalService distillation;
     private BacklogServiceImpl service;
 
@@ -54,8 +58,9 @@ class TestBacklogService
         store = mock(BacklogStore.class);
         threadService = mock(ThreadService.class);
         threadStore = mock(ThreadStore.class);
+        taskStore = mock(TaskStore.class);
         distillation = mock(DistillationSignalService.class);
-        service = new BacklogServiceImpl(store, threadService, threadStore, distillation);
+        service = new BacklogServiceImpl(store, threadService, threadStore, taskStore, distillation);
         when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -306,6 +311,62 @@ class TestBacklogService
         when(store.findById("missing")).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.resolve("missing", "task-1"))
                 .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void listShipsAResolvedItemWhoseTaskMergedAndCompleted()
+    {
+        Task merged = task(TaskPhase.COMPLETED, 44, "merged");
+        when(store.findByThread("thread-1")).thenReturn(List.of(item("b1", true, "task-42")));
+        when(taskStore.findTaskById("task-42")).thenReturn(Optional.of(merged));
+
+        List<BacklogItem> listed = service.list("thread-1");
+
+        assertThat(listed).singleElement()
+                .satisfies(i -> assertThat(i.status()).isEqualTo("shipped"));
+        verify(store).save(any());
+        verify(distillation).record(
+                eq("backlog-ship"), eq("b1"), eq("shipped"), eq(null), any(), any(), any());
+    }
+
+    @Test
+    void listClosesAResolvedItemWhoseTaskCompletedWithoutMerging()
+    {
+        Task closed = task(TaskPhase.COMPLETED, 44, "closed");
+        when(store.findByThread("thread-1")).thenReturn(List.of(item("b1", true, "task-42")));
+        when(taskStore.findTaskById("task-42")).thenReturn(Optional.of(closed));
+
+        List<BacklogItem> listed = service.list("thread-1");
+
+        assertThat(listed).singleElement()
+                .satisfies(i -> assertThat(i.status()).isEqualTo("closed"));
+        verify(distillation).record(
+                eq("backlog-close"), eq("b1"), eq("closed"), eq(null), any(), any(), any());
+    }
+
+    @Test
+    void listLeavesAResolvedItemAloneWhileItsTaskIsStillInFlight()
+    {
+        // The cut task hasn't reached COMPLETED yet — the item stays "resolved"
+        // (shown as "Task cut" in the panel), and nothing is written.
+        Task inFlight = task(TaskPhase.IMPLEMENTING, 44, "open");
+        when(store.findByThread("thread-1")).thenReturn(List.of(item("b1", true, "task-42")));
+        when(taskStore.findTaskById("task-42")).thenReturn(Optional.of(inFlight));
+
+        List<BacklogItem> listed = service.list("thread-1");
+
+        assertThat(listed).singleElement()
+                .satisfies(i -> assertThat(i.status()).isEqualTo("resolved"));
+        verify(store, never()).save(any());
+    }
+
+    private static Task task(TaskPhase phase, Integer prNumber, String prState)
+    {
+        Task task = mock(Task.class);
+        when(task.phase()).thenReturn(phase);
+        when(task.prNumber()).thenReturn(prNumber);
+        when(task.prState()).thenReturn(prState);
+        return task;
     }
 
     @Test

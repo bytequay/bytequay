@@ -37,6 +37,7 @@ export type UsePRState = {
   refresh: () => void;
   /** True while a fetch is in flight — drives the sync chip's spinner. */
   syncing: boolean;
+  error: string | null;
 };
 
 /**
@@ -50,12 +51,17 @@ export function usePR(prId: string | null): UsePRState {
     () => (prId === null ? null : cache.get(prId) ?? undefined),
   );
   const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const pollMs = bundle?.pr.status.startsWith('local-') ? LOCAL_PR_POLL_MS : POLL_MS;
+  const requestGenerationRef = useRef(0);
 
   const shownIdRef = useRef(prId);
   if (shownIdRef.current !== prId) {
     shownIdRef.current = prId;
+    requestGenerationRef.current += 1;
     setBundle(prId === null ? null : cache.get(prId) ?? undefined);
+    setSyncing(false);
+    setError(null);
   }
 
   const fetchOnce = useCallback(() => {
@@ -63,14 +69,22 @@ export function usePR(prId: string | null): UsePRState {
     if (!bridge?.getLocalPrBundle || prId === null) {
       return;
     }
+    const generation = ++requestGenerationRef.current;
     setSyncing(true);
     void bridge.getLocalPrBundle(prId)
       .then(b => {
+        if (shownIdRef.current !== prId || requestGenerationRef.current !== generation) return;
         if (b !== null) cache.set(prId, b);
         setBundle(b);
+        setError(null);
       })
-      .catch(() => { /* transient; the next poll retries */ })
-      .finally(() => setSyncing(false));
+      .catch((reason: unknown) => {
+        if (shownIdRef.current !== prId || requestGenerationRef.current !== generation) return;
+        setError(reason instanceof Error ? reason.message : 'Failed to refresh the pull request');
+      })
+      .finally(() => {
+        if (shownIdRef.current === prId && requestGenerationRef.current === generation) setSyncing(false);
+      });
   }, [prId]);
 
   useEffect(() => {
@@ -79,8 +93,11 @@ export function usePR(prId: string | null): UsePRState {
     }
     fetchOnce();
     const id = window.setInterval(fetchOnce, pollMs);
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+      requestGenerationRef.current += 1;
+    };
   }, [fetchOnce, pollMs, prId]);
 
-  return { bundle, refresh: fetchOnce, syncing };
+  return { bundle, refresh: fetchOnce, syncing, error };
 }

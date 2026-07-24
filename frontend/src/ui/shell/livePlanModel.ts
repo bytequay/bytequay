@@ -96,7 +96,13 @@ export type LivePlanInput = {
   /** The task's currently-open review round — drives the Remote Development
    *  comments row's "round N · M open" meta while it's live. */
   liveRound?: ReviewRoundDto | null;
-  task: { prNumber: number | null; currentPhase: TaskPhase; terminal: boolean };
+  task: {
+    prNumber: number | null;
+    currentPhase: TaskPhase;
+    /** A stopped but resumable task; backend task status wins over phase. */
+    paused: boolean;
+    terminal: boolean;
+  };
   /** The PR's merge-state, when known — drives the Merge / Close row. */
   prStatus?: 'open' | 'draft' | 'queued' | 'merged' | null;
   /** True when a ready-to-merge gate is open (CI green, no unresolved
@@ -159,6 +165,71 @@ const DEV_RUNNING_PHASES = new Set<TaskPhase>(
 const REMOTE_DEVELOPMENT_PHASES = new Set<TaskPhase>(
   ['PUSHED_AWAITING_CI', 'AWAITING_READY', 'AWAITING_REMOTE_REVIEW']);
 
+const LIVE_STATUSES = new Set<LivePlanStatus>(['running', 'planning', 'monitoring']);
+
+/** The lifecycle checkpoint Resume will continue from. A paused task keeps
+ *  its phase, so phase alone cannot be interpreted as evidence of live work. */
+function pausedCheckpoint(
+  phase: TaskPhase,
+  prNumber: number | null,
+): { nodeKey: string; phaseKey?: string } {
+  switch (phase) {
+    case 'PLANNING': return { nodeKey: 'plan' };
+    case 'IMPLEMENTING': return { nodeKey: 'local-development', phaseKey: 'implementing' };
+    case 'VALIDATING': return { nodeKey: 'local-development', phaseKey: 'validation' };
+    case 'INTERNAL_REVIEW': return { nodeKey: 'local-development', phaseKey: 'brainReview' };
+    case 'ADDRESSING_LOCAL_COMMENTS':
+    case 'AWAITING_PUSH':
+      return { nodeKey: 'local-development', phaseKey: 'local-review' };
+    case 'PUSHED_AWAITING_CI':
+      return { nodeKey: 'remote-development', phaseKey: 'ci-validation' };
+    case 'AWAITING_REMOTE_REVIEW':
+      return { nodeKey: 'remote-development', phaseKey: 'comments' };
+    case 'AWAITING_READY':
+      return { nodeKey: 'remote-development' };
+    case 'NEEDS_ATTENTION':
+      return { nodeKey: prNumber === null ? 'local-development' : 'remote-development' };
+    case 'QUEUED':
+      return { nodeKey: 'local-development' };
+    case 'COMPLETED':
+      return { nodeKey: 'cleanup' };
+  }
+}
+
+/** Replace phase/stage-derived live colors with one static, resumable
+ *  checkpoint. PAUSED is task runtime truth and wins over stale ACTIVE rows,
+ *  pending CI, and the task's preserved current phase. */
+function projectPausedTask(nodes: LivePlanNode[], phase: TaskPhase, prNumber: number | null): void {
+  for (const node of nodes) {
+    if (LIVE_STATUSES.has(node.status)) {
+      node.status = 'sleep';
+      node.glyph = ROBOT_KEYS.has(node.key) ? '🤖' : glyphFor('sleep');
+    }
+    for (const child of node.phases ?? []) {
+      if (LIVE_STATUSES.has(child.status)) {
+        child.status = 'sleep';
+        child.glyph = glyphFor('sleep');
+      }
+    }
+  }
+
+  const checkpoint = pausedCheckpoint(phase, prNumber);
+  const node = nodes.find(candidate => candidate.key === checkpoint.nodeKey);
+  if (node === undefined) return;
+  node.status = 'awaiting';
+  node.glyph = ROBOT_KEYS.has(node.key) ? '🤖' : glyphFor('awaiting');
+  node.meta = 'paused · resume';
+
+  const child = checkpoint.phaseKey === undefined
+    ? node.phases?.find(candidate => candidate.status === 'awaiting')
+    : node.phases?.find(candidate => candidate.key === checkpoint.phaseKey);
+  if (child !== undefined && child.status !== 'done') {
+    child.status = 'awaiting';
+    child.glyph = glyphFor('awaiting');
+    child.meta = 'paused · resume';
+  }
+}
+
 function devNodeStatus(
   dev: StageDto | undefined,
   phase: TaskPhase,
@@ -166,6 +237,7 @@ function devNodeStatus(
 ): LivePlanStatus {
   if (prNumber !== null || REMOTE_DEVELOPMENT_PHASES.has(phase) || phase === 'COMPLETED') return 'done';
   if (dev === undefined) return 'future';
+  if (phase === 'NEEDS_ATTENTION') return 'awaiting';
   if (DEV_RUNNING_PHASES.has(phase)) return 'running';
   if (phase === 'AWAITING_PUSH') return 'awaiting';
   if (dev.state === 'CLOSED') return 'done';
@@ -175,7 +247,15 @@ function devNodeStatus(
 function remoteRunStatus(...runs: Array<AgentRunDto | undefined>): LivePlanStatus | null {
   const live = runs.filter((run): run is AgentRunDto => run !== undefined);
   if (live.length === 0) return null;
-  return live.some(run => run.status === 'awaiting_gate') ? 'awaiting' : 'running';
+  if (live.some(run => run.status === 'awaiting_gate' || run.status === 'paused')) return 'awaiting';
+  if (live.some(run => run.status === 'running')) return 'running';
+  return 'sleep';
+}
+
+function runStatus(run: AgentRunDto): LivePlanStatus {
+  if (run.status === 'awaiting_gate' || run.status === 'paused') return 'awaiting';
+  if (run.status === 'running') return 'running';
+  return 'sleep';
 }
 
 function remoteDevelopmentStatus(
@@ -184,6 +264,10 @@ function remoteDevelopmentStatus(
   prNumber: number | null,
   liveRunStatus: LivePlanStatus | null,
 ): LivePlanStatus {
+  // A remote stage/run is not sufficient evidence that remote development
+  // began. The remote half starts only once a GitHub PR exists.
+  if (prNumber === null) return 'future';
+  if (phase === 'NEEDS_ATTENTION') return 'awaiting';
   if (liveRunStatus !== null) return liveRunStatus;
   if (phase === 'COMPLETED' && prNumber !== null) return 'done';
   if (REMOTE_DEVELOPMENT_PHASES.has(phase)) return 'monitoring';
@@ -227,7 +311,7 @@ function commentsStatus(
   roundRun: AgentRunDto | undefined,
   liveRound: ReviewRoundDto | null,
 ): LivePlanStatus {
-  if (roundRun !== undefined) return roundRun.status === 'awaiting_gate' ? 'awaiting' : 'running';
+  if (roundRun !== undefined) return runStatus(roundRun);
   // The round row is authoritative. AgentRun is a projection and can lag if
   // the process stops between arming the gate and updating the run; never
   // hide a real user gate behind a generic "working" state.
@@ -245,14 +329,17 @@ function iterMeta(stage: StageDto | undefined): string | undefined {
   return `iter ${stage.loopIteration}`;
 }
 
-/** The task's one live-or-gated run of `kind`, if any — AgentRunService.open
- *  is idempotent per (task, kind), so there's never more than one. */
-function findLiveRun(runs: AgentRunDto[], kind: AgentRunKind): AgentRunDto | undefined {
-  return runs.find(r => r.kind === kind && (r.status === 'running' || r.status === 'awaiting_gate'));
+function findRemoteLiveRun(runs: AgentRunDto[], kind: AgentRunKind, hasRemotePr: boolean): AgentRunDto | undefined {
+  if (!hasRemotePr) return undefined;
+  return runs.find(r => r.kind === kind && r.source === 'remote'
+    && (r.status === 'queued' || r.status === 'running'
+      || r.status === 'paused' || r.status === 'awaiting_gate'));
 }
 
 function runMeta(run: AgentRunDto): string | undefined {
   if (run.status === 'awaiting_gate') return 'awaiting you';
+  if (run.status === 'paused') return 'paused';
+  if (run.status === 'queued') return 'queued';
   if (run.headline !== null && run.headline !== '') return run.headline;
   return run.iterations > 0 ? `iter ${run.iterations}` : undefined;
 }
@@ -330,8 +417,12 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
     viewedStageId = null, viewingBrain = false, working = false,
     awaitingApprovalStageId = null, devPhases = [], ciStatus = null, ciSummary = null,
   } = input;
-  const liveRuns = task.terminal ? [] : inputLiveRuns;
-  const liveRound = task.terminal ? null : inputLiveRound;
+  const stopped = task.terminal || task.paused === true;
+  const liveRuns = stopped ? [] : inputLiveRuns;
+  const anyLiveRound = stopped ? null : inputLiveRound;
+  const liveRound = task.prNumber !== null && anyLiveRound?.origin === 'external'
+    ? anyLiveRound
+    : null;
   const byType = (type: StageType): StageDto | undefined => stages.find(s => s.type === type);
   const isViewed = (stage: StageDto | undefined): boolean =>
     stage !== undefined && stage.id === viewedStageId;
@@ -343,11 +434,8 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const remote = byType('REMOTE_DEVELOPMENT_STAGE') ?? byType('REVIEW_MONITOR_STAGE');
   const cleanup = byType('CLEANUP_STAGE');
 
-  const ciFixRun = findLiveRun(liveRuns, 'ci_fix');
-  const roundRun = findLiveRun(liveRuns, 'review_round');
-  const remoteCiFixRun = REMOTE_DEVELOPMENT_PHASES.has(task.currentPhase) || task.prNumber !== null
-    ? ciFixRun
-    : undefined;
+  const remoteCiFixRun = findRemoteLiveRun(liveRuns, 'ci_fix', task.prNumber !== null);
+  const roundRun = findRemoteLiveRun(liveRuns, 'review_round', task.prNumber !== null);
   const remoteLiveStatus = remoteRunStatus(remoteCiFixRun, roundRun);
   // The Plan node stands in for the plan "stage" — which is really the
   // brain/root conversation, not a drill-in stage. It tracks the plan's
@@ -361,16 +449,35 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
     (plan === undefined || plan.state !== 'CLOSED') && task.currentPhase === 'PLANNING'
       ? 'planning'
       : stageStatus(plan, true);
-  const localCorePhases = devPhases.length > 0
+  let localCorePhases = devPhases.length > 0
     ? buildDevCorePhases(devPhases, liveRuns)
     : derivedDevCorePhases(task.currentPhase);
+  if (task.currentPhase === 'NEEDS_ATTENTION' && task.prNumber === null) {
+    const brain = localCorePhases.find(phase => phase.key === 'brainReview');
+    const brainReached = anyLiveRound?.origin === 'brain'
+      || brain?.status === 'running'
+      || /review (?:failed|paused)|brain unresolved/i.test(brain?.meta ?? '');
+    const blockedKey = brainReached && brain?.status !== 'done'
+      ? 'brainReview'
+      : localCorePhases.find(phase => phase.status !== 'done')?.key;
+    localCorePhases = localCorePhases.map(phase => ({
+      ...phase,
+      status: phase.key === blockedKey ? 'awaiting'
+        : phase.status === 'running' ? 'future' : phase.status,
+      glyph: glyphFor(phase.key === blockedKey ? 'awaiting'
+        : phase.status === 'running' ? 'future' : phase.status),
+      meta: phase.key === blockedKey ? (phase.meta ?? 'needs attention') : phase.meta,
+    }));
+  }
   const brainReviewPhase = localCorePhases.find(p => p.key === 'brainReview');
   const localReviewStat = localReviewStatus(
     task.currentPhase,
     task.prNumber,
     brainReviewPhase?.status === 'done',
   );
-  const commentsStat = commentsStatus(remote, task.currentPhase, roundRun, liveRound);
+  const commentsStat = task.prNumber === null
+    ? 'future'
+    : commentsStatus(remote, task.currentPhase, roundRun, liveRound);
   const devStatus = localReviewStat === 'awaiting' ? 'awaiting'
     : localReviewStat === 'running' ? 'running'
       : devNodeStatus(dev, task.currentPhase, task.prNumber);
@@ -386,13 +493,10 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   // (PRView already renders the right actions for whatever state the PR is
   // in), so they share the same `tab` nav once there's something to show.
   const prTabNav: LivePlanNav = { kind: 'tab', tab: 'pr' };
-  const remotePrStatus: LivePlanStatus = task.prNumber !== null
-    || REMOTE_DEVELOPMENT_PHASES.has(task.currentPhase) || task.currentPhase === 'COMPLETED'
-    ? 'done'
-    : 'future';
+  const remotePrStatus: LivePlanStatus = task.prNumber !== null ? 'done' : 'future';
 
   const ciValidationStatus: LivePlanStatus = remoteCiFixRun !== undefined
-    ? (remoteCiFixRun.status === 'awaiting_gate' ? 'awaiting' : 'running')
+    ? runStatus(remoteCiFixRun)
     : task.prNumber === null ? 'future'
       : ciStatus === 'green' ? 'done'
         : ciStatus === 'failing' ? 'errored'
@@ -464,7 +568,8 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
       key: 'comments', label: 'Comments', status: commentsStat,
       glyph: roundRun !== undefined ? glyphFor(commentsStat) : '🤖',
       meta: commentsMeta,
-      nav: roundRun !== undefined ? { kind: 'run', runId: roundRun.id } : stageNav(remote),
+      nav: roundRun !== undefined ? { kind: 'run', runId: roundRun.id }
+        : task.prNumber !== null ? stageNav(remote) : { kind: 'none' },
     },
     {
       key: 'merge-close', label: 'Merge / Close', status: mergeStatus,
@@ -489,13 +594,14 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
     },
     {
       key: 'local-development', label: 'Local Development', status: devStatus, glyph: '🤖',
-      meta: iterMeta(dev),
+      meta: task.currentPhase === 'NEEDS_ATTENTION' && task.prNumber === null ? 'needs attention' : iterMeta(dev),
       placement: 'full', activeView: isViewed(dev), nav: stageNav(dev),
       nodeType: 'stage', phases: localPhases,
     },
     {
       key: 'remote-development', label: 'Remote Development', status: remoteStatus, glyph: '🤖',
-      meta: remoteMeta, placement: 'full', activeView: isViewed(remote), nav: stageNav(remote),
+      meta: task.currentPhase === 'NEEDS_ATTENTION' && task.prNumber !== null ? 'needs attention' : remoteMeta,
+      placement: 'full', activeView: isViewed(remote), nav: stageNav(remote),
       nodeType: 'stage', phases: remotePhases,
     },
     {
@@ -507,7 +613,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   // While the active surface's agent is mid-turn, light its node so the user
   // sees it working without waiting for the stage-state poll: the Plan node
   // pulses purple ('planning'), a stage node pulses orange ('running').
-  if (working) {
+  if (working && task.paused !== true && !task.terminal) {
     for (const node of nodes) {
       if (node.activeView) {
         node.status = node.key === 'plan' ? 'planning' : 'running';
@@ -518,7 +624,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
 
   // A stage parked for the user's approval wins over any working/state colour:
   // it needs the user, so light it orange regardless of which node is viewed.
-  if (awaitingApprovalStageId !== null) {
+  if (awaitingApprovalStageId !== null && task.paused !== true && !task.terminal) {
     for (const node of nodes) {
       if (node.nav.kind === 'stage' && node.nav.stageId === awaitingApprovalStageId) {
         node.status = 'awaiting';
@@ -526,6 +632,13 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
         node.meta = 'awaiting approval';
       }
     }
+  }
+
+  // Task-level PAUSED is the final authority. It also replaces a stale stage
+  // approval projection with the single action that can actually continue
+  // the stopped task: Resume.
+  if (task.paused === true && !task.terminal) {
+    projectPausedTask(nodes, task.currentPhase, task.prNumber);
   }
   return nodes;
 }

@@ -11,35 +11,61 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AgentRunDto } from '../../types/brainView';
 
 /** Same cadence as {@link useStageDetailData} — these feed the same live rail. */
 const POLL_MS = 5000;
+
+type TaskRunsState = {
+  runs: AgentRunDto[];
+  error: string | null;
+};
 
 /**
  * Fetches a task's agent runs (live and finished) and polls them — backs
  * the Development stage feed's folded `ci_fix` episodes (plan-rail-runs.md
  * Phase 5).
  */
-export function useTaskRuns(taskId: string): AgentRunDto[] {
+export function useTaskRuns(taskId: string): TaskRunsState {
   const [runs, setRuns] = useState<AgentRunDto[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const shownTaskIdRef = useRef(taskId);
+  const requestGenerationRef = useRef(0);
+
+  if (shownTaskIdRef.current !== taskId) {
+    shownTaskIdRef.current = taskId;
+    requestGenerationRef.current += 1;
+    setRuns([]);
+    setError(null);
+  }
 
   const fetchOnce = useCallback(() => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     if (!bridge?.getTaskRuns) {
       return;
     }
+    const generation = ++requestGenerationRef.current;
     bridge.getTaskRuns(taskId)
-      .then(setRuns)
-      .catch(() => { /* transient; the next poll retries */ });
+      .then(next => {
+        if (shownTaskIdRef.current !== taskId || requestGenerationRef.current !== generation) return;
+        setRuns(next);
+        setError(null);
+      })
+      .catch((reason: unknown) => {
+        if (shownTaskIdRef.current !== taskId || requestGenerationRef.current !== generation) return;
+        setError(reason instanceof Error ? reason.message : 'Failed to refresh task runs');
+      });
   }, [taskId]);
 
   useEffect(() => {
     fetchOnce();
     const id = setInterval(fetchOnce, POLL_MS);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      requestGenerationRef.current += 1;
+    };
   }, [fetchOnce]);
 
-  return runs;
+  return { runs, error };
 }

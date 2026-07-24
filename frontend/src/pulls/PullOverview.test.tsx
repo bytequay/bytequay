@@ -106,6 +106,18 @@ describe('PullOverview', () => {
     expect(avatar.getAttribute('src')).toBe('https://avatars.example/octocat.png');
   });
 
+  it('describes a local artifact as a draft, not an opened remote pull request', () => {
+    const localBundle = {
+      ...bundle,
+      pr: { ...bundle.pr, status: 'local-drafted', remotePrNumber: null },
+    } as LocalPRBundle;
+
+    render(<PullOverview row={row([])} bundle={localBundle} isMerged={false} />);
+
+    expect(screen.getByText(/created local draft/)).toBeTruthy();
+    expect(screen.queryByText(/opened pull request/)).toBeNull();
+  });
+
   it('uses regular weight for every timeline username', () => {
     const items: TimelineItem[] = [
       { kind: 'comment', id: 'c', at: 1, time: 'now', author: 'commenter', bot: false, body: 'body', remoteId: null, replies: [
@@ -120,6 +132,24 @@ describe('PullOverview', () => {
     for (const login of ['commenter', 'replier', 'reviewer', 'merger']) {
       expect(screen.getByText(login).getAttribute('style')).toContain('font-weight: 400');
     }
+  });
+
+  it('labels plan and Dev review outcomes and shows a terminal failure row', () => {
+    const items: TimelineItem[] = [
+      { kind: 'review', id: 'plan', at: 1, time: 'now', author: 'brain', bot: false,
+        verdict: 'approved', body: null, remoteId: null, scope: 'plan', iteration: 1, roundId: null },
+      { kind: 'review-activity', id: 'failed', at: 2, time: 'now', author: 'brain',
+        activity: 'failed', scope: 'dev', iteration: 2, roundId: 'round-abcdef',
+        reason: 'brain_review_turn_failed' },
+    ];
+
+    render(<PullTimeline items={items} repo="trinodb/trino" />);
+
+    expect(screen.getByText(/plan self-review/)).toBeTruthy();
+    expect(screen.getByText('Approved')).toBeTruthy();
+    expect(screen.getByText(/adversarial code review failed to finalize/)).toBeTruthy();
+    expect(screen.getByText(/brain review turn failed/)).toBeTruthy();
+    expect(screen.getByTitle('round-abcdef').textContent).toBe('round round-ab');
   });
 
   it('renders comment-only reviews without calling them changes requested', () => {

@@ -17,6 +17,7 @@ import com.bytequay.app.beans.stage.BrainFeedRow;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.AgentRun;
+import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
@@ -33,6 +34,7 @@ import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.IterationStore;
+import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -90,6 +92,8 @@ class TestStageBrain
     private ThreadTurnStore threadTurnStore;
     @Autowired
     private AgentRunService agentRuns;
+    @Autowired
+    private ReviewRoundStore reviewRounds;
 
     @Test
     void brainFeedIncludesIterationSummariesInChronologicalOrder()
@@ -561,6 +565,49 @@ class TestStageBrain
         taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow().withStatus(TaskStatus.PAUSED));
 
         assertThat(stageService.getBrain(taskId).task().paused()).isTrue();
+    }
+
+    @Test
+    void parkedTaskDoesNotExposeStaleLiveWork()
+    {
+        String taskId = seedTask();
+        StageInstance remote = stageStore.openStage(taskId, StageType.REMOTE_DEVELOPMENT_STAGE, null);
+        AgentRun run = agentRuns.openInStage(
+                taskId, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
+                remote.id().toString(), null);
+        reviewRounds.save(new ReviewRound(
+                UUID.randomUUID().toString(), taskId, 1, List.of("@reviewer"),
+                ReviewRound.STATUS_TRIAGING, ReviewRound.ReviewRoundStats.empty(),
+                run.id(), Instant.parse("2026-06-20T09:30:00Z"), null, null,
+                ReviewRound.ORIGIN_EXTERNAL, null, 1, ReviewRound.DEFAULT_BRAIN_BUDGET));
+        taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow()
+                .withStatus(TaskStatus.NEEDS_ATTENTION));
+
+        TaskBrainViewData brain = stageService.getBrain(taskId);
+
+        assertThat(brain.task().paused()).isTrue();
+        assertThat(brain.task().terminal()).isFalse();
+        assertThat(brain.liveRuns()).isEmpty();
+        assertThat(brain.liveRound()).isNull();
+    }
+
+    @Test
+    void dormantTasksRemainResumableInTheBrainProjection()
+    {
+        for (TaskStatus status : List.of(TaskStatus.ERRORED, TaskStatus.ARCHIVED)) {
+            String taskId = seedTask();
+            StageInstance remote = stageStore.openStage(taskId, StageType.REMOTE_DEVELOPMENT_STAGE, null);
+            agentRuns.openInStage(taskId, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
+                    remote.id().toString(), null);
+            taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow().withStatus(status));
+
+            TaskBrainViewData brain = stageService.getBrain(taskId);
+            TaskBrainViewData.BrainTask projected = brain.task();
+
+            assertThat(projected.paused()).as(status.name()).isTrue();
+            assertThat(projected.terminal()).as(status.name()).isFalse();
+            assertThat(brain.liveRuns()).as(status.name()).isEmpty();
+        }
     }
 
     @Test

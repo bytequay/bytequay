@@ -124,12 +124,24 @@ public class PRSyncService
         return syncPR(prId, DEFAULT_MAX_AGE_SECONDS);
     }
 
+    /** Refreshes display data without advancing the task lifecycle. Passive
+     *  GET polling must never start an agent review. */
+    public Optional<PR> syncPRForDisplay(String prId)
+    {
+        return syncPR(prId, DEFAULT_MAX_AGE_SECONDS, false);
+    }
+
     /**
      * @param maxAgeSeconds forwarded to {@link PullRequestService#refreshPullRequestDetail}
      *  — {@code 0} always probes GitHub, otherwise a probe within the last
      *  {@code maxAgeSeconds} is skipped (see {@link #DEFAULT_MAX_AGE_SECONDS}).
      */
     public Optional<PR> syncPR(String prId, int maxAgeSeconds)
+    {
+        return syncPR(prId, maxAgeSeconds, true);
+    }
+
+    private Optional<PR> syncPR(String prId, int maxAgeSeconds, boolean advanceLifecycle)
     {
         PR pr = prService.findById(prId).orElse(null);
         if (pr == null) {
@@ -149,7 +161,9 @@ public class PRSyncService
         }
         String base = task.baseBranch() == null || task.baseBranch().isBlank() ? DEFAULT_BASE : task.baseBranch();
         syncCommits(pr, task, base);
-        maybeFlipToOpen(pr.id(), task);
+        if (advanceLifecycle) {
+            maybeFlipToOpen(pr.id(), task);
+        }
         pr = healIfAlreadyPushedRemotely(pr, task);
         PR healed = pr;
         if (healed.remotePrNumber() != null) {

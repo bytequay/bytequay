@@ -284,6 +284,53 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
+    void sharedTaskBrainIsReachableAndEvictableByItsActiveStage()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(TASK_ID)));
+        WorkModel brainPick = new WorkModel(
+                WorkModelKind.CLI, "claude-code", "claude-sonnet-4-6", null, "high");
+        when(workModelResolver.resolveForThread("brain-1"))
+                .thenReturn(new WorkModelResolver.Resolved(brainPick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.THREAD, "brain-1", "brain-1")));
+        ThreadRegistry registry = newRegistry();
+        TaskBrainAgent brain = registry.getOrCreateTaskBrainAgent(brainThread());
+        brain.setActiveTask(TASK_ID);
+        brain.setActiveStage("review-stage");
+
+        assertThat(registry.findStage("brain-1", "review-stage")).isPresent();
+        assertThat(registry.findByAgentKey("brain-1", "review-stage")).isPresent();
+        assertThat(registry.findStages(List.of("review-stage"))).hasSize(1);
+
+        registry.evictStage(THREAD_ID, "review-stage");
+
+        assertThat(registry.findTrunk("brain-1")).isEmpty();
+    }
+
+    @Test
+    void sharedTaskBrainIsReachableAndEvictableByItsTask()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(TASK_ID)));
+        WorkModel brainPick = new WorkModel(
+                WorkModelKind.CLI, "claude-code", "claude-sonnet-4-6", null, "high");
+        when(workModelResolver.resolveForThread("brain-1"))
+                .thenReturn(new WorkModelResolver.Resolved(brainPick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.THREAD, "brain-1", "brain-1")));
+        ThreadRegistry registry = newRegistry();
+        TaskBrainAgent brain = registry.getOrCreateTaskBrainAgent(brainThread());
+        brain.setActiveTask(TASK_ID);
+
+        assertThat(registry.findStages(List.of(TASK_ID))).hasSize(1);
+
+        registry.evictStage(THREAD_ID, TASK_ID);
+
+        assertThat(registry.findTrunk("brain-1")).isEmpty();
+    }
+
+    @Test
     void codingStageRoleSkillDoesNotExposeManagedPonytail()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());

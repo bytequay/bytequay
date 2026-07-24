@@ -146,6 +146,10 @@ class ReviewRoundServiceImpl
     @Transactional
     public synchronized void reconcile(Task task)
     {
+        task = taskStore.findTaskById(task.id()).orElse(task);
+        if (!reviewTaskRunnable(task)) {
+            return;
+        }
         Optional<ReviewRound> live = roundStore.findLiveByTask(task.id());
         if (live.isPresent()) {
             // A round is already collecting/addressing/gated — freshly
@@ -271,8 +275,7 @@ class ReviewRoundServiceImpl
             return;
         }
         AgentRun run = agentRuns.findById(round.runId()).orElse(null);
-        if (run == null || task.status() == TaskStatus.NEEDS_ATTENTION
-                || task.phase() == TaskPhase.NEEDS_ATTENTION) {
+        if (run == null || !reviewTaskRunnable(task)) {
             return;
         }
         ThreadTurn kickoff = latestRoundKickoffTurn(task.threadId(), run).orElse(null);
@@ -293,6 +296,9 @@ class ReviewRoundServiceImpl
 
     private void enqueueRoundKickoffIfReady(Task task, ReviewRound round, AgentRun run, List<ReviewComment> comments)
     {
+        if (!reviewTaskRunnable(task)) {
+            return;
+        }
         Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
         if (threadOpt.isEmpty() || threadOpt.get().status() != ThreadStatus.IDLE) {
             log.info("review-round: thread not idle for task {}; round {} turn deferred",
@@ -315,6 +321,19 @@ class ReviewRoundServiceImpl
             log.warn("review-round: enqueue failed for task {} round {}: {}",
                     task.id(), round.id(), e.getMessage());
         }
+    }
+
+    private static boolean reviewTaskRunnable(Task task)
+    {
+        if (task == null || task.phase() == TaskPhase.NEEDS_ATTENTION
+                || task.phase() == TaskPhase.COMPLETED) {
+            return false;
+        }
+        return switch (task.status()) {
+            case PAUSED, NEEDS_ATTENTION, COMPLETED, REMOTE_CLOSED,
+                    ERRORED, CANCELED, ARCHIVED -> false;
+            default -> true;
+        };
     }
 
     private Optional<ThreadTurn> latestRoundKickoffTurn(String threadId, AgentRun run)
@@ -350,6 +369,11 @@ class ReviewRoundServiceImpl
     public List<ReviewRound> findByTask(String taskId)
     {
         List<ReviewRound> rounds = roundStore.findByTask(taskId);
+        boolean taskParked = taskStore.findTaskById(taskId)
+                .map(task -> task.status() == TaskStatus.PAUSED
+                        || task.status() == TaskStatus.NEEDS_ATTENTION
+                        || task.phase() == TaskPhase.NEEDS_ATTENTION)
+                .orElse(false);
         int openBrainFindings = prService.findByTask(taskId)
                 .map(pr -> (int) prService.comments(pr.id()).stream()
                         .filter(comment -> PRTimelineEntry.ACTOR_BRAIN.equals(comment.author()))
@@ -358,13 +382,16 @@ class ReviewRoundServiceImpl
                         .count())
                 .orElse(0);
         return rounds.stream().map(round -> {
+            ReviewRound projected = taskParked && round.isLive()
+                    ? round.withStatus(ReviewRound.STATUS_PAUSED)
+                    : round;
             if (!ReviewRound.ORIGIN_BRAIN.equals(round.origin())) {
-                return round;
+                return projected;
             }
             ReviewRound.ReviewRoundStats stats = round.stats() == null
                     ? ReviewRound.ReviewRoundStats.empty()
                     : round.stats();
-            return round.withStats(new ReviewRound.ReviewRoundStats(
+            return projected.withStats(new ReviewRound.ReviewRoundStats(
                     stats.fixed(), stats.replied(), stats.pushedBack(), openBrainFindings));
         }).toList();
     }

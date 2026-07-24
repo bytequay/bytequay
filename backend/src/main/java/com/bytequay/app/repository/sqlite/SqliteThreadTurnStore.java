@@ -149,6 +149,19 @@ class SqliteThreadTurnStore
                 .toList();
     }
 
+    @Override
+    public List<ThreadTurn> listTurnsByExactTaskIdAndStatus(
+            String taskId, ThreadTurnStatus status, int limit)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(status, "status is null");
+        return turns.findByTaskIdAndStatusOrderByCreatedAtMsDescIdDesc(
+                        taskId, status.name(), firstPage(limit))
+                .stream()
+                .map(SqliteThreadTurnStore::toTurn)
+                .toList();
+    }
+
     private static ThreadTurn toTurn(ThreadTurnEntity e)
     {
         return new ThreadTurn(

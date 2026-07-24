@@ -14,10 +14,14 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.beans.stage.StageDetailData;
+import com.bytequay.app.beans.stage.TaskBrainViewData;
+import com.bytequay.app.domain.Actor;
+import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStageIteration;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
@@ -27,6 +31,7 @@ import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.IterationStore;
+import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -38,6 +43,7 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -66,6 +72,8 @@ class TestStageDetailService
     private TaskStore taskStore;
     @Autowired
     private ThreadStore threadStore;
+    @Autowired
+    private ReviewRoundStore reviewRoundStore;
 
     @Test
     void composesIterationBandsToolCallsSummariesAndMetrics()
@@ -219,6 +227,39 @@ class TestStageDetailService
         assertThat(created.pullRequest().number()).isEqualTo(145);
         assertThat(created.pullRequest().additions()).isEqualTo(12);
         assertThat(created.pullRequest().deletions()).isEqualTo(3);
+    }
+
+    @Test
+    void developmentPhasesKeepValidationDoneAndShowAParkedBrainReview()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        Instant now = stage.openedAt();
+        taskStore.appendPhaseEvent(
+                taskId, TaskPhase.VALIDATING, TaskPhase.INTERNAL_REVIEW,
+                now, "validation_passed", Actor.AGENT);
+        taskStore.updatePhase(taskId, TaskPhase.NEEDS_ATTENTION);
+        reviewRoundStore.save(new ReviewRound(
+                UUID.randomUUID().toString(), taskId, 1, List.of(),
+                ReviewRound.STATUS_PAUSED, ReviewRound.ReviewRoundStats.empty(), null,
+                now, null, null, ReviewRound.ORIGIN_BRAIN, null, 1,
+                ReviewRound.DEFAULT_BRAIN_BUDGET));
+
+        StageDetailData detail = detailService.getDetail(stage.id());
+
+        assertThat(detail.devPhases())
+                .filteredOn(phase -> phase.key().equals("validation"))
+                .singleElement()
+                .extracting(TaskBrainViewData.DevPhase::status)
+                .isEqualTo("done");
+        assertThat(detail.devPhases())
+                .filteredOn(phase -> phase.key().equals("brainReview"))
+                .singleElement()
+                .satisfies(phase -> {
+                    assertThat(phase.status()).isEqualTo("future");
+                    assertThat(phase.meta()).isEqualTo("review failed");
+                });
     }
 
     @Test

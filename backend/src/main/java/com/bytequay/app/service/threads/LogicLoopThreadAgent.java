@@ -147,11 +147,10 @@ public class LogicLoopThreadAgent
     // ── Fields ────────────────────────────────────────────────────────────
 
     private final String threadId;
-    /** For a BRAIN_AGENT thread, the dev task this brain is bound to 1:1
-     *  (via the thread's parentTaskId); null for every other thread. Every
-     *  persisted row is stamped with this so a brain's messages attribute to
-     *  its task and a plain LOGIC_LOOP / trunk thread stamps task_id = null. */
-    private final String parentTaskId;
+    /** Task attribution for the current scheduler turn. A BRAIN_AGENT starts
+     *  with its 1:1 parent task; stage agents receive the explicit turn task
+     *  immediately before dispatch. */
+    private volatile String activeTaskId;
     private final ThreadKind kind;
     private final ThreadStore store;
     /** Stage of the in-flight turn, set by the scheduler before each send;
@@ -399,7 +398,7 @@ public class LogicLoopThreadAgent
             McpPermissionGate permissionGate)
     {
         this.threadId = thread.id();
-        this.parentTaskId = thread.parentTaskId();
+        this.activeTaskId = thread.parentTaskId();
         this.kind = thread.kind();
         this.store = requireNonNull(store, "store is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -1215,18 +1214,29 @@ public class LogicLoopThreadAgent
                 durationMs, tokensIn, tokensOut, costMilli, ts));
     }
 
-    /** The task this thread's rows attribute to. A brain thread is bound
-     *  1:1 to its dev task via parentTaskId; a plain LOGIC_LOOP / trunk
-     *  thread has none, so its rows stamp task_id = null (trunk scope). */
-    private String activeTaskId()
+    /** The task this turn's rows and tools attribute to. */
+    @Override
+    public String activeTaskId()
     {
-        return parentTaskId;
+        return activeTaskId;
+    }
+
+    @Override
+    public void setActiveTask(String taskId)
+    {
+        this.activeTaskId = taskId;
     }
 
     @Override
     public void setActiveStage(String stageId)
     {
         this.activeStageId = stageId;
+    }
+
+    @Override
+    public String activeStageId()
+    {
+        return activeStageId;
     }
 
     @Override

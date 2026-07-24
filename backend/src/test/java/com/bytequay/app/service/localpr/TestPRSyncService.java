@@ -234,6 +234,22 @@ class TestPRSyncService
     }
 
     @Test
+    void passiveDisplayRefreshNeverStartsBrainReview()
+            throws Exception
+    {
+        PR draft = draftPr();
+        when(prService.findById("pr1")).thenReturn(Optional.of(draft));
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.AWAITING_PUSH)));
+        when(prService.commits("pr1")).thenReturn(List.of());
+        when(git.resolveCommitBase(any(), any())).thenReturn("main");
+        when(git.listCommitsAhead(any(), any(), anyInt())).thenReturn(List.of());
+
+        assertThat(service.syncPRForDisplay("pr1")).contains(draft);
+
+        verify(brainReview, never()).reviewBeforeLocalOpen(any(), any());
+    }
+
+    @Test
     void syncsRemoteCommentsAndReviewsOntoTheTimelineOncePushed()
             throws Exception
     {

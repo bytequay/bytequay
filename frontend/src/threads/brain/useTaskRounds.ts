@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReviewRoundDto } from '../../types/brainView';
 
 /** Same cadence as {@link useStageDetailData} — these feed the same live rail. */
@@ -19,6 +19,7 @@ const POLL_MS = 5000;
 
 type TaskRoundsState = {
   rounds: ReviewRoundDto[];
+  error: string | null;
   refresh: () => void;
 };
 
@@ -28,22 +29,43 @@ type TaskRoundsState = {
  */
 export function useTaskRounds(taskId: string): TaskRoundsState {
   const [rounds, setRounds] = useState<ReviewRoundDto[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const shownTaskIdRef = useRef(taskId);
+  const requestGenerationRef = useRef(0);
+
+  if (shownTaskIdRef.current !== taskId) {
+    shownTaskIdRef.current = taskId;
+    requestGenerationRef.current += 1;
+    setRounds([]);
+    setError(null);
+  }
 
   const fetchOnce = useCallback(() => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     if (!bridge?.getTaskRounds) {
       return;
     }
+    const generation = ++requestGenerationRef.current;
     bridge.getTaskRounds(taskId)
-      .then(setRounds)
-      .catch(() => { /* transient; the next poll retries */ });
+      .then(next => {
+        if (shownTaskIdRef.current !== taskId || requestGenerationRef.current !== generation) return;
+        setRounds(next);
+        setError(null);
+      })
+      .catch((reason: unknown) => {
+        if (shownTaskIdRef.current !== taskId || requestGenerationRef.current !== generation) return;
+        setError(reason instanceof Error ? reason.message : 'Failed to refresh review rounds');
+      });
   }, [taskId]);
 
   useEffect(() => {
     fetchOnce();
     const id = setInterval(fetchOnce, POLL_MS);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      requestGenerationRef.current += 1;
+    };
   }, [fetchOnce]);
 
-  return { rounds, refresh: fetchOnce };
+  return { rounds, error, refresh: fetchOnce };
 }

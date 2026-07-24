@@ -78,6 +78,7 @@ public class StageServiceImpl
 
     /** Max events returned with a stage detail payload. */
     private static final int STAGE_DETAIL_EVENT_LIMIT = 50;
+    private static final String VALIDATION_PASSED_REASON = "validation_passed";
 
     private final TaskStore taskStore;
     private final StageStore stageStore;
@@ -148,17 +149,18 @@ public class StageServiceImpl
         // Index of stage display names → id for resolving drill-in chips.
         Map<String, String> stageNameIndex = stageNameIndex(allStages);
 
-        boolean terminal = isTerminal(task.status());
+        boolean runtimeStopped = hasStoppedRuntime(task);
         TaskBrainViewData.CostBreakdown cost = buildCostBreakdown(task, allStages, brainMessages);
-        List<AgentRun> liveRuns = terminal ? List.of() : agentRuns.liveRunsByTask(taskId);
-        ReviewRound liveRound = terminal ? null : liveRound(taskId);
+        List<AgentRun> liveRuns = runtimeStopped ? List.of() : agentRuns.liveRunsByTask(taskId);
+        ReviewRound liveRound = runtimeStopped ? null : liveRound(taskId);
+        List<TaskPhaseEvent> phaseEvents = taskStore.listPhaseEvents(taskId);
         StageInstance dev = allStages.stream()
                 .filter(s -> s.type() == StageType.DEVELOPMENT_STAGE)
                 .findFirst()
                 .orElse(null);
 
         return new TaskBrainViewData(
-                buildTask(task),
+                buildTask(task, phaseEvents),
                 buildAggregate(task, allStages, brainMessages, cost.totalCents()),
                 topLevel,
                 subStages,
@@ -170,21 +172,24 @@ public class StageServiceImpl
                 liveRuns,
                 branchGuards.get(taskId),
                 liveRound,
-                buildDevPhases(task.phase(), dev, liveRuns, reviewRounds.findByTask(taskId)));
+                buildDevPhases(task.phase(), dev, liveRuns, reviewRounds.findByTask(taskId),
+                        phaseEvents));
     }
 
     /** Development's in-stage phase ladder (plan-rail-runs.md R29):
      *  Implementing → Validation → Brain review. {@code status} values are
      *  already in the rail's vocabulary so the frontend applies them as-is. */
-    private static List<TaskBrainViewData.DevPhase> buildDevPhases(
-            TaskPhase phase, StageInstance dev, List<AgentRun> liveRuns, List<ReviewRound> rounds)
+    static List<TaskBrainViewData.DevPhase> buildDevPhases(
+            TaskPhase phase, StageInstance dev, List<AgentRun> liveRuns, List<ReviewRound> rounds,
+            List<TaskPhaseEvent> phaseEvents)
     {
         if (dev == null) {
             return List.of();
         }
         boolean devClosed = dev.state() == StageState.CLOSED;
         boolean pastImplementing = devClosed || phase != TaskPhase.IMPLEMENTING;
-        boolean pastValidation = devClosed || VALIDATION_DONE_PHASES.contains(phase);
+        boolean pastValidation = devClosed || VALIDATION_DONE_PHASES.contains(phase)
+                || phaseEvents.stream().anyMatch(event -> VALIDATION_PASSED_REASON.equals(event.reason()));
         AgentRun localCiFix = liveRuns.stream()
                 .filter(r -> AgentRun.KIND_CI_FIX.equals(r.kind()))
                 .filter(r -> AgentRun.SOURCE_LOCAL.equals(r.source()))
@@ -211,6 +216,10 @@ public class StageServiceImpl
     {
         if (brainRound == null) {
             return new TaskBrainViewData.DevPhase("brainReview", "future", "next", null);
+        }
+        if (ReviewRound.STATUS_PAUSED.equals(brainRound.status())) {
+            return new TaskBrainViewData.DevPhase(
+                    "brainReview", "future", "review failed", null);
         }
         if (brainRound.isLive()) {
             return new TaskBrainViewData.DevPhase(
@@ -291,7 +300,7 @@ public class StageServiceImpl
 
     // ── brain-view builders ─────────────────────────────────────────────
 
-    private static TaskBrainViewData.BrainTask buildTask(Task task)
+    private static TaskBrainViewData.BrainTask buildTask(Task task, List<TaskPhaseEvent> phaseEvents)
     {
         return new TaskBrainViewData.BrainTask(
                 task.id(),
@@ -302,17 +311,42 @@ public class StageServiceImpl
                 task.prNumber(),
                 isDraft(task.prState()),
                 task.phase().name(),
-                statusLabel(task),
+                statusLabel(task, phaseEvents),
                 "CLI",
                 "",
                 task.status() == TaskStatus.PAUSED
                         || task.status() == TaskStatus.NEEDS_ATTENTION
+                        || task.status() == TaskStatus.ERRORED
+                        || task.status() == TaskStatus.ARCHIVED
                         || task.phase() == TaskPhase.NEEDS_ATTENTION,
-                isTerminal(task.status()));
+                isSealed(task.status()));
     }
 
-    /** Terminal task statuses — the rail shows a closed state, not controls. */
-    private static boolean isTerminal(TaskStatus status)
+    /** Irreversible end states. ERRORED and ARCHIVED deliberately stay out:
+     *  {@code TaskService.resumeTask} revives both, so the UI must retain its
+     *  Resume affordance even though their stopped runtimes are not projected. */
+    private static boolean isSealed(TaskStatus status)
+    {
+        return switch (status) {
+            case COMPLETED, REMOTE_CLOSED, CANCELED -> true;
+            default -> false;
+        };
+    }
+
+    /** Tasks whose runtime is stopped, including resumable gates/dormancy. */
+    static boolean hasStoppedRuntime(Task task)
+    {
+        if (task.phase() == TaskPhase.NEEDS_ATTENTION) {
+            return true;
+        }
+        return switch (task.status()) {
+            case PAUSED, NEEDS_ATTENTION, COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED, ARCHIVED -> true;
+            default -> false;
+        };
+    }
+
+    /** Stopped statuses that replace the phase name in the task header. */
+    private static boolean reportsStatusLabel(TaskStatus status)
     {
         return switch (status) {
             case COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED, ARCHIVED -> true;
@@ -1206,12 +1240,17 @@ public class StageServiceImpl
         return nullToEmpty(task.branchName());
     }
 
-    private static String statusLabel(Task task)
+    static String statusLabel(Task task)
     {
-        // A terminal task reports its terminal status (so a manually-closed
+        return statusLabel(task, List.of());
+    }
+
+    static String statusLabel(Task task, List<TaskPhaseEvent> phaseEvents)
+    {
+        // A stopped task reports its status (so a manually-closed
         // task reads CANCELLED, not its last phase); otherwise a humanised
         // phase name stands in until the richer "CI FIXING · iter #N" lands.
-        if (isTerminal(task.status())) {
+        if (reportsStatusLabel(task.status())) {
             return switch (task.status()) {
                 case CANCELED -> "CANCELLED";
                 case COMPLETED -> "COMPLETED";
@@ -1220,6 +1259,20 @@ public class StageServiceImpl
                 case ARCHIVED -> "ARCHIVED";
                 default -> task.status().name();
             };
+        }
+        if (task.status() == TaskStatus.NEEDS_ATTENTION
+                || task.phase() == TaskPhase.NEEDS_ATTENTION) {
+            String reason = task.errorMessage();
+            if (reason == null || reason.isBlank()) {
+                reason = phaseEvents.stream()
+                        .filter(event -> event.toPhase() == TaskPhase.NEEDS_ATTENTION)
+                        .max((left, right) -> left.transitionedAt().compareTo(right.transitionedAt()))
+                        .map(TaskPhaseEvent::reason)
+                        .orElse(null);
+            }
+            if (reason != null && !reason.isBlank()) {
+                return reason.replace('_', ' ');
+            }
         }
         return task.phase().name().replace('_', ' ');
     }

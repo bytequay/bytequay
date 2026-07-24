@@ -29,7 +29,7 @@ export function TaskBrainPage({
   planReminder, onRevealPlan,
   onSubmitReview, submittingReview = false, openTabRequest,
   pendingReviewComments = [], onRemovePendingReviewComment, conversationIndex,
-  onOpenTrunk,
+  onOpenTrunk, error,
 }: {
   task: {
     pillLabel: string;
@@ -48,6 +48,7 @@ export function TaskBrainPage({
   composer: TaskPageComposer;
   run?: {
     statusLabel?: string;
+    statusDetail?: string;
     paused?: boolean;
     terminal?: boolean;
     onPause?: () => void;
@@ -65,6 +66,7 @@ export function TaskBrainPage({
   onRemovePendingReviewComment?: (commentId: string) => void;
   openTabRequest?: { tab: BrainTab; token: number };
   onOpenTrunk?: () => void;
+  error?: string | null;
 }) {
   const parsedTaskNumber = task.taskNumber
     ?? Number.parseInt(task.pillLabel.match(/\d+/)?.[0] ?? '1', 10);
@@ -107,6 +109,7 @@ export function TaskBrainPage({
       onRemovePendingReviewComment={onRemovePendingReviewComment}
       openPrToken={openTabRequest?.tab === 'pr' ? openTabRequest.token : undefined}
       leadingToolbar={reminder}
+      error={error}
     />
   );
 }

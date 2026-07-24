@@ -330,6 +330,38 @@ class TestTaskLifecycleDriver
     }
 
     @Test
+    void pausedRemoteReviewCannotLaunchANewReviewRound()
+    {
+        Task stale = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
+        Task paused = stale.withStatus(TaskStatus.PAUSED);
+        PullRequestDetail ready = detail(CiStatus.PASSING, false);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(ready);
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(paused));
+
+        driver.reconcileTask(stale);
+
+        verify(readyToMerge, never()).evaluate(any(), any());
+        verify(phaseMachine, never()).observe(anyString(), any(), anyString());
+        verify(reviewRounds, never()).reconcile(any());
+    }
+
+    @Test
+    void archivedRemoteReviewCannotLaunchANewReviewRound()
+    {
+        Task stale = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
+        Task archived = stale.withStatus(TaskStatus.ARCHIVED);
+        PullRequestDetail ready = detail(CiStatus.PASSING, false);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(ready);
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(archived));
+
+        driver.reconcileTask(stale);
+
+        verify(readyToMerge, never()).evaluate(any(), any());
+        verify(phaseMachine, never()).observe(anyString(), any(), anyString());
+        verify(reviewRounds, never()).reconcile(any());
+    }
+
+    @Test
     void doesNotHandOffToTheRoundServiceOutsideRemoteReview()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
@@ -593,6 +625,27 @@ class TestTaskLifecycleDriver
 
         verify(phaseMachine, never()).transition(
                 eq("t1.k2"), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString(), any());
+        verify(prService, never()).markLocalAddressed(anyString(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void staleLocalCommentSnapshotCannotDispatchAfterTheTaskWasPaused()
+    {
+        Task stale = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
+        Task paused = stale.withStatus(TaskStatus.PAUSED);
+        Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, commentAt);
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.comments("pr1")).thenReturn(
+                List.of(localComment("cm1", "you", "still open", commentAt, null, null)));
+        when(prService.localReviewSubmissions("pr1")).thenReturn(
+                List.of(submission(commentAt, "cm1")));
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(paused));
+
+        driver.reconcileLocalTask(stale);
+
+        verify(phaseMachine, never()).transition(anyString(), any(), anyString(), any());
         verify(prService, never()).markLocalAddressed(anyString(), any());
         verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
     }

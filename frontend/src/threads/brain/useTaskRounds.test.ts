@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ReviewRoundDto } from '../../types/brainView';
 import { useTaskRounds } from './useTaskRounds';
@@ -29,6 +29,12 @@ function round(id: string): ReviewRoundDto {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
 describe('useTaskRounds', () => {
   it('fetches a task\'s rounds via the bridge', async () => {
     const getTaskRounds = vi.fn(async () => [round('round-1')]);
@@ -36,6 +42,7 @@ describe('useTaskRounds', () => {
 
     const { result } = renderHook(() => useTaskRounds('t'));
     await waitFor(() => expect(result.current.rounds).toHaveLength(1));
+    expect(result.current.error).toBeNull();
     expect(getTaskRounds).toHaveBeenCalledWith('t');
   });
 
@@ -47,5 +54,34 @@ describe('useTaskRounds', () => {
     await waitFor(() => expect(result.current.rounds).toHaveLength(1));
     result.current.refresh();
     await waitFor(() => expect(getTaskRounds).toHaveBeenCalledTimes(2));
+  });
+
+  it('surfaces poll failures', async () => {
+    window.bridge = {
+      getTaskRounds: vi.fn().mockRejectedValue(new Error('Rounds unavailable')),
+    } as unknown as typeof window.bridge;
+
+    const { result } = renderHook(() => useTaskRounds('t'));
+    await waitFor(() => expect(result.current.error).toBe('Rounds unavailable'));
+  });
+
+  it('clears the old task and ignores its late response after an id switch', async () => {
+    const late = deferred<ReviewRoundDto[]>();
+    const next = deferred<ReviewRoundDto[]>();
+    window.bridge = {
+      getTaskRounds: vi.fn((taskId: string) => taskId === 'task-old' ? late.promise : next.promise),
+    } as unknown as typeof window.bridge;
+
+    const { result, rerender } = renderHook(({ id }) => useTaskRounds(id), {
+      initialProps: { id: 'task-old' },
+    });
+    rerender({ id: 'task-new' });
+    expect(result.current.rounds).toEqual([]);
+
+    await act(async () => { next.resolve([round('new-round')]); await next.promise; });
+    expect(result.current.rounds.map(item => item.id)).toEqual(['new-round']);
+
+    await act(async () => { late.resolve([round('old-round')]); await late.promise; });
+    expect(result.current.rounds.map(item => item.id)).toEqual(['new-round']);
   });
 });

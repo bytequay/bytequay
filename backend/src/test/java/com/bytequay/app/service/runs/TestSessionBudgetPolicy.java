@@ -113,6 +113,29 @@ class TestSessionBudgetPolicy
         verify(runs, never()).findById(anyString());
     }
 
+    @Test
+    void terminalRunIsAccountedWithoutBeingReopenedAtTheBudgetCap()
+    {
+        AgentRun prior = run(900L, 10L, 20L);
+        AgentRun completed = run(1_100L, 60L, 40L)
+                .withStatus(AgentRun.STATUS_SUCCEEDED, Instant.parse("2026-07-17T00:01:00Z"));
+        when(runs.findById(prior.id())).thenReturn(Optional.of(prior));
+        when(runs.updateAccounting(prior.id(), 1_100L, 60L, 40L, 1))
+                .thenReturn(completed);
+
+        assertThat(policy.account(
+                prior.id(),
+                new AgentMetrics(100L, 1_000L, 500L, 200L, 2, 1),
+                new AgentMetrics(200L, 1_200L, 550L, 220L, 4, 2)))
+                .isFalse();
+
+        verify(runs, never()).pause(anyString(), anyString());
+        verify(notifications, never()).createCanonical(
+                eq(NotificationKind.NEEDS_ATTENTION),
+                anyString(), anyString(), anyString(), anyString(),
+                anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
     private static AgentRun run(
             long costUsdMilli,
             long tokensIn,

@@ -46,6 +46,15 @@ describe('RunEpisode', () => {
     expect(screen.getByText('done')).toBeTruthy();
   });
 
+  it.each([
+    ['queued', 'queued'],
+    ['paused', 'paused'],
+  ] as const)('labels a %s runtime row truthfully', (status, label) => {
+    const { container } = render(<RunEpisode run={run({ status })} />);
+    expect(screen.getByText(label)).toBeTruthy();
+    expect(container.querySelector('.sp-flash')).toBeNull();
+  });
+
   it('opens the run on click', () => {
     const onOpen = vi.fn();
     render(<RunEpisode run={run()} onOpen={onOpen} />);

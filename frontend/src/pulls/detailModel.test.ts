@@ -131,6 +131,31 @@ describe('buildTimeline', () => {
     expect(items[5]).toMatchObject({ kind: 'review', verdict: 'dismissed' });
   });
 
+  it('retains Brain review scope, round identity, finality, and failure reason', () => {
+    const items = buildTimeline(bundle({
+      timeline: [
+        event({ id: 'plan', eventType: 'review', actor: 'brain',
+          payload: { scope: 'plan', verdict: 'approved', iteration: 1 } }),
+        event({ id: 'start', eventType: 'review', actor: 'brain', createdAt: 1100,
+          payload: { reviewEvent: 'started', scope: 'dev', iteration: 2, roundId: 'round-abcdef' } }),
+        event({ id: 'failed', eventType: 'review', actor: 'brain', createdAt: 1200,
+          payload: { reviewEvent: 'failed', scope: 'dev', iteration: 2,
+            roundId: 'round-abcdef', reason: 'brain_review_turn_failed' } }),
+        event({ id: 'finished', eventType: 'review', actor: 'brain', createdAt: 1300,
+          payload: { reviewEvent: 'finished', scope: 'dev', iteration: 3,
+            roundId: 'round-next', verdict: 'changes_requested', body: 'Remove dead CSS.' } }),
+      ],
+    }));
+
+    expect(items[0]).toMatchObject({ kind: 'review', scope: 'plan', verdict: 'approved', iteration: 1 });
+    expect(items[1]).toMatchObject({ kind: 'review-activity', activity: 'started', scope: 'dev',
+      iteration: 2, roundId: 'round-abcdef' });
+    expect(items[2]).toMatchObject({ kind: 'review-activity', activity: 'failed', scope: 'dev',
+      reason: 'brain_review_turn_failed' });
+    expect(items[3]).toMatchObject({ kind: 'review', scope: 'dev', verdict: 'changes',
+      iteration: 3, roundId: 'round-next' });
+  });
+
   it('shows a locally published GitHub review once using the canonical remote event', () => {
     const items = buildTimeline(bundle({
       timeline: [

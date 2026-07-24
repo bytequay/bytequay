@@ -55,4 +55,13 @@ public interface ThreadTurnStore
     {
         return List.of();
     }
+
+    /** Turns for one exact task in one status, newest-first. Unlike the
+     *  legacy {@code listTurnsByTaskId*} names above, this filters the
+     *  durable row's {@code task_id}, not its owning thread id. */
+    default List<ThreadTurn> listTurnsByExactTaskIdAndStatus(
+            String taskId, ThreadTurnStatus status, int limit)
+    {
+        return List.of();
+    }
 }

@@ -355,7 +355,8 @@ public class TaskLifecycleDriver
             return true;
         }
         return switch (task.status()) {
-            case NEEDS_ATTENTION, COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED -> true;
+            case PAUSED, NEEDS_ATTENTION, COMPLETED, REMOTE_CLOSED,
+                    ERRORED, CANCELED, ARCHIVED -> true;
             default -> false;
         };
     }
@@ -364,8 +365,7 @@ public class TaskLifecycleDriver
      *  Development and back through Brain review. */
     void reconcileLocalTask(Task task)
     {
-        if (task.status() == TaskStatus.NEEDS_ATTENTION
-                || task.phase() == TaskPhase.NEEDS_ATTENTION) {
+        if (isParkedOrTerminal(task)) {
             return; // A real human gate owns the task; never churn agent turns behind it.
         }
         Optional<PR> prOpt = prService.findByTask(task.id());
@@ -405,7 +405,8 @@ public class TaskLifecycleDriver
             else {
                 boolean startBrain = TaskPhaseMachine.withTaskLock(task.id(), () -> {
                     Task current = taskStore.findTaskById(task.id()).orElse(null);
-                    if (current == null || current.phase() != TaskPhase.ADDRESSING_LOCAL_COMMENTS) {
+                    if (isParkedOrTerminal(current)
+                            || current.phase() != TaskPhase.ADDRESSING_LOCAL_COMMENTS) {
                         return false;
                     }
                     Thread thread = threadStore.findThreadById(current.threadId()).orElse(null);
@@ -503,7 +504,7 @@ public class TaskLifecycleDriver
             // either this strict edge blocks Push, or Push completes and this
             // stale sweep leaves the now-remote task alone.
             Task current = taskStore.findTaskById(task.id()).orElse(null);
-            if (current == null) {
+            if (isParkedOrTerminal(current)) {
                 return null;
             }
             if (current.phase() != TaskPhase.ADDRESSING_LOCAL_COMMENTS) {

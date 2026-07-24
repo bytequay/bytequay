@@ -46,7 +46,6 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStageIteration;
-import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.repository.IterationStore;
@@ -172,9 +171,9 @@ public class StageDetailServiceImpl
         // One PR fetch (cached) feeds both the realtime-CI snapshot and the
         // PR tab — pass it to both so the detail call isn't made twice.
         PullRequestDetail prDetail = fetchPrDetail(task);
-        boolean terminal = isTerminal(task.status());
-        List<AgentRun> liveRuns = terminal ? List.of() : agentRuns.liveRunsByTask(task.id());
-        ReviewRound liveRound = terminal ? null : liveRound(task.id());
+        boolean runtimeStopped = StageServiceImpl.hasStoppedRuntime(task);
+        List<AgentRun> liveRuns = runtimeStopped ? List.of() : agentRuns.liveRunsByTask(task.id());
+        ReviewRound liveRound = runtimeStopped ? null : liveRound(task.id());
         StageInstance dev = allStages.stream()
                 .filter(s -> s.type() == StageType.DEVELOPMENT_STAGE)
                 .findFirst()
@@ -196,15 +195,9 @@ public class StageDetailServiceImpl
                 liveRuns,
                 branchGuards.get(task.id()),
                 liveRound,
-                buildDevPhases(task.phase(), dev, liveRuns, reviewRounds.findByTask(task.id())));
-    }
-
-    private static boolean isTerminal(TaskStatus status)
-    {
-        return switch (status) {
-            case COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED, ARCHIVED -> true;
-            default -> false;
-        };
+                StageServiceImpl.buildDevPhases(
+                        task.phase(), dev, liveRuns, reviewRounds.findByTask(task.id()),
+                        taskStore.listPhaseEvents(task.id())));
     }
 
     private String conversationThreadId(StageInstance stage, Task task)
@@ -216,63 +209,6 @@ public class StageDetailServiceImpl
         }
         return task.threadId();
     }
-
-    /** Development's in-stage phase ladder (plan-rail-runs.md R29) — same
-     *  derivation as {@code StageServiceImpl.buildDevPhases}, kept local
-     *  here the same way {@link #liveRound} duplicates rather than shares. */
-    private static List<TaskBrainViewData.DevPhase> buildDevPhases(
-            TaskPhase phase, StageInstance dev, List<AgentRun> liveRuns, List<ReviewRound> rounds)
-    {
-        if (dev == null) {
-            return List.of();
-        }
-        boolean devClosed = dev.state() == StageState.CLOSED;
-        boolean pastImplementing = devClosed || phase != TaskPhase.IMPLEMENTING;
-        boolean pastValidation = devClosed || VALIDATION_DONE_PHASES.contains(phase);
-        AgentRun localCiFix = liveRuns.stream()
-                .filter(r -> AgentRun.KIND_CI_FIX.equals(r.kind()))
-                .filter(r -> AgentRun.SOURCE_LOCAL.equals(r.source()))
-                .filter(r -> dev.id().toString().equals(r.parentStageId()))
-                .findFirst()
-                .orElse(null);
-        ReviewRound brainRound = rounds.stream()
-                .filter(r -> ReviewRound.ORIGIN_BRAIN.equals(r.origin()))
-                .findFirst()
-                .orElse(null);
-
-        return List.of(
-                new TaskBrainViewData.DevPhase(
-                        "implementing", pastImplementing ? "done" : "running", null, null),
-                new TaskBrainViewData.DevPhase(
-                        "validation",
-                        pastValidation ? "done" : phase == TaskPhase.VALIDATING ? "running" : "future",
-                        null,
-                        localCiFix != null ? localCiFix.id() : null),
-                buildBrainReviewPhase(brainRound));
-    }
-
-    private static TaskBrainViewData.DevPhase buildBrainReviewPhase(ReviewRound brainRound)
-    {
-        if (brainRound == null) {
-            return new TaskBrainViewData.DevPhase("brainReview", "future", "next", null);
-        }
-        if (brainRound.isLive()) {
-            return new TaskBrainViewData.DevPhase(
-                    "brainReview", "running", "iter " + brainRound.iteration(), brainRound.runId());
-        }
-        if (ReviewRound.VERDICT_APPROVED.equals(brainRound.brainVerdict())) {
-            return new TaskBrainViewData.DevPhase("brainReview", "done", "brain approved", null);
-        }
-        int open = brainRound.stats() == null ? 0 : brainRound.stats().open();
-        return new TaskBrainViewData.DevPhase(
-                "brainReview", "done", open > 0 ? "brain unresolved · " + open : "brain unresolved", null);
-    }
-
-    /** Phases reached only once Validation has finished. */
-    private static final Set<TaskPhase> VALIDATION_DONE_PHASES = EnumSet.of(
-            TaskPhase.INTERNAL_REVIEW, TaskPhase.AWAITING_PUSH, TaskPhase.ADDRESSING_LOCAL_COMMENTS,
-            TaskPhase.PUSHED_AWAITING_CI, TaskPhase.AWAITING_READY, TaskPhase.AWAITING_REMOTE_REVIEW,
-            TaskPhase.COMPLETED);
 
     // ── task + stage identity ───────────────────────────────────────────
 

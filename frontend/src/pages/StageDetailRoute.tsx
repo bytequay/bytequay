@@ -134,10 +134,10 @@ export function StageDetailRoute({
   /** Open the PR-owned full-review destination at the selected round. */
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
 }) {
-  const { data, refresh } = useStageDetailData(stageId);
+  const { data, error: stageError, refresh } = useStageDetailData(stageId);
   const conversationThreadId = data?.conversationThreadId ?? threadId;
   const { proposal: shipProposal, refresh: refreshShipProposal } = usePendingShipProposal(threadId, taskId);
-  const { data: brain, pollFast } = useBrainViewData(taskId);
+  const { data: brain, error: brainError, pollFast } = useBrainViewData(taskId);
   const conversationRef = useRef<HTMLDivElement | null>(null);
   // The plan is the task's; surface it on every stage via the reminder pill +
   // zoomed overlay (the plan no longer sits in the stage's tab strip).
@@ -145,10 +145,12 @@ export function StageDetailRoute({
   const [text, setText] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [prZoomed, setPrZoomed] = useState(false);
   const {
     bundle: localPrBundle,
     refresh: refreshLocalPr,
+    error: prError,
     deleteLocalComment,
     confirmPush, pushOpen, setPushOpen, prBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
@@ -267,8 +269,8 @@ export function StageDetailRoute({
   // The Dev feed folds its `ci_fix` runs (not tied to a review round) into
   // episodes; the Comments feed replaces the flat transcript with the round
   // list entirely. Both read from the same task-wide runs fetch.
-  const taskRuns = useTaskRuns(taskId);
-  const { rounds, refresh: refreshRounds } = useTaskRounds(taskId);
+  const { runs: taskRuns, error: runsError } = useTaskRuns(taskId);
+  const { rounds, error: roundsError, refresh: refreshRounds } = useTaskRounds(taskId);
   const devRunEpisodes = useMemo(
     () => taskRuns
       .filter(r => r.kind === 'ci_fix' && r.reviewRoundId === null)
@@ -283,7 +285,8 @@ export function StageDetailRoute({
     for (const r of taskRuns) {
       if (r.reviewRoundId === null) continue;
       const existing = map.get(r.reviewRoundId);
-      const rLive = r.status === 'running' || r.status === 'awaiting_gate';
+      const rLive = r.status === 'queued' || r.status === 'running'
+        || r.status === 'paused' || r.status === 'awaiting_gate';
       if (existing === undefined || rLive) map.set(r.reviewRoundId, r);
     }
     return map;
@@ -291,10 +294,13 @@ export function StageDetailRoute({
   const [approvingRoundId, setApprovingRoundId] = useState<string | null>(null);
   const approveRound = useCallback((roundId: string) => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    if (!bridge?.approveRound) return;
+    setActionError(null);
     setApprovingRoundId(roundId);
-    void bridge?.approveRound(roundId)
+    void bridge.approveRound(roundId)
       .then(() => { refreshRounds(); refresh(); })
-      .catch(() => { /* poll reconciles */ })
+      .catch((reason: unknown) => setActionError(
+        reason instanceof Error ? reason.message : 'Could not approve the review round'))
       .finally(() => setApprovingRoundId(null));
   }, [refreshRounds, refresh]);
   // Local-PR interactivity is gated on the TASK lifecycle, not the viewed
@@ -710,6 +716,7 @@ export function StageDetailRoute({
     task: {
       prNumber: data?.task.prNumber ?? brain.task.prNumber,
       currentPhase: sidebarPhase,
+      paused: brain.task.paused,
       terminal: brain.task.terminal,
     },
     prStatus: pr?.status ?? null,
@@ -721,7 +728,7 @@ export function StageDetailRoute({
     ciSummary: brain.rightRail.linkedPr?.ciSummary ?? null,
   }), [
     planStages, planSubStages, planLiveRuns, planGuard, planLiveRound, planDevPhases,
-    data?.task.prNumber, brain.task.prNumber, sidebarPhase, brain.task.terminal,
+    data?.task.prNumber, brain.task.prNumber, sidebarPhase, brain.task.paused, brain.task.terminal,
     pr, shipProposal, stageId, working, brain.rightRail.linkedPr,
   ]);
   const activeStageLabel = livePlanNodes.find(node => node.activeView)?.label
@@ -826,13 +833,26 @@ export function StageDetailRoute({
         paused: brain.task.paused,
         terminal: brain.task.terminal,
         statusLabel: brain.task.paused ? brain.task.statusLabel : state ?? 'Running',
+        statusDetail: brain.task.paused
+          ? brain.rightRail.approval?.reasonShort
+            ?? brain.devPhases.find(phase => /failed|attention|unresolved/i.test(phase.meta ?? ''))?.meta
+          : undefined,
         onPause: () => {
-          void window.bridge.pauseTask(threadId, taskId).then(() => { pollFast(); refresh(); });
+          setActionError(null);
+          void window.bridge.pauseTask(threadId, taskId)
+            .then(() => { pollFast(); refresh(); })
+            .catch((reason: unknown) => setActionError(
+              reason instanceof Error ? reason.message : 'Could not pause the task'));
         },
         onResume: () => {
-          void window.bridge.resumePausedTask(threadId, taskId).then(() => { pollFast(); refresh(); });
+          setActionError(null);
+          void window.bridge.resumePausedTask(threadId, taskId)
+            .then(() => { pollFast(); refresh(); })
+            .catch((reason: unknown) => setActionError(
+              reason instanceof Error ? reason.message : 'Could not resume the task'));
         },
       }}
+      error={actionError ?? prError ?? stageError ?? brainError ?? roundsError ?? runsError}
       tabs={{
         pr: stagePullDetail ?? undefined,
       }}

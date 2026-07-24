@@ -130,6 +130,20 @@ class TestReviewRoundService
     }
 
     @Test
+    void findByTaskProjectsALiveRoundAsPausedWhenTheTaskNeedsAttention()
+    {
+        ReviewRound live = round(ReviewRound.STATUS_TRIAGING);
+        when(roundStore.findByTask(TASK_ID)).thenReturn(List.of(live));
+        when(taskStore.findTaskById(TASK_ID))
+                .thenReturn(Optional.of(taskAtPhase(TaskPhase.INTERNAL_REVIEW)
+                        .withStatus(TaskStatus.NEEDS_ATTENTION)));
+
+        assertThat(service.findByTask(TASK_ID).getFirst().status())
+                .isEqualTo(ReviewRound.STATUS_PAUSED);
+        verify(roundStore, never()).save(any());
+    }
+
+    @Test
     void reconcileNeverOpensASecondRoundButRefreshesTheLiveOnesStats()
     {
         Task task = task();
@@ -245,6 +259,22 @@ class TestReviewRoundService
 
         verifyNoInteractions(brainReview);
         verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString());
+    }
+
+    @Test
+    void reconcileNeverEnqueuesADeferredKickoffForPausedOrArchivedTasks()
+    {
+        Task stale = task();
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(
+                Optional.of(stale.withStatus(TaskStatus.PAUSED)),
+                Optional.of(stale.withStatus(TaskStatus.ARCHIVED)));
+
+        service.reconcile(stale);
+        service.reconcile(stale);
+
+        verify(roundStore, never()).findLiveByTask(TASK_ID);
+        verify(scheduler, never()).enqueueTaskTurn(
+                any(), anyString(), anyString(), anyString(), any(), anyString());
     }
 
     @Test

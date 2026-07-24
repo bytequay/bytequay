@@ -982,6 +982,30 @@ class TestPRService
     }
 
     @Test
+    void recordBrainPlanReviewStartedWritesATimelineEventWhenThePrExists()
+            throws Exception
+    {
+        PR existing = PR.create("pr1", "task1", "dev/x", "main", "T", "", NOW);
+        when(store.findByTaskId("task1")).thenReturn(Optional.of(existing));
+
+        service.recordBrainReviewStarted("task1", "plan", 1, null);
+
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        PRTimelineEntry started = event.getValue();
+        assertThat(started.prId()).isEqualTo("pr1");
+        assertThat(started.eventType()).isEqualTo(PRTimelineEntry.TYPE_REVIEW);
+        assertThat(started.actor()).isEqualTo(PRTimelineEntry.ACTOR_BRAIN);
+        assertThat(started.localOnly()).isTrue();
+        assertThat(new ObjectMapper().readTree(started.payloadJson()))
+                .extracting(
+                        payload -> payload.path("reviewEvent").asText(),
+                        payload -> payload.path("scope").asText(),
+                        payload -> payload.path("iteration").asInt())
+                .containsExactly("started", "plan", 1);
+    }
+
+    @Test
     void recordBrainReviewNoOpsWhenTheTaskHasNoPrYet()
     {
         when(store.findByTaskId("task1")).thenReturn(Optional.empty());

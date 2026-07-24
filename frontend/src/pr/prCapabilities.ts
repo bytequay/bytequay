@@ -44,8 +44,10 @@ export interface PRCapabilities {
 const TERMINAL_STATUSES = new Set(['merged', 'closed']);
 const REMOTE_COMMENT_STATUSES = new Set(['remote-drafted', 'remote-open', 'merged']);
 /** Once a task PR reaches GitHub it is reviewed like any remote PR: the user
- *  may draft inline comments and publish them as one GitHub review (their own
- *  authorship limits the verdict to Comment). Before push it stays private. */
+ *  may draft inline comments and publish them as one GitHub review. GitHub
+ *  itself rejects Approve/Request-changes on a PR you authored — the UI
+ *  offers all three verdicts and lets that rejection surface as an error.
+ *  Before push it stays private. */
 const REMOTE_TASK_REVIEW_STATUSES = new Set(['remote-drafted', 'remote-open']);
 
 /** The single source of truth for what a PR surface may do — derived purely

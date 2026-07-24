@@ -191,9 +191,9 @@ public class ThreadRegistry
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
                 thread -> workspaceMemory(workspaces, thread),
                 leaseService,
-                // The trunk runs in its own detached planning worktree. The first
-                // turn after a task cut fetches + indexes a stable snapshot;
-                // follow-up turns reuse it until the next task consumes it.
+                // The trunk runs in its own detached planning worktree. Every
+                // turn starts from the freshest locally-known base — background
+                // fetches keep those refs current, so no turn touches the network.
                 thread -> resolveTrunkPlanningCwd(
                         store, worktreeService, workspaces, watchedRepos, thread),
                 skillMaterializer,
@@ -255,10 +255,13 @@ public class ThreadRegistry
 
     /**
      * Trunk cwd resolver that anchors planning to the base branch: resolve
-     * the clone root as before, then fetch + checkout a read-only planning
-     * worktree at the up-to-date base ref and run the trunk there. Refuses
-     * to fall back to the user's clone root: it may contain unrelated local
-     * edits, which are not a safe planning base.
+     * the clone root, then sync the thread's read-only planning worktree to
+     * the freshest locally-known base ref and run the trunk there. The sync
+     * is all-local (background fetches keep the refs current); the snapshot
+     * row is rewritten only when the base actually moved, so an unchanged
+     * base doesn't churn the thread's {@code updated_at}. Refuses to fall
+     * back to the user's clone root: it may contain unrelated local edits,
+     * which are not a safe planning base.
      */
     private static String resolveTrunkPlanningCwd(
             ThreadStore store,
@@ -269,13 +272,13 @@ public class ThreadRegistry
     {
         String cloneRoot = resolveTrunkCwdForWorkspace(workspaces, watchedRepos, thread);
         Path repoRoot = Path.of(cloneRoot).toAbsolutePath().normalize();
-        Optional<ThreadStore.PlanningSnapshot> active = store.findPlanningSnapshot(thread.id())
-                .filter(snapshot -> repoRoot.toString().equals(snapshot.repoRoot()));
-        Optional<WorktreeService.PlanningSync> ready = active.isPresent()
-                ? worktreeService.ensurePlanningWorktree(
-                        repoRoot, thread.id(), active.get().baseSha())
-                : worktreeService.refreshPlanningWorktree(repoRoot, thread.id());
-        ready.filter(ignored -> active.isEmpty())
+        String pinnedSha = store.findPlanningSnapshot(thread.id())
+                .filter(snapshot -> repoRoot.toString().equals(snapshot.repoRoot()))
+                .map(ThreadStore.PlanningSnapshot::baseSha)
+                .orElse(null);
+        Optional<WorktreeService.PlanningSync> ready =
+                worktreeService.syncPlanningWorktree(repoRoot, thread.id(), pinnedSha);
+        ready.filter(sync -> !sync.baseSha().equals(pinnedSha))
                 .ifPresent(sync -> store.setPlanningSnapshot(
                         thread.id(), new ThreadStore.PlanningSnapshot(
                                 repoRoot.toString(), sync.baseSha())));
@@ -842,8 +845,8 @@ public class ThreadRegistry
         return switch (thread.kind()) {
             case CLI_AGENT -> {
                 WorkModel resolved = resolveWorkModel(thread.id());
-                // The resolver refreshes only when no planning snapshot is
-                // active; otherwise this is a cheap reuse of the same cwd/SHA.
+                // The resolver applies whatever base movement the background
+                // fetcher brought down; an unmoved base reopens cheaply.
                 String initialCwd = trunkCwdResolver.apply(thread);
                 AbstractCliThreadAgent agent = isCodex(thread, resolved)
                         ? new CodexCliThreadAgent(

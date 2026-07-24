@@ -455,7 +455,6 @@ public class WorktreeService
         if (!git.isAvailable()) {
             return Optional.empty();
         }
-        Path planningPath = planningPath(repoRoot, threadId);
         synchronized (planningLockFor(repoRoot)) {
             try {
                 preparePlanningRoot(repoRoot);
@@ -463,26 +462,7 @@ public class WorktreeService
                 if (baseRef == null) {
                     return Optional.empty();
                 }
-                String previousSha = Files.isDirectory(planningPath)
-                        ? git.headSha(planningPath)
-                        : null;
-                if (Files.isDirectory(planningPath)) {
-                    git.resetHard(planningPath, baseRef);
-                }
-                else {
-                    appendToGitInfoExclude(repoRoot);
-                    git.worktreeAddDetached(repoRoot, planningPath, baseRef);
-                }
-                String baseSha = git.headSha(planningPath);
-                CodeGraphResult indexed = codeGraph.ensureFreshSync(
-                        planningPath, "planning-snapshot-refreshed");
-                if (!indexed.ok()) {
-                    log.warn("Planning snapshot {} reached {} but CodeGraph failed: {}",
-                            threadId, baseSha, indexed.message());
-                    restorePreviousSnapshot(planningPath, previousSha);
-                    return Optional.empty();
-                }
-                return Optional.of(new PlanningSync(planningPath, baseRef, baseSha));
+                return refreshTo(repoRoot, threadId, baseRef);
             }
             catch (IOException | RuntimeException e) {
                 log.warn("Planning worktree for {} unavailable ({}); trunk planning is blocked",
@@ -494,6 +474,79 @@ public class WorktreeService
                 return Optional.empty();
             }
         }
+    }
+
+    /**
+     * Turn-start sync — all local, no network. Resolves the base ref from
+     * the already-fetched remote-tracking refs ({@link PlanningBaseRefresher}
+     * keeps them current in the background), compares the tip to the pinned
+     * snapshot, and resets + re-indexes only when the base actually moved.
+     * Callers detect a move by comparing the returned SHA to their pinned
+     * one. With no pinned SHA (first turn) this falls back to
+     * {@link #refreshPlanningWorktree}, which fetches synchronously once.
+     */
+    public Optional<PlanningSync> syncPlanningWorktree(Path repoRoot, String threadId, String pinnedSha)
+    {
+        requireNonNull(repoRoot, "repoRoot is null");
+        requireNonNull(threadId, "threadId is null");
+        if (pinnedSha == null || pinnedSha.isBlank()) {
+            return refreshPlanningWorktree(repoRoot, threadId);
+        }
+        if (!git.isAvailable()) {
+            return Optional.empty();
+        }
+        synchronized (planningLockFor(repoRoot)) {
+            try {
+                String baseRef = localPlanningBaseRef(repoRoot);
+                String tip = baseRef == null
+                        ? null
+                        : git.resolveCommitSha(repoRoot, baseRef).orElse(null);
+                if (tip == null || tip.equals(pinnedSha)) {
+                    // Unmoved (or unresolvable) base: reopen the pinned checkout.
+                    return ensurePlanningWorktree(repoRoot, threadId, pinnedSha);
+                }
+                preparePlanningRoot(repoRoot);
+                return refreshTo(repoRoot, threadId, baseRef);
+            }
+            catch (IOException | RuntimeException e) {
+                log.warn("Planning sync for {} in {} failed ({}); reopening the pinned snapshot",
+                        threadId, repoRoot, e.getMessage());
+                return ensurePlanningWorktree(repoRoot, threadId, pinnedSha);
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return Optional.empty();
+            }
+        }
+    }
+
+    /** Reset the thread's planning worktree to {@code baseRef} (creating it
+     *  if absent) and synchronously re-index it. Callers hold the planning
+     *  lock and have prepared the planning root. */
+    private Optional<PlanningSync> refreshTo(Path repoRoot, String threadId, String baseRef)
+            throws IOException, InterruptedException
+    {
+        Path planningPath = planningPath(repoRoot, threadId);
+        String previousSha = Files.isDirectory(planningPath)
+                ? git.headSha(planningPath)
+                : null;
+        if (Files.isDirectory(planningPath)) {
+            git.resetHard(planningPath, baseRef);
+        }
+        else {
+            appendToGitInfoExclude(repoRoot);
+            git.worktreeAddDetached(repoRoot, planningPath, baseRef);
+        }
+        String baseSha = git.headSha(planningPath);
+        CodeGraphResult indexed = codeGraph.ensureFreshSync(
+                planningPath, "planning-snapshot-refreshed");
+        if (!indexed.ok()) {
+            log.warn("Planning snapshot {} reached {} but CodeGraph failed: {}",
+                    threadId, baseSha, indexed.message());
+            restorePreviousSnapshot(planningPath, previousSha);
+            return Optional.empty();
+        }
+        return Optional.of(new PlanningSync(planningPath, baseRef, baseSha));
     }
 
     /**
@@ -654,12 +707,7 @@ public class WorktreeService
     private String resolvePlanningBaseRef(Path repoRoot)
             throws IOException, InterruptedException
     {
-        WatchedRepo repo = watchedRepoFor(repoRoot).orElse(null);
-        String remote = repo != null
-                && repo.upstreamRemoteName() != null
-                && !repo.upstreamRemoteName().isBlank()
-                ? repo.upstreamRemoteName()
-                : "origin";
+        String remote = baseRemoteName(repoRoot);
         try {
             git.fetchRemote(repoRoot, remote);
         }
@@ -667,6 +715,20 @@ public class WorktreeService
             log.warn("Fetch of {} in {} failed ({}); planning from last-known {}/HEAD",
                     remote, repoRoot, e.getMessage(), remote);
         }
+        return trackedPlanningBaseRef(repoRoot, remote);
+    }
+
+    /** The same {@code <remote>/<default>} ref, resolved purely from the
+     *  local remote-tracking refs — no fetch, safe on a turn path. */
+    private String localPlanningBaseRef(Path repoRoot)
+            throws IOException, InterruptedException
+    {
+        return trackedPlanningBaseRef(repoRoot, baseRemoteName(repoRoot));
+    }
+
+    private String trackedPlanningBaseRef(Path repoRoot, String remote)
+            throws IOException, InterruptedException
+    {
         Optional<String> branch = git.defaultBranch(repoRoot, remote);
         return branch.filter(b -> !b.isBlank()).map(b -> remote + "/" + b).orElse(null);
     }

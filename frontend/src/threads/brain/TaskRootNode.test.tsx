@@ -112,9 +112,17 @@ describe('PlanCard (pipeline adapter)', () => {
   it('a draft plan (not yet finalized) reads "Plan drafting", not "Plan ready"', () => {
     // The caller only wires onApprove once plan.state === 'awaiting' (draft
     // stays disabled), so the card must say so instead of claiming "ready".
-    render(<PlanCard plan={plan({ state: 'draft' })} onRequestRevision={noop} />);
+    render(<PlanCard plan={plan({ state: 'draft', status: 'suggested' })} onRequestRevision={noop} />);
     expect(screen.getByText('Plan drafting')).toBeTruthy();
     expect(screen.queryByText('Plan ready')).toBeNull();
+    const approveButton = screen.getByText('Approve & start dev').closest('button') as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+  });
+
+  it('maps a finalized plan awaiting mandatory self-review to the reviewing state', () => {
+    render(<PlanCard plan={plan({ state: 'draft', status: 'finalized' })} onRequestRevision={noop} />);
+    expect(screen.getByText('Brain reviewing plan')).toBeTruthy();
+    expect(screen.queryByText('Plan drafting')).toBeNull();
     const approveButton = screen.getByText('Approve & start dev').closest('button') as HTMLButtonElement;
     expect(approveButton.disabled).toBe(true);
   });

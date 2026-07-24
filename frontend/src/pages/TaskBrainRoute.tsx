@@ -24,7 +24,7 @@ import type { TaskPhase } from '../types/brainView';
 import { Conv, DecisionNode, EventTimestamp, NodeCard, QueuedMessages, Working } from '../ui/conv';
 import { SparkIcon } from '../ui/TaskBrainDesignIcons';
 import { BrainFeed } from '../threads/brain/BrainFeed';
-import { PlanCard, PlanningSeed, planStepComments } from '../threads/brain/TaskRootNode';
+import { isPlanSelfReviewing, PlanCard, PlanningSeed, planStepComments } from '../threads/brain/TaskRootNode';
 import { TaskSidebar } from '../ui/shell/TaskSidebar';
 import { buildLivePlan } from '../ui/shell/livePlanModel';
 import { TaskBrainPage } from './TaskBrainPage';
@@ -378,6 +378,7 @@ export function TaskBrainRoute({
   // the user, approving closes the PlanStage, opens the DevelopmentStage,
   // and navigates there.
   const plan = data.rightRail.plan;
+  const planSelfReviewing = plan !== null && isPlanSelfReviewing(plan);
   const approvePlan = () => {
     if (plan === null) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -446,7 +447,8 @@ export function TaskBrainRoute({
           <div className="plan-feed-event__copy">
             <strong>{plan.state === 'locked'
               ? 'Plan finalized'
-              : plan.state === 'awaiting' ? 'Plan ready' : 'Plan drafting'}</strong>
+              : plan.state === 'awaiting' ? 'Plan ready'
+                : planSelfReviewing ? 'Brain reviewing plan' : 'Plan drafting'}</strong>
             <span>
               rev {plan.revisionCount}
               {' · '}

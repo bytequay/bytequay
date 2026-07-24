@@ -2206,7 +2206,7 @@ export type BacklogItemDto = {
   priority: string;
   /** Broad source category retained for compatibility: manual | agent. */
   source: string;
-  /** created | in-progress | resolved | not-to-proceed. */
+  /** created | in-progress | resolved | shipped | closed | not-to-proceed. */
   status: string;
   /** user | trunk-agent. */
   createdBy: string;

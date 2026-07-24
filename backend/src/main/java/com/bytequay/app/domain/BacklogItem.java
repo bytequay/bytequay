@@ -21,8 +21,9 @@ import java.util.List;
 /**
  * One parked future-work item on a thread's backlog — the JIRA-like parking
  * lot behind the trunk's Backlog tab. Carries a status machine
- * ({@code created} -> {@code in-progress} -> {@code resolved}, with
- * {@code created} <-> {@code not-to-proceed}), a priority + source +
+ * ({@code created} -> {@code in-progress} -> {@code resolved} ->
+ * {@code shipped}/{@code closed}, with {@code created} <->
+ * {@code not-to-proceed}), a priority + source +
  * creator provenance, a workspace pointer for the workspace-wide view, and
  * the {@code relatedBacklogIds} sibling linkage trunk-split sets. Lifecycle
  * transitions go through the {@code with*} / {@code mark*} copy helpers so
@@ -62,6 +63,8 @@ public record BacklogItem(
     public static final String STATUS_CREATED = STATUS_OPEN;
     public static final String STATUS_IN_PROGRESS = "in-progress";
     public static final String STATUS_RESOLVED = "resolved";
+    public static final String STATUS_SHIPPED = "shipped";
+    public static final String STATUS_CLOSED = "closed";
     public static final String STATUS_DISCARDED = "discarded";
     public static final String STATUS_NOT_TO_PROCEED = STATUS_DISCARDED;
     public static final String CREATED_BY_USER = "user";
@@ -195,6 +198,31 @@ public record BacklogItem(
                 inProgressAt == null ? when : inProgressAt, startedAt == null ? when : startedAt,
                 when, rejectedAt, rejectionReason, taskId, relatedBacklogIds,
                 itemKey, summary, detail, impactRisk, links);
+    }
+
+    /** Move into {@code shipped} once the cut task's PR merges (the task
+     *  reaches COMPLETED). Terminal; keeps the {@code resolvedAt} cut stamp
+     *  and the linked task. */
+    public BacklogItem markShipped()
+    {
+        return withStatus(STATUS_SHIPPED);
+    }
+
+    /** Move into {@code closed} when the cut task reaches COMPLETED without
+     *  its PR merging (closed unmerged, or none opened). Terminal; keeps the
+     *  {@code resolvedAt} cut stamp and the linked task. */
+    public BacklogItem markClosed()
+    {
+        return withStatus(STATUS_CLOSED);
+    }
+
+    private BacklogItem withStatus(String newStatus)
+    {
+        return new BacklogItem(
+                id, threadId, workspaceId, title, body, tags,
+                priority, source, newStatus, createdBy, origin, createdAt,
+                inProgressAt, startedAt, resolvedAt, rejectedAt, rejectionReason, linkedTaskId,
+                relatedBacklogIds, itemKey, summary, detail, impactRisk, links);
     }
 
     /** Move into {@code not-to-proceed} with an optional reason. */

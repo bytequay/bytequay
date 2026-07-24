@@ -14,8 +14,11 @@
 package com.bytequay.app.service.backlog;
 
 import com.bytequay.app.domain.BacklogItem;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.BacklogStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.distillation.DistillationSignalService;
 import com.bytequay.app.service.threads.ThreadService;
@@ -41,24 +44,62 @@ public class BacklogServiceImpl
     private final BacklogStore store;
     private final ThreadService threadService;
     private final ThreadStore threadStore;
+    private final TaskStore taskStore;
     private final DistillationSignalService distillation;
 
     public BacklogServiceImpl(
             BacklogStore store,
             ThreadService threadService,
             ThreadStore threadStore,
+            TaskStore taskStore,
             DistillationSignalService distillation)
     {
         this.store = requireNonNull(store, "store is null");
         this.threadService = requireNonNull(threadService, "threadService is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.distillation = requireNonNull(distillation, "distillation is null");
     }
 
     @Override
     public List<BacklogItem> list(String threadId)
     {
-        return store.findByThread(nullToEmpty(threadId).strip());
+        List<BacklogItem> items = store.findByThread(nullToEmpty(threadId).strip());
+        List<BacklogItem> reconciled = new ArrayList<>(items.size());
+        for (BacklogItem item : items) {
+            reconciled.add(settleIfTaskCompleted(item));
+        }
+        return reconciled;
+    }
+
+    /**
+     * Self-heal a resolved (task-cut) item whose cut task has since reached
+     * COMPLETED — advancing it to {@code shipped} (PR merged) or {@code
+     * closed} (closed unmerged, or no PR). Settling is driven from here, on
+     * read, rather than a one-shot completion event so that a task which
+     * merged before this wiring existed — or whose event was lost — still
+     * settles the next time its backlog is viewed (by the trunk panel or the
+     * agent's timeline, both of which route through {@link #list}). The write
+     * lands at most once per item: once settled, the status guard below
+     * short-circuits every later read.
+     */
+    private BacklogItem settleIfTaskCompleted(BacklogItem item)
+    {
+        if (!BacklogItem.STATUS_RESOLVED.equals(item.status()) || item.linkedTaskId() == null) {
+            return item;
+        }
+        Task task = taskStore.findTaskById(item.linkedTaskId()).orElse(null);
+        if (task == null || task.phase() != TaskPhase.COMPLETED) {
+            return item;
+        }
+        boolean merged = task.prNumber() != null && !"closed".equals(task.prState());
+        BacklogItem settled = store.save(merged ? item.markShipped() : item.markClosed());
+        distillation.record(
+                merged ? "backlog-ship" : "backlog-close", settled.id(),
+                merged ? "shipped" : "closed", null,
+                Map.of("title", settled.title(), "taskId", item.linkedTaskId()),
+                settled.threadId(), settled.workspaceId());
+        return settled;
     }
 
     @Override

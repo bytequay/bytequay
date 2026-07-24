@@ -22,6 +22,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.distillation.DistillationSignalService;
 import com.bytequay.app.service.threads.ThreadService;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -381,7 +382,7 @@ public class BacklogServiceImpl
         if (trunkId != null && !trunkId.isBlank()) {
             String workspaceId = item.workspaceId();
             Thread selected = requireTrunkInWorkspace(workspaceId, trunkId);
-            item = store.save(item.withThread(selected.id()));
+            item = item.withThread(selected.id());
         }
         String content = item.detail() == null || item.detail().isBlank()
                 ? item.summary()
@@ -398,9 +399,8 @@ public class BacklogServiceImpl
                 + "your understanding, intended approach, risk/effort, and the specific "
                 + "uncertainty.\n\n"
                 + content;
-        threadService.sendTrunk(item.threadId(), prompt);
-
         BacklogItem updated = store.save(item.markInProgress(Instant.now()));
+        threadService.sendTrunk(updated.threadId(), prompt);
         distillation.record(
                 "backlog-start", updated.id(), "started", null,
                 Map.of("title", updated.title()), updated.threadId(), updated.workspaceId());
@@ -425,13 +425,44 @@ public class BacklogServiceImpl
     public BacklogItem resolve(String id, String taskId)
     {
         BacklogItem item = require(id);
-        if (BacklogItem.STATUS_RESOLVED.equals(item.status())) {
-            throw status(409, "backlog item already resolved");
+        if (!BacklogItem.STATUS_IN_PROGRESS.equals(item.status())) {
+            throw status(409, "backlog item is not in progress");
         }
-        BacklogItem resolved = store.save(item.markResolved(taskId, Instant.now()));
+        if (item.linkedTaskId() != null) {
+            throw status(409, "backlog item is already linked to a task");
+        }
+        String taskIdValue = nullToEmpty(taskId).strip();
+        if (taskIdValue.isEmpty()) {
+            throw status(400, "taskId is required");
+        }
+        Task task = taskStore.findTaskById(taskIdValue)
+                .orElseThrow(() -> status(404, "task not found: " + taskId));
+        if (!item.threadId().equals(task.threadId())) {
+            throw status(409, "backlog item and task belong to different trunks");
+        }
+        boolean taskAlreadyLinked = store.findByThread(item.threadId()).stream()
+                .anyMatch(existing -> !item.id().equals(existing.id())
+                        && taskIdValue.equals(existing.linkedTaskId()));
+        if (taskAlreadyLinked) {
+            throw status(409, "task is already linked to another backlog item");
+        }
+        try {
+            if (!store.resolveIfInProgressAndUnlinked(
+                    item.id(), taskIdValue, Instant.now())) {
+                throw status(409, "backlog item changed while the task was being linked");
+            }
+        }
+        catch (DataAccessException e) {
+            if (!isUniqueTaskLinkViolation(e)) {
+                throw e;
+            }
+            throw status(409, "task is already linked to another backlog item");
+        }
+        BacklogItem resolved = require(item.id());
         distillation.record(
                 "backlog-resolve", resolved.id(), "resolved", null,
-                Map.of("title", resolved.title(), "taskId", taskId), resolved.threadId(), resolved.workspaceId());
+                Map.of("title", resolved.title(), "taskId", taskIdValue),
+                resolved.threadId(), resolved.workspaceId());
         return resolved;
     }
 
@@ -519,6 +550,18 @@ public class BacklogServiceImpl
     }
 
     private static final Set<String> PRIORITIES = Set.of("low", "medium", "high");
+
+    private static boolean isUniqueTaskLinkViolation(DataAccessException exception)
+    {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            String message = nullToEmpty(cause.getMessage()).toLowerCase(Locale.ROOT);
+            if (message.contains("unique constraint failed: backlog_item.linked_task_id")
+                    || message.contains("idx_backlog_item_linked_task")) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     private static ResponseStatusException status(int code, String message)
     {

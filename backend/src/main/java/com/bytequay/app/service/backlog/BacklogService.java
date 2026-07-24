@@ -133,6 +133,8 @@ public interface BacklogService
     /** Mark an item {@code resolved} and link it to the task cut from it —
      *  called once {@code create_task} succeeds with a {@code backlog_item_id}
      *  (the trunk's completion of the exploration {@link #startDevelopment}
-     *  began). 404 when unknown, 409 when already resolved. */
+     *  began). The item must be in progress and unlinked; the task must exist,
+     *  belong to the same trunk, and not already be linked from another backlog
+     *  item. */
     BacklogItem resolve(String id, String taskId);
 }

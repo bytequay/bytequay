@@ -102,6 +102,32 @@ class SqliteBacklogStore
     }
 
     @Override
+    @Transactional
+    public boolean resolveIfInProgressAndUnlinked(
+            String id, String taskId, Instant resolvedAt)
+    {
+        long resolvedAtMs = resolvedAt.toEpochMilli();
+        return jdbc.update("""
+                UPDATE backlog_item
+                SET status = ?,
+                    linked_task_id = ?,
+                    started_at_ms = coalesce(started_at_ms, ?),
+                    in_progress_at_ms = coalesce(in_progress_at_ms, ?),
+                    resolved_at_ms = ?
+                WHERE id = ?
+                  AND status = ?
+                  AND linked_task_id IS NULL
+                """,
+                BacklogItem.STATUS_RESOLVED,
+                taskId,
+                resolvedAtMs,
+                resolvedAtMs,
+                resolvedAtMs,
+                id,
+                BacklogItem.STATUS_IN_PROGRESS) == 1;
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Optional<BacklogItem> findByWorkspaceAndItemKey(String workspaceId, String itemKey)
     {

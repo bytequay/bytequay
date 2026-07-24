@@ -304,6 +304,8 @@ class TestAgentToolHandlersCreateTask
     {
         when(watchedRepos.findAll()).thenReturn(List.of(
                 watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("bl-1", "Fix the thing").markInProgress(NOW)));
         Task created = mock(Task.class);
         when(created.id()).thenReturn("task-42");
         when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
@@ -398,7 +400,8 @@ class TestAgentToolHandlersCreateTask
         when(created.id()).thenReturn("task-42");
         when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
         when(backlog.list(THREAD_ID)).thenReturn(List.of(
-                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking and evidence bundles"),
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking and evidence bundles")
+                        .markInProgress(NOW),
                 backlogItem("phase-3", "Project Intelligence Phase 3 — canonical knowledge")));
 
         handlers.createTask(
@@ -423,7 +426,8 @@ class TestAgentToolHandlersCreateTask
         when(created.id()).thenReturn("task-42");
         when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
         when(backlog.list(THREAD_ID)).thenReturn(List.of(
-                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking"),
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking")
+                        .markInProgress(NOW),
                 backlogItem("phase-3", "Project Intelligence Phase 3 — canonical knowledge")));
         when(threadStore.listRecentMessages(THREAD_ID, 24)).thenReturn(List.of(
                 textMessage(1, null, "user", "What's next?"),
@@ -450,8 +454,10 @@ class TestAgentToolHandlersCreateTask
         when(watchedRepos.findAll()).thenReturn(List.of(
                 watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
         when(backlog.list(THREAD_ID)).thenReturn(List.of(
-                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking and evidence bundles"),
-                backlogItem("phase-3", "Project Intelligence Phase 3 — extraction and canonical knowledge")));
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking and evidence bundles")
+                        .markInProgress(NOW),
+                backlogItem("phase-3", "Project Intelligence Phase 3 — extraction and canonical knowledge")
+                        .markInProgress(NOW)));
 
         ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.createTask(
                 new AgentToolHandlers.CreateTaskArgs(
@@ -525,7 +531,8 @@ class TestAgentToolHandlersCreateTask
         when(created.id()).thenReturn("task-42");
         when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
         when(backlog.list(THREAD_ID)).thenReturn(List.of(
-                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking"),
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking")
+                        .markInProgress(NOW),
                 backlogItem("phase-3", "Project Intelligence Phase 3 — canonical knowledge")));
         when(threadStore.listRecentMessages(THREAD_ID, 24)).thenReturn(List.of(
                 textMessage(1, null, "user", "What's next?"),
@@ -574,6 +581,9 @@ class TestAgentToolHandlersCreateTask
     {
         when(watchedRepos.findAll()).thenReturn(List.of(
                 watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking")
+                        .markInProgress(NOW)));
         Task created = mock(Task.class);
         when(created.id()).thenReturn("task-42");
         when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
@@ -595,8 +605,10 @@ class TestAgentToolHandlersCreateTask
         when(watchedRepos.findAll()).thenReturn(List.of(
                 watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
         when(backlog.list(THREAD_ID)).thenReturn(List.of(
-                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking"),
-                backlogItem("phase-3", "Project Intelligence Phase 3 — canonical knowledge")));
+                backlogItem("phase-2", "Project Intelligence Phase 2 — PR ranking")
+                        .markInProgress(NOW),
+                backlogItem("phase-3", "Project Intelligence Phase 3 — canonical knowledge")
+                        .markInProgress(NOW)));
         when(threadStore.listRecentMessages(THREAD_ID, 24)).thenReturn(List.of(
                 textMessage(1, null, "assistant", "Cut this as the Phase 2 task?"),
                 textMessage(2, null, "user", "go ahead")));
@@ -618,6 +630,156 @@ class TestAgentToolHandlersCreateTask
     }
 
     @Test
+    void rejectsTheLivePhaseFourIdWhilePhaseThreeIsBeingExplored()
+            throws Exception
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        String phase3Id = "4b4f5878-97d4-448a-9a8d-14d2d6b6858a";
+        String phase4Id = "773396e8-3d22-4a85-83f0-b7c473d365a6";
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem(phase3Id,
+                        "Project Intelligence Phase 3 — extraction, validation, canonical knowledge")
+                        .markInProgress(NOW),
+                backlogItem(phase4Id,
+                        "Project Intelligence Phase 4 — retrieval and agent context")));
+
+        String initialPrompt = """
+                Implement Phase 3 of Project Intelligence ("Phase 3 — extraction, validation,
+                and canonical knowledge"). Phases 1 and 2 are already merged to main.
+                Explicitly OUT of scope: retrieval and agent context (Phase 4), incremental
+                learning (Phase 5), and quality evaluation (Phase 6).
+                """;
+        JsonNode trunkPlan = mapper.createObjectNode().put(
+                "summary",
+                "Build Phase 3 on Phase 2 while leaving retrieval to Phase 4.");
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/ByteQuay",
+                        "Add extraction and canonical knowledge for project learning",
+                        initialPrompt, null, null, null, trunkPlan, phase4Id, false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        JsonNode payload = mapper.readTree(result.text());
+        assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
+        assertThat(payload.path("reason").asText()).contains("in-progress");
+        assertThat(payload.path("candidates").get(0).path("id").asText())
+                .isEqualTo(phase3Id);
+        assertThat(payload.path("candidates").get(0).path("title").asText())
+                .isEqualTo("Project Intelligence Phase 3 — extraction, validation, canonical knowledge");
+        verify(threads, never()).materialiseTask(any(), any());
+        verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
+    void preservesAWeakConfirmationWhenTheExplicitIdIsNotACandidate()
+            throws Exception
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-2", "Phase 2 — PR ranking and evidence bundles")
+                        .markInProgress(NOW),
+                backlogItem("phase-3", "Phase 3 — canonical knowledge")
+                        .markInProgress(NOW)));
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/ByteQuay", "Add PR ranking and evidence bundles",
+                        null, null, null, null, null, "phase-3", false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        JsonNode payload = mapper.readTree(result.text());
+        assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
+        assertThat(payload.path("reason").asText()).contains("not strong enough");
+        assertThat(payload.path("candidates").get(0).path("id").asText())
+                .isEqualTo("phase-2");
+        verify(threads, never()).materialiseTask(any(), any());
+        verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
+    void preservesAmbiguityWhenTheWrongExplicitIdIsAlsoInProgress()
+            throws Exception
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-3", "Phase 3 — extraction and canonical knowledge")
+                        .markInProgress(NOW),
+                backlogItem("phase-4", "Phase 4 — retrieval and agent context")
+                        .markInProgress(NOW)));
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/ByteQuay", "Implement Phase 3 extraction and canonical knowledge",
+                        "Implement Phase 4 retrieval and agent context.",
+                        null, null, null, null, "phase-4", false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        JsonNode payload = mapper.readTree(result.text());
+        assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
+        assertThat(payload.path("reason").asText()).contains("ambiguous");
+        assertThat(payload.path("candidates").findValuesAsText("id"))
+                .containsExactly("phase-3", "phase-4");
+        verify(threads, never()).materialiseTask(any(), any());
+        verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
+    void linksTheBacklogItemSelectedByTheUserAfterAnAmbiguousConfirmation()
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        BacklogItem phase2 = backlogItem("phase-2", "Phase 2 — PR ranking")
+                .markInProgress(NOW);
+        BacklogItem phase3 = backlogItem("phase-3", "Phase 3 — canonical knowledge")
+                .markInProgress(NOW);
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(phase2, phase3));
+        when(threadStore.listRecentMessages(THREAD_ID, 24)).thenReturn(List.of(
+                textMessage(1, null, "user", "Start and link: Phase 3 — canonical knowledge")));
+        Task created = mock(Task.class);
+        when(created.id()).thenReturn("task-42");
+        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
+        when(backlog.resolve("phase-3", "task-42")).thenReturn(phase3);
+
+        handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/ByteQuay", "Implement Phase 2 and Phase 3",
+                        null, null, null, null, null, "phase-3", false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        verify(threads).materialiseTask(eq(THREAD_ID), any());
+        verify(backlog).resolve("phase-3", "task-42");
+    }
+
+    @Test
+    void doesNotTreatANegatedBacklogMentionAsAUserSelection()
+            throws Exception
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(backlog.list(THREAD_ID)).thenReturn(List.of(
+                backlogItem("phase-2", "Phase 2 — PR ranking").markInProgress(NOW),
+                backlogItem("phase-3", "Phase 3 — canonical knowledge").markInProgress(NOW)));
+        when(threadStore.listRecentMessages(THREAD_ID, 24)).thenReturn(List.of(
+                textMessage(1, null, "user",
+                        "Don't link Phase 3; start without backlog")));
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/ByteQuay", "Implement Phase 3 canonical knowledge",
+                        null, null, null, null, null, "phase-3", false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        JsonNode payload = mapper.readTree(result.text());
+        assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
+        verify(threads, never()).materialiseTask(any(), any());
+        verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
     void returnsTheBacklogItemActuallyLinkedToTheTask()
             throws Exception
     {
@@ -627,7 +789,8 @@ class TestAgentToolHandlersCreateTask
         when(created.id()).thenReturn("task-42");
         when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
         BacklogItem phase2 = backlogItem(
-                "phase-2", "Project Intelligence Phase 2 — PR ranking");
+                "phase-2", "Project Intelligence Phase 2 — PR ranking")
+                .markInProgress(NOW);
         when(backlog.list(THREAD_ID)).thenReturn(List.of(phase2));
         when(backlog.resolve("phase-2", "task-42")).thenReturn(phase2);
 
@@ -645,21 +808,50 @@ class TestAgentToolHandlersCreateTask
     }
 
     @Test
-    void aBadBacklogIdDoesNotFailTaskCreation()
+    void rejectsABadBacklogIdBeforeCreatingATask()
+            throws Exception
     {
         when(watchedRepos.findAll()).thenReturn(List.of(
                 watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
-        Task created = mock(Task.class);
-        when(created.id()).thenReturn("task-42");
-        when(threads.materialiseTask(eq(THREAD_ID), any())).thenReturn(created);
-        when(backlog.resolve(any(), any())).thenThrow(new IllegalArgumentException("unknown backlog item"));
 
-        ToolOutcome outcome = handlers.createTask(
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.createTask(
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, "stale-id", false),
                 new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
 
-        assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
+        JsonNode payload = mapper.readTree(result.text());
+        assertThat(result.isError()).isFalse();
+        assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
+        assertThat(payload.path("reason").asText()).contains("in-progress");
+        assertThat(payload.path("candidates").isEmpty()).isTrue();
+        assertThat(payload.path("instruction").asText())
+                .contains("Start the intended item from the Backlog view");
+        verify(threads, never()).materialiseTask(any(), any());
+        verify(backlog, never()).resolve(any(), any());
+    }
+
+    @Test
+    void rejectsAnExplicitBacklogIdWhenTheBacklogCannotBeVerified()
+            throws Exception
+    {
+        when(watchedRepos.findAll()).thenReturn(List.of(
+                watchedRepo("chenjian2664", "ByteQuay", "/tmp/clone")));
+        when(backlog.list(THREAD_ID)).thenThrow(new IllegalStateException("database busy"));
+
+        ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.createTask(
+                new AgentToolHandlers.CreateTaskArgs(
+                        "chenjian2664/bytequay", null, "Fix the thing",
+                        null, null, null, null, "bl-1", false),
+                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+
+        JsonNode payload = mapper.readTree(result.text());
+        assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
+        assertThat(payload.path("reason").asText()).contains("could not be verified");
+        assertThat(payload.path("instruction").asText())
+                .contains("backlog could not be read", "Retry create_task")
+                .doesNotContain("Start the intended item");
+        verify(threads, never()).materialiseTask(any(), any());
+        verify(backlog, never()).resolve(any(), any());
     }
 
     @Test

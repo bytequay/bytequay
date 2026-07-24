@@ -15,6 +15,7 @@ package com.bytequay.app.repository;
 
 import com.bytequay.app.domain.BacklogItem;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -32,6 +33,12 @@ public interface BacklogStore
 
     /** One item by id. */
     Optional<BacklogItem> findById(String id);
+
+    /**
+     * Atomically move one unlinked in-progress item to resolved.
+     * Returns false when another writer already changed the row.
+     */
+    boolean resolveIfInProgressAndUnlinked(String id, String taskId, Instant resolvedAt);
 
     default Optional<BacklogItem> findByWorkspaceAndItemKey(String workspaceId, String itemKey)
     {

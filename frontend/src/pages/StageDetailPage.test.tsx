@@ -39,11 +39,11 @@ function stage(stageKind: StageKind, overrides: Partial<Parameters<typeof StageD
 }
 
 describe('StageDetailPage locked frame', () => {
-  it('renders the task breadcrumb, stage badge, title, and stage metadata', () => {
+  it('renders the task breadcrumb, stage badge, and stage metadata', () => {
     const { container } = render(stage('dev'));
     expect(container.querySelector('.workspace-task-header__badge')?.textContent).toBe('DEV STAGE');
     expect(screen.getByRole('button', { name: 'Task #142' })).toBeTruthy();
-    expect(screen.getByText('Local Development')).toBeTruthy();
+    expect(container.querySelector('.workspace-task-header__title')).toBeNull();
     expect(screen.getByText('Stage 2 of 4 · 15m 23s')).toBeTruthy();
   });
 
@@ -60,11 +60,11 @@ describe('StageDetailPage locked frame', () => {
     expect(screen.getByRole('separator', { name: 'Resize pull request panel' })).toBeTruthy();
   });
 
-  it('shows Changes, PR, and Stage task-page pills', () => {
+  it('shows Changes and PR task-page pills', () => {
     render(stage('dev'));
     expect(screen.getByRole('button', { name: /Changes/ }).textContent).toContain('+8');
     expect(screen.getByRole('button', { name: /PR #1234/ })).toBeTruthy();
-    expect(screen.getByText('dev', { selector: '.workspace-task-artifact-pill .is-muted' })).toBeTruthy();
+    expect(screen.queryByText('Stage', { selector: '.workspace-task-artifact-pill' })).toBeNull();
   });
 
   it('requests the pull request overview from the PR pill', () => {

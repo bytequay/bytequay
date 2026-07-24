@@ -717,6 +717,12 @@ public class AgentScheduler
 
         CompletionStage<Void> completion;
         try {
+            // A task brain reuses one read-only provider session across its
+            // ordinary conversation (trunk key) and stage-scoped review
+            // turns (PlanStage / review-stage key). Point the MCP bridge at
+            // this turn's active context before spawning the provider.
+            session.setMcpAgentKey(PermissionResolver.agentKeyFor(
+                    runningTurn.taskId(), runningTurn.stageId()));
             // Tell the session which stage this turn runs under so the
             // messages it emits inherit an explicit stage_id.
             session.setActiveStage(runningTurn.stageId());

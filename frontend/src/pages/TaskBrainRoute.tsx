@@ -437,7 +437,9 @@ export function TaskBrainRoute({
       <div className="plan-feed-event">
         <div className="plan-feed-event__summary">
           <div className="plan-feed-event__copy">
-            <strong>{plan.state === 'locked' ? 'Plan finalized' : 'Plan ready'}</strong>
+            <strong>{plan.state === 'locked'
+              ? 'Plan finalized'
+              : plan.state === 'awaiting' ? 'Plan ready' : 'Plan drafting'}</strong>
             <span>
               rev {plan.revisionCount}
               {' · '}

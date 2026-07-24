@@ -400,7 +400,9 @@ class TestCiFixRunExecutor
                 notificationService,
                 pullRequests,
                 mapper,
-                executor);
+                executor,
+                mock(ThreadStore.class),
+                mock(WorktreeService.class));
 
         coordinator.scanForFailingCi();
 

@@ -151,7 +151,8 @@ public class StageServiceImpl
 
         boolean runtimeStopped = hasStoppedRuntime(task);
         TaskBrainViewData.CostBreakdown cost = buildCostBreakdown(task, allStages, brainMessages);
-        List<AgentRun> liveRuns = runtimeStopped ? List.of() : agentRuns.liveRunsByTask(taskId);
+        List<AgentRun> taskLiveRuns = agentRuns.liveRunsByTask(taskId);
+        List<AgentRun> liveRuns = runtimeStopped ? List.of() : taskLiveRuns;
         ReviewRound liveRound = runtimeStopped ? null : liveRound(taskId);
         List<TaskPhaseEvent> phaseEvents = taskStore.listPhaseEvents(taskId);
         StageInstance dev = allStages.stream()
@@ -167,7 +168,7 @@ public class StageServiceImpl
                 threadStore.findBrainThreadByTask(taskId).map(Thread::id).orElse(null),
                 buildBrainFeed(allEvents, stageTypes, turnEventStore.listSummaryEventsByTask(taskId),
                         brainMessages, stageNameIndex, buildStageStats(task, allStages)),
-                buildRightRail(task, allStages, cost),
+                buildRightRail(task, allStages, taskLiveRuns, cost),
                 buildScrubbers(allEvents, brainMessages),
                 liveRuns,
                 branchGuards.get(taskId),
@@ -881,7 +882,10 @@ public class StageServiceImpl
     }
 
     private TaskBrainViewData.RightRail buildRightRail(
-            Task task, List<StageInstance> stages, TaskBrainViewData.CostBreakdown costBreakdown)
+            Task task,
+            List<StageInstance> stages,
+            List<AgentRun> taskLiveRuns,
+            TaskBrainViewData.CostBreakdown costBreakdown)
     {
         boolean mergeable = taskStore.mergeNotificationSentAt(task.id()).isPresent();
         LinkedPrDto linkedPr = task.prNumber() == null ? null : buildLinkedPr(task, mergeable);
@@ -894,7 +898,7 @@ public class StageServiceImpl
                 ? topLevelActiveStage(stages).orElse(null)
                 : null;
         return new TaskBrainViewData.RightRail(
-                buildApproval(stages), linkedPr, context, List.<CommitDto>of(),
+                buildApproval(stages, taskLiveRuns), linkedPr, context, List.<CommitDto>of(),
                 parentStage != null,
                 parentStage == null ? null : parentStage.id().toString(),
                 costBreakdown,
@@ -1105,10 +1109,28 @@ public class StageServiceImpl
                 .reduce((first, second) -> second);
     }
 
-    /** A pending approval card when a ci-fixing stage's budget is exhausted
-     *  and waiting on the user. Null otherwise. */
-    private ApprovalDto buildApproval(List<StageInstance> stages)
+    /** The highest-priority task decision: a workspace budget pause first,
+     *  otherwise an exhausted CI auto-push approval. Null when neither is
+     *  waiting on the user. */
+    private ApprovalDto buildApproval(List<StageInstance> stages, List<AgentRun> taskLiveRuns)
     {
+        Optional<ApprovalDto> budgetPause = taskLiveRuns.stream()
+                .filter(run -> AgentRun.STATUS_PAUSED.equals(run.status()))
+                .filter(run -> isBudgetPauseReason(run.pauseReason()))
+                .filter(run -> run.workspaceId() != null && !run.workspaceId().isBlank())
+                .findFirst()
+                .map(run -> new ApprovalDto(
+                        "ask",
+                        run.stageId(),
+                        "Task paused at budget cap",
+                        run.pauseReason(),
+                        "Increase the workspace agent budget, then resume this task.",
+                        new ApprovalDto.PrimaryAction(
+                                "Increase budget",
+                                "#/workspace/" + run.workspaceId() + "/settings/agents")));
+        if (budgetPause.isPresent()) {
+            return budgetPause.get();
+        }
         return latestCiFixing(stages)
                 .map(stage -> Map.entry(stage, budgetService.readMetrics(stage.id())))
                 .filter(e -> e.getValue().budgetExhausted() && e.getValue().autoPushBudget() != null)
@@ -1116,6 +1138,7 @@ public class StageServiceImpl
                     StageInstance stage = e.getKey();
                     StageMetrics.AutoPushBudget budget = e.getValue().autoPushBudget();
                     return new ApprovalDto(
+                            "approve",
                             stage.id().toString(),
                             "CiFixingStage · push",
                             "Auto-push budget exhausted (" + budget.used() + "/" + budget.limit() + ")",
@@ -1125,6 +1148,12 @@ public class StageServiceImpl
                                     "/api/stages/" + stage.id() + "/budget/extend"));
                 })
                 .orElse(null);
+    }
+
+    private static boolean isBudgetPauseReason(String reason)
+    {
+        return reason != null
+                && reason.toLowerCase(Locale.ROOT).contains("budget cap reached");
     }
 
     private static LinkedPrDto buildLinkedPr(Task task, boolean mergeable)

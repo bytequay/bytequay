@@ -25,6 +25,46 @@ beforeAll(() => { Element.prototype.scrollIntoView = vi.fn(); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(window, 'bridge'); localStorage.clear(); });
 
 describe('TaskBrainRoute', () => {
+  it('renders a budget pause as an amber ask and opens workspace Agents settings', async () => {
+    const taskId = 'task-budget-action';
+    const base = buildMockBrainView(0);
+    const view: TaskBrainViewData = {
+      ...base,
+      task: { ...base.task, id: taskId, paused: true },
+      rightRail: {
+        ...base.rightRail,
+        approval: {
+          tone: 'ask',
+          stageId: 'dev-1',
+          stageTitle: 'Task paused at budget cap',
+          reasonShort: 'daily workspace budget cap reached ($10.00)',
+          pendingArtifact: 'Increase the workspace agent budget, then resume this task.',
+          primaryAction: {
+            label: 'Increase budget',
+            href: '#/workspace/ws-default/settings/agents',
+          },
+        },
+      },
+    };
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getPrForTask: vi.fn().mockResolvedValue(null),
+      getLocalPrBundle: vi.fn().mockResolvedValue(null),
+      listNotificationsForThread: vi.fn().mockResolvedValue([]),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([]),
+      listTaskCommits: vi.fn().mockResolvedValue([]),
+      getAgentReview: vi.fn().mockResolvedValue(null),
+    };
+    window.location.hash = '#/workspace/ws-default/trunks/t1';
+
+    render(<TaskBrainRoute threadId="t1" taskId={taskId} onOpenStage={() => {}} onClosed={() => {}} />);
+
+    const action = await screen.findByRole('button', { name: 'Increase budget' });
+    expect(action.closest('.sp-gate--ask')).toBeTruthy();
+    fireEvent.click(action);
+    expect(window.location.hash).toBe('#/workspace/ws-default/settings/agents');
+  });
+
   it('inherits the per-thread auto-approve default for a task whose backend value is off', async () => {
     localStorage.setItem('bq.autoApprove.thread.t1', 'true');
     const getTaskAutoApprove = vi.fn().mockResolvedValue({ enabled: false });

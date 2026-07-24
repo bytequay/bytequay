@@ -209,6 +209,7 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
   ],
   rightRail: {
     approval: {
+      tone: 'approve',
       stageId: CIFIX,
       stageTitle: 'CiFixingStage · iter #3 · push',
       reasonShort: 'Auto-push budget exhausted (5/5)',

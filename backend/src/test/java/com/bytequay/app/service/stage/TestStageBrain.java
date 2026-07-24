@@ -325,6 +325,7 @@ class TestStageBrain
                 .isEqualTo(StageBudgetService.DEFAULT_AUTO_PUSH_BUDGET);
 
         assertThat(brain.rightRail().approval()).isNotNull();
+        assertThat(brain.rightRail().approval().tone()).isEqualTo("approve");
         assertThat(brain.rightRail().approval().reasonShort()).contains("5/5");
         assertThat(brain.rightRail().approval().primaryAction().href())
                 .isEqualTo("/api/stages/" + ciFixing.id() + "/budget/extend");
@@ -590,6 +591,35 @@ class TestStageBrain
         taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow().withStatus(TaskStatus.PAUSED));
 
         assertThat(stageService.getBrain(taskId).task().paused()).isTrue();
+    }
+
+    @Test
+    void budgetPauseProjectsAnAmberSettingsActionIntoTheConversation()
+    {
+        String taskId = seedTask();
+        StageInstance development = stageStore.openStage(
+                taskId, StageType.DEVELOPMENT_STAGE, null);
+        AgentRun run = agentRuns.openInStage(
+                taskId, AgentRun.KIND_DEV, AgentRun.SOURCE_SCHEDULED,
+                development.id().toString(), null);
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+        agentRuns.attachOwnership(
+                run.id(), "ws-default", task.threadId(),
+                "claude-code", "claude-sonnet-4.6", "Implement");
+        agentRuns.pause(run.id(), "daily workspace budget cap reached ($10.00)");
+        taskStore.saveTask(task.withStatus(TaskStatus.PAUSED));
+
+        TaskBrainViewData brain = stageService.getBrain(taskId);
+
+        assertThat(brain.liveRuns()).isEmpty();
+        assertThat(brain.rightRail().approval()).isNotNull();
+        assertThat(brain.rightRail().approval().tone()).isEqualTo("ask");
+        assertThat(brain.rightRail().approval().reasonShort())
+                .isEqualTo("daily workspace budget cap reached ($10.00)");
+        assertThat(brain.rightRail().approval().primaryAction().label())
+                .isEqualTo("Increase budget");
+        assertThat(brain.rightRail().approval().primaryAction().href())
+                .isEqualTo("#/workspace/ws-default/settings/agents");
     }
 
     @Test

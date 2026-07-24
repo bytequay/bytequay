@@ -52,7 +52,7 @@ const defaults: StoredSettings = {
   reviewModel: 'cli:claude-code',
   ciFixModel: 'cli:codex',
   perSessionCap: 1,
-  dailyCap: 10,
+  dailyCap: 500,
   pauseAtCap: true,
   syncSeconds: 60,
   brainBudget: 8000,

@@ -28,7 +28,6 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
-import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
@@ -70,12 +69,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
-import static java.util.stream.Collectors.joining;
 
 /**
  * Brain-driven adversarial review (plan-rail-runs.md R20-R24). Two
@@ -646,7 +645,7 @@ public class BrainReviewServiceImpl
             // same event, reached instead when the review finishes before
             // the local PR exists (the usual case).
             prService.recordBrainReview(
-                    taskId, scope, verdict, /* iteration */ 1, /* roundId */ null, /* body */ null);
+                    taskId, scope, verdict, /* iteration */ 1, /* roundId */ null);
             return;
         }
         Optional<ReviewRound> live = roundStore.findLiveByTask(taskId)
@@ -656,7 +655,9 @@ public class BrainReviewServiceImpl
                     scope, taskId);
             return;
         }
-        ReviewRound updated = live.get().withBrainVerdict(verdict);
+        ReviewRound current = live.get();
+        String effectiveVerdict = effectiveBrainVerdict(current, taskId, verdict);
+        ReviewRound updated = current.withBrainVerdict(effectiveVerdict);
         roundStore.save(updated);
     }
 
@@ -776,9 +777,14 @@ public class BrainReviewServiceImpl
             String reason;
             if (SOURCE_BRAIN_REVIEW.equals(source)) {
                 reason = REVIEW_BUDGET_PAUSED;
+                String verdict = effectiveBrainVerdict(round, task.id(), round.brainVerdict());
+                if (!Objects.equals(verdict, round.brainVerdict())) {
+                    round = round.withBrainVerdict(verdict);
+                    roundStore.save(round);
+                }
                 prService.recordBrainReview(
-                        task.id(), scope, round.brainVerdict(), round.iteration(),
-                        round.id(), reviewBody(turn));
+                        task.id(), scope, verdict, round.iteration(),
+                        round.id());
             }
             else {
                 reason = FIX_BUDGET_PAUSED;
@@ -1111,7 +1117,7 @@ public class BrainReviewServiceImpl
             }
             String source = turn.initiator() == null ? "" : turn.initiator().source();
             if (ReviewRound.STATUS_TRIAGING.equals(round.status()) && SOURCE_BRAIN_REVIEW.equals(source)) {
-                advanceAfterReviewTurn(round, task, turn);
+                advanceAfterReviewTurn(round, task);
             }
             else if (ReviewRound.STATUS_ADDRESSING.equals(round.status())
                     && SOURCE_BRAIN_FIX.equals(source)) {
@@ -1124,31 +1130,26 @@ public class BrainReviewServiceImpl
     /** A review turn just finished — its verdict (if any) is already
      *  persisted via {@code record_review_verdict}. Decide: conclude
      *  (approved or budget spent) or loop into another fix turn. */
-    private void advanceAfterReviewTurn(ReviewRound round, Task task, ThreadTurn turn)
+    private void advanceAfterReviewTurn(ReviewRound round, Task task)
     {
         if (taskRuntimeStopped(task)) {
             return;
         }
-        String verdict = round.brainVerdict();
+        String verdict = effectiveBrainVerdict(round, task.id(), round.brainVerdict());
+        if (!Objects.equals(verdict, round.brainVerdict())) {
+            round = round.withBrainVerdict(verdict);
+            roundStore.save(round);
+        }
         String scope = ReviewRound.ORIGIN_BRAIN.equals(round.origin()) ? "dev" : "round";
-        // The orchestrator owns the finished audit row so the final review
-        // text survives even when the agent omitted its verdict tool call or
-        // its MCP connection failed.
+        // The orchestrator owns the finished audit row, including when the
+        // agent omitted its verdict tool call or its MCP connection failed.
         prService.recordBrainReview(
-                task.id(), scope, verdict, round.iteration(), round.id(), turn == null ? null : reviewBody(turn));
+                task.id(), scope, verdict, round.iteration(), round.id());
         if (verdict == null) {
             parkBrainRound(task, round, "brain_review_verdict_missing");
             return;
         }
         boolean approved = ReviewRound.VERDICT_APPROVED.equals(verdict);
-        if (approved && ReviewRound.ORIGIN_BRAIN.equals(round.origin()) && hasOpenBrainRoots(task)) {
-            // A verdict cannot overrule the reviewer's own unresolved
-            // findings. Treat the inconsistent pass as changes-requested and
-            // send those roots through Development before another review.
-            approved = false;
-            log.warn("brain-review: round {} reported approved with open findings; continuing the fix loop",
-                    round.id());
-        }
         if (approved || round.brainBudgetExhausted()) {
             conclude(round, task, approved);
             return;
@@ -1203,55 +1204,6 @@ public class BrainReviewServiceImpl
         }
         phaseMachine.observe(task.id(), TaskPhase.INTERNAL_REVIEW, "brain_review_resumed");
         return taskStore.findTaskById(task.id()).orElse(null);
-    }
-
-    /** Preserve the reviewer's written conclusion even when its MCP tools
-     *  were unavailable and no structured comments/verdict could be saved. */
-    private String reviewBody(ThreadTurn turn)
-    {
-        List<ThreadMessage> messages = threadStore.listStageMessages(turn.stageId());
-        if (messages.isEmpty()) {
-            messages = threadStore.listMessages(turn.threadId()).stream()
-                    .filter(message -> turn.stageId().equals(message.stageId()))
-                    .toList();
-        }
-        String body = messages.stream()
-                .filter(message -> "assistant".equals(message.role()) && "text".equals(message.type()))
-                .filter(message -> messageBelongsToTurn(message, turn))
-                .filter(message -> turn.startedAt() == null || !message.ts().isBefore(turn.startedAt()))
-                .filter(message -> turn.finishedAt() == null || !message.ts().isAfter(turn.finishedAt()))
-                .map(this::messageText)
-                .filter(text -> !text.isBlank())
-                .collect(joining("\n\n"));
-        return body.isBlank() ? null : body;
-    }
-
-    private static boolean messageBelongsToTurn(ThreadMessage message, ThreadTurn turn)
-    {
-        if (turn.taskId() != null && turn.taskId().equals(message.taskId())) {
-            return true;
-        }
-        // Legacy Brain rows were written before per-turn task attribution was
-        // fixed. Accept only the shape that is still uniquely bounded by this
-        // exact stage and this completed turn's time window; a generic trunk
-        // message or an open-ended interval remains ineligible.
-        return message.taskId() == null
-                && turn.stageId() != null
-                && turn.stageId().equals(message.stageId())
-                && turn.startedAt() != null
-                && turn.finishedAt() != null
-                && !message.ts().isBefore(turn.startedAt())
-                && !message.ts().isAfter(turn.finishedAt());
-    }
-
-    private String messageText(ThreadMessage message)
-    {
-        try {
-            return mapper.readTree(message.contentJson()).path("text").asText("");
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            return "";
-        }
     }
 
     /** A fix turn just finished addressing the brain's comments — review it
@@ -1390,7 +1342,7 @@ public class BrainReviewServiceImpl
             }
         }
         else if (turn.status() == ThreadTurnStatus.COMPLETED) {
-            advanceAfterReviewTurn(round, task, turn);
+            advanceAfterReviewTurn(round, task);
         }
     }
 
@@ -1712,10 +1664,27 @@ public class BrainReviewServiceImpl
 
     private boolean hasOpenBrainRoots(Task task)
     {
-        return prService.findByTask(task.id())
+        return hasOpenBrainRoots(task.id());
+    }
+
+    private boolean hasOpenBrainRoots(String taskId)
+    {
+        return prService.findByTask(taskId)
                 .map(pr -> prService.comments(pr.id()).stream()
                         .anyMatch(BrainReviewServiceImpl::isOpenBrainComment))
                 .orElse(false);
+    }
+
+    private String effectiveBrainVerdict(ReviewRound round, String taskId, String verdict)
+    {
+        if (ReviewRound.ORIGIN_BRAIN.equals(round.origin())
+                && ReviewRound.VERDICT_APPROVED.equals(verdict)
+                && hasOpenBrainRoots(taskId)) {
+            log.warn("brain-review: round {} reported approved with open findings; recording changes requested",
+                    round.id());
+            return ReviewRound.VERDICT_CHANGES_REQUESTED;
+        }
+        return verdict;
     }
 
     private static final String PLAN_SELF_REVIEW_PROMPT =
@@ -1725,12 +1694,20 @@ public class BrainReviewServiceImpl
             + "record_review_verdict(scope='plan', verdict='approved'|'changes_requested'). Exactly "
             + "one pass — do not loop.";
 
-    private static final String BRAIN_REVIEW_PROMPT =
-            "Adversarially review the current diff before it goes to the user (or before this round's "
-            + "gate arms). Use read_dev_report / read_dev_conversation / read_diff_summary to see what "
-            + "changed and why. Leave any concerns with record_pr_comment (they stay local — never "
-            + "posted to GitHub). When done, call record_review_verdict(scope, "
-            + "verdict='approved'|'changes_requested').";
+    private static final String BRAIN_REVIEW_PROMPT = """
+            Adversarially review the current diff before it goes to the user (or before this round's gate arms).
+            Use read_dev_report / read_dev_conversation / read_diff_summary to inspect what changed and why.
+
+            Produce only durable review artifacts; do not narrate your process, announce what you will inspect,
+            praise the implementation, or write a review summary. If there are no concerns, leave no comment,
+            call record_review_verdict with verdict='approved', and stop. Otherwise:
+            - Call record_pr_comment exactly once per distinct concern.
+            - Use scope='file-line' with the precise file and line whenever the concern is positionable.
+            - Keep each body concise: state only the problem and its evidence or impact.
+            - Do not include implementation steps, remediation advice, future cleanup, nits, or non-blocking notes.
+            Then call record_review_verdict with verdict='changes_requested' and stop.
+            Comments stay local and are never posted to GitHub.
+            """;
 
     private static final String BRAIN_FIX_PROMPT =
             "The brain left review comments on this diff (local only — see the PR's open comments). "

@@ -109,15 +109,20 @@ public class SessionBudgetPolicy
         }
 
         AgentRun paused = runs.pause(updated.id(), reason);
-        String path = "#/workspace/" + updated.workspaceId() + "/sessions/" + updated.id();
+        boolean taskTurn = updated.taskId() != null && !updated.taskId().isBlank();
+        String path = taskTurn
+                ? "#/workspace/" + updated.workspaceId() + "/settings/agents"
+                : "#/workspace/" + updated.workspaceId() + "/sessions/" + updated.id();
         notifications.createCanonical(
                 NotificationKind.NEEDS_ATTENTION,
                 updated.workspaceId(),
                 updated.threadId(),
                 updated.taskId(),
                 "budget",
-                "Session paused at budget cap",
-                reason + ". Review the usage, then resume or restart.",
+                taskTurn ? "Task paused at budget cap" : "Session paused at budget cap",
+                taskTurn
+                        ? reason + ". Increase the workspace budget in Settings → Agents, then resume this task."
+                        : reason + ". Review the usage, then resume or restart.",
                 path,
                 "session-budget:" + updated.id(),
                 "{\"sessionId\":\"" + updated.id() + "\"}");

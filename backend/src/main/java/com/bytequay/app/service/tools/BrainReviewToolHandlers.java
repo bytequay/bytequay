@@ -45,14 +45,16 @@ public class BrainReviewToolHandlers
             @ToolParam(description = "What you reviewed: 'plan' (the self-review, R20) or 'dev'/'round' "
                     + "(a code lock-point review, R21) — use whichever the prompt told you this pass is.",
                     required = true) String scope,
-            @ToolParam(description = "'approved' or 'changes_requested'.", required = true) String verdict,
-            @ToolParam(description = "Optional one-line note on why.") String note) {}
+            @ToolParam(description = "'approved' only when there are zero concerns; otherwise leave one "
+                    + "record_pr_comment per concern and use 'changes_requested'.",
+                    required = true) String verdict) {}
 
     @AgentTool(
             name = "record_review_verdict",
             description = "Record your verdict on the plan or code you just adversarially reviewed. "
                     + "Call this once per review pass, after leaving any comments (record_pr_comment for "
-                    + "code, record_plan for a plan revision) — it's how the loop knows whether to stop, "
+                    + "code, record_plan for a plan revision). Do not put review prose or a summary in "
+                    + "the verdict; the structured comments are the review. This is how the loop knows whether to stop, "
                     + "loop into another fix pass, or (for the plan) let planning proceed.",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,

@@ -1442,7 +1442,7 @@ export const visualNotificationMutes: NotificationMuteDto[] = [
 
 export const visualSettings: WorkspaceSettingsDto = {
   sessionCapUsd: 1,
-  dailyCapUsd: 10,
+  dailyCapUsd: 500,
   pauseAtCap: true,
   syncSeconds: 60,
   brainBudgetChars: 8000,

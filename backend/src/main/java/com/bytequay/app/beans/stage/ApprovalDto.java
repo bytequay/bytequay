@@ -13,9 +13,11 @@
  */
 package com.bytequay.app.beans.stage;
 
-/** A pending user-gated approval surfaced on the brain view's right rail.
- *  Null until the gate machinery lands. */
+/** A pending user-gated decision surfaced in the brain conversation.
+ *  {@code tone} is {@code ask} for attention prompts and {@code approve}
+ *  for approval gates. */
 public record ApprovalDto(
+        String tone,
         String stageId,
         String stageTitle,
         String reasonShort,

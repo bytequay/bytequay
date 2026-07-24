@@ -967,7 +967,7 @@ class TestPRService
         PR existing = PR.create("pr1", "task1", "dev/x", "main", "T", "", NOW);
         when(store.findByTaskId("task1")).thenReturn(Optional.of(existing));
 
-        service.recordBrainReview("task1", "dev", "changes_requested", 2, "round-1", "Review summary");
+        service.recordBrainReview("task1", "dev", "changes_requested", 2, "round-1");
 
         ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
         verify(store).addEvent(event.capture());
@@ -978,7 +978,7 @@ class TestPRService
                 .contains("\"reviewEvent\":\"finished\"")
                 .contains("\"scope\":\"dev\"").contains("\"verdict\":\"changes_requested\"")
                 .contains("\"iteration\":2").contains("\"roundId\":\"round-1\"")
-                .contains("\"body\":\"Review summary\"");
+                .doesNotContain("\"body\"");
     }
 
     @Test
@@ -986,7 +986,7 @@ class TestPRService
     {
         when(store.findByTaskId("task1")).thenReturn(Optional.empty());
 
-        service.recordBrainReview("task1", "plan", "approved", 1, null, null);
+        service.recordBrainReview("task1", "plan", "approved", 1, null);
 
         verify(store, never()).addEvent(any());
     }

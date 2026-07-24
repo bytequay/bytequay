@@ -559,7 +559,7 @@ export function TaskBrainRoute({
         trailer={(
           <>
             {data.rightRail.approval !== null && (
-              <DecisionNode tone="approve">
+              <DecisionNode tone={data.rightRail.approval.tone ?? 'approve'}>
                 <div className="sp-appr">
                   <div className="sp-appr__head">
                     <span className="sp-appr__lbl">{data.rightRail.approval.stageTitle}</span>
@@ -568,7 +568,19 @@ export function TaskBrainRoute({
                     {data.rightRail.approval.reasonShort} — {data.rightRail.approval.pendingArtifact}
                   </div>
                   <div className="sp-appr__actions">
-                    <button type="button" className="sp-ab sp-ab--ok" onClick={openChanges}>
+                    <button
+                      type="button"
+                      className="sp-ab sp-ab--ok"
+                      onClick={() => {
+                        const href = data.rightRail.approval?.primaryAction.href;
+                        if (href?.startsWith('#/') === true) {
+                          window.location.hash = href;
+                        }
+                        else {
+                          openChanges();
+                        }
+                      }}
+                    >
                       {data.rightRail.approval.primaryAction.label}
                     </button>
                   </div>

@@ -191,7 +191,7 @@ public interface PRService
      *  event is backfilled onto the timeline once {@link #createForTask}
      *  first creates the row). */
     void recordBrainReview(
-            String taskId, String scope, String verdict, int iteration, String roundId, String body);
+            String taskId, String scope, String verdict, int iteration, String roundId);
 
     /** Records the system-owned start of one adversarial code-review pass.
      *  Unlike the verdict tool, this does not depend on the agent remembering

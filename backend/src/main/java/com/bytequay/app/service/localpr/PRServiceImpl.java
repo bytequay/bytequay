@@ -441,7 +441,7 @@ class PRServiceImpl
 
     @Override
     public void recordBrainReview(
-            String taskId, String scope, String verdict, int iteration, String roundId, String body)
+            String taskId, String scope, String verdict, int iteration, String roundId)
     {
         store.findByTaskId(taskId).ifPresent(pr -> {
             if (hasReviewActivity(pr.id(), "finished", scope, iteration, roundId)) {
@@ -459,7 +459,7 @@ class PRServiceImpl
                     /* localOnly */ true, when,
                     payload("reviewEvent", "finished", "scope", scope, "verdict", verdict,
                             "iteration", iteration, "roundId", roundId,
-                            "findingCount", commentIds.size(), "commentIds", commentIds, "body", body));
+                            "findingCount", commentIds.size(), "commentIds", commentIds));
             notifyUpdated(pr.id());
         });
     }

@@ -252,14 +252,24 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
       }
       const verdict = str(event.payload, 'verdict');
       const body = str(event.payload, 'body');
-      if (verdict === null && (body === null || body.trim().length === 0)) continue;
+      const normalizedScope = reviewScope(scope);
+      const isBrainLifecycleReview = event.actor === 'brain'
+        && event.isLocalOnly
+        && normalizedScope !== null;
+      // Brain review bodies are raw turn transcripts, not authored review
+      // summaries. Structured concerns already render as local comment
+      // cards, so repeating the transcript here leaks progress narration.
+      const visibleBody = !isBrainLifecycleReview && body !== null && body.trim().length > 0
+        ? body
+        : null;
+      if (verdict === null && visibleBody === null) continue;
       items.push({
         kind: 'review', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
         author: displayName(event.actor), bot: isBotActor(event.actor),
         verdict: reviewVerdict(verdict),
-        body: body !== null && body.trim().length > 0 ? body : null,
+        body: visibleBody,
         remoteId: typeof event.remoteEventId === 'number' ? event.remoteEventId : null,
-        scope: reviewScope(scope),
+        scope: normalizedScope,
         iteration: num(event.payload, 'iteration'),
         roundId: str(event.payload, 'roundId'),
       });

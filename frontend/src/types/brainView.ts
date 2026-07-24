@@ -211,6 +211,7 @@ export type BrainFeedRow = {
 };
 
 export type ApprovalDto = {
+  tone: 'ask' | 'approve';
   stageId: string;
   stageTitle: string;                 // "CiFixingStage · iter #3 · push"
   reasonShort: string;                // "Auto-push budget exhausted (5/5)"

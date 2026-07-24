@@ -230,6 +230,10 @@ class TestWorkspaceUnificationMigration
                 FROM workspace_settings WHERE workspace_id = 'ws-widget'
                 """)).isEqualTo("1.0");
         assertThat(singleString(connection, """
+                SELECT json_extract(settings_json, '$.dailyCapUsd')
+                FROM workspace_settings WHERE workspace_id = 'ws-widget'
+                """)).isEqualTo("500.0");
+        assertThat(singleString(connection, """
                 SELECT json_extract(settings_json, '$.brainBudgetChars')
                 FROM workspace_settings WHERE workspace_id = 'ws-widget'
                 """)).isEqualTo("8000");

@@ -347,8 +347,12 @@ function WorkspaceOverviewPanel({
   const runningTrunk = overview?.today.running[0];
   const openPullRequests = pullRequests.filter(pr => pr.state !== 'closed' && pr.state !== 'merged').slice(0, 3);
   const [showAllBacklog, setShowAllBacklog] = useState(false);
-  const visibleBacklog = showAllBacklog ? trunkBacklog : trunkBacklog.slice(0, 3);
-  const hiddenBacklogCount = trunkBacklog.length - visibleBacklog.length;
+  // Finished items (their cut task shipped or closed) drop off the trunk's
+  // active backlog — they live on in the workspace backlog view instead.
+  const activeBacklog = trunkBacklog.filter(
+    item => item.status !== 'shipped' && item.status !== 'closed');
+  const visibleBacklog = showAllBacklog ? activeBacklog : activeBacklog.slice(0, 3);
+  const hiddenBacklogCount = activeBacklog.length - visibleBacklog.length;
   const pullRequestTotal = overview?.sidebarCounts.pullRequests ?? openPullRequests.length;
   const runningSessionId = runningSession?.sessionId;
   // A running task opens its (finished) task page; a live agent session/trunk would
@@ -516,6 +520,8 @@ function isWorkspaceOverview(value: unknown): value is WorkspaceOverviewDto {
 }
 
 function backlogCardData(item: BacklogItemDto, formatTime: (ms: number) => string): BacklogItemData {
+  // Finished items (shipped/closed) are filtered out of this panel upstream,
+  // so only the in-flight states reach here.
   const resolved = item.status === 'resolved';
   const exploring = item.status === 'in-progress';
   const dropped = item.status === 'discarded' || item.status === 'not-to-proceed';

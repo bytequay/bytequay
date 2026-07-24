@@ -86,7 +86,14 @@ export default function WorkspaceBacklogPage({
 
   const visible = useMemo(() => {
     const available = items.filter(item => item.status !== 'discarded');
-    return filter === 'all' ? available : available.filter(item => item.status === filter);
+    if (filter === 'all') return available;
+    // shipped/closed are the settled outcomes of a resolved (cut) item — keep
+    // them under the "Resolved" tab rather than dropping them once the PR lands.
+    if (filter === 'resolved') {
+      return available.filter(item =>
+        item.status === 'resolved' || item.status === 'shipped' || item.status === 'closed');
+    }
+    return available.filter(item => item.status === filter);
   }, [filter, items]);
   const backlogNames = useMemo(() => backlogTitleMap(items), [items]);
 
@@ -222,10 +229,10 @@ function BacklogRow({
         <div className="wu-backlog-row__meta">
           {item.tags.map(tag => <Tag key={tag} value={tag} />)}
           <CreationOriginBadge origin={item.origin} />
-          {item.status === 'resolved'
+          {item.status === 'resolved' || item.status === 'shipped' || item.status === 'closed'
             ? (
               <span>
-                resolved
+                {item.status === 'shipped' ? 'shipped' : item.status === 'closed' ? 'closed' : 'resolved'}
                 {item.linkedTaskId !== null && <> · <a>→ Task #{taskNumber(item.linkedTaskId)}</a></>}
               </span>
             )
@@ -255,8 +262,11 @@ function BacklogRow({
         {item.status === 'in-progress' && (
           <span className="wu-backlog-row__exploring"><i />trunk exploring</span>
         )}
-        {item.status === 'resolved' && (
+        {(item.status === 'resolved' || item.status === 'shipped') && (
           <span className="wu-backlog-row__shipped"><CheckIcon /> Shipped</span>
+        )}
+        {item.status === 'closed' && (
+          <span className="wu-backlog-row__discarded">Closed</span>
         )}
         {item.status === 'discarded' && <span className="wu-backlog-row__discarded">Discarded</span>}
       </div>

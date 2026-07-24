@@ -84,8 +84,8 @@ class TestThreadServiceTrunkSession
         workspaces.addRepo(new WorkspaceRepo(
                 "ws-default", "octocat/auto-fix-fixture",
                 "main", false, Instant.now()));
-        when(worktrees.refreshPlanningWorktree(
-                eq(cloneRoot.toAbsolutePath().normalize()), any()))
+        when(worktrees.syncPlanningWorktree(
+                eq(cloneRoot.toAbsolutePath().normalize()), any(), any()))
                 .thenAnswer(invocation -> Optional.of(
                         new WorktreeService.PlanningSync(
                                 cloneRoot,

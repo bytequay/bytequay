@@ -418,6 +418,72 @@ class TestWorktreeService
         assertThat(refreshed.get().baseSha()).isNotEqualTo(plannedSha);
     }
 
+    /** Turn-start sync is all-local: it never fetches, so a base that moved
+     * only on the remote stays invisible until the background fetch brings
+     * it down — then the next sync resets + re-indexes to the new tip. */
+    @Test
+    void testSyncPlanningWorktreeAppliesOnlyBackgroundFetchedBases(@TempDir Path tempDir)
+            throws IOException, InterruptedException
+    {
+        GitRunner git = new GitRunner();
+        if (!git.isAvailable()) {
+            return;
+        }
+        Path upstream = tempDir.resolve("upstream");
+        Files.createDirectories(upstream);
+        runGit(upstream, List.of("git", "init", "--initial-branch=master"));
+        runGit(upstream, List.of("git", "config", "user.email", "up@example.com"));
+        runGit(upstream, List.of("git", "config", "user.name", "Up"));
+        Files.writeString(upstream.resolve("U1.md"), "1", StandardCharsets.UTF_8);
+        runGit(upstream, List.of("git", "add", "U1.md"));
+        runGit(upstream, List.of("git", "commit", "-m", "upstream c1"));
+
+        Path fork = initEmptyRepo(tempDir);
+        runGit(fork, List.of("git", "remote", "add", "upstream", upstream.toString()));
+        runGit(fork, List.of("git", "fetch", "upstream"));
+        runGit(fork, List.of("git", "remote", "set-head", "upstream", "master"));
+
+        WatchedRepoStore repos = Mockito.mock(WatchedRepoStore.class);
+        Mockito.when(repos.findAll()).thenReturn(List.of(new WatchedRepo(
+                1L, "trinodb", "trino", 0, fork.toString(), "upstream", "upstream")));
+        CodeGraphUpdateCoordinator codeGraph = Mockito.mock(CodeGraphUpdateCoordinator.class);
+        when(codeGraph.ensureFreshSync(Mockito.any(), Mockito.any()))
+                .thenReturn(CodeGraphResult.ok("indexed"));
+        WorktreeService service = new WorktreeService(git, repos, codeGraph);
+
+        // First turn (no pin) refreshes: fetch + checkout + index.
+        WorktreeService.PlanningSync first =
+                service.syncPlanningWorktree(fork, "thread-a", null).orElseThrow();
+        String pinnedSha = first.baseSha();
+        Path planningPath = first.worktree();
+        verify(codeGraph, Mockito.times(1)).ensureFreshSync(Mockito.any(), Mockito.any());
+
+        // Unmoved base: reopen the pinned checkout, no re-index.
+        WorktreeService.PlanningSync unmoved =
+                service.syncPlanningWorktree(fork, "thread-a", pinnedSha).orElseThrow();
+        assertThat(unmoved.baseSha()).isEqualTo(pinnedSha);
+        verify(codeGraph, Mockito.times(1)).ensureFreshSync(Mockito.any(), Mockito.any());
+
+        // Upstream advances, but no background fetch has run — the sync
+        // stays on the pinned SHA because it never touches the network.
+        Files.writeString(upstream.resolve("U2.md"), "2", StandardCharsets.UTF_8);
+        runGit(upstream, List.of("git", "add", "U2.md"));
+        runGit(upstream, List.of("git", "commit", "-m", "upstream c2"));
+        WorktreeService.PlanningSync unfetched =
+                service.syncPlanningWorktree(fork, "thread-a", pinnedSha).orElseThrow();
+        assertThat(unfetched.baseSha()).isEqualTo(pinnedSha);
+        assertThat(revParse(planningPath, "HEAD")).isEqualTo(pinnedSha);
+
+        // Once the background fetch brings the tip down, the sync applies it.
+        service.fetchPlanningBase(fork);
+        WorktreeService.PlanningSync moved =
+                service.syncPlanningWorktree(fork, "thread-a", pinnedSha).orElseThrow();
+        assertThat(moved.baseSha()).isNotEqualTo(pinnedSha);
+        assertThat(moved.baseSha()).isEqualTo(revParse(upstream, "master"));
+        assertThat(revParse(planningPath, "HEAD")).isEqualTo(moved.baseSha());
+        verify(codeGraph, Mockito.times(2)).ensureFreshSync(Mockito.any(), Mockito.any());
+    }
+
     /** The background fetch updates remote-tracking refs only — an existing
      * planning worktree keeps its pinned checkout until a turn-boundary
      * sync applies the moved tip. */

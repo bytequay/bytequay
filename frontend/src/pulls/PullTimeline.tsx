@@ -223,8 +223,7 @@ function ReviewCard({
 export default function PullTimeline({
   items, repo, prAuthor = null, prHtmlUrl = '', reviewThreadsByRemoteId, onCommentReaction,
   onThreadReply, onThreadReact, onThreadSetResolved, localPr,
-  onLocalReply, onLocalResolve, onLocalReopen, onLocalDismiss, currentUserLogin, onSubmitLocalReview,
-  onAskAgentThread, onOpenCommentLocation,
+  onLocalReply, onLocalResolve, onLocalReopen, currentUserLogin, onOpenCommentLocation,
 }: {
   items: TimelineItem[];
   repo: string;
@@ -239,10 +238,7 @@ export default function PullTimeline({
   onLocalReply?: (root: LocalPRComment, body: string) => Promise<void>;
   onLocalResolve?: (commentId: string) => Promise<void>;
   onLocalReopen?: (commentId: string) => Promise<void>;
-  onLocalDismiss?: (commentId: string) => Promise<void>;
   currentUserLogin?: string | null;
-  onSubmitLocalReview?: (commentIds: string[]) => Promise<void>;
-  onAskAgentThread?: (root: LocalPRComment) => void;
   /** Jump to a file-line comment's location on the Changes tab. */
   onOpenCommentLocation?: (filePath: string, line: number | null, side: 'LEFT' | 'RIGHT') => void;
 }) {
@@ -347,15 +343,6 @@ export default function PullTimeline({
                       && (onLocalResolve !== undefined || onLocalReopen !== undefined)
                     ? next => { if (next) onLocalResolve?.(root.id); else onLocalReopen?.(root.id); }
                     : undefined}
-                  onDismiss={!resolved && (root.author === 'you' || root.author === 'brain' || findingBacked)
-                      && onLocalDismiss !== undefined
-                    ? () => onLocalDismiss(root.id)
-                    : undefined}
-                  onSubmitToDev={!resolved && (root.author === 'you' || findingBacked) && !item.submitted
-                      && onSubmitLocalReview !== undefined
-                    ? () => onSubmitLocalReview([root.id])
-                    : undefined}
-                  onAskAgent={onAskAgentThread !== undefined ? () => onAskAgentThread(root) : undefined}
                   onOpenLocation={onOpenCommentLocation}
                 />
               </div>

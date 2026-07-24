@@ -163,7 +163,7 @@ describe('PullOverview', () => {
     expect(screen.queryByText('Changes requested')).toBeNull();
   });
 
-  it('renders a pending local code review thread with location, reply, resolve, and send actions', async () => {
+  it('renders a pending local code review thread with only reply and resolve actions', async () => {
     const local = {
       ...bundle,
       pr: {
@@ -180,7 +180,6 @@ describe('PullOverview', () => {
     } as LocalPRBundle;
     const onLocalReply = vi.fn().mockResolvedValue(undefined);
     const onLocalResolve = vi.fn().mockResolvedValue(undefined);
-    const onSubmitLocalReview = vi.fn().mockResolvedValue(undefined);
 
     render(
       <PullTimeline
@@ -189,12 +188,14 @@ describe('PullOverview', () => {
         localPr={local.pr}
         onLocalReply={onLocalReply}
         onLocalResolve={onLocalResolve}
-        onSubmitLocalReview={onSubmitLocalReview}
       />,
     );
 
     expect(screen.getByText('src/Foo.java:41')).toBeTruthy();
     expect(screen.getByText('PENDING REVIEW')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Ask agent/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Send to dev' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Discard local comment' })).toBeNull();
     fireEvent.click(screen.getByPlaceholderText('Reply…'));
     fireEvent.change(screen.getByPlaceholderText('Write a reply'), { target: { value: 'One more detail.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
@@ -202,9 +203,7 @@ describe('PullOverview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Resolve conversation' }));
     await waitFor(() => expect(onLocalResolve).toHaveBeenCalledWith('local-1'));
-    expect(screen.getByRole('button', { name: 'Send to dev' }).hasAttribute('disabled')).toBe(true);
     expect(screen.getByPlaceholderText('Reply…').hasAttribute('disabled')).toBe(true);
-    expect(onSubmitLocalReview).not.toHaveBeenCalled();
   });
 
   it('shows submitted user findings and open brain findings as waiting workflow roles', () => {
@@ -250,35 +249,6 @@ describe('PullOverview', () => {
     // Both the user finding and the brain finding are manually resolvable now
     // (brain findings used to have no resolve control).
     expect(screen.getAllByRole('button', { name: 'Resolve conversation' })).toHaveLength(2);
-  });
-
-  it('routes a review thread into the agent composer via Ask agent', () => {
-    const onAskAgentThread = vi.fn();
-    const local = {
-      ...bundle,
-      pr: {
-        ...bundle.pr, id: 'pr-1', taskId: 'task-1', status: 'local-open',
-        origin: 'task', repo: null, remotePrNumber: null, remotePrUrl: null,
-      },
-      comments: [{
-        id: 'c1', localPrId: 'pr-1', origin: 'local', scope: 'file-line', filePath: 'src/A.java',
-        lineNumber: 7, side: 'RIGHT', startLine: null, startSide: null, author: 'you', body: 'Fix A',
-        createdAt: 1000, resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
-        parentCommentId: null, publishedAt: null,
-      }],
-    } as LocalPRBundle;
-
-    render(
-      <PullTimeline
-        items={buildTimeline(local)}
-        repo="trinodb/trino"
-        localPr={local.pr}
-        onAskAgentThread={onAskAgentThread}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: /Ask agent/ }));
-    expect(onAskAgentThread).toHaveBeenCalledWith(expect.objectContaining({ id: 'c1' }));
   });
 
   it('renders the real user avatar and can unresolve a resolved comment', async () => {
@@ -346,7 +316,7 @@ describe('PullOverview', () => {
     expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull();
   });
 
-  it('lets a pending finding-backed review thread be sent to Development', async () => {
+  it('keeps a pending finding-backed thread free of legacy actions', () => {
     const local = {
       ...bundle,
       pr: {
@@ -361,21 +331,19 @@ describe('PullOverview', () => {
         parentCommentId: null, publishedAt: null, findingId: 'finding-1',
       }],
     } as LocalPRBundle;
-    const onSubmitLocalReview = vi.fn().mockResolvedValue(undefined);
-
     render(
       <PullTimeline
         items={buildTimeline(local)}
         repo="trinodb/trino"
         localPr={local.pr}
-        onSubmitLocalReview={onSubmitLocalReview}
       />,
     );
 
     expect(screen.getByText('src/C.java:12')).toBeTruthy();
     expect(screen.getByText('PENDING REVIEW')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Send to dev' }));
-    await waitFor(() => expect(onSubmitLocalReview).toHaveBeenCalledWith(['agent-1']));
+    expect(screen.queryByRole('button', { name: /Ask agent/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Send to dev' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Discard local comment' })).toBeNull();
   });
 
   it('renders GitHub review threads as compact actionable desktop cards', async () => {

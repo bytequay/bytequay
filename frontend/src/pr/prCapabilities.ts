@@ -27,7 +27,8 @@ export interface PRCapabilities {
   /** Draft local (never-auto-posted) comments. Task PRs may draft only in
    *  Local Review; external PRs may draft until they become terminal. */
   draftLocalComments: boolean;
-  /** "Submit review" — batch local drafts into one GitHub review. External PRs only. */
+  /** "Submit review" — batch local drafts into one GitHub review. External PRs,
+   *  and task PRs once they've reached the remote stage. */
   publishReview: boolean;
   /** Push the local branch + open a Draft PR. Task-origin, local-open only. */
   push: boolean;
@@ -42,16 +43,21 @@ export interface PRCapabilities {
 
 const TERMINAL_STATUSES = new Set(['merged', 'closed']);
 const REMOTE_COMMENT_STATUSES = new Set(['remote-drafted', 'remote-open', 'merged']);
+/** Once a task PR reaches GitHub it is reviewed like any remote PR: the user
+ *  may draft inline comments and publish them as one GitHub review (their own
+ *  authorship limits the verdict to Comment). Before push it stays private. */
+const REMOTE_TASK_REVIEW_STATUSES = new Set(['remote-drafted', 'remote-open']);
 
 /** The single source of truth for what a PR surface may do — derived purely
  *  from `(pr.origin, pr.status, surface)`, never re-tested inline by a
  *  component (unified-pr-view.md U7/U8). */
 export function derivePRCapabilities(pr: LocalPR, surface: PRSurface): PRCapabilities {
+  const remoteTaskReview = pr.origin === 'task' && REMOTE_TASK_REVIEW_STATUSES.has(pr.status);
   return {
     draftLocalComments: pr.origin === 'task'
-      ? pr.status === 'local-open'
+      ? pr.status === 'local-open' || remoteTaskReview
       : !TERMINAL_STATUSES.has(pr.status),
-    publishReview: pr.origin === 'external',
+    publishReview: pr.origin === 'external' || remoteTaskReview,
     push: pr.origin === 'task' && pr.status === 'local-open',
     merge: pr.origin === 'external' && pr.status === 'remote-open',
     chatAgent: surface === 'task',

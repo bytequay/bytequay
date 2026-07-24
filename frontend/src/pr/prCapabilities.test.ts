@@ -42,17 +42,20 @@ describe('derivePRCapabilities', () => {
     expect(derivePRCapabilities(pr('task', 'merged'), 'task').merge).toBe(false);
   });
 
-  it('allows publishReview only for external-origin PRs, regardless of status', () => {
+  it('allows publishReview for external PRs and for task PRs once they reach the remote stage', () => {
     expect(derivePRCapabilities(pr('external', 'remote-open'), 'details').publishReview).toBe(true);
     expect(derivePRCapabilities(pr('external', 'merged'), 'details').publishReview).toBe(true);
-    expect(derivePRCapabilities(pr('task', 'remote-open'), 'task').publishReview).toBe(false);
+    expect(derivePRCapabilities(pr('task', 'remote-drafted'), 'task').publishReview).toBe(true);
+    expect(derivePRCapabilities(pr('task', 'remote-open'), 'task').publishReview).toBe(true);
+    expect(derivePRCapabilities(pr('task', 'local-open'), 'task').publishReview).toBe(false);
+    expect(derivePRCapabilities(pr('task', 'merged'), 'task').publishReview).toBe(false);
   });
 
-  it('allows task drafts only during Local Review and external drafts until terminal', () => {
+  it('allows task drafts during Local Review and again once the PR is on GitHub; external drafts until terminal', () => {
     expect(derivePRCapabilities(pr('task', 'local-drafted'), 'task').draftLocalComments).toBe(false);
     expect(derivePRCapabilities(pr('task', 'local-open'), 'task').draftLocalComments).toBe(true);
-    expect(derivePRCapabilities(pr('task', 'remote-drafted'), 'task').draftLocalComments).toBe(false);
-    expect(derivePRCapabilities(pr('task', 'remote-open'), 'task').draftLocalComments).toBe(false);
+    expect(derivePRCapabilities(pr('task', 'remote-drafted'), 'task').draftLocalComments).toBe(true);
+    expect(derivePRCapabilities(pr('task', 'remote-open'), 'task').draftLocalComments).toBe(true);
     expect(derivePRCapabilities(pr('external', 'remote-open'), 'details').draftLocalComments).toBe(true);
     expect(derivePRCapabilities(pr('task', 'merged'), 'task').draftLocalComments).toBe(false);
     expect(derivePRCapabilities(pr('external', 'closed'), 'details').draftLocalComments).toBe(false);
@@ -91,13 +94,15 @@ describe('derivePRCapabilities', () => {
   const MERGE_TRUE = new Set(['external/remote-open']);
   const PUBLISH_REVIEW_TRUE = new Set([
     'external/remote-drafted', 'external/remote-open', 'external/merged', 'external/closed',
+    'task/remote-drafted', 'task/remote-open',
   ]);
   const POST_REMOTE_COMMENT_TRUE = new Set([
     'task/remote-drafted', 'task/remote-open', 'external/remote-drafted', 'external/remote-open',
     'task/merged', 'external/merged',
   ]);
   const DRAFT_LOCAL_COMMENTS_TRUE = new Set([
-    'task/local-open', 'external/remote-drafted', 'external/remote-open',
+    'task/local-open', 'task/remote-drafted', 'task/remote-open',
+    'external/remote-drafted', 'external/remote-open',
   ]);
 
   describe('capability matrix', () => {

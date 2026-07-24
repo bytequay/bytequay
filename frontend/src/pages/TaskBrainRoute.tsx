@@ -102,7 +102,7 @@ export function TaskBrainRoute({
   // The task's local PR — rendered in the right pane's PR tab through the
   // same unified <PRView> + user-gated actions the stage pages use.
   const {
-    bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, capabilities: prCapabilities,
+    bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
     addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, reopenLocalComment, deleteLocalComment,
@@ -802,9 +802,7 @@ export function TaskBrainRoute({
           ?? displayedTaskBundle.commits.reduce((sum, commit) => sum + commit.deletions, 0),
         onOpen: () => openTab('pr', 'changes'),
       } : undefined}
-      onSubmitReview={prCapabilities?.publishReview === true || canSubmitLocalReview
-        ? onSubmitReview
-        : undefined}
+      onSubmitReview={canSubmitLocalReview ? onSubmitReview : undefined}
       submittingReview={submittingReview}
       pendingReviewComments={pendingReviewComments}
       onRemovePendingReviewComment={deleteLocalComment}

@@ -67,8 +67,25 @@ public interface Agent
 
     CompletionStage<Void> send(String userInput);
 
+    /** Task whose messages and tools the next turn belong to. */
+    default void setActiveTask(String taskId)
+    {
+    }
+
+    /** Current task attribution, used to locate shared task-brain sessions. */
+    default String activeTaskId()
+    {
+        return null;
+    }
+
     default void setActiveStage(String stageId)
     {
+    }
+
+    /** Current stage attribution, used to locate shared task-brain sessions. */
+    default String activeStageId()
+    {
+        return null;
     }
 
     default void setActiveAgentRun(String agentRunId)

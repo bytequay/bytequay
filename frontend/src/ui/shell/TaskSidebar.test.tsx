@@ -21,7 +21,7 @@ afterEach(cleanup);
 
 const nodes = buildLivePlan({
   stages: [], subStages: [],
-  task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+  task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false, paused: false },
 });
 
 const activeDevelopmentNodes = buildLivePlan({
@@ -31,7 +31,7 @@ const activeDevelopmentNodes = buildLivePlan({
     summary: '', loopIteration: 0,
   }],
   subStages: [],
-  task: { prNumber: null, currentPhase: 'VALIDATING' as TaskPhase, terminal: false },
+  task: { prNumber: null, currentPhase: 'VALIDATING' as TaskPhase, terminal: false, paused: false },
 });
 
 describe('TaskSidebar', () => {
@@ -125,7 +125,7 @@ describe('TaskSidebar', () => {
             summary: '', loopIteration: 0,
           }],
           subStages: [],
-          task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+          task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false, paused: false },
         })}
         onOpenStage={onOpenStage}
       />,
@@ -137,6 +137,36 @@ describe('TaskSidebar', () => {
     fireEvent.click(localDevelopment);
     expect(localDevelopment.getAttribute('aria-expanded')).toBe('false');
     expect(onOpenStage).toHaveBeenCalledOnce();
+  });
+
+  it('renders a paused active phase with awaiting classes and no live-work classes', () => {
+    const dev = {
+      id: 'dev-paused', taskId: 't', type: 'DEVELOPMENT_STAGE' as const, state: 'ACTIVE' as const,
+      openedAt: '2026-01-01T00:00:00Z', closedAt: null, callerStageId: null,
+      summary: '', loopIteration: 0,
+    };
+    render(
+      <TaskSidebar
+        task={{ title: 'x', branch: 'b' }}
+        nodes={buildLivePlan({
+          stages: [dev], subStages: [],
+          task: {
+            prNumber: null, currentPhase: 'VALIDATING' as TaskPhase, paused: true, terminal: false,
+          },
+          viewedStageId: dev.id,
+          working: true,
+        })}
+      />,
+    );
+
+    const localDevelopment = screen.getByText('Local Development').closest('button') as HTMLButtonElement;
+    expect(localDevelopment.querySelector('.workspace-task-stage__status-icon.is-awaiting')).toBeTruthy();
+    expect(localDevelopment.querySelector('.is-running, .is-planning, .is-monitoring')).toBeNull();
+
+    fireEvent.click(localDevelopment);
+    const validation = screen.getByText('Validation').closest('button') as HTMLButtonElement;
+    expect(validation.querySelector('.workspace-task-stage__status-icon.is-awaiting')).toBeTruthy();
+    expect(validation.querySelector('.is-running, .is-planning, .is-monitoring')).toBeNull();
   });
 
   it('keeps Cleanup disabled while CI validation remains actionable', () => {

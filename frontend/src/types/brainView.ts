@@ -54,11 +54,15 @@ export type StageType =
 /** Mirrors the backend AgentRun.kind — an isolated agent session attached
  *  to whatever it serves, containment without lifecycle position
  *  (plan-rail-runs.md R6). */
-export type AgentRunKind = 'ci_fix' | 'review_round' | 'branch_guard' | 'panel_review';
+export type AgentRunKind =
+  | 'plan' | 'dev' | 'review'
+  | 'ci_fix' | 'review_round' | 'branch_guard' | 'panel_review';
 
 export type AgentRunSource = 'local' | 'remote' | 'scheduled' | null;
 
-export type AgentRunStatus = 'running' | 'awaiting_gate' | 'succeeded' | 'failed' | 'cancelled';
+export type AgentRunStatus =
+  | 'queued' | 'running' | 'paused' | 'awaiting_gate'
+  | 'succeeded' | 'failed' | 'cancelled';
 
 /** One live-or-recently-finished agent run. The rail only ever renders a
  *  sub-row for a run whose status is live/gated (R2: "shows now, never
@@ -103,7 +107,7 @@ export type BranchGuardDto = {
   lastCheckedAt: string | null;
 };
 
-export type ReviewRoundStatus = 'triaging' | 'addressing' | 'awaiting_gate' | 'posted' | 'closed';
+export type ReviewRoundStatus = 'triaging' | 'addressing' | 'awaiting_gate' | 'posted' | 'closed' | 'paused';
 
 export type ReviewRoundStats = { fixed: number; replied: number; pushedBack: number; open: number };
 
@@ -319,8 +323,8 @@ export type TaskBrainViewData = {
     statusLabel: string;              // "CI FIXING · iter #3" (server-computed)
     agentRuntime: 'CLI' | 'API';
     agentModel: string;               // "sonnet-3.7"
-    paused: boolean;                  // paused or needs-attention → rail offers explicit Resume
-    terminal: boolean;                // true at a terminal status (closed/canceled/…) → rail shows closed state
+    paused: boolean;                  // stopped but resumable (paused/attention/error/archive) → Resume
+    terminal: boolean;                // irreversible end state (closed/canceled/completed) → static state
   };
   aggregate: {
     pushes: number;

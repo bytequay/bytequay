@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -24,6 +26,7 @@ import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnEventType;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
@@ -58,6 +61,8 @@ class TestSqliteThreadTurnStore
     private ThreadTurnStore turns;
     @Autowired
     private ThreadTurnEventStore events;
+    @Autowired
+    private TaskStore tasks;
 
     @Test
     void threadTurnHistoryUsesStableNewestFirstOrder()
@@ -118,6 +123,21 @@ class TestSqliteThreadTurnStore
     }
 
     @Test
+    void exactTaskStatusLookupDoesNotReturnSiblingTaskTurns()
+    {
+        String threadId = newTask();
+        String firstTaskId = newWorkTask(threadId, 1L);
+        String siblingTaskId = newWorkTask(threadId, 2L);
+        Instant now = Instant.parse("2026-05-19T12:00:00Z");
+        turns.saveTurn(taskTurn("first", threadId, firstTaskId, QUEUED, now));
+        turns.saveTurn(taskTurn("sibling", threadId, siblingTaskId, QUEUED, now.plusSeconds(1)));
+
+        assertThat(turns.listTurnsByExactTaskIdAndStatus(firstTaskId, QUEUED, 10))
+                .extracting(ThreadTurn::id)
+                .containsExactly(id(threadId, "first"));
+    }
+
+    @Test
     void threadTurnEventsUseStableNewestFirstOrder()
     {
         String threadId = newTask();
@@ -149,6 +169,9 @@ class TestSqliteThreadTurnStore
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("limit must be positive");
         assertThatThrownBy(() -> turns.listTurnsByTaskIdAndStatus(threadId, QUEUED, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("limit must be positive");
+        assertThatThrownBy(() -> turns.listTurnsByExactTaskIdAndStatus("task-1", QUEUED, 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("limit must be positive");
         assertThatThrownBy(() -> turns.listTurnsByTaskId(threadId, 0))
@@ -185,6 +208,18 @@ class TestSqliteThreadTurnStore
         return threadId;
     }
 
+    private String newWorkTask(String threadId, long seq)
+    {
+        String taskId = UUID.randomUUID().toString();
+        Instant now = Instant.parse("2026-05-19T12:00:00Z");
+        tasks.saveTask(new Task(
+                taskId, threadId, seq, TaskStatus.RUNNING, "feature-" + seq,
+                null, "main", "/tmp", null, null, null, null, null,
+                "DEVELOP", null, null, 0L, 0L, 0L, null, now, null,
+                null, null, null, null));
+        return taskId;
+    }
+
     private static ThreadTurn turn(String suffix, String threadId, ThreadTurnStatus status, Instant createdAt)
     {
         return new ThreadTurn(
@@ -200,6 +235,31 @@ class TestSqliteThreadTurnStore
                 /* finishedAt */ null,
                 /* errorMessage */ null,
                 TurnInitiator.user());
+    }
+
+    private static ThreadTurn taskTurn(
+            String suffix,
+            String threadId,
+            String taskId,
+            ThreadTurnStatus status,
+            Instant createdAt)
+    {
+        return new ThreadTurn(
+                id(threadId, suffix),
+                threadId,
+                taskId,
+                ThreadResourceLane.CLI,
+                status,
+                "input",
+                createdAt,
+                createdAt,
+                /* startedAt */ null,
+                /* finishedAt */ null,
+                /* errorMessage */ null,
+                TurnInitiator.user(),
+                "stage-1",
+                ThreadScope.STAGE,
+                /* agentRunId */ null);
     }
 
     private static ThreadTurnEvent event(String suffix, String turnId, String threadId, Instant createdAt)

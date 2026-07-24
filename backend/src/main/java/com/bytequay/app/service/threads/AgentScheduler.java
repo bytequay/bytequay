@@ -18,6 +18,7 @@ import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -52,6 +53,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -59,10 +62,12 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
@@ -136,6 +141,16 @@ public class AgentScheduler
      *  task/stage turn — the same key the registry uses to find the live
      *  agent. The global lane cap still bounds total concurrent agents. */
     private final Set<String> runningAgentKeys = new HashSet<>();
+    /** Running turns explicitly cancelled through run/task lifecycle control,
+     *  with the durable reason to record. They keep their lane/agent lock
+     *  until the provider actually exits, then complete as CANCELLED rather
+     *  than masquerading as successful. */
+    private final Map<String, String> cancelReasonsByTurnId = new HashMap<>();
+    /** The session actually dispatched for each in-flight turn. Keep this
+     *  independently of ThreadRegistry: lifecycle teardown may evict the
+     *  registry entry before cancellation reaches the scheduler. */
+    private final ConcurrentHashMap<String, ThreadAgent> runningTurnSessions =
+            new ConcurrentHashMap<>();
     private final Object lock = new Object();
     /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
      *  null in POJO unit tests that construct the scheduler directly, where
@@ -356,8 +371,39 @@ public class AgentScheduler
                 correlatedRunId);
         turns.saveTurn(turn);
         appendEvent(turn, TURN_QUEUED, null);
-        enqueuePersistedTurn(turn);
+        enqueueAfterCommit(turn);
         return turn.id();
+    }
+
+    /** Never launch provider work for rows that can still roll back. */
+    private void enqueueAfterCommit(ThreadTurn turn)
+    {
+        if (!deferUntilAfterCommit(() -> enqueuePersistedTurn(turn))) {
+            enqueuePersistedTurn(turn);
+        }
+    }
+
+    /** Register an in-memory scheduler mutation only after its surrounding
+     *  database transaction commits. The virtual thread is intentional:
+     *  Spring keeps transaction-bound resources attached while invoking
+     *  {@code afterCommit}, so repository work must leave that callback
+     *  thread first. Returns false when there is no transaction boundary and
+     *  the caller should run the action immediately. */
+    private static boolean deferUntilAfterCommit(Runnable action)
+    {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return false;
+        }
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization()
+                {
+                    @Override
+                    public void afterCommit()
+                    {
+                        java.lang.Thread.startVirtualThread(action);
+                    }
+                });
+        return true;
     }
 
     /**
@@ -524,7 +570,16 @@ public class AgentScheduler
     public int cancelSessionTurns(String agentRunId)
     {
         requireNonNull(agentRunId, "agentRunId is null");
+        if (deferUntilAfterCommit(() -> cancelSessionTurnsNow(agentRunId))) {
+            return 0;
+        }
+        return cancelSessionTurnsNow(agentRunId);
+    }
+
+    private int cancelSessionTurnsNow(String agentRunId)
+    {
         int cancelled = 0;
+        List<ThreadAgent> runningSessions = new ArrayList<>();
         synchronized (lock) {
             List<ThreadTurn> sessionTurns = turns.listTurnsByAgentRunId(
                     agentRunId, TURN_CANCELLATION_PAGE_SIZE);
@@ -547,9 +602,115 @@ public class AgentScheduler
                 appendEvent(stopped, TURN_CANCELLED, "cancelled by session control");
                 cancelled++;
             }
+            for (ThreadTurn turn : sessionTurns) {
+                if (turn.status() != RUNNING || cancelReasonsByTurnId.containsKey(turn.id())) {
+                    continue;
+                }
+                Optional<ThreadAgent> session = findRunningSession(turn);
+                if (session.isEmpty()) {
+                    cancelOrphanedRunningTurnLocked(turn, "cancelled by session control");
+                    cancelled++;
+                    continue;
+                }
+                cancelReasonsByTurnId.put(turn.id(), "cancelled by session control");
+                runningSessions.add(session.orElseThrow());
+                cancelled++;
+            }
             drainLocked();
         }
+        // interrupt() may synchronously complete an API-backed future; keep
+        // it outside the scheduler lock so completeTurn can release its lane.
+        runningSessions.forEach(ThreadAgent::interrupt);
         return cancelled;
+    }
+
+    @Override
+    public int cancelTaskTurns(String taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        if (deferUntilAfterCommit(() -> cancelTaskTurnsNow(taskId))) {
+            return 0;
+        }
+        return cancelTaskTurnsNow(taskId);
+    }
+
+    private int cancelTaskTurnsNow(String taskId)
+    {
+        int cancelled = 0;
+        List<ThreadAgent> runningSessions = new ArrayList<>();
+        synchronized (lock) {
+            List<ThreadTurn> queuedTurns;
+            do {
+                queuedTurns = turns.listTurnsByExactTaskIdAndStatus(
+                        taskId, QUEUED, TURN_CANCELLATION_PAGE_SIZE);
+                if (queuedTurns.isEmpty()) {
+                    break;
+                }
+                Set<String> queuedIds = queuedTurns.stream()
+                        .map(ThreadTurn::id)
+                        .collect(Collectors.toSet());
+                for (LaneState lane : lanes.values()) {
+                    removeQueuedTurns(lane, queuedIds);
+                }
+                Instant now = Instant.now();
+                for (ThreadTurn turn : queuedTurns) {
+                    ThreadTurn stopped = updateTurn(
+                            turn, CANCELLED, turn.startedAt(), now,
+                            "cancelled by task lifecycle action");
+                    turns.saveTurn(stopped);
+                    appendEvent(stopped, TURN_CANCELLED, "cancelled by task lifecycle action");
+                }
+                cancelled += queuedTurns.size();
+            }
+            while (queuedTurns.size() == TURN_CANCELLATION_PAGE_SIZE);
+
+            for (ThreadTurn turn : turns.listTurnsByExactTaskIdAndStatus(
+                    taskId, RUNNING, TURN_CANCELLATION_PAGE_SIZE)) {
+                if (cancelReasonsByTurnId.containsKey(turn.id())) {
+                    continue;
+                }
+                Optional<ThreadAgent> session = findRunningSession(turn);
+                if (session.isEmpty()) {
+                    cancelOrphanedRunningTurnLocked(
+                            turn, "cancelled by task lifecycle action");
+                    cancelled++;
+                    continue;
+                }
+                cancelReasonsByTurnId.put(turn.id(), "cancelled by task lifecycle action");
+                runningSessions.add(session.orElseThrow());
+                cancelled++;
+            }
+            drainLocked();
+        }
+        runningSessions.stream().distinct().forEach(ThreadAgent::interrupt);
+        return cancelled;
+    }
+
+    private Optional<ThreadAgent> findRunningSession(ThreadTurn turn)
+    {
+        return Optional.ofNullable(runningTurnSessions.get(turn.id()));
+    }
+
+    /** A durable RUNNING row can survive a process/session teardown even
+     *  though no provider remains to invoke completeTurn. Close it here so
+     *  cancellation cannot leave an immortal RUNNING row. */
+    private void cancelOrphanedRunningTurnLocked(ThreadTurn turn, String reason)
+    {
+        Instant now = Instant.now();
+        ThreadTurn stopped = updateTurn(turn, CANCELLED, turn.startedAt(), now, reason);
+        turns.saveTurn(stopped);
+        appendEvent(stopped, TURN_CANCELLED, reason);
+        cancelReasonsByTurnId.remove(turn.id());
+        runningTurnSessions.remove(turn.id());
+        usageBaselines.remove(turn.id());
+        headBaselines.remove(turn.id());
+        activeContexts.remove(
+                turn.threadId(),
+                PermissionResolver.agentKeyFor(turn.taskId(), turn.stageId()));
+
+        // Every locally dispatched turn is present in runningTurnSessions
+        // until completion. No entry means this durable orphan owns no local
+        // lane slot or agent-key gate to release.
     }
 
     /**
@@ -607,14 +768,24 @@ public class AgentScheduler
     {
         requireNonNull(turn, "turn is null");
         synchronized (lock) {
-            LaneState lane = lane(turn.lane());
-            boolean enqueued = lane.knownTurnIds.add(turn.id());
+            // afterCommit/recovery callbacks carry a snapshot. A lifecycle
+            // action may have cancelled that row before this callback won the
+            // scheduler lock, so reload the durable authority before queueing.
+            ThreadTurn persisted = turns.findTurnById(turn.id()).orElse(null);
+            if (persisted == null || persisted.status() != QUEUED) {
+                return;
+            }
+            if (cancelIfTaskStoppedLocked(persisted)) {
+                return;
+            }
+            LaneState lane = lane(persisted.lane());
+            boolean enqueued = lane.knownTurnIds.add(persisted.id());
             if (enqueued) {
-                lane.queue.addLast(turn);
+                lane.queue.addLast(persisted);
             }
             drainLocked();
-            if (enqueued && lane.knownTurnIds.contains(turn.id())) {
-                appendEvent(turn, WAITING_FOR_CAPACITY, waitingReason(turn, lane));
+            if (enqueued && lane.knownTurnIds.contains(persisted.id())) {
+                appendEvent(persisted, WAITING_FOR_CAPACITY, waitingReason(persisted, lane));
             }
         }
     }
@@ -651,9 +822,56 @@ public class AgentScheduler
             }
             iterator.remove();
             lane.knownTurnIds.remove(turn.id());
-            return Optional.of(turn);
+            ThreadTurn persisted = turns.findTurnById(turn.id()).orElse(null);
+            if (persisted == null || persisted.status() != QUEUED) {
+                continue;
+            }
+            // A turn can wait in memory after the task is parked. Re-read the
+            // task immediately before dispatch so a delayed/failed lifecycle
+            // cancellation cannot launch provider work for stopped state.
+            if (cancelIfTaskStoppedLocked(persisted)) {
+                continue;
+            }
+            return Optional.of(persisted);
         }
         return Optional.empty();
+    }
+
+    private boolean cancelIfTaskStoppedLocked(ThreadTurn turn)
+    {
+        String reason = stoppedTaskReason(turn);
+        if (reason == null) {
+            return false;
+        }
+        ThreadTurn cancelled = updateTurn(
+                turn, CANCELLED, turn.startedAt(), Instant.now(), reason);
+        turns.saveTurn(cancelled);
+        appendEvent(cancelled, TURN_CANCELLED, reason);
+        transitionRun(
+                cancelled.agentRunId(), AgentRun.STATUS_CANCELLED, reason);
+        return true;
+    }
+
+    private String stoppedTaskReason(ThreadTurn turn)
+    {
+        if (turn.taskId() == null || turn.taskId().isBlank()) {
+            return null; // Trunk work is not governed by a Task row.
+        }
+        Task task = tasks.findTaskById(turn.taskId()).orElse(null);
+        if (task == null) {
+            return "cancelled because task no longer exists";
+        }
+        if (task.phase() == TaskPhase.NEEDS_ATTENTION
+                || task.phase() == TaskPhase.COMPLETED) {
+            return "cancelled because task phase is "
+                    + task.phase().name().toLowerCase(Locale.ROOT);
+        }
+        return switch (task.status()) {
+            case PAUSED, NEEDS_ATTENTION, COMPLETED, REMOTE_CLOSED,
+                    ERRORED, CANCELED, ARCHIVED ->
+                    "cancelled because task is " + task.status().name().toLowerCase(Locale.ROOT);
+            default -> null;
+        };
     }
 
     private static void removeQueuedTurns(LaneState lane, Set<String> turnIds)
@@ -714,6 +932,7 @@ public class AgentScheduler
             completeTurn(runningTurn, null, e);
             return;
         }
+        runningTurnSessions.put(runningTurn.id(), session);
 
         CompletionStage<Void> completion;
         try {
@@ -723,6 +942,7 @@ public class AgentScheduler
             // this turn's active context before spawning the provider.
             session.setMcpAgentKey(PermissionResolver.agentKeyFor(
                     runningTurn.taskId(), runningTurn.stageId()));
+            session.setActiveTask(runningTurn.taskId());
             // Tell the session which stage this turn runs under so the
             // messages it emits inherit an explicit stage_id.
             session.setActiveStage(runningTurn.stageId());
@@ -751,9 +971,9 @@ public class AgentScheduler
     private void completeTurn(ThreadTurn runningTurn, ThreadAgent session, Throwable failure)
     {
         Throwable unwrapped = unwrap(failure);
-        boolean failed = unwrapped != null
+        boolean providerFailed = unwrapped != null
                 || (session != null && session.status() == ThreadStatus.ERRORED);
-        boolean codeChanged = detectCodeChanged(runningTurn, session, failed);
+        boolean detectedCodeChanged = detectCodeChanged(runningTurn, session, providerFailed);
         Instant now = Instant.now();
         // Prefer the thrown exception's message; when the session failed
         // without throwing (a subprocess that exited non-zero and went
@@ -761,28 +981,53 @@ public class AgentScheduler
         // the turn records the real cause instead of an empty message.
         String errorMessage = unwrapped != null
                 ? unwrapped.getMessage()
-                : (failed && session != null ? session.lastErrorDetail() : null);
-        ThreadTurn finished = updateTurn(
-                runningTurn,
-                failed ? FAILED : COMPLETED,
-                runningTurn.startedAt(),
-                now,
-                errorMessage);
-        turns.saveTurn(finished);
+                : (providerFailed && session != null ? session.lastErrorDetail() : null);
+        boolean cancelled;
+        boolean failed;
+        boolean codeChanged;
+        String cancelReason;
+        ThreadTurn finished;
+        synchronized (lock) {
+            // Keep the dispatched-session marker until the durable terminal
+            // write. A concurrent cancel can therefore only (a) mark this
+            // live turn for cancellation before this block, or (b) observe
+            // its terminal row after this block — never misclassify the gap
+            // between those two states as an orphan.
+            cancelReason = cancelReasonsByTurnId.remove(runningTurn.id());
+            cancelled = cancelReason != null;
+            failed = !cancelled && providerFailed;
+            codeChanged = !cancelled && detectedCodeChanged;
+            finished = updateTurn(
+                    runningTurn,
+                    cancelled ? CANCELLED : failed ? FAILED : COMPLETED,
+                    runningTurn.startedAt(),
+                    now,
+                    cancelled ? cancelReason : errorMessage);
+            turns.saveTurn(finished);
+            runningTurnSessions.remove(runningTurn.id());
+        }
         activeContexts.remove(
                 runningTurn.threadId(),
                 PermissionResolver.agentKeyFor(runningTurn.taskId(), runningTurn.stageId()));
-        appendEvent(finished, failed ? TURN_FAILED : TURN_FINISHED, finished.errorMessage());
+        appendEvent(
+                finished,
+                cancelled ? TURN_CANCELLED : failed ? TURN_FAILED : TURN_FINISHED,
+                finished.errorMessage());
         CodeGraphFirstRuntime.Metrics codeGraphMetrics = CodeGraphFirstRuntime.finishTurn(
                 runningTurn.threadId(), agentKeyOf(runningTurn));
         if (!codeGraphMetrics.isEmpty()) {
             appendEvent(finished, CODEGRAPH_POLICY, codeGraphMetrics.toJson());
         }
+        // Persist the turn's usage before deciding whether the run may close.
+        // A newly exhausted budget parks the run and suppresses the normal
+        // success transition; cancelled turns still retain their usage.
         boolean budgetPaused = accountRun(finished, session);
         // Some turns are one step inside a coordinator-owned, multi-turn run.
         // Their coordinator alone decides when live CI is green, review drafts
         // need a gate, or the whole review episode has concluded.
-        if ((failed || !budgetPaused) && !coordinatorOwnsRunCompletion(finished)) {
+        if (!cancelled
+                && (failed || !budgetPaused)
+                && !coordinatorOwnsRunCompletion(finished)) {
             transitionRun(
                     finished.agentRunId(),
                     failed ? AgentRun.STATUS_FAILED : AgentRun.STATUS_SUCCEEDED,
@@ -804,7 +1049,7 @@ public class AgentScheduler
         // resolve its parent task so plan-stage listeners (the record_plan
         // nudge + failure surfacing) can react. Pure trunk turns stay
         // unlinked.
-        if (eventPublisher != null) {
+        if (!cancelled && eventPublisher != null) {
             String taskId = finished.taskId();
             if (taskId == null) {
                 taskId = threads.findThreadById(finished.threadId())
@@ -813,8 +1058,13 @@ public class AgentScheduler
                         .orElse(null);
             }
             if (taskId != null) {
-                eventPublisher.publishEvent(
-                        new TaskTurnFinishedEvent(taskId, finished.id(), failed, codeChanged));
+                if (budgetPaused) {
+                    eventPublisher.publishEvent(new TaskTurnBudgetPausedEvent(taskId, finished.id()));
+                }
+                else {
+                    eventPublisher.publishEvent(
+                            new TaskTurnFinishedEvent(taskId, finished.id(), failed, codeChanged));
+                }
             }
         }
     }
@@ -965,8 +1215,17 @@ public class AgentScheduler
      * a key serialize; turns for different stages/tasks of one thread do
      * not block each other.
      */
-    static String agentKeyOf(ThreadTurn turn)
+    private String agentKeyOf(ThreadTurn turn)
     {
+        // A Brain thread has exactly one reusable TaskBrainAgent in
+        // trunkSessions. All of its stage-scoped turns therefore share the
+        // thread key; stage-keying allowed concurrent sends to one session.
+        if (threads.findThreadById(turn.threadId())
+                .map(Thread::kind)
+                .filter(kind -> kind == ThreadKind.BRAIN_AGENT)
+                .isPresent()) {
+            return turn.threadId();
+        }
         if (turn.taskId() == null || turn.taskId().isBlank()) {
             return turn.threadId();
         }

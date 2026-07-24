@@ -47,7 +47,7 @@ describe('buildLivePlan', () => {
   it('groups lifecycle checkpoints under four stable sidebar stages', () => {
     const nodes = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
-      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false, paused: false },
     });
 
     expect(nodes.map(n => n.key)).toEqual([
@@ -69,7 +69,7 @@ describe('buildLivePlan', () => {
         stage('REMOTE_DEVELOPMENT_STAGE', 'OPEN'),
       ],
       subStages: [],
-      task: { prNumber: 145, currentPhase: 'AWAITING_READY' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'AWAITING_READY' as TaskPhase, terminal: false, paused: false },
     });
 
     expect(node(nodes, 'plan').status).toBe('done');
@@ -84,7 +84,7 @@ describe('buildLivePlan', () => {
     const running = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'OPEN')],
       subStages: [],
-      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false, paused: false },
       viewingBrain: true,
     });
     expect(node(running, 'local-development').status).toBe('running');
@@ -92,7 +92,7 @@ describe('buildLivePlan', () => {
     const awaitingPush = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'CLOSED')],
       subStages: [],
-      task: { prNumber: null, currentPhase: 'AWAITING_PUSH' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'AWAITING_PUSH' as TaskPhase, terminal: false, paused: false },
     });
     expect(node(awaitingPush, 'local-development').status).toBe('awaiting');
     expect(phase(awaitingPush, 'local-development', 'local-review').status).toBe('awaiting');
@@ -102,7 +102,7 @@ describe('buildLivePlan', () => {
     const parked = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'ACTIVE')],
       subStages: [],
-      task: { prNumber: 145, currentPhase: 'NEEDS_ATTENTION' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'NEEDS_ATTENTION' as TaskPhase, terminal: false, paused: false },
       awaitingApprovalStageId: 'DEVELOPMENT_STAGE-id',
     });
     expect(node(parked, 'local-development').status).toBe('awaiting');
@@ -118,7 +118,7 @@ describe('buildLivePlan', () => {
         devPhase('validation', { status: 'running', badgeRunId: 'local-fix' }),
         devPhase('brainReview', { status: 'future', meta: 'next' }),
       ],
-      task: { prNumber: null, currentPhase: 'VALIDATING' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'VALIDATING' as TaskPhase, terminal: false, paused: false },
     });
 
     expect(phase(nodes, 'local-development', 'validation').status).toBe('running');
@@ -133,7 +133,7 @@ describe('buildLivePlan', () => {
         devPhase('validation', { status: 'done' }),
         devPhase('brainReview', { status: 'done' }),
       ],
-      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false, paused: false },
     });
 
     expect(node(nodes, 'local-development').phases).toHaveLength(5);
@@ -149,7 +149,7 @@ describe('buildLivePlan', () => {
         devPhase('validation', { status: 'done' }),
         devPhase('brainReview', { status: 'done', meta: 'brain unresolved · 2' }),
       ],
-      task: { prNumber: null, currentPhase: 'NEEDS_ATTENTION' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'NEEDS_ATTENTION' as TaskPhase, terminal: false, paused: false },
     });
 
     expect(node(nodes, 'local-development').status).toBe('awaiting');
@@ -166,17 +166,40 @@ describe('buildLivePlan', () => {
         devPhase('validation', { status: 'future', meta: 'needs attention' }),
         devPhase('brainReview', { status: 'future', meta: 'next' }),
       ],
-      task: { prNumber: null, currentPhase: 'NEEDS_ATTENTION' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'NEEDS_ATTENTION' as TaskPhase, terminal: false, paused: false },
     });
 
     expect(phase(nodes, 'local-development', 'local-review').status).toBe('future');
+  });
+
+  it('shows a parked Brain review as needing attention without regressing validation or starting Remote', () => {
+    const nodes = buildLivePlan({
+      stages: [
+        stage('DEVELOPMENT_STAGE', 'OPEN'),
+        stage('REMOTE_DEVELOPMENT_STAGE', 'ACTIVE'),
+      ],
+      subStages: [],
+      liveRuns: [run('review_round', { id: 'local-brain', source: 'local' })],
+      devPhases: [
+        devPhase('implementing', { status: 'done' }),
+        devPhase('validation', { status: 'done', meta: 'checks passed' }),
+        devPhase('brainReview', { status: 'future', meta: 'review failed' }),
+      ],
+      task: { prNumber: null, currentPhase: 'NEEDS_ATTENTION' as TaskPhase, terminal: false, paused: false },
+    });
+
+    expect(node(nodes, 'local-development').status).toBe('awaiting');
+    expect(phase(nodes, 'local-development', 'validation').status).toBe('done');
+    expect(phase(nodes, 'local-development', 'brainReview').status).toBe('awaiting');
+    expect(node(nodes, 'remote-development').status).toBe('future');
+    expect(phase(nodes, 'remote-development', 'comments').status).toBe('future');
   });
 
   it('puts live remote CI and review addressing under Remote Development', () => {
     const nodes = buildLivePlan({
       stages: [stage('REMOTE_DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
       liveRuns: [run('ci_fix', { status: 'awaiting_gate' }), run('review_round', { status: 'awaiting_gate' })],
-      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false, paused: false },
     });
 
     expect(node(nodes, 'remote-development').status).toBe('awaiting');
@@ -186,6 +209,26 @@ describe('buildLivePlan', () => {
     expect(phase(nodes, 'remote-development', 'comments').status).toBe('awaiting');
     expect(phase(nodes, 'remote-development', 'comments').nav)
       .toEqual({ kind: 'run', runId: 'review_round-run' });
+  });
+
+  it('does not report queued or paused remote runs as actively running', () => {
+    const queued = buildLivePlan({
+      stages: [stage('REMOTE_DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
+      liveRuns: [run('ci_fix', { status: 'queued' })],
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false, paused: false },
+    });
+    expect(node(queued, 'remote-development').status).toBe('sleep');
+    expect(phase(queued, 'remote-development', 'ci-validation').status).toBe('sleep');
+    expect(phase(queued, 'remote-development', 'ci-validation').meta).toBe('queued');
+
+    const paused = buildLivePlan({
+      stages: [stage('REMOTE_DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
+      liveRuns: [run('review_round', { status: 'paused' })],
+      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false, paused: false },
+    });
+    expect(node(paused, 'remote-development').status).toBe('awaiting');
+    expect(phase(paused, 'remote-development', 'comments').status).toBe('awaiting');
+    expect(phase(paused, 'remote-development', 'comments').meta).toBe('paused');
   });
 
   it('shows the round gate from the authoritative round when its run projection lags', () => {
@@ -198,7 +241,7 @@ describe('buildLivePlan', () => {
         gatedAt: '2026-01-01T00:10:00Z', postedAt: null,
         origin: 'external', brainVerdict: 'approved', iteration: 1, budget: 3,
       },
-      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false, paused: false },
     });
 
     expect(phase(nodes, 'remote-development', 'comments').status).toBe('awaiting');
@@ -215,7 +258,7 @@ describe('buildLivePlan', () => {
         runId: 'review_round-run', openedAt: '2026-01-01T00:00:00Z', gatedAt: null, postedAt: null,
         origin: 'external', brainVerdict: null, iteration: 1, budget: 3,
       },
-      task: { prNumber: 145, currentPhase: 'COMPLETED' as TaskPhase, terminal: true },
+      task: { prNumber: 145, currentPhase: 'COMPLETED' as TaskPhase, terminal: true, paused: false },
     });
 
     expect(phase(nodes, 'remote-development', 'comments').status).toBe('done');
@@ -227,7 +270,7 @@ describe('buildLivePlan', () => {
   it('derives remote CI status from the linked PR when no run is live', () => {
     const green = buildLivePlan({
       stages: [], subStages: [],
-      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false, paused: false },
       ciStatus: 'green', ciSummary: 'all checks passed',
     });
     expect(phase(green, 'remote-development', 'ci-validation').status).toBe('done');
@@ -235,14 +278,14 @@ describe('buildLivePlan', () => {
 
     const failing = buildLivePlan({
       stages: [], subStages: [],
-      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false, paused: false },
       ciStatus: 'failing',
     });
     expect(phase(failing, 'remote-development', 'ci-validation').status).toBe('errored');
 
     const noPr = buildLivePlan({
       stages: [], subStages: [],
-      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false, paused: false },
     });
     expect(phase(noPr, 'remote-development', 'ci-validation').status).toBe('future');
     expect(phase(noPr, 'remote-development', 'ci-validation').nav).toEqual({ kind: 'none' });
@@ -251,7 +294,7 @@ describe('buildLivePlan', () => {
   it('routes Merge / Close to the PR overview terminal-action surface', () => {
     const nodes = buildLivePlan({
       stages: [], subStages: [],
-      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false, paused: false },
       mergeReady: true,
     });
     expect(phase(nodes, 'remote-development', 'merge-close').nav)
@@ -261,14 +304,14 @@ describe('buildLivePlan', () => {
   it('disables remote CI once the task is done if it never ran', () => {
     const done = buildLivePlan({
       stages: [], subStages: [],
-      task: { prNumber: 30, currentPhase: 'COMPLETED' as TaskPhase, terminal: true },
+      task: { prNumber: 30, currentPhase: 'COMPLETED' as TaskPhase, terminal: true, paused: false },
     });
     expect(phase(done, 'remote-development', 'ci-validation').status).toBe('sleep');
     expect(phase(done, 'remote-development', 'ci-validation').nav).toEqual({ kind: 'none' });
 
     const stillOpen = buildLivePlan({
       stages: [], subStages: [],
-      task: { prNumber: 30, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+      task: { prNumber: 30, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false, paused: false },
     });
     expect(phase(stillOpen, 'remote-development', 'ci-validation').nav)
       .toEqual({ kind: 'tab', tab: 'pr', subTab: 'checks' });
@@ -277,14 +320,14 @@ describe('buildLivePlan', () => {
   it('monitors and closes Comments using the new stage, with legacy review-monitor fallback', () => {
     const remote = buildLivePlan({
       stages: [stage('REMOTE_DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
-      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false, paused: false },
     });
     expect(phase(remote, 'remote-development', 'comments').status).toBe('monitoring');
     expect(phase(remote, 'remote-development', 'comments').meta).toBe('watching review');
 
     const legacy = buildLivePlan({
       stages: [stage('REVIEW_MONITOR_STAGE', 'CLOSED')], subStages: [],
-      task: { prNumber: 145, currentPhase: 'COMPLETED' as TaskPhase, terminal: true },
+      task: { prNumber: 145, currentPhase: 'COMPLETED' as TaskPhase, terminal: true, paused: false },
     });
     expect(phase(legacy, 'remote-development', 'comments').status).toBe('done');
   });
@@ -292,26 +335,26 @@ describe('buildLivePlan', () => {
   it('keeps Local review as the only gate until the remote draft is pushed', () => {
     const planning = buildLivePlan({
       stages: [], subStages: [],
-      task: { prNumber: null, currentPhase: 'PLANNING' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'PLANNING' as TaskPhase, terminal: false, paused: false },
     });
     expect(phase(planning, 'local-development', 'local-review').status).toBe('future');
 
     const during = buildLivePlan({
       stages: [], subStages: [],
-      task: { prNumber: null, currentPhase: 'INTERNAL_REVIEW' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'INTERNAL_REVIEW' as TaskPhase, terminal: false, paused: false },
     });
     expect(phase(during, 'local-development', 'local-review').status).toBe('future');
 
     const addressing = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
-      task: { prNumber: null, currentPhase: 'ADDRESSING_LOCAL_COMMENTS' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'ADDRESSING_LOCAL_COMMENTS' as TaskPhase, terminal: false, paused: false },
     });
     expect(phase(addressing, 'local-development', 'local-review').status).toBe('running');
     expect(phase(addressing, 'local-development', 'local-review').meta).toBe('in review');
 
     const awaitingPush = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
-      task: { prNumber: null, currentPhase: 'AWAITING_PUSH' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'AWAITING_PUSH' as TaskPhase, terminal: false, paused: false },
     });
     expect(phase(awaitingPush, 'local-development', 'local-review').status).toBe('awaiting');
     expect(phase(awaitingPush, 'local-development', 'local-review').nav).toEqual({ kind: 'tab', tab: 'pr' });
@@ -321,7 +364,7 @@ describe('buildLivePlan', () => {
 
     const pushed = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'CLOSED')], subStages: [],
-      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false, paused: false },
     });
     expect(phase(pushed, 'local-development', 'local-review').status).toBe('done');
     expect(phase(pushed, 'remote-development', 'remote-pr').status).toBe('done');
@@ -331,14 +374,14 @@ describe('buildLivePlan', () => {
   it('drives remote PR and merge rows from PR state', () => {
     const remoteAttention = buildLivePlan({
       stages: [], subStages: [],
-      task: { prNumber: 145, currentPhase: 'NEEDS_ATTENTION' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'NEEDS_ATTENTION' as TaskPhase, terminal: false, paused: false },
       prStatus: 'draft',
     });
     expect(phase(remoteAttention, 'local-development', 'local-review').status).toBe('done');
 
     const queued = buildLivePlan({
       stages: [], subStages: [],
-      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false, paused: false },
       prStatus: 'queued',
     });
     expect(phase(queued, 'remote-development', 'remote-pr').status).toBe('done');
@@ -348,7 +391,7 @@ describe('buildLivePlan', () => {
 
     const ready = buildLivePlan({
       stages: [], subStages: [],
-      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, terminal: false, paused: false },
       prStatus: 'open',
       mergeReady: true,
     });
@@ -356,11 +399,68 @@ describe('buildLivePlan', () => {
     expect(phase(ready, 'remote-development', 'merge-close').meta).toBe('ready to merge');
   });
 
+  it('projects paused active phases as static resumable checkpoints', () => {
+    const dev = stage('DEVELOPMENT_STAGE', 'ACTIVE');
+    const local = buildLivePlan({
+      stages: [dev], subStages: [],
+      devPhases: [
+        devPhase('implementing', { status: 'done' }),
+        devPhase('validation', { status: 'running' }),
+        devPhase('brainReview'),
+      ],
+      task: {
+        prNumber: null, currentPhase: 'VALIDATING' as TaskPhase, paused: true, terminal: false,
+      },
+      viewedStageId: dev.id,
+      working: true,
+      awaitingApprovalStageId: dev.id,
+    });
+
+    expect(node(local, 'local-development').status).toBe('awaiting');
+    expect(node(local, 'local-development').meta).toBe('paused · resume');
+    expect(phase(local, 'local-development', 'validation').status).toBe('awaiting');
+    expect(phase(local, 'local-development', 'validation').meta).toBe('paused · resume');
+    expect(local.flatMap(item => [item.status, ...(item.phases ?? []).map(child => child.status)]))
+      .not.toContain('running');
+
+    const planning = buildLivePlan({
+      stages: [stage('PLAN_STAGE', 'ACTIVE')], subStages: [],
+      task: {
+        prNumber: null, currentPhase: 'PLANNING' as TaskPhase, paused: true, terminal: false,
+      },
+      viewingBrain: true,
+      working: true,
+    });
+    expect(node(planning, 'plan').status).toBe('awaiting');
+    expect(node(planning, 'plan').meta).toBe('paused · resume');
+    expect(planning.map(item => item.status)).not.toContain('planning');
+  });
+
+  it('parks remote monitoring and stale live projections while paused', () => {
+    const nodes = buildLivePlan({
+      stages: [stage('REMOTE_DEVELOPMENT_STAGE', 'ACTIVE')], subStages: [],
+      liveRuns: [run('review_round')],
+      task: {
+        prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, paused: true, terminal: false,
+      },
+      ciStatus: 'pending',
+    });
+
+    expect(node(nodes, 'remote-development').status).toBe('awaiting');
+    expect(node(nodes, 'remote-development').meta).toBe('paused · resume');
+    expect(phase(nodes, 'remote-development', 'comments').status).toBe('awaiting');
+    expect(phase(nodes, 'remote-development', 'comments').meta).toBe('paused · resume');
+    const liveStatuses = nodes
+      .flatMap(item => [item.status, ...(item.phases ?? []).map(child => child.status)])
+      .filter(status => status === 'running' || status === 'planning' || status === 'monitoring');
+    expect(liveStatuses).toEqual([]);
+  });
+
   it('tracks active views and working pulses for Plan and stages', () => {
     const dev = stage('DEVELOPMENT_STAGE', 'ACTIVE');
     const onDev = buildLivePlan({
       stages: [dev], subStages: [],
-      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false, paused: false },
       viewedStageId: dev.id,
     });
     expect(node(onDev, 'local-development').activeView).toBe(true);
@@ -368,7 +468,7 @@ describe('buildLivePlan', () => {
 
     const onBrain = buildLivePlan({
       stages: [stage('PLAN_STAGE', 'CLOSED')], subStages: [],
-      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false, paused: false },
       viewingBrain: true,
       working: true,
     });

@@ -48,6 +48,15 @@ describe('RoundEpisode', () => {
     expect(screen.getByText('CI fix run · remote')).toBeTruthy();
   });
 
+  it('renders a paused round as needs attention without a live body', () => {
+    const { container } = render(
+      <RoundEpisode round={round({ origin: 'brain', status: 'paused' })} nestedRun={ciFixRun()} />,
+    );
+    expect(screen.getByText('needs attention')).toBeTruthy();
+    expect(container.querySelector('.round-episode')?.classList.contains('live')).toBe(false);
+    expect(container.querySelector('.round-episode__body')).toBeNull();
+  });
+
   it('shows the gate bar and fires onApprove for an awaiting_gate round', () => {
     const onApprove = vi.fn();
     render(<RoundEpisode round={round({ status: 'awaiting_gate' })} onApprove={onApprove} />);

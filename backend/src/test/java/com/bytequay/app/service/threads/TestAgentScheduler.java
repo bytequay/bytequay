@@ -34,6 +34,7 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
@@ -49,9 +50,14 @@ import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WorktreeLeaseStore;
 import com.bytequay.app.service.codegraph.CodeGraphFirstRuntime;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.runs.SessionBudgetPolicy;
 import com.bytequay.app.service.skills.CavemanPrompt;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -60,6 +66,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -67,7 +74,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import static com.bytequay.app.domain.ThreadKind.CLI_AGENT;
@@ -87,12 +96,482 @@ import static com.bytequay.app.domain.ThreadTurnStatus.RUNNING;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class TestAgentScheduler
 {
+    @Test
+    void dispatchesOnlyAfterTheSurroundingTransactionCommits()
+            throws InterruptedException
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-transactional", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            String turnId = harness.scheduler.enqueueTurn(thread, "after commit");
+
+            assertThat(session.inputs).isEmpty();
+            assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                    .isEqualTo(QUEUED);
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(synchronization -> synchronization.afterCommit());
+
+            assertThat(session.firstSend.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(session.inputs).containsExactly("after commit");
+            assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                    .isEqualTo(RUNNING);
+        }
+        finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void rolledBackTurnNeverReachesTheProvider()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-rollback", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            harness.scheduler.enqueueTurn(thread, "must roll back");
+
+            assertThat(session.inputs).isEmpty();
+        }
+        finally {
+            // No afterCommit callback is fired on rollback.
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        assertThat(session.inputs).isEmpty();
+    }
+
+    @Test
+    void afterCommitCallbackDoesNotResurrectATurnCancelledBeforeItRuns()
+            throws InterruptedException
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread brain = thread("brain-cancelled-before-callback", ThreadKind.BRAIN_AGENT);
+        RecordingSession session = harness.register(brain);
+
+        TransactionSynchronizationManager.initSynchronization();
+        String turnId;
+        List<TransactionSynchronization> callbacks;
+        try {
+            turnId = harness.scheduler.enqueueTaskTurn(
+                    brain, "stale callback", "task-1", "stage-1",
+                    TurnInitiator.unattended("brain-review"), "run-1");
+            callbacks = List.copyOf(TransactionSynchronizationManager.getSynchronizations());
+        }
+        finally {
+            // Let cancellation run outside the transaction before the captured
+            // afterCommit callback gets CPU time.
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        assertThat(harness.scheduler.cancelSessionTurns("run-1")).isEqualTo(1);
+        callbacks.forEach(TransactionSynchronization::afterCommit);
+
+        assertThat(session.firstSend.await(250, TimeUnit.MILLISECONDS)).isFalse();
+        assertThat(session.inputs).isEmpty();
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status()).isEqualTo(CANCELLED);
+    }
+
+    @Test
+    void rolledBackSessionCancellationLeavesItsRunningTurnAlone()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread brain = thread("brain-rollback-cancel", ThreadKind.BRAIN_AGENT);
+        RecordingSession session = harness.register(brain);
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                brain, "keep running", "task-1", "stage-1",
+                TurnInitiator.unattended("brain-review"), "run-1");
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertThat(harness.scheduler.cancelSessionTurns("run-1")).isZero();
+            assertThat(session.interrupts).isZero();
+            assertThat(harness.turns.findTurnById(turnId).orElseThrow().status()).isEqualTo(RUNNING);
+        }
+        finally {
+            // No afterCommit callback: model a rollback.
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        assertThat(session.interrupts).isZero();
+        session.completeNext();
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status()).isEqualTo(COMPLETED);
+    }
+
+    @Test
+    void committedSessionCancellationInterruptsAfterCommit()
+            throws InterruptedException
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread brain = thread("brain-committed-cancel", ThreadKind.BRAIN_AGENT);
+        RecordingSession session = harness.register(brain);
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                brain, "cancel after commit", "task-1", "stage-1",
+                TurnInitiator.unattended("brain-review"), "run-1");
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertThat(harness.scheduler.cancelSessionTurns("run-1")).isZero();
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(TransactionSynchronization::afterCommit);
+            assertThat(session.interrupted.await(2, TimeUnit.SECONDS)).isTrue();
+        }
+        finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status()).isEqualTo(CANCELLED);
+    }
+
+    @Test
+    void serializesDifferentStagesThatShareOneBrainSession()
+    {
+        TestHarness harness = new TestHarness(2, 4);
+        Thread brain = thread("brain-1", ThreadKind.BRAIN_AGENT);
+        RecordingSession session = harness.register(brain);
+        String firstStage = "11111111-1111-1111-1111-111111111111";
+        String secondStage = "22222222-2222-2222-2222-222222222222";
+
+        String first = harness.scheduler.enqueueTaskTurn(
+                brain, "first review", "task-1", firstStage,
+                TurnInitiator.unattended("brain-review"));
+        String second = harness.scheduler.enqueueTaskTurn(
+                brain, "second review", "task-1", secondStage,
+                TurnInitiator.unattended("brain-review"));
+
+        assertThat(harness.turns.findTurnById(first).orElseThrow().status()).isEqualTo(RUNNING);
+        assertThat(harness.turns.findTurnById(second).orElseThrow().status()).isEqualTo(QUEUED);
+        assertThat(session.inputs).containsExactly("first review");
+        assertThat(session.activeTaskIds).containsExactly("task-1");
+        assertThat(session.activeStageIds).containsExactly(firstStage);
+
+        session.completeNext();
+
+        assertThat(session.inputs).containsExactly("first review", "second review");
+        assertThat(session.activeStageIds).containsExactly(firstStage, secondStage);
+    }
+
+    @Test
+    void cancellingASessionInterruptsItsRunningTurnAndPersistsCancellation()
+    {
+        TestHarness harness = new TestHarness(2, 4);
+        Thread brain = thread("brain-1", ThreadKind.BRAIN_AGENT);
+        RecordingSession session = harness.register(brain);
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                brain, "review", "task-1", "stage-1",
+                TurnInitiator.unattended("brain-review"), "run-1");
+
+        assertThat(harness.scheduler.cancelSessionTurns("run-1")).isEqualTo(1);
+
+        assertThat(session.interrupts).isEqualTo(1);
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                .isEqualTo(CANCELLED);
+        assertThat(harness.events.listEventsByTaskId(brain.id(), 10))
+                .anySatisfy(event -> {
+                    assertThat(event.turnId()).isEqualTo(turnId);
+                    assertThat(event.event()).isEqualTo(TURN_CANCELLED);
+                });
+    }
+
+    @Test
+    void cancellingASessionTerminallyClosesAnOrphanedRunningTurn()
+    {
+        TestHarness harness = new TestHarness(2, 4);
+        Instant now = Instant.parse("2026-07-24T10:00:00Z");
+        ThreadTurn orphan = taskTurn(
+                "orphan-session-turn", "missing-thread", "task-orphan",
+                RUNNING, "run-orphan", now);
+        harness.turns.saveTurn(orphan);
+
+        assertThat(harness.scheduler.cancelSessionTurns("run-orphan")).isEqualTo(1);
+
+        ThreadTurn cancelled = harness.turns.findTurnById(orphan.id()).orElseThrow();
+        assertThat(cancelled.status()).isEqualTo(CANCELLED);
+        assertThat(cancelled.finishedAt()).isNotNull();
+        assertThat(cancelled.errorMessage()).isEqualTo("cancelled by session control");
+        assertThat(harness.scheduler.cancelSessionTurns("run-orphan")).isZero();
+    }
+
+    @Test
+    void cancellingATaskTerminallyClosesAnOrphanedRunningTurn()
+    {
+        TestHarness harness = new TestHarness(2, 4);
+        Instant now = Instant.parse("2026-07-24T10:00:00Z");
+        ThreadTurn orphan = taskTurn(
+                "orphan-task-turn", "missing-thread", "task-orphan",
+                RUNNING, "run-orphan", now);
+        harness.turns.saveTurn(orphan);
+
+        assertThat(harness.scheduler.cancelTaskTurns("task-orphan")).isEqualTo(1);
+
+        ThreadTurn cancelled = harness.turns.findTurnById(orphan.id()).orElseThrow();
+        assertThat(cancelled.status()).isEqualTo(CANCELLED);
+        assertThat(cancelled.finishedAt()).isNotNull();
+        assertThat(cancelled.errorMessage()).isEqualTo("cancelled by task lifecycle action");
+        assertThat(harness.scheduler.cancelTaskTurns("task-orphan")).isZero();
+    }
+
+    @Test
+    void cancellationCanInterruptADispatchedSessionAfterRegistryEviction()
+    {
+        TestHarness harness = new TestHarness(2, 4);
+        Thread thread = thread("evicted-thread", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                thread, "running", "task-evicted", "stage-evicted",
+                TurnInitiator.user(), "run-evicted");
+        harness.registry.sessions.remove(thread.id());
+
+        assertThat(harness.scheduler.cancelTaskTurns("task-evicted")).isEqualTo(1);
+
+        assertThat(session.interrupts).isEqualTo(1);
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                .isEqualTo(CANCELLED);
+    }
+
+    @Test
+    void cancellationCannotBeOverwrittenByAConcurrentCompletion()
+            throws InterruptedException
+    {
+        TestHarness harness = new TestHarness(2, 4);
+        Thread thread = thread("completing-thread", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                thread, "running", "task-completing", "stage-completing",
+                TurnInitiator.user(), "run-completing");
+        session.blockNextStatusRead();
+        CountDownLatch completionReturned = new CountDownLatch(1);
+        java.lang.Thread.startVirtualThread(() -> {
+            try {
+                session.completeNext();
+            }
+            finally {
+                completionReturned.countDown();
+            }
+        });
+        assertThat(session.statusReadStarted.await(2, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(harness.scheduler.cancelSessionTurns("run-completing")).isEqualTo(1);
+        session.releaseStatusRead.countDown();
+        assertThat(completionReturned.await(2, TimeUnit.SECONDS)).isTrue();
+
+        assertThat(session.interrupts).isEqualTo(1);
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                .isEqualTo(CANCELLED);
+        assertThat(harness.scheduler.cancelSessionTurns("run-completing")).isZero();
+    }
+
+    @Test
+    void cancellingATaskStopsOnlyThatTasksDurableTurns()
+    {
+        TestHarness harness = new TestHarness(2, 4);
+        Thread targetThread = thread("thread-target", CLI_AGENT);
+        Thread siblingThread = thread("thread-sibling", CLI_AGENT);
+        RecordingSession targetSession = harness.register(targetThread);
+        RecordingSession siblingSession = harness.register(siblingThread);
+
+        String running = harness.scheduler.enqueueTaskTurn(
+                targetThread, "target running", "task-target", "stage-target",
+                TurnInitiator.user(), "run-target");
+        String queued = harness.scheduler.enqueueTaskTurn(
+                targetThread, "target queued", "task-target", "stage-target",
+                TurnInitiator.user(), "run-target-next");
+        String sibling = harness.scheduler.enqueueTaskTurn(
+                siblingThread, "sibling running", "task-sibling", "stage-sibling",
+                TurnInitiator.user(), "run-sibling");
+
+        assertThat(harness.scheduler.cancelTaskTurns("task-target")).isEqualTo(2);
+
+        ThreadTurn cancelledRunning = harness.turns.findTurnById(running).orElseThrow();
+        assertThat(cancelledRunning.status()).isEqualTo(CANCELLED);
+        assertThat(cancelledRunning.errorMessage())
+                .isEqualTo("cancelled by task lifecycle action");
+        assertThat(harness.turns.findTurnById(queued).orElseThrow().status()).isEqualTo(CANCELLED);
+        assertThat(harness.turns.findTurnById(sibling).orElseThrow().status()).isEqualTo(RUNNING);
+        assertThat(targetSession.inputs).containsExactly("target running");
+        assertThat(siblingSession.inputs).containsExactly("sibling running");
+    }
+
+    @Test
+    void budgetPauseSuppressesTheOrdinaryRunSuccessTransition()
+    {
+        AgentRunService agentRuns = mock(AgentRunService.class);
+        SessionBudgetPolicy budgets = mock(SessionBudgetPolicy.class);
+        when(budgets.account(any(), any(), any())).thenReturn(true);
+        TestHarness harness = new TestHarness(1, 4, agentRuns, budgets);
+        ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
+        harness.scheduler.setApplicationEventPublisher(publisher);
+        Thread thread = thread("thread-budget", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                thread, "finish", "task-1", "stage-1",
+                TurnInitiator.user(), "run-ordinary");
+        session.completeNext();
+
+        InOrder order = inOrder(agentRuns, budgets);
+        order.verify(agentRuns).transition(
+                "run-ordinary", AgentRun.STATUS_RUNNING, "scheduler started");
+        order.verify(budgets).account(eq("run-ordinary"), any(), any());
+        verify(agentRuns, never()).transition(
+                "run-ordinary", AgentRun.STATUS_SUCCEEDED, "scheduler turn completed");
+        verify(publisher).publishEvent(new TaskTurnBudgetPausedEvent("task-1", turnId));
+        verify(publisher, never()).publishEvent(any(TaskTurnFinishedEvent.class));
+    }
+
+    @Test
+    void stoppedTasksAreCancelledBeforeRecoveredTurnsCanDispatch()
+    {
+        TestHarness harness = new TestHarness(20, 4);
+        Thread thread = thread("thread-stopped-recovery", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        Instant now = Instant.parse("2026-07-24T10:00:00Z");
+        List<TaskStatus> stopped = List.of(
+                TaskStatus.PAUSED,
+                TaskStatus.NEEDS_ATTENTION,
+                TaskStatus.COMPLETED,
+                TaskStatus.REMOTE_CLOSED,
+                TaskStatus.ERRORED,
+                TaskStatus.CANCELED,
+                TaskStatus.ARCHIVED);
+
+        int index = 0;
+        for (TaskStatus status : stopped) {
+            String taskId = "task-stopped-" + index;
+            harness.tasks.setStatus(taskId, status);
+            harness.turns.saveTurn(taskTurn(
+                    "queued-stopped-" + index, thread.id(), taskId,
+                    QUEUED, "queued-run-" + index, now.plusMillis(index)));
+            harness.turns.saveTurn(taskTurn(
+                    "running-stopped-" + index, thread.id(), taskId,
+                    RUNNING, "running-run-" + index, now.plusMillis(100 + index)));
+            index++;
+        }
+
+        harness.scheduler.recoverQueuedTurns();
+
+        assertThat(session.inputs).isEmpty();
+        assertThat(harness.turns.turns.values())
+                .extracting(ThreadTurn::status)
+                .containsOnly(CANCELLED);
+        for (TaskStatus status : stopped) {
+            assertThat(harness.turns.turns.values())
+                    .filteredOn(turn -> turn.errorMessage() != null
+                            && turn.errorMessage().endsWith(status.name().toLowerCase(Locale.ROOT)))
+                    .hasSize(2);
+        }
+    }
+
+    @Test
+    void stoppedTaskCancellationAlsoClosesItsQueuedSession()
+    {
+        AgentRunService agentRuns = mock(AgentRunService.class);
+        TestHarness harness = new TestHarness(1, 4, agentRuns);
+        Thread thread = thread("thread-stopped-session", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        harness.tasks.setStatus("task-stopped", TaskStatus.PAUSED);
+
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                thread, "do not run", "task-stopped", "stage-stopped",
+                TurnInitiator.user(), "run-stopped");
+
+        assertThat(session.inputs).isEmpty();
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                .isEqualTo(CANCELLED);
+        verify(agentRuns).transition(
+                "run-stopped", AgentRun.STATUS_CANCELLED,
+                "cancelled because task is paused");
+    }
+
+    @Test
+    void terminalLifecyclePhaseSuppressesDispatchDespiteRunnableStatus()
+    {
+        AgentRunService agentRuns = mock(AgentRunService.class);
+        TestHarness harness = new TestHarness(2, 4, agentRuns);
+        Thread thread = thread("thread-stopped-phase", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+
+        int index = 0;
+        for (TaskPhase phase : List.of(TaskPhase.NEEDS_ATTENTION, TaskPhase.COMPLETED)) {
+            String taskId = "task-stopped-phase-" + index;
+            String runId = "run-stopped-phase-" + index;
+            harness.tasks.setStatus(taskId, TaskStatus.IDLE);
+            harness.tasks.setPhase(taskId, phase);
+            String turnId = harness.scheduler.enqueueTaskTurn(
+                    thread, "do not run " + phase, taskId, "stage-" + index,
+                    TurnInitiator.user(), runId);
+
+            assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                    .isEqualTo(CANCELLED);
+            verify(agentRuns).transition(
+                    runId, AgentRun.STATUS_CANCELLED,
+                    "cancelled because task phase is "
+                            + phase.name().toLowerCase(Locale.ROOT));
+            index++;
+        }
+        assertThat(session.inputs).isEmpty();
+    }
+
+    @Test
+    void runnableTaskStatusesStillDispatchNormally()
+    {
+        TestHarness harness = new TestHarness(6, 4);
+        Thread thread = thread("thread-runnable-statuses", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        List<TaskStatus> runnable = List.of(
+                TaskStatus.PENDING,
+                TaskStatus.RUNNING,
+                TaskStatus.AWAITING,
+                TaskStatus.IDLE,
+                TaskStatus.AWAITING_REVIEW,
+                TaskStatus.IN_REVIEW);
+
+        int index = 0;
+        for (TaskStatus status : runnable) {
+            String taskId = "task-runnable-" + index;
+            harness.tasks.setStatus(taskId, status);
+            harness.scheduler.enqueueTaskTurn(
+                    thread, "run " + status, taskId, "stage-" + index,
+                    TurnInitiator.user(), "run-" + index);
+            index++;
+        }
+
+        assertThat(session.inputs).containsExactlyElementsOf(
+                runnable.stream().map(status -> "run " + status).toList());
+    }
+
+    @Test
+    void cancelledTurnStillAccountsUsageWithoutClosingTheRunAsSuccessful()
+    {
+        AgentRunService agentRuns = mock(AgentRunService.class);
+        SessionBudgetPolicy budgets = mock(SessionBudgetPolicy.class);
+        TestHarness harness = new TestHarness(1, 4, agentRuns, budgets);
+        Thread thread = thread("thread-cancelled-budget", CLI_AGENT);
+        harness.register(thread);
+
+        harness.scheduler.enqueueTaskTurn(
+                thread, "cancel", "task-1", "stage-1",
+                TurnInitiator.user(), "run-cancelled");
+        harness.scheduler.cancelSessionTurns("run-cancelled");
+
+        verify(budgets).account(eq("run-cancelled"), any(), any());
+        verify(agentRuns, never()).transition(
+                "run-cancelled", AgentRun.STATUS_SUCCEEDED, "scheduler turn completed");
+    }
+
     @Test
     void coordinatorOwnedTurnsLeaveTheirEpisodeRunsOpen()
     {
@@ -640,6 +1119,7 @@ class TestAgentScheduler
         private final InMemoryTaskTurnEventStore events = new InMemoryTaskTurnEventStore();
         private final RecordingRegistry registry = new RecordingRegistry();
         private final StubStageStore stageStore = new StubStageStore();
+        private final StubTaskStore tasks = new StubTaskStore();
         private final AgentScheduler scheduler;
 
         private TestHarness(int maxCliRunning, int maxApiRunning)
@@ -649,9 +1129,18 @@ class TestAgentScheduler
 
         private TestHarness(int maxCliRunning, int maxApiRunning, AgentRunService agentRuns)
         {
+            this(maxCliRunning, maxApiRunning, agentRuns, null);
+        }
+
+        private TestHarness(
+                int maxCliRunning,
+                int maxApiRunning,
+                AgentRunService agentRuns,
+                SessionBudgetPolicy sessionBudgets)
+        {
             scheduler = new AgentScheduler(
                     threads, turns, events, registry, stageStore,
-                    new StubTaskStore(), null, null, null, agentRuns, null, null,
+                    tasks, null, null, null, agentRuns, sessionBudgets, null,
                     maxCliRunning, maxApiRunning);
         }
 
@@ -713,6 +1202,18 @@ class TestAgentScheduler
         }
 
         @Override
+        public Optional<ThreadAgent> findByAgentKey(String threadId, String agentKey)
+        {
+            return Optional.ofNullable(sessions.get(threadId));
+        }
+
+        @Override
+        public Optional<ThreadAgent> findTrunk(String threadId)
+        {
+            return Optional.ofNullable(sessions.get(threadId));
+        }
+
+        @Override
         public StageAgent getOrCreateStageAgent(Thread thread, Task task, String stageId)
         {
             lastRouted = "stage";
@@ -771,8 +1272,26 @@ class TestAgentScheduler
     private static final class StubTaskStore
             implements TaskStore
     {
-        @Override public void saveTask(Task task) {}
-        @Override public Optional<Task> findTaskById(String id) { return Optional.empty(); }
+        private final Map<String, TaskStatus> statuses = new LinkedHashMap<>();
+        private final Map<String, TaskPhase> phases = new LinkedHashMap<>();
+
+        private void setStatus(String taskId, TaskStatus status)
+        {
+            statuses.put(taskId, status);
+        }
+
+        private void setPhase(String taskId, TaskPhase phase)
+        {
+            phases.put(taskId, phase);
+        }
+
+        @Override public void saveTask(Task task) { statuses.put(task.id(), task.status()); }
+        @Override public Optional<Task> findTaskById(String id) {
+            Task task = mock(Task.class);
+            when(task.status()).thenReturn(statuses.getOrDefault(id, TaskStatus.IDLE));
+            when(task.phase()).thenReturn(phases.get(id));
+            return Optional.of(task);
+        }
         @Override public void deleteTask(String id) {}
         @Override public List<Task> listTasksByThread(String threadId) { return List.of(); }
         @Override public boolean hasActiveTask(String threadId) { return !activeTasksForThread(threadId).isEmpty(); }
@@ -940,6 +1459,28 @@ class TestAgentScheduler
                     .toList();
         }
 
+        @Override
+        public List<ThreadTurn> listTurnsByAgentRunId(String agentRunId, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> agentRunId.equals(turn.agentRunId()))
+                    .sorted(threadHistoryOrder())
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<ThreadTurn> listTurnsByExactTaskIdAndStatus(
+                String taskId, ThreadTurnStatus status, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> taskId.equals(turn.taskId()))
+                    .filter(turn -> turn.status() == status)
+                    .sorted(threadHistoryOrder())
+                    .limit(limit)
+                    .toList();
+        }
+
         private static Comparator<ThreadTurn> turnOrder()
         {
             return Comparator.comparing(ThreadTurn::createdAt)
@@ -1005,6 +1546,32 @@ class TestAgentScheduler
                 TurnInitiator.user());
     }
 
+    private static ThreadTurn taskTurn(
+            String id,
+            String threadId,
+            String taskId,
+            ThreadTurnStatus status,
+            String agentRunId,
+            Instant createdAt)
+    {
+        return new ThreadTurn(
+                id,
+                threadId,
+                taskId,
+                ThreadResourceLane.CLI,
+                status,
+                "input",
+                createdAt,
+                createdAt,
+                status == RUNNING ? createdAt : null,
+                /* finishedAt */ null,
+                /* errorMessage */ null,
+                TurnInitiator.user(),
+                "stage-1",
+                ThreadScope.STAGE,
+                agentRunId);
+    }
+
     private static final class RecordingSession
             implements ThreadAgent
     {
@@ -1013,8 +1580,16 @@ class TestAgentScheduler
         private final List<List<String>> skillNames = new ArrayList<>();
         private final List<Set<String>> toolNames = new ArrayList<>();
         private final List<String> mcpAgentKeys = new ArrayList<>();
+        private final List<String> activeTaskIds = new ArrayList<>();
+        private final List<String> activeStageIds = new ArrayList<>();
         private final ArrayDeque<CompletableFuture<Void>> completions = new ArrayDeque<>();
+        private final CountDownLatch firstSend = new CountDownLatch(1);
+        private final CountDownLatch interrupted = new CountDownLatch(1);
+        private final CountDownLatch statusReadStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseStatusRead = new CountDownLatch(1);
         private ThreadStatus status = ThreadStatus.IDLE;
+        private volatile boolean blockStatusRead;
+        private int interrupts;
 
         private RecordingSession(Thread thread)
         {
@@ -1060,6 +1635,17 @@ class TestAgentScheduler
         @Override
         public ThreadStatus status()
         {
+            if (blockStatusRead) {
+                statusReadStarted.countDown();
+                try {
+                    releaseStatusRead.await();
+                }
+                catch (InterruptedException e) {
+                    java.lang.Thread.currentThread().interrupt();
+                    throw new IllegalStateException("interrupted waiting to read test status", e);
+                }
+                blockStatusRead = false;
+            }
             return status;
         }
 
@@ -1079,6 +1665,7 @@ class TestAgentScheduler
         public CompletionStage<Void> send(String userInput)
         {
             inputs.add(userInput);
+            firstSend.countDown();
             status = ThreadStatus.RUNNING;
             CompletableFuture<Void> completion = new CompletableFuture<>();
             completions.add(completion);
@@ -1103,6 +1690,18 @@ class TestAgentScheduler
             mcpAgentKeys.add(agentKey);
         }
 
+        @Override
+        public void setActiveTask(String taskId)
+        {
+            activeTaskIds.add(taskId);
+        }
+
+        @Override
+        public void setActiveStage(String stageId)
+        {
+            activeStageIds.add(stageId);
+        }
+
         private void completeNext()
         {
             status = ThreadStatus.IDLE;
@@ -1115,8 +1714,22 @@ class TestAgentScheduler
             completions.removeFirst().completeExceptionally(failure);
         }
 
+        private void blockNextStatusRead()
+        {
+            blockStatusRead = true;
+        }
+
         @Override
-        public void interrupt() {}
+        public void interrupt()
+        {
+            interrupts++;
+            status = ThreadStatus.IDLE;
+            CompletableFuture<Void> completion = completions.pollFirst();
+            if (completion != null) {
+                completion.complete(null);
+            }
+            interrupted.countDown();
+        }
 
         @Override
         public void resume() {}

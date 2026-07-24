@@ -316,7 +316,8 @@ class AgentRunServiceImpl
             return run;
         }
         if (AgentRun.STATUS_PAUSED.equals(run.status())
-                && !AgentRun.STATUS_CANCELLED.equals(status)) {
+                && !AgentRun.STATUS_CANCELLED.equals(status)
+                && !AgentRun.STATUS_FAILED.equals(status)) {
             return run;
         }
         AgentRun updated = store.save(run.withStatus(status, now()));

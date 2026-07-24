@@ -980,6 +980,50 @@ class TestPRService
     }
 
     @Test
+    void recordBrainReviewFailureWritesATerminalTimelineEvent()
+    {
+        PR existing = PR.create("pr1", "task1", "dev/x", "main", "T", "", NOW);
+        when(store.findByTaskId("task1")).thenReturn(Optional.of(existing));
+
+        service.recordBrainReviewFailed(
+                "task1", "dev", 1, "round-1", "brain_review_turn_failed", "run-2");
+
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo(PRTimelineEntry.TYPE_REVIEW);
+        assertThat(event.getValue().actor()).isEqualTo(PRTimelineEntry.ACTOR_BRAIN);
+        assertThat(event.getValue().localOnly()).isTrue();
+        assertThat(event.getValue().payloadJson())
+                .contains("\"reviewEvent\":\"failed\"")
+                .contains("\"scope\":\"dev\"")
+                .contains("\"iteration\":1")
+                .contains("\"roundId\":\"round-1\"")
+                .contains("\"reason\":\"brain_review_turn_failed\"")
+                .contains("\"attemptId\":\"run-2\"");
+    }
+
+    @Test
+    void replacementRunFailureIsNotDeduplicatedAgainstThePreviousAttempt()
+    {
+        PR existing = PR.create("pr1", "task1", "dev/x", "main", "T", "", NOW);
+        PRTimelineEntry previousAttempt = new PRTimelineEntry(
+                "failure-1", "pr1", PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_BRAIN,
+                true, null, NOW.minusSeconds(1),
+                "{\"reviewEvent\":\"failed\",\"scope\":\"dev\",\"iteration\":1,"
+                        + "\"roundId\":\"round-1\",\"attemptId\":\"run-1\"}",
+                null);
+        when(store.findByTaskId("task1")).thenReturn(Optional.of(existing));
+        when(store.timelineFor("pr1")).thenReturn(List.of(previousAttempt));
+
+        service.recordBrainReviewFailed(
+                "task1", "dev", 1, "round-1", "brain_review_turn_failed", "run-2");
+
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().payloadJson()).contains("\"attemptId\":\"run-2\"");
+    }
+
+    @Test
     void localReviewSubmissionIsAPrivateTimelineBatchAndDispatchSignal()
     {
         pr(PR.STATUS_LOCAL_OPEN);

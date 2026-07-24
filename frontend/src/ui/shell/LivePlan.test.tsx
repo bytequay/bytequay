@@ -50,7 +50,7 @@ function model(viewedStageId?: string) {
       { key: 'validation', status: 'running', meta: null, badgeRunId: 'local-fix' },
       { key: 'brainReview', status: 'future', meta: 'next', badgeRunId: null },
     ],
-    task: { prNumber: null, currentPhase: 'VALIDATING' as TaskPhase, terminal: false },
+    task: { prNumber: null, currentPhase: 'VALIDATING' as TaskPhase, terminal: false, paused: false },
     viewedStageId,
   });
 }
@@ -84,7 +84,7 @@ describe('LivePlan', () => {
     const onOpenTab = vi.fn();
     const nodes = buildLivePlan({
       stages: [stage('DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
-      task: { prNumber: null, currentPhase: 'AWAITING_PUSH' as TaskPhase, terminal: false },
+      task: { prNumber: null, currentPhase: 'AWAITING_PUSH' as TaskPhase, terminal: false, paused: false },
     });
     render(<LivePlan nodes={nodes} onOpenTab={onOpenTab} />);
     fireEvent.click(screen.getByLabelText('Expand Local Development'));
@@ -97,7 +97,7 @@ describe('LivePlan', () => {
     const onOpenPr = vi.fn();
     const nodes = buildLivePlan({
       stages: [stage('REMOTE_DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
-      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false, paused: false },
     });
     render(<LivePlan nodes={nodes} onOpenTab={onOpenTab} onOpenPr={onOpenPr} />);
     fireEvent.click(screen.getByLabelText('Expand Remote Development'));
@@ -125,7 +125,7 @@ describe('LivePlan', () => {
         { key: 'validation', status: 'done', meta: null, badgeRunId: null },
         { key: 'brainReview', status: 'done', meta: null, badgeRunId: null },
       ],
-      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false },
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false, paused: false },
     });
     const { container } = render(<LivePlan nodes={nodes} onOpenStage={onOpenStage} />);
     expect(container.querySelectorAll('.plan-phase-row').length).toBe(0);

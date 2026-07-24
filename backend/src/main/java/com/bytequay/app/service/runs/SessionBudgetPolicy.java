@@ -75,6 +75,12 @@ public class SessionBudgetPolicy
                 prior.tokensIn() + tokensInDelta,
                 prior.tokensOut() + tokensOutDelta,
                 prior.stepCursor() + 1);
+        // Accounting still belongs on a turn that just finished, but a run
+        // already sealed (or deliberately paused/cancelled) must not be
+        // reopened as PAUSED by a post-completion budget check.
+        if (!AgentRun.STATUS_RUNNING.equals(updated.status())) {
+            return false;
+        }
         if (updated.workspaceId() == null || updated.workspaceId().isBlank()) {
             return false;
         }

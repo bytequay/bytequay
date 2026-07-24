@@ -166,6 +166,10 @@ public abstract class AbstractCliThreadAgent
      *  sibling — which creates a fresh agent against the other task —
      *  never mixes histories. */
     private final String activeTaskId;
+    /** Per-turn task attribution. Unlike {@link #activeTaskId}, this is set
+     *  for a read-only task Brain so its transcript lands in the task/stage
+     *  slice without granting the session worktree-write capabilities. */
+    private volatile String activeTurnTaskId;
     /** The stage the in-flight turn belongs to, set by the scheduler before
      *  each {@link #send}; messages emitted during the turn inherit it. */
     private volatile String activeStageId;
@@ -283,6 +287,9 @@ public abstract class AbstractCliThreadAgent
             this.workingDir = trunkCwd;
             this.branchName = null;
             this.activeTaskId = null;
+            this.activeTurnTaskId = thread.kind() == ThreadKind.BRAIN_AGENT
+                    ? thread.parentTaskId()
+                    : null;
             ThreadStatus inherited = thread.status();
             this.status.set(
                     inherited == ThreadStatus.COMPLETED
@@ -313,6 +320,7 @@ public abstract class AbstractCliThreadAgent
                     "active task " + active.id() + " has no working dir; cannot spawn CLI agent");
             this.branchName = active.branchName();
             this.activeTaskId = active.id();
+            this.activeTurnTaskId = active.id();
             this.status.set(thread.status());
             // Resume from the focused task's session, not the thread's.
             // Each Task owns its own forked session that --resume must hit
@@ -488,6 +496,18 @@ public abstract class AbstractCliThreadAgent
     }
 
     @Override
+    public final void setActiveTask(String taskId)
+    {
+        this.activeTurnTaskId = taskId;
+    }
+
+    @Override
+    public final String activeTaskId()
+    {
+        return activeTurnTaskId;
+    }
+
+    @Override
     public final void setActiveStage(String stageId)
     {
         if (stageId != null && !stageId.isBlank() && !stageId.equals(boundStageId)) {
@@ -499,6 +519,12 @@ public abstract class AbstractCliThreadAgent
             this.agentSessionId.set(null);
         }
         this.activeStageId = stageId;
+    }
+
+    @Override
+    public final String activeStageId()
+    {
+        return activeStageId;
     }
 
     @Override
@@ -1162,18 +1188,18 @@ public abstract class AbstractCliThreadAgent
         Instant ts = event.timestamp();
         ThreadMessage built = switch (event) {
             case StreamEvent.SessionStarted e -> new ThreadMessage(
-                    id, threadId, activeTaskId, seq, "system", "session_started",
+                    id, threadId, activeTurnTaskId, seq, "system", "session_started",
                     content(mapper.createObjectNode()
                             .put("sessionId", e.sessionId())
                             .put("cwd", e.cwd())
                             .put("model", e.model())),
                     null, null, null, null, ts);
             case StreamEvent.UserMessage e -> new ThreadMessage(
-                    id, threadId, activeTaskId, seq, "user", "text",
+                    id, threadId, activeTurnTaskId, seq, "user", "text",
                     MessageAttachments.encodeMessage(mapper, e.text(), e.images(), activeManagedSkillNames()),
                     null, null, null, null, ts);
             case StreamEvent.AssistantText e -> new ThreadMessage(
-                    id, threadId, activeTaskId, seq, "assistant", "text",
+                    id, threadId, activeTurnTaskId, seq, "assistant", "text",
                     content(mapper.createObjectNode().put("text", e.text())),
                     null, null, null, null, ts);
             // Live-only — deltas reach SSE subscribers and feed the
@@ -1182,40 +1208,40 @@ public abstract class AbstractCliThreadAgent
             // ~1 row per token.
             case StreamEvent.AssistantTextDelta ignored -> null;
             case StreamEvent.ThinkingStarted e -> new ThreadMessage(
-                    id, threadId, activeTaskId, seq, "assistant", "thinking",
+                    id, threadId, activeTurnTaskId, seq, "assistant", "thinking",
                     content(mapper.createObjectNode().put("summary", e.summary())),
                     null, null, null, null, ts);
             case StreamEvent.ThinkingTextDelta ignored -> null;
             case StreamEvent.ThinkingDone ignored -> null;
             case StreamEvent.ToolCallStarted e -> new ThreadMessage(
-                    id, threadId, activeTaskId, seq, "tool", "tool_call",
+                    id, threadId, activeTurnTaskId, seq, "tool", "tool_call",
                     content(mapper.createObjectNode()
                             .put("callId", e.callId())
                             .put("toolName", e.toolName())
                             .set("input", rawJson(e.inputJson()))),
                     null, null, null, null, ts);
             case StreamEvent.ToolCallDone e -> new ThreadMessage(
-                    id, threadId, activeTaskId, seq, "tool", "tool_result",
+                    id, threadId, activeTurnTaskId, seq, "tool", "tool_result",
                     content(mapper.createObjectNode()
                             .put("callId", e.callId())
                             .put("isError", e.isError())
                             .set("output", rawJson(e.outputJson()))),
                     null, null, null, null, ts);
             case StreamEvent.PermissionRequested e -> new ThreadMessage(
-                    id, threadId, activeTaskId, seq, "system", "permission_request",
+                    id, threadId, activeTurnTaskId, seq, "system", "permission_request",
                     content(mapper.createObjectNode()
                             .put("callId", e.callId())
                             .put("toolName", e.toolName())
                             .put("summary", e.summary())),
                     null, null, null, null, ts);
             case StreamEvent.PermissionDecided e -> new ThreadMessage(
-                    id, threadId, activeTaskId, seq, "system", "permission_decision",
+                    id, threadId, activeTurnTaskId, seq, "system", "permission_decision",
                     content(mapper.createObjectNode()
                             .put("callId", e.callId())
                             .put("decision", e.decision().name())),
                     null, null, null, null, ts);
             case StreamEvent.PermissionAutoAllowed e -> new ThreadMessage(
-                    id, threadId, activeTaskId, seq, "system", "permission_auto_allowed",
+                    id, threadId, activeTurnTaskId, seq, "system", "permission_auto_allowed",
                     content(mapper.createObjectNode()
                             .put("callId", e.callId())
                             .put("toolName", e.toolName())
@@ -1225,16 +1251,16 @@ public abstract class AbstractCliThreadAgent
             // and overlay the metrics panel; TurnDone is the durable row.
             case StreamEvent.UsageUpdated ignored -> null;
             case StreamEvent.TurnDone e -> new ThreadMessage(
-                    id, threadId, activeTaskId, seq, "system", "turn_done", "{}",
+                    id, threadId, activeTurnTaskId, seq, "system", "turn_done", "{}",
                     e.durationMs(), e.tokensIn(), e.tokensOut(), e.costUsdMilli(), ts);
             case StreamEvent.ErrorOccurred e -> new ThreadMessage(
-                    id, threadId, activeTaskId, seq, "system", "error",
+                    id, threadId, activeTurnTaskId, seq, "system", "error",
                     content(mapper.createObjectNode()
                             .put("message", e.message())
                             .put("recoverable", e.recoverable())),
                     null, null, null, null, ts);
             case StreamEvent.SessionEnded e -> new ThreadMessage(
-                    id, threadId, activeTaskId, seq, "system", "session_ended",
+                    id, threadId, activeTurnTaskId, seq, "system", "session_ended",
                     content(mapper.createObjectNode()
                             .put("exitCode", e.exitCode())
                             .put("errorMessage", e.errorMessage())),
@@ -1245,7 +1271,7 @@ public abstract class AbstractCliThreadAgent
         // window. activeStageId is set by the scheduler before each send.
         return built == null
                 ? null
-                : built.withStageScope(activeStageId, ThreadScope.of(activeTaskId, activeStageId));
+                : built.withStageScope(activeStageId, ThreadScope.of(activeTurnTaskId, activeStageId));
     }
 
     private List<String> activeManagedSkillNames()

@@ -460,18 +460,58 @@ class PRServiceImpl
     @Override
     public void recordBrainReviewAddressing(String taskId, String scope, int iteration, String roundId)
     {
-        recordBrainReviewActivity(taskId, PRTimelineEntry.ACTOR_AGENT, "addressing-started", scope, iteration, roundId);
+        recordBrainReviewAddressing(taskId, scope, iteration, roundId, null);
+    }
+
+    @Override
+    public void recordBrainReviewAddressing(
+            String taskId, String scope, int iteration, String roundId, String attemptId)
+    {
+        recordBrainReviewActivity(
+                taskId, PRTimelineEntry.ACTOR_AGENT, "addressing-started",
+                scope, iteration, roundId, attemptId);
+    }
+
+    @Override
+    public void recordBrainReviewFailed(
+            String taskId, String scope, int iteration, String roundId, String reason)
+    {
+        recordBrainReviewFailed(taskId, scope, iteration, roundId, reason, null);
+    }
+
+    @Override
+    public void recordBrainReviewFailed(
+            String taskId, String scope, int iteration, String roundId, String reason, String attemptId)
+    {
+        store.findByTaskId(taskId).ifPresent(pr -> {
+            if (hasReviewActivity(pr.id(), "failed", scope, iteration, roundId, attemptId)) {
+                return;
+            }
+            appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_BRAIN,
+                    /* localOnly */ true, now(),
+                    payload("reviewEvent", "failed", "scope", scope, "iteration", iteration,
+                            "roundId", roundId, "reason", reason, "attemptId", attemptId));
+            notifyUpdated(pr.id());
+        });
     }
 
     private void recordBrainReviewActivity(
             String taskId, String actor, String activity, String scope, int iteration, String roundId)
     {
+        recordBrainReviewActivity(taskId, actor, activity, scope, iteration, roundId, null);
+    }
+
+    private void recordBrainReviewActivity(
+            String taskId, String actor, String activity, String scope, int iteration,
+            String roundId, String attemptId)
+    {
         store.findByTaskId(taskId).ifPresent(pr -> {
-            if (hasReviewActivity(pr.id(), activity, scope, iteration, roundId)) {
+            if (hasReviewActivity(pr.id(), activity, scope, iteration, roundId, attemptId)) {
                 return;
             }
             appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, actor, /* localOnly */ true, now(),
-                    payload("reviewEvent", activity, "scope", scope, "iteration", iteration, "roundId", roundId));
+                    payload("reviewEvent", activity, "scope", scope, "iteration", iteration,
+                            "roundId", roundId, "attemptId", attemptId));
             notifyUpdated(pr.id());
         });
     }
@@ -487,9 +527,26 @@ class PRServiceImpl
 
     private boolean hasReviewActivity(String prId, String activity, String scope, int iteration, String roundId)
     {
+        return hasReviewActivity(prId, activity, scope, iteration, roundId, null);
+    }
+
+    private boolean hasReviewActivity(
+            String prId, String activity, String scope, int iteration, String roundId, String attemptId)
+    {
         return store.timelineFor(prId).stream()
                 .anyMatch(e -> e.eventType().equals(PRTimelineEntry.TYPE_REVIEW)
-                        && reviewPayloadMatches(e, activity, scope, iteration, roundId));
+                        && reviewPayloadMatches(e, activity, scope, iteration, roundId)
+                        && (attemptId == null || reviewAttemptMatches(e, attemptId)));
+    }
+
+    private boolean reviewAttemptMatches(PRTimelineEntry event, String attemptId)
+    {
+        try {
+            return attemptId.equals(mapper.readTree(event.payloadJson()).path("attemptId").asText(null));
+        }
+        catch (JsonProcessingException | RuntimeException e) {
+            return false;
+        }
     }
 
     private boolean reviewPayloadMatches(

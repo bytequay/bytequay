@@ -146,7 +146,8 @@ export default function PullOverview({
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '11px 16px', borderBottom: '1px solid #eef1f4' }}>
           <PullAuthorAv login={opened.author} size={24} square={opened.bot} />
           <span style={{ fontSize: 13, color: '#57606a' }}>
-            <span style={{ color: '#17191c', fontWeight: 600 }}>{opened.author}</span> opened pull request
+            <span style={{ color: '#17191c', fontWeight: 600 }}>{opened.author}</span>{' '}
+            {remotePrNumber === null ? 'created local draft' : 'opened pull request'}
           </span>
           <span style={{ marginLeft: 'auto', fontSize: 12.5, color: '#8b949e', flexShrink: 0 }}>{opened.time}</span>
           {canEditDescription && (

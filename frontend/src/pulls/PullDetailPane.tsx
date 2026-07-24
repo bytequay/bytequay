@@ -450,6 +450,7 @@ export function PullDetailBody({
               row={row}
               bundle={bundle}
               isMerged={det.isMerged}
+              refresh={refresh}
               onComment={onComment}
               onClosePullRequest={actions.onClosePullRequest}
               onDescriptionSaved={refresh}
@@ -479,7 +480,6 @@ export function PullDetailBody({
       <SubmitReviewDrawer
         open={submitOpen}
         submitting={submitting}
-        commentOnly={bundle?.pr.origin === 'task'}
         pendingComments={pending.map(comment => diffInlineCommentFromLocalPr(comment))}
         onRemovePending={removePending}
         onClose={() => setSubmitOpen(false)}

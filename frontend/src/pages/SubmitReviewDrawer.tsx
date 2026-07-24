@@ -29,11 +29,12 @@ const VERDICT_OPTIONS: Array<{ value: ReviewVerdict; label: string; desc: string
  * review" panel. It sends the selected verdict, overall body, and unresolved
  * local line comments as one review. The caller owns the boundary: a
  * task-local review dispatches Development, while an external PR publishes
- * through GitHub.
+ * through GitHub. All three verdicts are always offered — GitHub itself
+ * rejects Approve/Request-changes on a PR you authored, and that rejection
+ * surfaces through the normal submitError path below.
  */
 export function SubmitReviewDrawer({
   open, submitting = false, onClose, onSubmit, pendingComments = [], onRemovePending,
-  commentOnly = false,
 }: {
   open: boolean;
   submitting?: boolean;
@@ -44,16 +45,10 @@ export function SubmitReviewDrawer({
    *  before submitting. Omit where no draft-comment source is wired up. */
   pendingComments?: DiffInlineComment[];
   onRemovePending?: (commentId: string) => void;
-  /** Restrict the verdict to Comment — you can't Approve/Request-changes your
-   *  own PR on GitHub, so a task PR published to the remote offers Comment only. */
-  commentOnly?: boolean;
 }) {
   const [body, setBody] = useState('');
   const [verdict, setVerdict] = useState<ReviewVerdict>('COMMENT');
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const verdictOptions = commentOnly
-    ? VERDICT_OPTIONS.filter(opt => opt.value === 'COMMENT')
-    : VERDICT_OPTIONS;
 
   useEffect(() => {
     if (!open) return;
@@ -106,7 +101,7 @@ export function SubmitReviewDrawer({
           disabled={submitting}
         />
         <div className="submit-review-drawer__verdicts" role="radiogroup" aria-label="Review verdict">
-          {verdictOptions.map(opt => (
+          {VERDICT_OPTIONS.map(opt => (
             <label
               key={opt.value}
               className={verdict === opt.value

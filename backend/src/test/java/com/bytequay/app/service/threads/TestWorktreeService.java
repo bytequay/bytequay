@@ -418,6 +418,53 @@ class TestWorktreeService
         assertThat(refreshed.get().baseSha()).isNotEqualTo(plannedSha);
     }
 
+    /** The background fetch updates remote-tracking refs only — an existing
+     * planning worktree keeps its pinned checkout until a turn-boundary
+     * sync applies the moved tip. */
+    @Test
+    void testFetchPlanningBaseUpdatesRefsWithoutTouchingWorktrees(@TempDir Path tempDir)
+            throws IOException, InterruptedException
+    {
+        GitRunner git = new GitRunner();
+        if (!git.isAvailable()) {
+            return;
+        }
+        Path upstream = tempDir.resolve("upstream");
+        Files.createDirectories(upstream);
+        runGit(upstream, List.of("git", "init", "--initial-branch=master"));
+        runGit(upstream, List.of("git", "config", "user.email", "up@example.com"));
+        runGit(upstream, List.of("git", "config", "user.name", "Up"));
+        Files.writeString(upstream.resolve("U1.md"), "1", StandardCharsets.UTF_8);
+        runGit(upstream, List.of("git", "add", "U1.md"));
+        runGit(upstream, List.of("git", "commit", "-m", "upstream c1"));
+
+        Path fork = initEmptyRepo(tempDir);
+        runGit(fork, List.of("git", "remote", "add", "upstream", upstream.toString()));
+        runGit(fork, List.of("git", "fetch", "upstream"));
+        runGit(fork, List.of("git", "remote", "set-head", "upstream", "master"));
+
+        WatchedRepoStore repos = Mockito.mock(WatchedRepoStore.class);
+        Mockito.when(repos.findAll()).thenReturn(List.of(new WatchedRepo(
+                1L, "trinodb", "trino", 0, fork.toString(), "upstream", "upstream")));
+        WorktreeService service = new WorktreeService(git, repos);
+
+        WorktreeService.PlanningSync planning =
+                service.refreshPlanningWorktree(fork, "thread-a").orElseThrow();
+        String pinnedSha = planning.baseSha();
+
+        Files.writeString(upstream.resolve("U2.md"), "2", StandardCharsets.UTF_8);
+        runGit(upstream, List.of("git", "add", "U2.md"));
+        runGit(upstream, List.of("git", "commit", "-m", "upstream c2"));
+
+        service.fetchPlanningBase(fork);
+
+        // The remote-tracking ref moved to the new upstream tip …
+        assertThat(revParse(fork, "upstream/master")).isNotEqualTo(pinnedSha);
+        assertThat(revParse(fork, "upstream/master")).isEqualTo(revParse(upstream, "master"));
+        // … but the planning worktree still sits on the pinned checkout.
+        assertThat(revParse(planning.worktree(), "HEAD")).isEqualTo(pinnedSha);
+    }
+
     @Test
     void testPlanningWorktreesAreIsolatedPerThread(@TempDir Path tempDir)
             throws IOException, InterruptedException

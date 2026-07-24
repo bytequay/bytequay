@@ -25,8 +25,11 @@ import com.bytequay.app.service.threads.ThreadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -35,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -135,8 +139,12 @@ class TestBacklogService
         // The item content is posted into the trunk as a planning prompt; no
         // task is cut here. The prompt carries the backlog id plus the
         // confidence-or-confirm contract the trunk must follow before cutting.
+        ArgumentCaptor<BacklogItem> saved = ArgumentCaptor.forClass(BacklogItem.class);
         ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(threadService).sendTrunk(eq("thread-1"), prompt.capture());
+        InOrder order = inOrder(store, threadService);
+        order.verify(store).save(saved.capture());
+        order.verify(threadService).sendTrunk(eq("thread-1"), prompt.capture());
+        assertThat(saved.getValue().status()).isEqualTo(BacklogItem.STATUS_IN_PROGRESS);
         assertThat(prompt.getValue())
                 .contains("(backlog item b1")
                 .contains("backlog_item_id=b1")
@@ -151,6 +159,26 @@ class TestBacklogService
         assertThat(result.item().inProgressAt()).isNotNull();
         verify(distillation).record(
                 eq("backlog-start"), eq("b1"), eq("started"), any(), any(), any(), any());
+    }
+
+    @Test
+    void startDevelopmentStaysInProgressWhenTrunkDispatchFails()
+    {
+        when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
+        when(threadService.sendTrunk(eq("thread-1"), any()))
+                .thenThrow(new IllegalStateException("scheduler unavailable"));
+
+        assertThatThrownBy(() -> service.startDevelopment("b1"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("scheduler unavailable");
+
+        ArgumentCaptor<BacklogItem> saved = ArgumentCaptor.forClass(BacklogItem.class);
+        InOrder order = inOrder(store, threadService);
+        order.verify(store).save(saved.capture());
+        order.verify(threadService).sendTrunk(eq("thread-1"), any());
+        assertThat(saved.getValue().status()).isEqualTo(BacklogItem.STATUS_IN_PROGRESS);
+        verify(distillation, never()).record(
+                eq("backlog-start"), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -287,12 +315,20 @@ class TestBacklogService
     @Test
     void resolveLinksTheItemToTheTaskItSpawned()
     {
-        when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
+        Task task = task("thread-1", TaskPhase.IMPLEMENTING, null, null);
+        BacklogItem inProgress = item("b1", false, null).markInProgress(NOW);
+        BacklogItem persisted = inProgress.markResolved("task-42", NOW);
+        when(store.findById("b1")).thenReturn(
+                Optional.of(inProgress), Optional.of(persisted));
+        when(taskStore.findTaskById("task-42")).thenReturn(Optional.of(task));
+        when(store.resolveIfInProgressAndUnlinked(eq("b1"), eq("task-42"), any()))
+                .thenReturn(true);
 
         BacklogItem resolved = service.resolve("b1", "task-42");
 
         assertThat(resolved.status()).isEqualTo("resolved");
         assertThat(resolved.linkedTaskId()).isEqualTo("task-42");
+        verify(store).resolveIfInProgressAndUnlinked(eq("b1"), eq("task-42"), any());
         verify(distillation).record(
                 eq("backlog-resolve"), eq("b1"), eq("resolved"), eq(null), any(), any(), any());
     }
@@ -311,6 +347,125 @@ class TestBacklogService
         when(store.findById("missing")).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.resolve("missing", "task-1"))
                 .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void resolveRejectsAnOpenItemBeforeLinkingTheTask()
+    {
+        when(store.findById("b1")).thenReturn(Optional.of(item("b1", false, null)));
+
+        assertThatThrownBy(() -> service.resolve("b1", "task-42"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not in progress");
+
+        verify(taskStore, never()).findTaskById(any());
+        verify(store, never()).resolveIfInProgressAndUnlinked(any(), any(), any());
+    }
+
+    @Test
+    void resolveRejectsAnInProgressItemThatAlreadyHasATask()
+    {
+        BacklogItem linked = item("b1", false, null)
+                .markInProgress(NOW)
+                .markResolved("task-1", NOW)
+                .markCreated()
+                .markInProgress(NOW);
+        when(store.findById("b1")).thenReturn(Optional.of(linked));
+
+        assertThatThrownBy(() -> service.resolve("b1", "task-42"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("already linked");
+
+        verify(taskStore, never()).findTaskById(any());
+        verify(store, never()).resolveIfInProgressAndUnlinked(any(), any(), any());
+    }
+
+    @Test
+    void resolveRejectsAnUnknownTask()
+    {
+        when(store.findById("b1")).thenReturn(
+                Optional.of(item("b1", false, null).markInProgress(NOW)));
+        when(taskStore.findTaskById("missing")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.resolve("b1", "missing"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("task not found");
+
+        verify(store, never()).resolveIfInProgressAndUnlinked(any(), any(), any());
+    }
+
+    @Test
+    void resolveRejectsATaskFromAnotherTrunk()
+    {
+        Task task = task("thread-2", TaskPhase.IMPLEMENTING, null, null);
+        when(store.findById("b1")).thenReturn(
+                Optional.of(item("b1", false, null).markInProgress(NOW)));
+        when(taskStore.findTaskById("task-42")).thenReturn(Optional.of(task));
+
+        assertThatThrownBy(() -> service.resolve("b1", "task-42"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("different trunks");
+
+        verify(store, never()).resolveIfInProgressAndUnlinked(any(), any(), any());
+    }
+
+    @Test
+    void resolveRejectsATaskAlreadyLinkedFromAnotherBacklogItem()
+    {
+        BacklogItem item = item("b1", false, null).markInProgress(NOW);
+        BacklogItem existing = item("b2", true, "task-42");
+        Task task = task("thread-1", TaskPhase.IMPLEMENTING, null, null);
+        when(store.findById("b1")).thenReturn(Optional.of(item));
+        when(taskStore.findTaskById("task-42")).thenReturn(Optional.of(task));
+        when(store.findByThread("thread-1")).thenReturn(List.of(item, existing));
+
+        assertThatThrownBy(() -> service.resolve("b1", "task-42"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("another backlog item");
+
+        verify(store, never()).resolveIfInProgressAndUnlinked(any(), any(), any());
+    }
+
+    @Test
+    void resolveRejectsAConcurrentChangeWithoutRecordingAResolution()
+    {
+        BacklogItem item = item("b1", false, null).markInProgress(NOW);
+        Task task = task("thread-1", TaskPhase.IMPLEMENTING, null, null);
+        when(store.findById("b1")).thenReturn(Optional.of(item));
+        when(taskStore.findTaskById("task-42")).thenReturn(Optional.of(task));
+        when(store.resolveIfInProgressAndUnlinked(eq("b1"), eq("task-42"), any()))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> service.resolve("b1", "task-42"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("changed while");
+
+        verify(distillation, never()).record(
+                eq("backlog-resolve"), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void resolveTurnsAUniqueTaskLinkRaceIntoAConflict()
+    {
+        BacklogItem item = item("b1", false, null).markInProgress(NOW);
+        Task task = task("thread-1", TaskPhase.IMPLEMENTING, null, null);
+        when(store.findById("b1")).thenReturn(Optional.of(item));
+        when(taskStore.findTaskById("task-42")).thenReturn(Optional.of(task));
+        when(store.resolveIfInProgressAndUnlinked(eq("b1"), eq("task-42"), any()))
+                .thenThrow(new UncategorizedSQLException(
+                        "resolve backlog", "UPDATE backlog_item",
+                        new SQLException(
+                                "[SQLITE_CONSTRAINT_UNIQUE] A UNIQUE constraint failed "
+                                        + "(UNIQUE constraint failed: backlog_item.linked_task_id)",
+                                null,
+                                19)));
+
+        assertThatThrownBy(() -> service.resolve("b1", "task-42"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("another backlog item");
+
+        verify(distillation, never()).record(
+                eq("backlog-resolve"), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -362,7 +517,14 @@ class TestBacklogService
 
     private static Task task(TaskPhase phase, Integer prNumber, String prState)
     {
+        return task("thread-1", phase, prNumber, prState);
+    }
+
+    private static Task task(
+            String threadId, TaskPhase phase, Integer prNumber, String prState)
+    {
         Task task = mock(Task.class);
+        when(task.threadId()).thenReturn(threadId);
         when(task.phase()).thenReturn(phase);
         when(task.prNumber()).thenReturn(prNumber);
         when(task.prState()).thenReturn(prState);

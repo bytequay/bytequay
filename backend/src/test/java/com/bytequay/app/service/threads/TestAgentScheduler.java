@@ -274,6 +274,7 @@ class TestAgentScheduler
 
         assertThat(harness.registry.lastRouted).isEqualTo("brain");
         assertThat(session.inputs).containsExactly("self-review the plan");
+        assertThat(session.mcpAgentKeys).containsExactly(stageId);
     }
 
     @Test
@@ -1011,6 +1012,7 @@ class TestAgentScheduler
         private final List<String> inputs = new ArrayList<>();
         private final List<List<String>> skillNames = new ArrayList<>();
         private final List<Set<String>> toolNames = new ArrayList<>();
+        private final List<String> mcpAgentKeys = new ArrayList<>();
         private final ArrayDeque<CompletableFuture<Void>> completions = new ArrayDeque<>();
         private ThreadStatus status = ThreadStatus.IDLE;
 
@@ -1093,6 +1095,12 @@ class TestAgentScheduler
         public void setActiveToolNames(Set<String> names)
         {
             toolNames.add(names == null ? Set.of() : Set.copyOf(names));
+        }
+
+        @Override
+        public void setMcpAgentKey(String agentKey)
+        {
+            mcpAgentKeys.add(agentKey);
         }
 
         private void completeNext()

@@ -80,8 +80,11 @@ public class ClaudeCodeCliThreadAgent
     /** Optional Claude Code effort level for planning-heavy sessions. */
     private volatile String reasoningEffort;
     /** Lazily-written MCP config file Claude reads via {@code
-     *  --mcp-config}. Same path for the lifetime of one session. */
+     *  --mcp-config}. Reused while the agent key stays unchanged. */
     private final AtomicReference<Path> mcpConfigPath = new AtomicReference<>();
+    /** Agent key embedded in {@link #mcpConfigPath}. A task-brain session
+     *  moves between the trunk key and stage-scoped review keys. */
+    private final AtomicReference<String> mcpConfigAgentKey = new AtomicReference<>();
 
     public ClaudeCodeCliThreadAgent(
             Thread thread,
@@ -389,14 +392,17 @@ public class ClaudeCodeCliThreadAgent
     }
 
     /** Lazily writes the per-thread MCP config to a temp file Claude
-     *  reads. Same path for the lifetime of the session — we only rewrite
-     *  if the temp file got nuked between turns. */
+     *  reads. Rewrites when the temp file disappears or a task-brain turn
+     *  moves to a different agent key. */
     private Path ensureMcpConfig()
     {
+        String agentKey = mcpAgentKey();
         Path existing = mcpConfigPath.get();
-        if (existing != null && Files.isRegularFile(existing)) {
+        if (existing != null && Files.isRegularFile(existing)
+                && agentKey.equals(mcpConfigAgentKey.get())) {
             return existing;
         }
+        cleanupMcpConfig();
         try {
             Path tmp = Files.createTempFile("bytequay-mcp-" + threadId + "-", ".json");
             // Per-agent MCP URL: the agent key scopes role / capability
@@ -406,10 +412,11 @@ public class ClaudeCodeCliThreadAgent
             String json = "{\"mcpServers\":{\"bytequay\":{"
                     + "\"type\":\"http\","
                     + "\"url\":\"http://127.0.0.1:53123/api/threads/" + threadId
-                    + "/agents/" + mcpAgentKey() + "/mcp\""
+                    + "/agents/" + agentKey + "/mcp\""
                     + "}}}";
             Files.writeString(tmp, json, StandardCharsets.UTF_8);
             tmp.toFile().deleteOnExit();
+            mcpConfigAgentKey.set(agentKey);
             mcpConfigPath.set(tmp);
             return tmp;
         }
@@ -420,6 +427,7 @@ public class ClaudeCodeCliThreadAgent
 
     private void cleanupMcpConfig()
     {
+        mcpConfigAgentKey.set(null);
         Path p = mcpConfigPath.getAndSet(null);
         if (p != null) {
             try {

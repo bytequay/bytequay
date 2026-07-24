@@ -22,6 +22,8 @@ import com.bytequay.app.repository.ThreadStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -111,6 +113,32 @@ class TestClaudeCodeCliThreadAgent
     }
 
     @Test
+    void mcpConfigFollowsTheActiveAgentKeyAcrossBrainTurns()
+            throws Exception
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        Thread thread = new Thread(
+                "brain-1", ThreadKind.BRAIN_AGENT, "claude-code", null,
+                "Claude brain test", ThreadStatus.IDLE, "claude-sonnet-4-6",
+                0L, 0L, 0L, NOW, NOW, null, null,
+                ThreadFlow.BUILD, "ws-default", null, null);
+        ClaudeCodeCliThreadAgent agent = new ClaudeCodeCliThreadAgent(
+                thread, threadStore, taskStore, new StreamJsonParser(mapper), mapper,
+                mock(McpPermissionGate.class), mock(ExecutorService.class),
+                mock(CheckpointTrigger.class), () -> "", null, null, CWD,
+                ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+
+        Path trunkConfig = mcpConfig(agent.buildCommand("draft the plan"));
+        assertThat(Files.readString(trunkConfig)).contains("/agents/trunk/mcp");
+
+        agent.setMcpAgentKey("plan-stage-1");
+        Path reviewConfig = mcpConfig(agent.buildCommand("review the plan"));
+
+        assertThat(reviewConfig).isNotEqualTo(trunkConfig);
+        assertThat(Files.readString(reviewConfig)).contains("/agents/plan-stage-1/mcp");
+    }
+
+    @Test
     void preTurnHookNotePrefixesTheModelInputOnly()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
@@ -140,5 +168,11 @@ class TestClaudeCodeCliThreadAgent
             throw new IllegalStateException("sync failed");
         });
         assertThat(agent.composeTurnInput("cut phase 3")).isEqualTo("cut phase 3");
+    }
+
+    private static Path mcpConfig(ProcessBuilder command)
+    {
+        List<String> argv = command.command();
+        return Path.of(argv.get(argv.indexOf("--mcp-config") + 1));
     }
 }

@@ -253,6 +253,29 @@ describe('TaskBrainRoute', () => {
     await waitFor(() => expect(onOpenStage).toHaveBeenCalledWith('dev-9'));
   });
 
+  it('labels an unfinished root-node plan as drafting', async () => {
+    const base = buildMockBrainView(0);
+    const plan: PlanCardDto = {
+      planStageId: 'plan-1', state: 'draft', status: 'suggested', source: 'brain',
+      understandingSummary: 'Add a cost meter to the rail', intentSummary: 'wire it',
+      steps: [{ ordinal: 1, action: 'Build the meter' }], validationStrategy: 'tests',
+      pushStrategy: 'await_approval',
+      signals: { riskLevel: 'low', estimatedComplexity: 'small', componentsCount: 2, expectedGain: 'x' },
+      revisionCount: 0, followups: [],
+    };
+    const view = { ...base, rightRail: { ...base.rightRail, plan } };
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      sendBrainMessage: vi.fn().mockResolvedValue({}),
+    };
+
+    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onClosed={() => {}} />);
+
+    await screen.findByText('Build the meter');
+    expect(document.querySelector('.plan-feed-event__copy strong')?.textContent)
+      .toBe('Plan drafting');
+  });
+
   it('renders the auto-approve toggle only in the plan card, not as a top-bar button', async () => {
     const base = buildMockBrainView(0);
     const plan: PlanCardDto = {

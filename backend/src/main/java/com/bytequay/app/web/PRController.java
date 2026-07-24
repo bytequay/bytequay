@@ -332,8 +332,9 @@ public class PRController
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
     }
 
-    /** Batch every draft comment on an {@code origin=external} PR into one
-     *  GitHub review, then re-sync so the review appears on the timeline. */
+    /** Batch every draft comment on a remote PR into one GitHub review, then
+     *  re-sync so the review appears on the timeline. Both external PRs and
+     *  task PRs that have reached the remote stage publish here. */
     @PostMapping("/api/prs/{prId}/publish-review")
     public PRDto publishReview(
             @PathVariable String prId, @RequestBody(required = false) PublishReviewRequest body)
@@ -342,11 +343,8 @@ public class PRController
         List<String> findingIds = body == null ? null : body.findingIds();
         List<String> commentIds = body == null ? null : body.comments();
         String reviewBody = body == null ? null : body.body();
-        PR published = publish.publishReview(prId, verdict, findingIds, commentIds, reviewBody);
+        publish.publishReview(prId, verdict, findingIds, commentIds, reviewBody);
         investigationReviews.recordPublished(prId, verdict, findingIds, commentIds);
-        if (!PR.ORIGIN_EXTERNAL.equals(published.origin())) {
-            return PRDto.from(published);
-        }
         return PRDto.from(sync.syncPR(prId, 0)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
     }

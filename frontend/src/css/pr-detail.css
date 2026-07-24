@@ -1463,10 +1463,6 @@ button.prc-branches__ref--clickable:hover {
   color: var(--text-2);
   font-weight: 600;
 }
-.prc-review-thread__ask-agent-btn {
-  color: var(--accent, #6f42c1);
-}
-
 /* Fold chevron at the start of the thread header. The whole header stays
    clickable via the chevron — keeping the row tight so a folded thread
    reads as a one-liner ("foo.ts:42 · 3 comments · last by alice"). GitHub
@@ -1542,7 +1538,6 @@ button.prc-branches__ref--clickable:hover {
   border-color: rgba(9, 105, 218, 0.35);
   background: rgba(9, 105, 218, 0.06);
 }
-.prc-review-thread__discard-btn { margin-left: auto; }
 .prc-comment-role--local { color: var(--text-2); background: var(--bg-input); }
 .prc-comment-role--queued { color: #0969da; border-color: rgba(9, 105, 218, 0.28); background: rgba(9, 105, 218, 0.06); }
 
@@ -1616,7 +1611,7 @@ button.prc-branches__ref--clickable:hover {
 }
 .prc-review-thread--compact .prc-review-thread__msg {
   gap: 10px;
-  padding: 20px 30px 18px;
+  padding: 12px 18px 8px;
 }
 .prc-review-thread--compact .prc-review-thread__msg + .prc-review-thread__msg {
   border-top: 1px solid #e7e9ec;

@@ -72,9 +72,6 @@ export type PullDetailActions = {
   noWorkspace?: boolean;
   /** Explicit user-owned remote close action. Omitted for local/terminal PRs. */
   onClosePullRequest?: () => Promise<void>;
-  /** Route a review thread's context into the owning stage composer. Supplied
-   *  only by the task/stage routes that own a composer (⚡ Ask agent). */
-  onAskAgentThread?: (root: LocalPRComment) => void;
 };
 
 export type PullDetailBodyProps = {
@@ -342,18 +339,6 @@ export function PullDetailBody({
         await window.bridge.reopenLocalPrComment(commentId);
         refresh();
       };
-  const dismissLocalComment = bundle === null || bundle === undefined || !canActOnLocalThreads ? undefined
-    : async (commentId: string) => {
-        await window.bridge.dismissLocalPrComment(commentId);
-        refresh();
-      };
-  const submitPendingReviewToDev = bundle?.pr.taskId == null
-      || bundle.pr.origin !== 'task' || bundle.pr.status !== 'local-open' ? undefined
-    : async (commentIds: string[]) => {
-        await window.bridge.submitReview(bundle.pr.taskId!, { verdict: 'COMMENT', commentIds });
-        refresh();
-      };
-
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <div style={{ position: 'relative', flexShrink: 0, borderBottom: '1px solid #e7e9ec', background: '#fff' }}>
@@ -457,10 +442,7 @@ export function PullDetailBody({
               onLocalReply={replyLocalComment}
               onLocalResolve={resolveLocalComment}
               onLocalReopen={reopenLocalComment}
-              onLocalDismiss={dismissLocalComment}
               currentUserLogin={currentUserLogin}
-              onSubmitLocalReview={submitPendingReviewToDev}
-              onAskAgentThread={actions.onAskAgentThread}
               onOpenCommentLocation={(filePath, line, side) => { setJumpTarget({ filePath, side, line }); setSubTab('changes'); }}
             />
           </div>

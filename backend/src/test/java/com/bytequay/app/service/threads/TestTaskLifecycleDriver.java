@@ -43,6 +43,7 @@ import com.bytequay.app.service.stage.RemoteCommentIngestor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -83,11 +84,12 @@ class TestTaskLifecycleDriver
     private final TaskTerminalSealer sealer = mock(TaskTerminalSealer.class);
     private final ValidationPassService validation = mock(ValidationPassService.class);
     private final BrainReviewService brainReview = mock(BrainReviewService.class);
+    private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final TaskLifecycleDriver driver =
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
                     threadStore, turnStore, scheduler, notifications,
                     commentIngestor, readyToMerge, reviewRounds, registry, stageStore, prService, sealer,
-                    validation, brainReview);
+                    validation, brainReview, events);
 
     @TempDir
     private Path tempDir;
@@ -342,6 +344,48 @@ class TestTaskLifecycleDriver
         verify(taskStore).updateCiState("t1.k2", "PENDING");
         verify(phaseMachine).observe("t1.k2", TaskPhase.PUSHED_AWAITING_CI, "pr_state_observed");
         verify(reviewRounds, never()).reconcile(any());
+    }
+
+    @Test
+    void dirtyPullRequestPublishesTheReactiveBranchGuardEvent()
+    {
+        Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
+        PullRequestDetail dirty = mock(PullRequestDetail.class);
+        when(dirty.mergeable()).thenReturn(false);
+        when(dirty.mergeableState()).thenReturn("dirty");
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(dirty);
+
+        driver.reconcileTask(task);
+
+        verify(events).publishEvent(new PullRequestDirtyDetectedEvent("t1.k2"));
+    }
+
+    @Test
+    void cleanPullRequestNeverPublishesTheReactiveBranchGuardEvent()
+    {
+        Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
+        PullRequestDetail clean = mock(PullRequestDetail.class);
+        when(clean.mergeable()).thenReturn(true);
+        when(clean.mergeableState()).thenReturn("clean");
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(clean);
+
+        driver.reconcileTask(task);
+
+        verify(events, never()).publishEvent(any());
+    }
+
+    @Test
+    void unknownMergeableStateDoesNotPublishTheReactiveBranchGuardEvent()
+    {
+        Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
+        PullRequestDetail unknown = mock(PullRequestDetail.class);
+        when(unknown.mergeable()).thenReturn(null);
+        when(unknown.mergeableState()).thenReturn("unknown");
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(unknown);
+
+        driver.reconcileTask(task);
+
+        verify(events, never()).publishEvent(any());
     }
 
     @Test

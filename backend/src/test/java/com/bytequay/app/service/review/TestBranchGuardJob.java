@@ -44,6 +44,7 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.threads.NotificationService;
+import com.bytequay.app.service.threads.PullRequestDirtyDetectedEvent;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
@@ -175,6 +176,38 @@ class TestBranchGuardJob
         verify(guards).save(argThatState(BranchGuard.STATE_HEALTHY));
         verify(notifications, never()).notifyNeedsAttention(any(), any(), any());
         verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void reactiveEventDrivesTheSameCheckAsTick()
+            throws Exception
+    {
+        BranchGuardJob job = job(List.of());
+        wireIdleTask();
+        when(git.resolveCommitSha(WORKTREE, "origin/main")).thenReturn(Optional.of("sha-main-new"));
+        when(git.mergeBase(WORKTREE, "HEAD", "origin/main")).thenReturn(Optional.of("sha-main-old"));
+        when(git.rebasePreview(WORKTREE, "HEAD", "origin/main")).thenReturn(RebaseOutcome.CLEAN);
+        AgentRun run = run(AgentRun.STATUS_RUNNING);
+        when(agentRuns.openInStage(eq(TASK_ID), eq(AgentRun.KIND_BRANCH_GUARD),
+                eq(AgentRun.SOURCE_SCHEDULED), eq(REMOTE_STAGE_ID.toString()), eq(null))).thenReturn(run);
+
+        job.onPullRequestDirtyDetected(new PullRequestDirtyDetectedEvent(TASK_ID));
+
+        verify(git).rebase(WORKTREE, "origin/main");
+        verify(git).pushForceWithLease(WORKTREE);
+        verify(guards).save(argThatState(BranchGuard.STATE_HEALTHY));
+    }
+
+    @Test
+    void reactiveEventNoOpsWhenTheGuardIsGone()
+    {
+        BranchGuardJob job = job(List.of());
+        when(guards.findByTask(TASK_ID)).thenReturn(Optional.empty());
+
+        job.onPullRequestDirtyDetected(new PullRequestDirtyDetectedEvent(TASK_ID));
+
+        verifyNoInteractions(git);
+        verify(guards, never()).save(any());
     }
 
     @Test

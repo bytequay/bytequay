@@ -43,6 +43,7 @@ import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -123,6 +124,7 @@ public class TaskLifecycleDriver
     private final TaskTerminalSealer sealer;
     private final ValidationPassService validation;
     private final BrainReviewService brainReview;
+    private final ApplicationEventPublisher events;
 
     public TaskLifecycleDriver(
             TaskStore taskStore,
@@ -141,7 +143,8 @@ public class TaskLifecycleDriver
             PRService prService,
             TaskTerminalSealer sealer,
             ValidationPassService validation,
-            BrainReviewService brainReview)
+            BrainReviewService brainReview,
+            ApplicationEventPublisher events)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -160,6 +163,7 @@ public class TaskLifecycleDriver
         this.sealer = requireNonNull(sealer, "sealer is null");
         this.validation = requireNonNull(validation, "validation is null");
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
+        this.events = requireNonNull(events, "events is null");
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
@@ -265,6 +269,13 @@ public class TaskLifecycleDriver
         // stays permanently "unknown" even once the PR is actually green.
         if (detail.ciStatus() != null) {
             taskStore.updateCiState(task.id(), detail.ciStatus().name());
+        }
+        // React within this 60s sweep rather than waiting for BranchGuardJob's
+        // own much slower scheduled tick: GitHub already reports this task's
+        // own PR as conflicted with its base branch, so kick the same
+        // rebase/agent-fix machinery now.
+        if (Boolean.FALSE.equals(detail.mergeable()) && "dirty".equalsIgnoreCase(detail.mergeableState())) {
+            events.publishEvent(new PullRequestDirtyDetectedEvent(task.id()));
         }
         // Mirror any new remote review comments into the unified
         // review_comment table (idempotent) before acting on the phase.

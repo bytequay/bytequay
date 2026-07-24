@@ -101,7 +101,7 @@ export function githubAvatarLogin(c: Pick<DiffInlineComment, 'sourceLabel' | 'au
  *  set the Submit-review drawer's pending list and toolbar count show. */
 export function isPendingLocalComment(c: LocalPRComment): boolean {
   return c.parentCommentId === null && c.origin === 'local' && c.publishedAt === null
-    && c.resolvedAt === null && c.dismissedAt === null;
+    && c.strippedOnPushAt === null && c.resolvedAt === null && c.dismissedAt === null;
 }
 
 /** A human-authored draft the backend can include in the next review batch.

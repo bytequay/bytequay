@@ -18,6 +18,7 @@ import type { LocalPR } from '../types/localPr';
  *  task and stage panes (agent chat lives there); `details` is the standalone
  *  PR details page. */
 export type PRSurface = 'task' | 'details';
+export type InlineCommentTarget = 'agent' | 'remote';
 
 /** What the user may do with a PR on a given surface (U8, locked). Replaces
  *  the old `mode` / `allowLocalComments` props — `<PRView>` and
@@ -39,9 +40,12 @@ export interface PRCapabilities {
   chatAgent: boolean;
   /** Post a comment straight to GitHub (vs. drafting locally) — any remote-* status or merged PR. */
   postRemoteComment: boolean;
+  /** Destination for a new inline comment. Local task review sends one
+   *  anchored draft to Development; a reviewable remote PR can either post
+   *  directly or retain the draft for a batched GitHub review. */
+  inlineCommentTarget: InlineCommentTarget | null;
 }
 
-const TERMINAL_STATUSES = new Set(['merged', 'closed']);
 const REMOTE_COMMENT_STATUSES = new Set(['remote-drafted', 'remote-open', 'merged']);
 /** Once a task PR reaches GitHub it is reviewed like any remote PR: the user
  *  may draft inline comments and publish them as one GitHub review. GitHub
@@ -55,14 +59,15 @@ const REMOTE_TASK_REVIEW_STATUSES = new Set(['remote-drafted', 'remote-open']);
  *  component (unified-pr-view.md U7/U8). */
 export function derivePRCapabilities(pr: LocalPR, surface: PRSurface): PRCapabilities {
   const remoteTaskReview = pr.origin === 'task' && REMOTE_TASK_REVIEW_STATUSES.has(pr.status);
+  const localTaskReview = pr.origin === 'task' && pr.status === 'local-open';
+  const remoteReview = REMOTE_TASK_REVIEW_STATUSES.has(pr.status);
   return {
-    draftLocalComments: pr.origin === 'task'
-      ? pr.status === 'local-open' || remoteTaskReview
-      : !TERMINAL_STATUSES.has(pr.status),
+    draftLocalComments: localTaskReview || remoteReview,
     publishReview: pr.origin === 'external' || remoteTaskReview,
     push: pr.origin === 'task' && pr.status === 'local-open',
     merge: pr.origin === 'external' && pr.status === 'remote-open',
     chatAgent: surface === 'task',
     postRemoteComment: REMOTE_COMMENT_STATUSES.has(pr.status),
+    inlineCommentTarget: localTaskReview ? 'agent' : remoteReview ? 'remote' : null,
   };
 }

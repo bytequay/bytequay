@@ -238,11 +238,10 @@ const bridge: Bridge = {
     path: string,
     line: number,
     side: 'LEFT' | 'RIGHT',
-    commitId: string,
     startLine?: number | null,
     startSide?: 'LEFT' | 'RIGHT' | null,
   ): Promise<void> =>
-    ipcRenderer.invoke('backend:createInlineReviewComment', repo, number, body, path, line, side, commitId, startLine ?? null, startSide ?? null),
+    ipcRenderer.invoke('backend:createInlineReviewComment', repo, number, body, path, line, side, startLine ?? null, startSide ?? null),
   updatePrBody: (repo: string, number: number, body: string): Promise<void> =>
     ipcRenderer.invoke('backend:updatePrBody', repo, number, body),
   getWatchedRepos: (): Promise<WatchedRepoDto[]> => ipcRenderer.invoke('repos:list'),

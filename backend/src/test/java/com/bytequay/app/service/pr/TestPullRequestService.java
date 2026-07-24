@@ -943,8 +943,11 @@ class TestPullRequestService
     }
 
     @Test
-    void testCreateInlineReviewCommentInvalidatesDetail()
+    void testCreateInlineReviewCommentUsesFreshHeadAndInvalidatesDetail()
     {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(gitHub.fetchPrDetail("pat", ref)).thenReturn(rawWithHead("fresh-head"));
+
         pullRequestService.createInlineReviewComment(
                 "owner/repo",
                 7,
@@ -956,17 +959,38 @@ class TestPullRequestService
                 null,
                 null);
 
+        verify(gitHub).fetchPrDetail("pat", ref);
         verify(gitHub).createInlineReviewComment(
                 "pat",
-                PullRequestRef.of("owner", "repo", 7),
+                ref,
                 "please fix",
                 "src/Main.java",
                 12,
                 "RIGHT",
-                "abc123",
+                "fresh-head",
                 null,
                 null);
         verify(detailInvalidator).invalidate("owner/repo", 7);
+    }
+
+    @Test
+    void testCreateInlineReviewCommentRejectsMissingFreshHeadBeforePosting()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(gitHub.fetchPrDetail("pat", ref)).thenReturn(rawWithHead(" "));
+
+        assertThatThrownBy(() -> pullRequestService.createInlineReviewComment(
+                "owner/repo", 7, "please fix", "src/Main.java", 12, "RIGHT",
+                "stale-client-head", null, null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("head SHA is unavailable")
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
+                        .isEqualTo(BAD_GATEWAY.value()));
+
+        verify(gitHub, never()).createInlineReviewComment(
+                anyString(), any(), anyString(), anyString(), anyInt(), anyString(),
+                anyString(), any(), any());
+        verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
     }
 
     @Test
@@ -1927,5 +1951,12 @@ class TestPullRequestService
                 null, 0, 0, 0, null,
                 "open", null, null, null, null, null, null,
                 null, null, null);
+    }
+
+    private static PrRawDetail rawWithHead(String headSha)
+    {
+        return new PrRawDetail(
+                null, ImmutableList.of(), false, null, null, 0, 0, 0, 0,
+                ImmutableList.of(), headSha, null, null, null, null);
     }
 }

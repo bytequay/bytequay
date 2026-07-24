@@ -55,6 +55,7 @@ describe('ReviewTabPendingList', () => {
     expect(isPublishableReviewDraft(comment('brain'))).toBe(false);
     expect(isPublishableReviewDraft(comment('claude-code'))).toBe(false);
     expect(isPublishableReviewDraft(comment('you', { parentCommentId: 'root' }))).toBe(false);
+    expect(isPublishableReviewDraft(comment('you', { strippedOnPushAt: 123 }))).toBe(false);
   });
 
   it('renders human and agent pending comments with location labels', () => {

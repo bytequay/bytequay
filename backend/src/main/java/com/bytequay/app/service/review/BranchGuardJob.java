@@ -41,6 +41,7 @@ import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
 import com.bytequay.app.service.threads.AutomationCoordinator;
 import com.bytequay.app.service.threads.NotificationService;
+import com.bytequay.app.service.threads.PullRequestDirtyDetectedEvent;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
@@ -149,6 +150,15 @@ public class BranchGuardJob
                 log.warn("branch guard tick for task {} failed: {}", guard.taskId(), e.getMessage());
             }
         }
+    }
+
+    /** Reactive twin of {@link #tick()}: fires the moment the lifecycle
+     *  sweep observes this task's own PR reported dirty by GitHub, instead
+     *  of waiting for the next scheduled tick. */
+    @EventListener
+    public void onPullRequestDirtyDetected(PullRequestDirtyDetectedEvent event)
+    {
+        guards.findByTask(event.taskId()).ifPresent(this::checkOne);
     }
 
     /** Visible for tests: run one guard's check. Skips busy threads. */

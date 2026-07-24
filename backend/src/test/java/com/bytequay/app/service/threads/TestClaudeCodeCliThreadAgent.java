@@ -109,4 +109,36 @@ class TestClaudeCodeCliThreadAgent
         assertThat(agent.shouldAutomaticallyRecover("claude exited with code 1: authentication failed"))
                 .isFalse();
     }
+
+    @Test
+    void preTurnHookNotePrefixesTheModelInputOnly()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        Thread thread = new Thread(
+                "thread-1", ThreadKind.CLI_AGENT, "claude-code", null,
+                "Claude trunk test", ThreadStatus.IDLE, "claude-sonnet-4-6",
+                0L, 0L, 0L, NOW, NOW, null, null,
+                ThreadFlow.BUILD, "ws-default", null, null);
+        ClaudeCodeCliThreadAgent agent = new ClaudeCodeCliThreadAgent(
+                thread, threadStore, taskStore, new StreamJsonParser(mapper), mapper,
+                mock(McpPermissionGate.class), mock(ExecutorService.class),
+                mock(CheckpointTrigger.class), () -> "", null, null, CWD,
+                ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+
+        // No hook: the prompt passes through untouched.
+        assertThat(agent.composeTurnInput("cut phase 3")).isEqualTo("cut phase 3");
+
+        // A hook note is prepended to the turn input …
+        agent.setPreTurnHook(() -> "[Planning base updated abc -> def]");
+        assertThat(agent.composeTurnInput("cut phase 3"))
+                .isEqualTo("[Planning base updated abc -> def]\n\ncut phase 3");
+
+        // … a blank note is ignored, and a throwing hook never blocks the turn.
+        agent.setPreTurnHook(() -> " ");
+        assertThat(agent.composeTurnInput("cut phase 3")).isEqualTo("cut phase 3");
+        agent.setPreTurnHook(() -> {
+            throw new IllegalStateException("sync failed");
+        });
+        assertThat(agent.composeTurnInput("cut phase 3")).isEqualTo("cut phase 3");
+    }
 }

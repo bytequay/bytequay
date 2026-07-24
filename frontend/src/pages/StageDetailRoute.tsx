@@ -662,15 +662,6 @@ export function StageDetailRoute({
         row={stagePullRow}
         bundle={displayedLocalPrBundle}
         refresh={refreshLocalPr}
-        onAskAgentThread={(root) => {
-          const loc = root.filePath !== null
-            ? ` on ${root.filePath}${root.lineNumber !== null ? `:${root.lineNumber}` : ''}`
-            : '';
-          setText(`Please address this review comment${loc}:\n\n> ${root.body.replace(/\n/g, '\n> ')}\n\n`);
-          requestAnimationFrame(() => {
-            document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus();
-          });
-        }}
         openOverviewToken={openOverviewToken}
         openChangesToken={openChangesToken}
         changesFiles={displayedLocalPrBundle.pr.remotePrNumber === null ? files : undefined}

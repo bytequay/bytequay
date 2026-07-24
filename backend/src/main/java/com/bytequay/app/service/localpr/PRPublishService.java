@@ -559,17 +559,15 @@ public class PRPublishService
     }
 
     /** Publishes the selected draft comments plus an optional overall review
-     * body. Only dashboard-discovered external PRs may publish review drafts;
-     * comments on task-owned PRs remain private throughout their lifecycle. */
+     * body. Any PR with a remote identity may publish: dashboard-discovered
+     * external PRs throughout their lifecycle, and task-owned PRs once they've
+     * reached the remote stage. Drafts stamped {@code strippedOnPushAt} (the
+     * pre-push private review on a task PR) never reach GitHub. */
     public PR publishReview(
             String prId, String verdict, List<String> findingIds, List<String> commentIds, String reviewBody)
     {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
-        if (!PR.ORIGIN_EXTERNAL.equals(pr.origin())) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT, "task-owned PR review drafts are private and cannot be published");
-        }
         if (pr.repo() == null || pr.remotePrNumber() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity to review");
         }
@@ -579,7 +577,7 @@ public class PRPublishService
         List<PRComment> drafts = prService.comments(prId).stream()
                 .filter(c -> PRComment.ORIGIN_LOCAL.equals(c.origin()))
                 .filter(c -> c.parentCommentId() == null)
-                .filter(c -> c.publishedAt() == null
+                .filter(c -> c.publishedAt() == null && c.strippedOnPushAt() == null
                         && c.resolvedAt() == null && c.dismissedAt() == null)
                 .filter(c -> selectAll || selectedComments.contains(c.id())
                         || c.findingId() != null && selectedFindings.contains(c.findingId()))

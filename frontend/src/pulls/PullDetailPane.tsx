@@ -479,6 +479,7 @@ export function PullDetailBody({
       <SubmitReviewDrawer
         open={submitOpen}
         submitting={submitting}
+        commentOnly={bundle?.pr.origin === 'task'}
         pendingComments={pending.map(comment => diffInlineCommentFromLocalPr(comment))}
         onRemovePending={removePending}
         onClose={() => setSubmitOpen(false)}

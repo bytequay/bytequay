@@ -128,7 +128,7 @@ describe('PullReviewSidebar', () => {
     expect(toggle.querySelector('.pl-review-toggle-count')?.textContent).toBe('2');
   });
 
-  it('does not open a local review composer on a pushed task PR', () => {
+  it('opens a local review composer on a pushed task PR so drafts can publish to GitHub', () => {
     const pushedTask = bundle([]);
     pushedTask.pr = {
       ...pushedTask.pr,
@@ -150,11 +150,10 @@ describe('PullReviewSidebar', () => {
     );
     const addedLine = container.querySelector('[data-pl-anchor="src/review/Guard.java:RIGHT:1"]');
     if (addedLine === null) throw new Error('expected added diff line');
-    expect(addedLine.getAttribute('title')).toBeNull();
+    expect(addedLine.getAttribute('title')).not.toBeNull();
 
     fireEvent.click(addedLine);
 
-    expect(container.querySelector('.pl-code textarea[placeholder="Leave a comment"]')).toBeNull();
-    expect(window.bridge.addLocalPrComment).not.toHaveBeenCalled();
+    expect(container.querySelector('.pl-code textarea[placeholder="Leave a comment"]')).not.toBeNull();
   });
 });

@@ -149,7 +149,6 @@ export function StageDetailRoute({
   const {
     bundle: localPrBundle,
     refresh: refreshLocalPr,
-    capabilities: prCapabilities,
     deleteLocalComment,
     confirmPush, pushOpen, setPushOpen, prBusy,
   } = useLocalPrActions(taskId, { onAfterTransition: pollFast });
@@ -842,9 +841,7 @@ export function StageDetailRoute({
         deletions: totalDels,
         onOpen: () => openTab('pr', 'changes'),
       } : undefined}
-      onSubmitReview={prCapabilities?.publishReview === true || canSubmitLocalReview
-        ? onSubmitReview
-        : undefined}
+      onSubmitReview={canSubmitLocalReview ? onSubmitReview : undefined}
       submittingReview={submittingReview}
       pendingReviewComments={pendingReviewComments}
       onRemovePendingReviewComment={deleteLocalComment}

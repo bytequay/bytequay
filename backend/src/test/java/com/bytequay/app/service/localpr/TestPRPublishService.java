@@ -1064,21 +1064,53 @@ class TestPRPublishService
     }
 
     @Test
-    void publishReviewRejectsTaskPrEvenAfterItHasARemoteIdentity()
+    void publishReviewPublishesTaskPrOnceItReachesTheRemoteStage()
     {
         when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
-        PRComment local = new PRComment(
-                "cm-task", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
-                null, null, "agent", "Preserve the old behavior.", NOW,
+        PRComment fresh = new PRComment(
+                "cm-task", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java", 10, "you", "Reviewing the remote PR.", NOW,
                 null, null, null, null, null, "RIGHT", null, null);
-        when(prService.comments("pr1")).thenReturn(List.of(local));
+        when(prService.comments("pr1")).thenReturn(List.of(fresh));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.publishReview("pr1");
+
+        verify(pullRequests).createReview(eq("ghp"), eq(new PullRequestRef("acme", "widget", 145)), any());
+        verify(prService).markPublished(eq("cm-task"), any());
+    }
+
+    @Test
+    void publishReviewStillRejectsALocalPhaseTaskPrWithNoRemoteIdentity()
+    {
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
 
         assertThatThrownBy(() -> service.publishReview("pr1"))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("review drafts are private");
+                .hasMessageContaining("no remote identity");
 
-        verify(prService, never()).markPublished(eq("cm-task"), any());
         verify(pullRequests, never()).createReview(any(), any(), any());
+    }
+
+    @Test
+    void publishReviewExcludesTaskDraftsStrippedOnPush()
+    {
+        when(prService.findById("pr1")).thenReturn(Optional.of(pushedPr(PR.STATUS_REMOTE_OPEN)));
+        PRComment stripped = new PRComment(
+                "cm-stripped", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, "you", "Drafted before the push — stays private.", NOW,
+                null, null, NOW, null, null, "RIGHT", null, null);
+        PRComment fresh = new PRComment(
+                "cm-fresh", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, "you", "Drafted while reviewing the remote PR.", NOW,
+                null, null, null, null, null, "RIGHT", null, null);
+        when(prService.comments("pr1")).thenReturn(List.of(stripped, fresh));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
+
+        service.publishReview("pr1");
+
+        verify(prService).markPublished(eq("cm-fresh"), any());
+        verify(prService, never()).markPublished(eq("cm-stripped"), any());
     }
 
     @Test

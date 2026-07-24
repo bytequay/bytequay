@@ -378,21 +378,34 @@ class PRServiceImpl
                 state.snoozedUntil(), state.snoozedAt(), state.snoozeWakeReason());
     }
 
-    /** The plan self-review (R20) predates the local PR — its `review` event
-     *  is backfilled onto the timeline, at its original timestamp, the first
-     *  time a local PR row is created for this task. */
+    /** The plan self-review (R20) predates the local PR — its start and finish
+     *  events are backfilled onto the timeline, at their original timestamps,
+     *  the first time a local PR row is created for this task. */
     private void backfillPlanSelfReview(String taskId, String prId)
     {
         stageStore.findStagesByTask(taskId).stream()
                 .filter(s -> s.type() == StageType.PLAN_STAGE)
                 .findFirst()
-                .flatMap(plan -> stageStore.findEventsByStage(plan.id()).stream()
-                        .filter(e -> e.eventType() == StageEventType.PLAN_SELF_REVIEWED)
-                        .findFirst())
-                .ifPresent(reviewed -> appendEvent(
-                        prId, PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_BRAIN,
-                        /* localOnly */ true, reviewed.eventAt(),
-                        payload("scope", "plan", "verdict", verdictOf(reviewed), "iteration", 1)));
+                .ifPresent(plan -> {
+                    List<StageEvent> events = stageStore.findEventsByStage(plan.id());
+                    events.stream()
+                            .filter(e -> e.eventType() == StageEventType.PLAN_SELF_REVIEW_STARTED)
+                            .findFirst()
+                            .ifPresent(started -> appendEvent(
+                                    prId, PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_BRAIN,
+                                    /* localOnly */ true, started.eventAt(),
+                                    payload("reviewEvent", "started", "scope", "plan",
+                                            "iteration", 1, "roundId", null)));
+                    events.stream()
+                            .filter(e -> e.eventType() == StageEventType.PLAN_SELF_REVIEWED)
+                            .findFirst()
+                            .ifPresent(reviewed -> appendEvent(
+                                    prId, PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_BRAIN,
+                                    /* localOnly */ true, reviewed.eventAt(),
+                                    payload("reviewEvent", "finished", "scope", "plan",
+                                            "verdict", verdictOf(reviewed), "iteration", 1,
+                                            "roundId", null)));
+                });
     }
 
     private String verdictOf(StageEvent event)

@@ -186,7 +186,9 @@ function toPipelinePlan(dto: PlanCardDto, policy: PlanPolicy): Plan {
     .filter(s => s !== '' && s !== goal);
   return {
     rev: dto.revisionCount,
-    status: dto.state === 'locked' ? 'approved' : dto.state === 'awaiting' ? 'ready' : 'draft',
+    status: dto.state === 'locked' ? 'approved'
+      : dto.state === 'awaiting' ? 'ready'
+        : isPlanSelfReviewing(dto) ? 'running' : 'draft',
     goal,
     risk: dto.signals.riskLevel,
     effort: dto.signals.estimatedComplexity,
@@ -197,6 +199,13 @@ function toPipelinePlan(dto: PlanCardDto, policy: PlanPolicy): Plan {
     steps: withDefaultPrepare(dto.steps.map(toPipelineStep)),
     policy,
   };
+}
+
+/** A complete, finalized plan stays non-approvable until Brain's mandatory
+ * self-review records its checkpoint. The backend preserves that distinction
+ * as finalized status on a still-draft lifecycle state. */
+export function isPlanSelfReviewing(plan: PlanCardDto): boolean {
+  return plan.state === 'draft' && plan.status === 'finalized';
 }
 
 // A refactor plan often has no explicit setup step; rather than show an empty

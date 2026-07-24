@@ -777,6 +777,8 @@ public class StageServiceImpl
             case CLOSED -> "STAGE_CLOSED";
             case NOTIFY_FIRED -> "NOTIFY_READY_FOR_MERGE";
             case BUDGET_EXHAUSTED -> "NEEDS_ATTENTION";
+            case PLAN_SELF_REVIEW_STARTED -> "PLAN_SELF_REVIEW_STARTED";
+            case PLAN_SELF_REVIEWED -> "PLAN_SELF_REVIEWED";
             // Mutex skips, notify-skips, and budget decisions stay in the
             // stage detail view; they don't surface on the brain feed.
             default -> null;
@@ -792,6 +794,8 @@ public class StageServiceImpl
             case CLOSED -> appendStageStats(stageLabel + " finished", stageStats.get(e.stageId()));
             case NOTIFY_FIRED -> mergeReadyBody(e.payloadJson());
             case BUDGET_EXHAUSTED -> stageLabel + " auto-push budget exhausted";
+            case PLAN_SELF_REVIEW_STARTED -> "Brain started mandatory plan self-review";
+            case PLAN_SELF_REVIEWED -> planSelfReviewFinishedBody(e.payloadJson());
             default -> "";
         };
         return Optional.of(new BrainFeedRow(
@@ -806,6 +810,14 @@ public class StageServiceImpl
                 List.of(),
                 List.of(),
                 null));
+    }
+
+    private String planSelfReviewFinishedBody(String payloadJson)
+    {
+        String verdict = parseJson(payloadJson).path("verdict").asText("").replace('_', ' ');
+        return verdict.isBlank()
+                ? "Brain finished mandatory plan self-review"
+                : "Brain finished mandatory plan self-review · " + verdict;
     }
 
     private static String pullRequestMilestoneLabel(PullRequestCreatedData data, boolean progress)

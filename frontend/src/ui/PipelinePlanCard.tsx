@@ -90,7 +90,7 @@ const EMPTY_WEIGHT = 0.42;
 const STATUS_LABEL: Record<Plan['status'], string> = {
   draft: 'Plan drafting',
   ready: 'Plan ready',
-  running: 'Plan running',
+  running: 'Brain reviewing plan',
   approved: 'Plan approved',
 };
 
@@ -394,6 +394,14 @@ export function PipelinePlanCard({ plan, approvedAt, onPolicyChange, onApprove, 
               }}>
                 Still drafting — Approve is disabled until this plan is finalized. Reply above or use Request
                 revision to move it forward.
+              </div>
+            )}
+            {plan.status === 'running' && onApprove === undefined && (
+              <div style={{
+                fontSize: 12, color: '#57606a', background: '#f6f8fa', border: '1px solid #d5dbe1',
+                borderRadius: 7, padding: '7px 10px',
+              }}>
+                Plan finalized — Brain self-review is in progress. Approval unlocks when self-review finishes.
               </div>
             )}
             <div style={{ display: 'flex', gap: 9 }}>

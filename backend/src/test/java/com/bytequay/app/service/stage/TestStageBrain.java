@@ -171,6 +171,31 @@ class TestStageBrain
     }
 
     @Test
+    void brainFeedProjectsPlanSelfReviewStartAndFinish()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        stageStore.recordEvent(
+                plan.id(), taskId, StageEventType.PLAN_SELF_REVIEW_STARTED,
+                Map.of("iteration", 1));
+        stageStore.recordEvent(
+                plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
+                Map.of("verdict", "approved"));
+
+        List<BrainFeedRow> reviewRows = stageService.getBrain(taskId).brainFeed().stream()
+                .filter(row -> row.type().startsWith("PLAN_SELF_REVIEW"))
+                .toList();
+
+        assertThat(reviewRows).extracting(BrainFeedRow::type).containsExactly(
+                "PLAN_SELF_REVIEW_STARTED", "PLAN_SELF_REVIEWED");
+        assertThat(reviewRows).extracting(BrainFeedRow::body).containsExactly(
+                "Brain started mandatory plan self-review",
+                "Brain finished mandatory plan self-review · approved");
+        assertThat(reviewRows).allSatisfy(row ->
+                assertThat(row.stageId()).isEqualTo(plan.id().toString()));
+    }
+
+    @Test
     void brainFeedIncludesConversationWithStageRefAndUserScrubber()
     {
         String taskId = seedTask();

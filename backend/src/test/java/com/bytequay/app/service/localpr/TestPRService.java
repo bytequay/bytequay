@@ -912,29 +912,41 @@ class TestPRService
     // ── brain adversarial review (plan-rail-runs.md R24) ─────────────────
 
     @Test
-    void createForTaskBackfillsThePlanSelfReviewOntoTheNewRowsTimeline()
+    void createForTaskBackfillsThePlanSelfReviewLifecycleOntoTheNewRowsTimeline()
     {
         UUID planStageId = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
+        Instant startedAt = NOW.minusSeconds(660);
         Instant reviewedAt = NOW.minusSeconds(600);
         StageInstance plan = new StageInstance(
                 planStageId, "task1", StageType.PLAN_STAGE, StageState.CLOSED, NOW.minusSeconds(700), NOW, null);
+        StageEvent started = new StageEvent(
+                UUID.randomUUID(), planStageId, "task1", StageEventType.PLAN_SELF_REVIEW_STARTED, startedAt,
+                "{\"iteration\":1}");
         StageEvent reviewed = new StageEvent(
                 UUID.randomUUID(), planStageId, "task1", StageEventType.PLAN_SELF_REVIEWED, reviewedAt,
                 "{\"verdict\":\"approved\"}");
         when(stageStore.findStagesByTask("task1")).thenReturn(List.of(plan));
-        when(stageStore.findEventsByStage(planStageId)).thenReturn(List.of(reviewed));
+        when(stageStore.findEventsByStage(planStageId)).thenReturn(List.of(started, reviewed));
         when(store.findByTaskId("task1")).thenReturn(Optional.empty());
         when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         service.createForTask("task1", "dev/x", "main", "T", "");
 
         ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
-        verify(store).addEvent(event.capture());
-        assertThat(event.getValue().eventType()).isEqualTo(PRTimelineEntry.TYPE_REVIEW);
-        assertThat(event.getValue().actor()).isEqualTo(PRTimelineEntry.ACTOR_BRAIN);
-        assertThat(event.getValue().localOnly()).isTrue();
-        assertThat(event.getValue().createdAt()).isEqualTo(reviewedAt);
-        assertThat(event.getValue().payloadJson()).contains("\"verdict\":\"approved\"");
+        verify(store, times(2)).addEvent(event.capture());
+        assertThat(event.getAllValues()).allSatisfy(value -> {
+            assertThat(value.eventType()).isEqualTo(PRTimelineEntry.TYPE_REVIEW);
+            assertThat(value.actor()).isEqualTo(PRTimelineEntry.ACTOR_BRAIN);
+            assertThat(value.localOnly()).isTrue();
+        });
+        assertThat(event.getAllValues().get(0).createdAt()).isEqualTo(startedAt);
+        assertThat(event.getAllValues().get(0).payloadJson())
+                .contains("\"reviewEvent\":\"started\"")
+                .contains("\"scope\":\"plan\"");
+        assertThat(event.getAllValues().get(1).createdAt()).isEqualTo(reviewedAt);
+        assertThat(event.getAllValues().get(1).payloadJson())
+                .contains("\"reviewEvent\":\"finished\"")
+                .contains("\"verdict\":\"approved\"");
     }
 
     @Test

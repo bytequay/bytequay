@@ -124,7 +124,7 @@ export function TaskPageFrame({
         </>
       )}
       <span className={`workspace-task-header__badge is-${surface}`}>{badge}</span>
-      <strong className="workspace-task-header__title">{pageTitle}</strong>
+      {surface === 'brain' && <strong className="workspace-task-header__title">{pageTitle}</strong>}
       {pr !== undefined && (
         <button type="button" className="workspace-task-header__pr" title="Open pull request on GitHub"
           onClick={pr.onOpenRemote ?? pr.onOpen ?? (() => setPrOpen(true))}>
@@ -175,12 +175,6 @@ export function TaskPageFrame({
           <span className="workspace-task-artifact-pill__pr"><PullRequestBranchIcon size={12} /></span>
           PR <span className="is-muted">#{pr.number}</span>
         </button>
-      )}
-      {surface === 'stage' && (
-        <span className="workspace-task-artifact-pill">
-          <i className="workspace-task-artifact-pill__stage" />Stage
-          <span className="is-muted">{stageKey ?? 'dev'}</span>
-        </span>
       )}
     </>
   );

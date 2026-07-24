@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -36,6 +37,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -95,6 +97,32 @@ class TestAbstractCliThreadAgentRecovery
         }
     }
 
+    @Test
+    void readOnlyCliBrainPersistsItsStageTranscriptWithTaskScope()
+            throws Exception
+    {
+        Instant now = Instant.parse("2026-07-20T07:00:00Z");
+        Thread brain = new Thread(
+                "brain-1", ThreadKind.BRAIN_AGENT, "claude-code", null,
+                "Brain", ThreadStatus.IDLE, "claude-opus-4-8",
+                0L, 0L, 0L, now, now, null, null,
+                ThreadFlow.BUILD, "ws-test", null, null, 1, "task-1");
+        try (Harness harness = harness(brain, List.of())) {
+            harness.agent.setActiveTask("task-1");
+            harness.agent.setActiveStage("review-stage");
+
+            harness.agent.send("review the diff").get(5, TimeUnit.SECONDS);
+
+            verify(harness.store).appendStageMessage(argThat(message ->
+                    "task-1".equals(message.taskId())
+                            && "review-stage".equals(message.stageId())
+                            && message.scope() == ThreadScope.STAGE
+                            && "user".equals(message.role())));
+            verify(harness.store, never()).appendMessage(argThat(message ->
+                    "user".equals(message.role())));
+        }
+    }
+
     private Harness harness(List<String> failures)
     {
         Thread thread = new Thread(
@@ -103,6 +131,11 @@ class TestAbstractCliThreadAgentRecovery
                 0L, 0L, 0L,
                 Instant.parse("2026-07-20T07:00:00Z"), Instant.parse("2026-07-20T07:00:00Z"),
                 null, null, ThreadFlow.BUILD, "ws-test", null, null);
+        return harness(thread, failures);
+    }
+
+    private Harness harness(Thread thread, List<String> failures)
+    {
         ThreadStore store = mock(ThreadStore.class);
         when(store.listMessages(anyString())).thenReturn(List.of());
         when(store.findThreadById(anyString())).thenReturn(Optional.of(thread));

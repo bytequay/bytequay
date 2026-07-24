@@ -27,6 +27,7 @@ type StageDetailState = {
   /** Null only until the first-ever fetch for this stage resolves (and in
    *  tests with no bridge). On revisit it is the cached snapshot. */
   data: StageDetailData | null;
+  error: string | null;
   refresh: () => void;
 };
 
@@ -39,6 +40,8 @@ type StageDetailState = {
  */
 export function useStageDetailData(stageId: string): StageDetailState {
   const [data, setData] = useState<StageDetailData | null>(() => cache.get(stageId) ?? null);
+  const [error, setError] = useState<string | null>(null);
+  const requestGenerationRef = useRef(0);
 
   // The caller switches stages by passing a new id (no remount). Swap to that
   // stage's cached snapshot synchronously — never leave the previous stage's
@@ -46,7 +49,9 @@ export function useStageDetailData(stageId: string): StageDetailState {
   const shownIdRef = useRef(stageId);
   if (shownIdRef.current !== stageId) {
     shownIdRef.current = stageId;
+    requestGenerationRef.current += 1;
     setData(cache.get(stageId) ?? null);
+    setError(null);
   }
 
   const fetchOnce = useCallback(() => {
@@ -54,17 +59,29 @@ export function useStageDetailData(stageId: string): StageDetailState {
     if (!bridge?.getStageDetail) {
       return;
     }
+    const generation = ++requestGenerationRef.current;
     bridge.getStageDetail(stageId)
-      .then(d => { cache.set(stageId, d); setData(d); })
-      .catch(() => { /* transient; the next poll retries */ });
+      .then(d => {
+        if (shownIdRef.current !== stageId || requestGenerationRef.current !== generation) return;
+        cache.set(stageId, d);
+        setData(d);
+        setError(null);
+      })
+      .catch((reason: unknown) => {
+        if (shownIdRef.current !== stageId || requestGenerationRef.current !== generation) return;
+        setError(reason instanceof Error ? reason.message : 'Failed to refresh the stage');
+      });
   }, [stageId]);
 
   useEffect(() => {
     fetchOnce();
     // Keep polling; a CLOSED stage simply returns identical data each tick.
     const id = setInterval(fetchOnce, POLL_MS);
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      requestGenerationRef.current += 1;
+    };
   }, [fetchOnce]);
 
-  return { data, refresh: fetchOnce };
+  return { data, error, refresh: fetchOnce };
 }

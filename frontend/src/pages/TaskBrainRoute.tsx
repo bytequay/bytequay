@@ -86,13 +86,14 @@ export function TaskBrainRoute({
   /** Opens the PR-owned AgentColumn destination instead of an inline round page. */
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
 }) {
-  const { data, pollFast } = useBrainViewData(taskId);
+  const { data, error: viewError, pollFast } = useBrainViewData(taskId);
   const { task, brainFeed, stages, subStages } = data;
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const { proposal: shipProposal, refresh: refreshShipProposal } = usePendingShipProposal(threadId, taskId);
   const [text, setText] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [prZoomed, setPrZoomed] = useState(false);
   // Force-opens the PR tab's own Checks sub-tab — the Remote CI row's
   // click target. Declared ahead of the <PRView> construction below, which
@@ -102,7 +103,7 @@ export function TaskBrainRoute({
   // The task's local PR — rendered in the right pane's PR tab through the
   // same unified <PRView> + user-gated actions the stage pages use.
   const {
-    bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing,
+    bundle: localPrBundle, refresh: refreshLocalPr, syncing: prSyncing, error: prError,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
     addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, reopenLocalComment, deleteLocalComment,
@@ -355,16 +356,22 @@ export function TaskBrainRoute({
   };
 
   const runAction = (fn?: (threadId: string, taskId: string) => Promise<unknown>) => () => {
-    fn?.(threadId, task.id).then(() => pollFast()).catch(() => { /* poll reconciles */ });
+    setActionError(null);
+    fn?.(threadId, task.id)
+      .then(() => pollFast())
+      .catch((reason: unknown) => setActionError(
+        reason instanceof Error ? reason.message : 'Could not update the task'));
   };
 
   // Close seals the task terminal and reaps its worktree; once it resolves
   // the page has nothing live to show, so leave for the thread trunk.
   const closeTask = () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    setActionError(null);
     bridge?.cancelTask(threadId, task.id)
       .then(() => onClosed())
-      .catch(() => pollFast());
+      .catch((reason: unknown) => setActionError(
+        reason instanceof Error ? reason.message : 'Could not close the task'));
   };
 
   // The plan card (draft / awaiting / locked). When finalized and awaiting
@@ -630,6 +637,7 @@ export function TaskBrainRoute({
         task: {
           prNumber: task.prNumber,
           currentPhase: task.currentPhase as TaskPhase,
+          paused: task.paused,
           terminal: task.terminal,
         },
         prStatus: task.prNumber === null ? null : task.prDraft ? 'draft' : 'open',
@@ -783,12 +791,17 @@ export function TaskBrainRoute({
       }}
       run={{
         statusLabel: task.statusLabel,
+        statusDetail: task.paused
+          ? data.rightRail.approval?.reasonShort
+            ?? data.devPhases.find(phase => /failed|attention|unresolved/i.test(phase.meta ?? ''))?.meta
+          : undefined,
         paused: task.paused,
         terminal: task.terminal,
         onPause: runAction(bridge?.pauseTask),
         onResume: runAction(bridge?.resumePausedTask),
         onClose: closeTask,
       }}
+      error={actionError ?? prError ?? viewError}
       planReminder={plan === null ? undefined
         : plan.state === 'awaiting' ? 'awaiting'
         : plan.state === 'locked' ? 'locked'

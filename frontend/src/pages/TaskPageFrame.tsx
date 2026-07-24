@@ -55,6 +55,7 @@ export type TaskPageChanges = {
 
 export type TaskPageRun = {
   statusLabel?: string;
+  statusDetail?: string;
   paused?: boolean;
   terminal?: boolean;
   onPause?: () => void;
@@ -67,7 +68,7 @@ export function TaskPageFrame({
   sidebar, conversation, conversationIndex, composer, run, pr, prPane, changes, stageKey,
   onOpenTrunk, onOpenTask, onSubmitReview, submittingReview = false,
   pendingReviewComments = [], onRemovePendingReviewComment, openPrToken,
-  leadingToolbar,
+  leadingToolbar, error,
 }: {
   surface: 'brain' | 'stage';
   pageTitle: string;
@@ -95,6 +96,8 @@ export function TaskPageFrame({
   openPrToken?: number;
   /** Rare state reminders share the locked pill row instead of adding chrome. */
   leadingToolbar?: ReactNode;
+  /** Latest polling/action failure; stale content remains visible underneath. */
+  error?: string | null;
 }) {
   // The locked frame starts with the PR column open. Keep that intent while
   // the local-PR bundle is loading so an async pane does not arrive folded.
@@ -134,8 +137,8 @@ export function TaskPageFrame({
       <span className="workspace-task-header__grow" />
       {runControls !== undefined && (
         <RunMenu
-          hideStatus
           statusLabel={runControls.statusLabel}
+          statusDetail={runControls.statusDetail}
           paused={runControls.paused}
           terminal={runControls.terminal}
           onPause={runControls.onPause}
@@ -186,6 +189,9 @@ export function TaskPageFrame({
         <Main topBar={header}>
           <div ref={bodyRef} className={`workspace-task-v2__body${showPr ? ' with-pr' : ''}`}>
             <div className="workspace-task-v2__conversation">
+              {error !== null && error !== undefined && (
+                <div className="workspace-task-v2__error" role="alert">{error}</div>
+              )}
               <div className="conv-index-host">
                 {conversation}
                 {conversationIndex}

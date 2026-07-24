@@ -68,7 +68,10 @@ final class AgentViews
         @Override public AgentMetrics metrics() { return delegate.metrics(); }
         @Override public List<ThreadMessage> history() { return delegate.history(); }
         @Override public CompletionStage<Void> send(String userInput) { return delegate.send(userInput); }
+        @Override public void setActiveTask(String taskId) { delegate.setActiveTask(taskId); }
+        @Override public String activeTaskId() { return delegate.activeTaskId(); }
         @Override public void setActiveStage(String stageId) { delegate.setActiveStage(stageId); }
+        @Override public String activeStageId() { return delegate.activeStageId(); }
         @Override public void setActiveAgentRun(String agentRunId) { delegate.setActiveAgentRun(agentRunId); }
         @Override public void setManagedSkillBundle(ManagedSkillBundle bundle) { delegate.setManagedSkillBundle(bundle); }
         @Override public void setActiveManagedSkillNames(List<String> names) { delegate.setActiveManagedSkillNames(names); }

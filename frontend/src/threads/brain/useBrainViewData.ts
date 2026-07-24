@@ -55,12 +55,14 @@ export function useBrainViewData(taskId: string): BrainViewState {
   const [data, setData] = useState<TaskBrainViewData>(() => cache.get(taskId) ?? buildEmptyBrainView(taskId));
   const [error, setError] = useState<string | null>(null);
   const fastUntilRef = useRef<number>(0);
+  const requestGenerationRef = useRef(0);
 
   // On a task switch (no remount), swap to that task's cached snapshot — or a
   // neutral empty shell — rather than showing the previous task's brain.
   const shownIdRef = useRef(taskId);
   if (shownIdRef.current !== taskId) {
     shownIdRef.current = taskId;
+    requestGenerationRef.current += 1;
     setData(cache.get(taskId) ?? buildEmptyBrainView(taskId));
     setError(null);
   }
@@ -70,9 +72,18 @@ export function useBrainViewData(taskId: string): BrainViewState {
     if (!bridge?.getBrainView) {
       return;
     }
+    const generation = ++requestGenerationRef.current;
     bridge.getBrainView(taskId)
-      .then(d => { cache.set(taskId, d); setData(d); setError(null); })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load the brain view'));
+      .then(d => {
+        if (shownIdRef.current !== taskId || requestGenerationRef.current !== generation) return;
+        cache.set(taskId, d);
+        setData(d);
+        setError(null);
+      })
+      .catch((e: unknown) => {
+        if (shownIdRef.current !== taskId || requestGenerationRef.current !== generation) return;
+        setError(e instanceof Error ? e.message : 'Failed to load the brain view');
+      });
   }, [taskId]);
 
   const refresh = useCallback(() => fetchOnce(), [fetchOnce]);
@@ -90,7 +101,10 @@ export function useBrainViewData(taskId: string): BrainViewState {
       timer = setTimeout(tick, delay);
     };
     timer = setTimeout(tick, POLL_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      requestGenerationRef.current += 1;
+    };
   }, [fetchOnce]);
 
   return { data, error, refresh, pollFast };

@@ -42,12 +42,16 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PrPushedEvent;
+import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
@@ -58,7 +62,9 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -66,8 +72,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -107,13 +116,15 @@ class TestTaskServiceShipAndContinue
     private final TaskPhaseMachine taskPhaseMachine = mock(TaskPhaseMachine.class);
     private final TaskTerminalSealer sealer = mock(TaskTerminalSealer.class);
     private final PRService prService = mock(PRService.class);
+    private final BrainReviewService brainReview = mock(BrainReviewService.class);
+    private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
 
     private final TaskService service = new TaskService(
             threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
             git, pullRequests, patResolver,
             registry, workspaces, notifications, mapper,
             NOOP_PUBLISHER,
-            taskPhaseMachine, sealer, prService);
+            taskPhaseMachine, sealer, prService, brainReview, scheduler);
 
     @Test
     void shipOpensADraftPrKeepsTheWorktreeAndCutsNoSuccessor()
@@ -223,7 +234,7 @@ class TestTaskServiceShipAndContinue
                 git, pullRequests, patResolver,
                 registry, workspaces, notifications, mapper,
                 eventPublisher,
-                taskPhaseMachine, sealer, prService);
+                taskPhaseMachine, sealer, prService, brainReview, scheduler);
 
         when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread("thread-1")));
         Task shipped = task("task-1", "thread-1", 1L, "dev/task-1-fix-the-thing",
@@ -451,7 +462,8 @@ class TestTaskServiceShipAndContinue
     void pauseStopsTheAgentAndParksAtPausedKeepingTheWorktree()
     {
         Task active = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);
-        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(active));
+        when(taskStore.findTaskById("t1.k1")).thenReturn(
+                Optional.of(active), Optional.of(active.withStatus(TaskStatus.PAUSED)));
         ThreadAgent session = mock(ThreadAgent.class);
         when(registry.findStages(List.of("t1.k1"))).thenReturn(List.of(session));
 
@@ -459,6 +471,8 @@ class TestTaskServiceShipAndContinue
 
         // The task's stage agent(s) interrupted + evicted so the task frees
         // its lease; the thread's other tasks are untouched.
+        verify(scheduler).cancelTaskTurns("t1.k1");
+        verify(brainReview).pauseActiveReview("t1.k1", "user_paused_task");
         verify(session).interrupt();
         verify(registry).evictStages("t1", List.of("t1.k1"));
         // Pause keeps the work — the worktree is NOT reaped (unlike cancel).
@@ -468,6 +482,116 @@ class TestTaskServiceShipAndContinue
         assertThat(saved.getValue().status()).isEqualTo(TaskStatus.PAUSED);
         assertThat(saved.getValue().worktreePath()).isEqualTo("/wt");
         assertThat(paused.status()).isEqualTo(TaskStatus.PAUSED);
+    }
+
+    @Test
+    void rolledBackPauseDoesNotCancelOrEvictItsRuntime()
+    {
+        Task active = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(active));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.pauseTask("t1", "t1.k1");
+
+            verify(scheduler, never()).cancelTaskTurns(anyString());
+            verify(registry, never()).findStages(any());
+            verify(registry, never()).evictStages(anyString(), any());
+
+            TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(synchronization -> synchronization.afterCompletion(
+                            TransactionSynchronization.STATUS_ROLLED_BACK));
+        }
+        finally {
+            // No afterCommit callback: model a transaction rollback.
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void resumeBeforeCommittedPauseTeardownMakesTheCallbackStale()
+    {
+        String taskId = "t1.k1";
+        Task active = task(taskId, "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);
+        AtomicReference<Task> state = taskState(active);
+        AtomicReference<Runnable> pendingTeardown = new AtomicReference<>();
+        TaskService controlled = serviceWithPauseDispatcher(action -> {
+            assertThat(pendingTeardown.compareAndSet(null, action)).isTrue();
+        });
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread("t1")));
+        when(stageStore.findActiveStage(taskId)).thenReturn(Optional.empty());
+        StageAgent resumedAgent = mock(StageAgent.class);
+        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(resumedAgent);
+
+        commitPause(controlled, "t1", taskId);
+        assertThat(state.get().status()).isEqualTo(TaskStatus.PAUSED);
+
+        Task resumed = controlled.resumeTask(taskId);
+        pendingTeardown.get().run();
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        assertThat(state.get().status()).isEqualTo(TaskStatus.IDLE);
+        verify(resumedAgent).resume();
+        verify(scheduler, never()).cancelTaskTurns(taskId);
+        verify(registry, never()).evictStages(anyString(), any());
+    }
+
+    @Test
+    void committedPauseTeardownFinishesBeforeALaterResumeRecreatesRuntime()
+    {
+        String taskId = "t1.k1";
+        Task active = task(taskId, "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);
+        taskState(active);
+        AtomicReference<Runnable> pendingTeardown = new AtomicReference<>();
+        TaskService controlled = serviceWithPauseDispatcher(pendingTeardown::set);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread("t1")));
+        when(stageStore.findActiveStage(taskId)).thenReturn(Optional.empty());
+        when(registry.findStages(List.of(taskId))).thenReturn(List.of());
+        StageAgent resumedAgent = mock(StageAgent.class);
+        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(resumedAgent);
+
+        commitPause(controlled, "t1", taskId);
+        pendingTeardown.get().run();
+        Task resumed = controlled.resumeTask(taskId);
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        InOrder order = inOrder(scheduler, registry, resumedAgent);
+        order.verify(scheduler).cancelTaskTurns(taskId);
+        order.verify(registry).evictStages("t1", List.of(taskId));
+        order.verify(registry).getOrCreateStageAgent(any(), any(), any());
+        order.verify(resumedAgent).resume();
+    }
+
+    @Test
+    void rollbackRemovesThePauseTeardownToken()
+    {
+        String taskId = "t1.k1";
+        Task active = task(taskId, "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);
+        AtomicReference<Task> state = taskState(active);
+        AtomicReference<Runnable> pendingTeardown = new AtomicReference<>();
+        TaskService controlled = serviceWithPauseDispatcher(pendingTeardown::set);
+
+        TransactionSynchronizationManager.initSynchronization();
+        List<TransactionSynchronization> callbacks;
+        try {
+            controlled.pauseTask("t1", taskId);
+            callbacks = List.copyOf(TransactionSynchronizationManager.getSynchronizations());
+            callbacks.forEach(synchronization -> synchronization.afterCompletion(
+                    TransactionSynchronization.STATUS_ROLLED_BACK));
+            // Model the repository rollback; the Mockito save above is not a
+            // transactional store, so restore its prior durable row manually.
+            state.set(active);
+            // Even if a buggy caller delivered the old afterCommit late, its
+            // action must no longer own a teardown generation.
+            callbacks.forEach(TransactionSynchronization::afterCommit);
+        }
+        finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+
+        pendingTeardown.get().run();
+        verify(scheduler, never()).cancelTaskTurns(taskId);
+        verify(registry, never()).evictStages(anyString(), any());
     }
 
     @Test
@@ -490,7 +614,8 @@ class TestTaskServiceShipAndContinue
         // notification. Pausing sets it aside, so that notification must not
         // keep showing "needs your approval".
         Task parked = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.AWAITING_REVIEW);
-        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("t1.k1")).thenReturn(
+                Optional.of(parked), Optional.of(parked.withStatus(TaskStatus.PAUSED)));
         when(registry.find("t1")).thenReturn(Optional.empty());
         Notification parkedNotif = new Notification(
                 "notif-1", NotificationKind.AWAITING_REVIEW, "t1", "t1.k1",
@@ -509,7 +634,8 @@ class TestTaskServiceShipAndContinue
         // Shipping moved off the task page; a shipped (IN_REVIEW) task can be
         // paused to set it aside while its PR rides to merge.
         Task shipped = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.IN_REVIEW);
-        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(shipped));
+        when(taskStore.findTaskById("t1.k1")).thenReturn(
+                Optional.of(shipped), Optional.of(shipped.withStatus(TaskStatus.PAUSED)));
         when(registry.find("t1")).thenReturn(Optional.empty());
 
         assertThat(service.pauseTask("t1", "t1.k1").status()).isEqualTo(TaskStatus.PAUSED);
@@ -534,6 +660,49 @@ class TestTaskServiceShipAndContinue
         // Worktree preserved through the pause→resume round-trip.
         assertThat(saved.getValue().worktreePath()).isEqualTo("/wt");
         verify(agent).resume();
+    }
+
+    @Test
+    void resumeOfAPausedBrainRoundUsesTheCoordinatorInsteadOfTheStageAgent()
+    {
+        Task base = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
+        Task paused = taskAtPhase(base, TaskPhase.INTERNAL_REVIEW);
+        StageInstance activeStage = new StageInstance(
+                UUID.fromString("22222222-2222-2222-2222-222222222222"), paused.id(),
+                StageType.DEVELOPMENT_STAGE, StageState.ACTIVE, paused.createdAt(), null, null);
+        when(taskStore.findTaskById(paused.id())).thenReturn(Optional.of(paused));
+        when(threadStore.findThreadById(paused.threadId())).thenReturn(Optional.of(thread(paused.threadId())));
+        when(stageStore.findActiveStage(paused.id())).thenReturn(Optional.of(activeStage));
+        when(brainReview.ownsParkedResume(paused.id())).thenReturn(true);
+        when(brainReview.resumeParkedReview(paused.id())).thenReturn(true);
+
+        Task resumed = service.resumeTask(paused.id());
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        assertThat(resumed.phase()).isEqualTo(TaskPhase.INTERNAL_REVIEW);
+        verify(brainReview).resumeParkedReview(paused.id());
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskBrainAgent(any());
+    }
+
+    @Test
+    void resumeOfAPausedValidationWaitsForTheValidationDriver()
+    {
+        Task base = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
+        Task paused = taskAtPhase(base, TaskPhase.VALIDATING);
+        StageInstance activeStage = new StageInstance(
+                UUID.fromString("33333333-3333-3333-3333-333333333333"), paused.id(),
+                StageType.DEVELOPMENT_STAGE, StageState.ACTIVE, paused.createdAt(), null, null);
+        when(taskStore.findTaskById(paused.id())).thenReturn(Optional.of(paused));
+        when(threadStore.findThreadById(paused.threadId())).thenReturn(Optional.of(thread(paused.threadId())));
+        when(stageStore.findActiveStage(paused.id())).thenReturn(Optional.of(activeStage));
+
+        Task resumed = service.resumeTask(paused.id());
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        assertThat(resumed.phase()).isEqualTo(TaskPhase.VALIDATING);
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskBrainAgent(any());
     }
 
     @Test
@@ -654,7 +823,7 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
-    void resumeNeedsAttentionAfterValidationReturnsToDevelopment()
+    void resumeNeedsAttentionAfterValidationReturnsToValidationWithoutRestartingDevelopment()
     {
         Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
         when(taskStore.findTaskById(parked.id())).thenReturn(Optional.of(parked));
@@ -665,15 +834,81 @@ class TestTaskServiceShipAndContinue
         when(threadStore.findThreadById(parked.threadId()))
                 .thenReturn(Optional.of(thread(parked.threadId())));
         when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.empty());
-        StageAgent agent = mock(StageAgent.class);
-        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(agent);
+        Task resumed = service.resumeTask(parked.id());
+
+        assertThat(resumed.phase()).isEqualTo(TaskPhase.VALIDATING);
+        verify(taskPhaseMachine).recover(
+                parked.id(), TaskPhase.VALIDATING, "user_resumed_task");
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+    }
+
+    @Test
+    void resumeNeedsAttentionDuringInternalReviewReturnsToBrainCoordinator()
+    {
+        Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
+        when(taskStore.findTaskById(parked.id())).thenReturn(Optional.of(parked));
+        when(taskStore.listPhaseEvents(parked.id())).thenReturn(List.of(new TaskPhaseEvent(
+                1L, parked.id(), TaskPhase.INTERNAL_REVIEW, TaskPhase.NEEDS_ATTENTION,
+                parked.createdAt(), "brain_review_turn_failed", Actor.AGENT)));
+        when(threadStore.findThreadById(parked.threadId()))
+                .thenReturn(Optional.of(thread(parked.threadId())));
+        when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.empty());
+        when(brainReview.ownsParkedResume(parked.id())).thenReturn(true);
+        when(brainReview.resumeParkedReview(parked.id())).thenReturn(true);
 
         Task resumed = service.resumeTask(parked.id());
 
-        assertThat(resumed.phase()).isEqualTo(TaskPhase.IMPLEMENTING);
+        assertThat(resumed.phase()).isEqualTo(TaskPhase.INTERNAL_REVIEW);
         verify(taskPhaseMachine).recover(
-                parked.id(), TaskPhase.IMPLEMENTING, "user_resumed_task");
-        verify(agent).resume();
+                parked.id(), TaskPhase.INTERNAL_REVIEW, "user_resumed_task");
+        verify(brainReview).ownsParkedResume(parked.id());
+        verify(brainReview).resumeParkedReview(parked.id());
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+    }
+
+    @Test
+    void resumeNeedsAttentionDuringExternalReviewReturnsToBrainCoordinator()
+    {
+        Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
+        when(taskStore.findTaskById(parked.id())).thenReturn(Optional.of(parked));
+        when(taskStore.listPhaseEvents(parked.id())).thenReturn(List.of(new TaskPhaseEvent(
+                1L, parked.id(), TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.NEEDS_ATTENTION,
+                parked.createdAt(), "review_fixes_validation_failed", Actor.AGENT)));
+        when(threadStore.findThreadById(parked.threadId()))
+                .thenReturn(Optional.of(thread(parked.threadId())));
+        when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.empty());
+        when(brainReview.ownsParkedResume(parked.id())).thenReturn(true);
+        when(brainReview.resumeParkedReview(parked.id())).thenReturn(true);
+
+        Task resumed = service.resumeTask(parked.id());
+
+        assertThat(resumed.phase()).isEqualTo(TaskPhase.AWAITING_REMOTE_REVIEW);
+        verify(taskPhaseMachine).recover(
+                parked.id(), TaskPhase.AWAITING_REMOTE_REVIEW, "user_resumed_task");
+        verify(brainReview).resumeParkedReview(parked.id());
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+    }
+
+    @Test
+    void resumeNeedsAttentionDuringPlanReviewReturnsToBrainCoordinator()
+    {
+        Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
+        when(taskStore.findTaskById(parked.id())).thenReturn(Optional.of(parked));
+        when(taskStore.listPhaseEvents(parked.id())).thenReturn(List.of(new TaskPhaseEvent(
+                1L, parked.id(), TaskPhase.PLANNING, TaskPhase.NEEDS_ATTENTION,
+                parked.createdAt(), "plan_self_review_failed", Actor.AGENT)));
+        when(threadStore.findThreadById(parked.threadId()))
+                .thenReturn(Optional.of(thread(parked.threadId())));
+        when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.empty());
+        when(brainReview.ownsParkedResume(parked.id())).thenReturn(true);
+        when(brainReview.resumeParkedReview(parked.id())).thenReturn(true);
+
+        Task resumed = service.resumeTask(parked.id());
+
+        assertThat(resumed.phase()).isEqualTo(TaskPhase.PLANNING);
+        verify(taskPhaseMachine).recover(parked.id(), TaskPhase.PLANNING, "user_resumed_task");
+        verify(brainReview).resumeParkedReview(parked.id());
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
     }
 
     @Test
@@ -723,6 +958,7 @@ class TestTaskServiceShipAndContinue
 
         service.cancelTask("t1", "t1.k1");
 
+        verify(scheduler).cancelTaskTurns("t1.k1");
         verify(session).interrupt();
         verify(taskStore).cancelTask(eq("t1.k1"), any());
         // Phase driven terminal so the reconciler stops polling it.
@@ -741,8 +977,92 @@ class TestTaskServiceShipAndContinue
         service.cancelTask("t1", "t1.k1");
 
         // No session to interrupt, but the task is still sealed + reaped.
+        verify(scheduler).cancelTaskTurns("t1.k1");
         verify(taskStore).cancelTask(eq("t1.k1"), any());
         verify(worktreeService).reap(t);
+    }
+
+    @Test
+    void cancelSerializesAgainstResumeAndInvalidatesPendingPauseTeardown()
+            throws Exception
+    {
+        String taskId = "t1.k1";
+        Task active = task(taskId, "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);
+        AtomicReference<Task> state = taskState(active);
+        AtomicReference<Runnable> pendingTeardown = new AtomicReference<>();
+        TaskService controlled = serviceWithPauseDispatcher(pendingTeardown::set);
+        commitPause(controlled, "t1", taskId);
+
+        CountDownLatch cancelEntered = new CountDownLatch(1);
+        CountDownLatch releaseCancel = new CountDownLatch(1);
+        doAnswer(ignored -> {
+            cancelEntered.countDown();
+            assertThat(releaseCancel.await(5, TimeUnit.SECONDS)).isTrue();
+            return 0;
+        }).when(scheduler).cancelTaskTurns(taskId);
+        doAnswer(invocation -> {
+            state.updateAndGet(task -> task.withStatus(TaskStatus.CANCELED));
+            return null;
+        }).when(taskStore).cancelTask(eq(taskId), any());
+
+        CompletableFuture<Task> cancel = CompletableFuture.supplyAsync(
+                () -> controlled.cancelTask("t1", taskId));
+        assertThat(cancelEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+        CountDownLatch resumeAttempted = new CountDownLatch(1);
+        CompletableFuture<Task> resume = CompletableFuture.supplyAsync(() -> {
+            resumeAttempted.countDown();
+            return controlled.resumeTask(taskId);
+        });
+        assertThat(resumeAttempted.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(resume.isDone()).isFalse();
+
+        releaseCancel.countDown();
+        assertThat(cancel.get(5, TimeUnit.SECONDS).status()).isEqualTo(TaskStatus.CANCELED);
+        assertThatThrownBy(() -> resume.get(5, TimeUnit.SECONDS))
+                .hasCauseInstanceOf(ResponseStatusException.class);
+
+        pendingTeardown.get().run();
+        assertThat(state.get().status()).isEqualTo(TaskStatus.CANCELED);
+        verify(scheduler, times(1)).cancelTaskTurns(taskId);
+        verify(registry, times(1)).evictStages("t1", List.of(taskId));
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+    }
+
+    private AtomicReference<Task> taskState(Task initial)
+    {
+        AtomicReference<Task> state = new AtomicReference<>(initial);
+        when(taskStore.findTaskById(initial.id())).thenAnswer(ignored -> Optional.of(state.get()));
+        doAnswer(invocation -> {
+            state.set(invocation.getArgument(0));
+            return null;
+        }).when(taskStore).saveTask(any(Task.class));
+        return state;
+    }
+
+    private TaskService serviceWithPauseDispatcher(Executor dispatcher)
+    {
+        return new TaskService(
+                threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
+                git, pullRequests, patResolver, registry, workspaces, notifications, mapper,
+                NOOP_PUBLISHER, taskPhaseMachine, sealer, prService, brainReview, scheduler,
+                dispatcher);
+    }
+
+    private static void commitPause(TaskService service, String threadId, String taskId)
+    {
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.pauseTask(threadId, taskId);
+            List<TransactionSynchronization> callbacks =
+                    List.copyOf(TransactionSynchronizationManager.getSynchronizations());
+            callbacks.forEach(TransactionSynchronization::afterCommit);
+            callbacks.forEach(synchronization -> synchronization.afterCompletion(
+                    TransactionSynchronization.STATUS_COMMITTED));
+        }
+        finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 
     private static Task task(
@@ -774,6 +1094,11 @@ class TestTaskServiceShipAndContinue
     {
         Task task = task(
                 "t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.NEEDS_ATTENTION);
+        return taskAtPhase(task, phase);
+    }
+
+    private static Task taskAtPhase(Task task, TaskPhase phase)
+    {
         return new Task(
                 task.id(), task.threadId(), task.seq(), task.status(), task.branchName(),
                 task.worktreePath(), task.baseBranch(), task.workingDir(), task.processPid(),

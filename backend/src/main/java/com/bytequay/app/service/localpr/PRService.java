@@ -203,6 +203,27 @@ public interface PRService
      *  adversarial-review pass. */
     void recordBrainReviewAddressing(String taskId, String scope, int iteration, String roundId);
 
+    /** Attempt-aware form used when Resume opens a replacement run without
+     *  spending another review iteration. */
+    default void recordBrainReviewAddressing(
+            String taskId, String scope, int iteration, String roundId, String attemptId)
+    {
+        recordBrainReviewAddressing(taskId, scope, iteration, roundId);
+    }
+
+    /** Records an operational review failure that parked the task before a
+     *  verdict could be finalized. */
+    void recordBrainReviewFailed(
+            String taskId, String scope, int iteration, String roundId, String reason);
+
+    /** Attempt-aware form so a replacement run's failure is not deduplicated
+     *  against the failure that caused the preceding park. */
+    default void recordBrainReviewFailed(
+            String taskId, String scope, int iteration, String roundId, String reason, String attemptId)
+    {
+        recordBrainReviewFailed(taskId, scope, iteration, roundId, reason);
+    }
+
     /** Append an auditable publish-gate decision to the PR timeline. */
     void recordGateApproval(String prId, String gate, String reason);
 

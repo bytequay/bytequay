@@ -22,6 +22,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -118,6 +120,15 @@ public class NotificationService
     public Notification notifyNeedsAttention(String threadId, String taskId, String payloadJson)
     {
         return create(NotificationKind.NEEDS_ATTENTION, threadId, taskId, payloadJson);
+    }
+
+    /** Used by after-commit listeners so a failed notification write cannot
+     *  poison the transaction that parked or concluded the task. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public Notification notifyNeedsAttentionInNewTransaction(
+            String threadId, String taskId, String payloadJson)
+    {
+        return notifyNeedsAttention(threadId, taskId, payloadJson);
     }
 
     /** Informational: auto-fix / ship-and-continue completed without

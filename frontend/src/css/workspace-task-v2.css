@@ -421,6 +421,15 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
   background: #fff;
 }
 .workspace-task-v2__conversation > .conv-index-host { min-height: 0; flex: 1; }
+.workspace-task-v2__error {
+  margin: 10px 28px 0;
+  padding: 8px 10px;
+  border: 1px solid #ff8182;
+  border-radius: 7px;
+  background: #ffebe9;
+  color: #cf222e;
+  font-size: 12px;
+}
 .workspace-task-v2__pr {
   min-width: 0;
   min-height: 0;

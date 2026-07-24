@@ -29,7 +29,7 @@ export function useLocalPrActions(taskId: string, opts: {
   onAfterTransition?: () => void;
 } = {}) {
   const { onAfterTransition } = opts;
-  const { bundle, refresh, syncing } = useLocalPr(taskId);
+  const { bundle, refresh, syncing, error: pollError } = useLocalPr(taskId);
   const localPr = bundle?.pr ?? null;
   const capabilities = localPr !== null ? derivePRCapabilities(localPr, 'task') : null;
 
@@ -38,6 +38,9 @@ export function useLocalPrActions(taskId: string, opts: {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [prBusy, setPrBusy] = useState(false);
   const [testsBusy, setTestsBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const fail = useCallback((reason: unknown) => setActionError(
+    reason instanceof Error ? reason.message : 'Could not update the pull request'), []);
 
   const submitLocalComment = useCallback(() => {
     const body = localComment.trim();
@@ -48,9 +51,9 @@ export function useLocalPrActions(taskId: string, opts: {
       ? bridge.postRemotePrComment(localPr.id, body)
       : bridge.addLocalPrComment(localPr.id, { scope: 'pr', body });
     void request
-      .then(() => { setLocalComment(''); refresh(); })
-      .catch(() => { /* poll reconciles */ });
-  }, [capabilities?.postRemoteComment, localComment, localPr, refresh]);
+      .then(() => { setActionError(null); setLocalComment(''); refresh(); })
+      .catch(fail);
+  }, [capabilities?.postRemoteComment, fail, localComment, localPr, refresh]);
 
   const confirmPush = useCallback((description?: string) => {
     if (localPr === null) return;
@@ -64,36 +67,36 @@ export function useLocalPrActions(taskId: string, opts: {
       : Promise.resolve(null);
     void prep
       .then(() => bridge.pushLocalPr(localPr.id))
-      .then(() => { setPushOpen(false); refresh(); onAfterTransition?.(); })
-      .catch(() => { /* poll reconciles; dialog stays open on failure */ })
+      .then(() => { setActionError(null); setPushOpen(false); refresh(); onAfterTransition?.(); })
+      .catch(fail)
       .finally(() => setPrBusy(false));
-  }, [localPr, refresh, onAfterTransition]);
+  }, [fail, localPr, refresh, onAfterTransition]);
 
   const confirmMerge = useCallback((method: string) => {
     if (localPr === null) return;
     setPrBusy(true);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.mergeLocalPr(localPr.id, method)
-      .then(() => { refresh(); onAfterTransition?.(); })
-      .catch(() => { /* poll reconciles */ })
+      .then(() => { setActionError(null); refresh(); onAfterTransition?.(); })
+      .catch(fail)
       .finally(() => setPrBusy(false));
-  }, [localPr, refresh, onAfterTransition]);
+  }, [fail, localPr, refresh, onAfterTransition]);
 
   const dequeuePr = useCallback(() => {
     if (localPr === null) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.dequeueLocalPr(localPr.id)
-      .then(() => refresh())
-      .catch(() => { /* poll reconciles */ });
-  }, [localPr, refresh]);
+      .then(() => { setActionError(null); refresh(); })
+      .catch(fail);
+  }, [fail, localPr, refresh]);
 
   const deleteBranch = useCallback(() => {
     if (localPr === null) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.deleteLocalPrBranch(localPr.id)
-      .then(() => refresh())
-      .catch(() => { /* poll reconciles */ });
-  }, [localPr, refresh]);
+      .then(() => { setActionError(null); refresh(); })
+      .catch(fail);
+  }, [fail, localPr, refresh]);
 
   const addLocalLineComment = useCallback((
     filePath: string, side: 'LEFT' | 'RIGHT', lineNumber: number,
@@ -104,9 +107,9 @@ export function useLocalPrActions(taskId: string, opts: {
     void bridge?.addLocalPrComment(
       localPr.id, { scope: 'file-line', filePath, lineNumber, side, startLine, startSide, body },
     )
-      .then(() => refresh())
-      .catch(() => { /* poll reconciles */ });
-  }, [localPr, refresh]);
+      .then(() => { setActionError(null); refresh(); })
+      .catch(fail);
+  }, [fail, localPr, refresh]);
 
   const replyLocalLineComment = useCallback((
     parentCommentId: string, filePath: string, side: 'LEFT' | 'RIGHT', lineNumber: number,
@@ -130,43 +133,43 @@ export function useLocalPrActions(taskId: string, opts: {
   const resolveLocalComment = useCallback((commentId: string) => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.resolveLocalPrComment(commentId)
-      .then(() => refresh())
-      .catch(() => { /* poll reconciles */ });
-  }, [refresh]);
+      .then(() => { setActionError(null); refresh(); })
+      .catch(fail);
+  }, [fail, refresh]);
 
   const deleteLocalComment = useCallback((commentId: string) => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.deleteLocalPrComment(commentId)
-      .then(() => refresh())
-      .catch(() => { /* poll reconciles */ });
-  }, [refresh]);
+      .then(() => { setActionError(null); refresh(); })
+      .catch(fail);
+  }, [fail, refresh]);
 
   const dismissLocalComment = useCallback((commentId: string) => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.dismissLocalPrComment(commentId)
-      .then(() => refresh())
-      .catch(() => { /* poll reconciles */ });
-  }, [refresh]);
+      .then(() => { setActionError(null); refresh(); })
+      .catch(fail);
+  }, [fail, refresh]);
 
   const reopenLocalComment = useCallback((commentId: string) => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.reopenLocalPrComment(commentId)
-      .then(() => refresh())
-      .catch(() => { /* poll reconciles */ });
-  }, [refresh]);
+      .then(() => { setActionError(null); refresh(); })
+      .catch(fail);
+  }, [fail, refresh]);
 
   const runLocalTests = useCallback(() => {
     if (localPr === null) return;
     setTestsBusy(true);
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     void bridge?.runLocalPrTests(localPr.id)
-      .then(() => refresh())
-      .catch(() => { /* poll reconciles */ })
+      .then(() => { setActionError(null); refresh(); })
+      .catch(fail)
       .finally(() => setTestsBusy(false));
-  }, [localPr, refresh]);
+  }, [fail, localPr, refresh]);
 
   return {
-    bundle, refresh, syncing, localPr, capabilities,
+    bundle, refresh, syncing, error: actionError ?? pollError, localPr, capabilities,
     localComment, setLocalComment, submitLocalComment,
     confirmPush, confirmMerge, dequeuePr, deleteBranch,
     addLocalLineComment, replyLocalLineComment, replyLocalPrComment, resolveLocalComment, deleteLocalComment, dismissLocalComment, reopenLocalComment,

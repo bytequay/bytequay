@@ -305,6 +305,56 @@ describe('TaskBrainRoute', () => {
 });
 
 describe('StageDetailRoute', () => {
+  it('surfaces supporting run and round poll failures', async () => {
+    (window as unknown as { bridge: unknown }).bridge = {
+      getStageDetail: vi.fn(() => new Promise(() => {})),
+      getTaskRuns: vi.fn().mockResolvedValue([]),
+      getTaskRounds: vi.fn().mockRejectedValue(new Error('Review rounds unavailable')),
+    };
+
+    render(<StageDetailRoute threadId="t1" taskId="task-1" stageId="stage-1" />);
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Review rounds unavailable');
+  });
+
+  it('surfaces round approval failures', async () => {
+    const now = '2026-07-21T00:00:00Z';
+    const detail: StageDetailData = {
+      task: {
+        id: 'task-1', taskNumber: 1, title: 'Review task', branch: 'dev/review-task',
+        repoFullName: 'bytequay/app', prNumber: 1, prDraft: false,
+        currentPhase: 'AWAITING_REMOTE_REVIEW', agentRuntime: 'CLI', agentModel: 'claude',
+      },
+      stage: {
+        id: 'stage-approve', type: 'REVIEW_MONITOR_STAGE', state: 'OPEN', openedAt: now, closedAt: null,
+        callerStageId: null, iterationCount: 0, currentIterationNumber: null,
+        config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
+      },
+      allStages: [], subStages: [], conversationThreadId: 't1', iterations: [], conversation: [],
+      realtimeCi: null, ciFixHistory: [], pr: null,
+      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
+      scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null, devPhases: [],
+    };
+    const approveRound = vi.fn().mockRejectedValue(new Error('Could not post this round'));
+    (window as unknown as { bridge: unknown }).bridge = {
+      getStageDetail: vi.fn().mockResolvedValue(detail),
+      getTaskRuns: vi.fn().mockResolvedValue([]),
+      getTaskRounds: vi.fn().mockResolvedValue([{
+        id: 'round-1', taskId: 'task-1', idx: 1, reviewers: ['@alice'], status: 'awaiting_gate',
+        stats: { fixed: 1, replied: 0, pushedBack: 0, open: 0 }, runId: null,
+        openedAt: now, gatedAt: now, postedAt: null, origin: 'external', brainVerdict: null,
+        iteration: 1, budget: 3,
+      }]),
+      approveRound,
+    };
+
+    render(<StageDetailRoute threadId="t1" taskId="task-1" stageId="stage-approve" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve & post' }));
+
+    await waitFor(() => expect(approveRound).toHaveBeenCalledWith('round-1'));
+    expect((await screen.findByRole('alert')).textContent).toContain('Could not post this round');
+  });
+
   it('mounts the V3 stage page and steers the stage agent', async () => {
     const steerStage = vi.fn().mockResolvedValue({ turnId: 'x' });
     // getStageDetail never resolves → renders the loading defaults.

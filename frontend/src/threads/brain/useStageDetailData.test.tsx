@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StageDetailData } from '../../types/brainView';
 import { useStageDetailData } from './useStageDetailData';
@@ -23,6 +23,12 @@ afterEach(() => {
 
 function stageData(stageId: string): StageDetailData {
   return { stage: { id: stageId } } as unknown as StageDetailData;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
 }
 
 describe('useStageDetailData', () => {
@@ -56,5 +62,24 @@ describe('useStageDetailData', () => {
     rerender({ id: 'stage-B' });
     await waitFor(() =>
       expect((result.current.data as unknown as { stage: { id: string } } | null)?.stage.id).toBe('stage-B'));
+  });
+
+  it('ignores a previous stage request that resolves after the new stage', async () => {
+    const oldRequest = deferred<StageDetailData>();
+    const getStageDetail = vi.fn((id: string) => id === 'stage-race-old'
+      ? oldRequest.promise : Promise.resolve(stageData(id)));
+    window.bridge = { getStageDetail } as unknown as typeof window.bridge;
+
+    const { result, rerender } = renderHook(({ id }) => useStageDetailData(id), {
+      initialProps: { id: 'stage-race-old' },
+    });
+    rerender({ id: 'stage-race-new' });
+    await waitFor(() => expect(result.current.data?.stage.id).toBe('stage-race-new'));
+
+    await act(async () => {
+      oldRequest.resolve(stageData('stage-race-old'));
+      await oldRequest.promise;
+    });
+    expect(result.current.data?.stage.id).toBe('stage-race-new');
   });
 });

@@ -43,17 +43,21 @@ import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PrPushedEvent;
 import com.bytequay.app.service.pr.PullRequestClosedEvent;
 import com.bytequay.app.service.pr.PullRequestMergedEvent;
+import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.service.workspaces.WorkspaceShipEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -65,6 +69,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 
 import static java.util.Objects.requireNonNull;
 
@@ -106,7 +112,14 @@ public class TaskService
     private final TaskPhaseMachine taskPhaseMachine;
     private final TaskTerminalSealer sealer;
     private final PRService prService;
+    private final BrainReviewService brainReview;
+    private final ThreadTurnScheduler scheduler;
+    private final Executor pauseTeardownExecutor;
+    /** Generation token for the one committed Pause teardown still allowed to
+     *  touch a task's runtime. Resume/Cancel remove it under the task lock. */
+    private final ConcurrentHashMap<String, Object> pauseTeardownTokens = new ConcurrentHashMap<>();
 
+    @Autowired
     public TaskService(
             ThreadStore threadStore,
             TaskStore taskStore,
@@ -123,7 +136,37 @@ public class TaskService
             ApplicationEventPublisher eventPublisher,
             TaskPhaseMachine taskPhaseMachine,
             TaskTerminalSealer sealer,
-            PRService prService)
+            PRService prService,
+            BrainReviewService brainReview,
+            ThreadTurnScheduler scheduler)
+    {
+        this(threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
+                git, pullRequestRepository, patResolver, registry, workspaceService,
+                notificationService, mapper, eventPublisher, taskPhaseMachine, sealer,
+                prService, brainReview, scheduler,
+                action -> java.lang.Thread.startVirtualThread(action));
+    }
+
+    TaskService(
+            ThreadStore threadStore,
+            TaskStore taskStore,
+            StageStore stageStore,
+            WatchedRepoStore watchedRepoStore,
+            WorktreeService worktreeService,
+            GitRunner git,
+            PullRequestRepository pullRequestRepository,
+            PatResolver patResolver,
+            ThreadRegistry registry,
+            WorkspaceService workspaceService,
+            NotificationService notificationService,
+            ObjectMapper mapper,
+            ApplicationEventPublisher eventPublisher,
+            TaskPhaseMachine taskPhaseMachine,
+            TaskTerminalSealer sealer,
+            PRService prService,
+            BrainReviewService brainReview,
+            ThreadTurnScheduler scheduler,
+            Executor pauseTeardownExecutor)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -141,6 +184,10 @@ public class TaskService
         this.taskPhaseMachine = requireNonNull(taskPhaseMachine, "taskPhaseMachine is null");
         this.sealer = requireNonNull(sealer, "sealer is null");
         this.prService = requireNonNull(prService, "prService is null");
+        this.brainReview = requireNonNull(brainReview, "brainReview is null");
+        this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.pauseTeardownExecutor = requireNonNull(
+                pauseTeardownExecutor, "pauseTeardownExecutor is null");
     }
 
     /** All tasks for a thread, ordered by seq ascending. 404 if the
@@ -776,8 +823,22 @@ public class TaskService
      */
     public Task cancelTask(String threadId, String taskId)
     {
+        return TaskPhaseMachine.withTaskLock(taskId, () -> cancelTaskLocked(threadId, taskId));
+    }
+
+    private Task cancelTaskLocked(String threadId, String taskId)
+    {
         Task task = taskStore.findTaskById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("no task " + taskId));
+        // A committed Pause callback may still be waiting for its virtual
+        // thread. Cancel owns the task now, so make that callback stale before
+        // touching durable turns or the runtime.
+        pauseTeardownTokens.remove(taskId);
+        // Stop durable queued/running work before tearing down the runtime or
+        // worktree. The scheduler scopes by the exact task_id, so sibling
+        // tasks on this thread keep running; when an outer transaction exists,
+        // its cancellation is deferred until commit.
+        scheduler.cancelTaskTurns(taskId);
         // Interrupt the subprocess(es) and wait for them to actually exit
         // before we reap the worktree. interrupt() only sends destroy()
         // (SIGTERM); without the wait, `git worktree remove` can race a
@@ -843,13 +904,19 @@ public class TaskService
 
     /**
      * Set a task aside: stop its agent and park it at {@link TaskStatus#PAUSED}
-     * with its worktree, branch, and agent session intact. Unlike ship
+     * with its worktree and branch intact. Unlike ship
      * (publish) or cancel (throw away + reap), pause preserves the work — the
      * thread treats a PAUSED task as not-active, freeing the trunk to plan or
-     * run another task, and {@link #resumeTask} revives it later. Idempotent.
+     * run another task, and {@link #resumeTask} recreates its runtime later.
+     * Idempotent.
      */
     @Transactional
     public Task pauseTask(String threadId, String taskId)
+    {
+        return TaskPhaseMachine.withTaskLock(taskId, () -> pauseTaskLocked(threadId, taskId));
+    }
+
+    private Task pauseTaskLocked(String threadId, String taskId)
     {
         Task task = requireTask(threadId, taskId);
         if (task.status() == TaskStatus.PAUSED) {
@@ -859,15 +926,19 @@ public class TaskService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "task " + taskId + " cannot be paused from status " + task.status());
         }
-        // Stop this task's live stage agent(s) and drop them so the task
-        // frees its lease — the thread's other tasks keep running. The
-        // worktree is NOT reaped (cancel does that); pause keeps it for
-        // resume.
-        List<String> stageKeys = stageKeysForTask(taskId);
-        registry.findStages(stageKeys).forEach(ThreadAgent::interrupt);
-        registry.evictStages(threadId, stageKeys);
+        // The worktree is NOT reaped (cancel does that); pause keeps it for
+        // resume. Runtime teardown waits for commit so a rolled-back pause
+        // cannot remove a runnable durable turn from the scheduler. The exact
+        // task id keeps sibling tasks on this thread untouched.
+        List<String> stageKeys = List.copyOf(stageKeysForTask(taskId));
+        brainReview.pauseActiveReview(taskId, "user_paused_task");
         Task paused = task.withStatus(TaskStatus.PAUSED).withProcessPid(null);
         taskStore.saveTask(paused);
+        Object teardownToken = new Object();
+        pauseTeardownTokens.put(taskId, teardownToken);
+        afterCommitOrNow(
+                () -> stopPausedTaskRuntime(threadId, taskId, stageKeys, teardownToken),
+                () -> pauseTeardownTokens.remove(taskId, teardownToken));
         // Clear any parked approve/discard notification for this task — a
         // paused task is set aside, so it must not keep showing "needs your
         // approval". Best-effort: a notification failure mustn't fail the pause.
@@ -882,6 +953,68 @@ public class TaskService
             log.warn("clearing parked notifications on pause of {} threw: {}", taskId, e.getMessage());
         }
         return paused;
+    }
+
+    private void stopPausedTaskRuntime(
+            String threadId, String taskId, List<String> stageKeys, Object teardownToken)
+    {
+        TaskPhaseMachine.withTaskLock(taskId, () -> {
+            if (pauseTeardownTokens.get(taskId) != teardownToken) {
+                return null;
+            }
+            Task current = taskStore.findTaskById(taskId).orElse(null);
+            if (current == null || current.status() != TaskStatus.PAUSED) {
+                pauseTeardownTokens.remove(taskId, teardownToken);
+                return null;
+            }
+            try {
+                try {
+                    scheduler.cancelTaskTurns(taskId);
+                }
+                catch (RuntimeException e) {
+                    log.warn("cancelling durable turns while pausing {} threw: {}",
+                            taskId, e.getMessage());
+                }
+                try {
+                    registry.findStages(stageKeys).forEach(ThreadAgent::interrupt);
+                }
+                finally {
+                    registry.evictStages(threadId, stageKeys);
+                }
+            }
+            finally {
+                pauseTeardownTokens.remove(taskId, teardownToken);
+            }
+            return null;
+        });
+    }
+
+    private void afterCommitOrNow(Runnable action, Runnable rollbackAction)
+    {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            action.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(
+                new TransactionSynchronization()
+                {
+                    @Override
+                    public void afterCommit()
+                    {
+                        // Leave Spring's committing thread before repository
+                        // work; its transaction-bound resources remain attached
+                        // until all afterCommit callbacks have returned.
+                        pauseTeardownExecutor.execute(action);
+                    }
+
+                    @Override
+                    public void afterCompletion(int status)
+                    {
+                        if (status != TransactionSynchronization.STATUS_COMMITTED) {
+                            rollbackAction.run();
+                        }
+                    }
+                });
     }
 
     /** Compatibility wrapper for the nested task URL. */
@@ -904,6 +1037,22 @@ public class TaskService
 
     private Task resumeTaskLocked(String taskId)
     {
+        Object pauseTeardownToken = pauseTeardownTokens.remove(taskId);
+        try {
+            return resumeTaskAfterPauseInvalidated(taskId);
+        }
+        catch (RuntimeException e) {
+            // The callback is blocked on this same task lock. Restore its claim
+            // before releasing the lock when Resume failed before taking over.
+            if (pauseTeardownToken != null) {
+                pauseTeardownTokens.putIfAbsent(taskId, pauseTeardownToken);
+            }
+            throw e;
+        }
+    }
+
+    private Task resumeTaskAfterPauseInvalidated(String taskId)
+    {
         Task task = taskStore.findTaskById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
@@ -913,6 +1062,8 @@ public class TaskService
         }
         boolean recovering = task.status() == TaskStatus.NEEDS_ATTENTION
                 || task.phase() == TaskPhase.NEEDS_ATTENTION;
+        boolean brainOwnsResume = (recovering || task.status() == TaskStatus.PAUSED)
+                && brainReview.ownsParkedResume(taskId);
         TaskPhase resumedPhase = task.phase();
         if (recovering) {
             resumedPhase = recoveryPhase(task);
@@ -928,7 +1079,22 @@ public class TaskService
             threadStore.saveThread(resumedThread);
         }
         Optional<StageInstance> activeStage = stageStore.findActiveStage(taskId);
-        if (!recovering || shouldResumeRuntime(resumedPhase, activeStage)) {
+        if (brainOwnsResume && !brainReview.resumeParkedReview(taskId)) {
+            // The coordinator re-parks failed validation/enqueue attempts with
+            // a fresh durable reason. Return that authoritative state so the
+            // Resume request commits the failure trail instead of rolling it
+            // all back behind a 409.
+            Task current = taskStore.findTaskById(taskId).orElse(resumed);
+            if (current.phase() == TaskPhase.NEEDS_ATTENTION
+                    || current.status() == TaskStatus.NEEDS_ATTENTION) {
+                return current;
+            }
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " has no resumable Brain review");
+        }
+        boolean validationRecovery = resumedPhase == TaskPhase.VALIDATING;
+        if (!brainOwnsResume && !validationRecovery
+                && (!recovering || shouldResumeRuntime(resumedPhase, activeStage))) {
             resumeRuntime(resumedThread, resumed, activeStage);
         }
         if (recovering) {
@@ -964,8 +1130,9 @@ public class TaskService
                 case AWAITING_PUSH -> TaskPhase.AWAITING_PUSH;
                 case PUSHED_AWAITING_CI, AWAITING_READY -> TaskPhase.PUSHED_AWAITING_CI;
                 case AWAITING_REMOTE_REVIEW -> TaskPhase.AWAITING_REMOTE_REVIEW;
-                case IMPLEMENTING, VALIDATING, INTERNAL_REVIEW,
-                        ADDRESSING_LOCAL_COMMENTS, NEEDS_ATTENTION -> TaskPhase.IMPLEMENTING;
+                case IMPLEMENTING, NEEDS_ATTENTION -> TaskPhase.IMPLEMENTING;
+                case VALIDATING -> TaskPhase.VALIDATING;
+                case INTERNAL_REVIEW, ADDRESSING_LOCAL_COMMENTS -> blockedFrom;
                 case COMPLETED -> throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                         "task " + task.id() + " is complete");
             };
@@ -984,11 +1151,14 @@ public class TaskService
     private static boolean shouldResumeRuntime(
             TaskPhase phase, Optional<StageInstance> activeStage)
     {
+        if (phase == TaskPhase.VALIDATING) {
+            return false;
+        }
         if (activeStage.isPresent()) {
             return true;
         }
         return switch (phase) {
-            case IMPLEMENTING, VALIDATING, INTERNAL_REVIEW, ADDRESSING_LOCAL_COMMENTS -> true;
+            case IMPLEMENTING, INTERNAL_REVIEW, ADDRESSING_LOCAL_COMMENTS -> true;
             default -> false;
         };
     }

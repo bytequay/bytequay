@@ -638,6 +638,13 @@
   font-family: inherit;
   text-align: left;
 }
+.shell .run-menu__detail {
+  max-width: 260px;
+  padding: 6px 10px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
 .shell .run-menu__item:hover {
   background: var(--bg-hover);
 }
@@ -907,7 +914,7 @@
 .shell .plan-node.monitoring .pn-name { color: var(--text-1); font-weight: 600; }
 .shell .plan-node.monitoring .pn-meta { color: #2563eb; opacity: 0.8; }
 .shell .plan-node.awaiting { background: rgba(194, 99, 42, 0.16); border-color: var(--orange); }
-.shell .plan-node.awaiting .pn-glyph { color: var(--orange); animation: working-pulse 1.4s infinite; }
+.shell .plan-node.awaiting .pn-glyph { color: var(--orange); animation: none; }
 .shell .plan-node.awaiting .pn-name { color: var(--text-1); font-weight: 600; }
 .shell .plan-node.awaiting .pn-meta { color: var(--orange); opacity: 0.85; }
 .shell .plan-node.sleep .pn-glyph { color: var(--text-4); }
@@ -960,6 +967,10 @@
 .shell .plan-phase-row.running .ph-glyph { color: var(--accent); animation: working-pulse 1.4s infinite; }
 .shell .plan-phase-row.running .ph-name { color: var(--text-1); font-weight: 600; }
 .shell .plan-phase-row.running .ph-meta { color: var(--accent); opacity: 0.8; }
+.shell .plan-phase-row.awaiting { background: rgba(194, 99, 42, 0.12); border-left-color: var(--orange); }
+.shell .plan-phase-row.awaiting .ph-glyph { color: var(--orange); animation: none; }
+.shell .plan-phase-row.awaiting .ph-name { color: var(--text-1); font-weight: 600; }
+.shell .plan-phase-row.awaiting .ph-meta { color: var(--orange); opacity: 0.85; }
 .shell .plan-phase-row.future { opacity: 0.6; border-left-color: var(--border); }
 
 /* Branch-guard chip, above the rail — hidden entirely until the task has

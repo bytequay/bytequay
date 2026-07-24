@@ -16,6 +16,9 @@ import type { AgentRunDto } from '../../types/brainView';
 import { SpineNode, type SpineColor } from './spine/Spine';
 
 const KIND_LABEL: Record<AgentRunDto['kind'], string> = {
+  plan: 'Plan run',
+  dev: 'Development run',
+  review: 'Review run',
   ci_fix: 'CI fix run',
   review_round: 'Addressing run',
   branch_guard: 'Branch guard run',
@@ -41,17 +44,20 @@ export function RunEpisode({ run, onOpen, onToggle, collapsed, name, state: stat
   color?: SpineColor;
   right?: ReactNode;
 }) {
-  const live = run.status === 'running' || run.status === 'awaiting_gate';
+  const working = run.status === 'running';
   const state = run.status === 'succeeded' ? 'done'
     : run.status === 'failed' ? 'failed'
       : run.status === 'cancelled' ? 'cancelled'
         : run.status === 'awaiting_gate' ? 'awaiting you'
-          : 'running';
+          : run.status === 'paused' ? 'paused'
+            : run.status === 'queued' ? 'queued'
+              : 'running';
   const meta = metaOverride ?? run.headline ?? (run.iterations > 0 ? `iter ${run.iterations}` : undefined);
   return (
     <SpineNode
       mark={mark}
-      color={color ?? (run.status === 'failed' ? 'orange' : 'amber')}
+      color={color ?? (run.status === 'failed' || run.status === 'paused'
+        ? 'orange' : run.status === 'queued' ? 'gray' : 'amber')}
       name={name ?? `${KIND_LABEL[run.kind]}${run.source !== null ? ` · ${run.source}` : ''}`}
       state={stateOverride ?? state}
       meta={meta}
@@ -59,7 +65,7 @@ export function RunEpisode({ run, onOpen, onToggle, collapsed, name, state: stat
       onToggle={onToggle}
       collapsed={collapsed}
       right={right}
-      flash={live}
+      flash={working}
     />
   );
 }

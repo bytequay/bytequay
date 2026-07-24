@@ -21,13 +21,12 @@ import { ConfirmDialog } from '../../workspace/ConfirmDialog';
  * confirms first — closing kills the agent subprocess and reaps the
  * worktree, which can't be undone. Terminal tasks render a static label.
  */
-export function RunMenu({ statusLabel = 'Running', paused = false, terminal = false, hideStatus = false, onRun, onPause, onResume, onClose }: {
+export function RunMenu({ statusLabel = 'Running', statusDetail, paused = false, terminal = false, onRun, onPause, onResume, onClose }: {
   statusLabel?: string;
+  /** Why this state needs attention, shown inside the lifecycle menu. */
+  statusDetail?: string;
   paused?: boolean;
   terminal?: boolean;
-  /** Hide the run-state trigger (and its Pause/Resume menu), leaving only the
-   *  Close button — for surfaces that already show the phase elsewhere. */
-  hideStatus?: boolean;
   onRun?: () => void;
   onPause?: () => void;
   onResume?: () => void;
@@ -37,7 +36,7 @@ export function RunMenu({ statusLabel = 'Running', paused = false, terminal = fa
   const [confirming, setConfirming] = useState(false);
 
   if (terminal) {
-    return hideStatus ? null : <button type="button" className="btn" disabled>{statusLabel}</button>;
+    return <button type="button" className="btn" disabled>{statusLabel}</button>;
   }
 
   const pick = (fn?: () => void) => () => { setOpen(false); fn?.(); };
@@ -46,35 +45,37 @@ export function RunMenu({ statusLabel = 'Running', paused = false, terminal = fa
 
   return (
     <>
-      {!hideStatus && (
-        <span className="run-menu">
-          <button
-            type="button"
-            className="btn"
-            aria-haspopup={hasMenu ? 'menu' : undefined}
-            aria-expanded={hasMenu ? open : undefined}
-            onClick={hasMenu ? () => setOpen(o => !o) : undefined}
-          >
-            <span className="ic" aria-hidden>{paused ? '⏸' : '▶'}</span>
-            {displayedStatus}
-            {hasMenu && <span className="chev" aria-hidden>▾</span>}
-          </button>
-          {open && hasMenu && (
-            <div className="run-menu__pop" role="menu">
-              {onRun !== undefined && (
-                <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onRun)}>Run</button>
+      <span className="run-menu">
+        <button
+          type="button"
+          className="btn"
+          title={statusDetail}
+          aria-haspopup={hasMenu ? 'menu' : undefined}
+          aria-expanded={hasMenu ? open : undefined}
+          onClick={hasMenu ? () => setOpen(o => !o) : undefined}
+        >
+          <span className="ic" aria-hidden>{paused ? '⏸' : '▶'}</span>
+          {displayedStatus}
+          {hasMenu && <span className="chev" aria-hidden>▾</span>}
+        </button>
+        {open && hasMenu && (
+          <div className="run-menu__pop" role="menu">
+            {statusDetail !== undefined && statusDetail.trim().length > 0 && (
+              <span className="run-menu__detail" role="status">{statusDetail}</span>
+            )}
+            {onRun !== undefined && (
+              <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onRun)}>Run</button>
+            )}
+            {paused
+              ? onResume !== undefined && (
+                <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onResume)}>Resume</button>
+              )
+              : onPause !== undefined && (
+                <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onPause)}>Pause</button>
               )}
-              {paused
-                ? onResume !== undefined && (
-                  <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onResume)}>Resume</button>
-                )
-                : onPause !== undefined && (
-                  <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onPause)}>Pause</button>
-                )}
-            </div>
-          )}
-        </span>
-      )}
+          </div>
+        )}
+      </span>
       {onClose !== undefined && (
         <button type="button" className="btn danger" onClick={() => setConfirming(true)}>
           <span className="ic" aria-hidden>✕</span>

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LocalPRBundle } from '../../types/localPr';
 import { makeIdCache } from './idCache';
 import { usePR } from '../../pr/usePR';
@@ -27,6 +27,7 @@ type LocalPrState = {
   bundle: LocalPRBundle | null | undefined;
   refresh: () => void;
   syncing: boolean;
+  error: string | null;
 };
 
 /**
@@ -39,12 +40,24 @@ type LocalPrState = {
 export function useLocalPr(taskId: string): LocalPrState {
   const [prId, setPrId] = useState<string | null | undefined>(() => prIdCache.get(taskId));
   const [resolveToken, setResolveToken] = useState(0);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const shownTaskIdRef = useRef(taskId);
+  const requestGenerationRef = useRef(0);
+
+  if (shownTaskIdRef.current !== taskId) {
+    shownTaskIdRef.current = taskId;
+    requestGenerationRef.current += 1;
+    setPrId(prIdCache.get(taskId));
+    setResolveError(null);
+  }
 
   useEffect(() => {
+    const generation = ++requestGenerationRef.current;
     const cached = prIdCache.get(taskId);
     if (cached !== undefined) {
       setPrId(cached);
-      return;
+      setResolveError(null);
+      return () => { requestGenerationRef.current += 1; };
     }
     let cancelled = false;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
@@ -53,19 +66,28 @@ export function useLocalPr(taskId: string): LocalPrState {
     }
     void bridge.getPrForTask(taskId)
       .then(pr => {
-        if (cancelled) return;
+        if (cancelled || shownTaskIdRef.current !== taskId
+            || requestGenerationRef.current !== generation) return;
         const resolved = pr?.id ?? null;
         if (resolved !== null) prIdCache.set(taskId, resolved);
         setPrId(resolved);
+        setResolveError(null);
       })
-      .catch(() => { /* transient; effect re-runs on next mount/taskId change */ });
-    return () => { cancelled = true; };
+      .catch((reason: unknown) => {
+        if (cancelled || shownTaskIdRef.current !== taskId
+            || requestGenerationRef.current !== generation) return;
+        setResolveError(reason instanceof Error ? reason.message : 'Failed to resolve the task pull request');
+      });
+    return () => {
+      cancelled = true;
+      requestGenerationRef.current += 1;
+    };
   }, [taskId, resolveToken]);
 
-  const { bundle, refresh: refreshBundle, syncing } = usePR(prId ?? null);
+  const { bundle, refresh: refreshBundle, syncing, error: bundleError } = usePR(prId ?? null);
   const refresh = useCallback(() => {
     if (prId == null) setResolveToken(token => token + 1);
     else refreshBundle();
   }, [prId, refreshBundle]);
-  return { bundle: prId === null ? null : bundle, refresh, syncing };
+  return { bundle: prId === null ? null : bundle, refresh, syncing, error: resolveError ?? bundleError };
 }

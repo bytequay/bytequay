@@ -123,13 +123,16 @@ export function labelDotColor(row: PullRow): string {
 export type TimelineReply = { id: string; author: string; bot: boolean; body: string; time: string };
 
 export type TimelineReviewVerdict = 'approved' | 'changes' | 'commented' | 'dismissed' | null;
+export type TimelineReviewScope = 'plan' | 'dev' | 'round' | null;
 
 export type TimelineItem =
   | { kind: 'commit'; id: string; at: number; time: string; message: string; sha: string }
   | { kind: 'review-activity'; id: string; at: number; time: string; author: string;
-      activity: 'started' | 'addressing-started'; iteration: number | null }
+      activity: 'started' | 'addressing-started' | 'failed'; scope: TimelineReviewScope;
+      iteration: number | null; roundId: string | null; reason: string | null }
   | { kind: 'review'; id: string; at: number; time: string; author: string; bot: boolean;
-      verdict: TimelineReviewVerdict; body: string | null; remoteId: number | null }
+      verdict: TimelineReviewVerdict; body: string | null; remoteId: number | null;
+      scope?: TimelineReviewScope; iteration?: number | null; roundId?: string | null }
   | { kind: 'local-thread'; id: string; at: number; comments: LocalPRComment[]; submitted: boolean }
   | { kind: 'comment'; id: string; at: number; time: string; author: string; bot: boolean;
       body: string; replies: TimelineReply[]; remoteId: number | null }
@@ -162,6 +165,10 @@ function reviewVerdict(value: string | null): TimelineReviewVerdict {
     default:
       return null;
   }
+}
+
+function reviewScope(value: string | null): TimelineReviewScope {
+  return value === 'plan' || value === 'dev' || value === 'round' ? value : null;
 }
 
 const REVIEW_RECONCILE_WINDOW_MS = 10_000;
@@ -230,12 +237,16 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
         // look like a GitHub review, which task PRs never publish.
         continue;
       }
-      if (reviewEvent === 'started' || reviewEvent === 'addressing-started') {
-        if (scope !== 'dev' && scope !== 'round') continue;
+      if (reviewEvent === 'started' || reviewEvent === 'addressing-started'
+          || reviewEvent === 'failed' || reviewEvent === 'parked') {
+        if (scope !== 'plan' && scope !== 'dev' && scope !== 'round') continue;
         items.push({
           kind: 'review-activity', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
-          author: displayName(event.actor), activity: reviewEvent,
+          author: displayName(event.actor), activity: reviewEvent === 'parked' ? 'failed' : reviewEvent,
+          scope: reviewScope(scope),
           iteration: num(event.payload, 'iteration'),
+          roundId: str(event.payload, 'roundId'),
+          reason: str(event.payload, 'reason'),
         });
         continue;
       }
@@ -248,6 +259,9 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
         verdict: reviewVerdict(verdict),
         body: body !== null && body.trim().length > 0 ? body : null,
         remoteId: typeof event.remoteEventId === 'number' ? event.remoteEventId : null,
+        scope: reviewScope(scope),
+        iteration: num(event.payload, 'iteration'),
+        roundId: str(event.payload, 'roundId'),
       });
     }
   }

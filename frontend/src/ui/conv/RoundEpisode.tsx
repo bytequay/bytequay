@@ -63,14 +63,16 @@ export function RoundEpisode({ round, nestedRun, onOpenRun, onApprove, approveBu
   onApprove?: (roundId: string) => void;
   approveBusy?: boolean;
 }) {
-  const live = round.status !== 'posted' && round.status !== 'closed';
+  const live = round.status === 'triaging' || round.status === 'addressing' || round.status === 'awaiting_gate';
+  const paused = round.status === 'paused';
   const isBrain = round.origin === 'brain';
   return (
     <div className={`round-episode${live ? ' live' : ''}`}>
       <SpineNode
-        mark={live ? '●' : '✓'}
-        color={isBrain ? 'purple' : 'teal'}
+        mark={paused ? '!' : live ? '●' : '✓'}
+        color={paused ? 'orange' : isBrain ? 'purple' : 'teal'}
         name={isBrain ? 'Brain review' : `Round ${round.idx}`}
+        state={paused ? 'needs attention' : undefined}
         meta={summaryMeta(round)}
         right={isBrain && (
           <>

@@ -105,8 +105,15 @@ public interface ThreadTurnScheduler
     /** Cancel queued turns for one thread and return the number cancelled. */
     int cancelQueuedTurns(String threadId);
 
-    /** Cancel only queued turns belonging to one Session. */
+    /** Cancel queued turns and interrupt running turns belonging to one Session. */
     default int cancelSessionTurns(String agentRunId)
+    {
+        return 0;
+    }
+
+    /** Cancel every queued/running turn attributed to one exact task. This is
+     *  task-scoped (siblings on the same thread are left alone). */
+    default int cancelTaskTurns(String taskId)
     {
         return 0;
     }

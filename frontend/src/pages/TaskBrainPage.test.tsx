@@ -114,16 +114,24 @@ describe('TaskBrainPage locked frame', () => {
     expect(screen.getByPlaceholderText('This task is closed — ask the brain, or reopen to continue…')).toBeTruthy();
   });
 
-  it('hides the run-status control in the top bar but keeps Close task', () => {
+  it('shows the task state and exposes task-scoped Resume beside Close task', () => {
     const onClose = vi.fn();
+    const onResume = vi.fn();
     render(brain({
       task: { pillLabel: 'TASK #142', title: 'Needs help', finished: false },
-      run: { paused: true, statusLabel: 'needs attention', onClose },
+      run: { paused: true, statusLabel: 'needs attention', statusDetail: 'Brain review failed', onResume, onClose },
     }));
-    // The phase / run-status pill (and its Pause/Resume menu) moved out of the
-    // top bar — the phase is shown in the sidebar instead. Close task stays.
-    expect(screen.queryByRole('button', { name: /NEEDS ATTENTION/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /NEEDS ATTENTION/ }));
+    expect(screen.getByRole('status').textContent).toBe('Brain review failed');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Resume' }));
+    expect(onResume).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', { name: /Close task/ })).toBeTruthy();
+  });
+
+  it('surfaces polling and action failures without replacing stale content', () => {
+    render(brain({ error: 'Could not refresh task state' }));
+    expect(screen.getByRole('alert').textContent).toBe('Could not refresh task state');
+    expect(screen.getByTestId('conv')).toBeTruthy();
   });
 
   it('opens and submits the review drawer', async () => {

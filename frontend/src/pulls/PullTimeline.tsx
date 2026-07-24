@@ -80,6 +80,23 @@ function BotPill() {
   return <span style={{ border: '1px solid #d5dbe1', borderRadius: 999, padding: '0 7px', fontSize: 11, color: '#59636e' }}>Bot</span>;
 }
 
+function reviewScopeLabel(scope: Extract<TimelineItem, { kind: 'review-activity' }>['scope']): string {
+  if (scope === 'plan') return 'plan self-review';
+  if (scope === 'round') return 'review-round verification';
+  return 'adversarial code review';
+}
+
+function reviewIdentity(iteration: number | null | undefined, roundId: string | null | undefined) {
+  return (
+    <>
+      {iteration !== null && iteration !== undefined && ` · pass ${iteration}`}
+      {roundId !== null && roundId !== undefined && (
+        <> · <span style={shaStyle} title={roundId}>round {roundId.slice(0, 8)}</span></>
+      )}
+    </>
+  );
+}
+
 function CommentCard({ item, repoCtx, onReaction }: {
   item: Extract<TimelineItem, { kind: 'comment' }>;
   repoCtx: MarkdownRepoContext;
@@ -147,6 +164,11 @@ function ReviewCard({
         <Av login={item.author} size={24} square={item.bot} />
         <span style={{ fontSize: 13, fontWeight: 400, color: '#17191c' }}>{item.author}</span>
         {item.bot && <BotPill />}
+        {item.scope !== undefined && item.scope !== null && (
+          <span style={{ fontSize: 11.5, color: '#57606a', background: '#f6f8fa', border: '1px solid #d8dee4', borderRadius: 999, padding: '2px 8px' }}>
+            {reviewScopeLabel(item.scope)}{reviewIdentity(item.iteration, item.roundId)}
+          </span>
+        )}
         {item.verdict === 'approved' && (
           <span style={{ fontSize: 11.5, fontWeight: 600, color: '#1a7f37', background: '#dafbe1', border: '1px solid rgba(31,136,61,0.25)', borderRadius: 999, padding: '2px 10px' }}>Approved</span>
         )}
@@ -275,20 +297,26 @@ export default function PullTimeline({
               />
             );
           case 'review-activity':
+            {
+              const failed = item.activity === 'failed';
+              const activity = item.activity === 'started'
+                ? `started ${reviewScopeLabel(item.scope)}`
+                : item.activity === 'addressing-started'
+                  ? 'started addressing the adversarial review findings'
+                  : `${reviewScopeLabel(item.scope)} failed to finalize`;
             return (
               <div key={item.id} style={iconRowStyle}>
-                <span style={{ width: 26, height: 26, borderRadius: '50%', background: '#f3e8ff', border: '2px solid #fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#8250df', flexShrink: 0 }}>
-                  {item.activity === 'started' ? '◉' : '↻'}
+                <span style={{ width: 26, height: 26, borderRadius: '50%', background: failed ? '#ffebe9' : '#f3e8ff', border: '2px solid #fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: failed ? '#cf222e' : '#8250df', flexShrink: 0 }}>
+                  {failed ? '!' : item.activity === 'started' ? '◉' : '↻'}
                 </span>
                 <span style={iconRowTextStyle}>
                   <span style={{ color: '#17191c', fontWeight: 400 }}>{item.author}</span>{' '}
-                  {item.activity === 'started'
-                    ? 'started an adversarial code review'
-                    : 'started addressing the adversarial review comments'}
-                  {item.iteration !== null && ` · pass ${item.iteration}`} · {item.time}
+                  {activity}{reviewIdentity(item.iteration, item.roundId)}
+                  {item.reason !== null && ` — ${item.reason.replaceAll('_', ' ')}`} · {item.time}
                 </span>
               </div>
             );
+            }
           case 'local-thread': {
             const root = item.comments[0];
             if (root === undefined || localPr === undefined) return null;

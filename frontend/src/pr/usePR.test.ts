@@ -36,6 +36,12 @@ function bundleFor(prId: string): LocalPRBundle {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
 describe('usePR', () => {
   it('fetches the bundle by id', async () => {
     const bundle = bundleFor('pr-ext');
@@ -62,6 +68,19 @@ describe('usePR', () => {
 
     const { result } = renderHook(() => usePR('missing'));
     await waitFor(() => expect(result.current.bundle).toBeNull());
+  });
+
+  it('surfaces refresh failures and clears them after recovery', async () => {
+    const getLocalPrBundle = vi.fn()
+      .mockRejectedValueOnce(new Error('bundle unavailable'))
+      .mockResolvedValue(bundleFor('pr-retry'));
+    (globalThis as { bridge?: unknown }).bridge = { getLocalPrBundle };
+
+    const { result } = renderHook(() => usePR('pr-retry'));
+    await waitFor(() => expect(result.current.error).toBe('bundle unavailable'));
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.error).toBeNull());
+    expect(result.current.bundle?.pr.id).toBe('pr-retry');
   });
 
   it('refresh() re-fetches on demand', async () => {
@@ -101,5 +120,25 @@ describe('usePR', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
 
     expect(getLocalPrBundle.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('ignores an old PR response that arrives after an id switch', async () => {
+    const oldRequest = deferred<LocalPRBundle | null>();
+    const getLocalPrBundle = vi.fn((id: string) => id === 'pr-race-old'
+      ? oldRequest.promise : Promise.resolve(bundleFor(id)));
+    (globalThis as { bridge?: unknown }).bridge = { getLocalPrBundle };
+
+    const { result, rerender } = renderHook(({ id }) => usePR(id), {
+      initialProps: { id: 'pr-race-old' as string | null },
+    });
+    rerender({ id: 'pr-race-new' });
+    await waitFor(() => expect(result.current.bundle?.pr.id).toBe('pr-race-new'));
+
+    await act(async () => {
+      oldRequest.resolve(bundleFor('pr-race-old'));
+      await oldRequest.promise;
+    });
+    expect(result.current.bundle?.pr.id).toBe('pr-race-new');
+    expect(result.current.syncing).toBe(false);
   });
 });

@@ -45,6 +45,7 @@ import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
+import com.bytequay.app.service.threads.TaskTurnBudgetPausedEvent;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -60,6 +61,9 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
@@ -113,7 +117,12 @@ public class BrainReviewServiceImpl
     static final String SOURCE_PLAN_SELF_REVIEW = "brain-plan-self-review";
     static final String SOURCE_BRAIN_REVIEW = "brain-review";
     static final String SOURCE_BRAIN_FIX = "brain-review-fix";
+    private static final String PLAN_BUDGET_PAUSED = "plan_self_review_budget_paused";
+    private static final String REVIEW_BUDGET_PAUSED = "brain_review_budget_paused";
+    private static final String FIX_BUDGET_PAUSED = "brain_fix_budget_paused";
     private static final int MAX_OPERATIONAL_TURN_FAILURES = 2;
+
+    record NeedsAttentionNotice(String threadId, String taskId, String payloadJson) {}
 
     /** Mirrors {@code PlanToolHandlers}' auto-approve heuristic — moved here
      *  so it evaluates the plan AFTER the mandatory self-review (R20). */
@@ -200,21 +209,29 @@ public class BrainReviewServiceImpl
         if (task == null) {
             return prService.requestUserReview(prId, actor);
         }
+        if (taskRuntimeStopped(task)) {
+            return pr;
+        }
         return TaskPhaseMachine.withTaskLock(task.id(), () -> {
             PR current = prService.findById(prId).orElse(pr);
-            if (!PR.STATUS_LOCAL_DRAFTED.equals(current.status())) {
+            Task currentTask = taskStore.findTaskById(task.id()).orElse(task);
+            if (!PR.STATUS_LOCAL_DRAFTED.equals(current.status())
+                    || taskRuntimeStopped(currentTask)) {
                 return current;
             }
-            Optional<ReviewRound> existing = roundStore.findByTask(task.id()).stream()
+            Optional<ReviewRound> existing = roundStore.findByTask(currentTask.id()).stream()
                     .filter(r -> ReviewRound.ORIGIN_BRAIN.equals(r.origin()))
                     .findFirst();
             if (existing.isEmpty()) {
-                openBrainRound(task, prId);
+                openBrainRound(currentTask, prId);
                 return current; // still local-drafted — the loop concludes this later.
             }
             ReviewRound round = existing.get();
             if (round.isLive()) {
                 return current; // review already in flight; flip happens on conclusion.
+            }
+            if (ReviewRound.STATUS_PAUSED.equals(round.status())) {
+                return current; // operational failure; only task-scoped Resume may retry it.
             }
             // Already reviewed (approved or escalated) in an earlier call — perform
             // the deferred flip now.
@@ -232,13 +249,15 @@ public class BrainReviewServiceImpl
             return;
         }
         Task task = taskStore.findTaskById(pr.taskId()).orElse(null);
-        if (task == null || task.phase() != TaskPhase.INTERNAL_REVIEW) {
+        if (taskRuntimeStopped(task)
+                || task.phase() != TaskPhase.INTERNAL_REVIEW) {
             return;
         }
         TaskPhaseMachine.withTaskLock(task.id(), () -> {
             PR currentPr = prService.findById(prId).orElse(pr);
             Task currentTask = taskStore.findTaskById(task.id()).orElse(task);
             if (!PR.STATUS_LOCAL_OPEN.equals(currentPr.status())
+                    || taskRuntimeStopped(currentTask)
                     || currentTask.phase() != TaskPhase.INTERNAL_REVIEW) {
                 return null;
             }
@@ -251,15 +270,264 @@ public class BrainReviewServiceImpl
         });
     }
 
+    @Override
+    @Transactional
+    public boolean ownsParkedResume(String taskId)
+    {
+        List<ReviewRound> rounds = roundStore.findByTask(taskId);
+        if (rounds.stream().anyMatch(round -> ReviewRound.STATUS_PAUSED.equals(round.status()))) {
+            return true;
+        }
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        if (task != null && task.status() == TaskStatus.PAUSED
+                && (rounds.stream().anyMatch(ReviewRound::isLive)
+                        || planSelfReviewPending(task))) {
+            return true;
+        }
+        String parkReason = latestNeedsAttentionReason(taskId).orElse("");
+        if (rounds.stream().anyMatch(ReviewRound::isLive)
+                && isReviewCoordinatorReason(parkReason)) {
+            return true;
+        }
+        return task != null
+                && (task.phase() == TaskPhase.NEEDS_ATTENTION
+                        || task.status() == TaskStatus.NEEDS_ATTENTION)
+                && planReviewWasLatestPark(taskId)
+                && stageStore.findActiveStage(taskId)
+                        .filter(stage -> stage.type() == StageType.PLAN_STAGE)
+                        .filter(stage -> stage.state() != StageState.CLOSED)
+                        .isPresent();
+    }
+
+    @Override
+    @Transactional
+    public boolean pauseActiveReview(String taskId, String reason)
+    {
+        return TaskPhaseMachine.withTaskLock(taskId, () -> {
+            ReviewRound round = roundStore.findLiveByTask(taskId).orElse(null);
+            if (round != null) {
+                pauseCoordinatorRound(round, reason);
+                return true;
+            }
+            Task task = taskStore.findTaskById(taskId).orElse(null);
+            if (!planSelfReviewPending(task)) {
+                return false;
+            }
+            pausePlanRun(task, reason);
+            return true;
+        });
+    }
+
+    @Override
+    @Transactional
+    public boolean resumeParkedReview(String taskId)
+    {
+        return TaskPhaseMachine.withTaskLock(taskId, () -> {
+            Task task = taskStore.findTaskById(taskId).orElse(null);
+            if (task == null) {
+                return false;
+            }
+            if (task.phase() == TaskPhase.PLANNING
+                    && (planReviewWasLatestPark(taskId) || planSelfReviewPending(task))) {
+                return resumePlanSelfReview(task);
+            }
+
+            ReviewRound round = resumableRound(taskId).orElse(null);
+            if (round == null) {
+                if (task.phase() != TaskPhase.INTERNAL_REVIEW) {
+                    return false;
+                }
+                PR pr = prService.findByTask(taskId).orElse(null);
+                if (pr == null || (!PR.STATUS_LOCAL_DRAFTED.equals(pr.status())
+                        && !PR.STATUS_LOCAL_OPEN.equals(pr.status()))) {
+                    return false;
+                }
+                openBrainRound(task, pr.id());
+                return taskStore.findTaskById(taskId)
+                        .map(current -> !taskRuntimeStopped(current))
+                        .orElse(false);
+            }
+            boolean brainOrigin = ReviewRound.ORIGIN_BRAIN.equals(round.origin());
+            String scope = brainOrigin ? "dev" : "round";
+            TaskPhase expectedPhase = brainOrigin
+                    ? TaskPhase.INTERNAL_REVIEW : TaskPhase.AWAITING_REMOTE_REVIEW;
+            if (task.phase() != expectedPhase) {
+                return false;
+            }
+
+            // Repair a legacy half-parked row before opening the replacement
+            // run. New parking already leaves the round PAUSED and its run
+            // terminal, so this branch is only for older inconsistent data.
+            if (round.isLive()) {
+                stopRoundRuntime(task, round, "review_restarted_after_park");
+            }
+            AgentRun run = openResumedReviewRun(task, round);
+            if (run == null) {
+                parkBrainRound(task, round, "brain_review_resume_run_missing");
+                return false;
+            }
+            boolean addressing = hasOpenBrainRoots(task);
+            ReviewRound resumed = round.withRunId(run.id()).withBrainVerdict(null);
+            roundStore.save(resumed);
+            if (!addressing) {
+                boolean valid = brainOrigin
+                        ? validateLocalBrainFixes(resumed, task)
+                        : validateExternalFixes(resumed, task);
+                if (!valid) {
+                    return false;
+                }
+                resumed = resumed.withStatus(ReviewRound.STATUS_TRIAGING).withIterationBumped();
+            }
+            else {
+                resumed = resumed.withStatus(ReviewRound.STATUS_ADDRESSING);
+            }
+            roundStore.save(resumed);
+            boolean enqueued;
+            if (addressing) {
+                enqueued = enqueueFixTurn(resumed, task, run, scope);
+            }
+            else {
+                prService.recordBrainReviewStarted(task.id(), scope, resumed.iteration(), resumed.id());
+                enqueued = enqueueReviewTurn(task, run, resumed.iteration());
+            }
+            if (!enqueued) {
+                parkBrainRound(task, resumed, "brain_review_resume_failed");
+                return false;
+            }
+            return true;
+        });
+    }
+
+    private Optional<ReviewRound> resumableRound(String taskId)
+    {
+        return roundStore.findByTask(taskId).stream()
+                .filter(candidate -> ReviewRound.STATUS_PAUSED.equals(candidate.status())
+                        || candidate.isLive())
+                .findFirst();
+    }
+
+    private boolean planReviewWasLatestPark(String taskId)
+    {
+        return taskStore.listPhaseEvents(taskId).stream()
+                .filter(event -> event.toPhase() == TaskPhase.NEEDS_ATTENTION)
+                .max((left, right) -> left.transitionedAt().compareTo(right.transitionedAt()))
+                .map(event -> event.fromPhase() == TaskPhase.PLANNING
+                        && "plan_self_review_failed".equals(event.reason()))
+                .orElse(false);
+    }
+
+    private Optional<String> latestNeedsAttentionReason(String taskId)
+    {
+        return taskStore.listPhaseEvents(taskId).stream()
+                .filter(event -> event.toPhase() == TaskPhase.NEEDS_ATTENTION)
+                .max((left, right) -> left.transitionedAt().compareTo(right.transitionedAt()))
+                .map(event -> event.reason() == null ? "" : event.reason());
+    }
+
+    private static boolean isReviewCoordinatorReason(String reason)
+    {
+        return reason.startsWith("brain_") || reason.startsWith("review_fixes_");
+    }
+
+    private static boolean taskRuntimeStopped(Task task)
+    {
+        if (task == null || task.phase() == TaskPhase.NEEDS_ATTENTION
+                || task.phase() == TaskPhase.COMPLETED) {
+            return true;
+        }
+        return switch (task.status()) {
+            case PAUSED, NEEDS_ATTENTION, COMPLETED, REMOTE_CLOSED,
+                    ERRORED, CANCELED, ARCHIVED -> true;
+            default -> false;
+        };
+    }
+
+    private boolean planSelfReviewPending(Task task)
+    {
+        if (task == null || task.phase() != TaskPhase.PLANNING) {
+            return false;
+        }
+        return stageStore.findActiveStage(task.id())
+                .filter(stage -> stage.type() == StageType.PLAN_STAGE)
+                .filter(stage -> stage.state() != StageState.CLOSED)
+                .map(stage -> stageStore.findEventsByStage(stage.id()))
+                .filter(events -> latestPlanEvent(events).filter(this::isFinalized).isPresent())
+                .filter(events -> !latestPlanWasSelfReviewed(events))
+                .isPresent();
+    }
+
+    private void pauseCoordinatorRound(ReviewRound round, String reason)
+    {
+        roundStore.save(round.withStatus(ReviewRound.STATUS_PAUSED));
+        if (round.runId() != null) {
+            agentRuns.findById(round.runId())
+                    .filter(AgentRun::isLive)
+                    .ifPresent(run -> agentRuns.pause(run.id(), reason));
+        }
+    }
+
+    private void pausePlanRun(Task task, String reason)
+    {
+        StageInstance plan = stageStore.findActiveStage(task.id()).orElse(null);
+        ThreadTurn turn = latestPlanSelfReviewTurn(task.id(), plan == null ? null : plan.id()).orElse(null);
+        if (turn == null || turn.agentRunId() == null) {
+            return;
+        }
+        agentRuns.findById(turn.agentRunId())
+                .filter(AgentRun::isLive)
+                .ifPresent(run -> agentRuns.pause(run.id(), reason));
+    }
+
+    private boolean resumePlanSelfReview(Task task)
+    {
+        StageInstance plan = stageStore.findActiveStage(task.id())
+                .filter(stage -> stage.type() == StageType.PLAN_STAGE)
+                .filter(stage -> stage.state() != StageState.CLOSED)
+                .orElse(null);
+        if (plan == null) {
+            return false;
+        }
+        List<StageEvent> stageEvents = stageStore.findEventsByStage(plan.id());
+        Optional<StageEvent> latestPlan = latestPlanEvent(stageEvents);
+        if (latestPlan.isEmpty() || !isFinalized(latestPlan.get())
+                || latestPlanWasSelfReviewed(stageEvents)) {
+            return false;
+        }
+        String replacementRunId = replacementPlanRun(task.id(), plan.id())
+                .map(AgentRun::id)
+                .orElse(null);
+        if (enqueuePlanSelfReview(task.id(), plan.id(), replacementRunId)) {
+            return true;
+        }
+        parkFailedPlanReview(task.id(), plan.id());
+        return false;
+    }
+
+    private Optional<AgentRun> replacementPlanRun(String taskId, UUID stageId)
+    {
+        return latestPlanSelfReviewTurn(taskId, stageId)
+                .map(ThreadTurn::agentRunId)
+                .filter(runId -> runId != null && !runId.isBlank())
+                .flatMap(agentRuns::findById)
+                .filter(run -> AgentRun.STATUS_PAUSED.equals(run.status()))
+                .map(run -> agentRuns.restart(run.id()));
+    }
+
+    private Optional<ThreadTurn> latestPlanSelfReviewTurn(String taskId, UUID stageId)
+    {
+        if (stageId == null) {
+            return Optional.empty();
+        }
+        return threadStore.findBrainThreadByTask(taskId).stream()
+                .flatMap(thread -> turnStore.listTurnsByTaskId(thread.id(), 50).stream())
+                .filter(turn -> stageId.toString().equals(turn.stageId()))
+                .filter(BrainReviewServiceImpl::isPlanSelfReviewTurn)
+                .findFirst();
+    }
+
     private void openBrainRound(Task task, String prId)
     {
-        Optional<StageInstance> dev = stageStore.findStagesByTask(task.id()).stream()
-                .filter(s -> s.type() == StageType.DEVELOPMENT_STAGE)
-                .findFirst();
-        String parentStageId = dev.map(s -> s.id().toString()).orElse(null);
-        AgentRun run = agentRuns.open(
-                task.id(), AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL,
-                parentStageId, StageType.REVIEW_ROUND_STAGE, /* budget */ null);
+        AgentRun run = openReviewRun(task);
         boolean adoptOpenFindings = hasOpenBrainRoots(task);
         ReviewRound round = new ReviewRound(
                 UUID.randomUUID().toString(), task.id(), roundStore.nextIndex(task.id()), List.of(),
@@ -283,14 +551,72 @@ public class BrainReviewServiceImpl
         log.info("brain-review: opened dev-end round {} for task {} (PR {})", round.id(), task.id(), prId);
     }
 
+    private AgentRun openReviewRun(Task task)
+    {
+        String parentStageId = stageStore.findStagesByTask(task.id()).stream()
+                .filter(s -> s.type() == StageType.DEVELOPMENT_STAGE)
+                .findFirst()
+                .map(s -> s.id().toString())
+                .orElse(null);
+        AgentRun run = agentRuns.open(
+                task.id(), AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL,
+                parentStageId, StageType.REVIEW_ROUND_STAGE, /* budget */ null);
+        threadStore.findBrainThreadByTask(task.id())
+                .filter(thread -> thread.workspaceId() != null && !thread.workspaceId().isBlank())
+                .ifPresent(thread -> agentRuns.attachOwnership(
+                        run.id(), thread.workspaceId(), thread.id(), thread.provider(), thread.model(),
+                        BRAIN_REVIEW_PROMPT));
+        return run;
+    }
+
+    private AgentRun openResumedReviewRun(Task task, ReviewRound round)
+    {
+        AgentRun prior = round.runId() == null ? null : agentRuns.findById(round.runId()).orElse(null);
+        if (prior != null && AgentRun.STATUS_PAUSED.equals(prior.status())) {
+            return agentRuns.restart(prior.id());
+        }
+        if (ReviewRound.ORIGIN_BRAIN.equals(round.origin())) {
+            return openReviewRun(task);
+        }
+        String stageId = prior == null ? null : prior.stageId();
+        if (stageId != null && !stageId.isBlank()) {
+            try {
+                StageInstance priorStage = stageStore.findStageById(UUID.fromString(stageId)).orElse(null);
+                if (priorStage == null) {
+                    stageId = null;
+                }
+                else if (priorStage.state() == StageState.CLOSED) {
+                    stageId = stageStore.reopenStage(priorStage.id()).id().toString();
+                }
+            }
+            catch (IllegalArgumentException e) {
+                stageId = null;
+            }
+        }
+        if (stageId == null || stageId.isBlank()) {
+            StageInstance remote = stageStore.findStageByType(task.id(), StageType.REMOTE_DEVELOPMENT_STAGE)
+                    .orElse(null);
+            if (remote == null) {
+                return null;
+            }
+            if (remote.state() == StageState.CLOSED) {
+                remote = stageStore.reopenStage(remote.id());
+            }
+            stageId = remote.id().toString();
+        }
+        return agentRuns.openInStage(
+                task.id(), AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
+                stageId, /* budget */ null);
+    }
+
     @Override
     @Transactional
     public void reviewBeforeRoundGate(ReviewRound round, Task task)
     {
-        if (task.status() == TaskStatus.NEEDS_ATTENTION || task.phase() == TaskPhase.NEEDS_ATTENTION) {
+        if (taskRuntimeStopped(task)) {
             return;
         }
-        if (!validateExternalFixes(task)) {
+        if (!validateExternalFixes(round, task)) {
             return;
         }
         AgentRun run = round.runId() == null ? null : agentRuns.findById(round.runId()).orElse(null);
@@ -397,16 +723,98 @@ public class BrainReviewServiceImpl
         }
         if (event.failed() || turn.status() != ThreadTurnStatus.COMPLETED) {
             handleFailedPlanSelfReview(event.taskId(), turn);
+            reconcileFailedRoundTurn(event.taskId(), turn);
             return;
         }
         advancePlanSelfReview(event.taskId(), turn);
         advanceRoundLoop(event.taskId(), turn);
     }
 
+    @EventListener
+    @Transactional
+    public void onTurnBudgetPaused(TaskTurnBudgetPausedEvent event)
+    {
+        ThreadTurn turn = turnStore.findTurnById(event.turnId()).orElse(null);
+        if (turn == null || turn.initiator() == null) {
+            return;
+        }
+        String source = turn.initiator().source();
+        TaskPhaseMachine.withTaskLock(event.taskId(), () -> {
+            Task task = taskStore.findTaskById(event.taskId()).orElse(null);
+            if (SOURCE_PLAN_SELF_REVIEW.equals(source)) {
+                if (taskRuntimeStopped(task)) {
+                    return null;
+                }
+                if (planSelfReviewPending(task)) {
+                    pauseRun(turn.agentRunId(), PLAN_BUDGET_PAUSED);
+                    taskStore.saveTask(task.withStatus(TaskStatus.PAUSED)
+                            .withProcessPid(null)
+                            .withErrorMessage(PLAN_BUDGET_PAUSED));
+                }
+                return null;
+            }
+            if (!SOURCE_BRAIN_REVIEW.equals(source) && !SOURCE_BRAIN_FIX.equals(source)) {
+                return null;
+            }
+            boolean userAlreadyPaused = task != null && task.status() == TaskStatus.PAUSED;
+            if (!userAlreadyPaused && taskRuntimeStopped(task)) {
+                return null;
+            }
+            ReviewRound round = roundStore.findLiveByTask(event.taskId())
+                    .filter(candidate -> matchesRunTurn(candidate, turn))
+                    .orElseGet(() -> userAlreadyPaused
+                            ? roundStore.findByTask(event.taskId()).stream()
+                                    .filter(candidate -> ReviewRound.STATUS_PAUSED.equals(candidate.status()))
+                                    .filter(candidate -> matchesRunTurn(candidate, turn))
+                                    .findFirst()
+                                    .orElse(null)
+                            : null);
+            if (round == null) {
+                return null;
+            }
+            String scope = ReviewRound.ORIGIN_BRAIN.equals(round.origin()) ? "dev" : "round";
+            String reason;
+            if (SOURCE_BRAIN_REVIEW.equals(source)) {
+                reason = REVIEW_BUDGET_PAUSED;
+                prService.recordBrainReview(
+                        task.id(), scope, round.brainVerdict(), round.iteration(),
+                        round.id(), reviewBody(turn));
+            }
+            else {
+                reason = FIX_BUDGET_PAUSED;
+                prService.recordBrainReviewFailed(
+                        task.id(), scope, round.iteration(), round.id(), reason, round.runId());
+            }
+            if (userAlreadyPaused) {
+                return null;
+            }
+            pauseCoordinatorRound(round, reason);
+            taskStore.saveTask(task.withStatus(TaskStatus.PAUSED)
+                    .withProcessPid(null)
+                    .withErrorMessage(reason));
+            return null;
+        });
+    }
+
+    private void pauseRun(String runId, String reason)
+    {
+        if (runId == null || runId.isBlank()) {
+            return;
+        }
+        agentRuns.findById(runId)
+                .filter(AgentRun::isLive)
+                .ifPresent(run -> agentRuns.pause(run.id(), reason));
+    }
+
     private void handleFailedPlanSelfReview(String taskId, ThreadTurn turn)
     {
         if (turn.initiator() == null
                 || !SOURCE_PLAN_SELF_REVIEW.equals(turn.initiator().source())) {
+            return;
+        }
+        if (taskStore.findTaskById(taskId)
+                .map(BrainReviewServiceImpl::taskRuntimeStopped)
+                .orElse(true)) {
             return;
         }
         UUID stageId;
@@ -426,10 +834,11 @@ public class BrainReviewServiceImpl
         Instant latestPlanAt = latestPlanEvent(stageStore.findEventsByStage(stageId))
                 .map(StageEvent::eventAt)
                 .orElse(Instant.MIN);
+        Instant attemptResetAt = planAttemptResetAt(taskId, latestPlanAt);
         boolean priorAttempt = turnStore.listTurnsByTaskId(turn.threadId(), 50).stream()
                 .filter(candidate -> !candidate.id().equals(turn.id()))
                 .filter(candidate -> stageId.toString().equals(candidate.stageId()))
-                .filter(candidate -> !candidate.createdAt().isBefore(latestPlanAt))
+                .filter(candidate -> !candidate.createdAt().isBefore(attemptResetAt))
                 .anyMatch(BrainReviewServiceImpl::isPlanSelfReviewTurn);
         if (!priorAttempt) {
             if (!enqueuePlanSelfReview(taskId, stageId)) {
@@ -440,16 +849,42 @@ public class BrainReviewServiceImpl
         parkFailedPlanReview(taskId, stageId);
     }
 
+    private void reconcileFailedRoundTurn(String taskId, ThreadTurn turn)
+    {
+        String source = turn.initiator() == null ? "" : turn.initiator().source();
+        if (!SOURCE_BRAIN_REVIEW.equals(source) && !SOURCE_BRAIN_FIX.equals(source)) {
+            return;
+        }
+        TaskPhaseMachine.withTaskLock(taskId, () -> {
+            roundStore.findLiveByTask(taskId)
+                    .filter(round -> matchesRunTurn(round, turn))
+                    .ifPresent(this::reconcileStalledRound);
+            return null;
+        });
+    }
+
     private boolean enqueuePlanSelfReview(String taskId, UUID stageId)
+    {
+        return enqueuePlanSelfReview(taskId, stageId, null);
+    }
+
+    private boolean enqueuePlanSelfReview(String taskId, UUID stageId, String agentRunId)
     {
         Optional<Thread> brain = threadStore.findBrainThreadByTask(taskId);
         if (brain.isEmpty()) {
             return false;
         }
         try {
-            scheduler.enqueueTaskTurn(
-                    brain.get(), PLAN_SELF_REVIEW_PROMPT, taskId, stageId.toString(),
-                    TurnInitiator.unattended(SOURCE_PLAN_SELF_REVIEW));
+            TurnInitiator initiator = TurnInitiator.unattended(SOURCE_PLAN_SELF_REVIEW);
+            if (agentRunId == null) {
+                scheduler.enqueueTaskTurn(
+                        brain.get(), PLAN_SELF_REVIEW_PROMPT, taskId, stageId.toString(), initiator);
+            }
+            else {
+                scheduler.enqueueTaskTurn(
+                        brain.get(), PLAN_SELF_REVIEW_PROMPT, taskId, stageId.toString(),
+                        initiator, agentRunId);
+            }
             return true;
         }
         catch (RuntimeException e) {
@@ -467,7 +902,7 @@ public class BrainReviewServiceImpl
     private void parkFailedPlanReview(String taskId, UUID stageId)
     {
         Task task = taskStore.findTaskById(taskId).orElse(null);
-        if (task == null || task.phase() == TaskPhase.COMPLETED) {
+        if (taskRuntimeStopped(task)) {
             return;
         }
         stageStore.recordEvent(
@@ -480,7 +915,7 @@ public class BrainReviewServiceImpl
         if (task.status() != TaskStatus.NEEDS_ATTENTION) {
             taskStore.saveTask(task.withStatus(TaskStatus.NEEDS_ATTENTION));
         }
-        notifications.notifyNeedsAttention(
+        notifyNeedsAttention(
                 task.threadId(), taskId, "{\"reason\":\"plan self-review failed twice\"}");
     }
 
@@ -491,7 +926,7 @@ public class BrainReviewServiceImpl
     public synchronized void reconcilePlanSelfReviews()
     {
         for (Task task : taskStore.listByPhases(List.of(TaskPhase.PLANNING), 100)) {
-            if (task.status() == TaskStatus.NEEDS_ATTENTION) {
+            if (taskRuntimeStopped(task)) {
                 continue;
             }
             StageInstance plan = stageStore.findActiveStage(task.id())
@@ -511,10 +946,11 @@ public class BrainReviewServiceImpl
                 parkFailedPlanReview(task.id(), plan.id());
                 continue;
             }
+            Instant attemptResetAt = planAttemptResetAt(task.id(), latestPlan.get().eventAt());
             List<ThreadTurn> attempts = turnStore.listTurnsByTaskId(brain.get().id(), 50).stream()
                     .filter(candidate -> plan.id().toString().equals(candidate.stageId()))
                     .filter(BrainReviewServiceImpl::isPlanSelfReviewTurn)
-                    .filter(candidate -> !candidate.createdAt().isBefore(latestPlan.get().eventAt()))
+                    .filter(candidate -> !candidate.createdAt().isBefore(attemptResetAt))
                     .toList();
             if (attempts.stream().anyMatch(candidate ->
                     candidate.status() == ThreadTurnStatus.QUEUED
@@ -550,6 +986,11 @@ public class BrainReviewServiceImpl
                 .filter(s -> s.type() == StageType.PLAN_STAGE)
                 .filter(s -> s.state() != StageState.CLOSED);
         if (planStage.isEmpty()) {
+            return;
+        }
+        if (taskStore.findTaskById(taskId)
+                .map(BrainReviewServiceImpl::taskRuntimeStopped)
+                .orElse(true)) {
             return;
         }
         List<StageEvent> events = stageStore.findEventsByStage(stageId);
@@ -626,6 +1067,16 @@ public class BrainReviewServiceImpl
                 .reduce((first, second) -> second);
     }
 
+    private Instant planAttemptResetAt(String taskId, Instant latestPlanAt)
+    {
+        return taskStore.listPhaseEvents(taskId).stream()
+                .filter(event -> "user_resumed_task".equals(event.reason()))
+                .map(event -> event.transitionedAt())
+                .filter(resumedAt -> resumedAt.isAfter(latestPlanAt))
+                .max(Instant::compareTo)
+                .orElse(latestPlanAt);
+    }
+
     private JsonNode planJson(StageEvent planEvent)
     {
         if (planEvent.payloadJson() == null) {
@@ -651,7 +1102,7 @@ public class BrainReviewServiceImpl
             }
             ReviewRound round = liveOpt.get();
             Task task = taskStore.findTaskById(taskId).orElse(null);
-            if (task == null) {
+            if (taskRuntimeStopped(task)) {
                 return null;
             }
             String source = turn.initiator() == null ? "" : turn.initiator().source();
@@ -671,6 +1122,9 @@ public class BrainReviewServiceImpl
      *  (approved or budget spent) or loop into another fix turn. */
     private void advanceAfterReviewTurn(ReviewRound round, Task task, ThreadTurn turn)
     {
+        if (taskRuntimeStopped(task)) {
+            return;
+        }
         String verdict = round.brainVerdict();
         String scope = ReviewRound.ORIGIN_BRAIN.equals(round.origin()) ? "dev" : "round";
         // The orchestrator owns the finished audit row so the final review
@@ -678,6 +1132,10 @@ public class BrainReviewServiceImpl
         // its MCP connection failed.
         prService.recordBrainReview(
                 task.id(), scope, verdict, round.iteration(), round.id(), turn == null ? null : reviewBody(turn));
+        if (verdict == null) {
+            parkBrainRound(task, round, "brain_review_verdict_missing");
+            return;
+        }
         boolean approved = ReviewRound.VERDICT_APPROVED.equals(verdict);
         if (approved && ReviewRound.ORIGIN_BRAIN.equals(round.origin()) && hasOpenBrainRoots(task)) {
             // A verdict cannot overrule the reviewer's own unresolved
@@ -755,13 +1213,31 @@ public class BrainReviewServiceImpl
         }
         String body = messages.stream()
                 .filter(message -> "assistant".equals(message.role()) && "text".equals(message.type()))
-                .filter(message -> turn.taskId().equals(message.taskId()))
+                .filter(message -> messageBelongsToTurn(message, turn))
                 .filter(message -> turn.startedAt() == null || !message.ts().isBefore(turn.startedAt()))
                 .filter(message -> turn.finishedAt() == null || !message.ts().isAfter(turn.finishedAt()))
                 .map(this::messageText)
                 .filter(text -> !text.isBlank())
                 .collect(joining("\n\n"));
         return body.isBlank() ? null : body;
+    }
+
+    private static boolean messageBelongsToTurn(ThreadMessage message, ThreadTurn turn)
+    {
+        if (turn.taskId() != null && turn.taskId().equals(message.taskId())) {
+            return true;
+        }
+        // Legacy Brain rows were written before per-turn task attribution was
+        // fixed. Accept only the shape that is still uniquely bounded by this
+        // exact stage and this completed turn's time window; a generic trunk
+        // message or an open-ended interval remains ineligible.
+        return message.taskId() == null
+                && turn.stageId() != null
+                && turn.stageId().equals(message.stageId())
+                && turn.startedAt() != null
+                && turn.finishedAt() != null
+                && !message.ts().isBefore(turn.startedAt())
+                && !message.ts().isAfter(turn.finishedAt());
     }
 
     private String messageText(ThreadMessage message)
@@ -778,6 +1254,9 @@ public class BrainReviewServiceImpl
      *  again. */
     private void advanceAfterFixTurn(ReviewRound round, Task task)
     {
+        if (taskRuntimeStopped(task)) {
+            return;
+        }
         AgentRun run = round.runId() == null ? null : agentRuns.findById(round.runId()).orElse(null);
         if (run == null) {
             conclude(round, task, false);
@@ -802,11 +1281,11 @@ public class BrainReviewServiceImpl
                 }
                 return;
             }
-            if (!validateLocalBrainFixes(task)) {
+            if (!validateLocalBrainFixes(round, task)) {
                 return;
             }
         }
-        else if (!validateExternalFixes(task)) {
+        else if (!validateExternalFixes(round, task)) {
             return;
         }
         ReviewRound reviewing = round.withStatus(ReviewRound.STATUS_TRIAGING).withIterationBumped();
@@ -819,25 +1298,23 @@ public class BrainReviewServiceImpl
         prService.recordBrainReviewStarted(task.id(), scope, reviewing.iteration(), reviewing.id());
     }
 
-    private boolean validateLocalBrainFixes(Task task)
+    private boolean validateLocalBrainFixes(ReviewRound round, Task task)
     {
         if (task.phase() != TaskPhase.INTERNAL_REVIEW) {
             return false;
         }
         ValidationPassResult result = validation.run(task.id());
         if (!result.passed()) {
-            phaseMachine.transition(
-                    task.id(), TaskPhase.NEEDS_ATTENTION, "brain_fixes_validation_failed", Actor.AGENT);
+            parkBrainRound(task, round, "brain_fixes_validation_failed");
         }
         return result.passed();
     }
 
-    private boolean validateExternalFixes(Task task)
+    private boolean validateExternalFixes(ReviewRound round, Task task)
     {
         ValidationPassResult result = validation.run(task.id());
         if (!result.passed()) {
-            phaseMachine.transition(
-                    task.id(), TaskPhase.NEEDS_ATTENTION, "review_fixes_validation_failed", Actor.AGENT);
+            parkBrainRound(task, round, "review_fixes_validation_failed");
         }
         return result.passed();
     }
@@ -874,8 +1351,7 @@ public class BrainReviewServiceImpl
             return;
         }
         Task task = taskStore.findTaskById(round.taskId()).orElse(null);
-        if (task == null || task.status() == TaskStatus.NEEDS_ATTENTION
-                || task.phase() == TaskPhase.NEEDS_ATTENTION) {
+        if (taskRuntimeStopped(task)) {
             return;
         }
         AgentRun run = round.runId() == null ? null : agentRuns.findById(round.runId()).orElse(null);
@@ -1009,18 +1485,29 @@ public class BrainReviewServiceImpl
 
     private void parkBrainRound(Task task, ReviewRound round, String reason)
     {
-        if (task.phase() == TaskPhase.COMPLETED
-                || task.status() == TaskStatus.COMPLETED
-                || task.status() == TaskStatus.REMOTE_CLOSED
-                || task.status() == TaskStatus.CANCELED
-                || task.status() == TaskStatus.ERRORED
-                || task.phase() == TaskPhase.NEEDS_ATTENTION
-                || task.status() == TaskStatus.NEEDS_ATTENTION) {
+        if (taskRuntimeStopped(task)) {
             return;
         }
+        stopRoundRuntime(task, round, reason);
+        taskStore.saveTask(task.withErrorMessage(reason));
         phaseMachine.transition(task.id(), TaskPhase.NEEDS_ATTENTION, reason, Actor.AGENT);
-        notifications.notifyNeedsAttention(task.threadId(), task.id(),
+        notifyNeedsAttention(task.threadId(), task.id(),
                 "{\"reason\":\"" + reason + "\",\"roundId\":\"" + round.id() + "\"}");
+    }
+
+    private void stopRoundRuntime(Task task, ReviewRound round, String reason)
+    {
+        roundStore.save(round.withStatus(ReviewRound.STATUS_PAUSED));
+        if (round.runId() != null) {
+            scheduler.cancelSessionTurns(round.runId());
+            agentRuns.findById(round.runId())
+                    .filter(AgentRun::isLive)
+                    .ifPresent(run -> agentRuns.transition(
+                            run.id(), AgentRun.STATUS_FAILED, reason));
+        }
+        String scope = ReviewRound.ORIGIN_BRAIN.equals(round.origin()) ? "dev" : "round";
+        prService.recordBrainReviewFailed(
+                task.id(), scope, round.iteration(), round.id(), reason, round.runId());
     }
 
     private boolean enqueueFixTurn(ReviewRound round, Task task, AgentRun run, String scope)
@@ -1037,8 +1524,9 @@ public class BrainReviewServiceImpl
                     TurnInitiator.unattended(SOURCE_BRAIN_FIX), run.id());
             if (!ReviewRound.STATUS_ADDRESSING.equals(round.status())) {
                 roundStore.save(round.withStatus(ReviewRound.STATUS_ADDRESSING));
-                prService.recordBrainReviewAddressing(task.id(), scope, round.iteration(), round.id());
             }
+            prService.recordBrainReviewAddressing(
+                    task.id(), scope, round.iteration(), round.id(), run.id());
             return true;
         }
         catch (RuntimeException e) {
@@ -1078,12 +1566,16 @@ public class BrainReviewServiceImpl
 
     private void conclude(ReviewRound round, Task task, boolean approved)
     {
+        Task currentTask = taskStore.findTaskById(task.id()).orElse(task);
+        if (taskRuntimeStopped(currentTask)) {
+            return;
+        }
         ReviewRound.ReviewRoundStats stats = round.stats() == null
                 ? ReviewRound.ReviewRoundStats.empty()
                 : round.stats();
         boolean brainOrigin = ReviewRound.ORIGIN_BRAIN.equals(round.origin());
         int openBrainFindings = brainOrigin
-                ? prService.findByTask(task.id())
+                ? prService.findByTask(currentTask.id())
                         .map(pr -> (int) prService.comments(pr.id()).stream()
                                 .filter(comment -> PRTimelineEntry.ACTOR_BRAIN.equals(comment.author()))
                                 .filter(comment -> comment.parentCommentId() == null)
@@ -1108,27 +1600,61 @@ public class BrainReviewServiceImpl
             }
         }
         if (!approved) {
-            notifications.notifyNeedsAttention(task.threadId(), task.id(),
+            notifyNeedsAttention(currentTask.threadId(), currentTask.id(),
                     "{\"reason\":\"brain review budget exhausted\",\"roundId\":\"" + round.id() + "\"}");
         }
         if (ReviewRound.ORIGIN_BRAIN.equals(round.origin())) {
-            prService.findByTask(task.id()).ifPresent(pr -> {
+            prService.findByTask(currentTask.id()).ifPresent(pr -> {
                 if (PR.STATUS_LOCAL_DRAFTED.equals(pr.status())) {
                     prService.requestUserReview(pr.id(), "brain");
                     // Let auto_merge push automatically instead of waiting on the
                     // Local Review page's manual button — the PR just reached
                     // local-open, exactly the moment that button would appear.
-                    events.publishEvent(new LocalReviewClearedEvent(task.id(), pr.id(), approved));
+                    events.publishEvent(new LocalReviewClearedEvent(currentTask.id(), pr.id(), approved));
                 }
                 else if (PR.STATUS_LOCAL_OPEN.equals(pr.status())
-                        && task.phase() == TaskPhase.INTERNAL_REVIEW) {
+                        && currentTask.phase() == TaskPhase.INTERNAL_REVIEW) {
                     phaseMachine.transition(
-                            task.id(), TaskPhase.AWAITING_PUSH,
+                            currentTask.id(), TaskPhase.AWAITING_PUSH,
                             "local_review_reverified", Actor.AGENT);
                 }
             });
         }
         log.info("brain-review: round {} concluded ({}), approved={}", round.id(), round.origin(), approved);
+    }
+
+    private void notifyNeedsAttention(String threadId, String taskId, String payloadJson)
+    {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            try {
+                notifications.notifyNeedsAttention(threadId, taskId, payloadJson);
+            }
+            catch (RuntimeException e) {
+                log.warn("brain-review: needs-attention notification failed for task {}: {}",
+                        taskId, e.getMessage());
+            }
+            return;
+        }
+        try {
+            events.publishEvent(new NeedsAttentionNotice(threadId, taskId, payloadJson));
+        }
+        catch (RuntimeException e) {
+            log.warn("brain-review: needs-attention notification could not be scheduled for task {}: {}",
+                    taskId, e.getMessage());
+        }
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void deliverNeedsAttention(NeedsAttentionNotice notice)
+    {
+        try {
+            notifications.notifyNeedsAttentionInNewTransaction(
+                    notice.threadId(), notice.taskId(), notice.payloadJson());
+        }
+        catch (RuntimeException e) {
+            log.warn("brain-review: needs-attention notification failed for task {}: {}",
+                    notice.taskId(), e.getMessage());
+        }
     }
 
     private Instant now()

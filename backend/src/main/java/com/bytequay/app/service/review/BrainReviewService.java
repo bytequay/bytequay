@@ -44,6 +44,20 @@ public interface BrainReviewService
      *  {@code local-open}; approval returns the task to the same push gate. */
     void reviewAfterLocalComments(String prId);
 
+    /** Reopens a Brain review episode parked by an operational failure.
+     *  Returns true when the coordinator owns the resumed runtime. */
+    boolean resumeParkedReview(String taskId);
+
+    /** True when task Resume must be handed back to this coordinator instead
+     *  of generically waking a stage agent. Covers plan self-review plus local
+     *  and external code-review episodes. */
+    boolean ownsParkedResume(String taskId);
+
+    /** Atomically parks any coordinator-owned review runtime for an explicit
+     *  task Pause. Returns true when a live code-review round or pending plan
+     *  self-review was owned; this operation does not record a failed review. */
+    boolean pauseActiveReview(String taskId, String reason);
+
     /**
      * The R21(b) round lock point: called once an external round's
      * addressing turn finishes, instead of arming {@code awaiting_gate}

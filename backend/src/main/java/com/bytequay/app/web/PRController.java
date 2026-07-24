@@ -242,7 +242,7 @@ public class PRController
     @GetMapping("/api/prs/{prId}/bundle")
     public PRBundleDto bundle(@PathVariable String prId)
     {
-        PR pr = sync.syncPR(prId)
+        PR pr = sync.syncPRForDisplay(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
         return new PRBundleDto(
                 PRDto.from(pr),

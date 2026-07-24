@@ -62,6 +62,8 @@ public record ReviewRound(
     public static final String STATUS_AWAITING_GATE = "awaiting_gate";
     public static final String STATUS_POSTED = "posted";
     public static final String STATUS_CLOSED = "closed";
+    /** Operational failure parked for an explicit task-scoped Resume. */
+    public static final String STATUS_PAUSED = "paused";
 
     public static final String ORIGIN_EXTERNAL = "external";
     public static final String ORIGIN_BRAIN = "brain";

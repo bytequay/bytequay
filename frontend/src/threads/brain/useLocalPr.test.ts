@@ -39,6 +39,12 @@ function bundleFor(taskId: string): LocalPRBundle {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
 describe('useLocalPr', () => {
   it('resolves the task id to a PR id, then fetches its bundle', async () => {
     const bundle = bundleFor('t1');
@@ -91,5 +97,26 @@ describe('useLocalPr', () => {
     await waitFor(() => expect(result.current.bundle).toEqual(bundle));
     expect(getPrForTask).toHaveBeenCalledTimes(2);
     expect(getLocalPrBundle).toHaveBeenCalledWith('pr-t4');
+  });
+
+  it('does not attach a late PR resolution to a different task', async () => {
+    const oldRequest = deferred<LocalPR | null>();
+    const getPrForTask = vi.fn((taskId: string) => taskId === 'task-race-old'
+      ? oldRequest.promise : Promise.resolve(prFor(taskId)));
+    const getLocalPrBundle = vi.fn((prId: string) =>
+      Promise.resolve(bundleFor(prId.replace(/^pr-/, ''))));
+    (globalThis as { bridge?: unknown }).bridge = { getPrForTask, getLocalPrBundle };
+
+    const { result, rerender } = renderHook(({ id }) => useLocalPr(id), {
+      initialProps: { id: 'task-race-old' },
+    });
+    rerender({ id: 'task-race-new' });
+    await waitFor(() => expect(result.current.bundle?.pr.taskId).toBe('task-race-new'));
+
+    await act(async () => {
+      oldRequest.resolve(prFor('task-race-old'));
+      await oldRequest.promise;
+    });
+    expect(result.current.bundle?.pr.taskId).toBe('task-race-new');
   });
 });

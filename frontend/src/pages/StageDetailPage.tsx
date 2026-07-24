@@ -41,7 +41,7 @@ export function StageDetailPage({
   planReminder, onRevealPlan,
   onSubmitReview, submittingReview = false,
   openTabRequest, pendingReviewComments = [], onRemovePendingReviewComment,
-  conversationIndex, taskNumber, trunkLabel, taskTitle, onOpenTrunk, onOpenTask,
+  conversationIndex, taskNumber, trunkLabel, taskTitle, onOpenTrunk, onOpenTask, error,
 }: {
   stageKind: StageKind;
   stage: { title: string; branch?: string; pillLabel?: string };
@@ -52,6 +52,7 @@ export function StageDetailPage({
   composer: TaskPageComposer;
   run?: {
     statusLabel?: string;
+    statusDetail?: string;
     paused?: boolean;
     terminal?: boolean;
     onPause?: () => void;
@@ -76,6 +77,7 @@ export function StageDetailPage({
   taskTitle?: string;
   onOpenTrunk?: () => void;
   onOpenTask?: () => void;
+  error?: string | null;
 }) {
   const reminder = planReminder !== undefined && onRevealPlan !== undefined
     ? <PlanReminderTab state={planReminder} onClick={onRevealPlan} /> : null;
@@ -105,6 +107,7 @@ export function StageDetailPage({
       onRemovePendingReviewComment={onRemovePendingReviewComment}
       openPrToken={openTabRequest?.tab === 'pr' ? openTabRequest.token : undefined}
       leadingToolbar={reminders}
+      error={error}
     />
   );
 }

@@ -62,6 +62,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 
@@ -418,9 +419,15 @@ public class ThreadRegistry
      *  stage-scoped agent), if one exists. */
     public Optional<ThreadAgent> findStage(String threadId, String stageKey)
     {
-        return Optional.ofNullable(threadId == null || stageKey == null
-                ? null
-                : sessions.get(new SessionKey(threadId, stageKey)));
+        if (threadId == null || stageKey == null) {
+            return Optional.empty();
+        }
+        ThreadAgent exact = sessions.get(new SessionKey(threadId, stageKey));
+        if (exact != null) {
+            return Optional.of(exact);
+        }
+        return Optional.ofNullable(trunkSessions.get(threadId))
+                .filter(agent -> stageKey.equals(agent.activeStageId()));
     }
 
     /** Every live stage-agent for this thread (zero, one, or — with
@@ -441,16 +448,20 @@ public class ThreadRegistry
         return out;
     }
 
-    /** The exact stage-agent filed under {@code agentKey} (the per-agent
-     *  MCP key, == the stage key it was registered with). Lets a permission
-     *  prompt / decision route back to the precise agent that raised it
-     *  rather than a thread-level "active session" guess. Empty when the key
-     *  names a trunk agent or an evicted session. */
+    /** The exact agent addressed by {@code agentKey}. Stage agents are filed
+     *  under that key; a shared task Brain is matched by its active task/stage
+     *  context in {@link #trunkSessions}. */
     public Optional<ThreadAgent> findByAgentKey(String threadId, String agentKey)
     {
-        return threadId == null || threadId.isBlank() || agentKey == null || agentKey.isBlank()
-                ? Optional.empty()
-                : Optional.ofNullable(sessions.get(new SessionKey(threadId, agentKey)));
+        if (threadId == null || threadId.isBlank() || agentKey == null || agentKey.isBlank()) {
+            return Optional.empty();
+        }
+        ThreadAgent exact = sessions.get(new SessionKey(threadId, agentKey));
+        if (exact != null) {
+            return Optional.of(exact);
+        }
+        return Optional.ofNullable(trunkSessions.get(threadId))
+                .filter(agent -> scopedBy(agent, agentKey));
     }
 
     /** Trunk-scope counterpart of {@link #find(String)} — the
@@ -642,9 +653,13 @@ public class ThreadRegistry
         if (stageKeys == null || stageKeys.isEmpty()) {
             return List.of();
         }
-        return sessions.entrySet().stream()
-                .filter(entry -> stageKeys.contains(entry.getKey().agentKey()))
-                .map(entry -> entry.getValue())
+        return Stream.concat(
+                        sessions.entrySet().stream()
+                                .filter(entry -> stageKeys.contains(entry.getKey().agentKey()))
+                                .map(entry -> entry.getValue()),
+                        trunkSessions.values().stream()
+                                .filter(agent -> stageKeys.stream().anyMatch(key -> scopedBy(agent, key))))
+                .distinct()
                 .toList();
     }
 
@@ -691,6 +706,11 @@ public class ThreadRegistry
                 }
             }
         }
+        for (var entry : List.copyOf(trunkSessions.entrySet())) {
+            if (scopedBy(entry.getValue(), stageKey)) {
+                trunkSessions.remove(entry.getKey(), entry.getValue());
+            }
+        }
         // Also clear a stale owner-index entry if its session disappeared
         // before this best-effort teardown ran.
         Set<String> ownerKeys = threadId == null ? null : threadStageKeys.get(threadId);
@@ -714,6 +734,18 @@ public class ThreadRegistry
             return task.id();
         }
         return threadId;
+    }
+
+    private static boolean scopedBy(ThreadAgent agent, String key)
+    {
+        if (key == null) {
+            return false;
+        }
+        return key.equals(agent.activeStageId())
+                || key.equals(agent.activeTaskId())
+                || ("trunk".equals(key)
+                        && agent.activeTaskId() == null
+                        && agent.activeStageId() == null);
     }
 
     /** In-memory identity of a stage agent. The MCP-facing agent key remains

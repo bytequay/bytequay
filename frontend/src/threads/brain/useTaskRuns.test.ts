@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentRunDto } from '../../types/brainView';
 import { useTaskRuns } from './useTaskRuns';
@@ -28,18 +28,54 @@ function run(id: string): AgentRunDto {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
 describe('useTaskRuns', () => {
   it('fetches a task\'s runs via the bridge', async () => {
     const getTaskRuns = vi.fn(async () => [run('r1'), run('r2')]);
     window.bridge = { getTaskRuns } as unknown as typeof window.bridge;
 
     const { result } = renderHook(() => useTaskRuns('t'));
-    await waitFor(() => expect(result.current).toHaveLength(2));
+    await waitFor(() => expect(result.current.runs).toHaveLength(2));
+    expect(result.current.error).toBeNull();
     expect(getTaskRuns).toHaveBeenCalledWith('t');
   });
 
   it('stays empty without a bridge instead of throwing', () => {
     const { result } = renderHook(() => useTaskRuns('t'));
-    expect(result.current).toEqual([]);
+    expect(result.current).toEqual({ runs: [], error: null });
+  });
+
+  it('surfaces poll failures', async () => {
+    window.bridge = {
+      getTaskRuns: vi.fn().mockRejectedValue(new Error('Runs unavailable')),
+    } as unknown as typeof window.bridge;
+
+    const { result } = renderHook(() => useTaskRuns('t'));
+    await waitFor(() => expect(result.current.error).toBe('Runs unavailable'));
+  });
+
+  it('clears the old task and ignores its late response after an id switch', async () => {
+    const late = deferred<AgentRunDto[]>();
+    const next = deferred<AgentRunDto[]>();
+    window.bridge = {
+      getTaskRuns: vi.fn((taskId: string) => taskId === 'task-old' ? late.promise : next.promise),
+    } as unknown as typeof window.bridge;
+
+    const { result, rerender } = renderHook(({ id }) => useTaskRuns(id), {
+      initialProps: { id: 'task-old' },
+    });
+    rerender({ id: 'task-new' });
+    expect(result.current).toEqual({ runs: [], error: null });
+
+    await act(async () => { next.resolve([run('new-run')]); await next.promise; });
+    expect(result.current.runs.map(item => item.id)).toEqual(['new-run']);
+
+    await act(async () => { late.resolve([run('old-run')]); await late.promise; });
+    expect(result.current.runs.map(item => item.id)).toEqual(['new-run']);
   });
 });

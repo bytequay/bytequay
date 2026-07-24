@@ -201,7 +201,7 @@ function normalizeDevServerUrl(urlString: string): string {
   return url.toString();
 }
 
-const MAIN_BG = '#f4efe5';
+const MAIN_BG = '#ffffff';
 
 /** Extracts the human-friendly message field from a Spring error body
  *  ({@code {"timestamp":..., "status":..., "message":..., "path":...}})
@@ -332,6 +332,8 @@ const createWindow = async () => {
     width: 1100,
     height: 720,
     backgroundColor: MAIN_BG,
+    vibrancy: process.platform === 'darwin' ? 'sidebar' : undefined,
+    visualEffectState: process.platform === 'darwin' ? 'active' : undefined,
     // Hide the native macOS title bar. Lets our GlobalTopbar be the single
     // nav row instead of sitting under a redundant "ByteQuay" title strip.
     // The native traffic-light buttons are hidden outright below — the

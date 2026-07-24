@@ -30,7 +30,7 @@
   animation: review-msg-flash 1600ms ease-out;
 }
 @keyframes review-msg-flash {
-  0% { background: rgba(124, 58, 237, 0.16); box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.22); }
+  0% { background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-border); }
   100% { background: transparent; box-shadow: none; }
 }
 

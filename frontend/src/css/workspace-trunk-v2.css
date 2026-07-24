@@ -128,7 +128,7 @@
 }
 
 .workspace-redesign .trunk-page-v2-nav__trunk-icon.is-running { color: #0969da; }
-.workspace-redesign .trunk-page-v2-nav__trunk > button.is-active .trunk-page-v2-nav__trunk-icon { color: #8250df; }
+.workspace-redesign .trunk-page-v2-nav__trunk > button.is-active .trunk-page-v2-nav__trunk-icon { color: var(--accent); }
 
 .workspace-redesign .trunk-page-v2-nav__trunk-name {
   min-width: 0;
@@ -281,8 +281,8 @@
   justify-content: center;
   flex-shrink: 0;
   border-radius: 7px;
-  background: #f0ebff;
-  color: #8250df;
+  background: var(--accent-a10);
+  color: var(--accent);
 }
 
 .workspace-redesign .trunk-page-v2__topbar > strong {
@@ -351,7 +351,7 @@
 
 .workspace-redesign .trunk-page-v2__trunk-head > span {
   display: inline-flex;
-  color: #8250df;
+  color: var(--accent);
 }
 .workspace-redesign .trunk-page-v2__trunk-head > strong { color: #17191c; font-size: 12.5px; font-weight: 700; }
 .workspace-redesign .trunk-page-v2__trunk-head > small { color: #8b949e; font-size: 12px; }
@@ -402,7 +402,7 @@
   border: 1px solid #e1e5e9;
   border-radius: 50%;
   background: #fff;
-  color: #8250df;
+  color: var(--accent);
 }
 .workspace-redesign .trunk-page-v2__history-content {
   display: flex;
@@ -508,7 +508,7 @@
   width: 8px;
   height: 8px;
   border: 2px solid #fff;
-  background: #8250df;
+  background: var(--accent);
 }
 .workspace-redesign .trunk-page-v2__conversation .sp-headline--bare .sp-headline__tx {
   color: #1f2328;
@@ -519,7 +519,7 @@
 .workspace-redesign .trunk-page-v2__conversation .sp-taskrow__title { font-size: 12.5px; }
 .workspace-redesign .trunk-page-v2__conversation .sp-taskrow::before { left: -24px; }
 .workspace-redesign .trunk-page-v2__conversation .sp-nodecard,
-.workspace-redesign .trunk-page-v2__conversation .sp-node { --n: #8250df; --nd: #6639ba; }
+.workspace-redesign .trunk-page-v2__conversation .sp-node { --n: var(--accent); --nd: var(--accent-dark); }
 
 /* The newest task stays expanded: its cut curves off the trunk at x=14,
    runs on the x=30 branch rail, then curves back when the task is merged. */
@@ -546,7 +546,7 @@
   top: 0;
   bottom: 0;
   width: 2px;
-  background: #8250df55;
+  background: var(--accent-border);
 }
 .workspace-redesign .trunk-page-v2__branch-row--cut .trunk-page-v2__branch-line { top: 32px; }
 .workspace-redesign .trunk-page-v2__branch-dot,
@@ -557,7 +557,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #8250df;
+  background: var(--accent);
 }
 .workspace-redesign .trunk-page-v2__branch-dot { top: -2px; }
 .workspace-redesign .trunk-page-v2__merge-dot { top: 22px; }
@@ -578,7 +578,7 @@
   padding: 2px 0 8px;
   align-items: center;
   gap: 8px;
-  color: #8250df;
+  color: var(--accent);
   font-size: 10.5px;
   font-weight: 800;
   letter-spacing: 0.07em;
@@ -589,7 +589,7 @@
   height: 9px;
   flex-shrink: 0;
   border-radius: 2.5px;
-  background: #8250df;
+  background: var(--accent);
   transform: rotate(45deg);
 }
 .workspace-redesign .trunk-page-v2__branch-row .task-card {
@@ -765,7 +765,7 @@
 .workspace-redesign .trunk-page-v2__overview > .trunk-page-v2__overview-resize:active::before {
   left: 2.5px;
   width: 2px;
-  background: #8250df;
+  background: var(--accent);
 }
 
 .workspace-redesign .trunk-page-v2__overview button {

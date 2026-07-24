@@ -463,7 +463,7 @@ function navItemStyle(active: boolean): React.CSSProperties {
     padding: '10px 12px',
     textAlign: 'left',
     border: active ? '1px solid var(--ws-accent, #7c3aed)' : '1px solid transparent',
-    background: active ? 'rgba(124, 58, 237, 0.06)' : 'transparent',
+    background: active ? 'var(--accent-a7)' : 'transparent',
     borderRadius: 8,
     cursor: 'pointer',
     color: 'var(--text-1)',
@@ -535,9 +535,9 @@ const emptyStyle: React.CSSProperties = {
 const comingSoonStyle: React.CSSProperties = {
   padding: '12px 14px',
   fontSize: 12,
-  border: '1px dashed rgba(124, 58, 237, 0.30)',
+  border: '1px dashed var(--accent-border)',
   borderRadius: 10,
-  background: 'rgba(124, 58, 237, 0.05)',
+  background: 'var(--accent-a4)',
   color: 'var(--text-2)',
 };
 
@@ -578,10 +578,10 @@ function rowStyle(isDefault: boolean): React.CSSProperties {
     gap: 12,
     padding: '10px 12px',
     border: isDefault
-        ? '1px solid rgba(124, 58, 237, 0.30)'
+        ? '1px solid var(--accent-border)'
         : '1px solid rgba(0,0,0,0.08)',
     borderRadius: 10,
-    background: isDefault ? 'rgba(124, 58, 237, 0.04)' : '#fff',
+    background: isDefault ? 'var(--accent-a4)' : '#fff',
   };
 }
 
@@ -626,7 +626,7 @@ const rowLabelStyle: React.CSSProperties = {
 
 function authBadgeStyle(type: CredentialType): React.CSSProperties {
   const palette: Record<CredentialType, { fg: string; bg: string }> = {
-    AI: { fg: '#5b21b6', bg: 'rgba(124, 58, 237, 0.10)' },
+    AI: { fg: 'var(--accent-deep)', bg: 'var(--accent-a10)' },
     ACCOUNT: { fg: '#15803d', bg: 'rgba(22, 163, 74, 0.10)' },
     REPO: { fg: '#15803d', bg: 'rgba(22, 163, 74, 0.10)' },
     INTEGRATION: { fg: '#1d4ed8', bg: 'rgba(37, 99, 235, 0.10)' },

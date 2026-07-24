@@ -550,7 +550,7 @@ const pulseDotStyle: React.CSSProperties = {
 const pillSubStyle: React.CSSProperties = { fontWeight: 500, opacity: 0.85 };
 const headTsStyle: React.CSSProperties = {
   fontSize: 11, color: 'var(--text-3)',
-  fontFamily: '"SF Mono", Menlo, monospace',
+  fontFamily: 'var(--font-mono)',
 };
 
 const stepperStyle: React.CSSProperties = {
@@ -708,7 +708,7 @@ function miniConnStyle(state: ConnState): React.CSSProperties {
   }
 }
 
-const monoFont = '"SF Mono", Menlo, Consolas, monospace';
+const monoFont = 'var(--font-mono)';
 
 const parStatusStyle: React.CSSProperties = {
   marginTop: 14, padding: '11px 14px', borderRadius: 13,
@@ -758,7 +758,7 @@ function axisPillStyle(tone: AxisTone): React.CSSProperties {
 const nextLineStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
   marginTop: 14, padding: '10px 14px', borderRadius: 11,
-  background: 'rgba(124,92,255,0.04)', border: '1px dashed rgba(124,92,255,0.32)',
+  background: 'var(--accent-a4)', border: '1px dashed var(--accent-border)',
   fontSize: 11.5, color: 'var(--text-2)',
 };
 const nextLineLblStyle: React.CSSProperties = {
@@ -768,8 +768,8 @@ const nextLineLblStyle: React.CSSProperties = {
 const nextSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
 const nextOptStyle: React.CSSProperties = {
   padding: '2px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600,
-  background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(124,92,255,0.32)',
-  color: '#5b21b6', whiteSpace: 'nowrap',
+  background: 'var(--bg-card)', border: '1px solid var(--accent-border)',
+  color: 'var(--accent-deep)', whiteSpace: 'nowrap',
 };
 const nextCondStyle: React.CSSProperties = {
   color: 'var(--text-4)', fontWeight: 500, fontSize: 10.5,
@@ -818,7 +818,7 @@ function actorPillStyle(actor: string | null): React.CSSProperties {
   };
   switch (actor) {
     case 'AGENT':
-      return { ...base, background: 'rgba(124,92,255,0.12)', color: '#5b21b6', borderColor: 'rgba(124,92,255,0.3)' };
+      return { ...base, background: 'var(--accent-soft)', color: 'var(--accent-deep)', borderColor: 'var(--accent-border)' };
     case 'HUMAN':
       return { ...base, background: 'rgba(16,185,129,0.12)', color: '#047857', borderColor: '#86efac' };
     case 'WEBHOOK':

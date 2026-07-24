@@ -42,7 +42,7 @@ type Props = {
   variant?: Variant;
 };
 
-const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
+const monoFont = 'var(--font-mono)';
 
 // Memoized (and the components map built once per variant at module
 // scope) so a streaming card's per-token updates don't force every

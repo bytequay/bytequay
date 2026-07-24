@@ -617,8 +617,8 @@ const defaultRowStyle: React.CSSProperties = {
   margin: '8px 0 12px',
   padding: '8px 10px',
   borderRadius: 8,
-  border: '1px solid rgba(124, 58, 237, 0.18)',
-  background: 'rgba(124, 58, 237, 0.04)',
+  border: '1px solid var(--accent-border)',
+  background: 'var(--accent-a4)',
 };
 
 const defaultLabelStyle: React.CSSProperties = {
@@ -671,7 +671,7 @@ const primaryBtnStyle: React.CSSProperties = {
   fontWeight: 600,
   border: 'none',
   borderRadius: 8,
-  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+  background: 'var(--accent)',
   color: '#fff',
   cursor: 'pointer',
 };

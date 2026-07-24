@@ -211,7 +211,7 @@ export const dialogStyles = {
     fontWeight: 600,
     border: 'none',
     borderRadius: 8,
-    background: 'rgba(124, 58, 237, 0.4)',
+    background: 'var(--accent-a40)',
     color: '#fff',
     cursor: 'not-allowed',
   } as React.CSSProperties,

@@ -232,7 +232,7 @@ function saveBtnStyle(active: boolean): React.CSSProperties {
     fontWeight: 600,
     border: 'none',
     borderRadius: 6,
-    background: active ? '#7c3aed' : 'rgba(124, 58, 237, 0.35)',
+    background: active ? 'var(--accent)' : 'var(--accent-border)',
     color: '#fff',
     cursor: active ? 'pointer' : 'not-allowed',
   };

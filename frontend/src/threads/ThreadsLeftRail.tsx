@@ -575,7 +575,7 @@ const kbdHintStyle: React.CSSProperties = {
   background: 'rgba(255,255,255,0.18)',
   padding: '1px 6px',
   borderRadius: 3,
-  fontFamily: '"SF Mono", Menlo, monospace',
+  fontFamily: 'var(--font-mono)',
   fontWeight: 500,
 };
 

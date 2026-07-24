@@ -129,7 +129,7 @@ export default function GroupSettingsDialog({
                   style={{
                     ...swatchStyle,
                     background: s.bg,
-                    outline: color === s.value ? '2px solid #7c3aed' : 'none',
+                    outline: color === s.value ? '2px solid var(--accent)' : 'none',
                     outlineOffset: 2,
                   }}
                 />

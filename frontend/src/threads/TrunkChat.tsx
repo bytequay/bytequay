@@ -810,18 +810,18 @@ const launchCardStyle: React.CSSProperties = {
   gap: 10,
   padding: '8px 12px',
   background: '#fff',
-  border: '1px solid rgba(124, 58, 237, 0.25)',
-  borderLeft: '3px solid #7c3aed',
+  border: '1px solid var(--accent-border)',
+  borderLeft: '3px solid var(--accent)',
   borderRadius: 10,
   cursor: 'pointer',
   transition: 'background 140ms ease, transform 140ms ease',
   width: '70%',
-  boxShadow: '0 1px 4px rgba(124,58,237,0.06)',
+  boxShadow: 'none',
 };
 
 const launchGlyphStyle: React.CSSProperties = {
   fontSize: 12,
-  color: '#7c3aed',
+  color: 'var(--accent)',
   fontWeight: 400,
 };
 

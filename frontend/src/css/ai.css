@@ -700,9 +700,9 @@
   font-size: var(--font-size-sm);
   font-weight: 600;
   border-radius: var(--radius-md);
-  border: 1px solid #ddd6fe;
-  background: linear-gradient(135deg, #f5f3ff, #ede9fe);
-  color: #6d28d9;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-a7);
+  color: var(--accent-dark);
   cursor: pointer;
 }
 .ai-sidebar__run:disabled {
@@ -710,13 +710,13 @@
   cursor: progress;
 }
 .ai-sidebar__run:hover:not(:disabled) {
-  background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+  background: var(--accent-a10);
 }
 
 .ai-summary {
   margin-top: 10px;
-  background: rgba(139, 92, 246, 0.08);
-  border: 1px solid rgba(139, 92, 246, 0.22);
+  background: var(--accent-a7);
+  border: 1px solid var(--accent-border);
   border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-sm);
@@ -732,13 +732,13 @@
   align-items: center;
   gap: var(--space-1);
   font-weight: 600;
-  color: #6d28d9;
+  color: var(--accent-dark);
 }
 .ai-summary__dot {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #a78bfa, #6366f1);
+  background: var(--accent);
   color: white;
   font-size: 9px;
   display: inline-flex;
@@ -818,7 +818,7 @@
 .ai-finding__sev--high { background: #ef4444; }
 .ai-finding__sev--med  { background: #eab308; color: #78350f; }
 .ai-finding__sev--low  { background: #3b82f6; }
-.ai-finding__sev--tip  { background: #8b5cf6; }
+.ai-finding__sev--tip  { background: var(--accent); }
 .ai-finding__source {
   font-size: 10px;
   text-transform: uppercase;
@@ -826,8 +826,8 @@
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 3px;
-  background: rgba(139, 92, 246, 0.1);
-  color: #6d28d9;
+  background: var(--accent-a10);
+  color: var(--accent-dark);
 }
 .ai-finding__loc,
 .ai-finding__loc-btn {
@@ -913,9 +913,9 @@
   background: var(--bg-card);
 }
 .ai-finding__action-btn:hover {
-  color: #6d28d9;
-  background: rgba(139, 92, 246, 0.08);
-  border-color: rgba(139, 92, 246, 0.3);
+  color: var(--accent-dark);
+  background: var(--accent-a7);
+  border-color: var(--accent-border);
 }
 .ai-finding__action-btn:disabled { opacity: 0.6; cursor: progress; }
 .ai-finding__dismissed-badge {
@@ -959,8 +959,8 @@
   height: 26px;
 }
 .ai-finding-folded-btn:hover {
-  border-color: rgba(139, 92, 246, 0.4);
-  background: rgba(139, 92, 246, 0.05);
+  border-color: var(--accent-a40);
+  background: var(--accent-a4);
 }
 .ai-finding-folded-btn .ai-finding__sev {
   width: 12px;
@@ -994,8 +994,8 @@
 }
 .ai-finding-folded__expand:hover {
   color: var(--text-1);
-  border-color: rgba(139, 92, 246, 0.4);
-  background: rgba(139, 92, 246, 0.05);
+  border-color: var(--accent-a40);
+  background: var(--accent-a4);
 }
 
 .diff-file-empty {
@@ -1303,7 +1303,7 @@
    itself gets a left accent stripe so you can spot a finding while
    skimming without reading the card. */
 .diff-row--has-finding {
-  box-shadow: inset 3px 0 0 #8b5cf6;
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 /* Multi-line composer range highlight: every row inside the selected
@@ -1517,9 +1517,9 @@
   transition: background 0.1s, border-color 0.1s, color 0.1s;
 }
 .polish-btn:hover:not(:disabled) {
-  background: rgba(139, 92, 246, 0.08);
-  border-color: rgba(139, 92, 246, 0.45);
-  color: #6d28d9;
+  background: var(--accent-a7);
+  border-color: var(--accent-a40);
+  color: var(--accent-dark);
 }
 .polish-btn:disabled {
   opacity: 0.55;
@@ -1819,9 +1819,9 @@
 .diff-row--inline-finding {
   display: block;
   padding: 0;
-  background: rgba(139, 92, 246, 0.06);
-  border-top: 1px solid rgba(139, 92, 246, 0.18);
-  border-bottom: 1px solid rgba(139, 92, 246, 0.18);
+  background: var(--accent-a7);
+  border-top: 1px solid var(--accent-border);
+  border-bottom: 1px solid var(--accent-border);
 }
 .inline-finding {
   display: flex;
@@ -1847,7 +1847,7 @@
 .inline-finding__sev--high { background: #ef4444; }
 .inline-finding__sev--med  { background: #eab308; color: #78350f; }
 .inline-finding__sev--low  { background: #3b82f6; }
-.inline-finding__sev--tip  { background: #8b5cf6; }
+.inline-finding__sev--tip  { background: var(--accent); }
 /* Human-staged comments use a neutral slate dot so AI's color-coding
    (info/warn/blocker) stays meaningful and human comments don't compete
    for severity attention. */
@@ -1873,8 +1873,8 @@
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 3px;
-  background: rgba(139, 92, 246, 0.12);
-  color: #6d28d9;
+  background: var(--accent-a10);
+  color: var(--accent-dark);
 }
 .inline-finding__loc {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
@@ -1942,9 +1942,9 @@
   justify-content: center;
 }
 .inline-finding__edit-btn:hover {
-  color: #6d28d9;
-  background: rgba(139, 92, 246, 0.08);
-  border-color: rgba(139, 92, 246, 0.3);
+  color: var(--accent-dark);
+  background: var(--accent-a7);
+  border-color: var(--accent-border);
 }
 .inline-finding__edit-btn--danger {
   margin-left: 0;
@@ -1975,7 +1975,7 @@
 .diff-row--inline-finding--folded {
   background: transparent;
   border-top: none;
-  border-bottom: 1px dashed rgba(139, 92, 246, 0.25);
+  border-bottom: 1px dashed var(--accent-border);
 }
 .inline-finding-folded {
   appearance: none;
@@ -1991,7 +1991,7 @@
   width: 100%;
   text-align: left;
 }
-.inline-finding-folded:hover { background: rgba(139, 92, 246, 0.06); }
+.inline-finding-folded:hover { background: var(--accent-a7); }
 .inline-finding-folded .inline-finding__sev {
   width: 14px;
   height: 14px;
@@ -2031,15 +2031,15 @@
 }
 .inline-finding__textarea:focus {
   outline: none;
-  border-color: rgba(139, 92, 246, 0.5);
-  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+  border-color: var(--accent-a40);
+  box-shadow: 0 0 0 3px var(--accent-a10);
 }
 .inline-finding__original {
   margin-top: 6px;
   background: var(--bg-card);
   padding: 6px 9px;
   border-radius: var(--radius-sm);
-  border-left: 2px solid #8b5cf6;
+  border-left: 2px solid var(--accent);
   font-size: var(--font-size-xs);
   color: var(--text-3);
   line-height: 1.5;
@@ -2049,7 +2049,7 @@
 }
 .inline-finding__original-label {
   font-weight: 600;
-  color: #6d28d9;
+  color: var(--accent-dark);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -2099,8 +2099,8 @@
   margin-left: auto;
 }
 .inline-finding__action--ghost:hover {
-  color: #6d28d9;
-  background: rgba(139, 92, 246, 0.06);
+  color: var(--accent-dark);
+  background: var(--accent-a7);
 }
 
 .v2-help {

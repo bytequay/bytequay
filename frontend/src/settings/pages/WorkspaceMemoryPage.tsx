@@ -455,7 +455,7 @@ const chipStyle: React.CSSProperties = {
   padding: '2px 8px',
   fontSize: 11,
   color: 'var(--ws-accent-deep)',
-  background: 'rgba(124, 58, 237, 0.10)',
+  background: 'var(--accent-a10)',
   border: 'none',
   borderRadius: 999,
   cursor: 'pointer',
@@ -493,7 +493,7 @@ const textareaStyle: React.CSSProperties = {
 const budgetBarStyle: React.CSSProperties = {
   width: '100%',
   height: 5,
-  background: 'rgba(124, 58, 237, 0.10)',
+  background: 'var(--accent-a10)',
   borderRadius: 999,
   overflow: 'hidden',
 };

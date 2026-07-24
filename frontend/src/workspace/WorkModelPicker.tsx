@@ -477,8 +477,8 @@ const emptyStyle: React.CSSProperties = {
 
 function rowStyle(selected: boolean): React.CSSProperties {
   return {
-    border: selected ? '1px solid rgba(124,58,237,0.40)' : '1px solid var(--border)',
-    background: selected ? 'rgba(124,58,237,0.06)' : '#fff',
+    border: selected ? '1px solid var(--accent-border)' : '1px solid var(--border)',
+    background: selected ? 'var(--accent-a7)' : '#fff',
     borderRadius: 10,
     overflow: 'hidden',
   };
@@ -517,8 +517,8 @@ function kindBadgeStyle(kind: 'cli' | 'api'): React.CSSProperties {
     letterSpacing: '0.06em',
     padding: '1px 6px',
     borderRadius: 4,
-    background: kind === 'cli' ? 'rgba(124,58,237,0.10)' : 'rgba(2,132,199,0.10)',
-    color: kind === 'cli' ? '#6d28d9' : '#0369a1',
+    background: kind === 'cli' ? 'var(--accent-a10)' : 'rgba(2,132,199,0.10)',
+    color: kind === 'cli' ? 'var(--accent-deep)' : '#0369a1',
   };
 }
 
@@ -563,13 +563,13 @@ function modelBtnStyle(active: boolean): React.CSSProperties {
     alignItems: 'center',
     gap: 8,
     padding: '6px 12px',
-    background: active ? 'rgba(124,58,237,0.10)' : 'transparent',
+    background: active ? 'var(--accent-a10)' : 'transparent',
     border: 'none',
     borderRadius: 6,
     cursor: 'pointer',
     fontFamily: 'inherit',
     fontSize: 12,
-    color: active ? '#6d28d9' : 'var(--text-2)',
+    color: active ? 'var(--accent-deep)' : 'var(--text-2)',
     fontWeight: active ? 600 : 500,
     textAlign: 'left',
   };
@@ -618,9 +618,9 @@ function accountBtnStyle(active: boolean): React.CSSProperties {
     gap: 4,
     padding: '3px 10px',
     fontSize: 11,
-    border: active ? '1px solid rgba(124,58,237,0.40)' : '1px solid var(--border)',
-    background: active ? 'rgba(124,58,237,0.06)' : '#fff',
-    color: active ? '#6d28d9' : 'var(--text-2)',
+    border: active ? '1px solid var(--accent-border)' : '1px solid var(--border)',
+    background: active ? 'var(--accent-a7)' : '#fff',
+    color: active ? 'var(--accent-deep)' : 'var(--text-2)',
     borderRadius: 999,
     cursor: 'pointer',
     fontFamily: 'inherit',
@@ -638,9 +638,9 @@ function otherRowStyle(active: boolean): React.CSSProperties {
     alignItems: 'center',
     gap: 8,
     padding: '6px 12px',
-    border: active ? '1px dashed rgba(124,58,237,0.40)' : '1px dashed transparent',
+    border: active ? '1px dashed var(--accent-border)' : '1px dashed transparent',
     borderRadius: 6,
-    background: active ? 'rgba(124,58,237,0.04)' : 'transparent',
+    background: active ? 'var(--accent-a4)' : 'transparent',
   };
 }
 

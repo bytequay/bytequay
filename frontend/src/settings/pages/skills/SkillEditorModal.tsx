@@ -465,8 +465,8 @@ function modeBtnStyle(active: boolean): React.CSSProperties {
     fontSize: 12,
     fontWeight: active ? 600 : 500,
     border: 'none',
-    background: active ? 'rgba(124, 58, 237, 0.10)' : '#fff',
-    color: active ? '#5b21b6' : 'var(--text-2)',
+    background: active ? 'var(--accent-a10)' : '#fff',
+    color: active ? 'var(--accent-deep)' : 'var(--text-2)',
     cursor: 'pointer',
   };
 }
@@ -490,8 +490,8 @@ const nameChipStyle: React.CSSProperties = {
   fontSize: 9,
   fontWeight: 700,
   letterSpacing: '0.06em',
-  color: '#5b21b6',
-  background: 'rgba(124, 58, 237, 0.12)',
+  color: 'var(--accent-deep)',
+  background: 'var(--accent-a10)',
   borderRadius: 999,
   padding: '1px 7px',
 };
@@ -501,9 +501,9 @@ const tokenBtnStyle: React.CSSProperties = {
   fontSize: 10,
   fontWeight: 600,
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-  color: '#5b21b6',
-  background: 'rgba(124, 58, 237, 0.10)',
-  border: '1px solid rgba(124, 58, 237, 0.30)',
+  color: 'var(--accent-deep)',
+  background: 'var(--accent-a10)',
+  border: '1px solid var(--accent-border)',
   borderRadius: 6,
   padding: '1px 6px',
   cursor: 'pointer',
@@ -552,8 +552,8 @@ function segmentBtnStyle(active: boolean): React.CSSProperties {
     fontSize: 12,
     fontWeight: active ? 600 : 500,
     border: 'none',
-    background: active ? 'rgba(124, 58, 237, 0.10)' : '#fff',
-    color: active ? '#5b21b6' : 'var(--text-2)',
+    background: active ? 'var(--accent-a10)' : '#fff',
+    color: active ? 'var(--accent-deep)' : 'var(--text-2)',
     cursor: 'pointer',
   };
 }
@@ -568,9 +568,9 @@ const draftHintStyle: React.CSSProperties = {
   marginBottom: 12,
   padding: '10px 12px',
   fontSize: 11,
-  border: '1px dashed rgba(124, 58, 237, 0.30)',
+  border: '1px dashed var(--accent-border)',
   borderRadius: 8,
-  background: 'rgba(124, 58, 237, 0.04)',
+  background: 'var(--accent-a4)',
   color: 'var(--text-2)',
 };
 
@@ -594,7 +594,7 @@ const primaryBtnStyle: React.CSSProperties = {
   fontWeight: 600,
   border: 'none',
   borderRadius: 8,
-  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+  background: 'var(--accent)',
   color: '#fff',
   cursor: 'pointer',
 };

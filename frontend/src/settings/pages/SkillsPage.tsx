@@ -566,7 +566,7 @@ const rowNameStyle: React.CSSProperties = {
 
 function rowScopeBadgeStyle(sc: ScopeBucket): React.CSSProperties {
   const palette: Record<ScopeBucket, { fg: string; bg: string }> = {
-    global: { fg: '#5b21b6', bg: 'rgba(124, 58, 237, 0.10)' },
+    global: { fg: 'var(--accent-deep)', bg: 'var(--accent-a10)' },
     repos: { fg: '#0d9488', bg: 'rgba(13, 148, 136, 0.10)' },
   };
   const p = palette[sc];
@@ -603,8 +603,8 @@ const defaultChipStyle: React.CSSProperties = {
   fontWeight: 600,
   padding: '1px 6px',
   borderRadius: 4,
-  background: 'rgba(124, 58, 237, 0.10)',
-  color: '#5b21b6',
+  background: 'var(--accent-a10)',
+  color: 'var(--accent-deep)',
 };
 
 const mutedChipStyle: React.CSSProperties = {
@@ -689,7 +689,7 @@ function branchHeaderStyle(active: boolean): React.CSSProperties {
     padding: '9px 12px',
     textAlign: 'left',
     border: active ? '1px solid var(--ws-accent, #7c3aed)' : '1px solid transparent',
-    background: active ? 'rgba(124, 58, 237, 0.06)' : 'transparent',
+    background: active ? 'var(--accent-a7)' : 'transparent',
     borderRadius: 8,
     cursor: 'pointer',
     color: 'var(--text-1)',
@@ -716,7 +716,7 @@ function subItemStyle(active: boolean): React.CSSProperties {
     padding: '5px 10px',
     textAlign: 'left',
     border: 'none',
-    background: active ? 'rgba(124, 58, 237, 0.10)' : 'transparent',
+    background: active ? 'var(--accent-a10)' : 'transparent',
     borderRadius: 6,
     cursor: 'pointer',
     fontSize: 12.5,

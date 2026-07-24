@@ -932,7 +932,7 @@ function CheckpointsSection({ threadId }: { threadId: string }) {
           )}
           {segments.map(seg => (
             <li key={seg.id} style={checkpointRowStyle}>
-              <span style={{ ...checkpointDotStyle, background: '#7c3aed' }} aria-hidden />
+              <span style={{ ...checkpointDotStyle, background: 'var(--accent)' }} aria-hidden />
               <div style={checkpointBodyStyle}>
                 <div style={checkpointTitleStyle}>cp · seq {seg.seq}</div>
                 <div style={checkpointBlurbStyle} title={seg.summaryMd}>
@@ -1283,7 +1283,7 @@ const settingsSaveBtnStyle: React.CSSProperties = {
   padding: '5px 8px',
   fontSize: 11,
   border: 'none',
-  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+  background: 'var(--accent)',
   color: '#fff',
   borderRadius: 6,
   cursor: 'pointer',
@@ -1631,7 +1631,7 @@ function formatRuntime(createdAt: string, endedAt: string | null): string {
 const pageStyle: React.CSSProperties = {
   position: 'relative',
   minHeight: '100vh',
-  background: '#fafafe',
+  background: 'var(--ws-bg-base)',
   color: 'var(--text-1)',
   overflow: 'hidden',
 };
@@ -1641,10 +1641,10 @@ const meshBgStyle: React.CSSProperties = {
   inset: 0,
   pointerEvents: 'none',
   background: [
-    'radial-gradient(circle at 18% 16%, rgba(124, 58, 237, 0.10), transparent 45%)',
-    'radial-gradient(circle at 82% 22%, rgba(56, 189, 248, 0.10), transparent 45%)',
-    'radial-gradient(circle at 12% 86%, rgba(244, 114, 182, 0.08), transparent 50%)',
-    'radial-gradient(circle at 86% 78%, rgba(74, 222, 128, 0.08), transparent 50%)',
+    'radial-gradient(circle at 18% 16%, var(--ws-mesh-purple), transparent 45%)',
+    'radial-gradient(circle at 82% 22%, var(--ws-mesh-sky), transparent 45%)',
+    'radial-gradient(circle at 12% 86%, var(--ws-mesh-pink), transparent 50%)',
+    'radial-gradient(circle at 86% 78%, var(--ws-mesh-mint), transparent 50%)',
   ].join(','),
   zIndex: 0,
 };
@@ -1653,7 +1653,7 @@ const noiseBgStyle: React.CSSProperties = {
   position: 'fixed',
   inset: 0,
   pointerEvents: 'none',
-  opacity: 0.045,
+  opacity: 'var(--ws-noise-opacity, 0.045)',
   mixBlendMode: 'overlay',
   backgroundImage:
     'url("data:image/svg+xml;utf8,'
@@ -1716,12 +1716,12 @@ const contextChipStyle: React.CSSProperties = {
   gap: 6,
   padding: '4px 9px 4px 8px',
   marginLeft: 8,
-  border: '1px solid rgba(124,92,255,0.28)',
-  background: 'rgba(124,92,255,0.08)',
+  border: '1px solid var(--accent-border)',
+  background: 'var(--accent-a7)',
   borderRadius: 999,
   fontSize: 11.5,
   fontWeight: 400,
-  color: 'var(--primary-deep, #5b3edb)',
+  color: 'var(--accent-deep)',
   cursor: 'pointer',
 };
 
@@ -1937,13 +1937,9 @@ function taskCardStyle(selected: boolean, isForeground: boolean): React.CSSPrope
   if (selected) {
     return {
       ...base,
-      border: '1px solid rgba(124, 58, 237, 0.55)',
-      background:
-        'linear-gradient(180deg, rgba(124,58,237,0.16) 0%, rgba(99,102,241,0.07) 100%), #ffffff',
-      boxShadow:
-        '0 12px 32px rgba(124,58,237,0.22),'
-        + ' 0 2px 6px rgba(124,58,237,0.12),'
-        + ' inset 0 1px 0 rgba(255,255,255,0.8)',
+      border: '1px solid var(--accent-border)',
+      background: 'var(--accent-a7)',
+      boxShadow: 'none',
       transform: 'translateY(-1px)',
     };
   }
@@ -1961,13 +1957,9 @@ function taskCardStyle(selected: boolean, isForeground: boolean): React.CSSPrope
   }
   return {
     ...base,
-    border: '1px solid rgba(99, 102, 241, 0.14)',
-    background:
-      'linear-gradient(180deg, rgba(124,58,237,0.05) 0%, rgba(255,255,255,0.95) 100%), #ffffff',
-    boxShadow:
-      '0 3px 10px rgba(76, 29, 149, 0.06),'
-      + ' 0 1px 2px rgba(0,0,0,0.04),'
-      + ' inset 0 1px 0 rgba(255,255,255,0.85)',
+    border: '1px solid var(--border)',
+    background: '#ffffff',
+    boxShadow: 'none',
   };
 }
 
@@ -2226,9 +2218,7 @@ function nextBtnStyle(disabled: boolean): React.CSSProperties {
     padding: '6px 8px',
     fontSize: 12,
     border: 'none',
-    background: disabled
-      ? 'rgba(124, 58, 237, 0.22)'
-      : 'linear-gradient(135deg, #7c3aed, #6366f1)',
+    background: disabled ? 'var(--accent-border)' : 'var(--accent)',
     color: disabled ? 'rgba(255,255,255,0.85)' : '#fff',
     borderRadius: 8,
     fontWeight: 400,

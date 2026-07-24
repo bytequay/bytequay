@@ -1,0 +1,431 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* Final light-theme normalization. Feature styles intentionally load first;
+   this layer reconnects their parallel palettes to the app-wide Codex tokens. */
+:root[data-theme="github-light"] {
+  color-scheme: light;
+  color: var(--text-1);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: auto;
+
+  /* Legacy workspace surfaces use their own token namespace. */
+  --ws-bg-base: #ffffff;
+  --ws-mesh-purple: transparent;
+  --ws-mesh-sky: transparent;
+  --ws-mesh-pink: transparent;
+  --ws-mesh-mint: transparent;
+  --ws-glass: rgba(255, 255, 255, 0.92);
+  --ws-glass-edge: #efeff0;
+  --ws-card-border: #efeff0;
+  --ws-card-shadow: none;
+  --ws-accent: #0969da;
+  --ws-accent-deep: #0550ae;
+  --ws-accent-soft: rgba(9, 105, 218, 0.10);
+  --ws-text-1: #1f2328;
+  --ws-text-2: #45484c;
+  --ws-text-3: #77797b;
+  --ws-rail-bg: rgba(249, 249, 250, 0.82);
+  --ws-rail-edge: #dadadb;
+  --ws-commandbar-bg: rgba(255, 255, 255, 0.92);
+  --ws-commandbar-hover-bg: #f6f6f6;
+  --ws-brand-bg: #ffffff;
+  --ws-header-mask-strong: rgba(255, 255, 255, 0.96);
+  --ws-header-mask-soft: rgba(255, 255, 255, 0.72);
+  --ws-noise-opacity: 0;
+  --ws-rail-width: 272px;
+
+  --left-nav-font: var(--font-sans);
+  --left-nav-font-size: 14px;
+  --left-nav-row-padding: 5px 10px;
+  --left-nav-row-radius: 9px;
+  --left-nav-row-line-height: 20px;
+  --left-nav-active-bg: #efefef;
+  --left-nav-hover-bg: rgba(0, 0, 0, 0.045);
+}
+
+:root[data-theme="github-light"] body,
+:root[data-theme="github-light"] #root,
+:root[data-theme="github-light"] .app-shell {
+  background: transparent;
+}
+
+:root[data-theme="github-light"] body {
+  color: var(--text-1);
+  font: 400 var(--ui-font-size)/20px var(--font-sans);
+  -webkit-font-smoothing: auto;
+}
+
+/* Codex's desktop preference uses the arrow cursor for controls. */
+:root[data-theme="github-light"] :is(button, a, select, summary, [role="button"], [role="tab"]) {
+  cursor: default !important;
+}
+
+:root[data-theme="github-light"] ::selection {
+  background: rgba(9, 105, 218, 0.18);
+}
+
+:root[data-theme="github-light"] :focus-visible {
+  outline-color: rgba(9, 105, 218, 0.55);
+}
+
+/* The modern workspace owns a parallel token set. Alias it back to the
+   canonical light palette and restore native macOS text rendering. */
+:root[data-theme="github-light"] .workspace-redesign {
+  --bq-bg: #ffffff;
+  --bq-rail: rgba(249, 249, 250, 0.82);
+  --bq-text: #1f2328;
+  --bq-text-2: #45484c;
+  --bq-text-3: #77797b;
+  --bq-text-4: #afb1b3;
+  --bq-line: #efeff0;
+  --bq-line-soft: #efeff0;
+  --bq-hover: rgba(0, 0, 0, 0.045);
+  --bq-blue: #0969da;
+  background: transparent;
+  color: var(--bq-text);
+  font-family: var(--font-sans);
+  letter-spacing: normal;
+  -webkit-font-smoothing: auto;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .app-content {
+  background: #ffffff;
+}
+
+:root[data-theme="github-light"] .workspace-shell {
+  background: #ffffff;
+}
+
+:root[data-theme="github-light"] .workspace-shell::before {
+  display: none;
+}
+
+:root[data-theme="github-light"] .shell.shell-rail {
+  background: transparent;
+}
+
+:root[data-theme="github-light"] :is(
+  .shell.shell-rail > .sidebar,
+  .global-topbar,
+  .settings-shell-sidebar
+) {
+  background: rgba(249, 249, 250, 0.82);
+  border-right-color: #dadadb;
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  backdrop-filter: saturate(180%) blur(24px);
+}
+
+:root[data-theme="github-light"] :is(
+  .sb-nav-item.active,
+  .ws-destination.active,
+  .workspace-redesign .wu-settings__nav > div.active,
+  .settings-shell-sidebar__link--active
+) {
+  background: #efefef;
+  color: #1f2328;
+}
+
+:root[data-theme="github-light"] :is(
+  .setting-card,
+  .workspace-redesign .wu-settings-card
+) {
+  border-color: #eff0f0;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+:root[data-theme="github-light"] :is(
+  .home-card,
+  .repo-card,
+  .analytics-page__panel,
+  .merge-card__rows
+) {
+  box-shadow: none;
+}
+
+:root[data-theme="github-light"] :is(.home-card:hover, .repo-card:hover) {
+  box-shadow: none;
+  transform: none;
+}
+
+/* Both settings implementations keep their existing information hierarchy,
+   but share Codex's measured content width, type rhythm, rows, and controls. */
+:root[data-theme="github-light"] .settings-shell__content {
+  padding: 50px 32px;
+}
+
+:root[data-theme="github-light"] .settings-shell__layout {
+  grid-template-columns: 272px minmax(0, 1fr);
+}
+
+:root[data-theme="github-light"] .settings-shell-sidebar {
+  padding: 16px 8px;
+}
+
+:root[data-theme="github-light"] .settings-shell-sidebar__group {
+  margin-top: 14px;
+  padding: 6px 10px 4px;
+  color: #afb1b3;
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 20px;
+  text-transform: none;
+}
+
+:root[data-theme="github-light"] .settings-shell-sidebar__link {
+  min-height: 30px;
+  padding: 5px 10px;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+:root[data-theme="github-light"] :is(
+  .settings-shell-page__head,
+  .settings-shell__content > .setting-card
+) {
+  width: min(100%, 768px);
+  margin-right: auto;
+  margin-left: auto;
+}
+
+:root[data-theme="github-light"] .settings-shell-page__title,
+:root[data-theme="github-light"] .setting-card__title {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  letter-spacing: normal;
+}
+
+:root[data-theme="github-light"] :is(
+  .settings-shell-page__subtitle,
+  .setting-row__title,
+  .setting-row__desc
+) {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+:root[data-theme="github-light"] .setting-row__title {
+  font-weight: 500;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-settings__layout {
+  width: 100%;
+  max-width: 1020px;
+  margin: 0 auto;
+  padding: 32px 20px 40px;
+  grid-template-columns: 190px minmax(0, 768px);
+  gap: 22px;
+  justify-content: center;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-settings__nav > div {
+  min-height: 30px;
+  padding: 5px 11px;
+  border-radius: 9px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-settings__nav > div.active {
+  border-left: 0;
+  font-weight: 500;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-settings-card > h2 {
+  min-height: 44px;
+  padding: 11px 18px;
+  border-bottom-color: #efeff0;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-settings-card > h2 > span,
+:root[data-theme="github-light"] .workspace-redesign .wu-setting-row > span strong,
+:root[data-theme="github-light"] .workspace-redesign .wu-setting-row > span small,
+:root[data-theme="github-light"] .workspace-redesign .wu-model-row > .wu-model-row__description {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-settings-card > h2 > span {
+  font-weight: 600;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-setting-row {
+  min-height: 52px;
+  padding: 10px 18px;
+  border-bottom-color: #efeff0;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-setting-row:has(small) {
+  min-height: 61px;
+}
+
+:root[data-theme="github-light"] :is(
+  .workspace-redesign .wu-number-input,
+  .workspace-redesign .wu-text-input,
+  .workspace-redesign .wu-model-picker,
+  .workspace-redesign .wu-model-refresh
+) {
+  min-height: 30px;
+  border-color: #e7e7e8;
+  border-radius: 10px;
+  background: #f6f6f6;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-switch {
+  width: 32px;
+  height: 20px;
+  background: #ebecec;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-switch i {
+  width: 16px;
+  height: 16px;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-switch.on {
+  background: #0969da;
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-switch.on i {
+  transform: translateX(12px);
+}
+
+:root[data-theme="github-light"] .workspace-redesign .wu-model-refresh {
+  font-family: var(--font-sans);
+  font-size: var(--ui-font-size);
+}
+
+:root[data-theme="github-light"] .agent-review-v2 {
+  font-family: var(--font-sans) !important;
+  -webkit-font-smoothing: auto !important;
+}
+
+:root[data-theme="github-light"] .shell .composer--workspace-v2 .composer-suggested-reply .v3-kbd {
+  border-color: var(--accent-border);
+  background: #ffffff;
+  animation: none;
+}
+
+/* Fixed-palette task surfaces use the same blue light-theme contract while
+   retaining their semantic success, warning, error, and merge colors. */
+:root[data-theme="github-light"] .task-brain .shell {
+  --bg: #ffffff;
+  --bg-elev: #ffffff;
+  --bg-sidebar: rgba(249, 249, 250, 0.82);
+  --bg-code: #f6f6f6;
+  --border: #efeff0;
+  --border-mid: #e7e7e8;
+  --border-strong: #dadadb;
+  --text-1: #1f2328;
+  --text-2: #45484c;
+  --text-3: #77797b;
+  --text-4: #afb1b3;
+  --accent: #0969da;
+  --accent-deep: #0550ae;
+  --accent-soft: rgba(9, 105, 218, 0.10);
+  --accent-border: rgba(9, 105, 218, 0.22);
+}
+
+:root[data-theme="github-light"] .stage-detail {
+  --sd-primary: #0969da;
+  --sd-primary-deep: #0550ae;
+  --sd-primary-border: rgba(9, 105, 218, 0.24);
+  --sd-text-primary: #1f2328;
+  --sd-text-secondary: #45484c;
+  --sd-text-muted: #77797b;
+  --sd-text-subtle: #afb1b3;
+  --sd-border: #e7e7e8;
+  --sd-border-soft: #efeff0;
+  --sd-border-strong: #dadadb;
+  --sd-surface-soft: #f6f6f6;
+  --sd-mono: var(--font-mono);
+  background-color: #ffffff;
+  background-image: none;
+  font-size: var(--ui-font-size);
+  animation: none;
+}
+
+:root[data-theme="github-light"] .stage-detail .sd-breadcrumb {
+  background: rgba(9, 105, 218, 0.04);
+  border-bottom-color: rgba(9, 105, 218, 0.16);
+}
+
+:root[data-theme="github-light"] .stage-detail :is(
+  .sd-task-chip,
+  .sd-diff-btn,
+  .stage-nav-chip.current,
+  .stage-nav-chip.closed,
+  .sd-iter-status,
+  .sd-iter-status--closed
+) {
+  background: rgba(9, 105, 218, 0.10);
+}
+
+:root[data-theme="github-light"] .stage-detail .sd-diff-btn:hover {
+  background: rgba(9, 105, 218, 0.15);
+}
+
+:root[data-theme="github-light"] .stage-detail :is(.conv-card, .ev .ic, .ev .tx code) {
+  background: rgba(9, 105, 218, 0.07);
+}
+
+:root[data-theme="github-light"] .stage-detail :is(
+  .lr-section,
+  .realtime-ci,
+  .ci-fix-history,
+  .stage-identity-card,
+  .metrics-card,
+  .budget-card,
+  .context-card
+) {
+  background: linear-gradient(180deg, #ffffff, #f6f6f6);
+}
+
+:root[data-theme="github-light"] .stage-detail .tool-card__head:hover {
+  background: rgba(9, 105, 218, 0.04);
+}
+
+:root[data-theme="github-light"] .stage-detail .iter-sum {
+  background: linear-gradient(90deg, rgba(9, 105, 218, 0.07), rgba(9, 105, 218, 0.02));
+}
+
+:root[data-theme="github-light"] .stage-detail .iter-sum-ic {
+  background: rgba(9, 105, 218, 0.12);
+}
+
+:root[data-theme="github-light"] .stage-detail .composer .t {
+  font-size: var(--ui-font-size);
+}
+
+:root[data-theme="github-light"] .stage-detail .composer .send-icon {
+  background: #0969da;
+  box-shadow: 0 2px 6px rgba(9, 105, 218, 0.25);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="github-light"] *,
+  :root[data-theme="github-light"] *::before,
+  :root[data-theme="github-light"] *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

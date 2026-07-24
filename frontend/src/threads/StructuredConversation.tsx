@@ -1053,7 +1053,7 @@ function toolPalette(name: string): React.CSSProperties {
 // Styles
 // ────────────────────────────────────────────────────────────────────
 
-const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
+const monoFont = 'var(--font-mono)';
 
 const scrollStyle: React.CSSProperties = {
   flex: 1,

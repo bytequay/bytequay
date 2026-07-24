@@ -698,7 +698,7 @@ const branchChipStyle: React.CSSProperties = {
   gap: 3,
   padding: '1px 6px',
   borderRadius: 4,
-  background: 'rgba(124, 58, 237, 0.08)',
+  background: 'var(--ws-accent-soft)',
   color: 'var(--ws-accent-deep)',
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
 };
@@ -788,7 +788,7 @@ const budgetWrapStyle: React.CSSProperties = {
 
 const budgetTrackStyle: React.CSSProperties = {
   height: 4,
-  background: 'rgba(124, 58, 237, 0.12)',
+  background: 'var(--ws-accent-soft)',
   borderRadius: 999,
   overflow: 'hidden',
 };

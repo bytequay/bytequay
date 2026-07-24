@@ -63,9 +63,9 @@
 .task-brain .topbar .v3-pill--stage {
   padding: 3px 9px;
   border-radius: 6px;
-  background: rgba(139, 92, 246, 0.12);
+  background: var(--accent-soft);
   border: none;
-  color: #7c3aed;
+  color: var(--accent);
   font-size: 10.5px;
   font-weight: 800;
 }
@@ -173,8 +173,8 @@
 
 .task-brain .v3-iconbtn:hover,
 .task-brain .v3-iconbtn--active {
-  border-color: #8250df;
-  color: #8250df;
+  border-color: var(--accent);
+  color: var(--accent);
   background: #ffffff;
 }
 
@@ -207,8 +207,8 @@
 }
 
 .task-brain .shell .task-thread-back:hover {
-  border-color: #7c3aed;
-  color: #7c3aed;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .task-brain .shell .task-thread-link {
@@ -228,13 +228,13 @@
 }
 
 .task-brain .shell .task-thread-link:hover {
-  border-color: #7c3aed;
-  color: #7c3aed;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .task-brain .shell .task-thread-link__ic {
   display: inline-flex;
-  color: #7c3aed;
+  color: var(--accent);
   line-height: 1;
 }
 
@@ -270,8 +270,8 @@
   align-items: center;
   justify-content: center;
   border-radius: 7px;
-  background: rgba(139, 92, 246, 0.12);
-  color: #7c3aed;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .task-brain .shell .ti-icon svg {
@@ -481,8 +481,8 @@
 .task-brain .shell .plan-node.active-view .pn-glyph,
 .task-brain .shell .plan-phase-row.running .ph-glyph {
   background: #ffffff;
-  border-color: #7c3aed;
-  color: #7c3aed;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .task-brain .shell .pn-dot {
@@ -490,7 +490,7 @@
   height: 9px;
   display: block;
   border-radius: 50%;
-  background: #7c3aed;
+  background: var(--accent);
 }
 
 .task-brain .shell .ph-glyph .pn-dot {
@@ -509,7 +509,7 @@
 .task-brain .shell .plan-node.planning,
 .task-brain .shell .plan-node.awaiting,
 .task-brain .shell .plan-node.active-view {
-  background: rgba(124, 58, 237, 0.06);
+  background: var(--accent-a7, rgba(124, 58, 237, 0.06));
   border-color: transparent;
   box-shadow: none;
 }
@@ -535,7 +535,7 @@
 .task-brain .shell .plan-node.monitoring .pn-kind,
 .task-brain .shell .plan-node.planning .pn-kind,
 .task-brain .shell .plan-node.awaiting .pn-kind {
-  color: #7c3aed;
+  color: var(--accent);
 }
 
 .task-brain .shell .plan-node.running .pn-name,
@@ -637,7 +637,7 @@
 .task-brain .shell .plan-phase-row.running .ph-meta:not(.ph-meta--pr) {
   font-size: 10.5px;
   font-weight: 700;
-  color: #7c3aed;
+  color: var(--accent);
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
@@ -892,7 +892,7 @@
 
 .task-brain .shell .resize-handle.pane-resize:hover::before,
 .task-brain .shell .resize-handle.pane-resize:active::before {
-  background: #8250df;
+  background: var(--accent);
 }
 
 /* Brain conversation */
@@ -1026,11 +1026,11 @@
   margin-top: 9px;
   font-size: 11.5px;
   font-weight: 600;
-  color: #7c3aed;
+  color: var(--accent);
 }
 
 .task-brain .shell .sp-ublock__more:hover {
-  color: #6d28d9;
+  color: var(--accent-deep);
 }
 
 .task-brain .shell .sp-headline {
@@ -1046,7 +1046,7 @@
   width: 13px;
   height: 13px;
   background: #ffffff;
-  border: 2.5px solid #a99fd6;
+  border: 2.5px solid var(--accent-border);
   box-sizing: border-box;
 }
 
@@ -1056,7 +1056,7 @@
   align-items: center;
   gap: 7px;
   margin-bottom: 3px;
-  color: #7c3aed;
+  color: var(--accent);
   font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
@@ -1149,7 +1149,7 @@
   top: 6px;
   width: 15px;
   height: 15px;
-  background: #7c3aed;
+  background: var(--accent);
   border: 2px solid #ffffff;
   color: #ffffff;
   font-size: 10px;
@@ -1203,8 +1203,8 @@
 }
 
 .task-brain .shell .plan-feed-event__toggle:hover {
-  border-color: #7c3aed;
-  color: #7c3aed;
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .task-brain .shell .plan-feed-event__card {
@@ -1213,7 +1213,7 @@
 
 /* Plan card */
 .task-brain .shell .plan-card {
-  border: 1px solid rgba(130, 80, 223, 0.30);
+  border: 1px solid var(--accent-border);
   border-radius: 13px;
   background: #ffffff;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
@@ -1237,13 +1237,13 @@
 .task-brain .shell .plan-card__hd {
   gap: 10px;
   padding: 10px 14px;
-  background: #faf9fc;
+  background: var(--bg-code);
   border-bottom: 1px solid rgba(0, 0, 0, 0.07);
   flex-wrap: wrap;
 }
 
 .task-brain .shell .plan-card__t {
-  color: #8250df;
+  color: var(--accent);
   font-size: 11px;
   font-weight: 800;
 }
@@ -1321,8 +1321,8 @@
 .task-brain .shell .plan-step__ord {
   width: 19px;
   height: 19px;
-  background: rgba(130, 80, 223, 0.10);
-  color: #8250df;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .task-brain .shell .plan-step__title {

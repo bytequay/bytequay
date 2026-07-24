@@ -731,7 +731,7 @@ function renderInline(text: string): React.ReactNode {
 // Styles
 // ────────────────────────────────────────────────────────────────────
 
-const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
+const monoFont = 'var(--font-mono)';
 
 // All theme-sensitive colors are CSS custom properties set on the
 // terminal-wrap div in ThreadDetailPage. ConversationPane just reads

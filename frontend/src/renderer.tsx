@@ -15,6 +15,12 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './index.css';
+import { applyTheme, loadTheme } from './themes';
+import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_WIDTH_KEY } from './ui/shell/useSidebarWidth';
+
+// Theme before React's first paint so startup never flashes the former
+// purple/warm palette while the app is mounting.
+applyTheme(loadTheme());
 
 const container = document.getElementById('root');
 if (!container) {
@@ -34,8 +40,9 @@ async function render(): Promise<void> {
                 import('./workspace/workspaceVisualFixtureData'),
             ]);
         window.localStorage.clear();
+        applyTheme(loadTheme());
         window.localStorage.setItem('bytequay.workspace.active', 'workspace-bytequay');
-        window.localStorage.setItem('bq.rail-width', '250');
+        window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(SIDEBAR_DEFAULT_WIDTH));
         document.documentElement.dataset.workspaceVisualFrame = frame;
         installWorkspaceVisualBridge(frame);
         root.render(<WorkspaceVisualFixture frame={frame} />);

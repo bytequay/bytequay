@@ -760,8 +760,8 @@ const resumeBtnStyle: React.CSSProperties = {
   fontSize: 11.5,
   fontWeight: 700,
   color: '#fff',
-  background: 'linear-gradient(180deg, #7c3aed, #6d28d9)',
-  border: '1px solid #6d28d9',
+  background: 'linear-gradient(180deg, var(--accent), var(--accent-dark))',
+  border: '1px solid var(--accent-dark)',
   borderRadius: 8,
   cursor: 'pointer',
 };
@@ -899,8 +899,8 @@ const addFindingBtnStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 600,
   color: 'var(--text-2)',
-  background: 'rgba(124,92,255,0.05)',
-  border: '1px dashed rgba(124,92,255,0.35)',
+  background: 'var(--accent-a4)',
+  border: '1px dashed var(--accent-border)',
   borderRadius: 9,
   cursor: 'pointer',
 };
@@ -909,8 +909,8 @@ const addFindingFormStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: 6,
   padding: 10,
-  background: 'rgba(124,92,255,0.04)',
-  border: '1px solid rgba(124,92,255,0.20)',
+  background: 'var(--accent-a4)',
+  border: '1px solid var(--accent-border)',
   borderRadius: 10,
 };
 const addFindingRowStyle: React.CSSProperties = {
@@ -959,8 +959,8 @@ const addFindingSaveStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 600,
   color: '#fff',
-  background: 'linear-gradient(180deg, #7c3aed, #6d28d9)',
-  border: '1px solid #6d28d9',
+  background: 'linear-gradient(180deg, var(--accent), var(--accent-dark))',
+  border: '1px solid var(--accent-dark)',
   borderRadius: 7,
   cursor: 'pointer',
 };
@@ -1778,7 +1778,7 @@ const timelineLineStyle: React.CSSProperties = {
   bottom: 16,
   width: 2,
   borderRadius: 1,
-  background: 'linear-gradient(180deg, rgba(59,130,246,0.4), rgba(124,92,255,0.2))',
+  background: 'linear-gradient(180deg, var(--accent-a40), var(--accent-border))',
 };
 const timelineNodeStyle: React.CSSProperties = {
   position: 'relative',
@@ -2484,15 +2484,15 @@ const meshBgStyle: React.CSSProperties = {
   // hiding the whole conversation under opaque off-white.
   position: 'absolute', inset: 0, zIndex: -1, pointerEvents: 'none',
   background:
-    'radial-gradient(40% 50% at 8% 12%, rgba(124,92,255,0.18), transparent 70%),'
-    + 'radial-gradient(38% 46% at 92% 6%, rgba(56,189,248,0.14), transparent 70%),'
-    + 'radial-gradient(45% 55% at 84% 94%, rgba(244,114,182,0.12), transparent 70%),'
-    + 'radial-gradient(40% 50% at 12% 92%, rgba(52,211,153,0.10), transparent 70%),'
-    + '#fafafe',
+    'radial-gradient(40% 50% at 8% 12%, var(--ws-mesh-purple) 0%, transparent 70%),'
+    + 'radial-gradient(38% 46% at 92% 6%, var(--ws-mesh-sky) 0%, transparent 70%),'
+    + 'radial-gradient(45% 55% at 84% 94%, var(--ws-mesh-pink) 0%, transparent 70%),'
+    + 'radial-gradient(40% 50% at 12% 92%, var(--ws-mesh-mint) 0%, transparent 70%),'
+    + 'var(--ws-bg-base)',
 };
 const noiseBgStyle: React.CSSProperties = {
   position: 'absolute', inset: 0, zIndex: -1, pointerEvents: 'none',
-  opacity: 0.045, mixBlendMode: 'overlay',
+  opacity: 'var(--ws-noise-opacity, 0.045)', mixBlendMode: 'overlay',
   backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'"
     + " width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise'"
     + " baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect"
@@ -2516,9 +2516,9 @@ const btnApplyStyle: React.CSSProperties = {
   justifyContent: 'center',
   gap: 8,
   padding: 9,
-  border: '1.5px dashed rgba(124,92,255,0.4)',
-  background: 'linear-gradient(135deg, rgba(124,92,255,0.04), rgba(56,189,248,0.06))',
-  color: '#5b21b6',
+  border: '1.5px dashed var(--accent-border)',
+  background: 'var(--accent-a4)',
+  color: 'var(--accent-deep)',
   borderRadius: 11,
   fontSize: 11.5,
   fontWeight: 800,
@@ -2556,7 +2556,7 @@ const topBarStyle: React.CSSProperties = {
   background: 'rgba(255,255,255,0.72)',
   backdropFilter: 'blur(14px) saturate(125%)',
   WebkitBackdropFilter: 'blur(14px) saturate(125%)',
-  border: '1px solid rgba(124,92,255,0.12)',
+  border: '1px solid var(--border)',
   borderRadius: 14,
   boxShadow: '0 2px 10px rgba(15,23,42,0.04)',
 };
@@ -2726,9 +2726,9 @@ const commitShaStyle: React.CSSProperties = {
   flexShrink: 0,
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
   fontSize: 10.5,
-  color: '#5b21b6',
-  background: 'rgba(124,92,255,0.08)',
-  border: '1px solid rgba(124,92,255,0.18)',
+  color: 'var(--accent-deep)',
+  background: 'var(--accent-a7)',
+  border: '1px solid var(--accent-border)',
   borderRadius: 4,
   padding: '0 5px',
 };
@@ -2787,7 +2787,7 @@ function flowGlyphStyle(state: 'done' | 'current' | 'next'): React.CSSProperties
     return { ...base, background: '#10b981', border: '2px solid #10b981', boxShadow: 'inset 0 0 0 2px #fff' };
   }
   if (state === 'current') {
-    return { ...base, background: '#7c5cff', border: '2px solid #7c5cff', boxShadow: '0 0 0 3px rgba(124,92,255,0.22)' };
+    return { ...base, background: 'var(--accent)', border: '2px solid var(--accent)', boxShadow: '0 0 0 3px var(--accent-border)' };
   }
   return { ...base, background: 'var(--bg-elevated, #fff)', border: '2px solid var(--border-mid, var(--border))' };
 }
@@ -2795,7 +2795,7 @@ function flowGlyphStyle(state: 'done' | 'current' | 'next'): React.CSSProperties
 function flowLabelStyle(state: 'done' | 'current' | 'next'): React.CSSProperties {
   return {
     fontSize: 11.5,
-    color: state === 'current' ? '#5b21b6'
+    color: state === 'current' ? 'var(--accent-deep)'
         : state === 'next' ? 'var(--text-3)' : 'var(--text-2)',
     fontWeight: state === 'current' ? 800 : 400,
   };
@@ -2836,17 +2836,17 @@ const pipBaseStyle: React.CSSProperties = {
 };
 const pipOffStyle: React.CSSProperties = {
   ...pipBaseStyle,
-  background: 'rgba(124,92,255,0.14)',
+  background: 'var(--accent-a10)',
 };
 const pipOnStyle: React.CSSProperties = {
   ...pipBaseStyle,
-  background: 'linear-gradient(90deg,#34d399,#7c5cff)',
-  boxShadow: '0 1px 4px rgba(124,92,255,0.3)',
+  background: 'linear-gradient(90deg,#34d399,var(--accent))',
+  boxShadow: 'none',
 };
 
 const progressTrackStyle: React.CSSProperties = {
   height: 7,
-  background: 'rgba(124,92,255,0.14)',
+  background: 'var(--accent-a10)',
   borderRadius: 999,
   overflow: 'hidden',
 };
@@ -2863,7 +2863,7 @@ function progressFillStyle(pct: number, color: string): React.CSSProperties {
 const composerCardStyle: React.CSSProperties = {
   marginTop: 6,
   padding: '11px 14px 12px',
-  borderTop: '1px solid rgba(124,92,255,0.12)',
+  borderTop: '1px solid var(--border)',
   background: 'rgba(255,255,255,0.62)',
   backdropFilter: 'blur(10px)',
   WebkitBackdropFilter: 'blur(10px)',
@@ -2898,7 +2898,7 @@ const mentionOptionStyle: React.CSSProperties = {
 const mentionOptionLabelStyle: React.CSSProperties = {
   fontSize: 12.5,
   fontWeight: 700,
-  color: '#5b21b6',
+  color: 'var(--accent-deep)',
 };
 const mentionOptionKindStyle: React.CSSProperties = {
   fontSize: 10,
@@ -2912,7 +2912,7 @@ const steerSendStyle: React.CSSProperties = {
   padding: '6px 14px',
   border: 0,
   borderRadius: 9,
-  background: 'linear-gradient(135deg,#8b6dff,#7c5cff)',
+  background: 'var(--accent)',
   color: '#fff',
   fontSize: 12,
   fontWeight: 700,
@@ -2929,7 +2929,7 @@ const composerInboxStyle: React.CSSProperties = {
   boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
 };
 const composerPromptStyle: React.CSSProperties = {
-  color: '#7c5cff',
+  color: 'var(--accent)',
   fontWeight: 800,
   fontFamily: 'var(--font-mono, ui-monospace, monospace)',
   fontSize: 14,
@@ -3040,13 +3040,13 @@ const btnPubStyle: React.CSSProperties = {
   padding: 10,
   border: 0,
   borderRadius: 11,
-  background: 'linear-gradient(135deg,#8b6dff,#7c5cff)',
+  background: 'var(--accent)',
   color: '#fff',
   fontSize: 12.5,
   fontWeight: 800,
   letterSpacing: '0.02em',
   cursor: 'pointer',
-  boxShadow: '0 4px 14px rgba(124,92,255,0.34)',
+  boxShadow: 'none',
 };
 const btnPubDisabledStyle: React.CSSProperties = {
   background: 'linear-gradient(135deg,#cbd5e1,#94a3b8)',
@@ -3060,7 +3060,7 @@ const cardStyle: React.CSSProperties = {
   background: 'rgba(255,255,255,0.72)',
   backdropFilter: 'blur(14px) saturate(125%)',
   WebkitBackdropFilter: 'blur(14px) saturate(125%)',
-  border: '1px solid rgba(124,92,255,0.14)',
+  border: '1px solid var(--border)',
   borderRadius: 14,
   boxShadow: '0 2px 10px rgba(15,23,42,0.04)',
 };
@@ -3091,7 +3091,7 @@ const rosterRowStyle: React.CSSProperties = {
   padding: '7px 9px',
   borderRadius: 11,
   background: 'rgba(255,255,255,0.62)',
-  border: '1px solid rgba(124,92,255,0.08)',
+  border: '1px solid var(--border)',
 };
 
 const rosterAvatarStyle: React.CSSProperties = {
@@ -3193,8 +3193,8 @@ const phaseLineStyle: React.CSSProperties = {
   flex: 1,
   height: 1,
   background:
-    'linear-gradient(90deg, transparent, rgba(124,92,255,0.28) 30%,'
-    + ' rgba(124,92,255,0.28) 70%, transparent)',
+    'linear-gradient(90deg, transparent, var(--accent-border) 30%,'
+    + ' var(--accent-border) 70%, transparent)',
 };
 
 const phaseDividerLabelStyle: React.CSSProperties = {
@@ -3202,9 +3202,9 @@ const phaseDividerLabelStyle: React.CSSProperties = {
   fontWeight: 800,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
-  color: '#5b21b6',
-  background: 'rgba(124,92,255,0.08)',
-  border: '1px solid rgba(124,92,255,0.22)',
+  color: 'var(--accent-deep)',
+  background: 'var(--accent-a7)',
+  border: '1px solid var(--accent-border)',
   borderRadius: 999,
   padding: '3px 12px',
   whiteSpace: 'nowrap',
@@ -3240,7 +3240,7 @@ const bubbleStyle: React.CSSProperties = {
   padding: '10px 14px',
   background: 'rgba(255,255,255,0.92)',
   borderRadius: '4px 14px 14px 14px',
-  border: '1px solid rgba(124,92,255,0.10)',
+  border: '1px solid var(--border)',
   boxShadow: '0 2px 10px rgba(15,23,42,0.05)',
   minWidth: 0,
 };
@@ -3397,8 +3397,8 @@ const toolCallRowStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: 5,
   padding: '7px 10px',
-  background: 'rgba(124,92,255,0.06)',
-  border: '1px solid rgba(124,92,255,0.18)',
+  background: 'var(--accent-a7)',
+  border: '1px solid var(--accent-border)',
   borderRadius: 9,
 };
 const toolCallHeadStyle: React.CSSProperties = {
@@ -3415,7 +3415,7 @@ const toolCallNameStyle: React.CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
   fontSize: 12,
   fontWeight: 700,
-  color: '#5b21b6',
+  color: 'var(--accent-deep)',
 };
 const toolCallParamStyle: React.CSSProperties = {
   display: 'flex',
@@ -3523,9 +3523,9 @@ const ballotHeadStyle: React.CSSProperties = {
 const ballotReviewerStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 700,
-  color: '#5b21b6',
-  background: 'rgba(124,92,255,0.12)',
-  border: '1px solid rgba(124,92,255,0.22)',
+  color: 'var(--accent-deep)',
+  background: 'var(--accent-a10)',
+  border: '1px solid var(--accent-border)',
   borderRadius: 999,
   padding: '1px 9px',
 };
@@ -3553,12 +3553,12 @@ const ballotIncludeStyle: React.CSSProperties = {
   padding: '7px 10px',
   border: 0,
   borderRadius: 9,
-  background: 'linear-gradient(135deg,#8b6dff,#7c5cff)',
+  background: 'var(--accent)',
   color: '#fff',
   fontSize: 12,
   fontWeight: 700,
   cursor: 'pointer',
-  boxShadow: '0 2px 8px rgba(124,92,255,0.28)',
+  boxShadow: 'none',
 };
 const ballotDropStyle: React.CSSProperties = {
   flex: 1,

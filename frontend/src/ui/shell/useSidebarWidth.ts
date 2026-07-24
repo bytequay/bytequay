@@ -16,8 +16,16 @@ import type { RefObject } from 'react';
 
 export const SIDEBAR_MIN_WIDTH = 200;
 export const SIDEBAR_MAX_WIDTH = 460;
-export const SIDEBAR_DEFAULT_WIDTH = 250;
-export const SIDEBAR_WIDTH_KEY = 'bq.rail-width';
+export const SIDEBAR_DEFAULT_WIDTH = 272;
+export const SIDEBAR_WIDTH_KEY = 'bq.rail-width-v2';
+const LEGACY_SIDEBAR_WIDTH_KEY = 'bq.rail-width';
+
+function validStoredWidth(raw: string | null): number | null {
+  const width = Number(raw);
+  return Number.isFinite(width) && width >= SIDEBAR_MIN_WIDTH && width <= SIDEBAR_MAX_WIDTH
+    ? width
+    : null;
+}
 
 /**
  * Drives the draggable boundary between the sidebar and the conversation
@@ -37,10 +45,21 @@ export function useSidebarWidth<T extends HTMLElement = HTMLDivElement>(
 } {
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     try {
-      const stored = typeof localStorage !== 'undefined' ? Number(localStorage.getItem(key)) : NaN;
-      return Number.isFinite(stored) && stored >= SIDEBAR_MIN_WIDTH && stored <= SIDEBAR_MAX_WIDTH
-        ? stored
-        : defaultWidth;
+      if (typeof localStorage === 'undefined') {
+        return defaultWidth;
+      }
+      const stored = validStoredWidth(localStorage.getItem(key));
+      if (stored !== null) {
+        return stored;
+      }
+      if (key === SIDEBAR_WIDTH_KEY) {
+        const legacy = validStoredWidth(localStorage.getItem(LEGACY_SIDEBAR_WIDTH_KEY));
+        if (legacy !== null && legacy !== 250) {
+          localStorage.setItem(key, String(legacy));
+          return legacy;
+        }
+      }
+      return defaultWidth;
     }
     catch {
       return defaultWidth;

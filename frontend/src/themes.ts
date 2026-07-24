@@ -13,18 +13,21 @@
  */
 export type ThemeId = 'purple' | 'github-light' | 'atom-one-dark' | 'warm';
 
-// Order matches the picker: brand theme first (also the default for
-// fresh installs), then the neutral light option, then dark, then the
-// older warm experiment. IDs are kept stable so anyone who already
-// picked a theme keeps that choice across the rename.
+// Order matches the picker: the Codex light baseline first, followed by the
+// optional brand, dark, and warm variants. IDs remain stable across labels.
 export const THEMES: { id: ThemeId; label: string }[] = [
+  { id: 'github-light', label: 'Codex Light' },
   { id: 'purple', label: 'Purple' },
-  { id: 'github-light', label: 'Light' },
   { id: 'atom-one-dark', label: 'Dark' },
   { id: 'warm', label: 'Warm' },
 ];
 
-const STORAGE_KEY = 'bytequay-theme';
+// v2 deliberately resets the old purple-first preference once so existing
+// installs adopt the new app-wide Codex Light baseline. Choices made after
+// this migration still persist normally.
+const STORAGE_KEY = 'bytequay-theme-v2';
+const LEGACY_STORAGE_KEY = 'bytequay-theme';
+export const DEFAULT_THEME: ThemeId = 'github-light';
 
 export function applyTheme(id: ThemeId): void {
   document.documentElement.setAttribute('data-theme', id);
@@ -33,5 +36,17 @@ export function applyTheme(id: ThemeId): void {
 
 export function loadTheme(): ThemeId {
   const saved = localStorage.getItem(STORAGE_KEY) as ThemeId | null;
-  return saved && THEMES.some((t) => t.id === saved) ? saved : 'purple';
+  if (saved && THEMES.some((t) => t.id === saved)) {
+    return saved;
+  }
+
+  // Purple was also the implicit legacy default, so it cannot be distinguished
+  // from a deliberate choice. Reset only that value; preserve explicit legacy
+  // choices for the other themes.
+  const legacy = localStorage.getItem(LEGACY_STORAGE_KEY) as ThemeId | null;
+  if (legacy && legacy !== 'purple' && THEMES.some((t) => t.id === legacy)) {
+    localStorage.setItem(STORAGE_KEY, legacy);
+    return legacy;
+  }
+  return DEFAULT_THEME;
 }

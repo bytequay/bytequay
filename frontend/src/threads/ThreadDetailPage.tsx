@@ -2060,8 +2060,8 @@ const LIGHT_TERM = {
   permissionBorder: '#fed7aa',
   permissionText: '#9a3412',
   permissionTextStrong: '#7c2d12',
-  sendBgStart: '#8250df',
-  sendBgEnd: '#6f42c1',
+  sendBgStart: 'var(--accent)',
+  sendBgEnd: 'var(--accent-dark)',
   sendText: '#ffffff',
   toggleBg: 'rgba(0,0,0,0.04)',
   toggleColor: '#57606a',
@@ -2170,7 +2170,7 @@ function Metric({
           style={{
             ...metricValueWrapStyle,
             ...(live ? { color: '#10b981' } : null),
-            fontFamily: mono ? '"SF Mono", Menlo, monospace' : 'inherit',
+            fontFamily: mono ? 'var(--font-mono)' : 'inherit',
             fontSize: mono ? 11.5 : 13,
           }}
           title={value}
@@ -2187,7 +2187,7 @@ function Metric({
       <span style={{
         ...metricValueStyle,
         ...(live ? { color: '#10b981' } : null),
-        fontFamily: mono ? '"SF Mono", Menlo, monospace' : 'inherit',
+        fontFamily: mono ? 'var(--font-mono)' : 'inherit',
         fontSize: mono ? 11.5 : 13,
       }}>
         {value}
@@ -2217,7 +2217,7 @@ function CopyableMetric({
   }, [copyValue]);
   const valueStyle: React.CSSProperties = {
     ...(wrap ? metricValueWrapStyle : metricValueStyle),
-    fontFamily: mono ? '"SF Mono", Menlo, monospace' : 'inherit',
+    fontFamily: mono ? 'var(--font-mono)' : 'inherit',
     fontSize: mono ? 11.5 : 13,
   };
   if (wrap) {
@@ -2715,7 +2715,7 @@ function shortenPath(path: string): string {
 // Styles
 // ────────────────────────────────────────────────────────────────────
 
-const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
+const monoFont = 'var(--font-mono)';
 
 
 const layoutStyle: React.CSSProperties = {
@@ -2880,7 +2880,7 @@ const twHeaderMetaStyle: React.CSSProperties = {
   fontSize: 12, color: 'var(--text-3)',
 };
 const twHeaderRepoStyle: React.CSSProperties = {
-  fontFamily: '"SF Mono", Menlo, monospace',
+  fontFamily: 'var(--font-mono)',
   color: 'var(--text-2)', fontWeight: 500,
 };
 const twHeaderSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
@@ -3242,7 +3242,7 @@ const kbdStyle: React.CSSProperties = {
   background: 'var(--bg-elevated)', border: '1px solid var(--border)',
   padding: '1px 5px', borderRadius: 3, color: 'var(--text-2)',
   fontSize: 9.5,
-  fontFamily: '"SF Mono", Menlo, monospace',
+  fontFamily: 'var(--font-mono)',
 };
 
 const stageCardStyle: React.CSSProperties = { padding: '14px 18px 16px' };

@@ -751,7 +751,7 @@ const tileSlimHeadStyle: React.CSSProperties = {
   height: 25,
   padding: '0 8px 0 10px',
   borderBottom: '1px solid var(--border-hairline)',
-  fontFamily: '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
+  fontFamily: 'var(--font-mono)',
   cursor: 'grab',
   userSelect: 'none',
   flexShrink: 0,
@@ -771,9 +771,9 @@ function flowChipStyle(flow: 'build' | 'review'): React.CSSProperties {
     letterSpacing: '0.08em',
     padding: '1px 5px',
     borderRadius: 3,
-    color: isReview ? '#1d4ed8' : '#7c3aed',
-    background: isReview ? 'rgba(37, 99, 235, 0.10)' : 'rgba(124, 58, 237, 0.10)',
-    border: `1px solid ${isReview ? 'rgba(37,99,235,0.30)' : 'rgba(124,58,237,0.30)'}`,
+    color: isReview ? '#1d4ed8' : 'var(--accent)',
+    background: isReview ? 'rgba(37, 99, 235, 0.10)' : 'var(--accent-a10)',
+    border: `1px solid ${isReview ? 'rgba(37,99,235,0.30)' : 'var(--accent-border)'}`,
     flexShrink: 0,
     textTransform: 'uppercase',
   };
@@ -902,7 +902,7 @@ const tileReplyTextareaTerminalStyle: React.CSSProperties = {
   background: '#161b22',
   color: 'rgba(255,255,255,0.92)',
   border: '1px solid #30363d',
-  fontFamily: '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
+  fontFamily: 'var(--font-mono)',
 };
 const tileReplyActionsStyle: React.CSSProperties = {
   display: 'flex',

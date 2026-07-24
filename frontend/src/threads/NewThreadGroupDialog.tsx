@@ -379,7 +379,7 @@ const titleGlyphStyle: React.CSSProperties = {
   width: 28,
   height: 28,
   borderRadius: 8,
-  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+  background: 'var(--accent)',
   color: '#fff',
   display: 'inline-flex',
   alignItems: 'center',
@@ -412,10 +412,10 @@ const workspaceChipStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 6,
   padding: '4px 10px',
-  background: 'rgba(124, 58, 237, 0.10)',
-  border: '1px solid rgba(124, 58, 237, 0.30)',
+  background: 'var(--accent-a10)',
+  border: '1px solid var(--accent-border)',
   borderRadius: 999,
-  color: '#6d28d9',
+  color: 'var(--accent-deep)',
   fontSize: 12,
   fontWeight: 600,
 };
@@ -424,7 +424,7 @@ const brandSqStyle: React.CSSProperties = {
   width: 16,
   height: 16,
   borderRadius: 4,
-  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+  background: 'var(--accent)',
   color: '#fff',
   display: 'inline-flex',
   alignItems: 'center',
@@ -458,17 +458,17 @@ const nameFieldWrapStyle: React.CSSProperties = {
   gap: 10,
   padding: '10px 12px',
   background: '#fff',
-  border: '1px solid rgba(124, 58, 237, 0.30)',
+  border: '1px solid var(--accent-border)',
   borderRadius: 12,
-  boxShadow: 'inset 0 0 0 3px rgba(124, 58, 237, 0.06)',
+  boxShadow: 'inset 0 0 0 3px var(--accent-a7)',
 };
 
 const nameFieldGlyphStyle: React.CSSProperties = {
   width: 22,
   height: 22,
   borderRadius: 6,
-  background: 'rgba(124, 58, 237, 0.15)',
-  color: '#7c3aed',
+  background: 'var(--accent-a10)',
+  color: 'var(--accent)',
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
@@ -503,8 +503,8 @@ const kbdStyle: React.CSSProperties = {
 };
 
 const addressableCodeStyle: React.CSSProperties = {
-  color: '#7c3aed',
-  background: 'rgba(124, 58, 237, 0.10)',
+  color: 'var(--accent)',
+  background: 'var(--accent-a10)',
   padding: '1px 6px',
   borderRadius: 4,
   fontSize: 11,
@@ -581,10 +581,10 @@ function threadRowStyle(picked: boolean, capped: boolean): React.CSSProperties {
     gap: 10,
     padding: '8px 10px',
     border: picked
-        ? '1px solid rgba(124, 58, 237, 0.40)'
+        ? '1px solid var(--accent-border)'
         : '1px solid rgba(0,0,0,0.08)',
     background: picked
-        ? 'linear-gradient(180deg, rgba(124, 58, 237, 0.08), rgba(124, 58, 237, 0.02)), #fff'
+        ? 'var(--accent-a7)'
         : '#fff',
     borderRadius: 10,
     cursor: capped ? 'not-allowed' : 'pointer',
@@ -595,7 +595,7 @@ function threadRowStyle(picked: boolean, capped: boolean): React.CSSProperties {
 
 const checkboxStyle: React.CSSProperties = {
   marginTop: 3,
-  accentColor: '#7c3aed',
+  accentColor: 'var(--accent)',
   flexShrink: 0,
 };
 
@@ -648,9 +648,9 @@ function flowChipStyle(flow: 'build' | 'review'): React.CSSProperties {
     letterSpacing: '0.08em',
     padding: '1px 6px',
     borderRadius: 3,
-    color: isReview ? '#1d4ed8' : '#7c3aed',
-    background: isReview ? 'rgba(37,99,235,0.10)' : 'rgba(124,58,237,0.10)',
-    border: `1px solid ${isReview ? 'rgba(37,99,235,0.30)' : 'rgba(124,58,237,0.30)'}`,
+    color: isReview ? '#1d4ed8' : 'var(--accent)',
+    background: isReview ? 'rgba(37,99,235,0.10)' : 'var(--accent-a10)',
+    border: `1px solid ${isReview ? 'rgba(37,99,235,0.30)' : 'var(--accent-border)'}`,
   };
 }
 
@@ -680,11 +680,11 @@ const previewSlotEmptyStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  border: '1px dashed rgba(124, 58, 237, 0.30)',
+  border: '1px dashed var(--accent-border)',
   borderRadius: 8,
   fontSize: 11,
-  color: '#7c3aed',
-  background: 'rgba(124, 58, 237, 0.04)',
+  color: 'var(--accent)',
+  background: 'var(--accent-a4)',
 };
 
 const previewSlotFilledStyle: React.CSSProperties = {
@@ -772,7 +772,7 @@ const secondaryBtnStyle: React.CSSProperties = {
 
 const primaryBtnStyle: React.CSSProperties = {
   padding: '8px 16px',
-  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+  background: 'var(--accent)',
   color: '#fff',
   border: 'none',
   borderRadius: 8,

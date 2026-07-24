@@ -258,12 +258,12 @@ const panelStyle: React.CSSProperties = {
   width: 560,
   maxWidth: 'calc(100vw - 40px)',
   background: 'rgba(255, 255, 255, 0.97)',
-  border: '1px solid rgba(124, 58, 237, 0.15)',
+  border: '1px solid var(--border)',
   borderRadius: 14,
-  boxShadow: '0 20px 60px rgba(67, 56, 202, 0.25), 0 4px 12px rgba(0,0,0,0.08)',
+  boxShadow: '0 20px 60px rgba(31, 35, 40, 0.16), 0 4px 12px rgba(0,0,0,0.08)',
   padding: 0,
   overflow: 'hidden',
-  color: '#1f1b2e',
+  color: 'var(--text-1)',
 };
 
 const inputRowStyle: React.CSSProperties = {
@@ -271,15 +271,15 @@ const inputRowStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 10,
   padding: '12px 14px',
-  borderBottom: '1px solid rgba(124, 58, 237, 0.08)',
+  borderBottom: '1px solid var(--border)',
 };
 
 const inputIconStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 600,
-  color: '#7c3aed',
+  color: 'var(--accent)',
   padding: '3px 7px',
-  background: 'rgba(124, 58, 237, 0.08)',
+  background: 'var(--accent-a7)',
   borderRadius: 5,
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
 };
@@ -291,12 +291,12 @@ const inputStyle: React.CSSProperties = {
   background: 'transparent',
   fontSize: 14,
   fontFamily: 'inherit',
-  color: '#1f1b2e',
+  color: 'var(--text-1)',
 };
 
 const escHintStyle: React.CSSProperties = {
   fontSize: 10,
-  color: '#7a7388',
+  color: 'var(--text-3)',
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
 };
 
@@ -310,7 +310,7 @@ const contextRowStyle: React.CSSProperties = {
 
 const contextLabelStyle: React.CSSProperties = {
   fontSize: 10,
-  color: '#7a7388',
+  color: 'var(--text-3)',
   textTransform: 'uppercase',
   letterSpacing: '0.06em',
   fontWeight: 600,
@@ -324,7 +324,7 @@ function contextChipStyle(kind: 'scope' | 'entity' | 'state'): React.CSSProperti
       ? { bg: 'rgba(0, 102, 204, 0.10)', fg: '#0050a0', border: 'rgba(0, 102, 204, 0.25)' }
       : kind === 'state'
           ? { bg: 'rgba(217, 119, 6, 0.10)', fg: '#a55c00', border: 'rgba(217, 119, 6, 0.25)' }
-          : { bg: 'rgba(124, 58, 237, 0.10)', fg: '#6d28d9', border: 'rgba(124, 58, 237, 0.25)' };
+          : { bg: 'var(--accent-a10)', fg: 'var(--accent-deep)', border: 'var(--accent-border)' };
   return {
     fontSize: 11,
     fontFamily: 'ui-monospace, SFMono-Regular, monospace',
@@ -348,7 +348,7 @@ const verbHintLabelStyle: React.CSSProperties = {
   fontWeight: 600,
   textTransform: 'uppercase',
   letterSpacing: '0.06em',
-  color: '#7a7388',
+  color: 'var(--text-3)',
 };
 
 const verbChipStyle: React.CSSProperties = {
@@ -356,10 +356,10 @@ const verbChipStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 600,
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-  border: '1px solid rgba(124, 58, 237, 0.18)',
+  border: '1px solid var(--accent-border)',
   borderRadius: 999,
-  background: 'rgba(124, 58, 237, 0.06)',
-  color: '#6d28d9',
+  background: 'var(--accent-a7)',
+  color: 'var(--accent-deep)',
   cursor: 'pointer',
 };
 
@@ -378,18 +378,18 @@ function rowStyle(active: boolean): React.CSSProperties {
     gap: 10,
     padding: '8px 14px',
     cursor: 'pointer',
-    background: active ? 'rgba(124, 58, 237, 0.08)' : 'transparent',
+    background: active ? 'var(--bg-hover)' : 'transparent',
     transition: 'background 140ms ease',
   };
 }
 
 function rowIconStyle(source: 'navigation' | 'create'): React.CSSProperties {
-  const color = source === 'create' ? '#16a34a' : '#7c3aed';
+  const color = source === 'create' ? '#16a34a' : 'var(--accent)';
   return {
     width: 26,
     height: 26,
     borderRadius: 7,
-    background: source === 'create' ? 'rgba(22, 163, 74, 0.12)' : 'rgba(124, 58, 237, 0.12)',
+    background: source === 'create' ? 'rgba(22, 163, 74, 0.12)' : 'var(--accent-a10)',
     color,
     display: 'inline-flex',
     alignItems: 'center',
@@ -403,7 +403,7 @@ function rowIconStyle(source: 'navigation' | 'create'): React.CSSProperties {
 const rowLabelStyle: React.CSSProperties = {
   fontSize: 13,
   fontWeight: 600,
-  color: '#1f1b2e',
+  color: 'var(--text-1)',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
@@ -411,7 +411,7 @@ const rowLabelStyle: React.CSSProperties = {
 
 const rowDescStyle: React.CSSProperties = {
   fontSize: 11,
-  color: '#7a7388',
+  color: 'var(--text-3)',
   marginTop: 2,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -423,10 +423,10 @@ const rowSourceStyle: React.CSSProperties = {
   fontWeight: 600,
   textTransform: 'uppercase',
   letterSpacing: '0.06em',
-  color: '#7a7388',
+  color: 'var(--text-3)',
   padding: '2px 6px',
   borderRadius: 4,
-  background: 'rgba(124, 58, 237, 0.05)',
+  background: 'var(--bg-hover)',
   flexShrink: 0,
 };
 
@@ -435,19 +435,19 @@ const footerStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 14,
   padding: '8px 14px',
-  borderTop: '1px solid rgba(124, 58, 237, 0.08)',
-  background: 'rgba(243, 240, 255, 0.7)',
+  borderTop: '1px solid var(--border)',
+  background: 'var(--bg-elevated)',
 };
 
 const footerHintStyle: React.CSSProperties = {
   fontSize: 10,
-  color: '#7a7388',
+  color: 'var(--text-3)',
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
 };
 
 const footerSummonStyle: React.CSSProperties = {
   fontSize: 10,
-  color: '#7c3aed',
+  color: 'var(--accent)',
   fontWeight: 600,
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
 };
@@ -455,14 +455,14 @@ const footerSummonStyle: React.CSSProperties = {
 const emptyStyle: React.CSSProperties = {
   padding: 22,
   textAlign: 'center',
-  color: '#7a7388',
+  color: 'var(--text-3)',
   fontSize: 13,
 };
 
 const emptyLinkStyle: React.CSSProperties = {
   border: 'none',
   background: 'transparent',
-  color: '#7c3aed',
+  color: 'var(--accent)',
   cursor: 'pointer',
   fontSize: 13,
   fontWeight: 600,

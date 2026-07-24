@@ -456,13 +456,13 @@ function threadNavRowStyle(active: boolean): React.CSSProperties {
     gap: 8,
     width: '100%',
     padding: '6px 8px',
-    border: '1px solid ' + (active ? 'rgba(124,58,237,0.40)' : 'transparent'),
+    border: '1px solid ' + (active ? 'var(--accent-border)' : 'transparent'),
     background: active
-        ? 'rgba(124, 58, 237, 0.10)'
+        ? 'var(--accent-a10)'
         : 'transparent',
     borderRadius: 6,
     fontSize: 12,
-    color: active ? '#6d28d9' : 'var(--text-1)',
+    color: active ? 'var(--accent-deep)' : 'var(--text-1)',
     cursor: 'pointer',
     textAlign: 'left',
     fontFamily: 'inherit',

@@ -555,7 +555,7 @@
 }
 
 .ai-skills__seg--active .ai-skills__seg-count {
-  background: rgba(124, 58, 237, 0.10);
+  background: var(--accent-a10);
   color: var(--accent-deep, #6d28d9);
 }
 
@@ -673,7 +673,7 @@
 }
 
 .ai-skills__group-add:hover {
-  background: rgba(124, 58, 237, 0.08);
+  background: var(--accent-a7);
 }
 
 /* Skill row — three-column grid: toggle / body / actions. Hover
@@ -757,7 +757,7 @@
 }
 
 .ai-skills__pill--global {
-  background: rgba(124, 58, 237, 0.10);
+  background: var(--accent-a10);
   color: var(--accent-deep, #6d28d9);
 }
 

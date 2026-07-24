@@ -26,6 +26,7 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
@@ -47,6 +48,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
@@ -91,6 +94,7 @@ public class TaskLifecycleDriver
     private static final int SCAN_LIMIT = 200;
     private static final int TURN_SCAN_LIMIT = 100;
     private static final String SOURCE_ADDRESS_LOCAL_COMMENTS = "address-local-comments";
+    private static final String LOCAL_COMMENT_TARGET_PREFIX = "Target comment id: ";
 
     /** Phases that are waiting on the PR's remote state, so the linked PR
      *  is worth polling. A task outside these isn't waiting on CI/review,
@@ -205,6 +209,12 @@ public class TaskLifecycleDriver
     public void onLocalReviewSubmitted(LocalReviewSubmittedEvent event)
     {
         taskStore.findTaskById(event.taskId()).ifPresent(task -> {
+            if (task.phase() == TaskPhase.INTERNAL_REVIEW) {
+                // The submission is durable. Let the active Brain pass finish;
+                // onInternalReviewCompleted hands it off after that transition
+                // commits. The scheduled sweep still recovers a stalled pass.
+                return;
+            }
             try {
                 reconcileLocalTask(task);
             }
@@ -213,6 +223,75 @@ public class TaskLifecycleDriver
                         task.id(), e.getMessage());
             }
         });
+    }
+
+    /** A local comment submitted during Brain review is already durable but
+     *  cannot move the phase until that pass releases INTERNAL_REVIEW. Re-read
+     *  it immediately after the committed handoff instead of waiting a sweep. */
+    @TransactionalEventListener(
+            phase = TransactionPhase.AFTER_COMMIT,
+            fallbackExecution = true)
+    public void onInternalReviewCompleted(TaskPhaseTransitionedEvent event)
+    {
+        if (event.from() != TaskPhase.INTERNAL_REVIEW || event.to() != TaskPhase.AWAITING_PUSH) {
+            return;
+        }
+        taskStore.findTaskById(event.taskId()).ifPresent(task -> {
+            try {
+                reconcileLocalTask(task);
+            }
+            catch (RuntimeException e) {
+                log.warn("post-review local-comment handoff for task {} failed: {}",
+                        task.id(), e.getMessage());
+            }
+        });
+    }
+
+    /** Fast path after a successful local-addressing turn. Reconcile only
+     *  turns durably identified as ours; failed turns wait for the scheduled
+     *  recovery sweep so a persistent failure cannot spin an immediate loop. */
+    @EventListener
+    public void onLocalAddressTurnFinished(TaskTurnFinishedEvent event)
+    {
+        if (event.failed()) {
+            return;
+        }
+        turnStore.findTurnById(event.turnId())
+                .filter(turn -> turn.status() == ThreadTurnStatus.COMPLETED)
+                .filter(turn -> event.taskId().equals(turn.taskId()))
+                .filter(turn -> turn.initiator() != null
+                        && SOURCE_ADDRESS_LOCAL_COMMENTS.equals(turn.initiator().source()))
+                .filter(this::localAddressTargetClosed)
+                .flatMap(turn -> taskStore.findTaskById(event.taskId()))
+                .ifPresent(task -> {
+                    try {
+                        reconcileLocalTask(task);
+                    }
+                    catch (RuntimeException e) {
+                        log.warn("post-turn local-review reconcile for task {} failed: {}",
+                                task.id(), e.getMessage());
+                    }
+                });
+    }
+
+    private boolean localAddressTargetClosed(ThreadTurn turn)
+    {
+        String targetId = turn.input() == null ? null : turn.input().lines()
+                .findFirst()
+                .filter(line -> line.startsWith(LOCAL_COMMENT_TARGET_PREFIX))
+                .map(line -> line.substring(LOCAL_COMMENT_TARGET_PREFIX.length()).strip())
+                .filter(id -> !id.isEmpty())
+                .orElse(null);
+        if (targetId == null) {
+            return false;
+        }
+        return prService.findByTask(turn.taskId())
+                .map(pr -> prService.comments(pr.id()).stream()
+                        .filter(comment -> targetId.equals(comment.id()))
+                        .filter(comment -> PRComment.ORIGIN_LOCAL.equals(comment.origin()))
+                        .filter(comment -> comment.parentCommentId() == null)
+                        .anyMatch(comment -> comment.resolvedAt() != null || comment.dismissedAt() != null))
+                .orElse(false);
     }
 
     /** Terminal states whose worktree should already be gone — if one still
@@ -537,7 +616,7 @@ public class TaskLifecycleDriver
                         current.id());
                 return null;
             }
-            String prompt = buildLocalAddressingPrompt(pr, roots, threadComments);
+            String prompt = buildLocalAddressingPrompt(pr, roots.get(0), threadComments);
             try {
                 String stageId = stageStore.findLiveStageByType(current.id(), StageType.DEVELOPMENT_STAGE)
                         .map(s -> s.id().toString())
@@ -572,51 +651,67 @@ public class TaskLifecycleDriver
         return false;
     }
 
-    /** The local-addressing turn's prompt: every still-open comment, and a
-     *  direct instruction to fix/reply/dismiss each one now — the local twin
+    /** The local-addressing turn's prompt: the next still-open comment, and a
+     *  direct instruction to fix/reply/dismiss it now — the local twin
      *  of {@link #buildReviewAnalysisPrompt}, minus the "stop and wait" step
      *  (decision: local addressing is autonomous; the unpushed branch is the
      *  safety net, not a human gate). */
     private static String buildLocalAddressingPrompt(
-            PR pr, List<PRComment> roots, List<PRComment> threadComments)
+            PR pr, PRComment comment, List<PRComment> threadComments)
     {
-        StringBuilder out = new StringBuilder();
+        StringBuilder out = new StringBuilder(LOCAL_COMMENT_TARGET_PREFIX)
+                .append(comment.id()).append("\n\n");
         out.append("New comments arrived on your local PR \"").append(pr.title()).append("\". ")
                 .append("Unlike remote review comments, address these directly now — the branch "
                         + "hasn't been pushed yet, so there's nothing to gate on.\n\n")
-                .append("For EACH open comment below:\n")
-                .append("  1. If it asks for a code change: make the fix, commit it, call "
-                        + "record_pr_commit, then resolve_pr_comment(comment_id, "
-                        + "resolution='addressed').\n")
-                .append("  2. If it's a question or needs no code change: reply with "
-                        + "record_pr_comment (parent_comment_id set to the comment's id), then "
-                        + "resolve_pr_comment(comment_id, resolution='addressed').\n")
-                .append("  3. If you disagree and no action is needed: reply explaining why via "
+                .append("Address exactly this one open comment. Fully finish and resolve it before "
+                        + "the lifecycle sends the next comment.\n")
+                .append("  1. Inspect its stored anchor, the relevant current code, and the current diff.\n")
+                .append("  2. For a code concern: make the fix, run a focused check for that concern, "
+                        + "then inspect the current diff again to verify the concern is addressed. "
+                        + "Commit it, call record_pr_commit, then call "
+                        + "resolve_pr_comment(comment_id, resolution='addressed', "
+                        + "reply='<concise description of the verified fix>').\n")
+                .append("  3. For a question or concern needing no code change: call "
+                        + "resolve_pr_comment(comment_id, resolution='addressed', "
+                        + "reply='<concise answer>'). Do not call record_pr_comment first; "
+                        + "resolve_pr_comment posts the reply.\n")
+                .append("  4. If you disagree and no action is needed: reply explaining why via "
                         + "record_pr_comment, then resolve_pr_comment(comment_id, "
                         + "resolution='dismissed').\n\n")
-                .append("Open comments:\n");
-        int i = 1;
-        for (PRComment comment : roots) {
-            if (!isOpenSubmittedRoot(comment)) {
-                continue;
+                .append("After resolving it, do not push; finish this turn. The lifecycle will send "
+                        + "the next open comment, or, once all are closed, run final whole-change "
+                        + "validation and start a fresh Brain review.\n\n")
+                .append("Open comment:\n\n")
+                .append("[id: ").append(comment.id()).append("]\n")
+                .append("Anchor: ");
+        if (comment.filePath() != null) {
+            out.append(comment.filePath());
+            if (comment.lineNumber() != null) {
+                out.append("; line=").append(comment.lineNumber());
             }
-            out.append('\n').append(i++).append(". [id: ").append(comment.id()).append("] ");
-            if (comment.filePath() != null) {
-                out.append(comment.filePath());
-                if (comment.lineNumber() != null) {
-                    out.append(':').append(comment.lineNumber());
-                }
+            if (comment.side() != null) {
+                out.append("; side=").append(comment.side());
             }
-            out.append('\n')
-                    .append("   @").append(comment.author()).append(": ")
-                    .append(comment.body() == null ? "" : comment.body().strip())
-                    .append('\n');
-            for (PRComment reply : threadComments) {
-                if (comment.id().equals(reply.parentCommentId())) {
-                    out.append("   Reply @").append(reply.author()).append(": ")
-                            .append(reply.body() == null ? "" : reply.body().strip())
-                            .append('\n');
-                }
+            if (comment.startLine() != null) {
+                out.append("; start_line=").append(comment.startLine());
+            }
+            if (comment.startSide() != null) {
+                out.append("; start_side=").append(comment.startSide());
+            }
+        }
+        else {
+            out.append("PR-level");
+        }
+        out.append('\n')
+                .append('@').append(comment.author()).append(": ")
+                .append(comment.body() == null ? "" : comment.body().strip())
+                .append('\n');
+        for (PRComment reply : threadComments) {
+            if (comment.id().equals(reply.parentCommentId())) {
+                out.append("Reply @").append(reply.author()).append(": ")
+                        .append(reply.body() == null ? "" : reply.body().strip())
+                        .append('\n');
             }
         }
         return out.toString();

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type CSSProperties } from 'react';
 
 type Props = {
   /** Current textarea contents. */
@@ -24,6 +24,15 @@ type Props = {
   /** Optional: disable the polish button while a sibling action runs
    *  (e.g. the surrounding "Submit" is in flight). */
   disabled?: boolean;
+  /** Notify a surrounding composer so sibling actions cannot race a polish. */
+  onBusyChange?: (busy: boolean) => void;
+  /** Override the default decorated label where a compact action row needs
+   *  exact button copy. */
+  label?: string;
+  buttonStyle?: CSSProperties;
+  /** Some compact action rows have a locked button set and replace in place
+   *  without exposing the shared one-step undo affordance. */
+  showUndo?: boolean;
 };
 
 /**
@@ -38,7 +47,10 @@ type Props = {
  * any composer (PR detail comment box, inline diff comment, review-thread
  * reply, etc.) so the polish affordance is consistent across all of them.
  */
-function PolishButtons({ value, onChange, onError, disabled }: Props) {
+function PolishButtons({
+  value, onChange, onError, disabled, onBusyChange,
+  label = '✨ Better words', buttonStyle, showUndo = true,
+}: Props) {
   const [polishing, setPolishing] = useState(false);
   const [prePolish, setPrePolish] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -55,6 +67,7 @@ function PolishButtons({ value, onChange, onError, disabled }: Props) {
     const draft = value.trim();
     if (!draft || polishing) return;
     setPolishing(true);
+    onBusyChange?.(true);
     setLocalError(null);
     try {
       const polished = await window.bridge.polishCommentText(draft);
@@ -68,8 +81,9 @@ function PolishButtons({ value, onChange, onError, disabled }: Props) {
       else setLocalError(msg);
     } finally {
       setPolishing(false);
+      onBusyChange?.(false);
     }
-  }, [value, polishing, onChange, onError]);
+  }, [value, polishing, onChange, onError, onBusyChange]);
 
   const undo = () => {
     if (prePolish === null) return;
@@ -88,11 +102,14 @@ function PolishButtons({ value, onChange, onError, disabled }: Props) {
         className="polish-btn"
         onClick={() => void polish()}
         disabled={disabled || polishing || value.trim().length === 0}
-        title="Send to the active LLM and replace the text with a polished version. Click Undo right after to revert."
+        title={showUndo
+          ? 'Send to the active LLM and replace the text with a polished version. Click Undo right after to revert.'
+          : 'Send to the active LLM and replace the text with a polished version.'}
+        style={buttonStyle}
       >
-        {polishing ? 'Polishing…' : '✨ Better words'}
+        {polishing ? 'Polishing…' : label}
       </button>
-      {prePolish !== null && !polishing && (
+      {showUndo && prePolish !== null && !polishing && (
         <button
           type="button"
           className="polish-undo-btn"

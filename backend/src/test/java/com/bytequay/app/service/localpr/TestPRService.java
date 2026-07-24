@@ -35,8 +35,11 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.review.DevReportService;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
@@ -219,14 +222,70 @@ class TestPRService
                 .hasMessageContaining("filePath");
     }
 
-    @Test
-    void taskLocalReviewRejectsUserCommentsAfterPromotion()
+    @ParameterizedTest
+    @ValueSource(strings = {PR.STATUS_REMOTE_DRAFTED, PR.STATUS_REMOTE_OPEN})
+    void taskRemoteReviewAcceptsUserDraftComments(String status)
     {
-        pr(PR.STATUS_REMOTE_DRAFTED);
+        pr(status);
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        PRComment saved = service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, PRTimelineEntry.ACTOR_USER, "remote draft", null);
+
+        assertThat(saved.body()).isEqualTo("remote draft");
+        assertThat(saved.strippedOnPushAt()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {PR.STATUS_REMOTE_DRAFTED, PR.STATUS_REMOTE_OPEN})
+    void taskRemoteReviewAcceptsRepliesUnderCurrentLocalDrafts(String status)
+    {
+        pr(status);
+        PRComment parent = new PRComment(
+                "cm-current", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java", 10, PRTimelineEntry.ACTOR_USER, "current draft", NOW,
+                null, null, null, null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm-current")).thenReturn(Optional.of(parent));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        PRComment reply = service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, PRTimelineEntry.ACTOR_USER,
+                "remote reply", "cm-current");
+
+        assertThat(reply.parentCommentId()).isEqualTo("cm-current");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {PR.STATUS_REMOTE_DRAFTED, PR.STATUS_REMOTE_OPEN})
+    void taskRemoteReviewRejectsRepliesUnderStrippedPrePushComments(String status)
+    {
+        pr(status);
+        PRComment stripped = new PRComment(
+                "cm-pre-push", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Foo.java", 10, PRTimelineEntry.ACTOR_USER, "private review", NOW.minusSeconds(2),
+                null, null, NOW.minusSeconds(1), null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm-pre-push")).thenReturn(Optional.of(stripped));
 
         assertThatThrownBy(() -> service.addComment(
                 "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
-                null, null, null, null, null, PRTimelineEntry.ACTOR_USER, "too late", null))
+                null, null, null, null, null, PRTimelineEntry.ACTOR_USER,
+                "remote reply", "cm-pre-push"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not a current remote review draft");
+        verify(store, never()).saveComment(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {PR.STATUS_LOCAL_DRAFTED, PR.STATUS_MERGED, PR.STATUS_CLOSED})
+    void taskReviewRejectsUserDraftCommentsOutsideAnOpenReview(String status)
+    {
+        pr(status);
+
+        assertThatThrownBy(() -> service.addComment(
+                "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null, PRTimelineEntry.ACTOR_USER, "not open", null))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("not open");
         verify(store, never()).saveComment(any());
@@ -683,10 +742,79 @@ class TestPRService
         verify(store, never()).addEvent(any());
     }
 
-    @Test
-    void reopenCommentCannotReviveALocalThreadAfterPromotion()
+    @ParameterizedTest
+    @ValueSource(strings = {PR.STATUS_REMOTE_DRAFTED, PR.STATUS_REMOTE_OPEN})
+    void taskRemoteReviewCanReopenALocalDraft(String status)
     {
-        pr(PR.STATUS_REMOTE_DRAFTED);
+        pr(status);
+        PRComment comment = new PRComment(
+                "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                "you", "note", NOW, NOW, NOW, null, null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm1")).thenReturn(Optional.of(comment));
+        when(store.saveComment(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        PRComment reopened = service.reopenComment("cm1");
+
+        assertThat(reopened.resolvedAt()).isNull();
+        assertThat(reopened.dismissedAt()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {PR.STATUS_REMOTE_DRAFTED, PR.STATUS_REMOTE_OPEN})
+    void taskRemoteReviewCannotReopenAStrippedPrePushComment(String status)
+    {
+        pr(status);
+        PRComment stripped = new PRComment(
+                "cm-pre-push", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                PRTimelineEntry.ACTOR_USER, "private review", NOW.minusSeconds(2),
+                NOW.minusSeconds(1), null, NOW, null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm-pre-push")).thenReturn(Optional.of(stripped));
+
+        assertThatThrownBy(() -> service.reopenComment("cm-pre-push"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not a current remote review draft");
+        verify(store, never()).saveComment(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {PR.STATUS_REMOTE_DRAFTED, PR.STATUS_REMOTE_OPEN})
+    void taskRemoteReviewCannotReopenAPublishedLocalComment(String status)
+    {
+        pr(status);
+        PRComment published = new PRComment(
+                "cm-published", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
+                PRTimelineEntry.ACTOR_USER, "published review", NOW.minusSeconds(2),
+                NOW.minusSeconds(1), null, null, null, NOW, "RIGHT", null, null);
+        when(store.findCommentById("cm-published")).thenReturn(Optional.of(published));
+
+        assertThatThrownBy(() -> service.reopenComment("cm-published"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not a current remote review draft");
+        verify(store, never()).saveComment(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {PR.STATUS_REMOTE_DRAFTED, PR.STATUS_REMOTE_OPEN})
+    void taskRemoteReviewCannotReopenARemoteComment(String status)
+    {
+        pr(status);
+        PRComment remote = new PRComment(
+                "cm-remote", "pr1", PRComment.ORIGIN_REMOTE, PRComment.SCOPE_PR, null, null,
+                "octocat", "remote review", NOW.minusSeconds(2),
+                NOW.minusSeconds(1), null, null, null, null, "RIGHT", null, null);
+        when(store.findCommentById("cm-remote")).thenReturn(Optional.of(remote));
+
+        assertThatThrownBy(() -> service.reopenComment("cm-remote"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not a current remote review draft");
+        verify(store, never()).saveComment(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {PR.STATUS_LOCAL_DRAFTED, PR.STATUS_MERGED, PR.STATUS_CLOSED})
+    void taskReviewCannotReopenACommentOutsideAnOpenReview(String status)
+    {
+        pr(status);
         PRComment comment = new PRComment(
                 "cm1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR, null, null,
                 "you", "note", NOW, NOW, NOW, null, null, null, "RIGHT", null, null);
@@ -997,12 +1125,10 @@ class TestPRService
         assertThat(started.eventType()).isEqualTo(PRTimelineEntry.TYPE_REVIEW);
         assertThat(started.actor()).isEqualTo(PRTimelineEntry.ACTOR_BRAIN);
         assertThat(started.localOnly()).isTrue();
-        assertThat(new ObjectMapper().readTree(started.payloadJson()))
-                .extracting(
-                        payload -> payload.path("reviewEvent").asText(),
-                        payload -> payload.path("scope").asText(),
-                        payload -> payload.path("iteration").asInt())
-                .containsExactly("started", "plan", 1);
+        JsonNode payload = new ObjectMapper().readTree(started.payloadJson());
+        assertThat(payload.path("reviewEvent").asText()).isEqualTo("started");
+        assertThat(payload.path("scope").asText()).isEqualTo("plan");
+        assertThat(payload.path("iteration").asInt()).isEqualTo(1);
     }
 
     @Test

@@ -3064,8 +3064,8 @@ export type Bridge = {
    *  {@link deleteIssueComment}. */
   deleteReviewComment: (repo: string, commentId: number) => Promise<void>;
   /** Posts a brand-new per-line review comment on a specific diff line.
-   *  {@code commitId} should be the PR head SHA. {@code side} is "LEFT"
-   *  for the old file, "RIGHT" for the new file. */
+   *  The backend resolves the live PR head immediately before posting.
+   *  {@code side} is "LEFT" for the old file, "RIGHT" for the new file. */
   createInlineReviewComment: (
     repo: string,
     number: number,
@@ -3073,7 +3073,6 @@ export type Bridge = {
     path: string,
     line: number,
     side: 'LEFT' | 'RIGHT',
-    commitId: string,
     /** Optional first line of a multi-line range. null/omitted for the
      *  single-line case. When set, GitHub creates the comment spanning
      *  startLine through line on the matching side. */

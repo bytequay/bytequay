@@ -15,6 +15,8 @@ import { useEffect, useState } from 'react';
 import CurrentUserAvatar from '../CurrentUserAvatar';
 import { renderMarkdown, type MarkdownRepoContext } from '../markdown';
 import { relativeTime } from '../notificationDisplay';
+import PolishButtons from '../ai/PolishButtons';
+import type { InlineCommentTarget } from '../pr/prCapabilities';
 import type { ReviewThreadDto } from '../types';
 import { assocLabel } from './changesModel';
 import { Av } from './atoms';
@@ -53,22 +55,46 @@ export function AiReplyButton() {
   );
 }
 
-/** Prototype composer row — "Add a comment on line R17". Submits through the
- *  local-draft path (addLocalPrComment) the parent wires in. */
-export function InlineComposerRow({ label, repoCtx, onSubmit, onCancel }: {
+/** Inline diff composer. The capability-derived target controls whether the
+ *  immediate action dispatches one private task comment or posts to GitHub. */
+export function InlineComposerRow({ label, repoCtx, target, onSubmit, onAddToReview, onCancel }: {
   label: string;
   repoCtx: MarkdownRepoContext;
-  onSubmit: (body: string) => Promise<void>;
+  target: InlineCommentTarget;
+  onSubmit: (body: string, persistedCommentId: string | null) => Promise<void>;
+  onAddToReview: (body: string) => Promise<string>;
   onCancel: () => void;
 }) {
   const [seg, setSeg] = useState<'write' | 'preview'>('write');
   const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
-  const disabled = draft.trim().length === 0 || busy;
-  const submit = () => {
+  const [busy, setBusy] = useState<'submit' | 'add' | null>(null);
+  const [polishing, setPolishing] = useState(false);
+  const [persistedCommentId, setPersistedCommentId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const actionsBusy = busy !== null || polishing;
+  const disabled = draft.trim().length === 0 || actionsBusy;
+  const run = async (action: 'submit' | 'add') => {
     if (disabled) return;
-    setBusy(true);
-    onSubmit(draft.trim()).catch(() => { /* poll reconciles; keep the draft */ }).finally(() => setBusy(false));
+    setBusy(action);
+    setError(null);
+    let commentId = persistedCommentId;
+    try {
+      if (action === 'add' || (action === 'submit' && target === 'agent' && commentId === null)) {
+        if (commentId === null) {
+          commentId = await onAddToReview(draft.trim());
+          setPersistedCommentId(commentId);
+        }
+      }
+      if (action === 'submit') await onSubmit(draft.trim(), commentId);
+      onCancel();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setError(target === 'agent' && commentId !== null
+        ? `Comment saved as a draft. Retry to submit the same comment. ${message}`
+        : message);
+    } finally {
+      setBusy(null);
+    }
   };
   return (
     <tr>
@@ -96,10 +122,12 @@ export function InlineComposerRow({ label, repoCtx, onSubmit, onCancel }: {
               placeholder="Leave a comment"
               value={draft}
               autoFocus
-              onChange={e => setDraft(e.target.value)}
+              readOnly={persistedCommentId !== null}
+              title={persistedCommentId !== null ? 'This comment is saved. Retry submission or cancel.' : undefined}
+              onChange={e => { if (persistedCommentId === null) setDraft(e.target.value); }}
               onKeyDown={e => {
-                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); submit(); }
-                if (e.key === 'Escape') onCancel();
+                if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void run('add'); }
+                if (e.key === 'Escape' && !actionsBusy) onCancel();
               }}
               style={{ display: 'block', width: '100%', minHeight: 96, border: 0, outline: 'none', resize: 'vertical', padding: '11px 14px', fontSize: 13, lineHeight: 1.6, color: '#1f2328', background: 'transparent', fontFamily: 'inherit' }}
             />
@@ -111,21 +139,44 @@ export function InlineComposerRow({ label, repoCtx, onSubmit, onCancel }: {
           ) : (
             <div style={{ minHeight: 96, padding: '11px 14px', fontSize: 13, color: '#8b949e', fontStyle: 'italic' }}>Nothing to preview</div>
           )}
+          {error !== null && <div role="alert" style={{ padding: '8px 14px 0', fontSize: 12, color: '#cf222e' }}>{error}</div>}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderTop: '1px solid #e7e9ec' }}>
             <span title="Not wired yet" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#59636e', cursor: 'pointer' }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m21.4 11.05-8.5 8.5a5.5 5.5 0 0 1-7.78-7.78l8.5-8.5a3.67 3.67 0 0 1 5.19 5.19l-8.5 8.5a1.83 1.83 0 0 1-2.6-2.6l7.8-7.8" /></svg>
               Paste, drop, or click to add files
             </span>
             <span style={{ flex: 1 }} />
-            <button className="pl-hov-btn" onClick={onCancel} style={grayBtnStyle}>Cancel</button>
+            <button type="button" className="pl-hov-btn" onClick={onCancel} disabled={actionsBusy} style={grayBtnStyle}>Cancel</button>
             <button
-              onClick={submit}
+              type="button"
+              className="pl-hov-btn"
+              onClick={() => void run('submit')}
               disabled={disabled}
-              style={{ padding: '5px 13px', border: '1px solid #d5dbe1', background: '#eff2f5', borderRadius: 7, fontSize: 12, fontWeight: 600, color: disabled ? '#8b949e' : '#1f2328', cursor: disabled ? 'default' : 'pointer' }}
+              style={{ ...grayBtnStyle, color: disabled ? '#8b949e' : '#1f2328', cursor: disabled ? 'default' : 'pointer' }}
             >
-              {busy ? 'Adding…' : 'Add review comment'}
+              {busy === 'submit' ? (target === 'agent' ? 'Submitting…' : 'Commenting…') : (target === 'agent' ? 'Submit to agent' : 'Comment')}
             </button>
-            <AiReplyButton />
+            <button
+              type="button"
+              className="pl-hov-green"
+              onClick={() => void run('add')}
+              disabled={disabled}
+              style={{ ...grayBtnStyle, borderColor: '#1a7f37', background: '#1f883d', color: '#fff', cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1 }}
+            >
+              {busy === 'add' ? 'Adding…' : 'Add to review'}
+            </button>
+            {target === 'remote' && (
+              <PolishButtons
+                value={draft}
+                onChange={setDraft}
+                onError={setError}
+                disabled={busy !== null}
+                onBusyChange={setPolishing}
+                label="Better words"
+                buttonStyle={{ background: '#fff' }}
+                showUndo={false}
+              />
+            )}
           </div>
         </div>
       </td>

@@ -885,12 +885,16 @@ public class BrainReviewServiceImpl
                         brain.get(), PLAN_SELF_REVIEW_PROMPT, taskId, stageId.toString(),
                         initiator, agentRunId);
             }
-            return true;
         }
         catch (RuntimeException e) {
             log.warn("brain-review: plan self-review enqueue failed for task {}: {}", taskId, e.getMessage());
             return false;
         }
+        stageStore.recordEvent(
+                stageId, taskId, StageEventType.PLAN_SELF_REVIEW_STARTED,
+                Map.of("iteration", 1));
+        prService.recordBrainReviewStarted(taskId, "plan", 1, null);
+        return true;
     }
 
     private static boolean isPlanSelfReviewTurn(ThreadTurn turn)

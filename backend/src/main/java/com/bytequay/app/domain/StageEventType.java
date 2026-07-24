@@ -62,6 +62,11 @@ public enum StageEventType
      *  the plan card / feed can surface it instead of a silent empty draft. */
     PLAN_FAILED,
 
+    /** The brain's mandatory one-round self-review of its own plan was
+     *  successfully queued. Written only after scheduler admission succeeds,
+     *  so it is the durable source for "review started" UI and PR history. */
+    PLAN_SELF_REVIEW_STARTED,
+
     /** A CLOSED stage was woken back up for a new burst of work of the same
      *  kind, reusing its id (and whatever agent session is cached under it)
      *  instead of opening a second stage. */

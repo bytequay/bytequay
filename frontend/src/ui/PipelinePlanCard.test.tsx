@@ -137,6 +137,15 @@ describe('PipelinePlanCard', () => {
     expect(screen.getByText(/Still drafting/)).toBeTruthy();
   });
 
+  it('explains that a finalized plan stays locked during Brain self-review', () => {
+    render(<PipelinePlanCard plan={plan({ status: 'running' })} onPolicyChange={noop} onRequestRevision={noop} />);
+    expect(screen.getByText('Brain reviewing plan')).toBeTruthy();
+    expect(screen.getByText(/Approval unlocks when self-review finishes/)).toBeTruthy();
+    expect(screen.queryByText(/Still drafting/)).toBeNull();
+    const approveButton = screen.getByText('Approve & start dev').closest('button') as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+  });
+
   it('does not show the drafting note for a finalized plan awaiting approval', () => {
     render(<PipelinePlanCard plan={plan({ status: 'ready' })} onPolicyChange={noop} onApprove={noop} onRequestRevision={noop} />);
     expect(screen.getByText('Plan ready')).toBeTruthy();

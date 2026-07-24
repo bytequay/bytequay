@@ -131,6 +131,30 @@ class TestBrainReviewServiceImpl
         verify(scheduler).enqueueTaskTurn(
                 eq(brainThread), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
                 argThat(i -> "brain-plan-self-review".equals(i.source())));
+        verify(stageStore).recordEvent(
+                PLAN_STAGE_ID, TASK_ID, StageEventType.PLAN_SELF_REVIEW_STARTED,
+                Map.of("iteration", 1));
+        verify(prService).recordBrainReviewStarted(TASK_ID, "plan", 1, null);
+    }
+
+    @Test
+    void doesNotRecordSelfReviewStartedWhenSchedulerAdmissionFails()
+    {
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
+        when(turnStore.findTurnById("turn-1"))
+                .thenReturn(Optional.of(turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("user"))));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findEventsByStage(PLAN_STAGE_ID))
+                .thenReturn(List.of(planRecordedEvent("finalized")));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+        doThrow(new IllegalStateException("scheduler unavailable"))
+                .when(scheduler).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any());
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
+
+        verify(stageStore, never()).recordEvent(
+                eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEW_STARTED), any());
+        verify(prService, never()).recordBrainReviewStarted(anyString(), anyString(), anyInt(), any());
     }
 
     @Test

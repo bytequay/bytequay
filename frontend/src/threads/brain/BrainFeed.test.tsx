@@ -142,6 +142,17 @@ describe('BrainFeed', () => {
     expect(screen.getByText('Managed skills: ponytail')).toBeTruthy();
   });
 
+  it('keeps the current plan self-review checkpoint visible as the headline', () => {
+    const started = row('plan-review-started', 'PLAN_SELF_REVIEW_STARTED', 'Brain started mandatory plan self-review');
+    const reviewed = row('plan-reviewed', 'PLAN_SELF_REVIEWED', 'Brain approved the plan');
+    const { rerender } = render(<BrainFeed feed={[started]} stages={[]} density="focused" />);
+
+    expect(screen.getByText('Brain started mandatory plan self-review')).toBeTruthy();
+
+    rerender(<BrainFeed feed={[started, reviewed]} stages={[]} density="focused" />);
+    expect(screen.getByText('Brain approved the plan')).toBeTruthy();
+  });
+
   it('promotes a remote CI failure into the locked red quote card', () => {
     const failure = {
       ...row('ci', 'ITERATION_SUMMARY', 'Detected red CI in `TypecheckTest` — iteration 3 failed'),

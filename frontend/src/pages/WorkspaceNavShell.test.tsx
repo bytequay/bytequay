@@ -245,7 +245,7 @@ describe('WorkspaceNavShell', () => {
     expect(onOpenTask).toHaveBeenCalledWith('t1', 'task-1');
   });
 
-  it('renders live workspace counts with selected tasks in the locked workspace group', async () => {
+  it('renders workspace rows and locked entries with selected tasks in the workspace group', async () => {
     mockBridge({
       listTasks: vi.fn().mockResolvedValue([
         {

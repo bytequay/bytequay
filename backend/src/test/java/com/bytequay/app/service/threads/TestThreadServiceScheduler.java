@@ -795,7 +795,8 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default", /* workModel */ null));
+                /* flow */ null, "ws-default", /* workModel */ null)
+                .withOrigin(Task.ORIGIN_AGENT));
 
         Task active = tasks.activeTasksForThread(thread.id()).stream().findFirst().orElseThrow();
         assertThat(active.worktreePath()).isEqualTo("/tmp/repo/.worktrees/task-1");
@@ -814,7 +815,49 @@ class TestThreadServiceScheduler
                 .containsExactly(
                         Path.of("/tmp/repo").toAbsolutePath().normalize(),
                         "Fix tests", "planned-sha");
-        assertThat(projecting.findPlanningSnapshot(thread.id())).isEmpty();
+        // The cut no longer consumes the snapshot — it keeps reflecting the
+        // planning worktree until the turn-start sync moves it.
+        assertThat(projecting.findPlanningSnapshot(thread.id())).isPresent();
+    }
+
+    @Test
+    void userOriginTaskCutIgnoresThePlanningSnapshot()
+    {
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.of(
+                new WorktreeService.WorktreeHandle(
+                        Path.of("/tmp/repo/.worktrees/task-1"),
+                        "dev/task-1", null)));
+        InMemoryRecordingTaskStore tasks = new InMemoryRecordingTaskStore();
+        ProjectingThreadStore projecting = new ProjectingThreadStore(store);
+        ThreadService service = new ThreadService(
+                projecting, tasks, new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(), new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(), Mockito.mock(McpPermissionGate.class),
+                new RecordingScheduler(), Mockito.mock(WorktreeLeaseService.class),
+                new GitRunner(), worktrees,
+                new RoleSkillService(new ConceptRegistry()), stubIdGenerator(),
+                Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+        Thread thread = service.create(new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix tests",
+                null, null, null, List.of(), "DEVELOP", null, null,
+                null, "ws-default", null));
+        projecting.setPlanningSnapshot(thread.id(), new ThreadStore.PlanningSnapshot(
+                Path.of("/tmp/repo").toAbsolutePath().normalize().toString(), "planned-sha"));
+
+        // Default origin is "user": the trunk's planning view is unrelated,
+        // so the cut branches from the freshly-fetched remote base instead.
+        service.materialiseTask(thread.id(), new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix tests",
+                "/tmp/repo", "main", "please fix", List.of(), "DEVELOP", null, null,
+                null, "ws-default", null));
+
+        assertThat(worktrees.createRequests)
+                .singleElement()
+                .extracting(WorktreeCreateRequest::baseSha)
+                .isNull();
+        assertThat(projecting.findPlanningSnapshot(thread.id())).isPresent();
     }
 
     @Test
@@ -888,7 +931,8 @@ class TestThreadServiceScheduler
                 new ThreadService.NewTaskRequest(
                         ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix NPE",
                         repoRoot, null, "fix it", List.of(), "DEVELOP", null, null,
-                        null, "ws-default", null)))
+                        null, "ws-default", null)
+                        .withOrigin(Task.ORIGIN_AGENT)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("planned-sha");
 
@@ -1797,9 +1841,6 @@ class TestThreadServiceScheduler
         @Override public void setPlanningSnapshot(String threadId, PlanningSnapshot snapshot) {
             inner.setPlanningSnapshot(threadId, snapshot);
         }
-        @Override public boolean clearPlanningSnapshot(String threadId, String expectedBaseSha) {
-            return inner.clearPlanningSnapshot(threadId, expectedBaseSha);
-        }
         @Override public List<Thread> listTasksByStatus(ThreadStatus status, int limit) {
             return inner.listTasksByStatus(status, limit);
         }
@@ -1881,17 +1922,6 @@ class TestThreadServiceScheduler
         public void setPlanningSnapshot(String threadId, PlanningSnapshot snapshot)
         {
             planningSnapshots.put(threadId, snapshot);
-        }
-
-        @Override
-        public boolean clearPlanningSnapshot(String threadId, String expectedBaseSha)
-        {
-            PlanningSnapshot current = planningSnapshots.get(threadId);
-            if (current == null || !current.baseSha().equals(expectedBaseSha)) {
-                return false;
-            }
-            planningSnapshots.remove(threadId);
-            return true;
         }
 
         @Override

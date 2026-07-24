@@ -543,12 +543,17 @@ public class ThreadService
         // worktree per task), so the on-disk dir matches the row; only the
         // branch is named for the purpose.
         Path repoRoot = Path.of(request.workingDir()).toAbsolutePath().normalize();
-        Optional<ThreadStore.PlanningSnapshot> planningSnapshot =
-                store.findPlanningSnapshot(threadId);
-        String plannedBaseSha = planningSnapshot
-                .filter(snapshot -> repoRoot.toString().equals(snapshot.repoRoot()))
-                .map(ThreadStore.PlanningSnapshot::baseSha)
-                .orElse(null);
+        // Only trunk-agent cuts pin to the planning snapshot: create_task
+        // runs inside a trunk turn, so the snapshot is fresh as of that
+        // turn's sync. Other origins (user, issue-monitor, quality-scan)
+        // have no relation to the trunk's planning view and branch from
+        // the freshly-fetched remote base instead.
+        String plannedBaseSha = Task.ORIGIN_AGENT.equals(request.origin())
+                ? store.findPlanningSnapshot(threadId)
+                        .filter(snapshot -> repoRoot.toString().equals(snapshot.repoRoot()))
+                        .map(ThreadStore.PlanningSnapshot::baseSha)
+                        .orElse(null)
+                : null;
         Optional<WorktreeService.WorktreeHandle> handle = worktreeService.create(
                 repoRoot, taskId, taskName, plannedBaseSha);
         if (plannedBaseSha != null && handle.isEmpty()) {
@@ -596,11 +601,9 @@ public class ThreadService
                 /* workModel */ null,
                 request.origin());
         taskStore.saveTask(task);
-        // Successful materialisation consumes this planning cycle. Null is
-        // now the only refresh signal, so the next trunk turn fetches a new
-        // base and updates CodeGraph before it plans another task.
-        planningSnapshot.ifPresent(snapshot ->
-                store.clearPlanningSnapshot(threadId, snapshot.baseSha()));
+        // The snapshot survives the cut: it always reflects the current
+        // planning worktree, and the next trunk turn's sync applies any
+        // base movement the background fetcher brought down.
         // Open the PlanStage at creation and kick off planning. Guarded
         // because the publisher is only wired under Spring (see the field's
         // note). Planning is the brain's job: the opening prompt seeds a
@@ -986,9 +989,9 @@ public class ThreadService
             }
         }
         // The planning checkout is thread-owned, so it outlives individual
-        // tasks but must not outlive a permanently deleted thread. A consumed
-        // snapshot no longer carries its repo root, so task working dirs are
-        // also valid roots to probe (the cleanup is idempotent).
+        // tasks but must not outlive a permanently deleted thread. Task
+        // working dirs are also probed as roots in case the snapshot row is
+        // absent (never planned, or pre-dates it) — the cleanup is idempotent.
         Stream.concat(
                         store.findPlanningSnapshot(threadId).stream()
                                 .map(ThreadStore.PlanningSnapshot::repoRoot),

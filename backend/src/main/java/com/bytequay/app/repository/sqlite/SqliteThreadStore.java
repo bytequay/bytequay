@@ -240,22 +240,6 @@ class SqliteThreadStore
     }
 
     @Override
-    @Transactional
-    public boolean clearPlanningSnapshot(String threadId, String expectedBaseSha)
-    {
-        Optional<ThreadEntity> found = threads.findById(threadId);
-        if (found.isEmpty() || expectedBaseSha == null
-                || !expectedBaseSha.equals(found.get().getPlanningBaseSha())) {
-            return false;
-        }
-        ThreadEntity entity = found.get();
-        entity.setPlanningRepoRoot(null);
-        entity.setPlanningBaseSha(null);
-        threads.save(entity);
-        return true;
-    }
-
-    @Override
     public List<String> listActivePlanningRepoRoots(Instant since)
     {
         return threads.findByUpdatedAtMsGreaterThanEqualOrderByUpdatedAtMsDesc(since.toEpochMilli()).stream()

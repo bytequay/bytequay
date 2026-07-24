@@ -25,6 +25,7 @@ import { buildChecks, buildOpenedCard, buildTimeline } from './detailModel';
 import type { PullRow } from './model';
 import PullChecksCard from './PullChecksCard';
 import PullComposer from './PullComposer';
+import PullMergeBox from './PullMergeBox';
 import PullMetadataBar from './PullMetadataBar';
 import PullTimeline, { ReactionPill } from './PullTimeline';
 import { enableTaskCheckboxes, toggleTaskCheckbox } from './pullDescriptionTasks';
@@ -55,13 +56,15 @@ function LoadingTimeline() {
 }
 
 export default function PullOverview({
-  row, bundle, isMerged, onComment, onClosePullRequest, onDescriptionSaved,
+  row, bundle, isMerged, refresh, onComment, onClosePullRequest, onDescriptionSaved,
   onLocalReply, onLocalResolve, onLocalReopen, onLocalDismiss, currentUserLogin, onSubmitLocalReview,
   onAskAgentThread, onOpenCommentLocation,
 }: {
   row: PullRow;
   bundle: LocalPRBundle | null | undefined;
   isMerged: boolean;
+  /** Refreshes the supplied bundle after a merge / dequeue / delete-branch. */
+  refresh?: () => void;
   onComment?: (body: string) => Promise<void>;
   onClosePullRequest?: () => Promise<void>;
   onDescriptionSaved?: () => void;
@@ -78,7 +81,7 @@ export default function PullOverview({
   const opened = buildOpenedCard(row, bundle);
   const items = bundle !== null && bundle !== undefined ? buildTimeline(bundle) : [];
   const remotePrNumber = bundle?.pr.remotePrNumber ?? null;
-  const { activity, reviewThreads, refresh: refreshGitHubFeed } = useGitHubActivityFeed(row.repo, remotePrNumber);
+  const { activity, reviewThreads, detail: remoteDetail, refresh: refreshGitHubFeed } = useGitHubActivityFeed(row.repo, remotePrNumber);
   const reviewThreadsByRemoteId = useMemo(() => {
     const byEvent = new Map<number, typeof reviewThreads>();
     for (const entry of buildRawTimelineEntries(activity, reviewThreads)) {
@@ -234,6 +237,14 @@ export default function PullOverview({
           </>
         )}
       </div>
+
+      {bundle !== null && bundle !== undefined && (
+        <PullMergeBox
+          pr={bundle.pr}
+          detail={remoteDetail}
+          onDone={() => { refresh?.(); refreshGitHubFeed(true); }}
+        />
+      )}
 
       <PullComposer onComment={onComment} onClose={isMerged ? undefined : onClosePullRequest} repoCtx={repoCtx} />
     </>

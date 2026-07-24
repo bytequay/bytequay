@@ -85,6 +85,10 @@ public class AgentToolHandlers
     private static final Pattern DIRECT_TASK_APPROVAL =
             Pattern.compile("\\b(cut|start|create)\\b.*\\b(task|backlog|phase\\s+\\d+)\\b");
 
+    private static final String BACKLOG_VERIFICATION_UNAVAILABLE =
+            "The supplied backlog item could not be verified against this trunk's "
+                    + "in-progress backlog items.";
+
     /** Hard upper bound on recall_thread's {@code limit}. */
     private static final int RECALL_THREAD_MAX_LIMIT = 20;
 
@@ -798,7 +802,9 @@ public class AgentToolHandlers
             @ToolParam(description = "The id of the backlog item this task implements, when known "
                     + "from a backlog kickoff or the current trunk discussion. Passing it resolves "
                     + "and links that item to the task; when omitted, the server requires either "
-                    + "two agreeing context signals or user confirmation.",
+                    + "two agreeing context signals or user confirmation. Only an item already "
+                    + "started from the Backlog view is eligible, and this id must match one of "
+                    + "the current trunk's in-progress items.",
                     wireName = "backlog_item_id") String backlogItemId,
             @ToolParam(description = "Set true only after the user chooses to start this task "
                     + "without linking a suggested backlog item. This bypasses backlog inference "
@@ -814,6 +820,7 @@ public class AgentToolHandlers
                     + "whether or not other tasks are already live. This is the only way to "
                     + "start a task. Call it only after presenting the plan, asking the user to "
                     + "confirm, and receiving explicit approval in the immediately preceding turn. "
+                    + "A backlog link may only target an item already started on this trunk. "
                     + "When backlog evidence is suggestive but not decisive, it returns "
                     + "confirmation_required and creates no task; ask the user, then retry with "
                     + "backlog_item_id or skip_backlog_link=true.",
@@ -863,20 +870,25 @@ public class AgentToolHandlers
                 : createTaskTitle(initialPrompt, thread.title());
         String title = shortTitle(rawTitle);
         String backlogItemId = args.backlogItemId();
-        boolean explicitBacklogItem = backlogItemId != null && !backlogItemId.isBlank();
+        String suppliedBacklogItemId = backlogItemId;
+        boolean explicitBacklogItem = suppliedBacklogItemId != null
+                && !suppliedBacklogItemId.isBlank();
         BacklogLinkDecision decision = BacklogLinkDecision.none();
         if (explicitBacklogItem || !args.skipBacklogLink()) {
-            decision = inferBacklogLink(threadId, rawTitle, initialPrompt, args.trunkPlan());
+            decision = inferBacklogLink(
+                    threadId, rawTitle, initialPrompt, args.trunkPlan(), suppliedBacklogItemId);
         }
         if (explicitBacklogItem) {
-            if (decision.itemId() != null && !backlogItemId.equals(decision.itemId())) {
+            if (decision.itemId() != null
+                    && !suppliedBacklogItemId.equals(decision.itemId())) {
                 decision = BacklogLinkDecision.confirm(
                         "The supplied backlog item conflicts with the backlog item identified "
                                 + "by the approved task context.",
                         decision.candidates());
             }
-            else {
-                // An explicit id is allowed to settle ambiguous or absent evidence.
+            else if (decision.itemId() != null) {
+                // The id was independently verified by a unique in-progress
+                // item, decisive approval, or two agreeing evidence channels.
                 decision = BacklogLinkDecision.none();
             }
         }
@@ -884,6 +896,23 @@ public class AgentToolHandlers
             List<BacklogLinkCandidate> candidates = decision.candidates().stream()
                     .map(item -> new BacklogLinkCandidate(item.id(), item.title()))
                     .toList();
+            if (candidates.isEmpty()) {
+                String instruction = BACKLOG_VERIFICATION_UNAVAILABLE.equals(decision.reason())
+                        ? "No task was created because the backlog could not be read. Retry "
+                                + "create_task with the same backlog_item_id after the backlog "
+                                + "is available; use skip_backlog_link=true only if the user "
+                                + "chooses to start without a backlog link."
+                        : "No task was created. No matching backlog item is currently in progress "
+                                + "on this trunk. Start the intended item from the Backlog view, "
+                                + "then retry create_task with the backlog_item_id from its kickoff "
+                                + "message; use skip_backlog_link=true only if the user chooses to "
+                                + "start without a backlog link.";
+                return toolOutcome(new BacklogLinkConfirmationResult(
+                        true,
+                        decision.reason(),
+                        candidates,
+                        instruction));
+            }
             String linkOptions = String.join("; ", candidates.stream()
                     .map(candidate -> "\"Start and link: " + candidate.title()
                             + "\" (retry with backlog_item_id=" + candidate.id() + ")")
@@ -959,15 +988,35 @@ public class AgentToolHandlers
      *  decisive; otherwise automatic linking requires two independent
      *  evidence channels which agree on the same item. A lone suggestion or
      *  unresolved ambiguity is handed back to trunk for an explicit user
-     *  choice. A backlog read failure remains best-effort and cuts unlinked. */
+     *  choice. Only in-progress items are eligible: an explicit id must name
+     *  one of them, and automatic inference cannot skip the Backlog view's
+     *  start-development transition. A backlog read failure remains
+     *  best-effort for tasks that do not explicitly request a link. */
     private BacklogLinkDecision inferBacklogLink(
-            String threadId, String title, String initialPrompt, JsonNode trunkPlan)
+            String threadId,
+            String title,
+            String initialPrompt,
+            JsonNode trunkPlan,
+            String explicitBacklogItemId)
     {
         try {
             List<BacklogItem> candidates = backlog.list(threadId).stream()
-                    .filter(item -> BacklogItem.STATUS_OPEN.equals(item.status())
-                            || BacklogItem.STATUS_IN_PROGRESS.equals(item.status()))
+                    .filter(item -> BacklogItem.STATUS_IN_PROGRESS.equals(item.status()))
                     .toList();
+            if (explicitBacklogItemId != null
+                    && !explicitBacklogItemId.isBlank()
+                    && candidates.stream()
+                            .noneMatch(item -> explicitBacklogItemId.equals(item.id()))) {
+                return BacklogLinkDecision.confirm(
+                        "The supplied backlog item does not match an in-progress backlog item "
+                                + "on this trunk.",
+                        candidates);
+            }
+            if (explicitBacklogItemId != null
+                    && !explicitBacklogItemId.isBlank()
+                    && candidates.size() == 1) {
+                return BacklogLinkDecision.link(candidates.getFirst());
+            }
             List<EvidenceMatch> matches = new ArrayList<>();
             for (String evidence : new String[] {
                     title,
@@ -976,6 +1025,20 @@ public class AgentToolHandlers
                 addMatch(matches, matchBacklogEvidence(candidates, evidence));
             }
             ApprovalContext approvalContext = precedingTrunkApprovalContext(threadId);
+            if (explicitBacklogItemId != null && !explicitBacklogItemId.isBlank()) {
+                Optional<BacklogItem> userSelection = explicitBacklogSelection(
+                        candidates, approvalContext.userReply());
+                if (userSelection.isPresent()) {
+                    BacklogItem selected = userSelection.get();
+                    if (explicitBacklogItemId.equals(selected.id())) {
+                        return BacklogLinkDecision.link(selected);
+                    }
+                    return BacklogLinkDecision.confirm(
+                            "The supplied backlog item conflicts with the backlog item selected "
+                                    + "by the user.",
+                            List.of(selected));
+                }
+            }
             if (approvalContext.genericAffirmative()) {
                 ApprovalMatch approval = matchApprovalEvidence(
                         candidates, approvalContext.evidence());
@@ -993,6 +1056,12 @@ public class AgentToolHandlers
                     .filter(item -> matches.stream().anyMatch(match -> match.contains(item)))
                     .toList();
             if (matched.isEmpty()) {
+                if (explicitBacklogItemId != null && !explicitBacklogItemId.isBlank()) {
+                    return BacklogLinkDecision.confirm(
+                            "Multiple backlog items are in progress and the task context does "
+                                    + "not verify the supplied item.",
+                            candidates);
+                }
                 return BacklogLinkDecision.none();
             }
             List<BacklogItem> strong = matched.stream()
@@ -1014,6 +1083,11 @@ public class AgentToolHandlers
         catch (RuntimeException e) {
             log.warn("create_task: failed to infer backlog link for thread {}: {}",
                     threadId, e.getMessage());
+            if (explicitBacklogItemId != null && !explicitBacklogItemId.isBlank()) {
+                return BacklogLinkDecision.confirm(
+                        BACKLOG_VERIFICATION_UNAVAILABLE,
+                        List.of());
+            }
             return BacklogLinkDecision.none();
         }
     }
@@ -1023,6 +1097,17 @@ public class AgentToolHandlers
         if (!match.candidates().isEmpty()) {
             matches.add(match);
         }
+    }
+
+    private static Optional<BacklogItem> explicitBacklogSelection(
+            List<BacklogItem> candidates, String userReply)
+    {
+        String selection = normaliseBacklogText(userReply);
+        List<BacklogItem> selected = candidates.stream()
+                .filter(item -> selection.equals(normaliseBacklogText(
+                        "Start and link: " + item.title())))
+                .toList();
+        return selected.size() == 1 ? Optional.of(selected.getFirst()) : Optional.empty();
     }
 
     /** The approval exchange is one evidence channel. Within it, prefer the
@@ -1093,11 +1178,11 @@ public class AgentToolHandlers
             }
         }
         if (currentUser < 0) {
-            return new ApprovalContext(false, List.of());
+            return new ApprovalContext(false, "", List.of());
         }
 
-        boolean genericAffirmative = isGenericAffirmative(
-                textMessage(messages.get(currentUser)));
+        String userReply = textMessage(messages.get(currentUser));
+        boolean genericAffirmative = isGenericAffirmative(userReply);
         List<String> evidence = new ArrayList<>();
         for (int i = currentUser - 1; i >= 0; i--) {
             ThreadMessage message = messages.get(i);
@@ -1117,7 +1202,7 @@ public class AgentToolHandlers
                 addQuestionToolEvidence(evidence, message);
             }
         }
-        return new ApprovalContext(genericAffirmative, evidence);
+        return new ApprovalContext(genericAffirmative, userReply, evidence);
     }
 
     private static boolean isGenericAffirmative(String value)
@@ -1222,7 +1307,8 @@ public class AgentToolHandlers
 
     private record ApprovalMatch(EvidenceMatch match, String decisiveItemId) {}
 
-    private record ApprovalContext(boolean genericAffirmative, List<String> evidence) {}
+    private record ApprovalContext(
+            boolean genericAffirmative, String userReply, List<String> evidence) {}
 
     private record BacklogLinkDecision(
             String itemId, String reason, List<BacklogItem> candidates)

@@ -47,7 +47,6 @@ import InAppBrowser from './InAppBrowser';
 import FindBar from './FindBar';
 import LogoLoading from './LogoLoading';
 import OnboardingScreen from './OnboardingScreen';
-import { applyTheme, loadTheme } from './themes';
 import { useSurfaceVisitCapture } from './footprints/useSurfaceVisitCapture';
 import { resumeStop } from './footprints/resume';
 import {
@@ -768,10 +767,6 @@ function App() {
     && nav.view === 'workspace'
     && nav.section === 'threads'
     && nav.threadsGroupId !== undefined;
-
-  useEffect(() => {
-    applyTheme(loadTheme());
-  }, []);
 
   useEffect(() => {
     const unsub = window.bridge.onInAppOpenRequest(({ url }) => setInAppUrl(url));

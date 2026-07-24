@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceNavShell } from './WorkspaceNavShell';
 import { logoColorFor, monogram, threadStatusDot, useWorkspaceNav } from './useWorkspaceNav';
 import type { ThreadDto } from '../types';
+import { SIDEBAR_WIDTH_KEY } from '../ui/shell/useSidebarWidth';
 
 afterEach(() => {
   cleanup();
@@ -191,7 +192,7 @@ describe('WorkspaceNavShell', () => {
   });
 
   it('shares the saved rail width with Home and lets the workspace rail be dragged', () => {
-    localStorage.setItem('bq.rail-width', '320');
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, '320');
     mockBridge();
     const { container } = render(<WorkspaceNavShell activeWorkspaceId="bq" />);
     const rail = container.querySelector('.shell.shell-rail.workspace-mode') as HTMLElement;
@@ -204,7 +205,7 @@ describe('WorkspaceNavShell', () => {
     fireEvent.pointerUp(handle, { pointerId: 1 });
 
     expect(rail.style.width).toBe('360px');
-    expect(localStorage.getItem('bq.rail-width')).toBe('360');
+    expect(localStorage.getItem(SIDEBAR_WIDTH_KEY)).toBe('360');
   });
 
   it('remembers whether the workspace navigation group is folded', async () => {

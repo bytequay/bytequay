@@ -358,7 +358,7 @@ const seqBadgeStyle: React.CSSProperties = {
   fontSize: 9,
   padding: '1px 6px',
   borderRadius: 999,
-  background: 'rgba(124, 58, 237, 0.10)',
+  background: 'var(--accent-a10)',
   color: 'var(--accent-dark, #6d28d9)',
   fontWeight: 600,
   letterSpacing: '0.04em',

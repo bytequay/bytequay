@@ -504,7 +504,7 @@ function toolLabel(name: string): string {
 
 // ─── Styles — Chat mode (WeChat-style bubbles) ──────────────────────
 
-const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
+const monoFont = 'var(--font-mono)';
 
 const chatContainerStyle: React.CSSProperties = {
   display: 'flex',

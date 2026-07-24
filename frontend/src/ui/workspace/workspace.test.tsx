@@ -17,6 +17,7 @@ import { Logo } from '../primitives';
 import {
   ThreadList, WorkspaceNavSidebar, WorkspaceSwitcher, WorkspaceTopBar,
 } from './index';
+import { SIDEBAR_WIDTH_KEY } from '../shell/useSidebarWidth';
 
 afterEach(() => {
   cleanup();
@@ -96,12 +97,12 @@ describe('WorkspaceNavSidebar', () => {
     );
     const handle = screen.getByRole('separator', { name: 'Resize sidebar' });
     Object.defineProperty(handle, 'setPointerCapture', { value: vi.fn() });
-    fireEvent.pointerDown(handle, { clientX: 250, pointerId: 1 });
+    fireEvent.pointerDown(handle, { clientX: 272, pointerId: 1 });
     fireEvent.pointerMove(handle, { clientX: 330, pointerId: 1 });
     fireEvent.pointerUp(handle, { pointerId: 1 });
 
     expect((container.querySelector('.shell-rail') as HTMLElement).style.width).toBe('330px');
-    expect(localStorage.getItem('bq.rail-width')).toBe('330');
+    expect(localStorage.getItem(SIDEBAR_WIDTH_KEY)).toBe('330');
 
     unmount();
     const restored = render(

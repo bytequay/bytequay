@@ -184,11 +184,11 @@
 /* New-comment composer (no existing thread yet) — purple-accented card,
    transcribed from docs/mockups/design/claude_design_v1/PR Review.dc.html's
    "Commenting on X" box (isComposer), not approximated. */
-.cd-inline-comment { margin: 4px 24px 10px 72px; max-width: 760px; padding: 0; background: #fff; border: 1px solid #8b5cf6; border-radius: 8px; font-family: var(--font); font-size: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(139, 92, 246, 0.10); }
+.cd-inline-comment { margin: 4px 24px 10px 72px; max-width: 760px; padding: 0; background: #fff; border: 1px solid var(--accent); border-radius: 8px; font-family: var(--font); font-size: 12px; overflow: hidden; box-shadow: 0 2px 8px var(--accent-soft); }
 /* Header row — label + Write/Preview merge into one row via MarkdownComposer's
    headerLeft slot (see .md-composer__head), scoped so only this composer gets
    the segmented-pill tab look; other MarkdownComposer surfaces are untouched. */
-.cd-inline-comment .md-composer__head { padding: 6px 10px; border-bottom: 1px solid rgba(0, 0, 0, 0.07); background: #faf9fe; }
+.cd-inline-comment .md-composer__head { padding: 6px 10px; border-bottom: 1px solid rgba(0, 0, 0, 0.07); background: var(--accent-a4); }
 .cd-inline-comment .ic-composer-range { font-size: 11px; color: #767068; }
 .cd-inline-comment .ic-composer-range b { color: #1f2328; font-weight: 700; }
 .cd-inline-comment .md-composer__tabs { gap: 2px; background: #eef1f4; border-radius: 6px; padding: 2px; }

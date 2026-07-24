@@ -17,6 +17,7 @@ import {
   ClosedFolder, Composer, Main, Shell, Sidebar, SidebarNav, StageChips, StageItem,
   TaskItem, ThreadItem, TopBar, TopBarButton, useSidebarCollapsed,
 } from './index';
+import { SIDEBAR_WIDTH_KEY } from './useSidebarWidth';
 
 afterEach(cleanup);
 
@@ -45,7 +46,7 @@ function sampleSidebar(collapsed = false) {
 }
 
 describe('Shell', () => {
-  beforeEach(() => localStorage.removeItem('bq.rail-width'));
+  beforeEach(() => localStorage.clear());
 
   it('toggles the collapsed modifier class', () => {
     const { container, rerender } = render(sampleSidebar(false));
@@ -63,7 +64,7 @@ describe('Shell', () => {
   });
 
   it('restores and updates the shared left-navigation width', () => {
-    localStorage.setItem('bq.rail-width', '330');
+    localStorage.setItem(SIDEBAR_WIDTH_KEY, '330');
     const { container } = render(
       <Shell>
         <aside />
@@ -80,7 +81,22 @@ describe('Shell', () => {
 
     expect((container.querySelector('.shell') as HTMLElement).style.gridTemplateColumns)
       .toBe('360px minmax(0, 1fr)');
-    expect(localStorage.getItem('bq.rail-width')).toBe('360');
+    expect(localStorage.getItem(SIDEBAR_WIDTH_KEY)).toBe('360');
+  });
+
+  it('resets the former default width while preserving a custom legacy width', () => {
+    localStorage.setItem('bq.rail-width', '250');
+    const { container, unmount } = render(<Shell><aside /><main /></Shell>);
+    expect((container.querySelector('.shell') as HTMLElement).style.gridTemplateColumns)
+      .toBe('272px minmax(0, 1fr)');
+
+    unmount();
+    localStorage.clear();
+    localStorage.setItem('bq.rail-width', '330');
+    const migrated = render(<Shell><aside /><main /></Shell>);
+    expect((migrated.container.querySelector('.shell') as HTMLElement).style.gridTemplateColumns)
+      .toBe('330px minmax(0, 1fr)');
+    expect(localStorage.getItem(SIDEBAR_WIDTH_KEY)).toBe('330');
   });
 });
 

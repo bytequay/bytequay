@@ -132,7 +132,7 @@ function RunnerOption({ value, checked, onChange, title, detail }: {
 const prStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 3, padding: '11px 12px',
   border: '1px solid var(--ws-card-border)', borderRadius: 9,
-  background: 'rgba(124,58,237,0.04)', fontSize: 13,
+  background: 'var(--accent-a4)', fontSize: 13,
 };
 const descriptionStyle: React.CSSProperties = {
   color: 'var(--ws-text-3)', fontSize: 12, lineHeight: 1.5, margin: '12px 0',

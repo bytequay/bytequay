@@ -208,12 +208,12 @@ function SeedToggle({ checked, onToggle }: { checked: boolean; onToggle: () => v
       aria-checked={checked}
       onClick={onToggle}
       style={{
-        width: 34,
+        width: 32,
         height: 20,
         padding: 2,
         borderRadius: 999,
         border: 'none',
-        background: checked ? 'var(--ws-accent)' : 'rgba(124, 58, 237, 0.18)',
+        background: checked ? 'var(--ws-accent)' : '#ebecec',
         cursor: 'pointer',
         transition: 'background var(--ws-fast)',
         display: 'inline-flex',
@@ -228,7 +228,7 @@ function SeedToggle({ checked, onToggle }: { checked: boolean; onToggle: () => v
           height: 16,
           borderRadius: '50%',
           background: '#fff',
-          transform: `translateX(${checked ? 14 : 0}px)`,
+          transform: `translateX(${checked ? 12 : 0}px)`,
           transition: 'transform var(--ws-fast)',
         }}
       />
@@ -259,7 +259,7 @@ const namePreviewBadgeStyle: React.CSSProperties = {
   width: 32,
   height: 32,
   borderRadius: 8,
-  background: 'linear-gradient(135deg, #a78bfa, #7c3aed)',
+  background: 'var(--ws-accent)',
   color: '#fff',
   display: 'inline-flex',
   alignItems: 'center',
@@ -291,7 +291,7 @@ const slugPrefixStyle: React.CSSProperties = {
   fontSize: 12,
   fontFamily: 'ui-monospace, monospace',
   color: 'var(--ws-text-3)',
-  background: 'rgba(124, 58, 237, 0.06)',
+  background: 'var(--ws-accent-soft)',
   border: '1px solid var(--ws-card-border)',
   borderRight: 'none',
   borderRadius: '8px 0 0 8px',
@@ -312,7 +312,7 @@ function repoRowStyle(picked: boolean, mapped: boolean): React.CSSProperties {
   return {
     padding: '8px 10px',
     borderRadius: 8,
-    background: mapped ? 'rgba(124, 58, 237, 0.04)' : picked ? 'var(--ws-accent-soft)' : '#fff',
+    background: mapped ? 'var(--ws-accent-soft)' : picked ? 'var(--ws-accent-soft)' : '#fff',
     border: picked
         ? '1px solid var(--ws-accent)'
         : '1px solid var(--ws-card-border)',
@@ -371,7 +371,7 @@ const seedMemoryRowStyle: React.CSSProperties = {
   justifyContent: 'space-between',
   gap: 14,
   padding: 12,
-  background: 'rgba(124, 58, 237, 0.04)',
+  background: 'var(--ws-accent-soft)',
   border: '1px solid var(--ws-card-border)',
   borderRadius: 10,
 };
@@ -387,7 +387,7 @@ const inlineCodeStyle: React.CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
   fontSize: 10,
   padding: '1px 4px',
-  background: 'rgba(124, 58, 237, 0.08)',
+  background: 'var(--ws-accent-soft)',
   borderRadius: 3,
   color: 'var(--ws-accent-deep)',
 };

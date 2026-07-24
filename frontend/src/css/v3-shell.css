@@ -920,9 +920,7 @@
 .shell .plan-node.future .pn-name { color: var(--text-4); }
 .shell .plan-node.errored { background: rgba(220, 38, 38, 0.08); border-color: rgba(220, 38, 38, 0.32); }
 .shell .plan-node.errored .pn-glyph { color: var(--red); }
-/* Explicit purple, not var(--accent) — see the .done rule above; some themes
-   define --accent as blue, which broke the currently-viewed node's ring. */
-.shell .plan-node.active-view { box-shadow: 0 0 0 2px #8b5cf6, 0 2px 8px rgba(139, 92, 246, 0.20); border-color: #8b5cf6; }
+.shell .plan-node.active-view { box-shadow: 0 0 0 2px var(--accent), 0 2px 8px var(--accent-a10); border-color: var(--accent); }
 .shell .plan-node .pn-glyph { font-size: 11px; line-height: 1; text-align: center; font-weight: 700; }
 .shell .plan-node .pn-name { font-size: 12px; font-weight: 500; color: var(--text-2); line-height: 1.3; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shell .plan-node .pn-meta { font-family: var(--mono); font-size: 10px; color: var(--text-4); }

@@ -317,7 +317,7 @@ function pickerItemStyle(active: boolean, disabled: boolean): React.CSSPropertie
     width: '100%',
     padding: '8px 10px',
     border: 'none',
-    background: active ? 'rgba(124, 58, 237, 0.10)' : 'transparent',
+    background: active ? 'var(--ws-accent-soft)' : 'transparent',
     color: disabled ? 'var(--ws-text-4)' : 'var(--ws-text-1)',
     fontSize: 12,
     borderRadius: 6,
@@ -339,7 +339,7 @@ function pickerItemDotStyle(_kind: 'repo'): React.CSSProperties {
     width: 7,
     height: 7,
     borderRadius: 999,
-    background: '#7c3aed',
+    background: 'var(--ws-accent)',
     flexShrink: 0,
   };
 }
@@ -406,7 +406,7 @@ const trunkHintRowStyle: React.CSSProperties = {
 };
 
 const trunkHintBulletStyle: React.CSSProperties = {
-  color: '#7c3aed',
+  color: 'var(--ws-accent)',
   fontSize: 10,
   marginTop: 2,
   flexShrink: 0,
@@ -484,7 +484,7 @@ function advChipGlyphStyle(kind: 'repo' | 'agent'): React.CSSProperties {
     };
   }
   return {
-    color: '#7c3aed',
+    color: 'var(--ws-accent)',
     fontSize: 10,
     flexShrink: 0,
   };

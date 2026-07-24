@@ -198,16 +198,12 @@
   background: var(--ws-brand-bg);
   border: 1px solid var(--ws-card-border);
   border-radius: 12px;
-  box-shadow:
-    0 1px 2px rgba(67, 56, 202, 0.04),
-    0 4px 14px rgba(124, 58, 237, 0.06);
+  box-shadow: var(--ws-card-shadow);
   transition: box-shadow var(--ws-fast), transform var(--ws-fast);
 }
 
 .workspace-rail__brand:hover {
-  box-shadow:
-    0 2px 4px rgba(67, 56, 202, 0.06),
-    0 8px 22px rgba(124, 58, 237, 0.10);
+  box-shadow: var(--ws-card-shadow);
   transform: translateY(-1px);
 }
 
@@ -280,14 +276,14 @@
 
 .workspace-rail__commandbar:hover {
   background: var(--ws-commandbar-hover-bg);
-  border-color: rgba(124, 58, 237, 0.18);
+  border-color: var(--ws-card-border);
 }
 
 .workspace-rail__commandbar-key {
   font-size: 10px;
   color: var(--ws-text-3);
   padding: 1px 5px;
-  background: rgba(124, 58, 237, 0.08);
+  background: var(--ws-accent-soft);
   border-radius: 3px;
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
@@ -332,7 +328,7 @@
 }
 
 .workspace-rail__item--active {
-  background: rgba(124, 58, 237, 0.14);
+  background: var(--ws-accent-soft);
   color: var(--ws-accent-deep);
   font-weight: 600;
 }
@@ -410,7 +406,7 @@
   backdrop-filter: blur(14px) saturate(125%);
   -webkit-backdrop-filter: blur(14px) saturate(125%);
   border-bottom: 1px solid var(--ws-card-border);
-  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.04);
+  box-shadow: none;
 }
 
 /* Title + meta share one baseline-aligned row per the workspace-home
@@ -466,26 +462,26 @@
   font-size: 13px;
   font-weight: 600;
   color: #fff;
-  background: #8b5cf6;
+  background: var(--ws-accent);
   border: none;
   border-radius: 999px;
   cursor: pointer;
-  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.10);
+  box-shadow: none;
   transition: background var(--ws-fast), transform var(--ws-fast),
     box-shadow var(--ws-fast);
 }
 
 .workspace-pageheader__action:hover {
-  background: #7c3aed;
+  background: var(--ws-accent-deep);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+  box-shadow: none;
 }
 
 .workspace-pageheader__action:disabled {
   opacity: 0.55;
   cursor: not-allowed;
   transform: none;
-  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.10);
+  box-shadow: none;
 }
 
 .workspace-pageheader__action-kbd {
@@ -508,7 +504,7 @@
 }
 
 .workspace-card:hover {
-  box-shadow: 0 2px 4px rgba(67, 56, 202, 0.06), 0 8px 26px rgba(124, 58, 237, 0.08);
+  box-shadow: var(--ws-card-shadow);
   transform: translateY(-2px);
 }
 
@@ -521,7 +517,7 @@
    * card-head treatment ("Active threads | 3 | View all →" sits on
    * its own band, divided from the list below). */
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(124, 58, 237, 0.08);
+  border-bottom: 1px solid var(--ws-card-border);
 }
 
 .workspace-card__title {
@@ -593,7 +589,7 @@
 }
 
 .workspace-row:hover {
-  background: rgba(124, 58, 237, 0.05);
+  background: var(--ws-accent-soft);
   transform: translateX(2px);
 }
 
@@ -607,12 +603,12 @@
  * a touch more background so it reads as the active row without
  * being so loud that it competes with the user's mouse focus. */
 .workspace-row--selected {
-  background: rgba(124, 58, 237, 0.10);
+  background: var(--ws-accent-soft);
   box-shadow: inset 3px 0 0 var(--ws-accent);
 }
 
 .workspace-row--selected:hover {
-  background: rgba(124, 58, 237, 0.14);
+  background: var(--ws-accent-soft);
 }
 
 .workspace-placeholder {
@@ -1212,8 +1208,8 @@
   gap: 12px;
   align-items: center;
   padding: 12px 16px;
-  background: rgba(124, 58, 237, 0.06);
-  border: 1px solid rgba(124, 58, 237, 0.14);
+  background: var(--ws-accent-soft);
+  border: 1px solid var(--ws-card-border);
   border-radius: 10px;
   font-size: 13px;
   color: var(--ws-text-2);
@@ -1249,7 +1245,7 @@
 }
 
 .auto-queue__banner-link:hover {
-  background: rgba(124, 58, 237, 0.10);
+  background: var(--ws-accent-soft);
   color: var(--ws-accent);
 }
 
@@ -1289,7 +1285,7 @@
   letter-spacing: 0.04em;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(124, 58, 237, 0.10);
+  background: var(--ws-accent-soft);
   color: var(--ws-accent-deep);
 }
 
@@ -1399,7 +1395,7 @@
   letter-spacing: 0.04em;
   padding: 2px 7px;
   border-radius: 999px;
-  background: rgba(124, 58, 237, 0.10);
+  background: var(--ws-accent-soft);
   color: var(--ws-accent-deep);
   flex-shrink: 0;
 }
@@ -1421,9 +1417,9 @@
   gap: 4px;
   padding: 1px 8px;
   border-radius: 999px;
-  background: rgba(124, 58, 237, 0.06);
+  background: var(--ws-accent-soft);
   color: var(--ws-accent-deep);
-  border: 1px solid rgba(124, 58, 237, 0.10);
+  border: 1px solid var(--ws-card-border);
 }
 
 .auto-queue__pill-icon {
@@ -1584,7 +1580,7 @@
 .threads-view-toggle__btn--active {
   background: #fff;
   color: var(--ws-accent-deep);
-  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.06);
+  box-shadow: none;
 }
 
 .threads-view-toggle__icon {
@@ -1666,8 +1662,8 @@
   background: rgba(255, 255, 255, 0.88);
   backdrop-filter: blur(14px) saturate(125%);
   -webkit-backdrop-filter: blur(14px) saturate(125%);
-  border-bottom: 1px solid rgba(124, 58, 237, 0.08);
-  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.04);
+  border-bottom: 1px solid var(--ws-card-border);
+  box-shadow: none;
 }
 
 .threads-pageheader__title {
@@ -1691,19 +1687,19 @@
   font-weight: 600;
   padding: 8px 14px;
   color: #fff;
-  background: #8b5cf6;
+  background: var(--ws-accent);
   border: none;
   border-radius: 999px;
   cursor: pointer;
-  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.10);
+  box-shadow: none;
   transition: background var(--ws-fast), transform var(--ws-fast),
     box-shadow var(--ws-fast);
 }
 
 .threads-pageheader__new:hover {
-  background: #7c3aed;
+  background: var(--ws-accent-deep);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+  box-shadow: none;
 }
 
 .threads-pageheader__new-kbd {
@@ -1748,7 +1744,7 @@
 .threads-chips__chip:hover {
   background: #fff;
   color: var(--ws-text-1);
-  border-color: rgba(124, 58, 237, 0.18);
+  border-color: var(--ws-card-border);
 }
 
 .threads-chips__chip--active {

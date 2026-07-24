@@ -35,7 +35,7 @@ public record WorkspaceSettingsDto(
     {
         return new WorkspaceSettingsDto(
                 1.0,
-                10.0,
+                500.0,
                 true,
                 60,
                 8_000,

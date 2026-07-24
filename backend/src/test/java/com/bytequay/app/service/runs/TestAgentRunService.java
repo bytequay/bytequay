@@ -298,6 +298,25 @@ class TestAgentRunService
     }
 
     @Test
+    void repeatedPausePreservesTheFirstActionableReason()
+    {
+        AgentRun paused = new AgentRun(
+                "run1", "t1", AgentRun.KIND_REVIEW, AgentRun.SOURCE_SCHEDULED,
+                null, null, BACKING_STAGE_ID.toString(), AgentRun.STATUS_PAUSED,
+                0, null, null, null, NOW, null,
+                "ws-1", "thread-1", "claude-code", "sonnet",
+                1_000L, 0L, 0L, 1, "Review", "daily workspace budget cap reached ($10.00)", null);
+        when(store.findById(paused.id())).thenReturn(Optional.of(paused));
+
+        AgentRun unchanged = service.pause(paused.id(), "brain_review_budget_paused");
+
+        assertThat(unchanged).isSameAs(paused);
+        assertThat(unchanged.pauseReason()).isEqualTo(
+                "daily workspace budget cap reached ($10.00)");
+        verify(store, never()).save(any());
+    }
+
+    @Test
     void terminalRunCannotBeUncancelledByALateWorker()
     {
         AgentRun cancelled = new AgentRun(

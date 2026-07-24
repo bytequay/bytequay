@@ -31,7 +31,6 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
-import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
@@ -421,7 +420,7 @@ class TestBrainReviewServiceImpl
         // plan predates the local PR (the usual case) — PRServiceImpl backs
         // that with its own backfill, verified separately in PRServiceImpl's
         // own test.
-        verify(prService).recordBrainReview(TASK_ID, "plan", ReviewRound.VERDICT_APPROVED, 1, null, null);
+        verify(prService).recordBrainReview(TASK_ID, "plan", ReviewRound.VERDICT_APPROVED, 1, null);
     }
 
     @Test
@@ -440,10 +439,32 @@ class TestBrainReviewServiceImpl
 
         verify(roundStore).save(argThat(r ->
                 ReviewRound.VERDICT_CHANGES_REQUESTED.equals(r.brainVerdict()) && r.iteration() == 1));
-        verify(prService, never()).recordBrainReview(any(), any(), any(), anyInt(), any(), any());
+        verify(prService, never()).recordBrainReview(any(), any(), any(), anyInt(), any());
     }
 
     // ── R21-R23: code lock-point review loop ─────────────────────────────
+
+    @Test
+    void approvedDevVerdictWithAnOpenBrainRootPersistsChangesRequested()
+    {
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING).withIterationBumped();
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(triaging));
+        AgentRun run = new AgentRun(
+                triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_LOCAL, null, null,
+                "run-stage", AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
+        when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
+        PR drafted = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
+        when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
+        when(prService.comments(drafted.id())).thenReturn(List.of(brainComment(
+                "c-open", PRComment.SCOPE_FILE_LINE, "src/Foo.java", 42,
+                "Null input reaches value.length() before the documented fallback.")));
+
+        service.recordVerdict(TASK_ID, "run-stage", "dev", ReviewRound.VERDICT_APPROVED);
+
+        verify(roundStore).save(argThat(saved ->
+                ReviewRound.VERDICT_CHANGES_REQUESTED.equals(saved.brainVerdict())
+                        && saved.iteration() == 1));
+    }
 
     @Test
     void devEndLockPointOpensABrainRoundAndLeavesThePrUnflipped()
@@ -524,7 +545,7 @@ class TestBrainReviewServiceImpl
     }
 
     @Test
-    void budgetPausedReviewPreservesItsBodyThenParksTaskRoundAndRun()
+    void budgetPausedReviewRecordsItsVerdictWithoutReadingTranscriptThenParksTaskRoundAndRun()
     {
         ReviewRound live = brainRound(ReviewRound.STATUS_TRIAGING)
                 .withIterationBumped()
@@ -540,14 +561,14 @@ class TestBrainReviewServiceImpl
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task()));
         when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(live));
         when(agentRuns.findById(live.runId())).thenReturn(Optional.of(pausedRun));
-        when(threadStore.listStageMessages("run-stage"))
-                .thenReturn(List.of(reviewMessage("The change is sound.")));
 
         service.onTurnBudgetPaused(new TaskTurnBudgetPausedEvent(TASK_ID, turn.id()));
 
         verify(prService).recordBrainReview(
                 TASK_ID, "dev", ReviewRound.VERDICT_APPROVED,
-                live.iteration(), live.id(), "The change is sound.");
+                live.iteration(), live.id());
+        verify(threadStore, never()).listStageMessages(anyString());
+        verify(threadStore, never()).listMessages(anyString());
         verify(prService, never()).recordBrainReviewFailed(
                 anyString(), anyString(), anyInt(), anyString(), anyString(), anyString());
         verify(roundStore).save(argThat(round -> ReviewRound.STATUS_PAUSED.equals(round.status())));
@@ -557,7 +578,7 @@ class TestBrainReviewServiceImpl
     }
 
     @Test
-    void budgetPausedReviewStillRecordsItsCompletedBodyAfterUserPauseWonTheRace()
+    void budgetPausedReviewStillRecordsItsVerdictAfterUserPauseWonTheRace()
     {
         ReviewRound paused = brainRound(ReviewRound.STATUS_PAUSED)
                 .withIterationBumped()
@@ -570,14 +591,14 @@ class TestBrainReviewServiceImpl
                 .thenReturn(Optional.of(task().withStatus(TaskStatus.PAUSED)));
         when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.empty());
         when(roundStore.findByTask(TASK_ID)).thenReturn(List.of(paused));
-        when(threadStore.listStageMessages("run-stage"))
-                .thenReturn(List.of(reviewMessage("The completed review survives the pause race.")));
 
         service.onTurnBudgetPaused(new TaskTurnBudgetPausedEvent(TASK_ID, turn.id()));
 
         verify(prService).recordBrainReview(
                 TASK_ID, "dev", ReviewRound.VERDICT_APPROVED,
-                paused.iteration(), paused.id(), "The completed review survives the pause race.");
+                paused.iteration(), paused.id());
+        verify(threadStore, never()).listStageMessages(anyString());
+        verify(threadStore, never()).listMessages(anyString());
         verify(roundStore, never()).save(any());
         verify(taskStore, never()).saveTask(any());
         verify(agentRuns, never()).pause(anyString(), anyString());
@@ -605,7 +626,7 @@ class TestBrainReviewServiceImpl
                 TASK_ID, "dev", live.iteration(), live.id(),
                 "brain_fix_budget_paused", live.runId());
         verify(prService, never()).recordBrainReview(
-                anyString(), anyString(), any(), anyInt(), anyString(), any());
+                anyString(), anyString(), any(), anyInt(), anyString());
         verify(roundStore).save(argThat(round -> ReviewRound.STATUS_PAUSED.equals(round.status())));
         verify(agentRuns).pause(live.runId(), "brain_fix_budget_paused");
         verify(taskStore).saveTask(argThat(saved -> saved.status() == TaskStatus.PAUSED
@@ -971,14 +992,13 @@ class TestBrainReviewServiceImpl
         when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
         PR drafted = PR.create("pr1", TASK_ID, "feature/x", "main", "x", "", NOW);
         when(prService.findByTask(TASK_ID)).thenReturn(Optional.of(drafted));
-        when(threadStore.listStageMessages("run-stage")).thenReturn(List.of(reviewMessage(
-                "The final reviewer response survives an MCP disconnect.")));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-6", false));
 
         verify(prService).recordBrainReview(
-                TASK_ID, "dev", ReviewRound.VERDICT_APPROVED, 0, triaging.id(),
-                "The final reviewer response survives an MCP disconnect.");
+                TASK_ID, "dev", ReviewRound.VERDICT_APPROVED, 0, triaging.id());
+        verify(threadStore, never()).listStageMessages(anyString());
+        verify(threadStore, never()).listMessages(anyString());
         verify(roundStore).save(argThat(r -> ReviewRound.STATUS_CLOSED.equals(r.status())));
         verify(agentRuns).transition(triaging.runId(), AgentRun.STATUS_SUCCEEDED, "brain_review_concluded");
         verify(prService).requestUserReview("pr1", "brain");
@@ -1295,15 +1315,11 @@ class TestBrainReviewServiceImpl
     }
 
     @Test
-    void legacyUnattributedBrainResultIsRecoveredByStageAndTurnWindowThenParked()
+    void missingVerdictParksWithoutReadingTheTranscript()
     {
         ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING).withIterationBumped();
         ThreadTurn completed = runTurn(
                 "run-stage", "brain-review", ThreadTurnStatus.COMPLETED, triaging.runId());
-        ThreadMessage legacyResult = new ThreadMessage(
-                "legacy-result", completed.threadId(), null, 1L, "assistant", "text",
-                "{\"text\":\"Verdict I would record: changes_requested; delete the orphaned CSS.\"}",
-                null, null, null, null, NOW, "run-stage", ThreadScope.STAGE);
         Task task = taskAt(TaskPhase.INTERNAL_REVIEW);
         AgentRun run = new AgentRun(
                 triaging.runId(), TASK_ID, AgentRun.KIND_REVIEW_ROUND,
@@ -1312,14 +1328,14 @@ class TestBrainReviewServiceImpl
         when(turnStore.findTurnById("ghost-result")).thenReturn(Optional.of(completed));
         when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(triaging));
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
-        when(threadStore.listStageMessages("run-stage")).thenReturn(List.of(legacyResult));
         when(agentRuns.findById(triaging.runId())).thenReturn(Optional.of(run));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "ghost-result", false));
 
         verify(prService).recordBrainReview(
-                eq(TASK_ID), eq("dev"), eq(null), eq(triaging.iteration()), eq(triaging.id()),
-                argThat(body -> body != null && body.contains("delete the orphaned CSS")));
+                TASK_ID, "dev", null, triaging.iteration(), triaging.id());
+        verify(threadStore, never()).listStageMessages(anyString());
+        verify(threadStore, never()).listMessages(anyString());
         verify(prService).recordBrainReviewFailed(
                 TASK_ID, "dev", triaging.iteration(), triaging.id(),
                 "brain_review_verdict_missing", triaging.runId());
@@ -1920,14 +1936,6 @@ class TestBrainReviewServiceImpl
                 status == ThreadTurnStatus.QUEUED || status == ThreadTurnStatus.RUNNING ? null : NOW,
                 status == ThreadTurnStatus.FAILED ? "failed" : null,
                 TurnInitiator.unattended(source), stageId, ThreadScope.STAGE, runId);
-    }
-
-    private static ThreadMessage reviewMessage(String body)
-    {
-        return new ThreadMessage(
-                "message-1", "thread-1", TASK_ID, 1L, "assistant", "text",
-                "{\"text\":\"" + body + "\"}", null, null, null, null, NOW,
-                "run-stage", ThreadScope.STAGE);
     }
 
     private static ReviewRound round(String status)

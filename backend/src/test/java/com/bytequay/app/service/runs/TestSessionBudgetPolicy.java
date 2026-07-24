@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.runs;
 
+import com.bytequay.app.beans.workspace.WorkspaceSettingsDto;
 import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.NotificationKind;
@@ -42,6 +43,12 @@ class TestSessionBudgetPolicy
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final SessionBudgetPolicy policy = new SessionBudgetPolicy(
             runs, notifications, jdbc, new ObjectMapper());
+
+    @Test
+    void workspaceDailyBudgetDefaultsToFiveHundredDollars()
+    {
+        assertThat(WorkspaceSettingsDto.defaults().dailyCapUsd()).isEqualTo(500.0);
+    }
 
     @Test
     void accountsOnlyTheTurnDeltaAndPausesAtTheSessionCap()
@@ -95,13 +102,15 @@ class TestSessionBudgetPolicy
                 eq("trunk-1"),
                 eq("task-1"),
                 eq("budget"),
-                eq("Session paused at budget cap"),
+                eq("Task paused at budget cap"),
                 summary.capture(),
-                eq("#/workspace/ws-1/sessions/run-1"),
+                eq("#/workspace/ws-1/settings/agents"),
                 eq("session-budget:run-1"),
                 anyString());
         assertThat(summary.getValue())
-                .contains("per-session budget cap reached");
+                .contains("per-session budget cap reached")
+                .contains("Settings → Agents")
+                .contains("resume this task");
     }
 
     @Test

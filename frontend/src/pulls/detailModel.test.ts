@@ -141,7 +141,7 @@ describe('buildTimeline', () => {
         event({ id: 'failed', eventType: 'review', actor: 'brain', createdAt: 1200,
           payload: { reviewEvent: 'failed', scope: 'dev', iteration: 2,
             roundId: 'round-abcdef', reason: 'brain_review_turn_failed' } }),
-        event({ id: 'finished', eventType: 'review', actor: 'brain', createdAt: 1300,
+        event({ id: 'finished', eventType: 'review', actor: 'brain', isLocalOnly: true, createdAt: 1300,
           payload: { reviewEvent: 'finished', scope: 'dev', iteration: 3,
             roundId: 'round-next', verdict: 'changes_requested', body: 'Remove dead CSS.' } }),
       ],
@@ -153,7 +153,67 @@ describe('buildTimeline', () => {
     expect(items[2]).toMatchObject({ kind: 'review-activity', activity: 'failed', scope: 'dev',
       reason: 'brain_review_turn_failed' });
     expect(items[3]).toMatchObject({ kind: 'review', scope: 'dev', verdict: 'changes',
-      iteration: 3, roundId: 'round-next' });
+      iteration: 3, roundId: 'round-next', body: null });
+  });
+
+  it('renders Brain concerns as separate comment cards without its raw turn narration', () => {
+    const items = buildTimeline(bundle({
+      pr: { origin: 'task', taskId: 'task-1', status: 'local-open' },
+      timeline: [
+        event({ id: 'started', eventType: 'review', actor: 'brain', isLocalOnly: true,
+          createdAt: 1_000, payload: { reviewEvent: 'started', scope: 'dev', iteration: 1,
+            roundId: 'round-1' } }),
+        event({ id: 'finished', eventType: 'review', actor: 'brain', isLocalOnly: true,
+          createdAt: 3_000, payload: { reviewEvent: 'finished', scope: 'dev', iteration: 1,
+            roundId: 'round-1', verdict: 'changes_requested', findingCount: 1,
+            commentIds: ['brain-finding'],
+            body: "I'll review the diff.\n\nLet me inspect the tests.\n\nThe null case needs a guard." } }),
+      ],
+      comments: [comment({
+        id: 'brain-finding', origin: 'local', author: 'brain', scope: 'file-line',
+        filePath: 'src/Foo.ts', lineNumber: 41, createdAt: 2_000,
+        body: 'The value can be null here, so dereferencing it can throw.',
+      })],
+    }));
+
+    expect(items).toHaveLength(3);
+    expect(items[0]).toMatchObject({ kind: 'review-activity', id: 'started' });
+    expect(items[1]).toMatchObject({ kind: 'local-thread', id: 'local-thread-brain-finding' });
+    expect(items[2]).toMatchObject({ kind: 'review', id: 'finished', verdict: 'changes', body: null });
+    const concern = items[1];
+    if (concern.kind !== 'local-thread') throw new Error('expected local thread');
+    expect(concern.comments[0]).toMatchObject({
+      filePath: 'src/Foo.ts', lineNumber: 41,
+      body: 'The value can be null here, so dereferencing it can throw.',
+    });
+  });
+
+  it('renders an approved Brain pass without its progress transcript', () => {
+    const items = buildTimeline(bundle({
+      timeline: [event({
+        id: 'approved', eventType: 'review', actor: 'brain', isLocalOnly: true,
+        payload: { reviewEvent: 'finished', scope: 'dev', verdict: 'approved', findingCount: 0,
+          commentIds: [], body: "I'll review the diff.\n\nLet me check the tests.\n\nEverything looks good." },
+      })],
+    }));
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        kind: 'review', id: 'approved', verdict: 'approved', body: null,
+      }),
+    ]);
+  });
+
+  it('omits a legacy Brain review card containing only progress narration', () => {
+    const items = buildTimeline(bundle({
+      timeline: [event({
+        id: 'narration-only', eventType: 'review', actor: 'brain', isLocalOnly: true,
+        payload: { reviewEvent: 'finished', scope: 'dev',
+          body: "I'll inspect the diff now. Let me gather the evidence." },
+      })],
+    }));
+
+    expect(items).toEqual([]);
   });
 
   it('shows a locally published GitHub review once using the canonical remote event', () => {

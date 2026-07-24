@@ -262,6 +262,12 @@ class AgentRunServiceImpl
         if (!run.isLive()) {
             return run;
         }
+        // Pause is idempotent. In particular, a coordinator reacting to a
+        // budget-paused turn must not replace the actionable cap reason with
+        // its internal lifecycle marker.
+        if (AgentRun.STATUS_PAUSED.equals(run.status())) {
+            return run;
+        }
         return store.save(run.paused(reason == null ? "paused by user" : reason));
     }
 

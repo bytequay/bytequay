@@ -63,6 +63,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -123,11 +124,13 @@ public abstract class AbstractCliThreadAgent
     /** Working directory the subprocess runs in. */
     protected final String workingDir;
     /** Best-effort hook run at the start of every turn, before the CLI
-     *  spawns — the trunk session wires this to fetch + reset its planning
-     *  worktree to the latest base. No-op by default (task sessions don't
-     *  set it). A failure here is logged, not fatal: the turn proceeds on
-     *  the last-known checkout. */
-    private volatile Runnable preTurnHook = () -> {};
+     *  spawns — the trunk session wires this to sync its planning worktree
+     *  to the latest fetched base. A non-blank return is a note prepended
+     *  to this turn's model input only (e.g. "planning base updated");
+     *  the persisted transcript stays clean. No-op by default (task
+     *  sessions don't set it). A failure here is logged, not fatal: the
+     *  turn proceeds on the last-known checkout. */
+    private volatile Supplier<String> preTurnHook = () -> null;
     /** Best-effort hook run after a clean TurnDone has been persisted.
      *  Used for background cache warming; failures are logged and never
      *  change the turn outcome. */
@@ -814,12 +817,13 @@ public abstract class AbstractCliThreadAgent
     }
 
     /** Wire a per-turn hook run before each turn's CLI spawn — the trunk
-     * session uses it to ensure its stable planning snapshot is ready (and
-     * refreshes only after task creation consumed the prior snapshot).
-     * Passing {@code null} clears it back to a no-op. */
-    public final void setPreTurnHook(Runnable hook)
+     * session uses it to sync its planning worktree to the latest fetched
+     * base. A non-blank return value is prepended to this turn's model
+     * input (the persisted transcript stays clean). Passing {@code null}
+     * clears it back to a no-op. */
+    public final void setPreTurnHook(Supplier<String> hook)
     {
-        this.preTurnHook = hook == null ? () -> {} : hook;
+        this.preTurnHook = hook == null ? () -> null : hook;
     }
 
     /** Wire a per-turn hook run after {@link StreamEvent.TurnDone}. */
@@ -828,20 +832,31 @@ public abstract class AbstractCliThreadAgent
         this.postTurnHook = hook == null ? () -> {} : hook;
     }
 
-    // ---- Turn execution ----------------------------------------------
-
-    private void runTurn(String userInput)
+    /** Runs the pre-turn hook and returns the exact text handed to the CLI
+     *  for this turn: the hook's note (when any) followed by the user's
+     *  prompt. The note rides the model input only — never the persisted
+     *  transcript. Package-private for tests. */
+    String composeTurnInput(String promptText)
     {
-        // Trunk sessions ensure their planning snapshot is ready here (on
-        // this worker thread, not the scheduler lock). The user's
-        // prompt is already the tail message, so the UI shows "Syncing…"
-        // for this window until the model streams its first output.
+        String note = null;
         try {
-            preTurnHook.run();
+            note = preTurnHook.get();
         }
         catch (RuntimeException e) {
             log.warn("Pre-turn hook for thread {} failed: {}", threadId, e.getMessage());
         }
+        return note == null || note.isBlank() ? promptText : note + "\n\n" + promptText;
+    }
+
+    // ---- Turn execution ----------------------------------------------
+
+    private void runTurn(String promptText)
+    {
+        // Trunk sessions sync their planning snapshot here (on this worker
+        // thread, not the scheduler lock). The user's prompt is already
+        // the tail message, so the UI shows "Syncing…" for this window
+        // until the model streams its first output.
+        String userInput = composeTurnInput(promptText);
         // Clear any stale interrupt flag from a prior turn so a fresh
         // turn's non-zero exit isn't misread as a user cancellation.
         userInterrupted.set(false);

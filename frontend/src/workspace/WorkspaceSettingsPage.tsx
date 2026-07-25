@@ -21,11 +21,12 @@ import {
   type WorkspaceRepositoryDto,
   type WorkspaceSettingsDto,
 } from './workspaceApi';
+import WorkspaceRelationsSettings from './WorkspaceRelationsSettings';
 
 const AUTOMATION_REFRESH_MS = 30_000;
 
 export type WorkspaceSettingsSection =
-  | 'general' | 'agents' | 'notifications' | 'sync' | 'automation' | 'memory' | 'danger';
+  | 'general' | 'relations' | 'agents' | 'notifications' | 'sync' | 'automation' | 'memory' | 'danger';
 
 type StoredSettings = {
   planModel: string;
@@ -231,6 +232,7 @@ export default function WorkspaceSettingsPage({
         <nav className="wu-settings__nav">
           {([
             ['general', 'General'],
+            ['relations', 'Relations'],
             ['agents', 'Agents'],
             ['notifications', 'Notifications'],
             ['sync', 'Sync'],
@@ -308,6 +310,9 @@ export default function WorkspaceSettingsPage({
                   checked={settings.pauseAtCap} onChange={value => update('pauseAtCap', value)} />
               </SettingsCard>
             </>
+          )}
+          {section === 'relations' && (
+            <WorkspaceRelationsSettings workspaceId={workspaceId} repoName={repoName} />
           )}
           {section === 'notifications' && (
             <SettingsCard title="Notify me about">
@@ -420,7 +425,7 @@ export default function WorkspaceSettingsPage({
                 }} />
             </SettingsCard>
           )}
-          {visualFrame === '6c' ? (
+          {section === 'relations' ? null : visualFrame === '6c' ? (
             <span className="wu-settings__source-note">
               Notifications section carries the mute rules from <a>3j</a> · Sync = cadence,
               watched branches, PR/issue scope · Memory = char budget, distill interval,

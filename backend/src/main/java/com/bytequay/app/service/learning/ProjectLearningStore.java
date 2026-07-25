@@ -206,14 +206,30 @@ public class ProjectLearningStore
             String mergeSha,
             long analyzedAtMs)
     {
+        markAnalyzed(workspaceId, repo, prNumber, priorityScore, mergeSha, analyzedAtMs, null);
+    }
+
+    /** As {@link #markAnalyzed} but recording why extraction was skipped or
+     *  failed, so a partial analysis stays visible and retryable. */
+    public void markAnalyzed(
+            String workspaceId,
+            String repo,
+            int prNumber,
+            double priorityScore,
+            String mergeSha,
+            long analyzedAtMs,
+            String lastError)
+    {
         jdbc.update("""
                 UPDATE repo_pr_source
                 SET analysis_state = 'analyzed',
                     priority_score = ?,
                     merge_sha = COALESCE(?, merge_sha),
-                    analyzed_at_ms = ?
+                    analyzed_at_ms = ?,
+                    last_error = ?
                 WHERE workspace_id = ? AND repo = ? AND pr_number = ?
-                """, priorityScore, mergeSha, analyzedAtMs, workspaceId, repo, prNumber);
+                """, priorityScore, mergeSha, analyzedAtMs, lastError,
+                workspaceId, repo, prNumber);
     }
 
     // ── Phase 2 evidence store ──────────────────────────────────────

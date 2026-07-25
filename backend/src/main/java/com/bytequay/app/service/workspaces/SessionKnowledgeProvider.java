@@ -59,15 +59,17 @@ public class SessionKnowledgeProvider
             return brain == null ? "" : brain;
         }
 
+        // Canonical store: only active knowledge may influence a session —
+        // pending/decayed/retired rows are inspectable but never rendered.
         List<Entry> entries = jdbc.query("""
-                SELECT title, body, audience_json
-                FROM kb_entry
-                WHERE workspace_id = ?
+                SELECT title, statement, audiences_json
+                FROM knowledge_item
+                WHERE workspace_id = ? AND state = 'active'
                 ORDER BY updated_at_ms DESC, id
                 """, (rs, ignored) -> new Entry(
                 rs.getString("title"),
-                rs.getString("body"),
-                strings(rs.getString("audience_json"))), workspaceId);
+                rs.getString("statement"),
+                strings(rs.getString("audiences_json"))), workspaceId);
         StringBuilder out = new StringBuilder(brain == null ? "" : brain.strip());
         boolean heading = false;
         for (Entry entry : entries) {
@@ -79,8 +81,8 @@ public class SessionKnowledgeProvider
                 out.append("# Knowledge base (").append(audience).append(")");
                 heading = true;
             }
-            out.append("\n\n## ").append(entry.title()).append("\n\n")
-                    .append(entry.body().strip());
+            out.append("\n\n## ").append(entry.title() == null ? "Note" : entry.title())
+                    .append("\n\n").append(entry.body().strip());
         }
         return out.toString();
     }

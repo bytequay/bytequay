@@ -183,6 +183,15 @@
   padding-left: 30px;
 }
 
+/* Not selectable from the rail. The page stays routed so the surfaces
+   that deep-link into it keep working. */
+.sv2-rail__link--off,
+.sv2-rail__link--off:hover {
+  background: none;
+  opacity: 0.45;
+  cursor: default;
+}
+
 .sv2-rail__icon {
   flex-shrink: 0;
   display: inline-flex;
@@ -212,6 +221,11 @@
   font-size: 8.5px;
   font-weight: 700;
   letter-spacing: 0.05em;
+}
+
+.sv2-rail__badge--off {
+  background: var(--sv2-line-row);
+  color: var(--sv2-text-4);
 }
 
 .sv2-rail__empty {

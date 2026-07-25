@@ -90,11 +90,14 @@ export default function PullChanges({
 
   const commitOptions: CommitOption[] = useMemo(() => (bundle?.commits ?? []).map(commit => {
     const subject = commit.message.split(/\r?\n/, 1)[0] ?? '';
+    const event = bundle?.timeline.find(item => item.eventType === 'commit' && item.payload?.sha === commit.sha);
     return {
       sha: commit.sha,
       label: `${commit.sha.slice(0, 7)}  ${subject.length > 46 ? `${subject.slice(0, 45)}…` : subject}`,
+      author: event?.actor ?? 'Unknown author',
+      authoredAt: commit.authoredAt,
     };
-  }).reverse(), [bundle?.commits]);
+  }).reverse(), [bundle?.commits, bundle?.timeline]);
 
   useEffect(() => {
     if (filesOverride !== undefined) {

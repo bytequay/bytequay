@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Ds4StateDto, WorkspaceCardDto, WorkModelOptionsDto } from '../types';
+import type { AiDefaultsDto, Ds4StateDto, WorkspaceCardDto, WorkModelOptionsDto } from '../types';
 import {
   workspaceApi,
   type WorkspaceAutomationStatusDto,
@@ -22,6 +22,15 @@ import {
   type WorkspaceSettingsDto,
 } from './workspaceApi';
 import WorkspaceRelationsSettings from './WorkspaceRelationsSettings';
+import {
+  type AgentChoice,
+  choiceClass,
+  choiceGlyph,
+  choicesFrom,
+  choiceText,
+  normalizeChoice,
+  selectableChoice,
+} from './agentChoices';
 
 const AUTOMATION_REFRESH_MS = 30_000;
 
@@ -81,6 +90,10 @@ export default function WorkspaceSettingsPage({
   const [repo, setRepo] = useState<WorkspaceRepositoryDto | null>(null);
   const [modelOptions, setModelOptions] = useState<WorkModelOptionsDto | null>(null);
   const [localAiState, setLocalAiState] = useState<Ds4StateDto | null>(null);
+  // Account-level defaults from Settings → AI. A workspace that has never
+  // picked an engine for a session kind inherits the account value; once
+  // it saves its own, the workspace row stops tracking this.
+  const [accountDefaults, setAccountDefaults] = useState<AiDefaultsDto | null>(null);
   const [memory, setMemory] = useState<WorkspaceMemoryDto | null>(null);
   const [automation, setAutomation] = useState<WorkspaceAutomationStatusDto | null>(null);
   const [saved, setSaved] = useState(false);
@@ -103,11 +116,13 @@ export default function WorkspaceSettingsPage({
       workspaceApi.settings(workspaceId),
       workspaceApi.workModelOptions(),
       window.bridge.getDs4Status(),
+      window.bridge.getAiDefaults().catch((): AiDefaultsDto | null => null),
     ])
-      .then(([repository, persisted, options, localAi]) => {
+      .then(([repository, persisted, options, localAi, inherited]) => {
         if (cancelled) return;
         setRepo(repository);
-        setSettings(coerceSettingsChoices(fromDto(persisted), choicesFrom(options, localAi.state)));
+        setAccountDefaults(inherited);
+        setSettings(coerceSettingsChoices(fromDto(persisted, inherited), choicesFrom(options, localAi.state)));
         setModelOptions(options);
         setLocalAiState(localAi.state);
       })
@@ -186,7 +201,7 @@ export default function WorkspaceSettingsPage({
         setNameDraft(renamed.name);
       }
       const persisted = await workspaceApi.saveSettings(workspaceId, toDto(settings));
-      setSettings(fromDto(persisted));
+      setSettings(fromDto(persisted, accountDefaults));
       if (section === 'automation') {
         void workspaceApi.automation(workspaceId).then(next => {
           if (activeWorkspaceId.current === workspaceId) setAutomation(next);
@@ -281,21 +296,25 @@ export default function WorkspaceSettingsPage({
             <>
               <SettingsCard title="Defaults per session kind" subtitle="threads can override per run">
                 <ModelRow label="Deep reasoning for specs & plans" tone="plan" value={settings.planModel}
+                  inherited={accountDefaults?.plan}
                   choices={agentChoices}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('planModel', value)} />
                 <ModelRow label="Code writing & tests" tone="dev" value={settings.devModel}
+                  inherited={accountDefaults?.dev}
                   choices={agentChoices}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('devModel', value)} />
                 <ModelRow label="PR review rounds" tone="review" value={settings.reviewModel}
+                  inherited={accountDefaults?.review}
                   choices={agentChoices}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('reviewModel', value)} />
                 <ModelRow label="Cheap loops on red builds" tone="ci-fix" value={settings.ciFixModel}
+                  inherited={accountDefaults?.ciFix}
                   choices={agentChoices}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
@@ -475,17 +494,12 @@ function SettingRow({ label, detail, children }: {
   );
 }
 
-type AgentChoice = {
-  value: string;
-  label: string;
-  detail: string;
-  disabled?: boolean;
-};
-
-function ModelRow({ label, tone, value, choices, refreshing, onRefresh, onChange }: {
+function ModelRow({ label, tone, value, inherited, choices, refreshing, onRefresh, onChange }: {
   label: string;
   tone: string;
   value: string;
+  /** Account-level default for this session kind, when known. */
+  inherited?: string;
   choices: AgentChoice[];
   refreshing: boolean;
   onRefresh: () => void;
@@ -493,10 +507,14 @@ function ModelRow({ label, tone, value, choices, refreshing, onRefresh, onChange
 }) {
   const selected = selectableChoice(value, choices);
   const selectedChoice = choices.find(choice => choice.value === selected);
+  const overridden = inherited !== undefined && normalizeChoice(inherited) !== selected;
   return (
     <div className="wu-setting-row wu-model-row">
       <span className={`wu-kind-chip ${tone}`}>{tone === 'ci-fix' ? 'ci fix' : tone}</span>
-      <span className="wu-model-row__description">{label}</span>
+      <span className="wu-model-row__description">
+        {label}
+        {overridden && <em className="wu-override" title="Differs from the account default in Settings → AI">override</em>}
+      </span>
       <label className="wu-model-picker">
         <span className={`wu-model-picker__glyph ${choiceClass(selected)}`}>{choiceGlyph(selected)}</span>
         <span className="wu-model-picker__value">{selectedChoice === undefined ? selected : choiceText(selectedChoice)}</span>
@@ -516,42 +534,6 @@ function ModelRow({ label, tone, value, choices, refreshing, onRefresh, onChange
   );
 }
 
-function choicesFrom(options: WorkModelOptionsDto | null, localAiState: Ds4StateDto | null): AgentChoice[] {
-  const choices: AgentChoice[] = [
-    { value: 'cli:claude-code', label: 'Claude CLI', detail: cliDetail(options, 'claude-code'), disabled: cliDisabled(options, 'claude-code') },
-    { value: 'cli:codex', label: 'Codex CLI', detail: cliDetail(options, 'codex'), disabled: cliDisabled(options, 'codex') },
-  ];
-  options?.apiProviders.forEach(provider => {
-    provider.accounts.forEach(account => {
-      choices.push({
-        value: `api:${provider.id}:${account.name}`,
-        label: 'API',
-        detail: `${provider.displayName} · ${account.name}${account.isDefault ? ' · default' : ''}`,
-      });
-    });
-  });
-  choices.push({
-    value: 'local',
-    label: 'Local',
-    detail: localAiState === 'RUNNING'
-      ? 'available'
-      : localAiState === 'DISABLED' ? 'not enabled' : localAiState === null ? 'checking…' : 'not running',
-    disabled: localAiState !== 'RUNNING',
-  });
-  return choices;
-}
-
-function choiceText(choice: AgentChoice): string {
-  return `${choice.label}${choice.detail.length === 0 ? '' : ` · ${choice.detail}`}`;
-}
-
-function selectableChoice(value: string, choices: AgentChoice[]): string {
-  const normalized = choices.some(choice => choice.value === value) ? value : normalizeChoice(value);
-  const current = choices.find(choice => choice.value === normalized);
-  if (current !== undefined && !current.disabled) return normalized;
-  return choices.find(choice => !choice.disabled)?.value ?? normalized;
-}
-
 function coerceSettingsChoices(value: StoredSettings, choices: AgentChoice[]): StoredSettings {
   return {
     ...value,
@@ -560,40 +542,6 @@ function coerceSettingsChoices(value: StoredSettings, choices: AgentChoice[]): S
     reviewModel: selectableChoice(value.reviewModel, choices),
     ciFixModel: selectableChoice(value.ciFixModel, choices),
   };
-}
-
-function cliDisabled(options: WorkModelOptionsDto | null, id: string): boolean {
-  const agent = options?.cliAgents.find(row => row.id === id);
-  return agent === undefined ? true : !agent.installed;
-}
-
-function cliDetail(options: WorkModelOptionsDto | null, id: string): string {
-  const agent = options?.cliAgents.find(row => row.id === id);
-  if (agent === undefined) return 'checking…';
-  if (!agent.installed) return 'not installed';
-  return agent.authed ? 'available' : 'installed';
-}
-
-function normalizeChoice(value: string): string {
-  if (value.startsWith('cli:') || value.startsWith('api:') || value === 'local') return value;
-  const lower = value.toLowerCase();
-  if (lower.includes('codex') || lower.includes('gpt')) return 'cli:codex';
-  if (lower.includes('claude')) return 'cli:claude-code';
-  return 'local';
-}
-
-function choiceClass(value: string): string {
-  if (value.startsWith('cli:claude')) return 'claude';
-  if (value.startsWith('cli:codex') || value.startsWith('api:openai')) return 'gpt';
-  if (value.startsWith('api:')) return 'api';
-  return 'local';
-}
-
-function choiceGlyph(value: string): string {
-  if (value.startsWith('cli:claude')) return 'C';
-  if (value.startsWith('cli:codex')) return 'X';
-  if (value.startsWith('api:')) return 'A';
-  return 'L';
 }
 
 function NumberRow({ label, value, prefix, suffix, onChange }: {
@@ -712,12 +660,14 @@ function DangerRow({ title, detail, action, destructive = false, disabled = fals
   );
 }
 
-function fromDto(value: WorkspaceSettingsDto): StoredSettings {
+/** `inherited` is the account-level default set; a workspace key that was
+ *  never chosen falls back to it before the hardcoded baseline. */
+function fromDto(value: WorkspaceSettingsDto, inherited: AiDefaultsDto | null): StoredSettings {
   return {
-    planModel: normalizeChoice(value.providers.plan ?? defaults.planModel),
-    devModel: normalizeChoice(value.providers.dev ?? defaults.devModel),
-    reviewModel: normalizeChoice(value.providers.review ?? defaults.reviewModel),
-    ciFixModel: normalizeChoice(value.providers['ci-fix'] ?? defaults.ciFixModel),
+    planModel: normalizeChoice(value.providers.plan ?? inherited?.plan ?? defaults.planModel),
+    devModel: normalizeChoice(value.providers.dev ?? inherited?.dev ?? defaults.devModel),
+    reviewModel: normalizeChoice(value.providers.review ?? inherited?.review ?? defaults.reviewModel),
+    ciFixModel: normalizeChoice(value.providers['ci-fix'] ?? inherited?.ciFix ?? defaults.ciFixModel),
     perSessionCap: value.sessionCapUsd,
     dailyCap: value.dailyCapUsd,
     pauseAtCap: value.pauseAtCap,

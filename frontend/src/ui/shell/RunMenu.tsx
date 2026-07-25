@@ -16,7 +16,8 @@ import { ConfirmDialog } from '../../workspace/ConfirmDialog';
 
 /**
  * The top-bar lifecycle controls (the relocated M8 Pause / Resume / Close).
- * The trigger shows the run state; a dropdown offers Run / Pause / Resume.
+ * The trigger shows the run state; running tasks use a dropdown for Run /
+ * Pause, while paused tasks make Resume the direct action.
  * Close is surfaced as a direct danger button (not buried in the menu) and
  * confirms first — closing kills the agent subprocess and reaps the
  * worktree, which can't be undone. Terminal tasks render a static label.
@@ -46,19 +47,26 @@ export function RunMenu({ statusLabel = 'Running', statusDetail, paused = false,
   return (
     <>
       <span className="run-menu">
-        <button
-          type="button"
-          className="btn"
-          title={statusDetail}
-          aria-haspopup={hasMenu ? 'menu' : undefined}
-          aria-expanded={hasMenu ? open : undefined}
-          onClick={hasMenu ? () => setOpen(o => !o) : undefined}
-        >
-          <span className="ic" aria-hidden>{paused ? '⏸' : '▶'}</span>
-          {displayedStatus}
-          {hasMenu && <span className="chev" aria-hidden>▾</span>}
-        </button>
-        {open && hasMenu && (
+        {paused && onResume !== undefined ? (
+          <button type="button" className="btn" title={statusDetail} onClick={onResume}>
+            <span className="ic" aria-hidden>▶</span>
+            Resume · {displayedStatus}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn"
+            title={statusDetail}
+            aria-haspopup={hasMenu ? 'menu' : undefined}
+            aria-expanded={hasMenu ? open : undefined}
+            onClick={hasMenu ? () => setOpen(o => !o) : undefined}
+          >
+            <span className="ic" aria-hidden>{paused ? '⏸' : '▶'}</span>
+            {displayedStatus}
+            {hasMenu && <span className="chev" aria-hidden>▾</span>}
+          </button>
+        )}
+        {open && hasMenu && !(paused && onResume !== undefined) && (
           <div className="run-menu__pop" role="menu">
             {statusDetail !== undefined && statusDetail.trim().length > 0 && (
               <span className="run-menu__detail" role="status">{statusDetail}</span>

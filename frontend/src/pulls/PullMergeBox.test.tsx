@@ -51,6 +51,16 @@ describe('PullMergeBox', () => {
     expect(screen.queryByRole('button', { name: 'Squash and merge' })).toBeNull();
   });
 
+  it('stays visible for a draft PR and explains why it cannot merge', () => {
+    render(<PullMergeBox
+      pr={pr({ status: 'remote-drafted' })}
+      detail={detail({ draft: true })}
+      onDone={() => {}}
+    />);
+    expect(screen.getByText('This PR can’t be merged yet')).toBeTruthy();
+    expect(screen.getByText('This PR is still a draft.')).toBeTruthy();
+  });
+
   it('confirms then calls the merge bridge with the chosen method', () => {
     const mergeLocalPr = vi.fn().mockResolvedValue({});
     (globalThis as { bridge?: unknown }).bridge = { mergeLocalPr };

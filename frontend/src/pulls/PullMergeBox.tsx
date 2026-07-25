@@ -124,7 +124,8 @@ export default function PullMergeBox({ pr, detail, onDone }: {
     );
   }
 
-  if (pr.status !== 'remote-open' || pr.remotePrNumber === null) return null;
+  if ((pr.status !== 'remote-open' && pr.status !== 'remote-drafted')
+      || pr.remotePrNumber === null) return null;
 
   const blockers = mergeBlockers(detail);
   const ready = blockers.length === 0;

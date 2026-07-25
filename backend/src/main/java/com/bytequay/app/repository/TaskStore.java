@@ -62,6 +62,47 @@ public interface TaskStore
         throw new UnsupportedOperationException("updateStatusIf");
     }
 
+    /** Append one row to the {@code task_status_event} audit trail —
+     *  written in the same transaction as its status move. */
+    default void appendStatusEvent(
+            String taskId, TaskStatus from, TaskStatus to, Actor actor, String reason, Instant occurredAt)
+    {
+        throw new UnsupportedOperationException("appendStatusEvent");
+    }
+
+    /** The turn currently authoritative for this task's runtime
+     *  projection, if any. Entity-managed — never written by
+     *  {@code saveTask}. */
+    default Optional<String> currentLivenessTurnId(String taskId)
+    {
+        throw new UnsupportedOperationException("currentLivenessTurnId");
+    }
+
+    /** Compare-and-set the liveness pointer: move it to {@code next}
+     *  only while it still equals {@code expected} ({@code null} = only
+     *  while unset). {@code next} may be null to clear.
+     *
+     *  @return true when the pointer was updated */
+    default boolean setCurrentLivenessTurnIdIf(String taskId, String expected, String next)
+    {
+        throw new UnsupportedOperationException("setCurrentLivenessTurnIdIf");
+    }
+
+    /** Tasks whose status is in {@code statuses}, oldest first —
+     *  the runtime-projection sweep's input. */
+    default List<Task> listByStatuses(Collection<TaskStatus> statuses, int limit)
+    {
+        throw new UnsupportedOperationException("listByStatuses");
+    }
+
+    /** Targeted write of the runtime-failure columns ({@code endedAt},
+     *  {@code errorMessage}) copied from the exact failed liveness turn;
+     *  never touches status. Null values clear the fields. */
+    default void updateRuntimeFailure(String taskId, Instant endedAt, String errorMessage)
+    {
+        throw new UnsupportedOperationException("updateRuntimeFailure");
+    }
+
     /** Single-row lookup by id. */
     Optional<Task> findTaskById(String id);
 

@@ -26,7 +26,7 @@ interface ValidationPassJpaRepository
 {
     Optional<ValidationPassEntity> findByClaimKey(String claimKey);
 
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ValidationPassEntity v SET v.ownerId = :ownerId, "
             + "v.executorIdentity = :executorIdentity, v.leaseUntilMs = :leaseUntilMs, "
             + "v.heartbeatAtMs = :now "
@@ -40,7 +40,7 @@ interface ValidationPassJpaRepository
             @Param("leaseUntilMs") long leaseUntilMs,
             @Param("now") long now);
 
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ValidationPassEntity v SET v.leaseUntilMs = :leaseUntilMs, "
             + "v.heartbeatAtMs = :heartbeatAtMs "
             + "WHERE v.claimKey = :claimKey AND v.ownerId = :ownerId AND v.endedAtMs IS NULL")
@@ -50,7 +50,7 @@ interface ValidationPassJpaRepository
             @Param("leaseUntilMs") long leaseUntilMs,
             @Param("heartbeatAtMs") long heartbeatAtMs);
 
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ValidationPassEntity v SET v.endedAtMs = :endedAtMs, v.passed = :passed, "
             + "v.failuresJson = :failuresJson "
             + "WHERE v.claimKey = :claimKey AND v.endedAtMs IS NULL "
@@ -63,7 +63,7 @@ interface ValidationPassJpaRepository
             @Param("passed") boolean passed,
             @Param("failuresJson") String failuresJson);
 
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ValidationPassEntity v SET v.cancelRequestedAtMs = :requestedAtMs, "
             + "v.cancelDeadlineAtMs = :deadlineMs "
             + "WHERE v.claimKey = :claimKey AND v.endedAtMs IS NULL "
@@ -73,7 +73,7 @@ interface ValidationPassJpaRepository
             @Param("requestedAtMs") long requestedAtMs,
             @Param("deadlineMs") long deadlineMs);
 
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ValidationPassEntity v SET v.supersededAtMs = :atMs "
             + "WHERE v.claimKey = :claimKey AND v.endedAtMs IS NULL "
             + "AND v.supersededAtMs IS NULL")

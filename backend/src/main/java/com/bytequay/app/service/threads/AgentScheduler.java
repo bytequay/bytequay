@@ -415,10 +415,62 @@ public class AgentScheduler
                 stageId,
                 ThreadScope.of(taskId, stageId),
                 correlatedRunId);
-        turns.insertTurn(turn, taskId != null && liveness.affectsTask(), kickKey);
+        boolean affectsLiveness = taskId != null && liveness.affectsTask();
+        turns.insertTurn(turn, affectsLiveness, kickKey);
+        if (affectsLiveness) {
+            engageLivenessPointer(taskId, turn.id());
+        }
         appendEvent(turn, TURN_QUEUED, null);
+        publishTurnStatus(turn);
         enqueueAfterCommit(turn);
         return turn.id();
+    }
+
+    /**
+     * A fresh runtime enqueue takes the task's liveness pointer only when
+     * nothing live holds it: unset, or held by a successfully COMPLETED
+     * turn (the natural promotion point). A live QUEUED/RUNNING holder
+     * keeps it — the new turn waits behind — and a FAILED/CANCELLED
+     * holder keeps it too, because {@code retryErrored} owns that
+     * replacement and sets the pointer itself.
+     */
+    private void engageLivenessPointer(String taskId, String turnId)
+    {
+        if (tasks.setCurrentLivenessTurnIdIf(taskId, null, turnId)) {
+            return;
+        }
+        String current = tasks.currentLivenessTurnId(taskId).orElse(null);
+        if (current == null || current.equals(turnId)) {
+            return;
+        }
+        ThreadTurn holder = turns.findTurnById(current).orElse(null);
+        if (holder == null || holder.status() == COMPLETED) {
+            tasks.setCurrentLivenessTurnIdIf(taskId, current, turnId);
+        }
+    }
+
+    /** Task-scoped turn-status wake signal for the runtime projection —
+     *  published after commit so the handler reloads durable state. */
+    private void publishTurnStatus(ThreadTurn turn)
+    {
+        if (eventPublisher == null || turn.taskId() == null) {
+            return;
+        }
+        TaskTurnStatusChanged changed =
+                new TaskTurnStatusChanged(turn.taskId(), turn.id(), turn.status());
+        if (!deferUntilAfterCommit(() -> eventPublisher.publishEvent(changed))) {
+            eventPublisher.publishEvent(changed);
+        }
+    }
+
+    /** Re-run lane draining — the projection pokes this after promoting a
+     *  queued follower to the liveness pointer, so the follower's deferred
+     *  row dispatches without waiting for the next natural drain. */
+    public void kickDrain()
+    {
+        synchronized (lock) {
+            drainLocked();
+        }
     }
 
     /** Never launch provider work for rows that can still roll back. */
@@ -866,6 +918,14 @@ public class AgentScheduler
             if (runningAgentKeys.contains(agentKeyOf(turn))) {
                 continue;
             }
+            // A runtime turn dispatches only while it holds the task's
+            // liveness pointer — queued followers stay durable and deferred
+            // behind the current turn until the projection promotes them.
+            if (turn.taskId() != null
+                    && turns.turnAffectsTaskLiveness(turn.id())
+                    && !turn.id().equals(tasks.currentLivenessTurnId(turn.taskId()).orElse(null))) {
+                continue;
+            }
             iterator.remove();
             lane.knownTurnIds.remove(turn.id());
             ThreadTurn persisted = turns.findTurnById(turn.id()).orElse(null);
@@ -950,6 +1010,7 @@ public class AgentScheduler
                 /* errorMessage */ null);
         turns.saveTurn(runningTurn);
         appendEvent(runningTurn, TURN_STARTED, null);
+        publishTurnStatus(runningTurn);
         transitionRun(runningTurn.agentRunId(), AgentRun.STATUS_RUNNING, "scheduler started");
 
         Thread thread = threads.findThreadById(runningTurn.threadId()).orElse(null);
@@ -1067,6 +1128,7 @@ public class AgentScheduler
                 finished,
                 cancelled ? TURN_CANCELLED : failed ? TURN_FAILED : TURN_FINISHED,
                 finished.errorMessage());
+        publishTurnStatus(finished);
         CodeGraphFirstRuntime.Metrics codeGraphMetrics = CodeGraphFirstRuntime.finishTurn(
                 runningTurn.threadId(), agentKeyOf(runningTurn));
         if (!codeGraphMetrics.isEmpty()) {

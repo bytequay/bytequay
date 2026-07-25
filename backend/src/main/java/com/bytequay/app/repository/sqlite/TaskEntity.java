@@ -107,6 +107,9 @@ class TaskEntity
     @Column(name = "error_message")
     private String errorMessage;
 
+    @Column(name = "current_liveness_turn_id")
+    private String currentLivenessTurnId;
+
     @Column(name = "auto_approve", nullable = false)
     private boolean autoApprove;
 
@@ -215,6 +218,12 @@ class TaskEntity
 
     Integer getLinkedIssueNumber() { return linkedIssueNumber; }
     void setLinkedIssueNumber(Integer linkedIssueNumber) { this.linkedIssueNumber = linkedIssueNumber; }
+
+    String getCurrentLivenessTurnId() { return currentLivenessTurnId; }
+    void setCurrentLivenessTurnId(String currentLivenessTurnId)
+    {
+        this.currentLivenessTurnId = currentLivenessTurnId;
+    }
 
     String getOrigin() { return origin; }
     void setOrigin(String origin) { this.origin = origin; }

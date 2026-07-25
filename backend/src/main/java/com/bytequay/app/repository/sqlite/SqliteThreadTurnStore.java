@@ -85,6 +85,15 @@ class SqliteThreadTurnStore
     }
 
     @Override
+    public List<ThreadTurn> listLivenessTurns(String taskId, int limit)
+    {
+        return turns.findByTaskIdAndAffectsTaskLivenessTrueOrderByCreatedAtMsAscIdAsc(
+                        taskId, PageRequest.of(0, limit)).stream()
+                .map(SqliteThreadTurnStore::toTurn)
+                .toList();
+    }
+
+    @Override
     public Optional<String> findTurnIdByKickKey(String kickKey)
     {
         return turns.findByKickKey(kickKey).map(ThreadTurnEntity::getId);

@@ -39,14 +39,18 @@ import com.bytequay.app.service.localpr.PRSyncService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.workspaces.ReviewTrunkLifecycleService;
+import com.bytequay.app.service.workspaces.UpstreamCherryPickService;
 import com.bytequay.app.service.workspaces.WorkspaceCherryPickService;
 import com.bytequay.app.service.workspaces.WorkspaceIssueService;
+import com.bytequay.app.service.workspaces.WorkspaceRelationService;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -73,6 +77,8 @@ public class WorkspaceRepositoryController
     private final BacklogService backlog;
     private final ReviewTrunkLifecycleService reviewTrunks;
     private final WorkspaceCherryPickService cherryPicks;
+    private final WorkspaceRelationService relations;
+    private final UpstreamCherryPickService upstreamCherryPicks;
     private final TaskStore tasks;
     private final ThreadStore trunks;
 
@@ -87,6 +93,8 @@ public class WorkspaceRepositoryController
             BacklogService backlog,
             ReviewTrunkLifecycleService reviewTrunks,
             WorkspaceCherryPickService cherryPicks,
+            WorkspaceRelationService relations,
+            UpstreamCherryPickService upstreamCherryPicks,
             TaskStore tasks,
             ThreadStore trunks)
     {
@@ -100,6 +108,9 @@ public class WorkspaceRepositoryController
         this.backlog = requireNonNull(backlog, "backlog is null");
         this.reviewTrunks = requireNonNull(reviewTrunks, "reviewTrunks is null");
         this.cherryPicks = requireNonNull(cherryPicks, "cherryPicks is null");
+        this.relations = requireNonNull(relations, "relations is null");
+        this.upstreamCherryPicks = requireNonNull(
+                upstreamCherryPicks, "upstreamCherryPicks is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.trunks = requireNonNull(trunks, "trunks is null");
     }
@@ -335,6 +346,102 @@ public class WorkspaceRepositoryController
         return interrupted(() -> local.listCommits(
                 repo.owner(), repo.repo(), revision,
                 Math.min(Math.max(limit, 1), 500)));
+    }
+
+    @GetMapping("/relation")
+    public ResponseEntity<WorkspaceRelationService.WorkspaceRelationDto> relation(
+            @PathVariable String workspaceId)
+    {
+        return relations.find(workspaceId)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @PutMapping("/relation")
+    public WorkspaceRelationService.WorkspaceRelationDto linkRelation(
+            @PathVariable String workspaceId,
+            @RequestBody WorkspaceRelationService.RelationUpdate body)
+    {
+        return relations.link(workspaceId, body);
+    }
+
+    @DeleteMapping("/relation")
+    public ResponseEntity<Void> unlinkRelation(@PathVariable String workspaceId)
+    {
+        relations.unlink(workspaceId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/relation/fetch")
+    public WorkspaceRelationService.WorkspaceRelationDto fetchRelation(
+            @PathVariable String workspaceId)
+    {
+        return interrupted(() -> relations.fetch(workspaceId));
+    }
+
+    @GetMapping("/relation/candidates")
+    public List<WorkspaceRelationService.RelationCandidateDto> relationCandidates(
+            @PathVariable String workspaceId)
+    {
+        return relations.candidates(workspaceId);
+    }
+
+    @GetMapping("/upstream/commits")
+    public WorkspaceRelationService.UpstreamCommitsDto upstreamCommits(
+            @PathVariable String workspaceId,
+            @RequestParam(required = false) String revision,
+            @RequestParam(defaultValue = "100") int limit)
+    {
+        return interrupted(() -> relations.commits(workspaceId, revision, limit));
+    }
+
+    @PostMapping("/upstream/cherry-picks")
+    public ResponseEntity<UpstreamCherryPickService.UpstreamCherryPickJobDto>
+            startUpstreamCherryPick(
+                    @PathVariable String workspaceId,
+                    @RequestBody UpstreamCherryPickService.StartRequest body)
+    {
+        UpstreamCherryPickService.UpstreamCherryPickJobDto job =
+                interrupted(() -> upstreamCherryPicks.enqueue(workspaceId, body));
+        return ResponseEntity.accepted().body(job);
+    }
+
+    @GetMapping("/upstream/cherry-picks")
+    public List<UpstreamCherryPickService.UpstreamCherryPickJobDto>
+            upstreamCherryPicks(
+                    @PathVariable String workspaceId,
+                    @RequestParam(defaultValue = "20") int limit)
+    {
+        return upstreamCherryPicks.list(workspaceId, limit);
+    }
+
+    @GetMapping("/upstream/cherry-picks/{jobId}")
+    public UpstreamCherryPickService.UpstreamCherryPickJobDto upstreamCherryPick(
+            @PathVariable String workspaceId,
+            @PathVariable String jobId)
+    {
+        return upstreamCherryPicks.require(workspaceId, jobId);
+    }
+
+    @PostMapping("/upstream/cherry-picks/{jobId}/resume")
+    public ResponseEntity<UpstreamCherryPickService.UpstreamCherryPickJobDto>
+            resumeUpstreamCherryPick(
+                    @PathVariable String workspaceId,
+                    @PathVariable String jobId)
+    {
+        UpstreamCherryPickService.UpstreamCherryPickJobDto job =
+                interrupted(() -> upstreamCherryPicks.resume(workspaceId, jobId));
+        return ResponseEntity.accepted().body(job);
+    }
+
+    @PostMapping("/upstream/cherry-picks/{jobId}/retry")
+    public ResponseEntity<UpstreamCherryPickService.UpstreamCherryPickJobDto>
+            retryUpstreamCherryPick(
+                    @PathVariable String workspaceId,
+                    @PathVariable String jobId)
+    {
+        return ResponseEntity.accepted().body(
+                upstreamCherryPicks.retry(workspaceId, jobId));
     }
 
     @GetMapping("/commits/{sha}")

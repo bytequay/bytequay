@@ -17,8 +17,10 @@ import {
 import type { TaskNavRow, WsNavKey } from '../ui/workspace';
 import type { FootprintStopDto } from '../types';
 import { useWorkspaceNav } from './useWorkspaceNav';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { TrunkWorkspaceSidebar } from './TrunkWorkspaceSidebar';
+import { workspaceApi, type WorkspaceRelationDto } from '../workspace/workspaceApi';
+import { WORKSPACE_RELATION_CHANGED } from '../workspace/WorkspaceRelationsSettings';
 
 /**
  * The live workspace navigation sidebar: top nav + either the
@@ -34,7 +36,7 @@ export function WorkspaceNavShell({
   collapsed = false, onToggleCollapse,
   onResumeVisit, onOpenPr,
   onBack, onForward, backEnabled, forwardEnabled,
-  onNavigate, onOpenThread, onOpenTask, onSwitchWorkspace, onNewThread,
+  onNavigate, onOpenThread, onOpenTask, onSwitchWorkspace, onNewThread, onOpenRelation,
 }: {
   activeWorkspaceId: string | null;
   selectedThreadId?: string;
@@ -61,9 +63,11 @@ export function WorkspaceNavShell({
   /** The switcher ▾ — lateral switch / back to the overview. */
   onSwitchWorkspace?: () => void;
   onNewThread?: () => void;
+  onOpenRelation?: () => void;
 }) {
   const data = useWorkspaceNav(activeWorkspaceId);
   const [expandedWorkspaceId, setExpandedWorkspaceId] = useState<string | null>(null);
+  const [relation, setRelation] = useState<WorkspaceRelationDto | null>(null);
   const ws = data.activeWorkspace;
   const counts = data.overview?.sidebarCounts;
   const visualFrame = typeof document === 'undefined'
@@ -89,6 +93,29 @@ export function WorkspaceNavShell({
     }));
   const showingSelectedTrunk = selectedThreadId !== undefined;
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadRelation = () => {
+      if (activeWorkspaceId === null) {
+        setRelation(null);
+        return;
+      }
+      void workspaceApi.relation(activeWorkspaceId)
+        .then(next => { if (!cancelled) setRelation(next); })
+        .catch(() => { if (!cancelled) setRelation(null); });
+    };
+    const onChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ workspaceId?: string }>).detail;
+      if (detail?.workspaceId === undefined || detail.workspaceId === activeWorkspaceId) loadRelation();
+    };
+    loadRelation();
+    window.addEventListener(WORKSPACE_RELATION_CHANGED, onChanged);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(WORKSPACE_RELATION_CHANGED, onChanged);
+    };
+  }, [activeWorkspaceId]);
+
   if (activeWorkspaceId !== null) {
     return (
       <TrunkWorkspaceSidebar
@@ -96,6 +123,7 @@ export function WorkspaceNavShell({
         repository={data.overview?.repository?.fullName
           ?? ws?.repository?.fullName
           ?? workspaceSlug(ws?.name ?? 'Workspace', ws?.repos[0])}
+        relation={relation}
         threads={data.rawThreads.filter(thread => thread.flow !== 'review')}
         selectedThreadId={selectedThreadId}
         selectedTasks={tasks ?? []}
@@ -113,6 +141,7 @@ export function WorkspaceNavShell({
         onOpenTask={onOpenTask}
         onSwitchWorkspace={onSwitchWorkspace}
         onNewThread={onNewThread}
+        onOpenRelation={onOpenRelation}
       />
     );
   }

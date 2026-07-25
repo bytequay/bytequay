@@ -308,6 +308,20 @@ export default function PullTimeline({
               </div>
             );
           }
+          case 'ci-harness':
+            return (
+              <div key={item.id} style={iconRowStyle}>
+                <span style={{ width: 26, height: 26, borderRadius: '50%', background: '#f3e8ff', border: '2px solid #fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#8250df', flexShrink: 0 }}>
+                  ↻
+                </span>
+                <span style={iconRowTextStyle}>
+                  <span style={{ color: '#17191c' }}>{item.message}</span>
+                  {item.phase !== null && <> · <span style={{ color: '#8250df' }}>{item.phase}</span></>}
+                  {item.status !== null && <> · {item.status}</>}
+                  {item.sha !== null && <> · <span style={shaStyle}>{item.sha}</span></>} · {item.time}
+                </span>
+              </div>
+            );
           case 'merged':
             return (
               <div key={item.id} style={iconRowStyle}>

@@ -15,7 +15,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@t
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WorkspaceNavShell } from './WorkspaceNavShell';
 import { logoColorFor, monogram, threadStatusDot, useWorkspaceNav } from './useWorkspaceNav';
-import type { ThreadDto } from '../types';
+import type { ThreadDto, WorkspaceApiRequest } from '../types';
 import { SIDEBAR_WIDTH_KEY } from '../ui/shell/useSidebarWidth';
 
 afterEach(() => {
@@ -49,6 +49,7 @@ function mockBridge(over: Record<string, unknown> = {}) {
       totalStops: 1,
     }),
     fetchPrs: vi.fn().mockResolvedValue([]),
+    workspaceApi: vi.fn().mockResolvedValue(null),
     ...over,
   };
   (window as unknown as { bridge: unknown }).bridge = bridge;
@@ -189,6 +190,29 @@ describe('WorkspaceNavShell', () => {
 
     fireEvent.click(container.querySelector('.workspace-page-switcher') as HTMLElement);
     expect(onSwitchWorkspace).toHaveBeenCalledOnce();
+  });
+
+  it('shows the linked upstream directly below the switcher', async () => {
+    const onOpenRelation = vi.fn();
+    mockBridge({
+      workspaceApi: vi.fn(async (request: WorkspaceApiRequest) => request.path.endsWith('/relation')
+        ? {
+            workspaceId: 'bq', upstreamWorkspaceId: 'tr', upstreamWorkspaceName: 'Trino',
+            upstreamRepoFullName: 'trinodb/trino', commitsEnabled: true, tagsEnabled: true,
+            branchesEnabled: false, issuesPullRequestsEnabled: false, lastFetchedAt: null as string | null,
+            autoFetchIntervalMinutes: 30, indexedCommitCount: 10,
+          }
+        : null),
+    });
+    render(
+      <WorkspaceNavShell activeWorkspaceId="bq" onOpenRelation={onOpenRelation} />,
+    );
+
+    const row = await screen.findByTitle('Manage read-only upstream trinodb/trino');
+    expect(row.textContent).toContain('fork of Trino');
+    expect(row.textContent).toContain('reads');
+    fireEvent.click(row);
+    expect(onOpenRelation).toHaveBeenCalledOnce();
   });
 
   it('shares the saved rail width with Home and lets the workspace rail be dragged', () => {

@@ -18,6 +18,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -129,6 +130,18 @@ class TestShellRunner
 
         assertThat(result.ran()).isFalse();
         assertThat(result.error()).contains("argv is empty");
+    }
+
+    @Test
+    void argvOverloadAppliesEnvironmentOverrides(@TempDir Path worktree)
+            throws InterruptedException
+    {
+        ShellRunner.Result result = runner.runArgv(
+                worktree, List.of("env"), Map.of("BYTEQUAY_CI_VERIFY", "enabled"), 5L, 4096);
+
+        assertThat(result.ran()).isTrue();
+        assertThat(result.exitCode()).isZero();
+        assertThat(result.output()).contains("BYTEQUAY_CI_VERIFY=enabled");
     }
 
     @Test

@@ -1,0 +1,259 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { useEffect, useState } from 'react';
+import {
+  workspaceApi,
+  type WorkspaceRelationCandidateDto,
+  type WorkspaceRelationDto,
+} from './workspaceApi';
+
+export const WORKSPACE_RELATION_CHANGED = 'bytequay-workspace-relation-changed';
+
+export default function WorkspaceRelationsSettings({ workspaceId, repoName }: {
+  workspaceId: string;
+  repoName: string;
+}) {
+  const [relation, setRelation] = useState<WorkspaceRelationDto | null>(null);
+  const [candidates, setCandidates] = useState<WorkspaceRelationCandidateDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    void workspaceApi.relation(workspaceId)
+      .then(next => { if (!cancelled) setRelation(next); })
+      .catch(reason => { if (!cancelled) setMessage(errorMessage(reason)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+
+  const notify = (next: WorkspaceRelationDto | null) => {
+    setRelation(next);
+    window.dispatchEvent(new CustomEvent(WORKSPACE_RELATION_CHANGED, {
+      detail: { workspaceId },
+    }));
+  };
+
+  const openPicker = () => {
+    setPickerOpen(true);
+    setMessage(null);
+    void workspaceApi.relationCandidates(workspaceId)
+      .then(next => {
+        setCandidates(next);
+        setSelectedId(next.find(row => row.suggested)?.workspaceId ?? next[0]?.workspaceId ?? '');
+      })
+      .catch(reason => setMessage(errorMessage(reason)));
+  };
+
+  const save = async (next: WorkspaceRelationDto, overrides: Partial<Pick<
+    WorkspaceRelationDto, 'commitsEnabled' | 'tagsEnabled' | 'autoFetchIntervalMinutes'
+  >>) => {
+    setBusy(true);
+    setMessage(null);
+    try {
+      notify(await workspaceApi.saveRelation(workspaceId, {
+        upstreamWorkspaceId: next.upstreamWorkspaceId,
+        commitsEnabled: overrides.commitsEnabled ?? next.commitsEnabled,
+        tagsEnabled: overrides.tagsEnabled ?? next.tagsEnabled,
+        autoFetchIntervalMinutes: overrides.autoFetchIntervalMinutes ?? next.autoFetchIntervalMinutes,
+      }));
+    }
+    catch (reason) {
+      setMessage(errorMessage(reason));
+    }
+    finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) return <div className="wu-relation-loading" role="status">Loading relation…</div>;
+
+  return (
+    <>
+      {relation === null ? (
+        <section className="wu-relation-empty">
+          <span className="wu-relation-empty__icon" aria-hidden>⑂</span>
+          <h2>No upstream linked</h2>
+          <p>Link another workspace as a read-only upstream for commits and tags. The upstream workspace is never changed.</p>
+          <button type="button" className="wu-primary-button" onClick={openPicker}>
+            Link upstream workspace…
+          </button>
+        </section>
+      ) : (
+        <section className="wu-relation-card">
+          <header>
+            <span className="wu-relation-card__glyph" aria-hidden>⑂</span>
+            <div className="wu-relation-card__direction">
+              <span><small>THIS WORKSPACE</small><strong>{repoName}</strong></span>
+              <b><span aria-hidden>→</span> READS FROM</b>
+              <span><small>UPSTREAM WORKSPACE</small><strong>{relation.upstreamWorkspaceName}</strong>
+                <code>{relation.upstreamRepoFullName}</code></span>
+            </div>
+            <i>read-only</i>
+            <button type="button" onClick={() => {
+              window.location.hash = `#/workspace/${encodeURIComponent(relation.upstreamWorkspaceId)}/today`;
+            }}>Open workspace</button>
+          </header>
+          <div className="wu-relation-card__rows">
+            <RelationToggle label="Commits" detail="Browse and select upstream commit ranges."
+              checked={relation.commitsEnabled} disabled={busy}
+              onChange={value => { void save(relation, { commitsEnabled: value }); }} />
+            <RelationToggle label="Tags" detail="Show releases and tags in upstream history."
+              checked={relation.tagsEnabled} disabled={busy}
+              onChange={value => { void save(relation, { tagsEnabled: value }); }} />
+            <RelationToggle label="Branches" detail="Branch browsing is coming soon."
+              checked={relation.branchesEnabled} disabled onChange={() => {}} soon />
+            <RelationToggle label="Issues & pull requests" detail="Cross-workspace issue and PR reads are coming soon."
+              checked={relation.issuesPullRequestsEnabled} disabled onChange={() => {}} soon />
+            <div className="wu-relation-setting-row">
+              <span><strong>Auto-fetch</strong><small>Refreshes refs and the trailer index. Never pulls or pushes.</small></span>
+              <select aria-label="Upstream auto-fetch interval" value={relation.autoFetchIntervalMinutes}
+                disabled={busy} onChange={event => {
+                  void save(relation, { autoFetchIntervalMinutes: Number(event.target.value) });
+                }}>
+                <option value={15}>Every 15 minutes</option>
+                <option value={30}>Every 30 minutes</option>
+                <option value={60}>Every hour</option>
+                <option value={240}>Every 4 hours</option>
+              </select>
+            </div>
+          </div>
+          <footer>
+            <span>
+              {relation.lastFetchedAt === null ? 'Not fetched yet' : `Fetched ${relative(relation.lastFetchedAt)}`}
+              {' · '}{relation.indexedCommitCount.toLocaleString()} commits indexed
+            </span>
+            <button type="button" disabled={busy} onClick={() => {
+              setBusy(true);
+              setMessage(null);
+              void workspaceApi.fetchRelation(workspaceId)
+                .then(next => { notify(next); setMessage('Upstream refreshed.'); })
+                .catch(reason => setMessage(errorMessage(reason)))
+                .finally(() => setBusy(false));
+            }}>{busy ? 'Working…' : 'Fetch now'}</button>
+            <button type="button" className="is-danger" disabled={busy} onClick={() => {
+              setBusy(true);
+              setMessage(null);
+              void workspaceApi.unlinkRelation(workspaceId)
+                .then(() => { notify(null); setMessage('Upstream unlinked.'); })
+                .catch(reason => setMessage(errorMessage(reason)))
+                .finally(() => setBusy(false));
+            }}>Unlink</button>
+          </footer>
+        </section>
+      )}
+      <p className="wu-relation-footnote">
+        <span aria-hidden>⌾</span> {repoName} reads from the upstream clone. No reverse link or write capability is created.
+      </p>
+      {message !== null && <div className="wu-inline-message" role="status">{message}</div>}
+      {pickerOpen && (
+        <RelationPicker
+          candidates={candidates}
+          selectedId={selectedId}
+          busy={busy}
+          onSelect={setSelectedId}
+          onClose={() => setPickerOpen(false)}
+          onConfirm={() => {
+            if (selectedId.length === 0) return;
+            setBusy(true);
+            setMessage(null);
+            void workspaceApi.saveRelation(workspaceId, {
+              upstreamWorkspaceId: selectedId,
+              commitsEnabled: true,
+              tagsEnabled: true,
+              autoFetchIntervalMinutes: 30,
+            }).then(next => {
+              notify(next);
+              setPickerOpen(false);
+              setMessage('Upstream linked.');
+            }).catch(reason => setMessage(errorMessage(reason)))
+              .finally(() => setBusy(false));
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function RelationToggle({ label, detail, checked, disabled, soon = false, onChange }: {
+  label: string;
+  detail: string;
+  checked: boolean;
+  disabled: boolean;
+  soon?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className={`wu-relation-setting-row${disabled ? ' is-disabled' : ''}`}>
+      <span><strong>{label}{soon && <i>soon</i>}</strong><small>{detail}</small></span>
+      <button type="button" role="switch" aria-label={label} aria-checked={checked}
+        disabled={disabled} className={`wu-switch${checked ? ' on' : ''}`}
+        onClick={() => onChange(!checked)}><i /></button>
+    </div>
+  );
+}
+
+function RelationPicker({ candidates, selectedId, busy, onSelect, onClose, onConfirm }: {
+  candidates: WorkspaceRelationCandidateDto[];
+  selectedId: string;
+  busy: boolean;
+  onSelect: (id: string) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="wu-modal-backdrop wu-relation-picker-backdrop" role="presentation" onMouseDown={onClose}>
+      <section className="wu-relation-picker" role="dialog" aria-modal="true" aria-labelledby="relation-picker-title"
+        onMouseDown={event => event.stopPropagation()}>
+        <header><h2 id="relation-picker-title">Link upstream workspace</h2><button type="button" onClick={onClose}>×</button></header>
+        <p>Choose a workspace to read commits and tags from. Suggested matches use the repository's fork metadata.</p>
+        <div className="wu-relation-picker__list">
+          {candidates.map(candidate => (
+            <label key={candidate.workspaceId} className={candidate.workspaceId === selectedId ? 'selected' : ''}>
+              <input type="radio" name="upstream-workspace" value={candidate.workspaceId}
+                checked={candidate.workspaceId === selectedId}
+                onChange={() => onSelect(candidate.workspaceId)} />
+              <span><strong>{candidate.name}</strong><code>{candidate.repoFullName}</code></span>
+              {candidate.suggested && <i>suggested</i>}
+            </label>
+          ))}
+          {candidates.length === 0 && <span role="status">No eligible workspace found.</span>}
+        </div>
+        <footer>
+          <button type="button" onClick={onClose}>Cancel</button>
+          <button type="button" className="wu-primary-button" disabled={busy || selectedId.length === 0}
+            onClick={onConfirm}>{busy ? 'Linking…' : 'Link upstream'}</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function relative(value: string): string {
+  const elapsed = Date.now() - Date.parse(value);
+  if (!Number.isFinite(elapsed) || elapsed < 0) return 'recently';
+  const minutes = Math.max(1, Math.floor(elapsed / 60_000));
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function errorMessage(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
+}

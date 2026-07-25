@@ -223,6 +223,207 @@ export type CherryPickResultDto = {
   message: string | null;
 };
 
+export type WorkspaceRelationDto = {
+  workspaceId: string;
+  upstreamWorkspaceId: string;
+  upstreamWorkspaceName: string;
+  upstreamRepoFullName: string;
+  commitsEnabled: boolean;
+  tagsEnabled: boolean;
+  branchesEnabled: boolean;
+  issuesPullRequestsEnabled: boolean;
+  lastFetchedAt: string | null;
+  autoFetchIntervalMinutes: number;
+  indexedCommitCount: number;
+};
+
+export type WorkspaceRelationCandidateDto = {
+  workspaceId: string;
+  name: string;
+  repoFullName: string;
+  suggested: boolean;
+};
+
+export type UpstreamCommitDto = LocalCommitDto & {
+  tags: string[];
+  picked: boolean;
+  upstreamPr: string | null;
+};
+
+export type UpstreamCommitsDto = {
+  upstreamWorkspaceId: string;
+  upstreamWorkspaceName: string;
+  upstreamRepoFullName: string;
+  revision: string;
+  lastFetchedAt: string | null;
+  indexedCommitCount: number;
+  notInForkCount: number;
+  commits: UpstreamCommitDto[];
+};
+
+export type UpstreamCherryPickJobDto = {
+  jobId: string;
+  status: 'QUEUED' | 'RUNNING' | 'PAUSED_CONFLICT' | 'COMPLETED' | 'FAILED';
+  resultBranch: string;
+  requestedCount: number;
+  appliedCount: number;
+  skippedCount: number;
+  conflictPaths: string[];
+  worktreePath: string | null;
+  prNumber: number | null;
+  prUrl: string | null;
+  harnessWatchId: string | null;
+  errorMessage: string | null;
+};
+
+export type CiHarnessStatus =
+  | 'bootstrap' | 'watching' | 'running' | 'needs_attention'
+  | 'handoff' | 'green' | 'stopped';
+
+export type CiHarnessPhase =
+  | 'probe' | 'parse' | 'classify' | 'fix' | 'verify' | 'commit' | 'rebase' | 'done';
+
+export type CiHarnessPhaseDto = {
+  phase: CiHarnessPhase;
+  status: string;
+};
+
+export type CiHarnessCycleDto = {
+  id: string;
+  ordinal: number;
+  triggerKind: string;
+  status: string;
+  phase: CiHarnessPhase;
+  headSha: string | null;
+  costMilliUsd: number;
+  backupRef: string | null;
+  netNeutralProof: CiHarnessNetNeutralProofDto | null;
+  runStatusTail: string | null;
+  startedAtMs: number;
+  finishedAtMs: number | null;
+  phaseStates: CiHarnessPhaseDto[];
+};
+
+export type CiHarnessMilestoneDto = {
+  id: number;
+  cycleId: string | null;
+  phase: CiHarnessPhase | null;
+  kind: string;
+  message: string;
+  detailJson: string | null;
+  createdAtMs: number;
+};
+
+export type CiHarnessFailureDto = {
+  id: string;
+  cycleId: string;
+  status: string;
+  bucket: string;
+  jobName: string;
+  module: string;
+  signature: string;
+  logExcerpt: string;
+  targetSubject: string | null;
+  ruleId: string | null;
+};
+
+export type CiHarnessStatsDto = {
+  failuresByState: Record<string, number>;
+  activeRules: number;
+  candidateRules: number;
+  cycleCostMilliUsd: number;
+  watchCostMilliUsd: number;
+};
+
+export type CiHarnessWatchDto = {
+  id: string;
+  status: CiHarnessStatus;
+  owner: string;
+  repo: string;
+  prNumber: number;
+  localPrId: string | null;
+  branch: string | null;
+  title: string | null;
+  headSha: string | null;
+  bootstrapStatus: string;
+  budgetMilliUsd: number;
+  costMilliUsd: number;
+  updatedAtMs: number;
+};
+
+export type CiHarnessNetNeutralProofDto = {
+  beforeHead: string;
+  afterHead: string;
+  beforeTree: string;
+  afterTree: string;
+  emptyTreeDiff: boolean;
+  rangeEquivalent: boolean;
+  remoteUndiverged: boolean;
+  detail: string | null;
+};
+
+export type CiHarnessWatchSnapshotDto = {
+  watchId: string;
+  workspaceId: string;
+  status: CiHarnessStatus;
+  owner: string;
+  repo: string;
+  prNumber: number;
+  localPrId: string | null;
+  branch: string | null;
+  title: string | null;
+  headSha: string | null;
+  bootstrapStatus: string;
+  bootstrapProfile: CiHarnessBootstrapProfileDto | null;
+  budget: {
+    limitMilliUsd: number;
+    spentMilliUsd: number;
+    cycleMilliUsd: number;
+    remainingMilliUsd: number;
+  };
+  activeCycle: CiHarnessCycleDto | null;
+  cycles: CiHarnessCycleDto[];
+  milestones: CiHarnessMilestoneDto[];
+  failures: CiHarnessFailureDto[];
+  stats: CiHarnessStatsDto;
+  backupRef: string | null;
+  netNeutralProof: CiHarnessNetNeutralProofDto | null;
+  handoff: {
+    reason: string;
+    failureId: string | null;
+    command: string | null;
+    detail: string | null;
+  } | null;
+  handoffCommand: string | null;
+  runStatusTail: string | null;
+};
+
+export type CiHarnessRuleDto = {
+  id: string;
+  matcherPattern: string;
+  scope: string | null;
+  bucket: string;
+  binding: string;
+  status: 'candidate' | 'active' | 'retired';
+  origin: string;
+  priority: number;
+  hits: number;
+  approvedAtMs: number | null;
+};
+
+export type CiHarnessBootstrapProfileDto = {
+  forge: string;
+  ecosystems: string[];
+  workflowFiles: string[];
+  verifySteps: Record<string, string[]>;
+  aggregatorJobs: string[];
+  infraJobs: string[];
+  modules: Record<string, string>;
+  runtimeMetadata: Record<string, string>;
+  verificationEnvironment: Record<string, string>;
+  warnings: string[];
+};
+
 export type StartIssueResultDto = {
   trunkId: string;
   turnId: string;
@@ -577,6 +778,126 @@ export const workspaceApi = {
   commitFiles: (workspaceId: string, sha: string) =>
     window.bridge.workspaceApi<LocalCommitFileDto[]>({
       path: `/api/workspaces/${enc(workspaceId)}/commits/${enc(sha)}/files`,
+    }),
+  relation: (workspaceId: string) =>
+    window.bridge.workspaceApi<WorkspaceRelationDto | null>({
+      path: `/api/workspaces/${enc(workspaceId)}/relation`,
+    }),
+  relationCandidates: (workspaceId: string) =>
+    window.bridge.workspaceApi<WorkspaceRelationCandidateDto[]>({
+      path: `/api/workspaces/${enc(workspaceId)}/relation/candidates`,
+    }),
+  saveRelation: (
+    workspaceId: string,
+    input: {
+      upstreamWorkspaceId: string;
+      commitsEnabled: boolean;
+      tagsEnabled: boolean;
+      autoFetchIntervalMinutes: number;
+    },
+  ) => window.bridge.workspaceApi<WorkspaceRelationDto>({
+    path: `/api/workspaces/${enc(workspaceId)}/relation`,
+    method: 'PUT',
+    body: input,
+  }),
+  unlinkRelation: (workspaceId: string) =>
+    window.bridge.workspaceApi<null>({
+      path: `/api/workspaces/${enc(workspaceId)}/relation`,
+      method: 'DELETE',
+    }),
+  fetchRelation: (workspaceId: string) =>
+    window.bridge.workspaceApi<WorkspaceRelationDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/relation/fetch`,
+      method: 'POST',
+    }),
+  upstreamCommits: (workspaceId: string, revision?: string, limit = 200) =>
+    window.bridge.workspaceApi<UpstreamCommitsDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/commits?${
+        revision === undefined ? '' : `revision=${enc(revision)}&`
+      }limit=${limit}`,
+    }),
+  createUpstreamCherryPick: (
+    workspaceId: string,
+    input: {
+      sourceBranch: string;
+      targetBranch: string;
+      shas: string[];
+      openDraftPr: boolean;
+      createHarnessWatch: boolean;
+      budgetMilliUsd: number | null;
+    },
+  ) => window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
+    path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks`,
+    method: 'POST',
+    body: input,
+  }),
+  upstreamCherryPick: (workspaceId: string, jobId: string) =>
+    window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}`,
+    }),
+  upstreamCherryPicks: (workspaceId: string) =>
+    window.bridge.workspaceApi<UpstreamCherryPickJobDto[]>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks`,
+    }),
+  resumeUpstreamCherryPick: (workspaceId: string, jobId: string) =>
+    window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}/resume`,
+      method: 'POST',
+    }),
+  retryUpstreamCherryPick: (workspaceId: string, jobId: string) =>
+    window.bridge.workspaceApi<UpstreamCherryPickJobDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/upstream/cherry-picks/${enc(jobId)}/retry`,
+      method: 'POST',
+    }),
+  harnessWatches: (workspaceId: string) =>
+    window.bridge.workspaceApi<CiHarnessWatchDto[]>({
+      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches`,
+    }),
+  createHarnessWatch: (
+    workspaceId: string,
+    input: {
+      owner: string;
+      repo: string;
+      prNumber: number;
+      localPrId?: string;
+      localPath?: string;
+      branch?: string;
+      title?: string;
+      budgetMilliUsd?: number;
+    },
+  ) => window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
+    path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches`,
+    method: 'POST',
+    body: input,
+  }),
+  harnessWatch: (workspaceId: string, watchId: string) =>
+    window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}`,
+    }),
+  runHarnessWatch: (workspaceId: string, watchId: string, guidance?: string) =>
+    window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/run`,
+      method: 'POST',
+      body: guidance === undefined || guidance.trim().length === 0
+        ? {} : { steeringText: guidance.trim() },
+    }),
+  stopHarnessWatch: (workspaceId: string, watchId: string) =>
+    window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/stop`,
+      method: 'POST',
+    }),
+  harnessCycle: (workspaceId: string, watchId: string, cycleId: string) =>
+    window.bridge.workspaceApi<CiHarnessCycleDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/cycles/${enc(cycleId)}`,
+    }),
+  harnessRules: (workspaceId: string, watchId: string) =>
+    window.bridge.workspaceApi<CiHarnessRuleDto[]>({
+      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/rules`,
+    }),
+  approveHarnessRule: (workspaceId: string, watchId: string, ruleId: string) =>
+    window.bridge.workspaceApi<CiHarnessRuleDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/rules/${enc(ruleId)}/approve`,
+      method: 'POST',
     }),
   refreshRepository: (workspaceId: string) =>
     window.bridge.workspaceApi<LocalRepoStatusDto>({

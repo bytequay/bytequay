@@ -110,6 +110,25 @@ describe('buildTimeline', () => {
     expect(items[0]).toMatchObject({ kind: 'commit', sha: 'abcdef0', message: 'Fix it' });
   });
 
+  it('maps local harness milestones without surfacing ordinary CI noise', () => {
+    const items = buildTimeline(bundle({
+      timeline: [
+        event({ id: 'remote-ci', eventType: 'ci', actor: '@github', payload: { status: 'passed' } }),
+        event({
+          id: 'harness', eventType: 'ci', actor: 'ci-harness', isLocalOnly: true,
+          payload: { message: 'Committed a verified fixup', phase: 'commit', status: 'verified', sha: 'abcdef0123' },
+        }),
+      ],
+    }));
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: 'harness', kind: 'ci-harness', message: 'Committed a verified fixup',
+        phase: 'commit', status: 'verified', sha: 'abcdef0',
+      }),
+    ]);
+  });
+
   it('keeps review lifecycle rows and maps concluded verdicts', () => {
     const items = buildTimeline(bundle({
       timeline: [

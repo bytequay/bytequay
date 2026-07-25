@@ -29,8 +29,8 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class ByteQuayIssueService
 {
-    public static final String OWNER = "chenjian2664";
-    public static final String REPO = "ByteQuay";
+    public static final String OWNER = "bytequay";
+    public static final String REPO = "bytequay";
     public static final String FULL_NAME = OWNER + "/" + REPO;
 
     private static final RepoRef REF = RepoRef.of(OWNER, REPO);

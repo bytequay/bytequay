@@ -139,7 +139,7 @@ function SettingsSidebar({ active, onSelect }: Props) {
 
       <div className="sv2-rail__foot">
         <span>ByteQuay {version ?? '—'} · local backend up</span>
-        <button type="button" onClick={() => { void window.bridge.openInAppBrowser('https://github.com/chenjian2664/ByteQuay/releases'); }}>
+        <button type="button" onClick={() => { void window.bridge.openInAppBrowser('https://github.com/bytequay/bytequay/releases'); }}>
           Check for updates
         </button>
       </div>

@@ -3114,7 +3114,7 @@ export type Bridge = {
    *  aren't in the 30 most-recent open PRs returned by getRepoPulls. */
   searchRepoPulls: (owner: string, repo: string, query: string) => Promise<PullRequestDto[]>;
   getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed') => Promise<IssueDto[]>;
-  /** Files a product bug in chenjian2664/ByteQuay regardless of watched repos. */
+  /** Files a product bug in bytequay/bytequay regardless of watched repos. */
   reportByteQuayIssue: (title: string, body: string) => Promise<IssueDto>;
   getIssueDetail: (owner: string, repo: string, number: number) => Promise<IssueDetailDto>;
   createIssueComment: (owner: string, repo: string, number: number, body: string) => Promise<IssueCommentDto>;

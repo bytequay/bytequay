@@ -165,7 +165,7 @@ function installApplicationMenu(): void {
       submenu: [
         {
           label: 'Open project on GitHub',
-          click: () => requestInAppOpen('https://github.com/chenjian2664/bytequay'),
+          click: () => requestInAppOpen('https://github.com/bytequay/bytequay'),
         },
       ],
     },
@@ -183,7 +183,7 @@ function configureAboutPanel(): void {
     applicationVersion: APP_VERSION,
     version: 'pre-1.0',
     copyright: '© 2026 Jian Chen — Apache License 2.0',
-    website: 'https://github.com/chenjian2664/bytequay',
+    website: 'https://github.com/bytequay/bytequay',
     credits: 'A native macOS desktop app for daily developer review work.',
   };
   const iconPath = resolveIconPath();

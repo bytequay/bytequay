@@ -284,7 +284,7 @@ export function stageFeed(
       <WorkFold
         key={`fold-${run[0].id}`}
         label={label}
-        meta={meta}
+        meta={<>{meta} · <EventTimestamp iso={run[0].ts} /></>}
         icon={<ClockIcon size={14} strokeWidth={1.8} />}
         forceOpen={live && isTail}
         defaultOpen={defaultOpen}

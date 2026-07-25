@@ -3406,6 +3406,8 @@ export type Bridge = {
   /** Forces the CLI detector to drop its memo and re-probe every
    *  binary. Backs the picker's "refresh" affordance. */
   refreshWorkModelOptions: () => Promise<WorkModelOptionsDto>;
+  /** Electron's own `app.getVersion()` — the packaged app version. */
+  getAppVersion: () => Promise<{ version: string }>;
   getCodexCliVersion: () => Promise<{ version: string }>;
   updateCodexCli: () => Promise<CodexCliUpdateResultDto>;
   /** Set (or clear) the workspace's default work model. Pass null

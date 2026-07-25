@@ -59,6 +59,7 @@ public class ValidationClaimService
     private static final long RENEW_PERIOD_MS = 30_000;
 
     static final String CONTEXT_DEV_ROUND = "dev-round";
+    static final String CONTEXT_LOCAL_REVIEW = "local-review";
 
     private final ValidationPassStore store;
     private final TaskStore taskStore;
@@ -132,6 +133,81 @@ public class ValidationClaimService
             return; // cancelled or superseded — nothing to run
         }
         registry.submitIfAbsent(claimKey, () -> runOwned(taskId, claimKey, fingerprint));
+    }
+
+    /**
+     * Claim and run the roots-closed local-review validation. The claim
+     * identity additionally binds the task-wide submission watermark and
+     * root-set digest, so a newer submission supersedes it rather than
+     * consuming stale evidence. Publishes the dedicated local-review
+     * event with the full identity for the acceptance command to
+     * re-verify.
+     */
+    public void claimAndRunLocalReview(String taskId, long throughSequence, String rootSetDigest)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(rootSetDigest, "rootSetDigest is null");
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        if (task == null || task.worktreePath() == null || task.worktreePath().isBlank()) {
+            return;
+        }
+        String fingerprint = fingerprints.fingerprint(Path.of(task.worktreePath()));
+        String claimKey = CONTEXT_LOCAL_REVIEW + ":" + taskId + ":" + throughSequence
+                + ":" + rootSetDigest + ":" + fingerprint;
+
+        ValidationClaim claim = commands.execute(taskId, () -> {
+            store.insertClaim(
+                    claimKey, taskId, CONTEXT_LOCAL_REVIEW, /* roundId */ null,
+                    fingerprint, throughSequence, rootSetDigest, clock.instant());
+            return store.findByClaimKey(claimKey).orElseThrow();
+        });
+
+        if (claim.endedAt() != null) {
+            events.publishEvent(new LocalReviewValidationFinishedEvent(
+                    taskId, claimKey, throughSequence, rootSetDigest, fingerprint,
+                    Boolean.TRUE.equals(claim.passed())));
+            return;
+        }
+        if (!claim.isLive()) {
+            return;
+        }
+        registry.submitIfAbsent(claimKey,
+                () -> runOwnedLocalReview(taskId, claimKey, throughSequence, rootSetDigest, fingerprint));
+    }
+
+    private void runOwnedLocalReview(
+            String taskId, String claimKey, long throughSequence, String rootSetDigest, String fingerprint)
+    {
+        String ownerId = UUID.randomUUID().toString();
+        Instant now = clock.instant();
+        if (!store.acquireOwner(claimKey, ownerId, executorIdentity, now.plus(LEASE), now)) {
+            return;
+        }
+        ScheduledFuture<?> renewal = registry.scheduleLeaseRenewal(
+                () -> store.renewLease(
+                        claimKey, ownerId, clock.instant().plus(LEASE), clock.instant()),
+                RENEW_PERIOD_MS);
+        boolean passed;
+        List<ValidationFailure> failures;
+        try {
+            failures = validation.runChecks(taskId);
+            passed = failures.isEmpty();
+        }
+        catch (RuntimeException e) {
+            log.warn("claimed local-review validation {} failed to execute: {}",
+                    claimKey, e.getMessage());
+            failures = List.of(new ValidationFailure("validation", String.valueOf(e.getMessage())));
+            passed = false;
+        }
+        finally {
+            renewal.cancel(false);
+        }
+        if (!store.completeOwned(claimKey, ownerId, fingerprint, clock.instant(), passed, toJson(failures))) {
+            log.warn("claimed local-review validation {} lost ownership; result discarded", claimKey);
+            return;
+        }
+        events.publishEvent(new LocalReviewValidationFinishedEvent(
+                taskId, claimKey, throughSequence, rootSetDigest, fingerprint, passed));
     }
 
     private void runOwned(String taskId, String claimKey, String fingerprint)

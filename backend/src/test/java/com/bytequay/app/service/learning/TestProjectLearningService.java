@@ -15,6 +15,7 @@ package com.bytequay.app.service.learning;
 
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
@@ -38,6 +39,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -58,6 +60,7 @@ class TestProjectLearningService
     private MergedPrCatalog catalog;
     private WorkspaceRepositoryResolver resolver;
     private WatchedRepoStore watchedRepos;
+    private PrEvidenceFetcher evidenceFetcher;
     private ProjectLearningService service;
 
     @BeforeEach
@@ -82,7 +85,7 @@ class TestProjectLearningService
         PatResolver patResolver = mock(PatResolver.class);
         PrPriorityScorer scorer = new PrPriorityScorer(new ObjectMapper());
         ModuleCoverageSelector selector = new ModuleCoverageSelector();
-        PrEvidenceFetcher evidenceFetcher = mock(PrEvidenceFetcher.class);
+        evidenceFetcher = mock(PrEvidenceFetcher.class);
 
         when(resolver.resolve("ws-1")).thenReturn(new WorkspaceRepositoryResolver
                 .RepositoryIdentity("acme", "widget", "acme/widget", "main"));
@@ -98,9 +101,11 @@ class TestProjectLearningService
         when(ingestor.ingest(anyString(), any(), any(), any()))
                 .thenReturn(new KnowledgeIngestor.IngestResult(0, 0, 0));
         KnowledgeItemStore knowledge = new KnowledgeItemStore(jdbc, new ObjectMapper());
+        WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
+        when(workspaceStore.listWorkspaces()).thenReturn(List.of());
 
-        service = new ProjectLearningService(store, resolver, watchedRepos, indexer,
-                catalog, scorer, selector, evidenceFetcher, extractor, ingestor,
+        service = new ProjectLearningService(store, resolver, watchedRepos, workspaceStore,
+                indexer, catalog, scorer, selector, evidenceFetcher, extractor, ingestor,
                 knowledge, patResolver, new ObjectMapper());
     }
 
@@ -187,6 +192,31 @@ class TestProjectLearningService
         // Every cataloged PR was worked through in SELECT_LIMIT waves, not just
         // the first 50 — the whole catalog drained to 'analyzed'.
         assertThat(store.countAnalyzed("ws-1", "acme/widget")).isEqualTo(60);
+    }
+
+    @Test
+    void testMergeTriggeredLearningIsIdempotentBySourceDigest()
+    {
+        store.insertRun(new ProjectLearningRun("run-1", "ws-1", "acme/widget", "clone",
+                "caught-up", "sha", null, "{}", 1, 1, 1, 1L, null));
+
+        service.learnOne("ws-1", "acme/widget", 42, "Fix retry", "alice", "merge");
+        service.learnOne("ws-1", "acme/widget", 42, "Fix retry", "alice", "merge");
+
+        // One analysis for the same source digest/extractor version: the
+        // evidence fetch ran exactly once (its null return marks the row
+        // analyzed with an error, which is still a completed analysis).
+        verify(evidenceFetcher, times(1)).fetch(
+                anyString(), anyString(), anyString(), anyInt(), any(), any(), any(), any());
+        assertThat(store.findPrSource("ws-1", "acme/widget", 42))
+                .get()
+                .extracting(RepoPrSource::analysisState)
+                .isEqualTo("analyzed");
+
+        // A changed source (new title → new digest) supersedes: analysis runs again.
+        service.learnOne("ws-1", "acme/widget", 42, "Fix retry properly", "alice", "merge");
+        verify(evidenceFetcher, times(2)).fetch(
+                anyString(), anyString(), anyString(), anyInt(), any(), any(), any(), any());
     }
 
     @Test

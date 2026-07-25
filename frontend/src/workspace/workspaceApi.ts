@@ -76,7 +76,35 @@ export type WorkspaceOnboardingDto = {
   memorySeedComplete: boolean;
   firstTrunkComplete: boolean;
   memoryImported: boolean;
+  learningState: string | null;
+  learningCataloged: number;
+  learningAnalyzed: number;
+  learningLessons: number;
+  learningPendingLessons: number;
   dismissedAt: number | null;
+  updatedAt: number;
+};
+
+export type LearningRunDto = {
+  id: string;
+  repo: string;
+  state: string;
+  countsJson: string;
+  lastError: string | null;
+  updatedAt: number;
+};
+
+export type LearnedKnowledgeDto = {
+  id: string;
+  kind: string;
+  title: string | null;
+  statement: string;
+  rationale: string | null;
+  confidence: string;
+  lifecycle: 'pending' | 'active' | 'decayed' | 'retired';
+  audience: string[];
+  sources: { kind: string; ref: string; url?: string; path?: string }[];
+  validatedAtCommit: string | null;
   updatedAt: number;
 };
 
@@ -964,6 +992,37 @@ export const workspaceApi = {
     window.bridge.workspaceApi<WorkspaceOnboardingDto>({
       path: `/api/workspaces/${enc(workspaceId)}/onboarding/dismiss`,
       method: 'POST',
+    }),
+  learning: (workspaceId: string) =>
+    window.bridge.workspaceApi<LearningRunDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/learning`,
+    }),
+  pauseLearning: (workspaceId: string) =>
+    window.bridge.workspaceApi<LearningRunDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/learning/pause`,
+      method: 'POST',
+    }),
+  resumeLearning: (workspaceId: string) =>
+    window.bridge.workspaceApi<LearningRunDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/learning/resume`,
+      method: 'POST',
+    }),
+  retryLearning: (workspaceId: string) =>
+    window.bridge.workspaceApi<LearningRunDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/learning/retry`,
+      method: 'POST',
+    }),
+  listLearned: (workspaceId: string, lifecycle?: string) =>
+    window.bridge.workspaceApi<LearnedKnowledgeDto[]>({
+      path:
+        `/api/workspaces/${enc(workspaceId)}/memory/learned` +
+        (lifecycle ? `?lifecycle=${enc(lifecycle)}` : ''),
+    }),
+  decideLearned: (workspaceId: string, itemId: string, action: 'activate' | 'retire') =>
+    window.bridge.workspaceApi<LearnedKnowledgeDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/memory/learned/${enc(itemId)}/decision`,
+      method: 'POST',
+      body: { action },
     }),
   pauseAll: (workspaceId: string) =>
     window.bridge.workspaceApi<{ paused: number }>({

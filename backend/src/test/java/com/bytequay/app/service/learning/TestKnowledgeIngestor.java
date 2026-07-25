@@ -217,6 +217,41 @@ class TestKnowledgeIngestor
     }
 
     @Test
+    void testMergedRevertDecaysLessonsCitingTheRevertedPr()
+    {
+        ingestor.ingest("ws-1", bundle(7, verifiedChain()), List.of(lesson(
+                "recurring-concern", "Always flush before close.",
+                List.of("core/spi/Connector.java"), false)), clone);
+        assertThat(store.listByLifecycle("ws-1", "active")).hasSize(1);
+
+        PrEvidenceBundle revert = new PrEvidenceBundle("ws-1", "acme/widget", 11, "bob",
+                "Revert \"Always flush\"", "Reverts acme/widget#7",
+                "base", "head", "merge", "repoSha",
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                Map.of("reviews", "complete"), "complete", List.of(), List.of());
+        ingestor.ingest("ws-1", revert, List.of(), clone);
+
+        assertThat(store.listByLifecycle("ws-1", "decayed")).hasSize(1);
+        assertThat(store.listByLifecycle("ws-1", "active")).isEmpty();
+    }
+
+    @Test
+    void testDecayedLessonReconfirmsWhenReobservedCurrent()
+    {
+        ingestor.ingest("ws-1", bundle(7, verifiedChain()), List.of(lesson(
+                "recurring-concern", "Close split sources on cancellation.",
+                List.of("core/spi/Connector.java"), false)), clone);
+        String id = store.listByLifecycle("ws-1", "active").getFirst().id();
+        store.setLifecycle(id, "decayed", null, 5);
+
+        ingestor.ingest("ws-1", bundle(9, verifiedChain()), List.of(lesson(
+                "recurring-concern", "Close split sources on cancellation.",
+                List.of("core/spi/Connector.java"), false)), clone);
+
+        assertThat(store.findById(id).orElseThrow().lifecycle()).isEqualTo("active");
+    }
+
+    @Test
     void testPendingGlossaryDoesNotRegisterConcept()
     {
         ExtractedLesson glossary = new ExtractedLesson(

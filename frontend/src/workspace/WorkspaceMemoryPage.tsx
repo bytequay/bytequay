@@ -17,6 +17,7 @@ import {
   type DistillOperationDto,
   type DistillRunDto,
   type KnowledgeEntryDto,
+  type LearnedKnowledgeDto,
   type WorkspaceMemoryDto,
 } from './workspaceApi';
 
@@ -31,6 +32,8 @@ export default function WorkspaceMemoryPage({ workspaceId }: { workspaceId: stri
   const [markdownOpen, setMarkdownOpen] = useState(false);
   const [markdown, setMarkdown] = useState('');
   const [knowledgeEdit, setKnowledgeEdit] = useState<Partial<KnowledgeEntryDto> | null>(null);
+  const [learned, setLearned] = useState<LearnedKnowledgeDto[]>([]);
+  const [learnedFilter, setLearnedFilter] = useState<string>('pending');
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +46,7 @@ export default function WorkspaceMemoryPage({ workspaceId }: { workspaceId: stri
       setError(null);
       const pending = next.distillRuns.find(run => run.status === 'pending');
       if (pending !== undefined) setPreview(pending);
+      setLearned(await workspaceApi.listLearned(workspaceId));
     }
     catch (reason) {
       setError(message(reason));
@@ -51,6 +55,15 @@ export default function WorkspaceMemoryPage({ workspaceId }: { workspaceId: stri
       setLoading(false);
     }
   }, [workspaceId]);
+
+  const decideLearned = (itemId: string, action: 'activate' | 'retire') => {
+    setActing(true);
+    void workspaceApi.decideLearned(workspaceId, itemId, action)
+      .then(updated => setLearned(rows =>
+        rows.map(row => (row.id === updated.id ? updated : row))))
+      .catch(reason => setError(message(reason)))
+      .finally(() => setActing(false));
+  };
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -161,6 +174,74 @@ export default function WorkspaceMemoryPage({ workspaceId }: { workspaceId: stri
                 {provenance(entry) !== '' && <small>{provenance(entry)}</small>}
               </article>
             ))}
+            {learned.length > 0 && (
+              <>
+                <div className="wu-kb-heading">
+                  <h2>Learned from merged PRs</h2>
+                  <span>lessons distilled from this repository&apos;s history</span>
+                </div>
+                <div className="wu-learned-filters">
+                  {(['pending', 'active', 'decayed', 'retired'] as const).map(lifecycle => {
+                    const count = learned.filter(row => row.lifecycle === lifecycle).length;
+                    return (
+                      <button
+                        key={lifecycle}
+                        type="button"
+                        className={`wu-icon-button${learnedFilter === lifecycle ? ' is-active' : ''}`}
+                        onClick={() => setLearnedFilter(lifecycle)}
+                      >
+                        {lifecycle} ({count})
+                      </button>
+                    );
+                  })}
+                </div>
+                {learned.filter(row => row.lifecycle === learnedFilter).map(row => (
+                  <article className="wu-kb-card" key={row.id}>
+                    <header>
+                      <span className="wu-kb-icon plan"><BookIcon /></span>
+                      <h3>{row.title ?? row.statement}</h3>
+                      <span className="wu-kb-audience plan">{row.kind}</span>
+                      <span className="wu-kb-audience review">{row.confidence}</span>
+                    </header>
+                    <p>{renderInlineText(row.statement)}</p>
+                    {row.rationale !== null && row.rationale !== '' && (
+                      <p className="wu-muted">{renderInlineText(row.rationale)}</p>
+                    )}
+                    <small>
+                      {row.sources.map(source =>
+                        source.url !== undefined ? (
+                          <a key={`${source.kind}:${source.ref}`} href={source.url}
+                            target="_blank" rel="noreferrer">
+                            {source.kind} {source.ref}
+                          </a>
+                        ) : (
+                          <span key={`${source.kind}:${source.ref}`}>
+                            {source.kind} {source.ref}
+                          </span>
+                        )).reduce<ReactNode[]>((out, node, index) =>
+                          index === 0 ? [node] : [...out, ' · ', node], [])}
+                    </small>
+                    {(row.lifecycle === 'pending' || row.lifecycle === 'decayed') && (
+                      <footer className="wu-learned-actions">
+                        <button type="button" disabled={acting}
+                          onClick={() => decideLearned(row.id, 'activate')}>Accept</button>
+                        <button type="button" disabled={acting}
+                          onClick={() => decideLearned(row.id, 'retire')}>Skip</button>
+                      </footer>
+                    )}
+                    {row.lifecycle === 'active' && (
+                      <footer className="wu-learned-actions">
+                        <button type="button" disabled={acting}
+                          onClick={() => decideLearned(row.id, 'retire')}>Retire</button>
+                      </footer>
+                    )}
+                  </article>
+                ))}
+                {learned.filter(row => row.lifecycle === learnedFilter).length === 0 && (
+                  <p className="wu-muted">No {learnedFilter} lessons.</p>
+                )}
+              </>
+            )}
           </main>
           <aside className="wu-distill-history">
             <h2>Distill history</h2>

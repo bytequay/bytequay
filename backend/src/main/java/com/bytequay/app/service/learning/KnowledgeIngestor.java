@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import static java.util.Objects.requireNonNull;
 
@@ -92,6 +93,7 @@ public class KnowledgeIngestor
             List<ExtractedLesson> lessons,
             Path clone)
     {
+        decayRevertedLessons(workspaceId, bundle);
         int fresh = 0;
         int merged = 0;
         int proposals = 0;
@@ -109,6 +111,55 @@ public class KnowledgeIngestor
             }
         }
         return new IngestResult(fresh, merged, proposals);
+    }
+
+    /**
+     * A merged revert exposes that the original PR's behaviour is gone:
+     * active items whose provenance cites the reverted PR decay rather than
+     * keep steering agents as current truth.
+     */
+    private void decayRevertedLessons(String workspaceId, PrEvidenceBundle bundle)
+    {
+        Integer reverted = revertedPrNumber(bundle);
+        if (reverted == null) {
+            return;
+        }
+        String citedRef = bundle.repo() + "#" + reverted;
+        long now = Instant.now().toEpochMilli();
+        for (KnowledgeItem item : store.listByLifecycle(
+                workspaceId, KnowledgeItem.LIFECYCLE_ACTIVE)) {
+            if (!bundle.repo().equals(item.repo())) {
+                continue;
+            }
+            boolean cites = store.provenance(item.id()).stream().anyMatch(source ->
+                    "pr".equals(source.sourceKind()) && citedRef.equals(source.sourceRef()));
+            if (cites) {
+                store.setLifecycle(item.id(), KnowledgeItem.LIFECYCLE_DECAYED, null, now);
+                log.info("decayed knowledge {} — its source {} was reverted by {}#{}",
+                        item.id(), citedRef, bundle.repo(), bundle.prNumber());
+            }
+        }
+    }
+
+    /** The PR this bundle reverts, from GitHub's revert conventions
+     *  ("Reverts owner/repo#N" in the body, "Revert …" title). */
+    private static Integer revertedPrNumber(PrEvidenceBundle bundle)
+    {
+        String title = bundle.title() == null ? "" : bundle.title();
+        String body = bundle.bodyText() == null ? "" : bundle.bodyText();
+        var matcher = Pattern.compile(
+                        "[Rr]everts\\s+" + Pattern.quote(bundle.repo()) + "#(\\d+)")
+                .matcher(body);
+        if (matcher.find()) {
+            return Integer.parseInt(matcher.group(1));
+        }
+        if (title.startsWith("Revert")) {
+            var inTitle = Pattern.compile("#(\\d+)").matcher(title);
+            if (inTitle.find()) {
+                return Integer.parseInt(inTitle.group(1));
+            }
+        }
+        return null;
     }
 
     /** Returns true when a new item was created, false when the lesson merged
@@ -154,28 +205,41 @@ public class KnowledgeIngestor
 
     /**
      * Equivalent lesson from another PR: add provenance instead of a new row,
-     * and re-evaluate independent confirmation — the second distinct merged
-     * outcome is what turns a pending item active.
+     * and re-evaluate the lifecycle — the second distinct merged outcome
+     * activates a pending item, and a decayed item re-observed with intact
+     * currentness re-confirms back to active.
      */
     private void mergeInto(
             KnowledgeItem existing, PrEvidenceBundle bundle, ExtractedLesson lesson,
             Path clone, long now)
     {
         store.addProvenance(existing.id(), provenance(bundle, lesson));
-        if (!KnowledgeItem.LIFECYCLE_PENDING.equals(existing.lifecycle())) {
-            return;
-        }
         boolean conflicted = hasConflicts(existing) || !lesson.conflictsWith().isEmpty();
         if (conflicted) {
             return;
         }
-        if (store.distinctPrSources(existing.id()) >= INDEPENDENT_CONFIRMATIONS
-                && checkCurrentness(clone, lesson) != Currentness.FAILED) {
+        boolean current = checkCurrentness(clone, lesson) != Currentness.FAILED;
+        boolean pendingConfirmed = KnowledgeItem.LIFECYCLE_PENDING.equals(existing.lifecycle())
+                && store.distinctPrSources(existing.id()) >= INDEPENDENT_CONFIRMATIONS;
+        boolean decayedReconfirmed =
+                KnowledgeItem.LIFECYCLE_DECAYED.equals(existing.lifecycle())
+                        && checkCurrentness(clone, lesson) == Currentness.OK;
+        if (current && (pendingConfirmed || decayedReconfirmed)) {
             store.setLifecycle(existing.id(), KnowledgeItem.LIFECYCLE_ACTIVE,
                     bundle.repoSha(), now);
             if ("glossary".equals(existing.kind())) {
                 registerConcept(existing);
             }
+        }
+    }
+
+    /** User confirmation (always sufficient) or another activation path just
+     *  turned this item active — propagate glossary items into the concept
+     *  registry immediately instead of waiting for the next restart. */
+    public void onActivated(KnowledgeItem item)
+    {
+        if ("glossary".equals(item.kind())) {
+            registerConcept(item);
         }
     }
 

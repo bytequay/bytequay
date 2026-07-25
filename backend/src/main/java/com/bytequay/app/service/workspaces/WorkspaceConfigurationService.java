@@ -123,6 +123,14 @@ public class WorkspaceConfigurationService
                 SELECT count(*) FROM repo_pr_source
                 WHERE workspace_id = ? AND analysis_state = 'analyzed'
                 """, workspaceId);
+        int learningLessons = count("""
+                SELECT count(*) FROM knowledge_item
+                WHERE workspace_id = ? AND created_by = 'pr-learning'
+                """, workspaceId);
+        int learningPendingLessons = count("""
+                SELECT count(*) FROM knowledge_item
+                WHERE workspace_id = ? AND created_by = 'pr-learning' AND state = 'pending'
+                """, workspaceId);
         List<WorkspaceOnboardingDto> rows = jdbc.query("""
                 SELECT *
                 FROM workspace_onboarding
@@ -140,6 +148,8 @@ public class WorkspaceConfigurationService
                         learningState,
                         learningCataloged,
                         learningAnalyzed,
+                        learningLessons,
+                        learningPendingLessons,
                         nullableLong(rs.getObject("dismissed_at_ms")),
                         rs.getLong("updated_at_ms")),
                 workspaceId);

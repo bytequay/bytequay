@@ -15,9 +15,12 @@ package com.bytequay.app.service.learning;
 
 import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.localpr.PrMergedEvent;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -90,6 +93,7 @@ public class ProjectLearningService
     private final ProjectLearningStore store;
     private final WorkspaceRepositoryResolver repositories;
     private final WatchedRepoStore watchedRepos;
+    private final WorkspaceStore workspaceStore;
     private final DocumentIndexer indexer;
     private final MergedPrCatalog catalog;
     private final PrPriorityScorer scorer;
@@ -106,6 +110,7 @@ public class ProjectLearningService
             ProjectLearningStore store,
             WorkspaceRepositoryResolver repositories,
             WatchedRepoStore watchedRepos,
+            WorkspaceStore workspaceStore,
             DocumentIndexer indexer,
             MergedPrCatalog catalog,
             PrPriorityScorer scorer,
@@ -120,6 +125,7 @@ public class ProjectLearningService
         this.store = requireNonNull(store, "store is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
+        this.workspaceStore = requireNonNull(workspaceStore, "workspaceStore is null");
         this.indexer = requireNonNull(indexer, "indexer is null");
         this.catalog = requireNonNull(catalog, "catalog is null");
         this.scorer = requireNonNull(scorer, "scorer is null");
@@ -184,6 +190,159 @@ public class ProjectLearningService
     public void recover()
     {
         store.resumableRunIds().forEach(this::launch);
+    }
+
+    /** Pause a live run: analysis stops at the next wave boundary and the
+     *  restart recovery leaves it alone until Resume (retry). */
+    public Optional<ProjectLearningRun> pause(String workspaceId, String repo)
+    {
+        Optional<ProjectLearningRun> run = store.latestRun(workspaceId, repo);
+        run.ifPresent(current -> store.updateRun(current.id(), "paused",
+                null, current.catalogCursor(), current.countsJson(), null, null,
+                Instant.now().toEpochMilli()));
+        return store.latestRun(workspaceId, repo);
+    }
+
+    // ── incremental learning (Phase 5) ──────────────────────────────
+
+    @EventListener
+    public void onPrMerged(PrMergedEvent event)
+    {
+        onMergedPr(event.repo(), event.remotePrNumber(), event.title(), event.author());
+    }
+
+    /**
+     * One merged PR was observed by the canonical PR sync (or a user-gated
+     * merge). Fan out to every workspace that has learned this repository —
+     * asynchronously, so learning can never block the merge path. Idempotent
+     * by (workspace, repo, PR, source digest, extractor version).
+     */
+    public void onMergedPr(String repoFullName, int prNumber, String title, String author)
+    {
+        if (repoFullName == null || repoFullName.isBlank() || prNumber <= 0) {
+            return;
+        }
+        Thread.startVirtualThread(() -> {
+            for (Workspace workspace : workspaceStore.listWorkspaces()) {
+                try {
+                    WorkspaceRepositoryResolver.RepositoryIdentity identity =
+                            repositories.resolve(workspace.id());
+                    if (!repoFullName.equals(identity.fullName())) {
+                        continue;
+                    }
+                    if (store.latestRun(workspace.id(), repoFullName).isEmpty()) {
+                        continue;       // repository was never learned
+                    }
+                    learnOne(workspace.id(), repoFullName, prNumber, title, author, "merge");
+                }
+                catch (RuntimeException e) {
+                    log.warn("merge-triggered learning failed for {}#{} in workspace {}: {}",
+                            repoFullName, prNumber, workspace.id(), e.getMessage());
+                }
+            }
+        });
+    }
+
+    /**
+     * Catalog + analyze one PR now. The source digest covers the fields a
+     * re-review would change, so the same source/extractor never re-runs and
+     * a changed source supersedes the earlier analysis.
+     */
+    void learnOne(
+            String workspaceId, String repo, int prNumber,
+            String title, String author, String trigger)
+    {
+        String digest = MergedPrCatalog.sha256(
+                "merge|" + prNumber + "|" + nullToEmpty(title) + "|" + nullToEmpty(author));
+        Optional<RepoPrSource> existing = store.findPrSource(workspaceId, repo, prNumber);
+        if (existing.isPresent()
+                && "analyzed".equals(existing.get().analysisState())
+                && digest.equals(existing.get().sourceDigest())
+                && existing.get().extractorVersion() == EXTRACTOR_VERSION) {
+            return;
+        }
+        ProjectLearningRun run = store.latestRun(workspaceId, repo).orElse(null);
+        if (run == null) {
+            return;
+        }
+        WorkspaceRepositoryResolver.RepositoryIdentity identity =
+                repositories.resolve(workspaceId);
+        Path clone = clonePath(identity.owner(), identity.repo());
+        String head = clone == null ? null : headSha(clone);
+        String metadata = write(Map.of(
+                "title", nullToEmpty(title), "author", nullToEmpty(author)));
+        store.upsertPrSource(new RepoPrSource(
+                workspaceId, repo, prNumber, null, null, metadata, "{}",
+                digest, null, "selected", EXTRACTOR_VERSION, null, null));
+        store.resetForAnalysis(workspaceId, repo, prNumber);
+        String pat = patResolver.resolve(repo);
+        RepoPrSource source = store.findPrSource(workspaceId, repo, prNumber).orElseThrow();
+        try {
+            analyzeOne(run, repo, pat, clone, head, source);
+        }
+        catch (LessonExtractor.ExtractionUnavailableException e) {
+            log.warn("merge-triggered extraction unavailable for {}#{}: {}",
+                    repo, prNumber, e.getMessage());
+        }
+        touchCounts(run);
+    }
+
+    /**
+     * Daily backfill for a run parked at 'useful': analyze up to {@code cap}
+     * more cataloged PRs, flipping to 'caught-up' when the catalog drains.
+     * Failures leave the run in its prior state for the next day's pass.
+     */
+    void backfill(String workspaceId, String repo, int cap)
+    {
+        ProjectLearningRun run = store.latestRun(workspaceId, repo).orElse(null);
+        if (run == null || !"useful".equals(run.state())) {
+            return;
+        }
+        WorkspaceRepositoryResolver.RepositoryIdentity identity =
+                repositories.resolve(workspaceId);
+        Path clone = clonePath(identity.owner(), identity.repo());
+        String head = clone == null ? null : headSha(clone);
+        String pat = patResolver.resolve(repo);
+        int analyzed = 0;
+        if (selectBatch(run) == 0) {
+            long now = Instant.now().toEpochMilli();
+            store.updateRun(run.id(), "caught-up", head, run.catalogCursor(),
+                    counts(run), now, null, now);
+            return;
+        }
+        while (analyzed < cap) {
+            var selected = store.selectedSources(workspaceId, repo,
+                    Math.min(ANALYZE_BATCH, cap - analyzed));
+            if (selected.isEmpty()) {
+                break;
+            }
+            for (RepoPrSource source : selected) {
+                try {
+                    analyzeOne(run, repo, pat, clone, head, source);
+                }
+                catch (LessonExtractor.ExtractionUnavailableException e) {
+                    log.warn("backfill extraction unavailable for {}: {}",
+                            repo, e.getMessage());
+                    touchCounts(run);
+                    return;
+                }
+                analyzed++;
+            }
+        }
+        touchCounts(run);
+    }
+
+    private void touchCounts(ProjectLearningRun run)
+    {
+        ProjectLearningRun current = store.findRun(run.id()).orElse(run);
+        store.updateRun(current.id(), current.state(), current.snapshotSha(),
+                current.catalogCursor(), counts(current), current.completedAtMs(),
+                current.lastError(), Instant.now().toEpochMilli());
+    }
+
+    private static String nullToEmpty(String value)
+    {
+        return value == null ? "" : value;
     }
 
     // ── execution ───────────────────────────────────────────────────
@@ -329,6 +488,9 @@ public class ProjectLearningService
         int consecutiveFailures = 0;
 
         while (true) {
+            if (paused(run.id())) {
+                return;
+            }
             if (qualityBarMet(run, recentWaves)) {
                 long now = Instant.now().toEpochMilli();
                 store.updateRun(run.id(), "useful", head, run.catalogCursor(),
@@ -406,6 +568,14 @@ public class ProjectLearningService
         log.warn("project learning run {} parked partial: {}", run.id(), error);
         store.updateRun(run.id(), "partial", head, run.catalogCursor(),
                 counts(run, recentWaves), null, error, Instant.now().toEpochMilli());
+    }
+
+    /** User-requested pause wins over any in-flight wave. */
+    private boolean paused(String runId)
+    {
+        return store.findRun(runId)
+                .map(current -> "paused".equals(current.state()))
+                .orElse(true);
     }
 
     /**

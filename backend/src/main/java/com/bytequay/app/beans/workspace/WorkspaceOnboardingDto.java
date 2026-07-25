@@ -28,6 +28,8 @@ public record WorkspaceOnboardingDto(
         String learningState,
         int learningCataloged,
         int learningAnalyzed,
+        int learningLessons,
+        int learningPendingLessons,
         Long dismissedAt,
         long updatedAt)
 {

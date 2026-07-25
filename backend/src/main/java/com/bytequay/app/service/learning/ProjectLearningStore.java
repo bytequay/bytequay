@@ -144,6 +144,25 @@ public class ProjectLearningStore
                 s.extractorVersion(), s.analyzedAtMs(), s.lastError());
     }
 
+    public Optional<RepoPrSource> findPrSource(String workspaceId, String repo, int prNumber)
+    {
+        return jdbc.query("""
+                SELECT * FROM repo_pr_source
+                WHERE workspace_id = ? AND repo = ? AND pr_number = ?
+                """, SOURCE_MAPPER, workspaceId, repo, prNumber).stream().findFirst();
+    }
+
+    /** Re-queue one PR for analysis regardless of its prior state — the
+     *  merge-trigger / re-analysis path. */
+    public void resetForAnalysis(String workspaceId, String repo, int prNumber)
+    {
+        jdbc.update("""
+                UPDATE repo_pr_source
+                SET analysis_state = 'selected', last_error = NULL
+                WHERE workspace_id = ? AND repo = ? AND pr_number = ?
+                """, workspaceId, repo, prNumber);
+    }
+
     public int countCataloged(String workspaceId, String repo)
     {
         Integer n = jdbc.queryForObject("""

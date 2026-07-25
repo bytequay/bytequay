@@ -49,6 +49,8 @@ describe('workspace unified interaction flows', () => {
         return {
           workspaceId: 'w1', cloneComplete: true, syncState: 'ready', syncCurrent: 1, syncTotal: 1,
           memorySeedComplete: true, firstTrunkComplete: true, memoryImported: false,
+          learningState: null, learningCataloged: 0, learningAnalyzed: 0,
+          learningLessons: 0, learningPendingLessons: 0,
           dismissedAt: Date.now(), updatedAt: Date.now(),
         } satisfies WorkspaceOnboardingDto;
       }
@@ -352,6 +354,11 @@ describe('workspace unified interaction flows', () => {
       memorySeedComplete: false,
       firstTrunkComplete: false,
       memoryImported: false,
+      learningState: null,
+      learningCataloged: 0,
+      learningAnalyzed: 0,
+      learningLessons: 0,
+      learningPendingLessons: 0,
       dismissedAt: null,
       updatedAt: Date.now(),
     };

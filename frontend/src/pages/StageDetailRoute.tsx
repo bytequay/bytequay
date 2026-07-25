@@ -472,11 +472,20 @@ export function StageDetailRoute({
   // Memoize the canonical transcript rows (each renders markdown) on the
   // conversation data alone — NOT on the composer's `text` or the streaming
   // `liveText`. Without this, every keystroke re-maps + re-renders the whole
-  // feed, which makes typing crawl on a long conversation.
-  const transcriptRows = useMemo(
-    () => (data !== null ? stageFeed(data.conversation, onDecide, conversationThreadId, false, true) : undefined),
-    [data, onDecide, conversationThreadId],
-  );
+  // feed, which makes typing crawl on a long conversation. Split before the
+  // first follow-up turn so the changed-files artifact remains where the
+  // initial work finished instead of moving to the bottom after every turn.
+  const transcriptSegments = useMemo(() => {
+    if (data === null) return undefined;
+    const firstAgent = data.conversation.findIndex(row => row.kind === 'agent');
+    const firstFollowUp = firstAgent < 0 ? -1 : data.conversation.findIndex(
+      (row, index) => index > firstAgent && row.kind === 'user');
+    const splitAt = firstFollowUp < 0 ? data.conversation.length : firstFollowUp;
+    return [
+      stageFeed(data.conversation.slice(0, splitAt), onDecide, conversationThreadId, false, true),
+      stageFeed(data.conversation.slice(splitAt), onDecide, conversationThreadId, false, true),
+    ] as const;
+  }, [data, onDecide, conversationThreadId]);
   // Dev feed: the flat transcript, with any ci_fix runs folded in as episodes
   // (a live one flashes). Comments feed: the round list replaces the flat
   // transcript outright — a round IS the unit of work here, not a raw turn
@@ -496,7 +505,16 @@ export function StageDetailRoute({
         ...devRunEpisodes.map(run => (
           <RunEpisode key={run.id} run={run} onOpen={() => onOpenRun?.(run.id)} />
         )),
-        ...(transcriptRows ?? []),
+        ...(transcriptSegments?.[0] ?? []),
+        ...(files !== null && files.length > 0
+          ? [<TaskChangedFilesCard
+              key="changed-files"
+              files={files}
+              commitCount={commitCount}
+              onReview={() => openTab('pr', 'changes')}
+            />]
+          : []),
+        ...(transcriptSegments?.[1] ?? []),
       ];
   // The rail's entries come straight from the loaded transcript — a
   // stage's messages live in their own per-stage store whose seqs don't
@@ -570,7 +588,7 @@ export function StageDetailRoute({
           </div>
         )}
         {feedRows}
-        {files !== null && files.length > 0 && (
+        {stageKind === 'comments' && files !== null && files.length > 0 && (
           <TaskChangedFilesCard
             files={files}
             commitCount={commitCount}
@@ -736,6 +754,10 @@ export function StageDetailRoute({
     ?? (data === null ? 0 : Math.max(0, Math.round((Date.parse(data.stage.closedAt ?? new Date().toISOString())
       - Date.parse(data.stage.openedAt)) / 1000)));
   const stageContext = data?.context ?? brain.rightRail.context;
+  const retryingExhaustedCi = brain.task.paused
+    && brain.task.currentPhase === 'NEEDS_ATTENTION'
+    && ['ci fix attempts exhausted', 'ci fix no changes'].some(
+      reason => brain.task.statusLabel.toLowerCase().startsWith(reason));
   const embeddedPr = stagePullDetail !== null && stageRemotePrNumber !== null ? {
     number: stageRemotePrNumber,
     status: taskCompleted ? 'merged' : (pr?.status ?? displayedLocalPrBundle?.pr.status ?? 'open'),
@@ -837,11 +859,21 @@ export function StageDetailRoute({
         },
         onResume: () => {
           setActionError(null);
-          void window.bridge.resumePausedTask(threadId, taskId)
+          const action = retryingExhaustedCi
+            ? window.bridge.retryFailedCi(threadId, taskId)
+            : window.bridge.resumePausedTask(threadId, taskId);
+          void action
             .then(() => { pollFast(); refresh(); })
             .catch((reason: unknown) => setActionError(
-              reason instanceof Error ? reason.message : 'Could not resume the task'));
+              reason instanceof Error ? reason.message
+                : retryingExhaustedCi ? 'Could not retry CI' : 'Could not resume the task'));
         },
+        resumeLabel: retryingExhaustedCi ? 'Retry CI' : undefined,
+        resumeConfirmation: retryingExhaustedCi ? {
+          title: 'Retry failed CI?',
+          body: `This asks GitHub Actions to rerun the failed checks for PR #${brain.task.prNumber ?? ''}. No code will be changed unless a later CI-fix turn creates a commit.`,
+          confirmLabel: 'Retry CI',
+        } : undefined,
       }}
       error={actionError ?? prError ?? stageError ?? brainError ?? roundsError ?? runsError}
       tabs={{

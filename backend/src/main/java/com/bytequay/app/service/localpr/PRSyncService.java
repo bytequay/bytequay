@@ -549,15 +549,19 @@ public class PRSyncService
             if (detail.headRef() != null || detail.baseRef() != null) {
                 prService.updateBranches(pr.id(), detail.headRef(), detail.baseRef());
             }
-            syncExternalCommits(pr);
         }
-        // Unlike the external-only backfills above (branch/description/
-        // commits — a task-origin PR already has correct values for these
-        // from its own local git/agent-authored history), remote checks and
+        // GitHub is authoritative for the pushed branch's commit list for
+        // both origins. Prefix-aware de-duplication below folds a locally
+        // recorded short SHA into GitHub's full SHA instead of showing it
+        // twice, while still discovering commits pushed outside ByteQuay.
+        syncRemoteCommits(pr);
+        // Unlike the external-only branch/description backfills above,
+        // remote checks and
         // the CI/mergeable snapshot apply to any pushed PR: GitHub's real
         // Actions runs are otherwise invisible to ByteQuay once a task PR
         // is out for review.
         syncRemoteChecks(pr, detail);
+        recordRemoteCiTransition(pr, detail);
         refreshDiffAndCiSnapshot(pr, detail);
         if (detail.recentActivity() == null) {
             return;
@@ -634,19 +638,17 @@ public class PRSyncService
         return draft ? PR.STATUS_REMOTE_DRAFTED : PR.STATUS_REMOTE_OPEN;
     }
 
-    /** Mirrors GitHub's own commit list onto {@code pr_commit} for an
-     *  external-origin PR — the header's commit count otherwise reads as 0
-     *  forever, since nothing else ever populates that table for a PR whose
-     *  commits were never made locally. Deduped by sha, same pattern as
-     *  {@link #syncCommits}'s local-git version. */
-    private void syncExternalCommits(PR pr)
+    /** Mirrors GitHub's own commit list onto {@code pr_commit}. This fills
+     *  external PRs and catches commits pushed outside ByteQuay for task PRs.
+     *  Deduped by full/short SHA, matching the local-git sync. */
+    private void syncRemoteCommits(PR pr)
     {
         List<PullRequestCommit> commits;
         try {
             commits = pullRequests.getPullRequestCommits(pr.repo(), pr.remotePrNumber());
         }
         catch (RuntimeException e) {
-            log.info("fetching commits for external PR {} failed: {}", pr.id(), e.getMessage());
+            log.info("fetching remote commits for PR {} failed: {}", pr.id(), e.getMessage());
             return;
         }
         Set<String> known = new HashSet<>();
@@ -654,10 +656,11 @@ public class PRSyncService
             known.add(c.sha());
         }
         for (PullRequestCommit c : commits) {
-            if (known.contains(c.sha())) {
+            if (known.stream().anyMatch(sha -> sameSha(sha, c.sha()))) {
                 continue;
             }
             prService.recordSyncedCommit(pr.id(), c.sha(), c.message(), c.authoredAt(), actorLabel(c.authorLogin()));
+            known.add(c.sha());
         }
     }
 
@@ -685,6 +688,36 @@ public class PRSyncService
                     mapCheckStatus(run.status(), run.conclusion()), null, null);
         }
         prService.retainSyncedChecks(pr.id(), currentRunIds);
+    }
+
+    /** One compact PR-timeline row per overall GitHub CI transition. The
+     *  individual jobs remain in the checks card; recording all of them here
+     *  would turn a large repository's timeline into check-run noise. */
+    private void recordRemoteCiTransition(PR pr, PullRequestDetail detail)
+    {
+        PullRequestDetail.CiStatus current = detail.ciStatus();
+        PullRequestDetail.CiStatus previous = pr.githubSync() == null ? null : pr.githubSync().ciStatus();
+        if (current == null || current == PullRequestDetail.CiStatus.NONE || current == previous) {
+            return;
+        }
+        List<PRCommit> commits = prService.commits(pr.id());
+        String headSha = commits.isEmpty() ? null : commits.get(commits.size() - 1).sha();
+        int checkCount = detail.checkRuns() == null ? 0 : detail.checkRuns().size();
+        prService.recordRemoteCiState(
+                pr.id(), ciTimelineStatus(current), ciTimelineStatus(previous), headSha, checkCount);
+    }
+
+    private static String ciTimelineStatus(PullRequestDetail.CiStatus status)
+    {
+        if (status == null) {
+            return null;
+        }
+        return switch (status) {
+            case PASSING -> PRCheck.STATUS_PASSED;
+            case FAILING -> PRCheck.STATUS_FAILED;
+            case PENDING -> PRCheck.STATUS_RUNNING;
+            case NONE -> PRCheck.STATUS_NEUTRAL;
+        };
     }
 
     /** GitHub's check-run {@code status}/{@code conclusion} pair onto the
@@ -769,12 +802,13 @@ public class PRSyncService
             // in the order the commits were authored.
             for (int i = ahead.size() - 1; i >= 0; i--) {
                 GitRunner.CommitEntry c = ahead.get(i);
-                if (known.contains(c.shortSha())) {
+                if (known.stream().anyMatch(sha -> sameSha(sha, c.sha()) || sameSha(sha, c.shortSha()))) {
                     continue;
                 }
                 int[] delta = commitDelta(dir, c.sha());
                 prService.recordCommit(
                         pr.id(), c.shortSha(), c.subject(), delta[0], delta[1], PRTimelineEntry.ACTOR_AGENT);
+                known.add(c.shortSha());
             }
         }
         catch (IOException e) {
@@ -784,6 +818,12 @@ public class PRSyncService
             Thread.currentThread().interrupt();
             log.info("syncing commits for local PR {} interrupted", pr.id());
         }
+    }
+
+    private static boolean sameSha(String left, String right)
+    {
+        return left != null && right != null
+                && (left.equals(right) || left.startsWith(right) || right.startsWith(left));
     }
 
     /** Summed additions/deletions for one commit ({@code [add, del]}); zeros on

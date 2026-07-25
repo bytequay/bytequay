@@ -32,8 +32,8 @@ describe('RunEpisode', () => {
     expect(screen.getByText('fixing linter warning')).toBeTruthy();
 
     cleanup();
-    render(<RunEpisode run={run({ headline: null, iterations: 3 })} />);
-    expect(screen.getByText('iter 3')).toBeTruthy();
+    render(<RunEpisode run={run({ headline: null, iterations: 3, budget: 5 })} />);
+    expect(screen.getByText('CI-fix iteration 3 of 5')).toBeTruthy();
   });
 
   it('labels an awaiting_gate run as "awaiting you"', () => {

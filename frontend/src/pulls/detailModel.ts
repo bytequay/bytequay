@@ -127,6 +127,9 @@ export type TimelineReviewScope = 'plan' | 'dev' | 'round' | null;
 
 export type TimelineItem =
   | { kind: 'commit'; id: string; at: number; time: string; message: string; sha: string }
+  | { kind: 'ci'; id: string; at: number; time: string; status: string;
+      previousStatus: string | null; headSha: string | null; checkCount: number | null;
+      name: string | null; trigger: string | null }
   | { kind: 'review-activity'; id: string; at: number; time: string; author: string;
       activity: 'started' | 'addressing-started' | 'failed'; scope: TimelineReviewScope;
       iteration: number | null; roundId: string | null; reason: string | null }
@@ -202,12 +205,13 @@ function duplicateLocalReviewIds(bundle: LocalPRBundle): Set<string> {
 /**
  * Maps the local timeline + comments to the template's card shapes: commit
  * rows, review lifecycle rows, review cards, local conversation threads,
- * remote PR-level comment cards, and a synthetic merged row. Event types with no
- * template counterpart (ci/amend/branch/status/follow-up/plan-finalized,
+ * remote PR-level comment cards, aggregate CI transitions, and a synthetic merged row. Event types with no
+ * template counterpart (amend/branch/status/follow-up/plan-finalized,
  * plus `comment` events which render from `comments`) are omitted.
  */
 export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
   const items: TimelineItem[] = [];
+  const seenCommits = new Set<string>();
   const remoteCommentIds = new Map<string, number>();
   const submittedCommentIds = activelySubmittedCommentIds(bundle.timeline);
   const duplicateReviews = duplicateLocalReviewIds(bundle);
@@ -220,10 +224,25 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
     }
     if (event.eventType === 'commit') {
       const sha = str(event.payload, 'sha');
+      const canonicalSha = bundle.commits.find(commit => sha !== null
+        && (commit.sha === sha || commit.sha.startsWith(sha) || sha.startsWith(commit.sha)))?.sha ?? sha;
+      if (canonicalSha === null || seenCommits.has(canonicalSha)) continue;
+      seenCommits.add(canonicalSha);
       const message = str(event.payload, 'message') ?? '';
       items.push({
         kind: 'commit', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
-        message: message.split(/\r?\n/, 1)[0] ?? '', sha: sha !== null ? sha.slice(0, 7) : '',
+        message: message.split(/\r?\n/, 1)[0] ?? '', sha: canonicalSha,
+      });
+      continue;
+    }
+    if (event.eventType === 'ci') {
+      const status = str(event.payload, 'status');
+      if (status === null) continue;
+      items.push({
+        kind: 'ci', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt), status,
+        previousStatus: str(event.payload, 'previousStatus'),
+        headSha: str(event.payload, 'headSha'), checkCount: num(event.payload, 'checkCount'),
+        name: str(event.payload, 'name'), trigger: str(event.payload, 'trigger'),
       });
       continue;
     }

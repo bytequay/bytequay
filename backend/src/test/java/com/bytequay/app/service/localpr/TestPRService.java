@@ -201,6 +201,58 @@ class TestPRService
     }
 
     @Test
+    void aggregateRemoteCiTransitionWritesOneTimelineEvent()
+    {
+        pr(PR.STATUS_REMOTE_OPEN);
+
+        service.recordRemoteCiState("pr1", PRCheck.STATUS_PASSED,
+                PRCheck.STATUS_FAILED, "deadbeef", 12);
+
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo(PRTimelineEntry.TYPE_CI);
+        assertThat(event.getValue().localOnly()).isTrue();
+        assertThat(event.getValue().payloadJson())
+                .contains("\"status\":\"passed\"")
+                .contains("\"previousStatus\":\"failed\"")
+                .contains("\"headSha\":\"deadbeef\"")
+                .contains("\"checkCount\":12");
+    }
+
+    @Test
+    void remoteCiRerunRecordsItsTriggerAndHead()
+    {
+        pr(PR.STATUS_REMOTE_OPEN);
+
+        service.recordRemoteCiRerun("pr1", "user", "deadbeef", 1);
+
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo(PRTimelineEntry.TYPE_CI);
+        assertThat(event.getValue().actor()).isEqualTo(PRTimelineEntry.ACTOR_USER);
+        assertThat(event.getValue().payloadJson())
+                .contains("\"status\":\"rerun_requested\"")
+                .contains("\"trigger\":\"user\"")
+                .contains("\"headSha\":\"deadbeef\"");
+    }
+
+    @Test
+    void commitRecordingTreatsShortAndFullShaAsTheSameCommit()
+    {
+        pr(PR.STATUS_LOCAL_DRAFTED);
+        PRCommit existing = new PRCommit(
+                "commit-1", "pr1", "abcdef0", "first", 1, 0, NOW, null);
+        when(store.commitsFor("pr1")).thenReturn(List.of(existing));
+
+        PRCommit result = service.recordSyncedCommit(
+                "pr1", "abcdef0123456789", "first", NOW, "@octocat");
+
+        assertThat(result).isSameAs(existing);
+        verify(store, never()).addCommit(any());
+        verify(store, never()).addEvent(any());
+    }
+
+    @Test
     void retainSyncedChecksPrunesOnlyMissingRemoteRuns()
     {
         pr(PR.STATUS_REMOTE_OPEN);

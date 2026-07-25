@@ -16,6 +16,7 @@ package com.bytequay.app.service.agents;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.service.skills.ByteQuayRole;
 import com.bytequay.app.service.skills.ByteQuaySkillSelector;
 import com.bytequay.app.service.skills.ManagedSkill;
@@ -134,6 +135,11 @@ public class AgentContextCompiler
     private static ByteQuayRole roleFor(ThreadKind kind, ThreadTurn turn)
     {
         if (kind == ThreadKind.BRAIN_AGENT) {
+            return ByteQuayRole.BRAIN;
+        }
+        if (turn.initiator() != null
+                && TurnInitiator.SOURCE_PARKED_STEERING
+                .equals(turn.initiator().source())) {
             return ByteQuayRole.BRAIN;
         }
         return turn.taskId() == null ? ByteQuayRole.TRUNK : ByteQuayRole.TASK;

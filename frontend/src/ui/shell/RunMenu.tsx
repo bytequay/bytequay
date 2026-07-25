@@ -22,7 +22,7 @@ import { ConfirmDialog } from '../../workspace/ConfirmDialog';
  * confirms first — closing kills the agent subprocess and reaps the
  * worktree, which can't be undone. Terminal tasks render a static label.
  */
-export function RunMenu({ statusLabel = 'Running', statusDetail, paused = false, terminal = false, onRun, onPause, onResume, onClose }: {
+export function RunMenu({ statusLabel = 'Running', statusDetail, paused = false, terminal = false, onRun, onPause, onResume, resumeLabel = 'Resume', resumeConfirmation, onClose }: {
   statusLabel?: string;
   /** Why this state needs attention, shown inside the lifecycle menu. */
   statusDetail?: string;
@@ -31,16 +31,24 @@ export function RunMenu({ statusLabel = 'Running', statusDetail, paused = false,
   onRun?: () => void;
   onPause?: () => void;
   onResume?: () => void;
+  resumeLabel?: string;
+  resumeConfirmation?: { title: string; body: string; confirmLabel: string };
   onClose?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [confirmingResume, setConfirmingResume] = useState(false);
 
   if (terminal) {
     return <button type="button" className="btn" disabled>{statusLabel}</button>;
   }
 
   const pick = (fn?: () => void) => () => { setOpen(false); fn?.(); };
+  const resume = () => {
+    setOpen(false);
+    if (resumeConfirmation === undefined) onResume?.();
+    else setConfirmingResume(true);
+  };
   const hasMenu = onRun !== undefined || onPause !== undefined || onResume !== undefined;
   const displayedStatus = paused && statusLabel === 'Running' ? 'Paused' : statusLabel;
 
@@ -48,9 +56,9 @@ export function RunMenu({ statusLabel = 'Running', statusDetail, paused = false,
     <>
       <span className="run-menu">
         {paused && onResume !== undefined ? (
-          <button type="button" className="btn" title={statusDetail} onClick={onResume}>
+          <button type="button" className="btn" title={statusDetail} onClick={resume}>
             <span className="ic" aria-hidden>▶</span>
-            Resume · {displayedStatus}
+            {resumeLabel} · {displayedStatus}
           </button>
         ) : (
           <button
@@ -76,7 +84,7 @@ export function RunMenu({ statusLabel = 'Running', statusDetail, paused = false,
             )}
             {paused
               ? onResume !== undefined && (
-                <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onResume)}>Resume</button>
+                <button type="button" className="run-menu__item" role="menuitem" onClick={resume}>{resumeLabel}</button>
               )
               : onPause !== undefined && (
                 <button type="button" className="run-menu__item" role="menuitem" onClick={pick(onPause)}>Pause</button>
@@ -98,6 +106,15 @@ export function RunMenu({ statusLabel = 'Running', statusDetail, paused = false,
           destructive
           onConfirm={() => { setConfirming(false); onClose(); }}
           onCancel={() => setConfirming(false)}
+        />
+      )}
+      {confirmingResume && resumeConfirmation !== undefined && (
+        <ConfirmDialog
+          title={resumeConfirmation.title}
+          body={resumeConfirmation.body}
+          confirmLabel={resumeConfirmation.confirmLabel}
+          onConfirm={() => { setConfirmingResume(false); onResume?.(); }}
+          onCancel={() => setConfirmingResume(false)}
         />
       )}
     </>

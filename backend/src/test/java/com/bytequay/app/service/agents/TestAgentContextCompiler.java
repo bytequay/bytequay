@@ -109,6 +109,25 @@ class TestAgentContextCompiler
     }
 
     @Test
+    void parkedSteeringUsesTheReadOnlyBrainContract()
+    {
+        ThreadTurn ordinary = turn("task-1");
+        ThreadTurn parked = new ThreadTurn(
+                ordinary.id(), ordinary.threadId(), ordinary.taskId(), ordinary.lane(),
+                ordinary.status(), ordinary.input(), ordinary.createdAt(), ordinary.updatedAt(),
+                ordinary.startedAt(), ordinary.finishedAt(), ordinary.errorMessage(),
+                TurnInitiator.attended(TurnInitiator.SOURCE_PARKED_STEERING),
+                ordinary.stageId(), ordinary.scope(), ordinary.agentRunId());
+
+        ResolvedAgentContext context = compiler.resolve(
+                ThreadKind.CLI_AGENT, parked, StageType.REMOTE_DEVELOPMENT_STAGE);
+
+        assertThat(context.role()).isEqualTo(ByteQuayRole.BRAIN);
+        assertThat(context.capabilities()).doesNotContain(
+                SecurityType.CODE_WRITE, SecurityType.CODE_EXEC, SecurityType.GIT_PUSH);
+    }
+
+    @Test
     void resolvedAuthoredBodiesTravelInTheSameCliAndApiContract()
     {
         ByteQuaySkillSelector selector = mock(ByteQuaySkillSelector.class);

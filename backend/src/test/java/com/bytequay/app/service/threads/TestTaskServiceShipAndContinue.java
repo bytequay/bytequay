@@ -930,11 +930,26 @@ class TestTaskServiceShipAndContinue
                 .thenReturn(Optional.of(thread(parked.threadId())));
         when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.empty());
 
-        Task resumed = service.resumeTask(parked.id());
+        Task resumed = service.retryFailedCi(parked.threadId(), parked.id());
 
         assertThat(resumed.phase()).isEqualTo(TaskPhase.PUSHED_AWAITING_CI);
         verify(taskPhaseMachine).recover(
-                parked.id(), TaskPhase.PUSHED_AWAITING_CI, "user_resumed_task");
+                parked.id(), TaskPhase.PUSHED_AWAITING_CI, "user_retried_ci");
+    }
+
+    @Test
+    void ordinaryResumeRefusesAnExhaustedCiTask()
+    {
+        Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
+        when(taskStore.findTaskById(parked.id())).thenReturn(Optional.of(parked));
+        when(taskStore.listPhaseEvents(parked.id())).thenReturn(List.of(new TaskPhaseEvent(
+                1L, parked.id(), TaskPhase.PUSHED_AWAITING_CI, TaskPhase.NEEDS_ATTENTION,
+                parked.createdAt(), "ci_fix_attempts_exhausted", Actor.AGENT)));
+
+        assertThatThrownBy(() -> service.resumeTask(parked.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("explicit Retry CI");
+        verify(taskPhaseMachine, never()).recover(anyString(), any(), anyString());
     }
 
     private static Thread thread(String id)

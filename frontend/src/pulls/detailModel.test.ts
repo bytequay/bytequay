@@ -98,16 +98,26 @@ describe('buildChecks', () => {
 });
 
 describe('buildTimeline', () => {
-  it('maps commits with 7-char shas and skips non-counterpart event types', () => {
+  it('maps aggregate CI and de-duplicates short/full forms of one commit sha', () => {
     const items = buildTimeline(bundle({
+      commits: [{
+        id: 'commit', localPrId: 'pr1', sha: 'abcdef0123456', message: 'Fix it',
+        additions: 1, deletions: 0, authoredAt: 1000, pushedAt: null,
+      }],
       timeline: [
-        event({ id: 'c', payload: { sha: 'abcdef0123456', message: 'Fix it\n\nLong commit body' } }),
-        event({ id: 'ci', eventType: 'ci', createdAt: 1100, payload: { name: 'tests', status: 'passed' } }),
+        event({ id: 'c-short', payload: { sha: 'abcdef0', message: 'Fix it\n\nLong commit body' } }),
+        event({ id: 'c-full', createdAt: 1050, payload: { sha: 'abcdef0123456', message: 'Fix it' } }),
+        event({ id: 'ci', eventType: 'ci', createdAt: 1100,
+          payload: { status: 'passed', previousStatus: 'failed', headSha: 'abcdef0123456', checkCount: 12 } }),
         event({ id: 'st', eventType: 'status', createdAt: 1200, payload: { from: 'a', to: 'b' } }),
       ],
     }));
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ kind: 'commit', sha: 'abcdef0', message: 'Fix it' });
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ kind: 'commit', sha: 'abcdef0123456', message: 'Fix it' });
+    expect(items[1]).toMatchObject({
+      kind: 'ci', status: 'passed', previousStatus: 'failed', headSha: 'abcdef0123456', checkCount: 12,
+      trigger: null,
+    });
   });
 
   it('keeps review lifecycle rows and maps concluded verdicts', () => {

@@ -42,6 +42,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -85,13 +86,14 @@ class TestStageSteeringService
         when(threadStore.findThreadById("thread-9")).thenReturn(Optional.of(thread("thread-9")));
         // Bound to the explicit task id (not the active-task projection) so a
         // task parked at AWAITING_REVIEW still routes to the dev agent.
-        when(scheduler.enqueueTaskTurn(any(), eq("Fix the retry default"), eq("task-7"), any()))
+        when(scheduler.enqueueTaskTurn(any(), eq("Fix the retry default"), eq("task-7"), anyString(), any()))
                 .thenReturn("turn-3");
 
         StageSteeringService.SteerResult result = service.steer(stageId, "  Fix the retry default  ", null);
 
         assertThat(result.turnId()).isEqualTo("turn-3");
-        verify(scheduler).enqueueTaskTurn(any(), eq("Fix the retry default"), eq("task-7"), any(TurnInitiator.class));
+        verify(scheduler).enqueueTaskTurn(any(), eq("Fix the retry default"), eq("task-7"),
+                eq(stageId.toString()), any(TurnInitiator.class));
         verify(scheduler, never()).enqueueTurn(any(), any(), any());
         verify(iterationService).begin("task-7", "turn-3", IterationService.TRIGGER_USER_STEERING);
     }
@@ -106,13 +108,38 @@ class TestStageSteeringService
         when(threadStore.findThreadById("thread-9")).thenReturn(Optional.of(thread("thread-9")));
         when(attachmentStore.save(eq("thread-9"), eq(List.of("data:image/png;base64,abc"))))
                 .thenReturn(List.of("/tmp/attachments/thread-9/img.png"));
-        when(scheduler.enqueueTaskTurn(any(), any(), eq("task-7"), any())).thenReturn("turn-4");
+        when(scheduler.enqueueTaskTurn(any(), any(), eq("task-7"), anyString(), any())).thenReturn("turn-4");
 
         service.steer(stageId, "see this", List.of("data:image/png;base64,abc"));
 
         verify(scheduler).enqueueTaskTurn(
                 any(), argThat(input -> input.contains("/tmp/attachments/thread-9/img.png")),
-                eq("task-7"), any(TurnInitiator.class));
+                eq("task-7"), eq(stageId.toString()), any(TurnInitiator.class));
+    }
+
+    @Test
+    void parkedQuestionIsReadOnlyAndDoesNotConsumeAnIteration()
+    {
+        UUID stageId = UUID.randomUUID();
+        Task parked = new Task(
+                "task-7", "thread-9", 1L, TaskStatus.NEEDS_ATTENTION, "feature", null,
+                "main", "/tmp", null, null, 42, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, null, NOW, null, null, null, null, null, null,
+                TaskPhase.NEEDS_ATTENTION, null, 0, null);
+        when(stageStore.findStageById(stageId)).thenReturn(Optional.of(
+                stage(stageId, "task-7", StageState.OPEN)));
+        when(taskStore.findTaskById("task-7")).thenReturn(Optional.of(parked));
+        when(threadStore.findThreadById("thread-9")).thenReturn(Optional.of(thread("thread-9")));
+        when(scheduler.enqueueTaskTurn(any(), any(), any(), anyString(), any()))
+                .thenReturn("question-turn");
+
+        service.steer(stageId, "Why did CI pass later?", null);
+
+        verify(scheduler).enqueueTaskTurn(
+                any(), eq("Why did CI pass later?"), eq("task-7"), eq(stageId.toString()),
+                argThat(initiator -> initiator.attended()
+                        && TurnInitiator.SOURCE_PARKED_STEERING.equals(initiator.source())));
+        verify(iterationService, never()).begin(anyString(), anyString(), anyString());
     }
 
     @Test

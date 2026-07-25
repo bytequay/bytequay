@@ -223,7 +223,7 @@ function ReviewCard({
 export default function PullTimeline({
   items, repo, prAuthor = null, prHtmlUrl = '', reviewThreadsByRemoteId, onCommentReaction,
   onThreadReply, onThreadReact, onThreadSetResolved, localPr,
-  onLocalReply, onLocalResolve, onLocalReopen, currentUserLogin, onOpenCommentLocation,
+  onLocalReply, onLocalResolve, onLocalReopen, currentUserLogin, onOpenCommentLocation, onOpenCommit,
 }: {
   items: TimelineItem[];
   repo: string;
@@ -241,6 +241,8 @@ export default function PullTimeline({
   currentUserLogin?: string | null;
   /** Jump to a file-line comment's location on the Changes tab. */
   onOpenCommentLocation?: (filePath: string, line: number | null, side: 'LEFT' | 'RIGHT') => void;
+  /** Opens this commit's parent diff in the Changes tab. */
+  onOpenCommit?: (sha: string) => void;
 }) {
   const [owner, name] = repo.split('/');
   const repoCtx: MarkdownRepoContext = { owner: owner ?? repo, repo: name ?? repo };
@@ -255,10 +257,57 @@ export default function PullTimeline({
                   <CommitDotIcon />
                 </span>
                 <span style={iconRowTextStyle}>
-                  <span style={{ color: '#1f2328' }}>{item.message}</span> · <span style={shaStyle}>{item.sha}</span> · {item.time}
+                  <span style={{ color: '#1f2328' }}>{item.message}</span> ·{' '}
+                  {onOpenCommit === undefined ? (
+                    <span style={shaStyle}>{item.sha.slice(0, 7)}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onOpenCommit(item.sha)}
+                      title={`View changes introduced by ${item.sha}`}
+                      style={{ ...shaStyle, padding: 0, border: 0, background: 'transparent', color: '#0969da', cursor: 'pointer' }}
+                    >
+                      {item.sha.slice(0, 7)}
+                    </button>
+                  )} · {item.time}
                 </span>
               </div>
             );
+          case 'ci': {
+            const passed = item.status === 'passed';
+            const failed = item.status === 'failed';
+            const rerunRequested = item.status === 'rerun_requested';
+            const rerun = passed && item.previousStatus === 'failed';
+            const label = rerunRequested
+              ? 'ByteQuay requested a GitHub Actions rerun'
+              : item.name !== null
+              ? `${item.name} ${item.status}`
+              : rerun ? 'CI passed after rerun'
+                : item.status === 'running' && item.previousStatus === 'failed'
+                  ? 'CI rerun in progress'
+                  : `CI ${item.status}`;
+            return (
+              <div key={item.id} style={iconRowStyle}>
+                <span style={{ width: 26, height: 26, borderRadius: '50%', background: passed ? '#dafbe1' : failed ? '#ffebe9' : '#fff8c5', border: '2px solid #fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: passed ? '#1a7f37' : failed ? '#cf222e' : '#9a6700', flexShrink: 0 }}>
+                  {passed ? '✓' : failed ? '!' : '↻'}
+                </span>
+                <span style={iconRowTextStyle}>
+                  <span style={{ color: '#17191c' }}>{label}</span>
+                  {item.headSha !== null && <> on {onOpenCommit === undefined ? (
+                    <span style={shaStyle}>{item.headSha.slice(0, 7)}</span>
+                  ) : (
+                    <button type="button" onClick={() => onOpenCommit(item.headSha!)}
+                      title={`View ${item.headSha}`} style={{ ...shaStyle, padding: 0, border: 0, background: 'transparent', color: '#0969da', cursor: 'pointer' }}>
+                      {item.headSha.slice(0, 7)}
+                    </button>
+                  )}</>}
+                  {item.checkCount !== null && item.name === null && <> · {item.checkCount} {rerunRequested ? (item.checkCount === 1 ? 'workflow' : 'workflows') : (item.checkCount === 1 ? 'check' : 'checks')}</>}
+                  {item.trigger !== null && <> · Triggered by {item.trigger === 'user' ? 'you' : item.trigger}</>}
+                  {' · '}{item.time}
+                </span>
+              </div>
+            );
+          }
           case 'merged':
             return (
               <div key={item.id} style={iconRowStyle}>

@@ -61,7 +61,7 @@ function dragStart(e: ReactMouseEvent, start: number, apply: (w: number) => void
 }
 
 export default function PullChanges({
-  row, bundle, refresh, onComment, filesOverride, fetchBlobOverride, banner, jumpTarget,
+  row, bundle, refresh, onComment, filesOverride, fetchBlobOverride, banner, jumpTarget, initialCommit,
 }: {
   row: PullRow;
   bundle: LocalPRBundle | null | undefined;
@@ -73,6 +73,8 @@ export default function PullChanges({
   banner?: ReactNode;
   /** Set by the Overview timeline to scroll a file-line comment into view when this tab opens. */
   jumpTarget?: { filePath: string; side: 'LEFT' | 'RIGHT'; line: number | null } | null;
+  /** Commit selected from an Overview timeline row. */
+  initialCommit?: string | null;
 }) {
   const [files, setFiles] = useState<DiffFileDto[] | null>(null);
   const [filesError, setFilesError] = useState<string | null>(null);
@@ -85,12 +87,20 @@ export default function PullChanges({
   const scrollRef = useRef<HTMLDivElement>(null);
   // null = the cumulative "All commits" diff; a sha scopes to that one commit.
   // Only honoured when this component owns the fetch (no filesOverride).
-  const [selectedCommit, setSelectedCommit] = useState<string | null>(null);
-  useEffect(() => { setSelectedCommit(null); }, [row.repo, row.num]);
+  const [selectedCommit, setSelectedCommit] = useState<string | null>(initialCommit ?? null);
+  useEffect(() => { setSelectedCommit(initialCommit ?? null); }, [row.repo, row.num, initialCommit]);
+  const effectiveFilesOverride = selectedCommit === null ? filesOverride : undefined;
 
-  const commitOptions: CommitOption[] = useMemo(() => (bundle?.commits ?? []).map(commit => {
+  const commitOptions: CommitOption[] = useMemo(() => (bundle?.commits ?? []).filter((commit, index, commits) =>
+    commits.findIndex(candidate => candidate.sha === commit.sha
+      || candidate.sha.startsWith(commit.sha) || commit.sha.startsWith(candidate.sha)) === index).map(commit => {
     const subject = commit.message.split(/\r?\n/, 1)[0] ?? '';
-    const event = bundle?.timeline.find(item => item.eventType === 'commit' && item.payload?.sha === commit.sha);
+    const event = bundle?.timeline.find(item => {
+      const eventSha = item.eventType === 'commit' && typeof item.payload?.sha === 'string'
+        ? item.payload.sha : null;
+      return eventSha !== null && (eventSha === commit.sha
+        || eventSha.startsWith(commit.sha) || commit.sha.startsWith(eventSha));
+    });
     return {
       sha: commit.sha,
       label: `${commit.sha.slice(0, 7)}  ${subject.length > 46 ? `${subject.slice(0, 45)}…` : subject}`,
@@ -100,8 +110,8 @@ export default function PullChanges({
   }).reverse(), [bundle?.commits, bundle?.timeline]);
 
   useEffect(() => {
-    if (filesOverride !== undefined) {
-      setFiles(filesOverride);
+    if (effectiveFilesOverride !== undefined) {
+      setFiles(effectiveFilesOverride);
       setFilesError(null);
       return;
     }
@@ -115,7 +125,7 @@ export default function PullChanges({
       .then(list => { if (!cancelled) setFiles(list); })
       .catch(e => { if (!cancelled) setFilesError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
-  }, [filesOverride, row.repo, row.num, selectedCommit]);
+  }, [effectiveFilesOverride, row.repo, row.num, selectedCommit]);
 
   const remoteNumber = bundle?.pr.remotePrNumber ?? null;
   const { activity, reviewThreads, refresh: refreshFeed } = useGitHubActivityFeed(row.repo, remoteNumber);
@@ -123,7 +133,7 @@ export default function PullChanges({
   // A historical commit diff has coordinates for that snapshot, while direct
   // GitHub comments intentionally target the live PR head. Keep composing on
   // the cumulative current diff so an old line cannot be rejected or misplaced.
-  const historicalCommitSelected = filesOverride === undefined && selectedCommit !== null;
+  const historicalCommitSelected = selectedCommit !== null;
   const inlineCommentTarget = historicalCommitSelected
     ? null
     : capabilities?.inlineCommentTarget ?? null;

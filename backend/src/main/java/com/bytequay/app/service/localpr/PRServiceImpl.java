@@ -691,6 +691,13 @@ class PRServiceImpl
     {
         PR pr = require(prId);
         requireText(sha, "sha");
+        PRCommit existing = store.commitsFor(pr.id()).stream()
+                .filter(commit -> sameSha(commit.sha(), sha))
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            return existing;
+        }
         Instant when = now();
         PRCommit commit = store.addCommit(new PRCommit(
                 UUID.randomUUID().toString(), pr.id(), sha, message == null ? "" : message,
@@ -731,6 +738,13 @@ class PRServiceImpl
     {
         PR pr = require(prId);
         requireText(sha, "sha");
+        PRCommit existing = store.commitsFor(pr.id()).stream()
+                .filter(commit -> sameSha(commit.sha(), sha))
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            return existing;
+        }
         Instant when = authoredAt == null ? now() : authoredAt;
         PRCommit commit = store.addCommit(new PRCommit(
                 UUID.randomUUID().toString(), pr.id(), sha, message == null ? "" : message,
@@ -769,6 +783,37 @@ class PRServiceImpl
                 effectiveStart, effectiveFinish, runId));
         notifyUpdated(pr.id());
         return check;
+    }
+
+    @Override
+    public void recordRemoteCiState(
+            String prId, String status, String previousStatus, String headSha, int checkCount)
+    {
+        PR pr = require(prId);
+        requireText(status, "status");
+        Instant when = now();
+        appendEvent(pr.id(), PRTimelineEntry.TYPE_CI, PRTimelineEntry.ACTOR_AGENT,
+                /* localOnly */ true, when,
+                payload("kind", PRCheck.KIND_REMOTE, "status", status,
+                        "previousStatus", previousStatus, "headSha", headSha,
+                        "checkCount", checkCount));
+        notifyUpdated(pr.id());
+    }
+
+    @Override
+    public void recordRemoteCiRerun(
+            String prId, String trigger, String headSha, int workflowCount)
+    {
+        PR pr = require(prId);
+        requireText(trigger, "trigger");
+        Instant when = now();
+        appendEvent(pr.id(), PRTimelineEntry.TYPE_CI,
+                "user".equals(trigger) ? PRTimelineEntry.ACTOR_USER : PRTimelineEntry.ACTOR_AGENT,
+                /* localOnly */ true, when,
+                payload("kind", PRCheck.KIND_REMOTE, "status", "rerun_requested",
+                        "previousStatus", PRCheck.STATUS_FAILED, "headSha", headSha,
+                        "checkCount", workflowCount, "trigger", trigger));
+        notifyUpdated(pr.id());
     }
 
     @Override
@@ -1436,6 +1481,12 @@ class PRServiceImpl
     private Instant now()
     {
         return Instant.now(clock);
+    }
+
+    private static boolean sameSha(String left, String right)
+    {
+        return left != null && right != null
+                && (left.equals(right) || left.startsWith(right) || right.startsWith(left));
     }
 
     private static void requireText(String value, String field)

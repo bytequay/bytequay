@@ -3967,6 +3967,9 @@ export type Bridge = {
   /** Resume a paused, errored, or archived task back to IDLE so it can run again.
    *  ({@link resumeTask} is the thread-level revive; this is per-task.) */
   resumePausedTask: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
+  /** Explicitly restart an exhausted post-ship CI loop. Unlike ordinary
+   *  Resume, this action may rerun failed GitHub Actions. */
+  retryFailedCi: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
   /** Next → park the current task at AWAITING_REVIEW (worktree
    *  preserved) and start a fresh task cut from main. The trunk
    *  window's Next button calls this; differs from

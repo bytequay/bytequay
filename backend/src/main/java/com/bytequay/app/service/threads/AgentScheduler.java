@@ -19,6 +19,7 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -860,6 +861,14 @@ public class AgentScheduler
         Task task = tasks.findTaskById(turn.taskId()).orElse(null);
         if (task == null) {
             return "cancelled because task no longer exists";
+        }
+        boolean parkedSteering = task.phase() == TaskPhase.NEEDS_ATTENTION
+                && task.status() == TaskStatus.NEEDS_ATTENTION
+                && turn.initiator() != null
+                && turn.initiator().attended()
+                && TurnInitiator.SOURCE_PARKED_STEERING.equals(turn.initiator().source());
+        if (parkedSteering) {
+            return null;
         }
         if (task.phase() == TaskPhase.NEEDS_ATTENTION
                 || task.phase() == TaskPhase.COMPLETED) {

@@ -163,7 +163,7 @@ public interface PRService
      *  reaches a terminal status (passed / failed / neutral). */
     PRCheck recordCheck(String prId, String kind, String name, String status, Long durationMs);
 
-    /** Append a commit synced from GitHub for an external-origin PR, using
+    /** Append a commit synced from GitHub, using
      *  its real authored timestamp instead of "now" (unlike {@link
      *  #recordCommit}, which assumes a freshly-made local commit). GitHub's
      *  PR-commits list endpoint has no per-commit diff stats, so this always
@@ -171,13 +171,19 @@ public interface PRService
      *  total from {@link PRSyncSnapshot} instead. */
     PRCommit recordSyncedCommit(String prId, String sha, String message, Instant authoredAt, String actor);
 
-    /** Upsert a remote check run synced from GitHub for an external-origin
-     *  PR, deduped by GitHub's check-run id — unlike {@link #recordCheck},
-     *  which always appends a fresh row for a local test run with no
-     *  external id to dedupe against. Writes a {@code ci} timeline event
-     *  only the first time this run reaches a terminal status. */
+    /** Upsert a remote check run synced from GitHub, deduped by GitHub's
+     *  check-run id. Individual runs stay in the checks card;
+     *  {@link #recordRemoteCiState} writes one aggregate timeline row. */
     PRCheck recordSyncedCheck(
             String prId, String runId, String name, String status, Instant startedAt, Instant finishedAt);
+
+    /** Append one aggregate remote-CI state transition to the unified PR
+     *  timeline. This deliberately records one row per overall transition,
+     *  not one row per GitHub check run. */
+    void recordRemoteCiState(String prId, String status, String previousStatus, String headSha, int checkCount);
+
+    /** Record the app action that asked GitHub to rerun failed workflows. */
+    void recordRemoteCiRerun(String prId, String trigger, String headSha, int workflowCount);
 
     /** Prunes remote check rows that are absent from GitHub's latest snapshot. */
     void retainSyncedChecks(String prId, Set<String> runIds);

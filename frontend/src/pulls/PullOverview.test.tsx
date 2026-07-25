@@ -66,6 +66,46 @@ const bundle = {
 } as LocalPRBundle;
 
 describe('PullOverview', () => {
+  it('opens a timeline commit diff from its sha', () => {
+    const onOpenCommit = vi.fn();
+    const items: TimelineItem[] = [{
+      kind: 'commit', id: 'commit-1', at: 1, time: 'now', message: 'Fix CI',
+      sha: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
+    }];
+
+    render(<PullTimeline items={items} repo="acme/widget" onOpenCommit={onOpenCommit} />);
+    fireEvent.click(screen.getByRole('button', { name: 'deadbee' }));
+
+    expect(onOpenCommit).toHaveBeenCalledWith('deadbeefdeadbeefdeadbeefdeadbeefdeadbeef');
+  });
+
+  it('labels a failed-head retry as a CI rerun', () => {
+    const items: TimelineItem[] = [{
+      kind: 'ci', id: 'ci-1', at: 1, time: 'now', status: 'running',
+      previousStatus: 'failed', headSha: 'deadbeef', checkCount: 12, name: null, trigger: null,
+    }];
+
+    render(<PullTimeline items={items} repo="acme/widget" />);
+
+    expect(screen.getByText('CI rerun in progress')).toBeTruthy();
+    expect(screen.getByText('deadbee')).toBeTruthy();
+  });
+
+  it('shows who requested a rerun and opens its commit diff', () => {
+    const onOpenCommit = vi.fn();
+    const items: TimelineItem[] = [{
+      kind: 'ci', id: 'ci-rerun', at: 1, time: 'now', status: 'rerun_requested',
+      previousStatus: 'failed', headSha: 'deadbeef', checkCount: 1, name: null, trigger: 'user',
+    }];
+
+    render(<PullTimeline items={items} repo="acme/widget" onOpenCommit={onOpenCommit} />);
+
+    expect(screen.getByText('ByteQuay requested a GitHub Actions rerun')).toBeTruthy();
+    expect(screen.getByText(/Triggered by you/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'deadbee' }));
+    expect(onOpenCommit).toHaveBeenCalledWith('deadbeef');
+  });
+
   it('shows structured skeleton cards while a large pull request loads', () => {
     const { container } = render(
       <PullOverview row={row([])} bundle={undefined} isMerged={false} />,

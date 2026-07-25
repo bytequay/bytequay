@@ -31,6 +31,8 @@ package com.bytequay.app.domain;
  */
 public record TurnInitiator(boolean attended, String source)
 {
+    public static final String SOURCE_PARKED_STEERING = "parked-steering";
+
     /** Default attended initiator for a human-driven turn. */
     public static TurnInitiator user()
     {

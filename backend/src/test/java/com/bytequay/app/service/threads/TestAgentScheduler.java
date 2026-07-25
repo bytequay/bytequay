@@ -526,6 +526,24 @@ class TestAgentScheduler
     }
 
     @Test
+    void attendedParkedSteeringCanDispatchWithoutRevivingTheTask()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-parked-question", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        harness.tasks.setStatus("task-parked", TaskStatus.NEEDS_ATTENTION);
+        harness.tasks.setPhase("task-parked", TaskPhase.NEEDS_ATTENTION);
+
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                thread, "what happened?", "task-parked", "stage-remote",
+                TurnInitiator.attended(TurnInitiator.SOURCE_PARKED_STEERING));
+
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(session.inputs).containsExactly("what happened?");
+    }
+
+    @Test
     void runnableTaskStatusesStillDispatchNormally()
     {
         TestHarness harness = new TestHarness(6, 4);

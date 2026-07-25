@@ -33,14 +33,12 @@ type Props = {
   section: SettingsSection;
   workspaceId?: string | null;
   onSelectSection: (section: SettingsSection) => void;
-  /** Forwarded to AccountPage so the Disconnect button lands the user back on first-run setup. */
-  onClearPat?: () => void;
   /** Forwarded to WorkspaceMemoryPage so back-link chips in the
    *  memory proposal banner can navigate to the source thread. */
   onOpenThread?: (threadId: string) => void;
 };
 
-function SettingsShell({ section, workspaceId, onSelectSection, onClearPat, onOpenThread }: Props) {
+function SettingsShell({ section, workspaceId, onSelectSection, onOpenThread }: Props) {
   // 'github-token' is kept in the section union so existing onboarding
   // deep links resolve cleanly; the Credentials → Git PAT tab owns the
   // PAT now, so we alias the old id at render time.
@@ -49,7 +47,7 @@ function SettingsShell({ section, workspaceId, onSelectSection, onClearPat, onOp
     <section className="sv2">
       <SettingsSidebar active={resolved} onSelect={onSelectSection} />
       <div className="sv2-content">
-          {resolved === 'account' && <AccountPage onClearPat={onClearPat} />}
+          {resolved === 'account' && <AccountPage />}
           {resolved === 'appearance' && <AppearancePage />}
           {resolved === 'credentials' && <CredentialsPage />}
           {resolved === 'ai-review' && <AiReviewPage />}

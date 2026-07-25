@@ -1303,45 +1303,115 @@
 .shell .trunk-questions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  /* Wide enough that stacked cards' halos don't bleed into each other. */
+  gap: 18px;
   padding: 0 32px 8px;
 }
+/* The card is a three-layer sandwich: a wrapper carrying the blurred halo,
+   an overflow-clipped 2px frame carrying the rotating beam, and the inner
+   surface holding the content. Both light effects are pseudo-elements. */
 .shell .ask-question-card {
-  border: 1px solid #fcd34d;
-  border-radius: 8px;
-  background: #fffbeb;
-  padding: 11px 13px;
+  --aq-beam: #f0b429;
+  --aq-beam-sweep: conic-gradient(from 0deg,
+    rgba(240, 180, 41, 0) 0%, rgba(240, 180, 41, 0) 60%,
+    rgba(240, 180, 41, 0.18) 72%, #f0b429 85%, #ffffff 90.5%,
+    #f0b429 95%, rgba(240, 180, 41, 0) 100%);
+  --aq-frame: linear-gradient(160deg, #f8d78d 0%, #f0bf5c 42%, #dda23a 100%);
+  --aq-surface: #fffbeb;
+  --aq-texture: radial-gradient(130% 95% at 18% 0%, rgba(255, 255, 255, 0.7), transparent 55%);
+  --aq-ink: #b45309;
+  --aq-opt-bg: #ffffff;
+  --aq-opt-border: rgba(217, 119, 6, 0.34);
+  --aq-input-bg: #ffffff;
+
+  position: relative;
+}
+@keyframes aq-beam-spin { to { transform: rotate(360deg); } }
+@keyframes aq-halo-pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.55; } }
+/* Centred variant for the crisp beam: it has to stay square (see below), so
+   the rotation origin is re-centred by the transform rather than by inset. */
+@keyframes aq-beam-orbit {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+.shell .ask-question-card::before {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 20px;
+  background: var(--aq-beam-sweep);
+  filter: blur(15px);
+  opacity: 0.4;
+  animation: aq-beam-spin 5s linear infinite, aq-halo-pulse 3.6s ease-in-out infinite;
+  pointer-events: none;
+}
+.shell .ask-question-card__frame {
+  position: relative;
+  border-radius: 14px;
+  padding: 2px;
+  overflow: hidden;
+  background: var(--aq-frame);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 44px -26px rgba(0, 0, 0, 0.55);
+}
+/* Square and twice the card's width, so no rotation angle can uncover a
+   corner — an inset-based box works only while the card is near-square, and
+   a conversation-width card is wide and short. */
+.shell .ask-question-card__frame::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 200%;
+  aspect-ratio: 1;
+  background: var(--aq-beam-sweep);
+  animation: aq-beam-orbit 5s linear infinite;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .shell .ask-question-card::before { animation: none; }
+  .shell .ask-question-card__frame::before {
+    animation: none;
+    transform: translate(-50%, -50%);
+  }
+}
+.shell .ask-question-card__inner {
+  position: relative;
+  border-radius: 12px;
+  padding: 15px 17px 17px;
+  background: var(--aq-texture), var(--aq-surface);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
 }
 .shell .ask-question-card__head {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
 }
 .shell .ask-question-card__pill {
-  width: 17px;
-  height: 17px;
-  border-radius: 5px;
-  background: #d97706;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: linear-gradient(155deg, #f4a63c, #d1760f);
   color: #fff;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 800;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42), 0 5px 15px -5px rgba(209, 118, 15, 0.85);
 }
 .shell .ask-question-card__label {
   font-size: 10.5px;
-  font-weight: 600;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #b45309;
+  letter-spacing: 0.14em;
+  color: var(--aq-ink);
 }
 .shell .ask-question-card__q {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--text-1);
   line-height: 1.4;
 }
@@ -1354,25 +1424,31 @@
 .shell .ask-question-card__options {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 7px;
 }
 .shell .ask-question-card__opt {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   text-align: left;
-  padding: 7px 11px;
-  border: 1px solid #fcd34d;
-  border-radius: 7px;
-  background: #fff;
+  padding: 10px 13px;
+  border: 1px solid var(--aq-opt-border);
+  border-radius: 10px;
+  background: var(--aq-opt-bg);
   color: var(--text-1);
   cursor: pointer;
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: 13.5px;
+  font-weight: 500;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
 }
-.shell .ask-question-card__opt:hover {
-  border-color: #d97706;
-  background: #fffaf0;
+.shell .ask-question-card__opt:hover,
+.shell .ask-question-card__opt:focus-visible {
+  outline: none;
+  border-color: var(--aq-beam);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 8px 22px -9px rgba(240, 180, 41, 0.5);
+  transform: translateY(-1px);
 }
 .shell .ask-question-card__opt-label { flex: 1; }
 .shell .ask-question-card__extra {
@@ -1380,34 +1456,113 @@
   font-size: 11px;
   color: var(--text-3);
 }
+.shell .ask-question-card__key {
+  font-size: 11px;
+  color: var(--text-3);
+  border: 1px solid var(--border-mid);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
 .shell .ask-question-card__free {
   display: flex;
-  gap: 6px;
+  gap: 9px;
 }
 .shell .ask-question-card__input {
   flex: 1;
-  padding: 6px 10px;
+  min-width: 0;
+  padding: 9px 13px;
   border: 1px solid var(--border-mid);
-  border-radius: 7px;
-  background: #fff;
+  border-radius: 10px;
+  background: var(--aq-input-bg);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--text-1);
+  outline: none;
+}
+.shell .ask-question-card__input:focus {
+  border-color: rgba(240, 180, 41, 0.7);
+  box-shadow: 0 0 0 3px rgba(240, 180, 41, 0.18);
 }
 .shell .ask-question-card__send {
-  padding: 6px 14px;
+  flex-shrink: 0;
+  padding: 9px 18px;
   border: none;
-  border-radius: 7px;
-  background: #d97706;
-  color: #fff;
-  font-weight: 600;
-  font-size: 12px;
+  border-radius: 10px;
+  background: linear-gradient(160deg, #f3b53a, #d5900f);
+  color: #2a1c04;
+  font-weight: 700;
+  font-size: 13px;
   cursor: pointer;
   font-family: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42), 0 6px 18px -8px rgba(213, 144, 15, 0.85);
 }
+.shell .ask-question-card__send:hover:not(:disabled) { filter: brightness(1.06); }
 .shell .ask-question-card__send:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  box-shadow: none;
+}
+.shell .ask-question-card__sent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 13px;
+  border-radius: 10px;
+  border: 1px solid rgba(45, 164, 78, 0.42);
+  background: rgba(45, 164, 78, 0.08);
+}
+.shell .ask-question-card__check {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #2da44e;
+  color: #fff;
+}
+.shell .ask-question-card__sent-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.shell .ask-question-card__sent-copy small { font-size: 11.5px; color: var(--text-3); }
+.shell .ask-question-card__sent-copy > span {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shell .ask-question-card__undo {
+  margin-left: auto;
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--aq-ink);
+  cursor: pointer;
+}
+
+/* Dark theme — the card's native look: near-black surface, graphite frame,
+   amber beam reading as light rather than as a border tint. */
+[data-theme="atom-one-dark"] .shell .ask-question-card {
+  --aq-frame: linear-gradient(160deg, #42474f 0%, #23262b 42%, #131519 100%);
+  --aq-surface: #16181c;
+  --aq-texture:
+    repeating-linear-gradient(112deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 3px),
+    radial-gradient(130% 95% at 18% 0%, rgba(255, 255, 255, 0.085), transparent 55%),
+    linear-gradient(152deg, #2b2f36 0%, #212429 46%, #191c20 100%);
+  --aq-ink: #f0b429;
+  --aq-opt-bg: linear-gradient(180deg, #24272c, #191c20);
+  --aq-opt-border: rgba(240, 180, 41, 0.42);
+  --aq-input-bg: #101216;
 }
 
 /* ── Work-fold inner sub-message (folded round chatter) ── */

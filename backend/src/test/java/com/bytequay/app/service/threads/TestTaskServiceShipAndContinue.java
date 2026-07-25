@@ -894,6 +894,49 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
+    void recoveryWithoutCheckpointOrEvidenceRestartsPlanningInsteadOfGuessing()
+    {
+        Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
+        when(taskStore.findTaskById(parked.id())).thenReturn(Optional.of(parked));
+        when(prService.findByTask(parked.id())).thenReturn(Optional.empty());
+        when(taskStore.listPhaseEvents(parked.id())).thenReturn(List.of());
+        when(taskStore.currentLivenessTurnId(parked.id())).thenReturn(Optional.of("turn-9"));
+        when(threadStore.findThreadById(parked.threadId()))
+                .thenReturn(Optional.of(thread(parked.threadId())));
+
+        Task resumed = service.resumeTask(parked.id());
+
+        assertThat(resumed.phase()).isEqualTo(TaskPhase.PLANNING);
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        verify(sealer).seal(parked.id(), "legacy_local_restarted");
+        verify(taskStore).setCurrentLivenessTurnIdIf(parked.id(), "turn-9", null);
+        verify(taskPhaseMachine).completeRecovery(
+                parked.id(), Actor.HUMAN, "legacy_local_restarted", TaskPhase.PLANNING);
+    }
+
+    @Test
+    void recoveryWithACheckpointNeverRestartsPlanning()
+    {
+        Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
+        when(taskStore.findTaskById(parked.id())).thenReturn(Optional.of(parked));
+        when(prService.findByTask(parked.id())).thenReturn(Optional.empty());
+        when(taskStore.listPhaseEvents(parked.id())).thenReturn(List.of());
+        when(taskStore.recoveryPhase(parked.id()))
+                .thenReturn(Optional.of(TaskPhase.IMPLEMENTING));
+        when(threadStore.findThreadById(parked.threadId()))
+                .thenReturn(Optional.of(thread(parked.threadId())));
+        when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.empty());
+        StageAgent agent = mock(StageAgent.class);
+        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(agent);
+
+        service.resumeTask(parked.id());
+
+        verify(sealer, never()).seal(anyString(), anyString());
+        verify(taskPhaseMachine).completeRecovery(
+                eq(parked.id()), eq(Actor.HUMAN), eq("user_resumed_task"), any());
+    }
+
+    @Test
     void resumeNeedsAttentionAfterValidationReturnsToValidationWithoutRestartingDevelopment()
     {
         Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);

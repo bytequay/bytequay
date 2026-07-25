@@ -1164,10 +1164,18 @@ public class TaskService
             boolean retryingCi = taskStore.recoveryRequest(taskId)
                     .map(request -> TaskRecoveryRequest.KIND_CI_RETRY.equals(request.kind()))
                     .orElse(false);
+            Optional<TaskPhase> evidence = evidenceBasedRecoveryPhase(task);
+            if (taskStore.recoveryPhase(taskId).isEmpty() && evidence.isEmpty()) {
+                // Ambiguous migrated row: no checkpoint and no durable
+                // evidence. Restart planning rather than guess a phase.
+                return restartLegacyLocalInRecovery(task);
+            }
+            // The fallback matters only for legacy rows without a machine
+            // checkpoint; with one, completeRecovery restores it instead.
             Task recovered = taskPhaseMachine.completeRecovery(
                     taskId, Actor.HUMAN,
                     retryingCi ? "user_retried_ci" : "user_resumed_task",
-                    recoveryPhase(task));
+                    evidence.orElse(TaskPhase.IMPLEMENTING));
             Thread thread = threadStore.findThreadById(task.threadId())
                     .orElseThrow(() -> new ResponseStatusException(
                             HttpStatusCode.valueOf(404), "no thread: " + task.threadId()));
@@ -1301,7 +1309,14 @@ public class TaskService
                 .orElse(false);
     }
 
-    private TaskPhase recoveryPhase(Task task)
+    /**
+     * The server-derived recovery phase for a legacy row with no machine
+     * checkpoint, from durable evidence only: the last real phase event
+     * before the park, else the linked PR's authoritative state. Empty
+     * when neither exists — those rows restart planning instead of
+     * guessing.
+     */
+    private Optional<TaskPhase> evidenceBasedRecoveryPhase(Task task)
     {
         Optional<PR> pr = prService.findByTask(task.id());
         if (pr.isPresent()) {
@@ -1323,7 +1338,7 @@ public class TaskService
             }
         }
         if (blockedFrom != null && blockedFrom != TaskPhase.NEEDS_ATTENTION) {
-            return switch (blockedFrom) {
+            return Optional.of(switch (blockedFrom) {
                 case PLANNING -> blockedFrom;
                 case AWAITING_PUSH -> TaskPhase.AWAITING_PUSH;
                 case PUSHED_AWAITING_CI, AWAITING_READY -> TaskPhase.PUSHED_AWAITING_CI;
@@ -1333,17 +1348,34 @@ public class TaskService
                 case INTERNAL_REVIEW, ADDRESSING_LOCAL_COMMENTS -> blockedFrom;
                 case COMPLETED -> throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                         "task " + task.id() + " is complete");
-            };
+            });
         }
-        if (pr.isPresent()) {
-            return switch (pr.get().status()) {
-                case PR.STATUS_REMOTE_DRAFTED -> TaskPhase.PUSHED_AWAITING_CI;
-                case PR.STATUS_REMOTE_OPEN -> TaskPhase.AWAITING_REMOTE_REVIEW;
-                case PR.STATUS_LOCAL_OPEN -> TaskPhase.AWAITING_PUSH;
-                default -> TaskPhase.IMPLEMENTING;
-            };
-        }
-        return TaskPhase.IMPLEMENTING;
+        return pr.map(linked -> switch (linked.status()) {
+            case PR.STATUS_REMOTE_DRAFTED -> TaskPhase.PUSHED_AWAITING_CI;
+            case PR.STATUS_REMOTE_OPEN -> TaskPhase.AWAITING_REMOTE_REVIEW;
+            case PR.STATUS_LOCAL_OPEN -> TaskPhase.AWAITING_PUSH;
+            default -> TaskPhase.IMPLEMENTING;
+        });
+    }
+
+    /**
+     * The safe restart for an ambiguous legacy park (both axes
+     * NEEDS_ATTENTION, no checkpoint, no phase-event or PR evidence):
+     * seal every local owner, clear the stale liveness pointer, re-enter
+     * PLANNING + IDLE through the recovery command, and arm a fresh plan
+     * kickoff. The phase-transition listener reopens the PlanStage.
+     */
+    private Task restartLegacyLocalInRecovery(Task task)
+    {
+        sealer.seal(task.id(), "legacy_local_restarted");
+        taskStore.currentLivenessTurnId(task.id()).ifPresent(
+                current -> taskStore.setCurrentLivenessTurnIdIf(task.id(), current, null));
+        Task restarted = taskPhaseMachine.completeRecovery(
+                task.id(), Actor.HUMAN, "legacy_local_restarted", TaskPhase.PLANNING);
+        eventPublisher.publishEvent(new PlanKickoffRequested(
+                task.id(), task.openingPrompt(), /* trunkPlan */ null));
+        clearNeedsAttentionNotifications(task);
+        return restarted;
     }
 
     private static boolean shouldResumeRuntime(

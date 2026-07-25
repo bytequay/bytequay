@@ -18,6 +18,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
@@ -249,6 +250,109 @@ public class TaskPhaseMachine
                 taskStore.appendStatusEvent(taskId, task.status(), to, actor, reason, now);
             }
             return task.withPhase(restored).withStatus(to).withEndedAt(null).withErrorMessage(null);
+        });
+    }
+
+    /**
+     * The only generic exit from ERRORED. Requires the exact failed
+     * (or cancelled) turn to still be the task's current liveness
+     * authority and an executable phase, then atomically moves
+     * ERRORED → IDLE with its audit and clears the copied failure
+     * fields. Returns the failed turn so the caller can insert its
+     * keyed replacement + move the pointer in the same command —
+     * an insert failure rolls all of it back, leaving ERRORED.
+     */
+    @Transactional
+    public ThreadTurn retryErrored(String taskId, String failedTurnId)
+    {
+        requireNonNull(failedTurnId, "failedTurnId is null");
+        return withTaskLock(taskId, () -> {
+            Task task = taskStore.findTaskById(taskId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no task: " + taskId));
+            if (task.status() != TaskStatus.ERRORED) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " is not errored");
+            }
+            if (task.phase() == TaskPhase.COMPLETED || task.phase() == TaskPhase.NEEDS_ATTENTION) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " cannot retry from phase " + task.phase());
+            }
+            if (!failedTurnId.equals(taskStore.currentLivenessTurnId(taskId).orElse(null))) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "turn " + failedTurnId + " is no longer task " + taskId
+                                + "'s current failure");
+            }
+            ThreadTurn failed = turnStore.findTurnById(failedTurnId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(409), "no turn: " + failedTurnId));
+            if (failed.status() != ThreadTurnStatus.FAILED
+                    && failed.status() != ThreadTurnStatus.CANCELLED) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "turn " + failedTurnId + " is not a terminal failure");
+            }
+            taskStore.updateStatusIf(taskId, TaskStatus.ERRORED, TaskStatus.IDLE);
+            taskStore.appendStatusEvent(
+                    taskId, TaskStatus.ERRORED, TaskStatus.IDLE,
+                    Actor.HUMAN, "task_retry", Instant.now());
+            taskStore.updateRuntimeFailure(taskId, null, null);
+            return failed;
+        });
+    }
+
+    /**
+     * IDLE → ARCHIVED, callable only from the idle archiver's guarded
+     * scan. Re-verifies under the lock that the task is still IDLE with
+     * no queued/running liveness work and no pending resume/recovery
+     * request; the archiver owns the idle-threshold and
+     * coordinator/validation guards.
+     */
+    @Transactional
+    public void archiveIdle(String taskId)
+    {
+        withTaskLock(taskId, () -> {
+            Task task = taskStore.findTaskById(taskId).orElse(null);
+            if (task == null || task.status() != TaskStatus.IDLE) {
+                return null;
+            }
+            if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
+                    || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()
+                    || taskStore.resumeRequestedAt(taskId).isPresent()
+                    || taskStore.recoveryRequest(taskId).isPresent()) {
+                return null;
+            }
+            taskStore.updateStatusIf(taskId, TaskStatus.IDLE, TaskStatus.ARCHIVED);
+            taskStore.appendStatusEvent(
+                    taskId, TaskStatus.IDLE, TaskStatus.ARCHIVED,
+                    Actor.SCHEDULER, "idle_archived", Instant.now());
+            return null;
+        });
+    }
+
+    /** The separate ARCHIVED → IDLE intent. It cannot touch PAUSED, and
+     *  an anomalous live turn must finish first. */
+    @Transactional
+    public Task reviveArchived(String taskId)
+    {
+        return withTaskLock(taskId, () -> {
+            Task task = taskStore.findTaskById(taskId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no task: " + taskId));
+            if (task.status() != TaskStatus.ARCHIVED) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " is not archived");
+            }
+            if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
+                    || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " still has live turns");
+            }
+            taskStore.updateStatusIf(taskId, TaskStatus.ARCHIVED, TaskStatus.IDLE);
+            taskStore.appendStatusEvent(
+                    taskId, TaskStatus.ARCHIVED, TaskStatus.IDLE,
+                    Actor.HUMAN, "user_resumed_task", Instant.now());
+            taskStore.updateRuntimeFailure(taskId, null, null);
+            return task.withStatus(TaskStatus.IDLE).withEndedAt(null).withErrorMessage(null);
         });
     }
 

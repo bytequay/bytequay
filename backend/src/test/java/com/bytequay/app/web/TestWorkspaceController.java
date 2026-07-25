@@ -19,6 +19,8 @@ import com.bytequay.app.service.workspaces.WorkspaceService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -42,9 +44,13 @@ class TestWorkspaceController
     @Autowired
     private WorkspaceController controller;
     @Autowired
+    private WorkspaceRepositoryController repositoryController;
+    @Autowired
     private WorkspaceService workspaces;
     @Autowired
     private WorkspaceStore workspaceStore;
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @Test
     void setAutoFixEnabledFlipsTheFlagAndPersists()
@@ -84,6 +90,62 @@ class TestWorkspaceController
                 new WorkspaceController.AutoFixEnabledBody(true)))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("not attached");
+    }
+
+    @Test
+    void missingUpstreamRelationReturnsNoContent()
+    {
+        assertThat(repositoryController.relation(WORKSPACE_ID).getStatusCode())
+                .isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(repositoryController.relation(WORKSPACE_ID).getBody()).isNull();
+    }
+
+    @Test
+    void discoversACompletedUpstreamCherryPickAfterReload()
+    {
+        jdbc.update("""
+                INSERT INTO upstream_cherry_pick_job (
+                    id, workspace_id, upstream_workspace_id, status,
+                    source_branch, source_ref, base_branch, base_ref,
+                    result_branch, commit_specs_json, applied_shas_json,
+                    skipped_shas_json, next_commit_index,
+                    conflict_paths_json, worktree_path,
+                    open_draft_pr, create_harness_watch, budget_milli_usd,
+                    created_at_ms, updated_at_ms)
+                VALUES ('reload-job', ?, ?, 'COMPLETED', 'main', 'source-sha',
+                    'main', 'base-sha', 'release-pick',
+                    '[{"sha":"commit-1","upstreamPr":"acme/upstream#1","subject":"Feature"}]',
+                    '["commit-1"]', '[]', 1, '[]', '/tmp/reload-job',
+                    0, 0, 5000, 100, 100)
+                """, WORKSPACE_ID, WORKSPACE_ID);
+
+        assertThat(repositoryController.upstreamCherryPicks(WORKSPACE_ID, 20))
+                .extracting(job -> job.jobId())
+                .contains("reload-job");
+    }
+
+    @Test
+    void retryEndpointRejectsANonFailedUpstreamCherryPick()
+    {
+        jdbc.update("""
+                INSERT INTO upstream_cherry_pick_job (
+                    id, workspace_id, upstream_workspace_id, status,
+                    source_branch, source_ref, base_branch, base_ref,
+                    result_branch, commit_specs_json, applied_shas_json,
+                    skipped_shas_json, next_commit_index,
+                    conflict_paths_json, worktree_path,
+                    open_draft_pr, create_harness_watch, budget_milli_usd,
+                    created_at_ms, updated_at_ms)
+                VALUES ('retry-completed-job', ?, ?, 'COMPLETED',
+                    'main', 'origin/main', 'main', 'base-sha', 'release-pick',
+                    '[]', '[]', '[]', 0, '[]', '/tmp/retry-completed-job',
+                    0, 0, 5000, 200, 200)
+                """, WORKSPACE_ID, WORKSPACE_ID);
+
+        assertThatThrownBy(() -> repositoryController.retryUpstreamCherryPick(
+                WORKSPACE_ID, "retry-completed-job"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure ->
+                        assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
     }
 
     private WorkspaceRepo findRepo(String repoFullName)

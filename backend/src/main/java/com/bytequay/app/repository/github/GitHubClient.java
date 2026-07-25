@@ -917,6 +917,30 @@ public class GitHubClient
         }
     }
 
+    @Override
+    public List<PullRequest> listPullRequestsForCommit(String pat, RepoRef repo, String sha)
+    {
+        requireNonNull(sha, "sha is null");
+        try {
+            List<GitHubRepoPullRequestItem> items = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}/commits/{sha}/pulls",
+                            repo.owner(), repo.repo(), sha)
+                    .header("Authorization", authorization(pat))
+                    .header("Accept", "application/vnd.github+json")
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            if (items == null) {
+                return ImmutableList.of();
+            }
+            return items.stream()
+                    .map(item -> toPullRequest(item, repo.fullName()))
+                    .collect(toImmutableList());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
     /**
      * Opens a new pull request. Maps to POST /repos/{owner}/{repo}/pulls.
      * The {@link CreatePullRequestCommand#head} field carries the

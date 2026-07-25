@@ -1133,6 +1133,8 @@ function App() {
           <TaskBrainRoute
             threadId={nav.threadId}
             taskId={nav.taskId}
+            collapsed={railCollapsed}
+            onToggleCollapse={() => setRailCollapsed(c => !c)}
             initialReviewRoundId={nav.initialReviewRoundId}
             initialPrSubTab={nav.initialPrSubTab}
             onOpenAgentReview={openAgentReview}
@@ -1159,6 +1161,8 @@ function App() {
             taskId={nav.taskId}
             stageId={nav.stageId}
             threadId={nav.threadId}
+            collapsed={railCollapsed}
+            onToggleCollapse={() => setRailCollapsed(c => !c)}
             onOpenStage={stageId => setNav({
               view: 'stage-detail', threadId: nav.threadId, taskId: nav.taskId, stageId,
             })}
@@ -1321,11 +1325,6 @@ function App() {
             workspaceId={activeWorkspaceId}
             onSelectSection={(section) => setNav({ view: 'settings', section })}
             onOpenThread={openThread}
-            onClearPat={async () => {
-              await window.bridge.clearPat();
-              setNav({ view: 'home' });
-              setStatus('needs-pat');
-            }}
           />
         )}
         </RouteErrorBoundary>

@@ -918,13 +918,7 @@ public class BrainReviewServiceImpl
         stageStore.recordEvent(
                 stageId, taskId, StageEventType.PLAN_FAILED,
                 Map.of("error", "The mandatory Brain plan self-review failed twice."));
-        if (task.phase() != TaskPhase.NEEDS_ATTENTION) {
-            phaseMachine.transition(
-                    taskId, TaskPhase.NEEDS_ATTENTION, "plan_self_review_failed", Actor.AGENT);
-        }
-        if (task.status() != TaskStatus.NEEDS_ATTENTION) {
-            taskStore.saveTask(task.withStatus(TaskStatus.NEEDS_ATTENTION));
-        }
+        phaseMachine.parkOperational(taskId, Actor.AGENT, "plan_self_review_failed");
         notifyNeedsAttention(
                 task.threadId(), taskId, "{\"reason\":\"plan self-review failed twice\"}");
     }

@@ -24,7 +24,6 @@ import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
-import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
@@ -553,13 +552,7 @@ public class CiFixRunExecutor
         if (isTerminal(current)) {
             return;
         }
-        if (current.phase() != TaskPhase.NEEDS_ATTENTION) {
-            phaseMachine.transition(
-                    current.id(), TaskPhase.NEEDS_ATTENTION, reason, Actor.AGENT);
-        }
-        if (current.status() != TaskStatus.NEEDS_ATTENTION) {
-            taskStore.saveTask(current.withStatus(TaskStatus.NEEDS_ATTENTION));
-        }
+        phaseMachine.parkOperational(current.id(), Actor.AGENT, reason);
     }
 
     private static boolean isTerminal(Task task)

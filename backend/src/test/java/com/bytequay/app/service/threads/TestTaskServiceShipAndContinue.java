@@ -175,6 +175,22 @@ class TestTaskServiceShipAndContinue
             taskStore.saveTask(resumed);
             return resumed;
         });
+        when(taskPhaseMachine.completeRecovery(anyString(), any(), anyString(), any()))
+                .thenAnswer(invocation -> {
+                    String id = invocation.getArgument(0);
+                    TaskPhase fallback = invocation.getArgument(3);
+                    Task current = taskStore.findTaskById(id).orElseThrow();
+                    TaskPhase restored = current.phase() != TaskPhase.NEEDS_ATTENTION
+                            ? current.phase()
+                            : fallback;
+                    Task recovered = current
+                            .withPhase(restored)
+                            .withStatus(TaskPhaseMachine.resumedStatus(restored))
+                            .withEndedAt(null)
+                            .withErrorMessage(null);
+                    taskStore.saveTask(recovered);
+                    return recovered;
+                });
     }
 
     @Test
@@ -869,10 +885,10 @@ class TestTaskServiceShipAndContinue
 
         Task resumed = service.resumeTask(parked.id());
 
-        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IN_REVIEW);
         assertThat(resumed.phase()).isEqualTo(TaskPhase.PUSHED_AWAITING_CI);
-        verify(taskPhaseMachine).recover(
-                parked.id(), TaskPhase.PUSHED_AWAITING_CI, "user_resumed_task");
+        verify(taskPhaseMachine).completeRecovery(
+                parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.PUSHED_AWAITING_CI);
         verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
         verify(notifications).markRead("notice-1");
     }
@@ -892,8 +908,8 @@ class TestTaskServiceShipAndContinue
         Task resumed = service.resumeTask(parked.id());
 
         assertThat(resumed.phase()).isEqualTo(TaskPhase.VALIDATING);
-        verify(taskPhaseMachine).recover(
-                parked.id(), TaskPhase.VALIDATING, "user_resumed_task");
+        verify(taskPhaseMachine).completeRecovery(
+                parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.VALIDATING);
         verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
     }
 
@@ -914,8 +930,8 @@ class TestTaskServiceShipAndContinue
         Task resumed = service.resumeTask(parked.id());
 
         assertThat(resumed.phase()).isEqualTo(TaskPhase.INTERNAL_REVIEW);
-        verify(taskPhaseMachine).recover(
-                parked.id(), TaskPhase.INTERNAL_REVIEW, "user_resumed_task");
+        verify(taskPhaseMachine).completeRecovery(
+                parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.INTERNAL_REVIEW);
         verify(brainReview).ownsParkedResume(parked.id());
         verify(brainReview).resumeParkedReview(parked.id());
         verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
@@ -938,8 +954,8 @@ class TestTaskServiceShipAndContinue
         Task resumed = service.resumeTask(parked.id());
 
         assertThat(resumed.phase()).isEqualTo(TaskPhase.AWAITING_REMOTE_REVIEW);
-        verify(taskPhaseMachine).recover(
-                parked.id(), TaskPhase.AWAITING_REMOTE_REVIEW, "user_resumed_task");
+        verify(taskPhaseMachine).completeRecovery(
+                parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.AWAITING_REMOTE_REVIEW);
         verify(brainReview).resumeParkedReview(parked.id());
         verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
     }
@@ -961,7 +977,8 @@ class TestTaskServiceShipAndContinue
         Task resumed = service.resumeTask(parked.id());
 
         assertThat(resumed.phase()).isEqualTo(TaskPhase.PLANNING);
-        verify(taskPhaseMachine).recover(parked.id(), TaskPhase.PLANNING, "user_resumed_task");
+        verify(taskPhaseMachine).completeRecovery(
+                parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.PLANNING);
         verify(brainReview).resumeParkedReview(parked.id());
         verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
     }
@@ -988,8 +1005,8 @@ class TestTaskServiceShipAndContinue
         Task resumed = service.retryFailedCi(parked.threadId(), parked.id());
 
         assertThat(resumed.phase()).isEqualTo(TaskPhase.PUSHED_AWAITING_CI);
-        verify(taskPhaseMachine).recover(
-                parked.id(), TaskPhase.PUSHED_AWAITING_CI, "user_retried_ci");
+        verify(taskPhaseMachine).completeRecovery(
+                parked.id(), Actor.HUMAN, "user_retried_ci", TaskPhase.PUSHED_AWAITING_CI);
     }
 
     @Test
@@ -1004,7 +1021,7 @@ class TestTaskServiceShipAndContinue
         assertThatThrownBy(() -> service.resumeTask(parked.id()))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("explicit Retry CI");
-        verify(taskPhaseMachine, never()).recover(anyString(), any(), anyString());
+        verify(taskPhaseMachine, never()).requestRecovery(anyString(), anyString());
     }
 
     private static Thread thread(String id)

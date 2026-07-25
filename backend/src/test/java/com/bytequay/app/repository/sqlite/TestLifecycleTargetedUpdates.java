@@ -19,6 +19,8 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
@@ -100,6 +102,30 @@ class TestLifecycleTargetedUpdates
         taskStore.clearPauseCheckpoint(taskId);
         assertThat(taskStore.pausedStatus(taskId)).isEmpty();
         assertThat(taskStore.resumeRequestedAt(taskId)).isEmpty();
+    }
+
+    @Test
+    void recoveryCheckpointAndRequestRoundTrip()
+    {
+        String taskId = seedTask();
+
+        taskStore.checkpointRecovery(taskId, TaskPhase.VALIDATING, "{\"reason\":\"validation_failed\"}");
+        taskStore.recordRecoveryRequest(taskId, "req-1", TaskRecoveryRequest.KIND_NORMAL, null, NOW);
+        assertThat(taskStore.recoveryPhase(taskId)).contains(TaskPhase.VALIDATING);
+        TaskRecoveryRequest request = taskStore.recoveryRequest(taskId).orElseThrow();
+        assertThat(request.id()).isEqualTo("req-1");
+        assertThat(request.kind()).isEqualTo(TaskRecoveryRequest.KIND_NORMAL);
+        assertThat(request.requestedAt()).isEqualTo(NOW);
+
+        // A full-row save must not clobber the entity-managed checkpoint.
+        taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow()
+                .withStatus(TaskStatus.NEEDS_ATTENTION));
+        assertThat(taskStore.recoveryPhase(taskId)).contains(TaskPhase.VALIDATING);
+        assertThat(taskStore.recoveryRequest(taskId)).isPresent();
+
+        taskStore.clearRecoveryState(taskId);
+        assertThat(taskStore.recoveryPhase(taskId)).isEmpty();
+        assertThat(taskStore.recoveryRequest(taskId)).isEmpty();
     }
 
     @Test

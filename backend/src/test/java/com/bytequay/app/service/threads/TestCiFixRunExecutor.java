@@ -380,8 +380,7 @@ class TestCiFixRunExecutor
                 task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
                 REMOTE_STAGE_ID, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS);
         verify(agentRuns).transition("run-episode", AgentRun.STATUS_FAILED, "attempts_exhausted");
-        verify(phaseMachine).transition(
-                task.id(), TaskPhase.NEEDS_ATTENTION, "ci_fix_attempts_exhausted", Actor.AGENT);
+        verify(phaseMachine).parkOperational(task.id(), Actor.AGENT, "ci_fix_attempts_exhausted");
         verify(notificationService).notifyNeedsAttention(eq(thread.id()), eq(task.id()), anyString());
         verify(pullRequests, never()).rerunFailedChecks(anyString(), anyString());
     }
@@ -403,17 +402,12 @@ class TestCiFixRunExecutor
         verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any());
         verify(pullRequests, never()).rerunFailedChecks(anyString(), anyString());
         verify(agentRuns).transition("run-1", AgentRun.STATUS_FAILED, "attempts_exhausted");
-        verify(phaseMachine).transition(
-                "ship-4", TaskPhase.NEEDS_ATTENTION, "ci_fix_attempts_exhausted",
-                Actor.AGENT);
-
-        ArgumentCaptor<Task> parkedCaptor = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore).saveTask(parkedCaptor.capture());
-        assertThat(parkedCaptor.getValue().status()).isEqualTo(TaskStatus.NEEDS_ATTENTION);
+        verify(phaseMachine).parkOperational("ship-4", Actor.AGENT, "ci_fix_attempts_exhausted");
 
         // The next periodic pass reads the persisted parked row. It must stop
         // before fetching CI/opening a new live run at iteration zero.
-        when(taskStore.listWithLinkedPr(200)).thenReturn(List.of(parkedCaptor.getValue()));
+        Task parked = task.withStatus(TaskStatus.NEEDS_ATTENTION);
+        when(taskStore.listWithLinkedPr(200)).thenReturn(List.of(parked));
         when(pullRequests.refreshPullRequestDetail(REPO, PR_NUMBER))
                 .thenReturn(prDetailWithBody("still failing"));
         AutomationCoordinator coordinator = new AutomationCoordinator(

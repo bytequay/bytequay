@@ -18,6 +18,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
+import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
 
 import java.time.Instant;
@@ -142,6 +143,41 @@ public interface TaskStore
     default void clearProcessPid(String taskId)
     {
         throw new UnsupportedOperationException("clearProcessPid");
+    }
+
+    /** Checkpoint the pre-park phase + its typed context in the same
+     *  transaction as the NEEDS_ATTENTION move. Entity-managed — never
+     *  written by {@link #saveTask}. */
+    default void checkpointRecovery(String taskId, TaskPhase recoveryPhase, String contextJson)
+    {
+        throw new UnsupportedOperationException("checkpointRecovery");
+    }
+
+    /** The pre-park phase checkpoint, when one was recorded. */
+    default Optional<TaskPhase> recoveryPhase(String taskId)
+    {
+        throw new UnsupportedOperationException("recoveryPhase");
+    }
+
+    /** Durably record a validated recovery request while the task stays
+     *  parked; the stop reconciler's barrier command consumes it. */
+    default void recordRecoveryRequest(
+            String taskId, String requestId, String kind, String payloadJson, Instant at)
+    {
+        throw new UnsupportedOperationException("recordRecoveryRequest");
+    }
+
+    /** The live recovery request, when one was recorded. */
+    default Optional<TaskRecoveryRequest> recoveryRequest(String taskId)
+    {
+        throw new UnsupportedOperationException("recoveryRequest");
+    }
+
+    /** Clear the recovery checkpoint + request together — the
+     *  recovery-completion write. */
+    default void clearRecoveryState(String taskId)
+    {
+        throw new UnsupportedOperationException("clearRecoveryState");
     }
 
     /** Single-row lookup by id. */

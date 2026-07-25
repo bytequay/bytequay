@@ -107,6 +107,24 @@ describe('TaskBrainRoute', () => {
     expect(await screen.findByText('Brain is thinking…')).toBeTruthy();
   });
 
+  it('removes the task-specific sidebar when the shared app rail is collapsed', () => {
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn(() => new Promise(() => {})),
+    };
+    render(
+      <TaskBrainRoute
+        threadId="t1"
+        taskId="task-1"
+        collapsed
+        onOpenStage={() => {}}
+        onClosed={() => {}}
+      />,
+    );
+
+    expect(document.querySelector('.shell.full-width')).toBeTruthy();
+    expect(document.querySelector('.workspace-task-sidebar-v2')).toBeNull();
+  });
+
   it('opens the embedded PR Changes tab and zooms the same detail in place', async () => {
     const file: DiffFileDto = {
       filename: 'frontend/src/App.tsx', status: 'modified', additions: 3, deletions: 1, patch: null,
@@ -547,6 +565,16 @@ describe('StageDetailRoute', () => {
     fireEvent.change(box, { target: { value: 'fix the import' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(steerStage).toHaveBeenCalledWith('stage-1', 'fix the import', []));
+  });
+
+  it('removes the stage-specific sidebar when the shared app rail is collapsed', () => {
+    (window as unknown as { bridge: unknown }).bridge = {
+      getStageDetail: vi.fn(() => new Promise(() => {})),
+    };
+    render(<StageDetailRoute threadId="t1" taskId="task-1" stageId="stage-1" collapsed />);
+
+    expect(document.querySelector('.shell.full-width')).toBeTruthy();
+    expect(document.querySelector('.workspace-task-sidebar-v2')).toBeNull();
   });
 
   it('routes the stage feed and permission decision through its conversation thread', async () => {

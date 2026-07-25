@@ -103,7 +103,7 @@ function stageKindLabel(kind: StageKind): string {
  */
 export function StageDetailRoute({
   threadId, taskId, stageId, onOpenStage, onOpenRun, onOpenTask,
-  onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, onToggleCollapse, onOpenBrain,
+  onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, collapsed, onToggleCollapse, onOpenBrain,
   trunkLabel, workspaceName, workspaceRepository,
   onNavigateGlobal, onSwitchWorkspace,
   onOpenAgentReview,
@@ -123,6 +123,7 @@ export function StageDetailRoute({
   onForward?: () => void;
   backEnabled?: boolean;
   forwardEnabled?: boolean;
+  collapsed?: boolean;
   onToggleCollapse?: () => void;
   /** Navigate to this task's brain page — the live plan's Plan node. */
   onOpenBrain?: () => void;
@@ -802,7 +803,7 @@ export function StageDetailRoute({
   return (
     <StageDetailPage
       stageKind={stageKind}
-      sidebar={sidebar}
+      sidebar={collapsed ? undefined : sidebar}
       openTabRequest={openTabRequest}
       stage={{ title: activeStageLabel, branch: data?.task.branch ?? brain.task.branch }}
       taskTitle={data?.task.title ?? brain.task.title}

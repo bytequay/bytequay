@@ -11,15 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import CurrentUserAvatar from '../CurrentUserAvatar';
 import type {
   ActivityItemDto,
   IssueDetailDto,
   IssueDto,
-  LocalCommitDetailDto,
-  LocalCommitDto,
-  LocalCommitFileDto,
   PullRequestCommitDto,
   PullRequestDetailDto,
   PullRequestDto,
@@ -29,21 +26,27 @@ import {
   workspaceApi,
   type BranchComparisonDto,
   type CherryPickResultDto,
-  type UpstreamCommitsDto,
   type WorkspaceBranchDto,
-  type WorkspaceRelationDto,
   type WorkspaceRepositoryDto,
   type WorkspaceTrunkDto,
 } from './workspaceApi';
 import PullRequestBoardList from './PullRequestBoardList';
 import WorkspacePullsScreen from '../pulls/WorkspacePullsScreen';
 import { CreationOriginBadge } from '../ui/CreationOriginBadge';
+import WorkspaceCommitsPage from './WorkspaceCommitsPage';
 import {
-  contiguousRangeAfterToggle,
-  rangeLabel,
-  UpstreamCherryPicker,
-  UpstreamCommitHistory,
-} from './WorkspaceUpstreamCommits';
+  BodyMessage,
+  BranchCheckIcon,
+  BranchIcon,
+  ChevronDownIcon,
+  ExternalIcon,
+  PageHeader,
+  SearchIcon,
+  isToday,
+  message,
+  prInitials,
+  relative,
+} from './WorkspaceRepoUi';
 
 export type WorkspaceRepoSection = 'pull-requests' | 'issues' | 'branches' | 'commits';
 
@@ -136,7 +139,7 @@ export default function WorkspaceRepoPage({
       />
     );
   }
-  return <CommitsPage workspaceId={workspaceId} repo={repo} onOpenTrunk={onOpenTrunk}
+  return <WorkspaceCommitsPage workspaceId={workspaceId} repo={repo} onOpenTrunk={onOpenTrunk}
     onOpenHarness={onOpenHarness} />;
 }
 
@@ -1278,380 +1281,6 @@ function BranchDetailPage({
   );
 }
 
-function CommitsPage({
-  workspaceId,
-  repo,
-  onOpenTrunk,
-  onOpenHarness,
-}: {
-  workspaceId: string;
-  repo: WorkspaceRepositoryDto;
-  onOpenTrunk?: (trunkId: string) => void;
-  onOpenHarness?: (watchId?: string) => void;
-}) {
-  const visualFrame = document.documentElement.dataset.workspaceVisualFrame;
-  const visualCommitStudy = visualFrame === '3g' || visualFrame === '4a';
-  const [rows, setRows] = useState<LocalCommitDto[]>([]);
-  const [branches, setBranches] = useState<WorkspaceBranchDto[]>([]);
-  const [branch, setBranch] = useState(visualCommitStudy
-    ? 'master'
-    : repo.local.currentBranch
-    ?? repo.local.defaultBranch?.replace(/^origin\//, '')
-    ?? repo.defaultBaseBranch?.replace(/^origin\//, '')
-    ?? 'HEAD');
-  const [selected, setSelected] = useState<LocalCommitDto | null>(null);
-  const [detail, setDetail] = useState<LocalCommitDetailDto | null>(null);
-  const [files, setFiles] = useState<LocalCommitFileDto[]>([]);
-  const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [cherryOpen, setCherryOpen] = useState(false);
-  const [source, setSource] = useState<'fork' | 'upstream'>('fork');
-  const [relation, setRelation] = useState<WorkspaceRelationDto | null>(null);
-  const [upstream, setUpstream] = useState<UpstreamCommitsDto | null>(null);
-  const [upstreamRange, setUpstreamRange] = useState<[number, number] | null>(null);
-  const [rangeExpanded, setRangeExpanded] = useState(false);
-  const [upstreamCherryOpen, setUpstreamCherryOpen] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    void workspaceApi.relation(workspaceId)
-      .then(next => { if (!cancelled) setRelation(next); })
-      .catch(() => { if (!cancelled) setRelation(null); });
-    return () => { cancelled = true; };
-  }, [workspaceId]);
-
-  useEffect(() => {
-    if (source !== 'fork') return undefined;
-    let cancelled = false;
-    setLoading(true);
-    void Promise.all([
-      workspaceApi.commits(workspaceId, branch === 'HEAD' ? undefined : branch),
-      workspaceApi.branches(workspaceId),
-    ])
-      .then(([result, nextBranches]) => {
-        if (!cancelled) {
-          setRows(result);
-          setBranches(nextBranches);
-          setSelected(document.documentElement.dataset.workspaceVisualFrame === '4a'
-            ? result[0] ?? null
-            : null);
-          setError(null);
-        }
-      })
-      .catch(reason => { if (!cancelled) setError(message(reason)); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [branch, source, workspaceId]);
-
-  useEffect(() => {
-    if (source !== 'upstream') return undefined;
-    let cancelled = false;
-    setLoading(true);
-    setUpstreamRange(null);
-    setRangeExpanded(false);
-    void workspaceApi.upstreamCommits(workspaceId)
-      .then(next => {
-        if (cancelled) return;
-        setUpstream(next);
-        setError(null);
-      })
-      .catch(reason => { if (!cancelled) setError(message(reason)); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [source, workspaceId]);
-
-  useEffect(() => {
-    if (source !== 'fork' || selected === null) {
-      setDetail(null);
-      setFiles([]);
-      return;
-    }
-    setDetail(null);
-    setFiles([]);
-    let cancelled = false;
-    void Promise.all([
-      workspaceApi.commit(workspaceId, selected.sha),
-      workspaceApi.commitFiles(workspaceId, selected.sha),
-    ]).then(([nextDetail, nextFiles]) => {
-      if (!cancelled) {
-        setDetail(nextDetail);
-        setFiles(nextFiles);
-      }
-    }).catch(reason => { if (!cancelled) setError(message(reason)); });
-    return () => { cancelled = true; };
-  }, [workspaceId, selected, source]);
-
-  const shown = rows.filter(row => `${row.subject} ${row.sha} ${row.authorName}`
-    .toLowerCase().includes(query.trim().toLowerCase()));
-  const groups = useMemo(() => groupCommits(shown), [shown]);
-
-  return (
-    <section className="wu-page wu-commits wu-commit-history">
-      <PageHeader title="Commits">
-        <span className="wu-commit-source" role="group" aria-label="Commit source">
-          <button type="button" className={source === 'fork' ? 'active' : ''}
-            onClick={() => setSource('fork')}>{repo.repo}</button>
-          <button type="button" className={source === 'upstream' ? 'active' : ''}
-            disabled={relation === null || !relation.commitsEnabled}
-            title={relation === null ? 'Link an upstream workspace in Settings → Relations' : undefined}
-            onClick={() => setSource('upstream')}>
-            <span aria-hidden>⑂</span>{relation?.upstreamWorkspaceName ?? 'upstream'}<small>UPSTREAM</small>
-          </button>
-        </span>
-        {source === 'fork' ? (
-          <label className="wu-branch-select"><BranchIcon />
-            <select value={branch} onChange={event => setBranch(event.target.value)}>
-              {branches.length === 0 && <option value={branch}>{branch}</option>}
-              {branches.filter(candidate => !candidate.remoteOnly).map(candidate => (
-                <option value={candidate.name} key={candidate.name}>{candidate.name}</option>
-              ))}
-            </select>
-            <span>{branch}</span>
-            <ChevronDownIcon />
-          </label>
-        ) : (
-          <span className="wu-branch-select is-static"><BranchIcon />
-            <span>{upstream?.revision ?? 'default'}</span>
-          </span>
-        )}
-        <label className="wu-search">
-          <SearchIcon />
-          <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search commits…" />
-        </label>
-      </PageHeader>
-      {source === 'upstream' && upstream !== null && (
-        <div className="wu-upstream-banner">
-          <span aria-hidden>⑂</span>
-          <span>Reading from upstream workspace <b>{upstream.upstreamWorkspaceName}</b>
-            {' '}({upstream.upstreamRepoFullName}) — read-only
-            {upstream.lastFetchedAt !== null && <> · fetched {relative(upstream.lastFetchedAt)}</>}</span>
-          <i>{upstream.notInForkCount.toLocaleString()} not in {repo.repo}</i>
-          <button type="button" onClick={() => {
-            window.location.hash = `#/workspace/${encodeURIComponent(workspaceId)}/settings/relations`;
-          }}>Manage relation</button>
-        </div>
-      )}
-      {error !== null && <div className="wu-inline-error">{error}</div>}
-      {source === 'upstream' ? (
-        <UpstreamCommitHistory
-          rows={upstream?.commits ?? []}
-          query={query}
-          loading={loading}
-          range={upstreamRange}
-          rangeExpanded={rangeExpanded}
-          onExpandRange={() => setRangeExpanded(true)}
-          onToggle={index => {
-            setUpstreamRange(current => contiguousRangeAfterToggle(current, index));
-            setRangeExpanded(false);
-          }}
-        />
-      ) : <div className="wu-commit-history__groups">
-        {loading ? <BodyMessage>Loading commits…</BodyMessage> : [...groups].map(([day, commits]) => (
-          <section key={day}>
-            <h2>{day}</h2>
-            <div className="wu-commit-history__list">
-              {commits.map(commit => {
-                const open = selected?.sha === commit.sha;
-                const agent = isAgentCommit(commit);
-                const expandedPresentation = selected !== null;
-                const ciStatus = commit.ciStatus ?? 'passed';
-                return (
-                  <article className={open ? 'expanded' : ''} key={commit.sha}>
-                    <button type="button" className="wu-commit-history__row"
-                      onClick={() => setSelected(open ? null : commit)}>
-                      {expandedPresentation && (
-                        <span className="wu-disclosure" aria-hidden>
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d={open ? 'm6 9 6 6 6-6' : 'm9 18 6-6-6-6'} />
-                          </svg>
-                        </span>
-                      )}
-                      {expandedPresentation && (
-                        agent
-                          ? <span className="wu-agent-avatar"><CommitAgentIcon /></span>
-                          : <CommitAvatarLetters name={commit.authorName} />
-                      )}
-                      <code>{commit.shortSha}</code>
-                      <strong>{commit.subject}</strong>
-                      {agent
-                        ? <i className="wu-agent-pill">agent</i>
-                        : <span className="wu-commit-author">{commit.authorName}</span>}
-                      {!open && (
-                        <b className={`wu-ci-mark ${ciStatus}`} aria-label={ciStatus}>
-                          {ciStatus === 'failed'
-                            ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                              strokeWidth="2.4" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                            : <BranchCheckIcon />}
-                        </b>
-                      )}
-                      <time>{commit.displayTime ?? (commit.authoredAt === null ? '' : relative(commit.authoredAt))}</time>
-                    </button>
-                    {open && (
-                      <div className="wu-commit-expanded">
-                        <div className="wu-commit-expanded__body">
-                          {detail?.body?.trim() || detail?.subject || commit.subject}
-                          {extractPrNumber(commit.subject) !== null && !detail?.body?.includes('Refs task') && (
-                            <p>Refs task history · reviewed with pull request #{extractPrNumber(commit.subject)}.</p>
-                          )}
-                        </div>
-                        <div className="wu-commit-expanded__footer">
-                          <span>
-                            <b>+{files.reduce((sum, file) => sum + Math.max(file.additions, 0), 0)}</b>
-                            {' '}
-                            <i>−{files.reduce((sum, file) => sum + Math.max(file.deletions, 0), 0)}</i>
-                            {' · '}{files.length} files
-                          </span>
-                          {agent && (
-                            <small>
-                              committed by <b>{commit.authorName}</b> on behalf of {commit.onBehalfOf ?? 'this workspace'}
-                            </small>
-                          )}
-                          <span className="wu-row-spacer" />
-                          <button type="button" onClick={() => { void navigator.clipboard.writeText(commit.sha); }}>
-                            Copy SHA
-                          </button>
-                          <button type="button" onClick={() => setCherryOpen(true)}>Cherry-pick…</button>
-                          <button type="button" onClick={() => {
-                            void window.bridge.openInAppBrowser(`https://github.com/${repo.fullName}/commit/${commit.sha}`);
-                          }}>GitHub<ExternalIcon /></button>
-                        </div>
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        ))}
-        {!loading && rows.length === 0 && <BodyMessage>No commits found in the local clone.</BodyMessage>}
-      </div>}
-      {source === 'upstream' && upstreamRange !== null && upstream !== null && (
-        <div className="wu-upstream-cherry-bar">
-          <strong>{upstreamRange[1] - upstreamRange[0] + 1} commits</strong>
-          <span>{rangeLabel(
-            upstream.commits.slice(upstreamRange[0], upstreamRange[1] + 1),
-            upstream.commits[upstreamRange[1] + 1],
-          )}</span>
-          <code>{upstream.commits[upstreamRange[0]]?.shortSha}…{upstream.commits[upstreamRange[1]]?.shortSha}</code>
-          <button type="button" onClick={() => setUpstreamRange(null)}>Clear</button>
-          <button type="button" onClick={() => setUpstreamCherryOpen(true)}>
-            <span aria-hidden>⑂</span> Cherry-pick into {repo.repo}…
-          </button>
-        </div>
-      )}
-      {cherryOpen && selected !== null && (
-        <CommitCherryPicker
-          workspaceId={workspaceId}
-          sourceBranch={branch}
-          commit={selected}
-          branches={branches}
-          onOpenTrunk={onOpenTrunk}
-          onClose={() => setCherryOpen(false)}
-        />
-      )}
-      {upstreamCherryOpen && upstream !== null && upstreamRange !== null && (
-        <UpstreamCherryPicker
-          workspaceId={workspaceId}
-          repo={repo}
-          snapshot={upstream}
-          commits={upstream.commits.slice(upstreamRange[0], upstreamRange[1] + 1)}
-          onClose={() => setUpstreamCherryOpen(false)}
-          onOpenHarness={onOpenHarness}
-        />
-      )}
-    </section>
-  );
-}
-
-function CommitCherryPicker({
-  workspaceId,
-  sourceBranch,
-  commit,
-  branches,
-  onOpenTrunk,
-  onClose,
-}: {
-  workspaceId: string;
-  sourceBranch: string;
-  commit: LocalCommitDto;
-  branches: WorkspaceBranchDto[];
-  onOpenTrunk?: (trunkId: string) => void;
-  onClose: () => void;
-}) {
-  const choices = branches.filter(candidate => !candidate.remoteOnly && candidate.name !== sourceBranch);
-  const [target, setTarget] = useState(choices[0]?.name ?? '');
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<CherryPickResultDto | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  return (
-    <div className="wu-modal-backdrop wu-commit-cherry-backdrop" role="presentation" onMouseDown={onClose}>
-      <section className="wu-commit-cherry" role="dialog" aria-modal="true"
-        onMouseDown={event => event.stopPropagation()}>
-        <header><h2>Cherry-pick commit</h2><button type="button" onClick={onClose}>×</button></header>
-        <div className="wu-commit-cherry__commit">
-          <code>{commit.shortSha}</code><strong>{commit.subject}</strong>
-        </div>
-        {result === null ? (
-          <>
-            <label>Target branch
-              <select value={target} onChange={event => setTarget(event.target.value)}>
-                {choices.map(candidate => <option value={candidate.name} key={candidate.name}>{candidate.name}</option>)}
-              </select>
-            </label>
-            <p>The operation runs in an isolated worktree and never pushes automatically.</p>
-            {error !== null && <span className="wu-form-error">{error}</span>}
-            <footer>
-              <button type="button" onClick={onClose}>Cancel</button>
-              <button type="button" disabled={busy || target.length === 0} onClick={() => {
-                setBusy(true);
-                setError(null);
-                void workspaceApi.cherryPick(workspaceId, sourceBranch, target, [commit.sha])
-                  .then(setResult)
-                  .catch(reason => setError(message(reason)))
-                  .finally(() => setBusy(false));
-              }}>{busy ? 'Cherry-picking…' : 'Cherry-pick'}</button>
-            </footer>
-          </>
-        ) : (
-          <div className={`wu-commit-cherry__result ${result.status}`}>
-            <strong>{result.status === 'done' ? 'Cherry-pick complete' : 'Conflict needs a fix'}</strong>
-            <p>{result.status === 'done'
-              ? `Created local branch ${result.resultBranch}. Nothing was pushed.`
-              : `Kept ${result.worktreePath ?? 'the isolated worktree'} and queued a CI-fix session.`}</p>
-            <footer>
-              {result.trunkId !== null && (
-                <button type="button" onClick={() => onOpenTrunk?.(result.trunkId as string)}>
-                  Open fix session
-                </button>
-              )}
-              <button type="button" onClick={onClose}>Done</button>
-            </footer>
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function PageHeader({
-  title,
-  detail,
-  children,
-}: {
-  title: string;
-  detail?: string;
-  children?: ReactNode;
-}) {
-  return (
-    <header className="wu-page-header">
-      <div className="wu-page-heading"><h1>{title}</h1>{detail && <span>{detail}</span>}</div>
-      <div className="wu-header-actions">{children}</div>
-    </header>
-  );
-}
-
 function Segmented<T extends string>({
   options,
   value,
@@ -1707,10 +1336,6 @@ function PageLoading({ title }: { title: string }) {
 
 function PageError({ title, message: error }: { title: string; message: string }) {
   return <section className="wu-page"><PageHeader title={title} /><BodyMessage>{error}</BodyMessage></section>;
-}
-
-function BodyMessage({ children }: { children: ReactNode }) {
-  return <div className="wu-body-message">{children}</div>;
 }
 
 function DetailList({ children }: { children: ReactNode }) {
@@ -1838,14 +1463,6 @@ function AvatarLetters({ name }: { name: string }) {
   );
 }
 
-function CommitAvatarLetters({ name }: { name: string }) {
-  return (
-    <span className="wu-author-avatar" aria-hidden>
-      {prInitials(name)}
-    </span>
-  );
-}
-
 function IssueHeadingTitle({ title }: { title: string }) {
   const token = '$partitions';
   const index = title.indexOf(token);
@@ -1904,27 +1521,6 @@ function titleFor(section: WorkspaceRepoSection): string {
     : section[0].toUpperCase() + section.slice(1);
 }
 
-function message(value: unknown): string {
-  return value instanceof Error ? value.message : String(value);
-}
-
-function isToday(iso: string | null): boolean {
-  if (iso === null) return false;
-  const date = new Date(iso);
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear()
-    && date.getMonth() === now.getMonth()
-    && date.getDate() === now.getDate();
-}
-
-function relative(iso: string): string {
-  const delta = Date.now() - Date.parse(iso);
-  if (!Number.isFinite(delta) || delta < 60_000) return 'now';
-  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
-  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`;
-  return `${Math.floor(delta / 86_400_000)}d`;
-}
-
 function calendarRelative(iso: string | null): string {
   if (iso === null) return 'recently';
   const date = new Date(iso);
@@ -1946,28 +1542,6 @@ function issueActivityRelative(iso: string): string {
     return new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(date);
   }
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(date);
-}
-
-function groupCommits(rows: LocalCommitDto[]): Map<string, LocalCommitDto[]> {
-  const groups = new Map<string, LocalCommitDto[]>();
-  for (const row of rows) {
-    const day = row.groupLabel ?? (row.authoredAt === null ? 'Earlier' : isToday(row.authoredAt)
-      ? 'Today'
-      : new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
-        .format(new Date(row.authoredAt)));
-    groups.set(day, [...(groups.get(day) ?? []), row]);
-  }
-  return groups;
-}
-
-function isAgentCommit(commit: LocalCommitDto): boolean {
-  return `${commit.authorName} ${commit.authorEmail}`.toLowerCase().includes('agent')
-    || commit.authorEmail.toLowerCase().includes('bytequay');
-}
-
-function extractPrNumber(subject: string): number | null {
-  const match = /\(#(\d+)\)\s*$/.exec(subject);
-  return match === null ? null : Number(match[1]);
 }
 
 function initials(name: string): string {
@@ -2048,19 +1622,6 @@ function avatarTone(name: string): number {
   return [...name].reduce((sum, character) => sum + character.charCodeAt(0), 0) % 5;
 }
 
-function prInitials(name: string): string {
-  const known: Record<string, string> = {
-    chenjian2664: 'CJ',
-    ebyhr: 'EB',
-    skyglass: 'SG',
-  };
-  const knownValue = known[name.toLowerCase()];
-  if (knownValue !== undefined) return knownValue;
-  const parts = name.split(/[-_\s]+/).filter(Boolean);
-  if (parts.length > 1) return parts.slice(0, 2).map(part => part[0]).join('').toUpperCase();
-  return name.slice(0, 2).toUpperCase();
-}
-
 function PrDetailIcon({ kind }: { kind: PrDetailIconKind }) {
   const common = {
     width: 13,
@@ -2127,32 +1688,10 @@ function PrDetailIcon({ kind }: { kind: PrDetailIconKind }) {
   return <svg {...common} strokeWidth="1.7"><circle cx="12" cy="12" r="8.5" /><path d="M12 8v4l2.5 2" /></svg>;
 }
 
-function SearchIcon() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="1.8" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>;
-}
-
 function BackIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d="m15 18-6-6 6-6" />
-    </svg>
-  );
-}
-
-function ExternalIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M7 17 17 7" />
-      <path d="M8 7h9v9" />
-    </svg>
-  );
-}
-
-function ChevronDownIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="m6 9 6 6 6-6" />
     </svg>
   );
 }
@@ -2198,25 +1737,6 @@ function IssueIcon({ state = 'open' }: { state?: string }) {
     <circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none" /></svg>;
 }
 
-function BranchIcon() {
-  return <svg className="wu-branch-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M6 3v12" />
-    <circle cx="18" cy="6" r="2.6" />
-    <circle cx="6" cy="18" r="2.6" />
-    <path d="M18 9a9 9 0 0 1-9 9" />
-  </svg>;
-}
-
-function BranchCheckIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-
 function PullIcon({ tone = 'open' }: { tone?: 'open' | 'merged' | 'closed' }) {
   const path = tone === 'merged' ? 'M6 21V9a9 9 0 0 0 9 9' : 'M13 6h3a2 2 0 0 1 2 2v7M6 9v12';
   return <svg className={`wu-pull-icon ${tone}`} width="16" height="16" viewBox="0 0 24 24" fill="none"
@@ -2243,16 +1763,4 @@ function AgentIcon() {
   return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="1.8" strokeLinecap="round"><rect x="5" y="7" width="14" height="12" rx="3" />
     <path d="M12 3v4M9 12h.01M15 12h.01M9 16h6" /></svg>;
-}
-
-function CommitAgentIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect x="5" y="9" width="14" height="10" rx="2" />
-      <path d="M12 5v4" />
-      <circle cx="12" cy="4" r="1" />
-      <path d="M9 13.5h.01M15 13.5h.01" />
-    </svg>
-  );
 }

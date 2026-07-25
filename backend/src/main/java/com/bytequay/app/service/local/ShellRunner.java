@@ -148,7 +148,20 @@ public class ShellRunner
         drain.setDaemon(true);
         drain.start();
 
-        boolean exited = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        boolean exited;
+        try {
+            exited = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        }
+        catch (InterruptedException e) {
+            // A cancelled caller must not leak the child process: kill it
+            // before propagating the interrupt (validation cancellation
+            // relies on this to stop an in-flight verify).
+            process.destroy();
+            if (!process.waitFor(2, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+            }
+            throw e;
+        }
         if (!exited) {
             process.destroy();
             if (!process.waitFor(2, TimeUnit.SECONDS)) {

@@ -89,4 +89,14 @@ interface ValidationPassJpaRepository
             + "AND v.claimKey IS NOT NULL AND v.endedAtMs IS NULL "
             + "AND v.supersededAtMs IS NULL")
     List<ValidationPassEntity> findOpenByTask(@Param("taskId") String taskId);
+
+    @Query("SELECT v FROM ValidationPassEntity v WHERE v.claimKey IS NOT NULL "
+            + "AND v.endedAtMs IS NULL AND v.supersededAtMs IS NULL "
+            + "AND v.cancelRequestedAtMs IS NOT NULL")
+    List<ValidationPassEntity> findCancelPending();
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE ValidationPassEntity v SET v.cancelAttempts = v.cancelAttempts + 1 "
+            + "WHERE v.claimKey = :claimKey")
+    int incrementCancelAttempts(@Param("claimKey") String claimKey);
 }

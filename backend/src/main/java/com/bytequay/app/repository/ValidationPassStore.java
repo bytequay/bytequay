@@ -92,4 +92,28 @@ public interface ValidationPassStore
     {
         throw new UnsupportedOperationException("findOpenByTask");
     }
+
+    /** Open claims with a live cancellation request — the cancellation
+     *  reconciler's work set, carrying the identity its absence proof
+     *  needs. */
+    default List<PendingValidationCancel> findCancelPending()
+    {
+        throw new UnsupportedOperationException("findCancelPending");
+    }
+
+    /** Bump the durable interruption-attempt counter on one claim. */
+    default void incrementCancelAttempts(String claimKey)
+    {
+        throw new UnsupportedOperationException("incrementCancelAttempts");
+    }
+
+    /** A cancellation-pending claim as the reconciler sees it. */
+    record PendingValidationCancel(
+            String claimKey,
+            String taskId,
+            String executorIdentity,
+            Instant leaseUntil,
+            Instant deadline)
+    {
+    }
 }

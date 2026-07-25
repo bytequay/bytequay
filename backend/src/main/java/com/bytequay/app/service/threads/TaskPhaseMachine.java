@@ -276,6 +276,44 @@ public class TaskPhaseMachine
         events.publishEvent(new TaskPhaseTransitionedEvent(taskId, from, to, reason));
     }
 
+    /**
+     * The one durable terminal command: write the terminal status (with
+     * its status-audit row) and drive the phase to COMPLETED in a single
+     * locked step. Runtime teardown — interrupts, agent eviction,
+     * worktree reaping — belongs to the caller and runs only after this
+     * durable intent, each step idempotent and reconciled.
+     */
+    @Transactional
+    public void finishTerminal(String taskId, TaskStatus terminalStatus, Actor actor, String reason)
+    {
+        if (terminalStatus != TaskStatus.COMPLETED
+                && terminalStatus != TaskStatus.REMOTE_CLOSED
+                && terminalStatus != TaskStatus.CANCELED) {
+            throw new IllegalArgumentException("not a terminal status: " + terminalStatus);
+        }
+        requireNonNull(actor, "actor is null");
+        withTaskLock(taskId, () -> {
+            Task task = taskStore.findTaskById(taskId).orElse(null);
+            if (task == null) {
+                return null;
+            }
+            if (task.status() != terminalStatus) {
+                Instant now = Instant.now();
+                switch (terminalStatus) {
+                    case COMPLETED -> taskStore.completeTask(taskId, now);
+                    case REMOTE_CLOSED -> taskStore.remoteCloseTask(taskId, now);
+                    case CANCELED -> taskStore.cancelTask(taskId, now);
+                    default -> throw new IllegalStateException("unreachable");
+                }
+                taskStore.appendStatusEvent(taskId, task.status(), terminalStatus, actor, reason, now);
+            }
+            if (task.phase() != TaskPhase.COMPLETED) {
+                applyTransition(task, task.phase(), TaskPhase.COMPLETED, reason, actor);
+            }
+            return null;
+        });
+    }
+
     private void applyTransition(Task task, TaskPhase from, TaskPhase to, String reason, Actor actor)
     {
         if (!TaskPhaseTransitions.isLegal(from, to)) {

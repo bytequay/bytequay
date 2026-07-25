@@ -257,6 +257,41 @@ class TestTaskPhaseMachine
         }
     }
 
+    @Test
+    void finishTerminalWritesStatusAuditAndDrivesPhaseCompleted()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(taskAt("t1", TaskPhase.IMPLEMENTING)));
+
+        machine.finishTerminal("t1", TaskStatus.CANCELED, Actor.HUMAN, "task_cancelled");
+
+        verify(taskStore).cancelTask(eq("t1"), any());
+        verify(taskStore).appendStatusEvent(
+                eq("t1"), eq(TaskStatus.RUNNING), eq(TaskStatus.CANCELED),
+                eq(Actor.HUMAN), eq("task_cancelled"), any());
+        verify(taskStore).updatePhase("t1", TaskPhase.COMPLETED);
+        verify(taskStore).appendPhaseEvent(eq("t1"), eq(TaskPhase.IMPLEMENTING),
+                eq(TaskPhase.COMPLETED), any(), eq("task_cancelled"), eq(Actor.HUMAN));
+    }
+
+    @Test
+    void finishTerminalIsIdempotentOnAnAlreadyTerminalTask()
+    {
+        Task done = new Task(
+                "t1", "thread-1", 1L, TaskStatus.CANCELED,
+                "dev/x", "/tmp/wt", "main", "/tmp/repo",
+                null, null, null, null, null, "DEVELOP",
+                null, null, 0L, 0L, 0L, null,
+                Instant.parse("2026-06-15T12:00:00Z"), null, null, null, null, null,
+                null, TaskPhase.COMPLETED, null, 0, null);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(done));
+
+        machine.finishTerminal("t1", TaskStatus.CANCELED, Actor.HUMAN, "task_cancelled");
+
+        verify(taskStore, never()).cancelTask(any(), any());
+        verify(taskStore, never()).updatePhase(any(), any());
+        verify(taskStore, never()).appendStatusEvent(any(), any(), any(), any(), any(), any());
+    }
+
     private static Task taskAt(String id, TaskPhase phase)
     {
         Instant now = Instant.parse("2026-06-15T12:00:00Z");

@@ -373,10 +373,8 @@ class TestTaskServiceShipAndContinue
 
         service.completeTasksForMergedPr("acme/widget", 42);
 
-        verify(taskStore).completeTask(eq("task-1"), any());
-        // The dev-lifecycle phase is also driven to COMPLETED through the
-        // machine — its transition event is what advances the task queue.
-        verify(taskPhaseMachine).transition("task-1", TaskPhase.COMPLETED, "pr_merged", Actor.WEBHOOK);
+        verify(taskPhaseMachine).finishTerminal(
+                eq("task-1"), eq(TaskStatus.COMPLETED), eq(Actor.WEBHOOK), eq("pr_merged"));
         verify(sealer).seal("task-1", "pr_merged");
     }
 
@@ -414,12 +412,14 @@ class TestTaskServiceShipAndContinue
         CompletableFuture<Void> completion = CompletableFuture.runAsync(() ->
                 service.completeTasksForMergedPr("acme/widget", 42));
         assertThat(completionStarted.await(5, TimeUnit.SECONDS)).isTrue();
-        verify(taskStore, never()).completeTask(anyString(), any());
+        verify(taskPhaseMachine, never()).finishTerminal(
+                anyString(), eq(TaskStatus.COMPLETED), any(), any());
 
         releaseLock.countDown();
         push.get(5, TimeUnit.SECONDS);
         completion.get(5, TimeUnit.SECONDS);
-        verify(taskStore).completeTask(eq("task-1"), any());
+        verify(taskPhaseMachine).finishTerminal(
+                eq("task-1"), eq(TaskStatus.COMPLETED), eq(Actor.WEBHOOK), eq("pr_merged"));
         verify(sealer).seal("task-1", "pr_merged");
     }
 
@@ -436,7 +436,8 @@ class TestTaskServiceShipAndContinue
 
         service.completeTasksForMergedPr("other/repo", 42);
 
-        verify(taskStore, never()).completeTask(anyString(), any());
+        verify(taskPhaseMachine, never()).finishTerminal(
+                anyString(), eq(TaskStatus.COMPLETED), any(), any());
         verify(taskPhaseMachine, never()).transition(anyString(), any(), anyString(), any());
     }
 
@@ -452,9 +453,9 @@ class TestTaskServiceShipAndContinue
 
         service.closeTasksForRemotePr("acme/widget", 42);
 
-        verify(taskStore).remoteCloseTask(eq("task-1"), any());
+        verify(taskPhaseMachine).finishTerminal(
+                eq("task-1"), eq(TaskStatus.REMOTE_CLOSED), eq(Actor.WEBHOOK), eq("pr_closed"));
         verify(taskStore).linkPullRequest("task-1", 42, "closed");
-        verify(taskPhaseMachine).observe("task-1", TaskPhase.COMPLETED, "pr_closed");
         verify(sealer).seal("task-1", "pr_closed");
     }
 
@@ -975,9 +976,8 @@ class TestTaskServiceShipAndContinue
 
         verify(scheduler).cancelTaskTurns("t1.k1");
         verify(session).interrupt();
-        verify(taskStore).cancelTask(eq("t1.k1"), any());
-        // Phase driven terminal so the reconciler stops polling it.
-        verify(taskStore).updatePhase("t1.k1", TaskPhase.COMPLETED);
+        verify(taskPhaseMachine).finishTerminal(
+                eq("t1.k1"), eq(TaskStatus.CANCELED), eq(Actor.HUMAN), eq("task_cancelled"));
         // Worktree + branch reaped.
         verify(worktreeService).reap(t);
     }
@@ -993,7 +993,8 @@ class TestTaskServiceShipAndContinue
 
         // No session to interrupt, but the task is still sealed + reaped.
         verify(scheduler).cancelTaskTurns("t1.k1");
-        verify(taskStore).cancelTask(eq("t1.k1"), any());
+        verify(taskPhaseMachine).finishTerminal(
+                eq("t1.k1"), eq(TaskStatus.CANCELED), eq(Actor.HUMAN), eq("task_cancelled"));
         verify(worktreeService).reap(t);
     }
 
@@ -1018,7 +1019,8 @@ class TestTaskServiceShipAndContinue
         doAnswer(invocation -> {
             state.updateAndGet(task -> task.withStatus(TaskStatus.CANCELED));
             return null;
-        }).when(taskStore).cancelTask(eq(taskId), any());
+        }).when(taskPhaseMachine).finishTerminal(
+                eq(taskId), eq(TaskStatus.CANCELED), any(), any());
 
         CompletableFuture<Task> cancel = CompletableFuture.supplyAsync(
                 () -> controlled.cancelTask("t1", taskId));

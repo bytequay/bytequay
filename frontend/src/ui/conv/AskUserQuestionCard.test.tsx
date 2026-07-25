@@ -11,14 +11,18 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AskUserQuestionCard } from './AskUserQuestionCard';
 
-afterEach(cleanup);
+beforeEach(() => { vi.useFakeTimers(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+/** Run out the undo window so the pending answer posts. */
+const runUndoWindow = () => act(() => { vi.advanceTimersByTime(5000); });
 
 describe('AskUserQuestionCard', () => {
-  it('answers with the picked option id', () => {
+  it('answers with the picked option id after the undo window', () => {
     const onAnswer = vi.fn();
     render(
       <AskUserQuestionCard
@@ -35,7 +39,46 @@ describe('AskUserQuestionCard', () => {
     expect(screen.getByText('remote')).toBeTruthy();
 
     fireEvent.click(screen.getByText('SQLite'));
+    expect(onAnswer).not.toHaveBeenCalled();
+    expect(screen.getByText('Answer sent to agent')).toBeTruthy();
+
+    runUndoWindow();
     expect(onAnswer).toHaveBeenCalledWith('sqlite', undefined);
+  });
+
+  it('undo cancels the pending answer and restores the options', () => {
+    const onAnswer = vi.fn();
+    render(
+      <AskUserQuestionCard
+        question="Cut this task?"
+        options={[{ id: 'go', label: 'Go ahead' }]}
+        allowFreeForm
+        onAnswer={onAnswer}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Go ahead'));
+    fireEvent.click(screen.getByText('Undo'));
+    runUndoWindow();
+
+    expect(onAnswer).not.toHaveBeenCalled();
+    expect(screen.getByText('Go ahead')).toBeTruthy();
+  });
+
+  it('flushes a pending answer when the card unmounts mid-window', () => {
+    const onAnswer = vi.fn();
+    const { unmount } = render(
+      <AskUserQuestionCard
+        question="Cut this task?"
+        options={[{ id: 'go', label: 'Go ahead' }]}
+        allowFreeForm={false}
+        onAnswer={onAnswer}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('Go ahead'));
+    unmount();
+    expect(onAnswer).toHaveBeenCalledWith('go', undefined);
   });
 
   it('answers with free-form text and trims it', () => {
@@ -51,6 +94,7 @@ describe('AskUserQuestionCard', () => {
 
     fireEvent.change(screen.getByLabelText('Free-form answer'), { target: { value: '  bytequay  ' } });
     fireEvent.click(screen.getByText('Send'));
+    runUndoWindow();
     expect(onAnswer).toHaveBeenCalledWith(undefined, 'bytequay');
   });
 

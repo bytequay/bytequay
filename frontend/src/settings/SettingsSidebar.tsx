@@ -22,6 +22,10 @@ type LinkDef = {
   /** Renders indented under the entry above it — Local AI sits under AI. */
   child?: boolean;
   badge?: string;
+  /** Dimmed, badged OFF and not selectable from here. The page itself is
+   *  still routed, so the entry points that deep-link into it (Email →
+   *  Integrations, the memory proposal banner) keep working. */
+  off?: boolean;
 };
 type GroupDef = { label: string; links: LinkDef[] };
 
@@ -45,7 +49,7 @@ const GROUPS: GroupDef[] = [
         badge: 'EXP',
         icon: 'M7.5 5h9a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 5 16.5v-9A2.5 2.5 0 0 1 7.5 5ZM9.8 9.8h4.4v4.4H9.8zM10 2.4V5M14 2.4V5M10 19v2.6M14 19v2.6M2.4 10H5M2.4 14H5M19 10h2.6M19 14h2.6',
       },
-      { id: 'skills', label: 'Skills', icon: 'M12 3.4 20.6 12 12 20.6 3.4 12z' },
+      { id: 'skills', label: 'Skills', off: true, icon: 'M12 3.4 20.6 12 12 20.6 3.4 12z' },
       { id: 'agent-roles', label: 'Agent roles', icon: 'M3.5 7.5h9M16.5 7.5h4M3.5 16.5h4M11.5 16.5h9M14.5 4.8v5.4M8.5 13.8v5.4' },
     ],
   },
@@ -53,8 +57,8 @@ const GROUPS: GroupDef[] = [
     label: 'System',
     links: [
       { id: 'watched-repos', label: 'Watched repos', icon: 'M12 3.2l8 4.3v9L12 20.8l-8-4.3v-9zM4.3 7.6 12 11.9l7.7-4.3M12 11.9v8.9' },
-      { id: 'integrations', label: 'Integrations', icon: 'M9.6 14.4 14.4 9.6M8.6 12.2 6 14.8a3.6 3.6 0 0 0 5.1 5.1l2.6-2.6M15.4 11.8 18 9.2a3.6 3.6 0 0 0-5.1-5.1l-2.6 2.6' },
-      { id: 'workspace-memory', label: 'Workspace memory', icon: 'M12 3.6c3.9 0 7 1.1 7 2.5S15.9 8.6 12 8.6 5 7.5 5 6.1s3.1-2.5 7-2.5ZM5 6.1v11.8c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6.1M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5' },
+      { id: 'integrations', label: 'Integrations', off: true, icon: 'M9.6 14.4 14.4 9.6M8.6 12.2 6 14.8a3.6 3.6 0 0 0 5.1 5.1l2.6-2.6M15.4 11.8 18 9.2a3.6 3.6 0 0 0-5.1-5.1l-2.6 2.6' },
+      { id: 'workspace-memory', label: 'Workspace memory', off: true, icon: 'M12 3.6c3.9 0 7 1.1 7 2.5S15.9 8.6 12 8.6 5 7.5 5 6.1s3.1-2.5 7-2.5ZM5 6.1v11.8c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6.1M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5' },
       { id: 'help', label: 'Help & feedback', icon: 'M12 3.6a8.4 8.4 0 1 0 0 16.8 8.4 8.4 0 0 0 0-16.8ZM12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8M6.1 6.1l3.5 3.5M14.4 14.4l3.5 3.5M17.9 6.1l-3.5 3.5M9.6 14.4l-3.5 3.5' },
     ],
   },
@@ -112,10 +116,13 @@ function SettingsSidebar({ active, onSelect }: Props) {
                 key={link.id}
                 type="button"
                 aria-current={active === link.id ? 'page' : undefined}
+                disabled={link.off === true}
+                title={link.off === true ? 'Off in this build' : undefined}
                 className={
                   'sv2-rail__link'
                   + (active === link.id ? ' sv2-rail__link--active' : '')
                   + (link.child === true ? ' sv2-rail__link--child' : '')
+                  + (link.off === true ? ' sv2-rail__link--off' : '')
                 }
                 onClick={() => onSelect(link.id)}
               >
@@ -125,9 +132,11 @@ function SettingsSidebar({ active, onSelect }: Props) {
                   </svg>
                 </span>
                 <span className="sv2-rail__label">{link.label}</span>
-                {link.badge !== undefined && (
-                  <span className="sv2-rail__badge" title="Experimental">{link.badge}</span>
-                )}
+                {link.off === true
+                  ? <span className="sv2-rail__badge sv2-rail__badge--off">OFF</span>
+                  : link.badge !== undefined && (
+                    <span className="sv2-rail__badge" title="Experimental">{link.badge}</span>
+                  )}
               </button>
             ))}
           </div>

@@ -50,7 +50,7 @@ external dependency is your GitHub PAT, configured at runtime via
 ## Quick start
 
 ```bash
-git clone https://github.com/chenjian2664/bytequay.git
+git clone https://github.com/bytequay/bytequay.git
 cd bytequay
 ./dev.sh
 ```

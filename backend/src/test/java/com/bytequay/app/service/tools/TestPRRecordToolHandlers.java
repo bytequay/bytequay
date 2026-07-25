@@ -33,6 +33,7 @@ import com.bytequay.app.service.tools.PRRecordToolHandlers.RecordPrProgressArgs;
 import com.bytequay.app.service.tools.PRRecordToolHandlers.ResolvePrCommentArgs;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -40,7 +41,9 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -151,18 +154,48 @@ class TestPRRecordToolHandlers
     }
 
     @Test
-    void recordLocalReviewRejectsADirtyWorktree()
+    void recordLocalReviewCheckpointsADirtyWorktreeOutsideTheAgentSandbox()
             throws Exception
     {
         when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
         when(prService.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(pr());
         when(git.hasUncommittedChanges(Path.of("/tmp/wt/feature-x"))).thenReturn(true);
+        when(git.commit(Path.of("/tmp/wt/feature-x"), "T")).thenReturn(Optional.of("abc123"));
+        when(git.commitCountUniqueTo(Path.of("/tmp/wt/feature-x"), "feature/x", "main"))
+                .thenReturn(1);
+
+        ToolOutcome outcome = handlers.recordLocalReview(new RecordLocalReviewArgs(true), taskCall);
+
+        assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
+        verify(git).stageAll(
+                Path.of("/tmp/wt/feature-x"), List.of(".bytequay-hooks"));
+        verify(git).commit(Path.of("/tmp/wt/feature-x"), "T");
+        verify(phaseMachine).transition(
+                "task1", TaskPhase.VALIDATING, "development_handoff", Actor.AGENT);
+    }
+
+    @Test
+    void recordLocalReviewParksWithTheGitErrorWhenCheckpointingFails()
+            throws Exception
+    {
+        Task task = task();
+        Path worktree = Path.of("/tmp/wt/feature-x");
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task));
+        when(prService.createForTask("task1", "feature/x", "main", "T", "")).thenReturn(pr());
+        when(git.hasUncommittedChanges(worktree)).thenReturn(true);
+        doThrow(new IOException("index denied"))
+                .when(git).stageAll(worktree, List.of(".bytequay-hooks"));
 
         ToolOutcome outcome = handlers.recordLocalReview(new RecordLocalReviewArgs(true), taskCall);
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
-        assertThat(((ToolOutcome.Completed) outcome).text()).contains("commit or discard");
-        verify(phaseMachine, never()).transition(any(), any(), any(), any());
+        assertThat(((ToolOutcome.Completed) outcome).text())
+                .contains("could not checkpoint Git changes", "index denied");
+        verify(taskStore).saveTask(argThat(saved -> saved.errorMessage() != null
+                && saved.errorMessage().contains("index denied")));
+        verify(phaseMachine).transition(
+                "task1", TaskPhase.NEEDS_ATTENTION,
+                "development_handoff_checkpoint_failed", Actor.AGENT);
     }
 
     @Test

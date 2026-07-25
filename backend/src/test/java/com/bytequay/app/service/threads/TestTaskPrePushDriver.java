@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -23,11 +24,16 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRSyncService;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -39,8 +45,9 @@ class TestTaskPrePushDriver
     private final ValidationPassService validation = mock(ValidationPassService.class);
     private final GitRunner git = mock(GitRunner.class);
     private final PRSyncService prSync = mock(PRSyncService.class);
+    private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
     private final TaskPrePushDriver driver =
-            new TaskPrePushDriver(taskStore, validation, git, prSync);
+            new TaskPrePushDriver(taskStore, validation, git, prSync, phaseMachine);
 
     @Test
     void cleanValidationStartsTheLocalPrBrainReviewWithoutOpeningAPushGate()
@@ -65,6 +72,43 @@ class TestTaskPrePushDriver
         // Validation failing parks the task at NEEDS_ATTENTION (its own
         // event); the driver must NOT push it to AWAITING_PUSH.
         verify(prSync, never()).syncFromTask(anyString());
+    }
+
+    @Test
+    void checkpointsLocalFixesBeforeRerunningValidation()
+            throws Exception
+    {
+        Path worktree = Path.of("/wt/t1.k1");
+        when(git.hasUncommittedChanges(worktree)).thenReturn(true);
+        when(git.commit(worktree, "Fix local validation failures"))
+                .thenReturn(Optional.of("abc123"));
+        when(validation.run("t1.k1")).thenReturn(new ValidationPassResult(true, 0, List.of()));
+
+        driver.runPrePush(task());
+
+        verify(git).stageAll(worktree, List.of(".bytequay-hooks"));
+        verify(git).commit(worktree, "Fix local validation failures");
+        verify(validation).run("t1.k1");
+    }
+
+    @Test
+    void checkpointFailureParksWithTheGitErrorInsteadOfLeavingValidationStuck()
+            throws Exception
+    {
+        Task task = task();
+        Path worktree = Path.of("/wt/t1.k1");
+        when(git.hasUncommittedChanges(worktree)).thenReturn(true);
+        doThrow(new IOException("index denied"))
+                .when(git).stageAll(worktree, List.of(".bytequay-hooks"));
+
+        driver.runPrePush(task);
+
+        verify(validation, never()).run(anyString());
+        verify(taskStore).saveTask(argThat(saved -> saved.errorMessage() != null
+                && saved.errorMessage().contains("index denied")));
+        verify(phaseMachine).transition(
+                "t1.k1", TaskPhase.NEEDS_ATTENTION,
+                "local_validation_checkpoint_failed", Actor.AGENT);
     }
 
     @Test

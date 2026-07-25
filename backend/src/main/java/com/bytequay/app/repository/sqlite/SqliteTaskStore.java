@@ -18,6 +18,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
+import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -186,6 +187,65 @@ class SqliteTaskStore
     public void clearProcessPid(String taskId)
     {
         mutate(taskId, entity -> entity.setProcessPid(null));
+    }
+
+    @Override
+    @Transactional
+    public void checkpointRecovery(String taskId, TaskPhase recoveryPhase, String contextJson)
+    {
+        mutate(taskId, entity -> {
+            entity.setRecoveryPhase(recoveryPhase.name());
+            entity.setRecoveryContextJson(contextJson);
+        });
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<TaskPhase> recoveryPhase(String taskId)
+    {
+        return tasks.findById(taskId)
+                .map(TaskEntity::getRecoveryPhase)
+                .map(TaskPhase::valueOf);
+    }
+
+    @Override
+    @Transactional
+    public void recordRecoveryRequest(
+            String taskId, String requestId, String kind, String payloadJson, Instant at)
+    {
+        mutate(taskId, entity -> {
+            entity.setRecoveryRequestId(requestId);
+            entity.setRecoveryRequestedKind(kind);
+            entity.setRecoveryRequestPayloadJson(payloadJson);
+            entity.setRecoveryRequestedAtMs(at.toEpochMilli());
+        });
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<TaskRecoveryRequest> recoveryRequest(String taskId)
+    {
+        return tasks.findById(taskId)
+                .filter(entity -> entity.getRecoveryRequestId() != null)
+                .map(entity -> new TaskRecoveryRequest(
+                        entity.getRecoveryRequestId(),
+                        entity.getRecoveryRequestedKind(),
+                        entity.getRecoveryRequestPayloadJson(),
+                        Instant.ofEpochMilli(entity.getRecoveryRequestedAtMs())));
+    }
+
+    @Override
+    @Transactional
+    public void clearRecoveryState(String taskId)
+    {
+        mutate(taskId, entity -> {
+            entity.setRecoveryPhase(null);
+            entity.setRecoveryContextJson(null);
+            entity.setRecoveryRequestId(null);
+            entity.setRecoveryRequestedKind(null);
+            entity.setRecoveryRequestPayloadJson(null);
+            entity.setRecoveryRequestedAtMs(null);
+        });
     }
 
     @Override

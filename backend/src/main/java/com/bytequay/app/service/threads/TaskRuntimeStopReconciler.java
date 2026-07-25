@@ -15,6 +15,7 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.ValidationClaim;
@@ -31,6 +32,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.core.annotation.Order;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -179,6 +181,23 @@ public class TaskRuntimeStopReconciler
         sweep();
     }
 
+    /** Park and terminal transitions publish teardown work: run it after
+     *  the stop committed (immediately when there is no transaction), so
+     *  a rolled-back park cannot kill a live runtime. */
+    @TransactionalEventListener(fallbackExecution = true)
+    public void onPhaseTransitioned(TaskPhaseTransitionedEvent event)
+    {
+        if (event.to() != TaskPhase.NEEDS_ATTENTION && event.to() != TaskPhase.COMPLETED) {
+            return;
+        }
+        try {
+            reconcileStoppedTask(event.taskId());
+        }
+        catch (RuntimeException e) {
+            log.warn("stop teardown for task {} failed: {}", event.taskId(), e.getMessage());
+        }
+    }
+
     @Scheduled(fixedDelay = 30_000, initialDelay = 30_000)
     public void sweep()
     {
@@ -186,6 +205,7 @@ public class TaskRuntimeStopReconciler
             try {
                 reconcileStoppedTask(task.id());
                 completePendingResume(task);
+                completePendingRecovery(task);
             }
             catch (RuntimeException e) {
                 log.warn("stop reconcile for task {} failed: {}", task.id(), e.getMessage());
@@ -201,6 +221,16 @@ public class TaskRuntimeStopReconciler
             return;
         }
         taskService.getObject().completeRequestedResume(task.id());
+    }
+
+    private void completePendingRecovery(Task task)
+    {
+        if (task.status() != TaskStatus.NEEDS_ATTENTION
+                || taskStore.recoveryRequest(task.id()).isEmpty()
+                || !runtimeStopped(task.id())) {
+            return;
+        }
+        taskService.getObject().completeRequestedRecovery(task.id());
     }
 
     private void requestValidationCancellation(String taskId)

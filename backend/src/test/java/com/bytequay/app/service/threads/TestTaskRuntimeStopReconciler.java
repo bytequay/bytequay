@@ -14,6 +14,8 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
@@ -141,6 +143,35 @@ class TestTaskRuntimeStopReconciler
         reconciler.sweep();
 
         verify(taskService).completeRequestedResume("t1");
+    }
+
+    @Test
+    void sweepCompletesAPendingRecoveryOnceTheBarrierHolds()
+    {
+        Task parked = task("t1", TaskStatus.NEEDS_ATTENTION);
+        when(taskStore.listByStatuses(any(), eq(200))).thenReturn(List.of(parked));
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(parked));
+        when(taskStore.recoveryRequest("t1")).thenReturn(Optional.of(new TaskRecoveryRequest(
+                "req-1", TaskRecoveryRequest.KIND_NORMAL, null, NOW)));
+
+        reconciler.sweep();
+
+        verify(taskService).completeRequestedRecovery("t1");
+    }
+
+    @Test
+    void parkAndTerminalTransitionsTriggerTeardown()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(
+                Optional.of(task("t1", TaskStatus.NEEDS_ATTENTION)));
+
+        reconciler.onPhaseTransitioned(new TaskPhaseTransitionedEvent(
+                "t1", TaskPhase.VALIDATING, TaskPhase.NEEDS_ATTENTION, "validation_failed"));
+        verify(scheduler).cancelTaskTurns("t1");
+
+        reconciler.onPhaseTransitioned(new TaskPhaseTransitionedEvent(
+                "t2", TaskPhase.IMPLEMENTING, TaskPhase.VALIDATING, "ready_for_checks"));
+        verify(taskStore, never()).findTaskById("t2");
     }
 
     @Test

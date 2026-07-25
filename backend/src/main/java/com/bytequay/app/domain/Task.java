@@ -378,6 +378,44 @@ public record Task(
                 origin);
     }
 
+    public Task withPhase(TaskPhase phase)
+    {
+        return new Task(
+                id,
+                threadId,
+                seq,
+                status,
+                branchName,
+                worktreePath,
+                baseBranch,
+                workingDir,
+                processPid,
+                logPath,
+                prNumber,
+                prState,
+                ciState,
+                taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                costUsdMilli,
+                tokensIn,
+                tokensOut,
+                agentSessionId,
+                createdAt,
+                endedAt,
+                errorMessage,
+                name,
+                roleSkill,
+                workModel,
+                pushedAt,
+                phase,
+                agendaJson,
+                consecutiveAutoPushes,
+                linkedPrRef,
+                openingPrompt,
+                origin);
+    }
+
     /** Copy with this task's own accumulated usage; all other fields
      *  unchanged. Used by the agent to persist a task's task-scoped spend
      *  (NOT the thread's lifetime total — see SqliteThreadStore's cascade). */

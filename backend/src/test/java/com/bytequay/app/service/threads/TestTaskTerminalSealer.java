@@ -17,6 +17,7 @@ import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
+import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.runs.AgentRunService;
@@ -38,7 +39,9 @@ class TestTaskTerminalSealer
     private final StageStore stageStore = mock(StageStore.class);
     private final ReviewRoundService reviewRounds = mock(ReviewRoundService.class);
     private final AgentRunService agentRuns = mock(AgentRunService.class);
-    private final TaskTerminalSealer sealer = new TaskTerminalSealer(stageStore, reviewRounds, agentRuns);
+    private final LocalReviewSubmissionStore submissions = mock(LocalReviewSubmissionStore.class);
+    private final TaskTerminalSealer sealer =
+            new TaskTerminalSealer(stageStore, reviewRounds, agentRuns, submissions);
 
     @Test
     void closesTheOpenRoundAndEveryStillOpenStage()

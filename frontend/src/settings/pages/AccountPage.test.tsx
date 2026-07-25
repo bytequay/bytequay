@@ -63,22 +63,26 @@ it('hides the local data reset outside the supported development launcher', asyn
 
 it('confirms and requests a development data reset', async () => {
   const requestReset = installBridge(true);
-  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
   render(<AccountPage />);
 
+  // The destructive action is two-step: the button reveals an inline
+  // confirmation strip, and only "Yes, reset" calls the bridge.
   fireEvent.click(await screen.findByRole('button', { name: 'Reset and restart' }));
+  expect(requestReset).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', { name: 'Yes, reset' }));
 
   await waitFor(() => expect(requestReset).toHaveBeenCalledOnce());
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('Bundled system prompts'));
   expect((screen.getByRole('button', { name: 'Resetting…' }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it('does not request a reset when the destructive confirmation is cancelled', async () => {
   const requestReset = installBridge(true);
-  vi.spyOn(window, 'confirm').mockReturnValue(false);
   render(<AccountPage />);
 
   fireEvent.click(await screen.findByRole('button', { name: 'Reset and restart' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
   expect(requestReset).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: 'Reset and restart' })).toBeTruthy();
 });

@@ -50,7 +50,8 @@ it('submits a product issue without consulting watched repositories', async () =
 
   await waitFor(() => expect(reportByteQuayIssue)
     .toHaveBeenCalledWith('Toolbar freezes', 'It stops responding.'));
-  expect(await screen.findByText('Issue #19 created.')).toBeTruthy();
+  expect((await screen.findByRole('status')).textContent)
+    .toContain('Issue #19 opened in chenjian2664/ByteQuay');
 });
 
 it('captures pasted screenshots and never silently drops them on submit', async () => {

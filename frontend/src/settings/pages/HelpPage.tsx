@@ -11,22 +11,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { IssueDto } from '../../types';
 import { pasteClipboardImages } from '../../ui/shell/pasteClipboardImages';
-import SettingCard from '../shared/SettingCard';
+import SettingsPage from '../shared/SettingsPage';
+import { CheckIcon, ClipboardIcon, IssueIcon } from '../shared/icons';
+
+const REPO = 'chenjian2664/ByteQuay';
 
 function HelpPage() {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [images, setImages] = useState<string[]>([]);
+  const [attachDiagnostics, setAttachDiagnostics] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<IssueDto | null>(null);
+  const [env, setEnv] = useState<Env | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => { void readEnv().then(setEnv); }, []);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!title.trim() || !body.trim()) return;
+    if (title.trim() === '' || body.trim() === '') return;
     if (images.length > 0) {
       setError('Screenshot captured, but ByteQuay needs a public attachment upload endpoint before it can include images in a GitHub issue.');
       return;
@@ -35,38 +43,58 @@ function HelpPage() {
     setError(null);
     setCreated(null);
     try {
-      const issue = await window.bridge.reportByteQuayIssue(title.trim(), body.trim());
-      setCreated(issue);
+      const full = attachDiagnostics && env !== null
+        ? `${body.trim()}\n\n---\n${diagnosticsBlock(env)}`
+        : body.trim();
+      setCreated(await window.bridge.reportByteQuayIssue(title.trim(), full));
       setTitle('');
       setBody('');
-    }
-    catch (reason) {
+    } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
-    }
-    finally {
+    } finally {
       setSubmitting(false);
     }
   };
 
-  return (
-    <>
-      <div className="settings-shell-page__head">
-        <div>
-          <h2 className="settings-shell-page__title">Help &amp; feedback</h2>
-          <div className="settings-shell-page__subtitle">
-            Report a ByteQuay problem without leaving the app.
-          </div>
-        </div>
-      </div>
+  const copyDiagnostics = async () => {
+    if (env === null) return;
+    await navigator.clipboard.writeText(diagnosticsBlock(env));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1600);
+  };
 
-      <SettingCard
-        title="Report a bug"
-        hint={<>This always creates an issue in <code>chenjian2664/ByteQuay</code>. The repository does not need to be watched.</>}
-      >
-        <form className="product-issue-form" onSubmit={event => { void submit(event); }}>
-          <label className="product-issue-form__field">
+  return (
+    <SettingsPage
+      title="Help & feedback"
+      subtitle="Report a ByteQuay problem without leaving the app."
+      width={820}
+    >
+      {created !== null && (
+        <div className="sv2-success" role="status">
+          <CheckIcon size={15} />
+          <span>Issue #{created.number} opened in <span className="sv2-mono">{REPO}</span>.</span>
+          <button
+            className="sv2-btn sv2-btn--sm"
+            type="button"
+            style={{ marginLeft: 'auto' }}
+            onClick={() => { void window.bridge.openInAppBrowser(created.htmlUrl); }}
+          >
+            View on GitHub ↗
+          </button>
+        </div>
+      )}
+
+      <div className="sv2-card">
+        <div className="sv2-card__head">
+          <span className="sv2-card__title">Report a bug</span>
+          <span className="sv2-card__hint">always files into <span className="sv2-mono">{REPO}</span></span>
+        </div>
+        <form className="sv2-form" onSubmit={event => { void submit(event); }}>
+          <label className="sv2-field">
             <span>Short title</span>
             <input
+              className="sv2-input"
+              style={{ height: 34 }}
               value={title}
               maxLength={256}
               onChange={event => setTitle(event.target.value)}
@@ -75,24 +103,23 @@ function HelpPage() {
               required
             />
           </label>
-          <label className="product-issue-form__field">
+          <label className="sv2-field">
             <span>What happened?</span>
             <textarea
+              className="sv2-textarea"
               aria-label="What happened?"
               value={body}
               maxLength={65_000}
+              rows={6}
               onChange={event => setBody(event.target.value)}
-              onPaste={event => pasteClipboardImages(event, images, next => {
-                setImages(next);
-                setError(null);
-              })}
+              onPaste={event => pasteClipboardImages(event, images, next => { setImages(next); setError(null); })}
               placeholder="What were you doing, what did you expect, and what happened instead?"
-              rows={7}
               disabled={submitting}
               required
             />
-            <small>Paste a screenshot here with ⌘V or Ctrl+V.</small>
+            <small>Paste a screenshot with ⌘V.</small>
           </label>
+
           {images.length > 0 && (
             <div className="product-issue-form__images" aria-label="Attached screenshots">
               {images.map((src, index) => (
@@ -101,35 +128,98 @@ function HelpPage() {
                   <button
                     type="button"
                     aria-label={`Remove screenshot ${index + 1}`}
-                    onClick={() => setImages(images.filter((_, imageIndex) => imageIndex !== index))}
+                    onClick={() => setImages(images.filter((_, i) => i !== index))}
                   >×</button>
                 </div>
               ))}
             </div>
           )}
-          <div className="product-issue-form__actions">
+
+          <button
+            type="button"
+            className="sv2-check"
+            role="checkbox"
+            aria-checked={attachDiagnostics}
+            onClick={() => setAttachDiagnostics(v => !v)}
+          >
+            <span className={'sv2-check__box' + (attachDiagnostics ? ' sv2-check__box--on' : '')}>
+              {attachDiagnostics && <CheckIcon size={10} width={3.4} />}
+            </span>
+            <span style={{ minWidth: 0 }}>
+              <span className="sv2-check__title">Attach diagnostics</span>
+              <span className="sv2-check__desc">
+                App version, platform and local backend reachability. Credentials are never included.
+              </span>
+            </span>
+          </button>
+
+          <div className="sv2-form__foot">
+            <span>{envLine(env)}</span>
             <button
               type="submit"
-              className="button button--primary"
-              disabled={submitting || !title.trim() || !body.trim()}
+              className="sv2-btn sv2-btn--dark"
+              disabled={submitting || title.trim() === '' || body.trim() === ''}
             >
               {submitting ? 'Submitting…' : 'Submit issue'}
             </button>
           </div>
-          {created && (
-            <p className="product-issue-form__success" role="status">
-              Issue #{created.number} created.{' '}
-              <button type="button" onClick={() => { void window.bridge.openInAppBrowser(created.htmlUrl); }}>
-                View on GitHub
-              </button>
-            </p>
-          )}
-          {error && <p className="product-issue-form__error" role="alert">{error}</p>}
+          {error !== null && <div className="sv2-error" role="alert">{error}</div>}
         </form>
-      </SettingCard>
+      </div>
 
-    </>
+      <div className="sv2-card">
+        <button
+          className="sv2-link-row"
+          type="button"
+          onClick={() => { void window.bridge.openInAppBrowser(`https://github.com/${REPO}/issues`); }}
+        >
+          <span className="sv2-link-row__icon"><IssueIcon size={15} /></span>
+          Browse open issues
+          <span className="sv2-link-row__meta">{REPO} ↗</span>
+        </button>
+        <button className="sv2-link-row" type="button" disabled={env === null} onClick={() => { void copyDiagnostics(); }}>
+          <span className="sv2-link-row__icon"><ClipboardIcon size={15} /></span>
+          Copy diagnostics to clipboard
+          <span className="sv2-link-row__meta">{copied ? 'copied' : 'for pasting elsewhere'}</span>
+        </button>
+      </div>
+    </SettingsPage>
   );
+}
+
+type Env = { version: string; platform: string; backendUp: boolean };
+
+async function readEnv(): Promise<Env> {
+  const [version, backendUp] = await Promise.all([
+    attempt(() => window.bridge.getAppVersion().then(v => v.version), 'unknown'),
+    attempt(() => window.bridge.fetchHello().then(() => true), false),
+  ]);
+  return { version, platform: navigator.platform, backendUp };
+}
+
+/** Diagnostics are a nicety — a bridge call that throws (or isn't there
+ *  at all) must never stop the user filing the bug they came here for. */
+async function attempt<T>(run: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await run();
+  } catch {
+    return fallback;
+  }
+}
+
+function envLine(env: Env | null): string {
+  if (env === null) return 'Reading environment…';
+  return `ByteQuay ${env.version} · ${env.platform} · local backend ${env.backendUp ? 'up' : 'unreachable'}`;
+}
+
+function diagnosticsBlock(env: Env): string {
+  return [
+    '**Diagnostics**',
+    `- ByteQuay: ${env.version}`,
+    `- Platform: ${env.platform}`,
+    `- User agent: ${navigator.userAgent}`,
+    `- Local backend: ${env.backendUp ? 'reachable' : 'unreachable'}`,
+  ].join('\n');
 }
 
 export default HelpPage;

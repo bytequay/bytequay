@@ -41,6 +41,7 @@ const DETAIL_DEFAULT = 940;
 const PRS_CACHE_KEY = 'prs:list';
 const PENDING_FULL_REVIEW_KEY = 'bytequay.pending-full-review';
 const REVIEW_POLL_MS = 1_000;
+const PULL_PAGE_SIZE = 20;
 
 type QuickReviewUi = {
   state: 'idle' | 'running' | 'done' | 'failed';
@@ -126,6 +127,7 @@ export default function PullsScreen({
   );
   const [dashboardLoaded, setDashboardLoaded] = useState(false);
   const [tab, setTab] = useState<PullTab>('all');
+  const [visibleCount, setVisibleCount] = useState(PULL_PAGE_SIZE);
   const [sel, setSel] = useState<string | null>(null);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailZoomed, setDetailZoomed] = useState(false);
@@ -149,6 +151,7 @@ export default function PullsScreen({
   const [watchTarget, setWatchTarget] = useState<PullRow | null>(null);
   const [pendingAgentStarts, setPendingAgentStarts] = useState<Set<string>>(() => new Set());
   const alive = useRef(true);
+  const listRef = useRef<HTMLDivElement>(null);
   const handledInitialReviewAction = useRef<string | null>(null);
 
   const markAgentStart = useCallback((prId: string, pending: boolean) => {
@@ -503,7 +506,11 @@ export default function PullsScreen({
             {PULL_TABS.map(t => (
               <button
                 key={t.key}
-                onClick={() => setTab(t.key)}
+                onClick={() => {
+                  setTab(t.key);
+                  setVisibleCount(PULL_PAGE_SIZE);
+                  if (listRef.current !== null) listRef.current.scrollTop = 0;
+                }}
                 style={{
                   padding: '4px 12px',
                   border: 0,
@@ -540,8 +547,19 @@ export default function PullsScreen({
             <PaneToggleIcon />
           </span>
         </div>
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '6px 8px 24px', display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {rows.map(row => (
+        <div
+          ref={listRef}
+          role="list"
+          aria-label="Pull requests"
+          onScroll={event => {
+            const list = event.currentTarget;
+            if (list.scrollTop + list.clientHeight >= list.scrollHeight - 80) {
+              setVisibleCount(count => Math.min(count + PULL_PAGE_SIZE, rows.length));
+            }
+          }}
+          style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '6px 8px 24px', display: 'flex', flexDirection: 'column', gap: 1 }}
+        >
+          {rows.slice(0, visibleCount).map(row => (
             <PullRowItem
               key={row.id}
               row={row}

@@ -330,7 +330,9 @@ describe('inline diff comment actions', () => {
 
     render(<PullChanges row={row()} bundle={local} refresh={vi.fn()} filesOverride={[]} />);
 
-    expect(screen.getByRole('button', { name: 'Toggle review comments panel (0 pending)' })).not.toBeNull();
+    const toggle = screen.getByRole('button', { name: 'Toggle review comments panel (0 pending)' });
+    expect(screen.queryByText('No pending review comments.')).toBeNull();
+    fireEvent.click(toggle);
     expect(screen.getByText('No pending review comments.')).not.toBeNull();
   });
 });

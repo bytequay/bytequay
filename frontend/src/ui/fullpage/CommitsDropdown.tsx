@@ -36,7 +36,7 @@ export function CommitsDropdown({ commits, selected, onSelect }: {
 
   return (
     <span className="run-menu">
-      <button type="button" className="btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+      <button type="button" className="btn" style={{ fontWeight: 400 }} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(o => !o)}>
         <span className="ic" aria-hidden>⎇</span>
         {current}
         <span className="chev" aria-hidden>▾</span>

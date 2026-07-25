@@ -126,6 +126,9 @@ describe('PullReviewSidebar', () => {
     await waitFor(() => expect(window.bridge.fetchPrDiffFiles).toHaveBeenCalled());
     const toggle = screen.getByRole('button', { name: 'Toggle review comments panel (2 pending)' });
     expect(toggle.querySelector('.pl-review-toggle-count')?.textContent).toBe('2');
+    expect(screen.queryByText('2 pending review comments')).toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.getByText('2 pending review comments')).not.toBeNull();
   });
 
   it('opens a local review composer on a pushed task PR so drafts can publish to GitHub', () => {

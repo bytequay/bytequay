@@ -954,7 +954,7 @@ class TestPRService
         UUID developmentStageId = UUID.randomUUID();
         StageInstance development = new StageInstance(
                 developmentStageId, "task1", StageType.DEVELOPMENT_STAGE,
-                StageState.ACTIVE, NOW, null, null);
+                StageState.OPEN, NOW, null, null);
         when(stageStore.findStageByType("task1", StageType.DEVELOPMENT_STAGE))
                 .thenReturn(Optional.of(development));
         when(store.timelineFor("pr1")).thenReturn(List.of());

@@ -46,12 +46,6 @@ public enum TaskPhase
      *  {@link #IMPLEMENTING} on approval. */
     PLANNING,
 
-    /** Materialised from the thread's queue and waiting for a compute
-     *  slot. The agent session pre-warms; the composer feeds the task's
-     *  opening prompt. Promotes to {@link #IMPLEMENTING} when a slot
-     *  opens. No human action required — grouped under IDLE. */
-    QUEUED,
-
     /** Agent is writing code in the worktree. */
     IMPLEMENTING,
 

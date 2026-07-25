@@ -660,10 +660,6 @@ public abstract class AbstractCliThreadAgent
     @Override
     public final void resume()
     {
-        if (status.compareAndSet(ThreadStatus.AWAITING, ThreadStatus.IDLE)) {
-            persistThreadSnapshot(null);
-            return;
-        }
         // ERRORED → IDLE: continue the conversation after a failed turn.
         // COMPLETED → IDLE: follow up on a thread the agent marked done.
         // Both keep agentSessionId on the row so the next send() resumes

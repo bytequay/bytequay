@@ -198,33 +198,6 @@ public class TaskService
         return taskStore.listTasksByThread(threadId);
     }
 
-    /**
-     * Append to (or replace) a task's opening-prompt accumulator — the
-     * text the agent reads as its first-turn input when it starts. Editable
-     * only while the task is in {@link TaskPhase#QUEUED}; a write to a task
-     * in any other phase is rejected (422), since the plan seals once the
-     * task starts.
-     */
-    @Transactional
-    public Task updateOpeningPrompt(String taskId, String text, boolean append)
-    {
-        Task task = taskStore.findTaskById(taskId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "no task: " + taskId));
-        if (task.phase() != TaskPhase.QUEUED) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
-                    "opening prompt is editable only while the task is QUEUED (phase="
-                            + task.phase() + ")");
-        }
-        String incoming = text == null ? "" : text;
-        String existing = task.openingPrompt();
-        String next = append && existing != null && !existing.isBlank()
-                ? existing + "\n" + incoming
-                : incoming;
-        taskStore.setOpeningPrompt(taskId, next);
-        return taskStore.findTaskById(taskId).orElse(task);
-    }
-
     /** Read the task's auto-approve mode. */
     public boolean isAutoApprove(String threadId, String taskId)
     {
@@ -1158,7 +1131,7 @@ public class TaskService
         }
         if (blockedFrom != null && blockedFrom != TaskPhase.NEEDS_ATTENTION) {
             return switch (blockedFrom) {
-                case PLANNING, QUEUED -> blockedFrom;
+                case PLANNING -> blockedFrom;
                 case AWAITING_PUSH -> TaskPhase.AWAITING_PUSH;
                 case PUSHED_AWAITING_CI, AWAITING_READY -> TaskPhase.PUSHED_AWAITING_CI;
                 case AWAITING_REMOTE_REVIEW -> TaskPhase.AWAITING_REMOTE_REVIEW;
@@ -1220,7 +1193,7 @@ public class TaskService
             return true;
         }
         return switch (task.status()) {
-            case IDLE, AWAITING, PAUSED, ERRORED, ARCHIVED -> true;
+            case IDLE, PAUSED, ERRORED, ARCHIVED -> true;
             default -> false;
         };
     }
@@ -1250,7 +1223,7 @@ public class TaskService
     private static Thread revivedThread(Thread thread)
     {
         return switch (thread.status()) {
-            case AWAITING, ERRORED, COMPLETED, ARCHIVED -> new Thread(
+            case ERRORED, COMPLETED, ARCHIVED -> new Thread(
                     thread.id(), thread.kind(), thread.provider(), thread.agentSessionId(),
                     thread.title(), ThreadStatus.IDLE, thread.model(),
                     thread.costUsdMilli(), thread.tokensIn(), thread.tokensOut(),
@@ -1284,7 +1257,7 @@ public class TaskService
     private static boolean isPausable(TaskStatus status)
     {
         return switch (status) {
-            case PENDING, RUNNING, AWAITING, IDLE,
+            case PENDING, RUNNING, IDLE,
                     AWAITING_REVIEW, IN_REVIEW, NEEDS_ATTENTION -> true;
             default -> false;
         };

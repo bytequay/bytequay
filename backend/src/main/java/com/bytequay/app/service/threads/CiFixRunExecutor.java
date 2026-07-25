@@ -578,7 +578,7 @@ public class CiFixRunExecutor
             return true;
         }
         return switch (task.status()) {
-            case AWAITING, AWAITING_REVIEW, NEEDS_ATTENTION, PAUSED,
+            case AWAITING_REVIEW, NEEDS_ATTENTION, PAUSED,
                     COMPLETED, REMOTE_CLOSED, ERRORED, CANCELED, ARCHIVED -> true;
             default -> false;
         };

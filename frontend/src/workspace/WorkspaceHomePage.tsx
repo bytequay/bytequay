@@ -372,9 +372,6 @@ function ThreadMetaLine(
         : <><span style={monoStyle}>PR #{task.linkedPrNumber}</span> {stateLabel}</>,
     });
   }
-  else if (task.status === 'AWAITING') {
-    segs.push({ key: 'await', node: 'awaiting approval' });
-  }
 
   if (task.seq >= 2) {
     segs.push({ key: 'seq', node: `task ${task.seq} of ${task.seq}` });
@@ -461,7 +458,6 @@ function TaskRow({ task, onClick }: { task: WorkUnitTaskDto; onClick?: () => voi
  *  no CI signal yet returns null — the title alone reads fine, and
  *  empty meta keeps the row visually quiet. */
 function describeTaskMeta(t: WorkUnitTaskDto): string | null {
-  if (t.status === 'AWAITING') return 'awaiting approval';
   if (t.status === 'IN_REVIEW') return 'in review';
   if (t.ciState !== null && t.ciState.length > 0) {
     return t.ciState.toLowerCase();
@@ -474,7 +470,7 @@ function describeTaskMeta(t: WorkUnitTaskDto): string | null {
 
 function taskStatusBoxStyle(status: string): React.CSSProperties {
   const color = status === 'RUNNING' || status === 'COMPLETED' ? '#16a34a'
-      : status === 'AWAITING' || status === 'AWAITING_REVIEW' ? '#d97706'
+      : status === 'AWAITING_REVIEW' ? '#d97706'
       : status === 'IN_REVIEW' ? '#7c3aed'
       : status === 'ERRORED' ? '#cf1322'
       : '#a8a3b5';
@@ -495,14 +491,14 @@ function taskStatusBoxStyle(status: string): React.CSSProperties {
  *  thread or its active task counts; the rail's unread dot uses the
  *  same predicate. */
 function needsAttention(t: ThreadDto): boolean {
-  return t.status === 'AWAITING';
+  return t.status === 'NEEDS_ATTENTION';
 }
 
 function isActiveThread(t: ThreadDto): boolean {
   // Non-terminal status set lines up with the backend's
   // findActiveTaskForThread filter (PENDING/RUNNING/AWAITING/IDLE).
   return t.status === 'PENDING' || t.status === 'RUNNING'
-      || t.status === 'AWAITING' || t.status === 'IDLE';
+      || t.status === 'IDLE';
 }
 
 function isUpdatedToday(iso: string): boolean {
@@ -569,7 +565,7 @@ function memoryExcerpt(md: string): MemorySection[] {
 
 function statusDotStyle(status: string): React.CSSProperties {
   const color = status === 'RUNNING' ? '#16a34a'
-      : status === 'AWAITING' || status === 'AWAITING_REVIEW' ? '#d97706'
+      : status === 'AWAITING_REVIEW' ? '#d97706'
       : status === 'IN_REVIEW' ? '#7c3aed'
       : '#7a7388';
   return {

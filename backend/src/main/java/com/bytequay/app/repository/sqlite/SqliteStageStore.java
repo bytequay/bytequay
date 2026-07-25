@@ -42,10 +42,9 @@ import static java.util.Objects.requireNonNull;
 class SqliteStageStore
         implements StageStore
 {
-    /** OPEN + ACTIVE — the two non-terminal, non-paused states that count
-     *  as "the currently active stage". */
+    /** The one live state — the "currently active stage" query set. */
     private static final List<String> ACTIVE_STATES =
-            List.of(StageState.OPEN.name(), StageState.ACTIVE.name());
+            List.of(StageState.OPEN.name());
 
     private final TaskStageJpaRepository stages;
     private final TaskStageEventJpaRepository events;

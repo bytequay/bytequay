@@ -454,7 +454,6 @@ class SqliteTaskStore
         List<String> active = List.of(
                 TaskStatus.PENDING.name(),
                 TaskStatus.RUNNING.name(),
-                TaskStatus.AWAITING.name(),
                 TaskStatus.IDLE.name());
         return tasks.findByThreadIdAndStatusInOrderBySeqDesc(threadId, active)
                 .stream()

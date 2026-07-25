@@ -119,7 +119,7 @@ class TestBrainReviewServiceImpl
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
         when(turnStore.findTurnById("turn-1"))
                 .thenReturn(Optional.of(turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("user"))));
-        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
                 .thenReturn(List.of(planRecordedEvent("finalized")));
         Thread brainThread = brainThread();
@@ -142,7 +142,7 @@ class TestBrainReviewServiceImpl
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
         when(turnStore.findTurnById("turn-1"))
                 .thenReturn(Optional.of(turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("user"))));
-        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
                 .thenReturn(List.of(planRecordedEvent("finalized")));
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
@@ -162,7 +162,7 @@ class TestBrainReviewServiceImpl
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
         when(turnStore.findTurnById("turn-1"))
                 .thenReturn(Optional.of(turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("user"))));
-        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID)).thenReturn(List.of(planRecordedEvent("suggested")));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
@@ -178,7 +178,7 @@ class TestBrainReviewServiceImpl
                 UUID.randomUUID(), PLAN_STAGE_ID, TASK_ID, StageEventType.PLAN_SELF_REVIEWED, NOW, "{}");
         when(turnStore.findTurnById("turn-2"))
                 .thenReturn(Optional.of(turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("user"))));
-        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
                 .thenReturn(List.of(planRecordedEvent("finalized"), reviewed));
 
@@ -193,7 +193,7 @@ class TestBrainReviewServiceImpl
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
         when(turnStore.findTurnById("turn-3")).thenReturn(Optional.of(
                 turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("brain-plan-self-review"))));
-        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
                 .thenReturn(List.of(planRecordedEvent("finalized", "low", "trivial")));
 
@@ -213,7 +213,7 @@ class TestBrainReviewServiceImpl
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
         when(turnStore.findTurnById("turn-4")).thenReturn(Optional.of(
                 turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("brain-plan-self-review"))));
-        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
                 .thenReturn(List.of(planRecordedEvent("finalized", "high", "large")));
 
@@ -229,7 +229,7 @@ class TestBrainReviewServiceImpl
                 PLAN_STAGE_ID.toString(), TurnInitiator.unattended("brain-plan-self-review"));
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
         when(turnStore.findTurnById("failed-review")).thenReturn(Optional.of(failed));
-        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(turnStore.listTurnsByTaskId("thread-1", 50)).thenReturn(List.of(failed));
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
 
@@ -249,7 +249,7 @@ class TestBrainReviewServiceImpl
         ThreadTurn prior = runTurn(
                 PLAN_STAGE_ID.toString(), "brain-plan-self-review", ThreadTurnStatus.FAILED, null);
         when(turnStore.findTurnById("failed-review")).thenReturn(Optional.of(failed));
-        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(turnStore.listTurnsByTaskId("thread-1", 50)).thenReturn(List.of(failed, prior));
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
 
@@ -277,7 +277,7 @@ class TestBrainReviewServiceImpl
         ThreadTurn oldTwo = runTurn(
                 PLAN_STAGE_ID.toString(), "brain-plan-self-review", ThreadTurnStatus.CANCELLED, null);
         when(turnStore.findTurnById(current.id())).thenReturn(Optional.of(current));
-        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
                 .thenReturn(List.of(planRecordedEvent("finalized")));
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
@@ -304,7 +304,7 @@ class TestBrainReviewServiceImpl
         when(taskStore.listPhaseEvents(TASK_ID)).thenReturn(List.of(new TaskPhaseEvent(
                 1L, TASK_ID, TaskPhase.PLANNING, TaskPhase.NEEDS_ATTENTION,
                 NOW, "plan_self_review_failed", Actor.AGENT)));
-        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
                 .thenReturn(List.of(planRecordedEvent("finalized")));
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
@@ -335,7 +335,7 @@ class TestBrainReviewServiceImpl
                 PLAN_STAGE_ID.toString(), null, PLAN_STAGE_ID.toString(),
                 AgentRun.STATUS_QUEUED, 0, null, null, null, NOW, null);
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(pausedTask));
-        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
                 .thenReturn(List.of(planRecordedEvent("finalized")));
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
@@ -361,7 +361,7 @@ class TestBrainReviewServiceImpl
     {
         Task planning = taskAt(TaskPhase.PLANNING);
         when(taskStore.listByPhases(List.of(TaskPhase.PLANNING), 100)).thenReturn(List.of(planning));
-        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
                 .thenReturn(List.of(planRecordedEvent("finalized")));
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
@@ -394,7 +394,7 @@ class TestBrainReviewServiceImpl
                 TurnInitiator.unattended("brain-plan-self-review"),
                 PLAN_STAGE_ID.toString(), ThreadScope.STAGE);
         when(taskStore.listByPhases(List.of(TaskPhase.PLANNING), 100)).thenReturn(List.of(planning));
-        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(planStage(StageState.ACTIVE)));
+        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID)).thenReturn(List.of(first, reviewed, revised));
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
         when(turnStore.listTurnsByTaskId("brain-1", 50)).thenReturn(List.of(oldReview));
@@ -751,7 +751,7 @@ class TestBrainReviewServiceImpl
                 AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
         StageInstance remoteStage = new StageInstance(
                 UUID.fromString(remoteStageId), TASK_ID, StageType.REMOTE_DEVELOPMENT_STAGE,
-                StageState.ACTIVE, NOW, null, null);
+                StageState.OPEN, NOW, null, null);
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
         when(roundStore.findByTask(TASK_ID)).thenReturn(List.of(parked));
         when(agentRuns.findById(parked.runId())).thenReturn(Optional.of(prior));

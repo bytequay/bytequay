@@ -165,7 +165,7 @@ class TestWorkspaceIssueIntakeMonitor
         when(fixture.threads.find("thread")).thenReturn(Optional.of(thread));
         UUID stageId = UUID.randomUUID();
         StageInstance stage = new StageInstance(
-                stageId, "task", StageType.PLAN_STAGE, StageState.ACTIVE,
+                stageId, "task", StageType.PLAN_STAGE, StageState.OPEN,
                 Instant.now(), null, null);
         when(fixture.stages.findActiveStage("task")).thenReturn(Optional.of(stage));
         JsonNode safePlan = plan("high", "low", "small");
@@ -201,7 +201,7 @@ class TestWorkspaceIssueIntakeMonitor
         when(fixture.threads.find("thread")).thenReturn(Optional.of(thread));
         UUID stageId = UUID.randomUUID();
         StageInstance stage = new StageInstance(
-                stageId, "task", StageType.PLAN_STAGE, StageState.ACTIVE,
+                stageId, "task", StageType.PLAN_STAGE, StageState.OPEN,
                 Instant.now(), null, null);
         when(fixture.stages.findActiveStage("task")).thenReturn(Optional.of(stage));
         when(fixture.stages.findEventsByStage(stageId)).thenReturn(List.of(new StageEvent(

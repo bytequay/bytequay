@@ -52,7 +52,7 @@ public class IdleThreadArchiver
      *  PENDING / AWAITING_REVIEW / NEEDS_ATTENTION represent active
      *  work and stay in the list. */
     private static final Set<ThreadStatus> ELIGIBLE =
-            Set.of(ThreadStatus.IDLE, ThreadStatus.AWAITING);
+            Set.of(ThreadStatus.IDLE);
 
     private static final int PER_STATUS_PAGE = 200;
 

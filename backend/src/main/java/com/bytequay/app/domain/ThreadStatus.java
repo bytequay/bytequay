@@ -32,11 +32,6 @@ public enum ThreadStatus
      *  is in flight. */
     RUNNING,
 
-    /** Agent paused for user permission (approve a destructive
-     *  command, etc.) or for a reply. The list-page card surfaces
-     *  approve/reject affordances; macOS notifies on every entry. */
-    AWAITING,
-
     /** Open session, no recent activity; the user hasn't replied. */
     IDLE,
 

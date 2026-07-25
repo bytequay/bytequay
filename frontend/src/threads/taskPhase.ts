@@ -21,10 +21,6 @@ import type { TaskPhaseDto, TaskPhaseGroupDto } from '../types';
  */
 export function phaseGroupOf(phase: TaskPhaseDto): TaskPhaseGroupDto {
   switch (phase) {
-    // Queued waits on the scheduler to free a slot — no human action,
-    // grouped with the remote-review wait under IDLE.
-    case 'QUEUED':
-      return 'IDLE';
     case 'IMPLEMENTING':
     case 'VALIDATING':
     case 'INTERNAL_REVIEW':
@@ -102,9 +98,6 @@ export const FLOW_STEPPER_NODES = [
  */
 export function stepperNodeOf(phase: TaskPhaseDto): number {
   switch (phase) {
-    // QUEUED sits before the first node (the "pre-stepper" ⏳); it maps
-    // to Implement as a harmless default for any node-index reader.
-    case 'QUEUED':                  return 0;
     case 'IMPLEMENTING':            return 0;
     case 'VALIDATING':              return 1;
     case 'INTERNAL_REVIEW':         return 2;

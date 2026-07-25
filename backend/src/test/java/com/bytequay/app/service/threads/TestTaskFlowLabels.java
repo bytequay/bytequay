@@ -48,11 +48,10 @@ class TestTaskFlowLabels
     @Test
     void specialPhasesMapToOffStepperMilestones()
     {
-        assertThat(TaskMilestone.of(TaskPhase.QUEUED)).isEqualTo(TaskMilestone.QUEUED);
         assertThat(TaskMilestone.of(TaskPhase.NEEDS_ATTENTION)).isEqualTo(TaskMilestone.PARKED);
         assertThat(TaskMilestone.of(TaskPhase.COMPLETED)).isEqualTo(TaskMilestone.MERGE);
         // The off-stepper specials are not in the six canonical buckets.
-        assertThat(TaskMilestone.CANONICAL).doesNotContain(TaskMilestone.QUEUED, TaskMilestone.PARKED);
+        assertThat(TaskMilestone.CANONICAL).doesNotContain(TaskMilestone.PARKED);
         assertThat(TaskMilestone.CANONICAL).hasSize(6);
     }
 

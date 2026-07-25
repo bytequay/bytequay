@@ -1675,7 +1675,6 @@ export type ThreadKindDto = 'CLI_AGENT' | 'LOGIC_LOOP';
 export type ThreadStatusDto =
   | 'PENDING'
   | 'RUNNING'
-  | 'AWAITING'
   | 'IDLE'
   /** Parked: the active task finished with a proposed diff and is
    *  holding at the publish gate. Surfaces a notification. */
@@ -2012,7 +2011,6 @@ export type AgentReviewQueueItemDto = {
  *  bridge (kept until the Phase-4 rename ships). */
 /** The dev PR-collaboration lifecycle phase (backend TaskPhase, V106). */
 export type TaskPhaseDto =
-  | 'QUEUED'
   | 'IMPLEMENTING'
   | 'VALIDATING'
   | 'INTERNAL_REVIEW'
@@ -2159,10 +2157,8 @@ export type WorkUnitTaskDto = {
   consecutiveAutoPushes: number;
   /** 'owner/repo#n' this task is permanently linked to, or null. */
   linkedPrRef: string | null;
-  /** Opening-prompt accumulator for a task materialised from the queue
-   *  (V110). Seeded from the queue entry; the composer on a QUEUED task
-   *  appends here; the agent reads it as its first turn on the
-   *  QUEUED → IMPLEMENTING promotion. Null for non-queued tasks. */
+  /** Opening-prompt accumulator (V110): the agent's first-turn input
+   *  when work starts. Null when never accumulated. */
   openingPrompt: string | null;
   /** Rolled-up cost / token usage for the task. Backend Task record
    *  carries these (mirrored from the StreamEvent.TurnDone rows); the
@@ -2930,11 +2926,6 @@ export type Bridge = {
   cutTaskNow: (
     threadId: string, kind: string, title: string, workingDir: string,
     initialPrompt: string | null,
-  ) => Promise<WorkUnitTaskDto>;
-  /** Append to (or replace) a QUEUED task's opening prompt — the agent's
-   *  first-turn input once a slot opens. 422 unless the task is QUEUED. */
-  setOpeningPrompt: (
-    threadId: string, taskId: string, text: string, mode: 'append' | 'replace',
   ) => Promise<WorkUnitTaskDto>;
   /** Saved Views — user-authored concepts (scope=USER) visible
    *  alongside the workspace and APP-scoped seeds. */

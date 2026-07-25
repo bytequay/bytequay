@@ -76,7 +76,7 @@ public class PublishToolHandlers
      *  of these fast-forwards to AWAITING_PUSH so the stepper reflects the
      *  review/push stage instead of staying on "Implement". */
     private static final Set<TaskPhase> PRE_PUSH_PHASES = EnumSet.of(
-            TaskPhase.QUEUED, TaskPhase.IMPLEMENTING,
+            TaskPhase.IMPLEMENTING,
             TaskPhase.VALIDATING, TaskPhase.INTERNAL_REVIEW);
 
     private final TaskStore taskStore;

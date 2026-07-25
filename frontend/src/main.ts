@@ -657,20 +657,6 @@ function registerIpc(): void {
   });
   // Append to (or replace) a QUEUED task's opening prompt — the agent's
   // first-turn input once its slot opens.
-  ipcMain.handle('backend:setOpeningPrompt', async (
-    _event, threadId: string, taskId: string, text: string, mode: string) => {
-    const res = await fetch(
-      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks/${encodeURIComponent(taskId)}/opening-prompt`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, mode }),
-      });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend set opening prompt returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
 
   // Named filter (urgent, awaiting_me, stale, blocked, mine_open) —
   // the backend resolves through PullRequestFilters, which is the

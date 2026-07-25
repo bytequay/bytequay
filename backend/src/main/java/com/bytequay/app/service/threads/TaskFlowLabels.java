@@ -50,7 +50,6 @@ public final class TaskFlowLabels
             case AWAITING_REMOTE_REVIEW -> "Remote review";
             case COMPLETED -> "Merged";
             case NEEDS_ATTENTION -> "Parked";
-            case QUEUED -> "Queued";
             case PLANNING -> "Plan";
         };
     }
@@ -70,7 +69,6 @@ public final class TaskFlowLabels
     {
         return switch (phase) {
             case PLANNING -> "Plan";
-            case QUEUED -> "Queued";
             case IMPLEMENTING -> "Implement";
             case ADDRESSING_LOCAL_COMMENTS -> "Address";
             case VALIDATING -> "Validate";
@@ -95,10 +93,9 @@ public final class TaskFlowLabels
             case AWAITING_PUSH -> "on review clean";
             case INTERNAL_REVIEW -> "after validation";
             case VALIDATING -> "after implementing";
-            case IMPLEMENTING -> "on slot open";
+            case IMPLEMENTING -> "on plan approved";
             case PUSHED_AWAITING_CI -> "on push approved";
             case NEEDS_ATTENTION -> "if blocked";
-            case QUEUED -> "queued";
             case PLANNING -> "needs a plan";
         };
     }

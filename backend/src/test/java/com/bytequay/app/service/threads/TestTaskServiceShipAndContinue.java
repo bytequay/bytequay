@@ -669,7 +669,7 @@ class TestTaskServiceShipAndContinue
         Task paused = taskAtPhase(base, TaskPhase.INTERNAL_REVIEW);
         StageInstance activeStage = new StageInstance(
                 UUID.fromString("22222222-2222-2222-2222-222222222222"), paused.id(),
-                StageType.DEVELOPMENT_STAGE, StageState.ACTIVE, paused.createdAt(), null, null);
+                StageType.DEVELOPMENT_STAGE, StageState.OPEN, paused.createdAt(), null, null);
         when(taskStore.findTaskById(paused.id())).thenReturn(Optional.of(paused));
         when(threadStore.findThreadById(paused.threadId())).thenReturn(Optional.of(thread(paused.threadId())));
         when(stageStore.findActiveStage(paused.id())).thenReturn(Optional.of(activeStage));
@@ -692,7 +692,7 @@ class TestTaskServiceShipAndContinue
         Task paused = taskAtPhase(base, TaskPhase.VALIDATING);
         StageInstance activeStage = new StageInstance(
                 UUID.fromString("33333333-3333-3333-3333-333333333333"), paused.id(),
-                StageType.DEVELOPMENT_STAGE, StageState.ACTIVE, paused.createdAt(), null, null);
+                StageType.DEVELOPMENT_STAGE, StageState.OPEN, paused.createdAt(), null, null);
         when(taskStore.findTaskById(paused.id())).thenReturn(Optional.of(paused));
         when(threadStore.findThreadById(paused.threadId())).thenReturn(Optional.of(thread(paused.threadId())));
         when(stageStore.findActiveStage(paused.id())).thenReturn(Optional.of(activeStage));

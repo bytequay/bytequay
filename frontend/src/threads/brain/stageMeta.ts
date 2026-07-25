@@ -55,8 +55,6 @@ export type RailState = 'done' | 'active' | 'idle' | 'future';
 export function railStateFor(stage: StageDto): RailState {
   switch (stage.state) {
     case 'CLOSED': return 'done';
-    case 'ACTIVE': return 'active';
-    case 'PAUSED': return 'idle';
     case 'OPEN': return 'active';
     default: return 'idle';
   }

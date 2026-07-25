@@ -31,7 +31,6 @@ import java.util.List;
 public enum TaskMilestone
 {
     PLAN("Plan"),
-    QUEUED("Queued"),
     IMPLEMENT("Implement"),
     VALIDATE("Validate"),
     REVIEW("Review"),
@@ -41,9 +40,9 @@ public enum TaskMilestone
     PARKED("Parked");
 
     /** The six canonical buckets shown in the collapsed milestone view,
-     *  in fixed left-to-right order. {@link #QUEUED} (pre-sequence) and
-     *  {@link #PARKED} (a NEEDS_ATTENTION escape) are not canonical
-     *  buckets — they never appear in the 6-bucket overview. */
+     *  in fixed left-to-right order. {@link #PARKED} (a NEEDS_ATTENTION
+     *  escape) is not a canonical bucket — it never appears in the
+     *  6-bucket overview. */
     public static final List<TaskMilestone> CANONICAL =
             List.of(IMPLEMENT, VALIDATE, REVIEW, PUSH, WAIT_ON_PR, MERGE);
 
@@ -63,7 +62,6 @@ public enum TaskMilestone
     {
         return switch (phase) {
             case PLANNING -> PLAN;
-            case QUEUED -> QUEUED;
             case IMPLEMENTING -> IMPLEMENT;
             case VALIDATING -> VALIDATE;
             case INTERNAL_REVIEW -> REVIEW;

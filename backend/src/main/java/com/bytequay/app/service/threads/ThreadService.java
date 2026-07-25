@@ -842,8 +842,7 @@ public class ThreadService
     {
         requireNonNull(threadId, "threadId is null");
         Thread thread = requireTask(threadId);
-        if (thread.status() == ThreadStatus.RUNNING
-                || thread.status() == ThreadStatus.AWAITING) {
+        if (thread.status() == ThreadStatus.RUNNING) {
             // Interrupt every live stage-agent so a mid-flight CLI exits at
             // its next tool boundary and releases its worktree lease.
             registry.findAll(threadId).forEach(ThreadAgent::interrupt);
@@ -1575,12 +1574,9 @@ public class ThreadService
              *  revises it. Null for a task cut without a prior plan. */
             JsonNode trunkPlan,
             /** Defer the planning kickoff: the PlanStage still opens at
-             *  creation, but the brain's planning turn is <em>not</em> started.
-             *  The queue path sets this so a task materialised into
-             *  {@link TaskPhase#QUEUED} waits for a compute slot before
-             *  planning — the scheduler fires the kickoff when it promotes the
-             *  task to {@link TaskPhase#PLANNING}. Direct creations leave it
-             *  false and plan immediately. */
+             *  creation, but the brain's planning turn is <em>not</em>
+             *  started. Retained from the retired task-queue path; every
+             *  current creation leaves it false and plans immediately. */
             boolean deferPlanKickoff,
             /** Immutable creator provenance copied to the Task row. */
             String origin)

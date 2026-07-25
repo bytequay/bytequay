@@ -40,9 +40,8 @@ public enum TaskPhaseGroup
             // PLANNING holds for the user to approve the plan before any dev
             // work starts — it's an action the user owns.
             case PLANNING, AWAITING_PUSH, AWAITING_READY, NEEDS_ATTENTION -> AWAITING_YOU;
-            // QUEUED waits on the scheduler to free a slot; the remote-
-            // review wait is on external humans. Neither needs the user.
-            case QUEUED, AWAITING_REMOTE_REVIEW -> IDLE;
+            // The remote-review wait is on external humans, not the user.
+            case AWAITING_REMOTE_REVIEW -> IDLE;
             case COMPLETED -> DONE;
         };
     }

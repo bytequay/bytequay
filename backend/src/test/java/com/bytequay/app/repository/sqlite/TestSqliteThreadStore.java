@@ -166,7 +166,7 @@ class TestSqliteThreadStore
 
         Thread updated = new Thread(
                 initial.id(), initial.kind(), initial.provider(), "agent-session-abc",
-                initial.title(), ThreadStatus.AWAITING,
+                initial.title(), ThreadStatus.NEEDS_ATTENTION,
                 initial.model(),
                 /* costUsdMilli */ 12_345L, /* tokensIn */ 1_000L, /* tokensOut */ 2_000L,
                 initial.createdAt(), Instant.parse("2026-05-15T13:00:00Z"),
@@ -177,7 +177,7 @@ class TestSqliteThreadStore
         store.saveThread(updated);
 
         Thread got = store.findThreadById(initial.id()).orElseThrow();
-        assertThat(got.status()).isEqualTo(ThreadStatus.AWAITING);
+        assertThat(got.status()).isEqualTo(ThreadStatus.NEEDS_ATTENTION);
         assertThat(got.agentSessionId()).isEqualTo("agent-session-abc");
         assertThat(got.costUsdMilli()).isEqualTo(12_345L);
         assertThat(got.tokensIn()).isEqualTo(1_000L);

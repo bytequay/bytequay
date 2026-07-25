@@ -27,10 +27,12 @@ import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
+import com.bytequay.app.service.threads.WorktreeService;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -197,9 +199,11 @@ public class PRRecordToolHandlers
 
     @AgentTool(
             name = "record_local_review",
-            description = "Declare Development done. The idle lifecycle runs validation, then starts "
-                    + "Brain adversarial review; only Brain approval or bounded escalation hands the "
-                    + "private local PR to the user. No GitHub interaction.",
+            description = "Declare Development done. ByteQuay checkpoints any remaining worktree "
+                    + "changes outside the provider sandbox, then the idle lifecycle runs validation "
+                    + "and starts Brain adversarial review. Failed validation enters the bounded local "
+                    + "fix loop; only Brain approval or bounded escalation hands the private local PR "
+                    + "to the user. No GitHub interaction.",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TASK)
@@ -215,7 +219,7 @@ public class PRRecordToolHandlers
                     return ToolOutcome.Completed.error("no task for local PR " + pr.id());
                 }
                 if (task.phase() == TaskPhase.IMPLEMENTING) {
-                    String error = handoffError(task);
+                    String error = prepareHandoff(task, pr);
                     if (error != null) {
                         return ToolOutcome.Completed.error(error);
                     }
@@ -236,7 +240,7 @@ public class PRRecordToolHandlers
         });
     }
 
-    private String handoffError(Task task)
+    private String prepareHandoff(Task task, PR pr)
     {
         if (task.worktreePath() == null || task.worktreePath().isBlank()
                 || task.branchName() == null || task.branchName().isBlank()
@@ -246,7 +250,8 @@ public class PRRecordToolHandlers
         Path worktree = Path.of(task.worktreePath());
         try {
             if (git.hasUncommittedChanges(worktree)) {
-                return "development handoff rejected: commit or discard all worktree changes first";
+                git.stageAll(worktree, List.of(WorktreeService.HOOK_DIR_REL));
+                git.commit(worktree, checkpointMessage(pr));
             }
             Integer ahead = git.commitCountUniqueTo(worktree, task.branchName(), task.baseBranch());
             if (ahead == null || ahead <= 0) {
@@ -255,12 +260,30 @@ public class PRRecordToolHandlers
             return null;
         }
         catch (IOException e) {
-            return "development handoff could not inspect git state: " + e.getMessage();
+            return parkHandoffFailure(task,
+                    "Development handoff could not checkpoint Git changes: " + e.getMessage());
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return "development handoff interrupted while inspecting git state";
+            return parkHandoffFailure(task,
+                    "Development handoff was interrupted while checkpointing Git changes");
         }
+    }
+
+    private String parkHandoffFailure(Task task, String error)
+    {
+        taskStore.saveTask(task.withErrorMessage(error));
+        phaseMachine.transition(
+                task.id(), TaskPhase.NEEDS_ATTENTION,
+                "development_handoff_checkpoint_failed", Actor.AGENT);
+        return error;
+    }
+
+    private static String checkpointMessage(PR pr)
+    {
+        return pr.title() == null || pr.title().isBlank()
+                ? "Complete local development"
+                : pr.title().strip();
     }
 
     /** Args for {@code record_pr_comment}. */

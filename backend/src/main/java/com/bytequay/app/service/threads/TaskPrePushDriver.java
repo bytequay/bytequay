@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -28,6 +29,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
@@ -63,17 +65,20 @@ public class TaskPrePushDriver
     private final ValidationPassService validation;
     private final GitRunner git;
     private final PRSyncService prSync;
+    private final TaskPhaseMachine phaseMachine;
 
     public TaskPrePushDriver(
             TaskStore taskStore,
             ValidationPassService validation,
             GitRunner git,
-            PRSyncService prSync)
+            PRSyncService prSync,
+            TaskPhaseMachine phaseMachine)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.validation = requireNonNull(validation, "validation is null");
         this.git = requireNonNull(git, "git is null");
         this.prSync = requireNonNull(prSync, "prSync is null");
+        this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
     }
 
     /** Offset from the other lifecycle sweeps so they don't bunch up. */
@@ -123,6 +128,9 @@ public class TaskPrePushDriver
     /** Visible for the unit test: run the pre-push phase sequence. */
     void runPrePush(Task task)
     {
+        if (!checkpointLocalFix(task)) {
+            return;
+        }
         // Synchronous: publishes ValidationPassFinishedEvent, which the
         // phase machine reacts to (VALIDATING -> INTERNAL_REVIEW on clean,
         // -> NEEDS_ATTENTION on a failed check).
@@ -133,5 +141,39 @@ public class TaskPrePushDriver
             // the Brain review; that review alone can hand off to Local Review.
             prSync.syncFromTask(task.id());
         }
+    }
+
+    /** A provider-sandboxed fix turn may edit the worktree but cannot write
+     *  the shared Git index. Checkpoint through ByteQuay before re-validating
+     *  so a green pass can never advance with uncommitted fixes. */
+    private boolean checkpointLocalFix(Task task)
+    {
+        Path worktree = Path.of(task.worktreePath());
+        try {
+            if (git.hasUncommittedChanges(worktree)) {
+                git.stageAll(worktree, List.of(WorktreeService.HOOK_DIR_REL));
+                git.commit(worktree, "Fix local validation failures");
+            }
+            return true;
+        }
+        catch (IOException e) {
+            parkCheckpointFailure(task,
+                    "Local validation could not checkpoint Git changes: " + e.getMessage());
+            return false;
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            parkCheckpointFailure(task,
+                    "Local validation was interrupted while checkpointing Git changes");
+            return false;
+        }
+    }
+
+    private void parkCheckpointFailure(Task task, String error)
+    {
+        taskStore.saveTask(task.withErrorMessage(error));
+        phaseMachine.transition(
+                task.id(), TaskPhase.NEEDS_ATTENTION,
+                "local_validation_checkpoint_failed", Actor.AGENT);
     }
 }

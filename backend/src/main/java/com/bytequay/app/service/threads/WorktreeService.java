@@ -92,7 +92,7 @@ public class WorktreeService
      *  kept separate from {@code .git/hooks/}. No hook is installed here
      *  any more — the constant remains so the stage-all exclusion and the
      *  infra-path guard keep skipping it if a stale dir is ever present. */
-    static final String HOOK_DIR_REL = ".bytequay-hooks";
+    public static final String HOOK_DIR_REL = ".bytequay-hooks";
 
     private final GitRunner git;
     private final WatchedRepoStore watchedRepos;

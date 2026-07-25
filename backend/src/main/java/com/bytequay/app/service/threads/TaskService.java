@@ -727,29 +727,12 @@ public class TaskService
                             || !repoMatches(task, repoFullName)) {
                         return null;
                     }
-                    if (merged) {
-                        taskStore.completeTask(task.id(), Instant.now());
-                    }
-                    else {
-                        taskStore.remoteCloseTask(task.id(), Instant.now());
-                    }
+                    taskPhaseMachine.finishTerminal(
+                            task.id(),
+                            merged ? TaskStatus.COMPLETED : TaskStatus.REMOTE_CLOSED,
+                            Actor.WEBHOOK,
+                            merged ? "pr_merged" : "pr_closed");
                     taskStore.linkPullRequest(task.id(), prNumber, merged ? "merged" : "closed");
-                    if (task.phase() != TaskPhase.COMPLETED) {
-                        try {
-                            if (merged) {
-                                taskPhaseMachine.transition(
-                                        task.id(), TaskPhase.COMPLETED, "pr_merged", Actor.WEBHOOK);
-                            }
-                            else {
-                                taskPhaseMachine.observe(
-                                        task.id(), TaskPhase.COMPLETED, "pr_closed");
-                            }
-                        }
-                        catch (RuntimeException e) {
-                            log.warn("phase -> COMPLETED for task {} failed: {}",
-                                    task.id(), e.getMessage());
-                        }
-                    }
                     // Seal before reaping so queued/running lifecycle work sees
                     // the terminal task while its worktree still exists.
                     sealer.seal(task.id(), merged ? "pr_merged" : "pr_closed");
@@ -807,6 +790,11 @@ public class TaskService
         // thread. Cancel owns the task now, so make that callback stale before
         // touching durable turns or the runtime.
         pauseTeardownTokens.remove(taskId);
+        // Durable terminal intent first: CANCELED status + COMPLETED phase +
+        // both audit rows commit before any runtime teardown, so a crash
+        // mid-cancel leaves a task the reconcilers finish tearing down
+        // rather than a live-looking task with a half-dead runtime.
+        taskPhaseMachine.finishTerminal(taskId, TaskStatus.CANCELED, Actor.HUMAN, "task_cancelled");
         // Stop durable queued/running work before tearing down the runtime or
         // worktree. The scheduler scopes by the exact task_id, so sibling
         // tasks on this thread keep running; when an outer transaction exists,
@@ -824,12 +812,6 @@ public class TaskService
             awaitAgentStopped(agent);
         }
         registry.evictStages(threadId, stageKeys);
-        taskStore.cancelTask(taskId, Instant.now());
-        // Drive the phase terminal so the lifecycle reconciler stops polling
-        // the task and the queue scheduler frees its slot.
-        if (task.phase() != TaskPhase.COMPLETED) {
-            taskStore.updatePhase(taskId, TaskPhase.COMPLETED);
-        }
         // Seal any still-open review round or stage (Plan / Dev / CI-fix …);
         // otherwise the rail and stage pages keep reporting work as live
         // after the task itself is CANCELED.

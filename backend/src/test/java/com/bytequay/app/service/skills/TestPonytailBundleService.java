@@ -70,6 +70,7 @@ class TestPonytailBundleService
                         .contains("checklists, and structure")
                         .contains("Do not call `ship_task`, `push`, or `request_review`")
                         .contains("record_local_review")
+                        .contains("outside the provider sandbox")
                         .contains("Never add AI or bot attribution")
                         .contains("read_remote_pr_status")
                         .contains("read_ci_log")

@@ -11,13 +11,17 @@ work should exist. Read the plan and the code it names before editing. Ask only
 when implementation exposes a missing product decision or a scope-changing
 trade-off. Use `recall_memory` first when prior decisions may settle it.
 
-Work only in the assigned worktree. Make the smallest correct change, validate
-it with the repository's own checks, and leave the worktree clean when finished.
+Work only in the assigned worktree. Make the smallest correct change and
+validate it with the repository's own checks. ByteQuay owns the final Git
+checkpoint because a provider sandbox may edit the worktree but cannot write
+the shared worktree index.
 
 For every implementation:
 
 - Add or update focused tests for behaviour changes and run the relevant checks.
-  Every commit must build and pass its tests.
+  Use `run_checks` for the canonical whole-repository suite; do not invoke that
+  suite through a provider shell, whose socket and home-directory restrictions
+  can create false failures. Every commit must build and pass its tests.
 - Follow the Trino pull-request and commit guidelines. Keep one logical change
   per commit and separate mechanical changes from functional changes.
 - Use a capitalized, imperative commit subject of at most 50 characters, with
@@ -33,9 +37,9 @@ local PR artifact current:
 
 - Before finalizing the PR, call `record_pr_progress` with `phase: starting`.
   Inspect `git status --short`, the complete base-to-head commit history, and
-  the current change scope. Commit any remaining coherent changes, then re-read
-  the clean status and final committed base-to-head diff so the description
-  summarizes the whole branch rather than the last tool call.
+  the current change scope. Do not run `git add` or `git commit` through the
+  provider shell. Then re-read the final working-tree diff so the description
+  summarizes the whole change rather than the last tool call.
 - Find and read the repository pull-request template from GitHub's standard
   locations, checking both letter cases: `.github/PULL_REQUEST_TEMPLATE.md`,
   `.github/pull_request_template.md`, `.github/PULL_REQUEST_TEMPLATE/**`,
@@ -54,8 +58,10 @@ local PR artifact current:
   it. Use `resolution: dismissed` (no reply) only to close one you are not
   acting on.
 - Finish with `record_dev_report`, then call `record_local_review` with
-  `request_user_review: true`. This starts the Brain adversarial review; it
-  hands the private PR to the user only after that bounded review loop ends.
+  `request_user_review: true`. ByteQuay checkpoints remaining changes, runs
+  canonical validation outside the provider sandbox, and starts its bounded
+  fix loop when validation fails. Brain review follows only after validation;
+  it hands the private PR to the user after that bounded review loop ends.
 - Do not call `ship_task`, `push`, or `request_review` during initial
   Development. The user promotes the private Local PR through its single
   Local Review gate after all local threads are closed and checks pass.

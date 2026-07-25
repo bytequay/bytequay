@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# build-icons.sh — regenerate every PNG / iconset / icns from
+# build-icons.sh — regenerate every PNG / iconset / icns / ico from
 # assets/logo.svg using a tiny Cocoa-based renderer that preserves
 # alpha (qlmanage flattens transparency to opaque white, which broke
 # the dock display — see commit history). Run from the repo root.
 #
 # Re-run this whenever assets/logo.svg changes.
 #
-# Requires macOS (Swift + sips + iconutil are all built-in).
+# Requires macOS (Swift + iconutil are built in).
 
 set -euo pipefail
 
@@ -49,7 +49,18 @@ img.draw(in: NSRect(origin: .zero, size: target),
          from: .zero, operation: .sourceOver, fraction: 1.0)
 NSGraphicsContext.restoreGraphicsState()
 guard let pngData = rep.representation(using: .png, properties: [:]) else { exit(1) }
-try pngData.write(to: outURL)
+if outURL.pathExtension.lowercased() == "ico" {
+    // ICO directory with one PNG-compressed 256px image (supported since Vista).
+    var icon = Data([0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 32, 0])
+    for value in [UInt32(pngData.count), UInt32(22)] {
+        var littleEndian = value.littleEndian
+        withUnsafeBytes(of: &littleEndian) { icon.append(contentsOf: $0) }
+    }
+    icon.append(pngData)
+    try icon.write(to: outURL)
+} else {
+    try pngData.write(to: outURL)
+}
 SWIFT
 
 mkdir -p "$OUT_PNG_DIR" "$ICONSET_DIR"
@@ -66,6 +77,9 @@ for s in 16 32 128 256 512; do
 done
 
 cp "$OUT_PNG_DIR/icon-512.png" "$ROOT/build/icon.png"
+
+echo "[build-icons] bundling icon.ico"
+swift "$RENDERER" "$SVG" "$ROOT/build/icon.ico" "256"
 
 echo "[build-icons] bundling icon.icns"
 iconutil -c icns "$ICONSET_DIR" -o "$ROOT/build/icon.icns"

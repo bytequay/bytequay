@@ -1,4 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="ByteQuay">
-  <rect width="32" height="32" rx="7" fill="#2563eb"/>
-  <path d="M9 9h7a4.5 4.5 0 0 1 1.2 8.84A4.5 4.5 0 0 1 16 23H9V9zm3 2.6v3.1h3.6a1.55 1.55 0 0 0 0-3.1H12zm0 5.6v3.2h3.9a1.6 1.6 0 0 0 0-3.2H12z" fill="#fff"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="64" height="64" role="img" aria-label="ByteQuay">
+  <defs>
+    <linearGradient id="bqFav" x1="15.8%" y1="-9.2%" x2="84.2%" y2="109.2%">
+      <stop offset="0%" stop-color="#7C3AED"></stop>
+      <stop offset="52%" stop-color="#9A2EBE"></stop>
+      <stop offset="100%" stop-color="#B92C90"></stop>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="100" height="100" rx="12.121" fill="url(#bqFav)"></rect>
+  <circle cx="50" cy="50" r="34" fill="none" stroke="#FFFFFF" stroke-width="5"></circle>
+  <line x1="36.5" y1="36" x2="43.5" y2="64" stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="round"></line>
+  <line x1="46.5" y1="36" x2="53.5" y2="64" stroke="#FACC15" stroke-width="6.5" stroke-linecap="round"></line>
+  <line x1="56.5" y1="36" x2="63.5" y2="64" stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="round"></line>
 </svg>

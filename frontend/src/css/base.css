@@ -236,8 +236,8 @@
 }
 
 /* Purple — a soft lavender light theme that picks up the project's
-   logo accent (#7C3AED, the same violet the assets/logo.svg fill
-   uses). Background tints sit just above pure white so the purple
+   logo accent (#7C3AED, the first stop in assets/logo.svg). Background
+   tints sit just above pure white so the purple
    reads as ambient rather than loud; cards stay pure white for
    contrast. The accent is the logo violet directly so chips, links,
    and active states feel of-a-piece with the brand mark. */
@@ -797,13 +797,54 @@ samp {
   color: var(--text-1);
 }
 
+/* ── Brand motion ───────────────────────────────────────── */
+
+.bq-sweep {
+  transform-origin: 50% 50%;
+  animation: bq-spin 1.15s linear infinite;
+}
+.bq-slash { animation: bq-pulse 1.15s ease-in-out infinite; }
+.bq-slash-2 { animation-delay: 0.13s; }
+.bq-slash-3 { animation-delay: 0.26s; }
+
+@keyframes bq-spin { to { transform: rotate(360deg); } }
+@keyframes bq-pulse {
+  0%, 100% { opacity: 0.32; }
+  45% { opacity: 1; }
+}
+
+.bq-onboarding .bq-ring {
+  stroke-dasharray: 199.92;
+  stroke-dashoffset: 199.92;
+  animation: bq-draw-ring 0.85s cubic-bezier(0.22, 0.85, 0.3, 1) 0.1s forwards;
+}
+.bq-onboarding .bq-slash {
+  stroke-dasharray: 24.99;
+  stroke-dashoffset: 24.99;
+  animation: bq-draw-slash 0.5s cubic-bezier(0.3, 0.8, 0.35, 1) forwards;
+}
+.bq-onboarding .bq-slash-1 { animation-delay: 0.5s; }
+.bq-onboarding .bq-slash-2 { animation-delay: 0.64s; }
+.bq-onboarding .bq-slash-3 { animation-delay: 0.78s; }
+
+@keyframes bq-draw-ring { to { stroke-dashoffset: 0; } }
+@keyframes bq-draw-slash { to { stroke-dashoffset: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .bq-sweep,
+  .bq-slash,
+  .bq-onboarding .bq-ring,
+  .bq-onboarding .bq-slash {
+    animation: none;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
 /* ── First-run onboarding ───────────────────────────────── */
 
-/* Mirrors docs/mockups/loading/bytequay-loading-animations-demo.html
-   — centred branded card with the animated logo on top, welcome
-   copy + a single PAT field underneath. Replaces the older
-   setup-shell + SettingsScreen(firstRun) combo with a one-thing-to-do
-   surface. */
+/* Centred branded card with the animated logo, welcome copy, and
+   GitHub connection controls. */
 .onboarding {
   min-height: 100vh;
   display: flex;

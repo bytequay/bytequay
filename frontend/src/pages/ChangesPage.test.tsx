@@ -63,6 +63,11 @@ describe('ChangesPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /All commits/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Fix typos' }));
     expect(onSelectCommit).toHaveBeenCalledWith('abc123');
+
+    fireEvent.click(screen.getByRole('button', { name: /All commits/ }));
+    expect(screen.getByRole('menu')).toBeTruthy();
+    fireEvent.pointerDown(screen.getByTestId('diff'));
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 
   it('back button fires onBack', () => {

@@ -29,6 +29,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -88,10 +89,12 @@ class TestPRPublishService
     private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
     private final NotificationService notifications = mock(NotificationService.class);
     private final TaskService taskService = mock(TaskService.class);
+    private final LocalReviewSubmissionStore submissions = mock(LocalReviewSubmissionStore.class);
     private final PRPublishService service =
             new PRPublishService(
                     prService, taskStore, watchedRepos, git, pullRequests, patResolver, brainReview,
-                    pullRequestDetails, readyToMerge, phaseMachine, notifications, taskService);
+                    pullRequestDetails, readyToMerge, phaseMachine, notifications, taskService,
+                    submissions);
 
     {
         when(prService.comments(anyString())).thenReturn(List.of());

@@ -78,7 +78,7 @@ export default function PullChanges({
   const [filesError, setFilesError] = useState<string | null>(null);
   const [treeOpen, setTreeOpen] = useState(true);
   const [treeW, setTreeW] = useState(212);
-  const [sideOpen, setSideOpen] = useState(true);
+  const [sideOpen, setSideOpen] = useState(false);
   const [sideW, setSideW] = useState(272);
   const [selFile, setSelFile] = useState<string | null>(null);
   const [openCards, setOpenCards] = useState<Record<string, boolean>>({});

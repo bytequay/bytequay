@@ -79,7 +79,8 @@ class TestMemoryToolHandlers
 
     private MemoryItem seedDecision(String text)
     {
-        return store.insert(new MemoryItemStore.NewItem(
+        // Applied: recall_memory is live-by-default, so seeds must be live.
+        MemoryItem pending = store.insert(new MemoryItemStore.NewItem(
                 MemoryItemScopeKind.WORKSPACE,
                 WORKSPACE_ID,
                 MemoryItemKind.DECISION,
@@ -88,17 +89,34 @@ class TestMemoryToolHandlers
                 MemoryItemConfidence.HIGH,
                 List.of(),
                 MemoryItemOrigin.DISTILL));
+        store.markApplied(pending.id(), Instant.now().toEpochMilli());
+        return store.findById(pending.id()).orElseThrow();
     }
 
     private MemoryItem seedBlocker(String text)
     {
-        return store.insert(new MemoryItemStore.NewItem(
+        MemoryItem pending = store.insert(new MemoryItemStore.NewItem(
                 MemoryItemScopeKind.WORKSPACE,
                 WORKSPACE_ID,
                 MemoryItemKind.BLOCKER,
                 text,
                 List.of(MemoryItemSource.thread("thread-y")),
                 MemoryItemConfidence.MEDIUM,
+                List.of(),
+                MemoryItemOrigin.DISTILL));
+        store.markApplied(pending.id(), Instant.now().toEpochMilli());
+        return store.findById(pending.id()).orElseThrow();
+    }
+
+    private MemoryItem seedPendingDecision(String text)
+    {
+        return store.insert(new MemoryItemStore.NewItem(
+                MemoryItemScopeKind.WORKSPACE,
+                WORKSPACE_ID,
+                MemoryItemKind.DECISION,
+                text,
+                List.of(MemoryItemSource.thread("thread-x")),
+                MemoryItemConfidence.HIGH,
                 List.of(),
                 MemoryItemOrigin.DISTILL));
     }
@@ -112,7 +130,7 @@ class TestMemoryToolHandlers
         seedBlocker("Marker " + marker + " — waiting on AWS key rotation.");
 
         MemoryToolHandlers.RecallMemoryArgs args = new MemoryToolHandlers.RecallMemoryArgs(
-                "DECISION", "Marker " + marker, null, 10);
+                "DECISION", "Marker " + marker, null, 10, null);
         ToolOutcome.Completed out = (ToolOutcome.Completed) handlers.recallMemory(args, callOn("t-1"));
 
         assertThat(out.isError()).isFalse();
@@ -130,10 +148,32 @@ class TestMemoryToolHandlers
     void recallRejectsUnknownKind()
     {
         ToolOutcome.Completed out = (ToolOutcome.Completed) handlers.recallMemory(
-                new MemoryToolHandlers.RecallMemoryArgs("WIDGET", null, null, null),
+                new MemoryToolHandlers.RecallMemoryArgs("WIDGET", null, null, null, null),
                 callOn("t-1"));
         assertThat(out.isError()).isTrue();
         assertThat(out.text()).contains("unknown kind");
+    }
+
+    @Test
+    void recallHidesPendingUnlessHistoricalRequested()
+            throws Exception
+    {
+        long marker = System.nanoTime();
+        seedPendingDecision("Pending marker " + marker + " — not yet accepted.");
+
+        ToolOutcome.Completed live = (ToolOutcome.Completed) handlers.recallMemory(
+                new MemoryToolHandlers.RecallMemoryArgs(
+                        null, "Pending marker " + marker, null, 10, null),
+                callOn("t-1"));
+        assertThat(live.isError()).isFalse();
+        assertThat(new ObjectMapper().readTree(live.text())).isEmpty();
+
+        ToolOutcome.Completed audit = (ToolOutcome.Completed) handlers.recallMemory(
+                new MemoryToolHandlers.RecallMemoryArgs(
+                        null, "Pending marker " + marker, null, 10, true),
+                callOn("t-1"));
+        assertThat(audit.isError()).isFalse();
+        assertThat(new ObjectMapper().readTree(audit.text())).hasSize(1);
     }
 
     @Test

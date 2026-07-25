@@ -16,7 +16,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StageConversationRow } from '../types/brainView';
 import { stageFeed, stageRow } from './stageConversationRow';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 function row(over: Partial<StageConversationRow>): StageConversationRow {
   return {
@@ -194,6 +197,7 @@ For EACH open comment below:
 
 describe('stageFeed grouping', () => {
   it('folds consecutive tool calls behind a "Worked for" group; boundaries stay inline', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-01-01T00:04:00Z'));
     const rows = [
       row({ id: 'u1', kind: 'user', text: 'go' }),
       row({ id: 't1', ts: '2026-01-01T00:00:00Z' }),
@@ -202,7 +206,7 @@ describe('stageFeed grouping', () => {
     ];
     const { container } = render(<>{stageFeed(rows)}</>);
     expect(screen.getByText('Worked for 3m 12s')).toBeTruthy();
-    expect(screen.getByText('· 2 steps')).toBeTruthy();
+    expect(container.querySelector('.sp-work__meta')?.textContent).toBe('· 2 steps · 4m ago');
     expect(screen.getByText('done')).toBeTruthy();
     // Folded by default: the tool rows are hidden until the bar is clicked.
     expect(container.querySelector('.tool-block')).toBeNull();

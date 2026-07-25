@@ -292,7 +292,7 @@ class TestPRRecordToolHandlers
                 "task1", "thread-1", 1L, TaskStatus.RUNNING,
                 null, null, "main", "/tmp/repo",
                 null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, null, NOW, null, null, "T", null, null, null, TaskPhase.QUEUED, null, 0, null);
+                0L, 0L, 0L, null, NOW, null, null, "T", null, null, null, TaskPhase.PLANNING, null, 0, null);
         when(taskStore.findTaskById("task1")).thenReturn(Optional.of(noBranch));
 
         ToolOutcome outcome = handlers.recordPrCheck(

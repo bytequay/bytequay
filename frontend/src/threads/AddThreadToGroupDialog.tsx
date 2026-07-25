@@ -196,7 +196,6 @@ function StatusBadge({ status }: { status: ThreadDto['status'] }) {
 
 const STATUS_TONES: Record<ThreadDto['status'], { fg: string; bg: string; border: string }> = {
   RUNNING:         { fg: '#047857', bg: 'rgba(4,120,87,0.10)',  border: 'rgba(4,120,87,0.25)' },
-  AWAITING:        { fg: '#b45309', bg: 'rgba(217,119,6,0.10)', border: 'rgba(217,119,6,0.28)' },
   AWAITING_REVIEW: { fg: '#b45309', bg: 'rgba(245,158,11,0.14)', border: 'rgba(245,158,11,0.30)' },
   NEEDS_ATTENTION: { fg: '#b91c1c', bg: 'rgba(220,38,38,0.10)',  border: 'rgba(220,38,38,0.24)' },
   PENDING:         { fg: 'var(--text-2)', bg: 'var(--bg-card)', border: 'var(--border-hairline)' },

@@ -14,22 +14,16 @@
 package com.bytequay.app.domain;
 
 /**
- * Lifecycle state of a single {@link Stage} instance. A stage opens
- * {@link #OPEN}, flips to {@link #ACTIVE} while an operation executes,
- * may be {@link #PAUSED} by the user, and ends {@link #CLOSED} with both
- * {@code openedAt} and {@code closedAt} set.
+ * Lifecycle state of a single {@link Stage} instance: strictly
+ * {@link #OPEN} ⇄ {@link #CLOSED}. Whether an operation is executing is
+ * a runtime fact (the stage's turns), not a stage state.
  */
 public enum StageState
 {
-    /** Active or polling, but no operation currently executing. */
+    /** Live — the stage owns the task's current chapter of work. */
     OPEN,
 
-    /** An operation is currently executing in this stage. */
-    ACTIVE,
-
-    /** User paused; holds resources but won't progress. */
-    PAUSED,
-
-    /** Terminal; {@code openedAt} and {@code closedAt} both set. */
+    /** Terminal until reopened; {@code openedAt} and {@code closedAt}
+     *  both set. */
     CLOSED
 }

@@ -87,7 +87,7 @@ public class StageSteeringServiceImpl
         }
         StageInstance stage = stageStore.findStageById(stageId)
                 .orElseThrow(() -> status(404, "no stage: " + stageId));
-        if (stage.state() != StageState.OPEN && stage.state() != StageState.ACTIVE) {
+        if (stage.state() != StageState.OPEN) {
             throw status(422, "can't steer a " + stage.state() + " stage");
         }
         Task task = taskStore.findTaskById(stage.taskId())

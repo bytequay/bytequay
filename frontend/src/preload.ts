@@ -126,10 +126,6 @@ const bridge: Bridge = {
     initialPrompt: string | null,
   ): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('backend:cutTaskNow', threadId, kind, title, workingDir, initialPrompt),
-  setOpeningPrompt: (
-    threadId: string, taskId: string, text: string, mode: 'append' | 'replace',
-  ): Promise<WorkUnitTaskDto> =>
-    ipcRenderer.invoke('backend:setOpeningPrompt', threadId, taskId, text, mode),
   listSavedViews: () => ipcRenderer.invoke('backend:listSavedViews'),
   createSavedView: (body: SavedViewBodyDto) =>
     ipcRenderer.invoke('backend:createSavedView', body),

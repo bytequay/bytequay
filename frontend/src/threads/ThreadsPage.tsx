@@ -373,7 +373,7 @@ export default function ThreadsPage({
       else if (filter === 'AWAITING_ME') {
         // Collapsed "needs the human" filter: parked active task or a
         // permission-prompt pause on the thread itself.
-        if (displayStatus !== 'AWAITING') return false;
+        if (displayStatus !== 'NEEDS_ATTENTION') return false;
       }
       else if (filter === 'REVIEW') {
         // Review-flow threads only — read-only PR review panels.
@@ -731,8 +731,7 @@ function ThreadsListKeyframes() {
 
 function filterLabel(filter: StatusFilter): string {
   if (filter === 'ALL') return 'All threads';
-  // RUNNING → "Running", AWAITING → "Awaiting input", etc.
-  if (filter === 'AWAITING') return 'Awaiting input';
+  // RUNNING → "Running", PENDING → "Pending", etc.
   return filter.charAt(0) + filter.slice(1).toLowerCase();
 }
 
@@ -740,7 +739,6 @@ function subtitleFor(filter: StatusFilter): string {
   switch (filter) {
     case 'ALL':       return 'Delegated AI coding runs · pick a status on the left to focus.';
     case 'RUNNING':   return 'Trunks currently executing in the background · sessions stay alive across app restarts.';
-    case 'AWAITING':  return "Paused for your approval or input · the agent's waiting on a yes/no.";
     case 'PENDING':   return 'Queued to start — usually a few seconds before the agent picks them up.';
     case 'IDLE':      return 'Open but no recent activity · waiting on your next reply.';
     case 'COMPLETED': return 'Finished runs you can re-open, re-prompt, or archive.';
@@ -760,12 +758,10 @@ function FilterStatusPill({ filter, count }: { filter: StatusFilter; count: numb
     </span>;
   }
   const tone: PillTone = filter === 'RUNNING' ? 'green'
-    : filter === 'AWAITING' ? 'amber'
     : filter === 'ERRORED' ? 'red'
     : filter === 'COMPLETED' ? 'greenSoft'
     : 'grey';
   const label = filter === 'RUNNING' ? 'LIVE'
-    : filter === 'AWAITING' ? 'AWAITING'
     : filter === 'ERRORED' ? 'ERRORED'
     : filter === 'COMPLETED' ? 'DONE'
     : filter === 'ARCHIVED' ? 'ARCHIVED'
@@ -773,7 +769,7 @@ function FilterStatusPill({ filter, count }: { filter: StatusFilter; count: numb
     : 'IDLE';
   return (
     <span style={{ ...statusPillBaseStyle, ...statusPillToneStyle(tone) }}>
-      {(filter === 'RUNNING' || filter === 'AWAITING') && (
+      {filter === 'RUNNING' && (
         <span style={{
           ...pulseDotStyle,
           background: tone === 'green' ? '#047857' : '#b45309',
@@ -924,7 +920,6 @@ function ThreadCard({ thread, scheduler, groups, currentGroupIds, busy, hasUnrea
 function RowStatusPill({ status, queued }: { status: SchedulerDisplayStatus; queued?: number }) {
   const palette: Record<SchedulerDisplayStatus, { fg: string; bg: string; label: string; pulse: boolean }> = {
     RUNNING:         { fg: '#047857', bg: '#d1fae5', label: 'RUNNING',          pulse: true  },
-    AWAITING:        { fg: '#92400e', bg: '#fef3c7', label: 'AWAITING',         pulse: true  },
     AWAITING_REVIEW: { fg: '#92400e', bg: '#fef3c7', label: 'AWAITING REVIEW',  pulse: false },
     NEEDS_ATTENTION: { fg: '#b91c1c', bg: '#fee2e2', label: 'NEEDS ATTENTION',  pulse: true  },
     PENDING:         { fg: '#374151', bg: '#e5e7eb', label: 'PENDING',          pulse: false },
@@ -956,7 +951,6 @@ function RowStatusPill({ status, queued }: { status: SchedulerDisplayStatus; que
 function stripeColor(status: SchedulerDisplayStatus): string {
   switch (status) {
     case 'RUNNING':   return '#047857';
-    case 'AWAITING':  return '#d97706';
     case 'PENDING':   return '#9ca3af';
     case 'QUEUED':    return '#d97706';
     case 'IDLE':      return '#cbd5e0';

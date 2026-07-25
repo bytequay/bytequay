@@ -617,7 +617,6 @@ function ThreadTile({
 function dotColor(s: SchedulerDisplayStatus): string {
   switch (s) {
     case 'RUNNING':   return '#10b981';
-    case 'AWAITING':  return '#d97706';
     case 'QUEUED':    return '#d97706';
     case 'ERRORED':   return '#dc2626';
     default:          return '#9ca3af';

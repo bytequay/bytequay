@@ -17,17 +17,23 @@ import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.threads.PlanKickoffRequested;
 import com.bytequay.app.service.threads.TaskCreatedEvent;
 import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -59,15 +65,18 @@ public class StageLifecycle
     private static final Logger log = LoggerFactory.getLogger(StageLifecycle.class);
 
     private final StageStore stageStore;
+    private final TaskStore taskStore;
     private final StageBudgetService budgetService;
     private final ApplicationEventPublisher events;
 
     public StageLifecycle(
             StageStore stageStore,
+            TaskStore taskStore,
             StageBudgetService budgetService,
             ApplicationEventPublisher events)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.budgetService = requireNonNull(budgetService, "budgetService is null");
         this.events = requireNonNull(events, "events is null");
     }
@@ -77,6 +86,34 @@ public class StageLifecycle
     public void onTaskCreated(TaskCreatedEvent event)
     {
         ensurePlanStageOpen(event.taskId());
+    }
+
+    /**
+     * Startup backstop for PLANNING tasks whose creation-time hooks never
+     * ran — e.g. rows normalized from the retired QUEUED phase by the
+     * lifecycle migration. Idempotent: a task with any stage at all is
+     * left alone (its PlanStage exists, so its kickoff already fired),
+     * and stopped tasks are never re-armed.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    @Transactional
+    public void reconcilePlanningTasksOnStartup()
+    {
+        for (Task task : taskStore.listByPhases(List.of(TaskPhase.PLANNING), 1_000)) {
+            if (task.status() != TaskStatus.PENDING
+                    && task.status() != TaskStatus.RUNNING
+                    && task.status() != TaskStatus.IDLE) {
+                continue;
+            }
+            if (!stageStore.findStagesByTask(task.id()).isEmpty()) {
+                continue;
+            }
+            ensurePlanStageOpen(task.id());
+            events.publishEvent(new PlanKickoffRequested(
+                    task.id(), task.openingPrompt(), /* trunkPlan */ null));
+            log.info("startup planning reconcile: opened PlanStage and kicked planning for task {}",
+                    task.id());
+        }
     }
 
     @EventListener

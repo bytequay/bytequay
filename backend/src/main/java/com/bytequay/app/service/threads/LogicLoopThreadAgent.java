@@ -505,12 +505,6 @@ public class LogicLoopThreadAgent
     @Override
     public CompletionStage<Void> send(String userInput)
     {
-        if (status.get() == ThreadStatus.AWAITING) {
-            CompletableFuture<Void> done = new CompletableFuture<>();
-            done.completeExceptionally(new IllegalStateException(
-                    "session is paused; resume() before sending another turn"));
-            return done;
-        }
         ThreadStatus current = status.get();
         if (current == ThreadStatus.RUNNING) {
             CompletableFuture<Void> done = new CompletableFuture<>();
@@ -1404,10 +1398,9 @@ public class LogicLoopThreadAgent
     @Override
     public void resume()
     {
-        // AWAITING (paused) and ARCHIVED (auto-archived for inactivity)
-        // both revive to IDLE so the user can pick the panel back up.
-        if (status.get() == ThreadStatus.AWAITING
-                || status.get() == ThreadStatus.ARCHIVED) {
+        // ARCHIVED (auto-archived for inactivity) revives to IDLE so the
+        // user can pick the panel back up.
+        if (status.get() == ThreadStatus.ARCHIVED) {
             status.set(ThreadStatus.IDLE);
         }
     }

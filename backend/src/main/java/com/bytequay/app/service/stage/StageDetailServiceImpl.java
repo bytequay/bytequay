@@ -464,8 +464,7 @@ public class StageDetailServiceImpl
     {
         return switch (state) {
             case CLOSED -> "succeeded";
-            case PAUSED -> "paused";
-            case OPEN, ACTIVE -> null;
+            case OPEN -> null;
         };
     }
 

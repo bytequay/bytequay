@@ -127,9 +127,9 @@ public enum StageType
 
     /**
      * The stage a phase resolves to, or empty for a cross-cutting phase that
-     * isn't bound to any single stage. {@link TaskPhase#QUEUED} and
-     * {@link TaskPhase#NEEDS_ATTENTION} are cross-cutting by design — they
-     * attach to whatever stage is already active.
+     * isn't bound to any single stage. {@link TaskPhase#NEEDS_ATTENTION} is
+     * cross-cutting by design — it attaches to whatever stage is already
+     * active.
      *
      * <p>Returning empty (rather than throwing) is deliberate: the lifecycle
      * hook runs inside the phase-transition's transaction, so a throw here

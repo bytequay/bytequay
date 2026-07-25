@@ -309,33 +309,6 @@ public class TaskController
      *  "clear the override". */
     public record WorkModelBody(WorkModel workModel) {}
 
-    /**
-     * PUT /api/threads/{threadId}/tasks/{taskId}/opening-prompt — append
-     * to (or replace) a QUEUED task's opening-prompt accumulator. The
-     * composer on a queued task page writes here; when the slot opens the
-     * accumulated text becomes the agent's first turn. 422 when the task
-     * isn't QUEUED — the plan seals once it starts.
-     */
-    @PutMapping("/{taskId}/opening-prompt")
-    public Task setOpeningPrompt(
-            @PathVariable String threadId,
-            @PathVariable String taskId,
-            @RequestBody OpeningPromptBody body)
-    {
-        // Scope the task to the thread before mutating, same as the other
-        // verbs here (404 on a mismatch).
-        taskService.requireTask(threadId, taskId);
-        boolean append = body == null || body.mode() == null || !"replace".equalsIgnoreCase(body.mode());
-        String text = body == null ? "" : body.text();
-        return taskService.updateOpeningPrompt(taskId, text, append);
-    }
-
-    /** Body for {@link #setOpeningPrompt} — {@code mode} is 'append'
-     *  (default) or 'replace'. */
-    public record OpeningPromptBody(String text, String mode)
-    {
-    }
-
     /** Next → park the current task at AWAITING_REVIEW (worktree
      *  preserved) and start a fresh task cut from main. The trunk
      *  window's Next button calls this. See

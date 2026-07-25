@@ -241,7 +241,6 @@ function deriveStatusCounts(threads: ThreadDto[]): StatusCounts {
   let idle = 0;
   for (const t of threads) {
     if (t.status === 'RUNNING') running++;
-    else if (t.status === 'AWAITING') awaiting++;
     // Lump PENDING and IDLE under "Idle" — both are non-active, and
     // the mockup only surfaces three buckets in the compact rail.
     else if (t.status === 'IDLE' || t.status === 'PENDING') idle++;
@@ -275,7 +274,7 @@ function deriveAggregates(threads: ThreadDto[]): Aggregates {
     costMilli += t.costUsdMilli;
     tokensIn  += t.tokensIn;
     tokensOut += t.tokensOut;
-    if (t.status === 'RUNNING' || t.status === 'AWAITING') anyLive = true;
+    if (t.status === 'RUNNING') anyLive = true;
   }
   return {
     runtime: formatDuration(runtimeMs),

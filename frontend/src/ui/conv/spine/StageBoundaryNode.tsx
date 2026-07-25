@@ -63,8 +63,7 @@ export function StageBoundaryNode({ stage, closed, collapsed, onToggle, onOpen, 
     ? `round ${stage.loopIteration} · ${closed ? 'done' : 'awakened'}`
     : closed
       ? (dur !== null ? `done · ${dur}` : 'done')
-      : stage.state === 'ACTIVE' || stage.state === 'OPEN' ? 'active'
-        : stage.state === 'PAUSED' ? 'paused' : 'open';
+      : stage.state === 'OPEN' ? 'active' : 'open';
   const outcome = stage.summary.trim().length > 0 ? truncate(stage.summary, 64) : undefined;
   return (
     <SpineNode

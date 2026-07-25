@@ -409,7 +409,7 @@ export function StageDetailRoute({
   // RUNNING, the stage is ACTIVE, the user just steered, or text is streaming
   // in. Track when the working period began so the indicator can tick an
   // elapsed counter (a long, quiet turn shouldn't read as dead).
-  const working = busy || threadRunning || state === 'ACTIVE' || liveText.length > 0;
+  const working = busy || threadRunning || liveText.length > 0;
 
   // Messages typed while the stage agent is working queue up and auto-send
   // when it goes idle; click one to pull it back into the composer to edit.

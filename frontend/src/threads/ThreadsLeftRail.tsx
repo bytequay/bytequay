@@ -382,7 +382,7 @@ function buildCounts(threads: ThreadDto[]): Partial<Record<ThreadStatusDto, numb
  *  the conversation itself is paused at a permission prompt, or the
  *  active task is parked at a publish gate / needs the human. */
 function isAwaitingMe(t: ThreadDto): boolean {
-  return t.status === 'AWAITING';
+  return t.status === 'NEEDS_ATTENTION';
 }
 
 function countForFilter(
@@ -519,7 +519,6 @@ function groupColorBg(color: string): string {
 function statusDot(s: ThreadStatusDto): string {
   switch (s) {
     case 'RUNNING':   return '#10b981';
-    case 'AWAITING':  return '#d97706';
     case 'IDLE':      return '#eab308';
     case 'PENDING':   return '#9ca3af';
     case 'COMPLETED': return '#9ca3af';

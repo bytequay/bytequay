@@ -69,7 +69,6 @@ public class WorkspaceInsightsService
     private static final Set<ThreadStatus> ACTIVE = Set.of(
             ThreadStatus.PENDING,
             ThreadStatus.RUNNING,
-            ThreadStatus.AWAITING,
             ThreadStatus.IDLE);
 
     private final ThreadStore threadStore;

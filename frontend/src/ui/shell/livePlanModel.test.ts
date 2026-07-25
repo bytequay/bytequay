@@ -65,7 +65,7 @@ describe('buildLivePlan', () => {
     const nodes = buildLivePlan({
       stages: [
         stage('PLAN_STAGE', 'CLOSED'),
-        stage('DEVELOPMENT_STAGE', 'ACTIVE', { loopIteration: 3 }),
+        stage('DEVELOPMENT_STAGE', 'OPEN', { loopIteration: 3 }),
         stage('REMOTE_DEVELOPMENT_STAGE', 'OPEN'),
       ],
       subStages: [],
@@ -100,7 +100,7 @@ describe('buildLivePlan', () => {
     expect(phase(awaitingPush, 'remote-development', 'remote-pr').status).toBe('future');
 
     const parked = buildLivePlan({
-      stages: [stage('DEVELOPMENT_STAGE', 'ACTIVE')],
+      stages: [stage('DEVELOPMENT_STAGE', 'OPEN')],
       subStages: [],
       task: { prNumber: 145, currentPhase: 'NEEDS_ATTENTION' as TaskPhase, terminal: false, paused: false },
       awaitingApprovalStageId: 'DEVELOPMENT_STAGE-id',
@@ -176,7 +176,7 @@ describe('buildLivePlan', () => {
     const nodes = buildLivePlan({
       stages: [
         stage('DEVELOPMENT_STAGE', 'OPEN'),
-        stage('REMOTE_DEVELOPMENT_STAGE', 'ACTIVE'),
+        stage('REMOTE_DEVELOPMENT_STAGE', 'OPEN'),
       ],
       subStages: [],
       liveRuns: [run('review_round', { id: 'local-brain', source: 'local' })],
@@ -400,7 +400,7 @@ describe('buildLivePlan', () => {
   });
 
   it('projects paused active phases as static resumable checkpoints', () => {
-    const dev = stage('DEVELOPMENT_STAGE', 'ACTIVE');
+    const dev = stage('DEVELOPMENT_STAGE', 'OPEN');
     const local = buildLivePlan({
       stages: [dev], subStages: [],
       devPhases: [
@@ -424,7 +424,7 @@ describe('buildLivePlan', () => {
       .not.toContain('running');
 
     const planning = buildLivePlan({
-      stages: [stage('PLAN_STAGE', 'ACTIVE')], subStages: [],
+      stages: [stage('PLAN_STAGE', 'OPEN')], subStages: [],
       task: {
         prNumber: null, currentPhase: 'PLANNING' as TaskPhase, paused: true, terminal: false,
       },
@@ -438,7 +438,7 @@ describe('buildLivePlan', () => {
 
   it('parks remote monitoring and stale live projections while paused', () => {
     const nodes = buildLivePlan({
-      stages: [stage('REMOTE_DEVELOPMENT_STAGE', 'ACTIVE')], subStages: [],
+      stages: [stage('REMOTE_DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
       liveRuns: [run('review_round')],
       task: {
         prNumber: 145, currentPhase: 'AWAITING_REMOTE_REVIEW' as TaskPhase, paused: true, terminal: false,
@@ -457,7 +457,7 @@ describe('buildLivePlan', () => {
   });
 
   it('tracks active views and working pulses for Plan and stages', () => {
-    const dev = stage('DEVELOPMENT_STAGE', 'ACTIVE');
+    const dev = stage('DEVELOPMENT_STAGE', 'OPEN');
     const onDev = buildLivePlan({
       stages: [dev], subStages: [],
       task: { prNumber: null, currentPhase: 'IMPLEMENTING' as TaskPhase, terminal: false, paused: false },

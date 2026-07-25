@@ -293,7 +293,7 @@ public class StageServiceImpl
     public List<StageDto> getActiveStages(String taskId)
     {
         return stageStore.findStagesByTask(taskId).stream()
-                .filter(s -> s.state() == StageState.OPEN || s.state() == StageState.ACTIVE)
+                .filter(s -> s.state() == StageState.OPEN)
                 .map(StageServiceImpl::toDto)
                 .toList();
     }
@@ -1116,7 +1116,7 @@ public class StageServiceImpl
     {
         return stages.stream()
                 .filter(s -> s.callerStageId().isEmpty())
-                .filter(s -> s.state() == StageState.OPEN || s.state() == StageState.ACTIVE)
+                .filter(s -> s.state() == StageState.OPEN)
                 .reduce((first, second) -> second);
     }
 

@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Actor;
+import com.bytequay.app.domain.LocalReviewSubmission;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
@@ -28,12 +29,14 @@ import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.TurnLiveness;
+import com.bytequay.app.repository.LocalReviewBrainHandoffStore;
+import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
-import com.bytequay.app.service.checks.ValidationPassResult;
-import com.bytequay.app.service.checks.ValidationPassService;
+import com.bytequay.app.service.checks.LocalReviewValidationFinishedEvent;
+import com.bytequay.app.service.checks.ValidationClaimService;
 import com.bytequay.app.service.localpr.LocalReviewSubmittedEvent;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -41,6 +44,7 @@ import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
@@ -58,12 +62,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -84,14 +91,16 @@ class TestTaskLifecycleDriver
     private final StageStore stageStore = mock(StageStore.class);
     private final PRService prService = mock(PRService.class);
     private final TaskTerminalSealer sealer = mock(TaskTerminalSealer.class);
-    private final ValidationPassService validation = mock(ValidationPassService.class);
+    private final LocalReviewSubmissionStore submissions = mock(LocalReviewSubmissionStore.class);
+    private final LocalReviewBrainHandoffStore handoffs = mock(LocalReviewBrainHandoffStore.class);
+    private final ValidationClaimService claimedValidation = mock(ValidationClaimService.class);
     private final BrainReviewService brainReview = mock(BrainReviewService.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final TaskLifecycleDriver driver =
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
                     threadStore, turnStore, scheduler, notifications,
                     commentIngestor, readyToMerge, reviewRounds, registry, stageStore, prService, sealer,
-                    validation, brainReview, events);
+                    brainReview, submissions, handoffs, claimedValidation, new ObjectMapper(), events);
 
     @TempDir
     private Path tempDir;
@@ -443,8 +452,9 @@ class TestTaskLifecycleDriver
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "please fix this", commentAt, null, null)));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(
-                List.of(submission(submittedAt, "cm1")));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, submittedAt, "cm1")));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
@@ -457,9 +467,9 @@ class TestTaskLifecycleDriver
                 "t1.k2", TaskPhase.ADDRESSING_LOCAL_COMMENTS, "new_local_comments", Actor.AGENT);
         verify(prService).markLocalAddressed("pr1", submittedAt);
         ArgumentCaptor<TurnInitiator> initiator = ArgumentCaptor.forClass(TurnInitiator.class);
-        verify(scheduler).enqueueTaskTurn(
-                eq(thread), anyString(), eq("t1.k2"), any(), initiator.capture(),
-                isNull(), eq(TurnLiveness.CODE));
+        verify(scheduler).enqueueTaskTurnOnce(
+                eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
+                initiator.capture(), isNull(), eq(TurnLiveness.CODE));
         assertThat(initiator.getValue().attended()).isFalse();
         assertThat(initiator.getValue().source()).isEqualTo("address-local-comments");
     }
@@ -472,14 +482,14 @@ class TestTaskLifecycleDriver
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(List.of(localComment(
                 "cm1", "you", "still drafting", Instant.parse("2026-07-01T09:00:00Z"), null, null)));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(List.of());
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(List.of());
 
         driver.reconcileLocalTask(task);
 
         verify(phaseMachine, never()).transition(
                 eq("t1.k2"), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString(), any());
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurnOnce(
+                anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -492,15 +502,21 @@ class TestTaskLifecycleDriver
         when(prService.comments("pr1")).thenReturn(List.of(localComment(
                 "cm1", "you", "clarification pending resubmit",
                 submittedAt.minusSeconds(30), null, null)));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(
-                List.of(submission(submittedAt)));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, submittedAt)));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
+        Thread thread = mock(Thread.class);
+        when(thread.status()).thenReturn(ThreadStatus.IDLE);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
 
         driver.reconcileLocalTask(task);
 
         verify(phaseMachine, never()).transition(
                 eq("t1.k2"), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString(), any());
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurnOnce(
+                anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
+        verify(claimedValidation, never()).claimAndRunLocalReview(anyString(), anyLong(), anyString());
     }
 
     @Test
@@ -514,8 +530,9 @@ class TestTaskLifecycleDriver
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "please fix this", commentAt, null, null)));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(
-                List.of(submission(submittedAt, "cm1")));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, submittedAt, "cm1")));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
         when(thread.status()).thenReturn(ThreadStatus.IDLE);
@@ -523,8 +540,9 @@ class TestTaskLifecycleDriver
 
         driver.onLocalReviewSubmitted(new LocalReviewSubmittedEvent("t1.k2", "pr1"));
 
-        verify(scheduler).enqueueTaskTurn(
-                eq(thread), anyString(), eq("t1.k2"), any(), any(), isNull(), eq(TurnLiveness.CODE));
+        verify(scheduler).enqueueTaskTurnOnce(
+                eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
+                any(), isNull(), eq(TurnLiveness.CODE));
     }
 
     @Test
@@ -541,8 +559,9 @@ class TestTaskLifecycleDriver
         when(prService.comments("pr1")).thenReturn(List.of(localComment(
                 "cm1", "you", "new concern during review",
                 submittedAt.minusSeconds(10), null, null)));
-        when(prService.localReviewSubmissions("pr1"))
-                .thenReturn(List.of(submission(submittedAt, "cm1")));
+        when(submissions.listOpenByTask("t1.k2"))
+                .thenReturn(List.of(openSubmission("sub-1", 1, submittedAt, "cm1")));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
         when(thread.status()).thenReturn(ThreadStatus.IDLE);
@@ -550,8 +569,8 @@ class TestTaskLifecycleDriver
 
         driver.onLocalReviewSubmitted(new LocalReviewSubmittedEvent("t1.k2", "pr1"));
 
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurnOnce(
+                anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
         verify(brainReview, never()).reviewAfterLocalComments(anyString());
 
         driver.onInternalReviewCompleted(new TaskPhaseTransitionedEvent(
@@ -560,13 +579,14 @@ class TestTaskLifecycleDriver
 
         verify(phaseMachine).transition(
                 "t1.k2", TaskPhase.ADDRESSING_LOCAL_COMMENTS, "new_local_comments", Actor.AGENT);
-        verify(scheduler).enqueueTaskTurn(
-                eq(thread), anyString(), eq("t1.k2"), any(), any(), isNull(), eq(TurnLiveness.CODE));
+        verify(scheduler).enqueueTaskTurnOnce(
+                eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
+                any(), isNull(), eq(TurnLiveness.CODE));
         verify(prService).markLocalAddressed("pr1", submittedAt);
     }
 
     @Test
-    void completedLocalAddressTurnImmediatelyRunsFinalValidationAndBrainReview()
+    void completedLocalAddressTurnClaimsValidationAndGreenAcceptanceHandsOffToBrain()
     {
         Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
         Instant addressedAt = Instant.parse("2026-07-01T09:00:00Z");
@@ -574,22 +594,36 @@ class TestTaskLifecycleDriver
         when(turnStore.findTurnById("address-turn"))
                 .thenReturn(Optional.of(completed));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
-        when(prService.findByTask("t1.k2"))
-                .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, addressedAt)));
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, addressedAt);
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(List.of(localComment(
                 "cm1", "you", "please fix this", addressedAt, addressedAt, null)));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, addressedAt, "cm1")));
         Thread thread = mock(Thread.class);
         when(thread.status()).thenReturn(ThreadStatus.IDLE);
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
-        when(validation.run("t1.k2")).thenReturn(new ValidationPassResult(true, 0, List.of()));
 
         driver.onLocalAddressTurnFinished(
                 new TaskTurnFinishedEvent("t1.k2", "address-turn", false));
 
-        verify(validation).run("t1.k2");
+        ArgumentCaptor<String> digest = ArgumentCaptor.forClass(String.class);
+        verify(claimedValidation).claimAndRunLocalReview(eq("t1.k2"), eq(1L), digest.capture());
+
+        // Green acceptance: covered batches complete, INTERNAL_REVIEW opens,
+        // and the owed Brain handoff commits then delivers.
+        when(handoffs.listUnconsumedByTask("t1.k2")).thenReturn(List.of(
+                new LocalReviewBrainHandoffStore.Handoff("claim-1", "t1.k2", 1L, "fp-1", 0)));
+        driver.onLocalReviewValidationFinished(new LocalReviewValidationFinishedEvent(
+                "t1.k2", "claim-1", 1L, digest.getValue(), "fp-1", true));
+
+        verify(submissions).markCompleted(eq("sub-1"), any());
         verify(phaseMachine).transition(
                 "t1.k2", TaskPhase.INTERNAL_REVIEW, "local_comments_validated", Actor.AGENT);
+        verify(handoffs).insert(eq("claim-1"), eq("t1.k2"), eq(1L), eq("fp-1"), any());
         verify(brainReview).reviewAfterLocalComments("pr1");
+        verify(handoffs).markConsumed(eq("claim-1"), any());
     }
 
     @Test
@@ -608,8 +642,10 @@ class TestTaskLifecycleDriver
         when(prService.findByTask("t1.k2"))
                 .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, submittedAt)));
         when(prService.comments("pr1")).thenReturn(List.of(resolved, next));
-        when(prService.localReviewSubmissions("pr1"))
-                .thenReturn(List.of(submission(submittedAt, "cm1", "cm2")));
+        when(submissions.listOpenByTask("t1.k2"))
+                .thenReturn(List.of(openSubmission("sub-1", 1, submittedAt, "cm1", "cm2")));
+        when(prService.findById("pr1")).thenReturn(
+                Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, submittedAt)));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
         when(thread.status()).thenReturn(ThreadStatus.IDLE);
@@ -619,44 +655,63 @@ class TestTaskLifecycleDriver
         driver.onLocalAddressTurnFinished(
                 new TaskTurnFinishedEvent("t1.k2", "address-turn", false));
 
-        verify(scheduler).enqueueTaskTurn(
-                eq(thread), prompt.capture(), eq("t1.k2"), any(), any(),
-                isNull(), eq(TurnLiveness.CODE));
+        verify(scheduler).enqueueTaskTurnOnce(
+                eq("local-review:sub-1:cm2:0"), eq(thread), prompt.capture(), eq("t1.k2"),
+                any(), any(), isNull(), eq(TurnLiveness.CODE));
         assertThat(prompt.getValue())
                 .contains("[id: cm2]", "second concern")
                 .doesNotContain("[id: cm1]", "first concern");
-        verify(validation, never()).run(anyString());
+        verify(claimedValidation, never()).claimAndRunLocalReview(anyString(), anyLong(), anyString());
         verify(brainReview, never()).reviewAfterLocalComments(anyString());
     }
 
     @Test
-    void completedLocalAddressTurnWithoutClosingItsTargetWaitsForRecoverySweep()
+    void completedTurnWithoutClosingItsTargetRecordsABoundedFailureAndRedrives()
     {
+        Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
         Instant submittedAt = Instant.parse("2026-07-01T09:00:00Z");
         ThreadTurn completed = addressingTurn("t1.k2", ThreadTurnStatus.COMPLETED);
         when(turnStore.findTurnById("address-turn")).thenReturn(Optional.of(completed));
-        when(prService.findByTask("t1.k2"))
-                .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, submittedAt)));
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, submittedAt);
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(List.of(
-                localComment("cm1", "you", "still open", submittedAt, null, null),
-                localComment("cm2", "you", "already closed", submittedAt, submittedAt, null)));
+                localComment("cm1", "you", "still open", submittedAt, null, null)));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, submittedAt, "cm1")));
+        Thread thread = mock(Thread.class);
+        when(thread.status()).thenReturn(ThreadStatus.IDLE);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
 
         driver.onLocalAddressTurnFinished(
                 new TaskTurnFinishedEvent("t1.k2", "address-turn", false));
 
-        verify(taskStore, never()).findTaskById(anyString());
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any(), any());
-        verify(validation, never()).run(anyString());
+        verify(submissions).incrementFailures("sub-1");
+        verify(phaseMachine, never()).parkOperational(anyString(), any(), anyString());
+        // Below the bound the queue re-drives the same root.
+        verify(scheduler).enqueueTaskTurnOnce(
+                startsWith("local-review:sub-1:cm1:"), eq(thread), anyString(), eq("t1.k2"),
+                any(), any(), isNull(), eq(TurnLiveness.CODE));
+        verify(claimedValidation, never()).claimAndRunLocalReview(anyString(), anyLong(), anyString());
     }
 
     @Test
-    void failedLocalAddressTurnWaitsForTheScheduledRecoverySweep()
+    void failedLocalAddressTurnCountsABoundedFailureAndParksAtTheBound()
     {
+        Instant submittedAt = Instant.parse("2026-07-01T09:00:00Z");
+        ThreadTurn failed = addressingTurn("t1.k2", ThreadTurnStatus.FAILED);
+        when(turnStore.findTurnById("failed-address-turn")).thenReturn(Optional.of(failed));
+        // Two prior failures: this one reaches the bound.
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, submittedAt, 2, "cm1")));
+
         driver.onLocalAddressTurnFinished(
                 new TaskTurnFinishedEvent("t1.k2", "failed-address-turn", true));
 
-        verify(turnStore, never()).findTurnById(anyString());
+        verify(submissions).incrementFailures("sub-1");
+        verify(phaseMachine).parkOperational(
+                "t1.k2", Actor.AGENT, "local_review_attempts_exhausted");
         verify(taskStore, never()).findTaskById(anyString());
     }
 
@@ -677,6 +732,7 @@ class TestTaskLifecycleDriver
                 new TaskTurnFinishedEvent("t1.k2", "unrelated", false));
 
         verify(taskStore, never()).findTaskById(anyString());
+        verify(submissions, never()).incrementFailures(anyString());
     }
 
     @Test
@@ -690,8 +746,9 @@ class TestTaskLifecycleDriver
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "please fix this", commentAt, null, null)));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(
-                List.of(submission(submittedAt, "cm1")));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, submittedAt, "cm1")));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
@@ -701,8 +758,9 @@ class TestTaskLifecycleDriver
         driver.reconcileLocalTask(task);
 
         verify(prService).markLocalAddressed("pr1", submittedAt);
-        verify(scheduler).enqueueTaskTurn(
-                eq(thread), anyString(), eq("t1.k2"), any(), any(), isNull(), eq(TurnLiveness.CODE));
+        verify(scheduler).enqueueTaskTurnOnce(
+                eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
+                any(), isNull(), eq(TurnLiveness.CODE));
     }
 
     @Test
@@ -722,9 +780,10 @@ class TestTaskLifecycleDriver
                 "RIGHT", null, null);
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(List.of(root, reply));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(List.of(
-                submission(firstSubmission, "cm1"),
-                submission(secondSubmission, "cm1")));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(List.of(
+                openSubmission("sub-1", 1, firstSubmission, "cm1"),
+                openSubmission("sub-2", 2, secondSubmission, "cm1")));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
@@ -735,9 +794,9 @@ class TestTaskLifecycleDriver
         driver.reconcileLocalTask(task);
 
         verify(prService).markLocalAddressed("pr1", secondSubmission);
-        verify(scheduler).enqueueTaskTurn(
-                eq(thread), prompt.capture(), eq("t1.k2"), any(), any(),
-                isNull(), eq(TurnLiveness.CODE));
+        verify(scheduler).enqueueTaskTurnOnce(
+                eq("local-review:sub-1:cm1:0"), eq(thread), prompt.capture(), eq("t1.k2"),
+                any(), any(), isNull(), eq(TurnLiveness.CODE));
         assertThat(prompt.getValue())
                 .contains("@you: Please fix this")
                 .contains("Reply @you: One more constraint");
@@ -755,8 +814,9 @@ class TestTaskLifecycleDriver
                 null, null, null, null, null, "LEFT", 6, "LEFT", "finding-1");
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(List.of(finding));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(
-                List.of(submission(submittedAt, "finding-comment")));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, submittedAt, "finding-comment")));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
@@ -766,9 +826,9 @@ class TestTaskLifecycleDriver
 
         driver.reconcileLocalTask(task);
 
-        verify(scheduler).enqueueTaskTurn(
-                eq(thread), prompt.capture(), eq("t1.k2"), any(), any(),
-                isNull(), eq(TurnLiveness.CODE));
+        verify(scheduler).enqueueTaskTurnOnce(
+                eq("local-review:sub-1:finding-comment:0"), eq(thread), prompt.capture(),
+                eq("t1.k2"), any(), any(), isNull(), eq(TurnLiveness.CODE));
         assertThat(prompt.getValue())
                 .contains(
                         "exactly this one open comment",
@@ -794,8 +854,8 @@ class TestTaskLifecycleDriver
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "please fix this", commentAt, null, null)));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(
-                List.of(submission(commentAt, "cm1")));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, commentAt, "cm1")));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(pushed));
 
         driver.reconcileLocalTask(stale);
@@ -803,8 +863,8 @@ class TestTaskLifecycleDriver
         verify(phaseMachine, never()).transition(
                 eq("t1.k2"), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString(), any());
         verify(prService, never()).markLocalAddressed(anyString(), any());
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurnOnce(
+                anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -817,64 +877,69 @@ class TestTaskLifecycleDriver
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "still open", commentAt, null, null)));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(
-                List.of(submission(commentAt, "cm1")));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, commentAt, "cm1")));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(paused));
 
         driver.reconcileLocalTask(stale);
 
         verify(phaseMachine, never()).transition(anyString(), any(), anyString(), any());
         verify(prService, never()).markLocalAddressed(anyString(), any());
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurnOnce(
+                anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
-    void alreadyMarkedLocalCommentsDoNotReTriggerFromAwaitingPush()
+    void reAdmissionOfAnOpenBatchUsesTheSameDeterministicKickKey()
     {
+        // A prior sweep already admitted this root; the marker no longer
+        // gates re-dispatch — the deterministic kick key does (claim-once),
+        // together with the pending-turn busy guard.
         Task task = task(null, TaskPhase.AWAITING_PUSH);
         Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
-        // The marker already covers this comment — surfaced (and presumably
-        // enqueued) on a prior sweep.
         PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, commentAt);
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "please fix this", commentAt, null, null)));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(
-                List.of(submission(commentAt, "cm1")));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, commentAt, "cm1")));
+        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
+        Thread thread = mock(Thread.class);
+        when(thread.status()).thenReturn(ThreadStatus.IDLE);
+        when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
 
         driver.reconcileLocalTask(task);
+        driver.reconcileLocalTask(task);
 
-        verify(phaseMachine, never())
-                .observe(anyString(), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString());
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any(), any());
+        verify(scheduler, times(2)).enqueueTaskTurnOnce(
+                eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
+                any(), isNull(), eq(TurnLiveness.CODE));
     }
 
     @Test
-    void addressingLocalCommentsStartsFreshBrainReviewOnceEverythingIsResolved()
+    void addressingLocalCommentsClaimsRootsClosedValidationOnceEverythingIsResolved()
     {
         Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
         Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
         PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, commentAt);
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         // Resolved — nothing left to address.
         when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "please fix this", commentAt, commentAt, null)));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, commentAt, "cm1")));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.status()).thenReturn(ThreadStatus.IDLE);
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
-        when(validation.run("t1.k2")).thenReturn(new ValidationPassResult(true, 0, List.of()));
 
         driver.reconcileLocalTask(task);
 
-        verify(phaseMachine).transition(
-                "t1.k2", TaskPhase.INTERNAL_REVIEW, "local_comments_validated",
-                Actor.AGENT);
-        verify(brainReview).reviewAfterLocalComments("pr1");
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any(), any());
+        verify(claimedValidation).claimAndRunLocalReview(eq("t1.k2"), eq(1L), anyString());
+        verify(scheduler, never()).enqueueTaskTurnOnce(
+                anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -890,24 +955,32 @@ class TestTaskLifecycleDriver
     }
 
     @Test
-    void addressingLocalCommentsDoesNotReopenLocalReviewWhenValidationFails()
+    void redRootsClosedValidationParksInsteadOfReopeningLocalReview()
     {
         Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
         Instant commentAt = Instant.parse("2026-07-01T09:00:00Z");
-        when(prService.findByTask("t1.k2"))
-                .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, commentAt)));
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, commentAt);
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(List.of());
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, commentAt, "cm1")));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.status()).thenReturn(ThreadStatus.IDLE);
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
-        when(validation.run("t1.k2")).thenReturn(new ValidationPassResult(false, 3, List.of()));
 
         driver.reconcileLocalTask(task);
+        ArgumentCaptor<String> digest = ArgumentCaptor.forClass(String.class);
+        verify(claimedValidation).claimAndRunLocalReview(eq("t1.k2"), eq(1L), digest.capture());
 
-        verify(validation).run("t1.k2");
-        verify(phaseMachine).transition(
-                "t1.k2", TaskPhase.NEEDS_ATTENTION, "local_comments_validation_failed", Actor.AGENT);
+        driver.onLocalReviewValidationFinished(new LocalReviewValidationFinishedEvent(
+                "t1.k2", "claim-1", 1L, digest.getValue(), "fp-1", false));
+
+        verify(phaseMachine).parkOperational(
+                "t1.k2", Actor.AGENT, "local_comments_validation_failed");
+        verify(submissions, never()).markCompleted(anyString(), any());
+        verify(handoffs, never()).insert(anyString(), anyString(), anyLong(), anyString(), any());
         verify(phaseMachine, never()).transition(
                 eq("t1.k2"), eq(TaskPhase.AWAITING_PUSH), anyString(), any());
     }
@@ -916,9 +989,12 @@ class TestTaskLifecycleDriver
     void addressingLocalCommentsWaitsForTheFixTurnBeforeValidating()
     {
         Task task = task(null, TaskPhase.ADDRESSING_LOCAL_COMMENTS);
-        when(prService.findByTask("t1.k2"))
-                .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, Instant.now())));
+        PR pr = pr("pr1", PR.STATUS_LOCAL_OPEN, Instant.now());
+        when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(List.of());
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, Instant.now(), "cm1")));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.status()).thenReturn(ThreadStatus.RUNNING);
@@ -926,7 +1002,7 @@ class TestTaskLifecycleDriver
 
         driver.reconcileLocalTask(task);
 
-        verify(validation, never()).run(anyString());
+        verify(claimedValidation, never()).claimAndRunLocalReview(anyString(), anyLong(), anyString());
         verify(phaseMachine, never()).transition(anyString(), any(), anyString(), any());
     }
 
@@ -939,8 +1015,9 @@ class TestTaskLifecycleDriver
         when(prService.findByTask("t1.k2")).thenReturn(Optional.of(pr));
         when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "still open", commentAt, null, null)));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(
-                List.of(submission(commentAt, "cm1")));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, commentAt, "cm1")));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
@@ -951,8 +1028,9 @@ class TestTaskLifecycleDriver
 
         // Retries the turn rather than declaring the round done.
         verify(phaseMachine, never()).observe("t1.k2", TaskPhase.AWAITING_PUSH, "local_comments_addressed");
-        verify(scheduler).enqueueTaskTurn(
-                eq(thread), anyString(), eq("t1.k2"), any(), any(), isNull(), eq(TurnLiveness.CODE));
+        verify(scheduler).enqueueTaskTurnOnce(
+                eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
+                any(), isNull(), eq(TurnLiveness.CODE));
     }
 
     @Test
@@ -964,8 +1042,10 @@ class TestTaskLifecycleDriver
                 .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, submittedAt)));
         when(prService.comments("pr1")).thenReturn(List.of(
                 localComment("cm1", "you", "still open", submittedAt, null, null)));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(
-                List.of(submission(submittedAt, "cm1")));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, submittedAt, "cm1")));
+        when(prService.findById("pr1")).thenReturn(
+                Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, submittedAt)));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.status()).thenReturn(ThreadStatus.IDLE);
@@ -977,8 +1057,8 @@ class TestTaskLifecycleDriver
 
         driver.reconcileLocalTask(task);
 
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurnOnce(
+                anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
         verify(prService, never()).markLocalAddressed(anyString(), any());
     }
 
@@ -990,6 +1070,10 @@ class TestTaskLifecycleDriver
         when(prService.findByTask("t1.k2"))
                 .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, submittedAt)));
         when(prService.comments("pr1")).thenReturn(List.of());
+        when(prService.findById("pr1")).thenReturn(
+                Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, submittedAt)));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, submittedAt, "cm1")));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.status()).thenReturn(ThreadStatus.IDLE);
@@ -1001,7 +1085,7 @@ class TestTaskLifecycleDriver
 
         driver.reconcileLocalTask(task);
 
-        verify(validation, never()).run(anyString());
+        verify(claimedValidation, never()).claimAndRunLocalReview(anyString(), anyLong(), anyString());
         verify(brainReview, never()).reviewAfterLocalComments(anyString());
         verify(phaseMachine, never()).transition(anyString(), any(), anyString(), any());
     }
@@ -1017,8 +1101,9 @@ class TestTaskLifecycleDriver
         when(prService.comments("pr1")).thenReturn(List.of(
                 localComment("draft", "you", "do not send yet", draftAt, null, null),
                 localComment("selected", "you", "please fix this", draftAt, null, null)));
-        when(prService.localReviewSubmissions("pr1")).thenReturn(
-                List.of(submission(submittedAt, "selected")));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, submittedAt, "selected")));
+        when(prService.findById("pr1")).thenReturn(Optional.of(pr));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
@@ -1028,9 +1113,9 @@ class TestTaskLifecycleDriver
 
         driver.reconcileLocalTask(task);
 
-        verify(scheduler).enqueueTaskTurn(
-                eq(thread), prompt.capture(), eq("t1.k2"), any(), any(),
-                isNull(), eq(TurnLiveness.CODE));
+        verify(scheduler).enqueueTaskTurnOnce(
+                eq("local-review:sub-1:selected:0"), eq(thread), prompt.capture(), eq("t1.k2"),
+                any(), any(), isNull(), eq(TurnLiveness.CODE));
         assertThat(prompt.getValue())
                 .contains("[id: selected]", "please fix this")
                 .doesNotContain("[id: draft]", "do not send yet");
@@ -1066,8 +1151,8 @@ class TestTaskLifecycleDriver
 
         verify(phaseMachine, never())
                 .observe(anyString(), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString());
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurnOnce(
+                anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -1079,8 +1164,8 @@ class TestTaskLifecycleDriver
         driver.reconcileLocalTask(task);
 
         verify(prService, never()).findByTask(anyString());
-        verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurnOnce(
+                anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -1093,6 +1178,10 @@ class TestTaskLifecycleDriver
                 .thenReturn(Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, commentAt)));
         when(prService.comments("pr1")).thenReturn(
                 List.of(localComment("cm1", "you", "still open", commentAt, null, null)));
+        when(prService.findById("pr1")).thenReturn(
+                Optional.of(pr("pr1", PR.STATUS_LOCAL_OPEN, commentAt)));
+        when(submissions.listOpenByTask("t1.k2")).thenReturn(
+                List.of(openSubmission("sub-1", 1, commentAt, "cm1")));
         when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
         Thread thread = mock(Thread.class);
         when(thread.id()).thenReturn("t1");
@@ -1101,8 +1190,9 @@ class TestTaskLifecycleDriver
 
         driver.reconcileLocalTask(task);
 
-        verify(scheduler).enqueueTaskTurn(
-                eq(thread), anyString(), eq("t1.k2"), any(), any(), isNull(), eq(TurnLiveness.CODE));
+        verify(scheduler).enqueueTaskTurnOnce(
+                eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
+                any(), isNull(), eq(TurnLiveness.CODE));
     }
 
     @Test
@@ -1132,9 +1222,26 @@ class TestTaskLifecycleDriver
                 "RIGHT", null, null);
     }
 
-    private static PRService.LocalReviewSubmission submission(Instant submittedAt, String... commentIds)
+    private static LocalReviewSubmission openSubmission(
+            String id, long seq, Instant submittedAt, String... rootIds)
     {
-        return new PRService.LocalReviewSubmission(submittedAt, List.of(commentIds), "", "COMMENT", null);
+        return openSubmission(id, seq, submittedAt, 0, rootIds);
+    }
+
+    private static LocalReviewSubmission openSubmission(
+            String id, long seq, Instant submittedAt, int failures, String... rootIds)
+    {
+        StringBuilder roots = new StringBuilder("[");
+        for (int i = 0; i < rootIds.length; i++) {
+            if (i > 0) {
+                roots.append(',');
+            }
+            roots.append('"').append(rootIds[i]).append('"');
+        }
+        roots.append(']');
+        return new LocalReviewSubmission(
+                id, "evt-" + id, "t1.k2", "pr1", null, seq, roots.toString(), "[]",
+                submittedAt, null, 0, failures, submittedAt, null, null, null, null);
     }
 
     private static ThreadTurn addressingTurn(String taskId)

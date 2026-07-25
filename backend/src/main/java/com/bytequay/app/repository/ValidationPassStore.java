@@ -84,4 +84,12 @@ public interface ValidationPassStore
     {
         throw new UnsupportedOperationException("findResumableStarted");
     }
+
+    /** Every open (non-terminal, non-superseded) claim owned by one task,
+     *  including cancellation-pending rows — the stop barrier's
+     *  validation-liveness input. */
+    default List<ValidationClaim> findOpenByTask(String taskId)
+    {
+        throw new UnsupportedOperationException("findOpenByTask");
+    }
 }

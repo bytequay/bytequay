@@ -17,7 +17,9 @@ import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.checks.ValidationPassFinishedEvent;
 import com.bytequay.app.service.localpr.LocalReviewClearedEvent;
 import org.slf4j.Logger;
@@ -70,17 +72,20 @@ public class TaskPhaseMachine
     private final NotificationService notifications;
     private final ApplicationEventPublisher events;
     private final LocalCiFixExecutor localCiFix;
+    private final ThreadTurnStore turnStore;
 
     public TaskPhaseMachine(
             TaskStore taskStore,
             NotificationService notifications,
             ApplicationEventPublisher events,
-            LocalCiFixExecutor localCiFix)
+            LocalCiFixExecutor localCiFix,
+            ThreadTurnStore turnStore)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.events = requireNonNull(events, "events is null");
         this.localCiFix = requireNonNull(localCiFix, "localCiFix is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
     }
 
     /** Run {@code action} exclusively against one task's lifecycle. Hash
@@ -312,6 +317,116 @@ public class TaskPhaseMachine
             }
             return null;
         });
+    }
+
+    /**
+     * The one durable pause command: checkpoint the pre-pause status in
+     * {@code paused_status}, clear the stale subprocess pid, and move to
+     * PAUSED with its status-audit row — phase holds. Idempotent when
+     * already PAUSED. Runtime teardown belongs to the caller, after
+     * commit, behind its identity token.
+     */
+    @Transactional
+    public Task pause(String taskId, Actor actor, String reason)
+    {
+        requireNonNull(actor, "actor is null");
+        return withTaskLock(taskId, () -> {
+            Task task = taskStore.findTaskById(taskId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no task: " + taskId));
+            if (task.status() == TaskStatus.PAUSED) {
+                return task;
+            }
+            if (!pausable(task.status())) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " cannot be paused from status " + task.status());
+            }
+            taskStore.checkpointPause(taskId, task.status());
+            taskStore.clearProcessPid(taskId);
+            taskStore.updateStatusIf(taskId, task.status(), TaskStatus.PAUSED);
+            taskStore.appendStatusEvent(
+                    taskId, task.status(), TaskStatus.PAUSED, actor, reason, Instant.now());
+            return task.withStatus(TaskStatus.PAUSED).withProcessPid(null);
+        });
+    }
+
+    /** A task can be paused only while it's live, non-terminal work — not
+     *  once parked (NEEDS_ATTENTION), failed (ERRORED), dormant
+     *  (ARCHIVED), or done. */
+    private static boolean pausable(TaskStatus status)
+    {
+        return switch (status) {
+            case PENDING, RUNNING, IDLE, AWAITING_REVIEW, IN_REVIEW -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * Durably record that a human asked to resume while the task stays
+     * PAUSED. The pre-pause runtime keeps being torn down; only
+     * {@link #completeResume} — invoked once that teardown is proven —
+     * leaves PAUSED. Idempotent.
+     */
+    @Transactional
+    public void requestResume(String taskId)
+    {
+        withTaskLock(taskId, () -> {
+            Task task = taskStore.findTaskById(taskId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no task: " + taskId));
+            if (task.status() != TaskStatus.PAUSED) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " is not paused");
+            }
+            taskStore.requestResume(taskId, Instant.now());
+            return null;
+        });
+    }
+
+    /**
+     * The only normal edge out of PAUSED. The caller must first prove the
+     * pre-pause runtime is gone (no cached agent, no live validation
+     * executor); the durable turn half of that proof is re-checked here.
+     * The safe post-resume status derives from the phase — never RUNNING,
+     * and never a blind restore of the checkpoint.
+     */
+    @Transactional
+    public Task completeResume(String taskId, Actor actor, String reason)
+    {
+        requireNonNull(actor, "actor is null");
+        return withTaskLock(taskId, () -> {
+            Task task = taskStore.findTaskById(taskId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no task: " + taskId));
+            if (task.status() != TaskStatus.PAUSED) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " is not paused");
+            }
+            if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
+                    || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " still has live pre-pause turns");
+            }
+            TaskStatus to = resumedStatus(task.phase());
+            taskStore.clearPauseCheckpoint(taskId);
+            taskStore.updateRuntimeFailure(taskId, null, null);
+            taskStore.updateStatusIf(taskId, TaskStatus.PAUSED, to);
+            taskStore.appendStatusEvent(taskId, TaskStatus.PAUSED, to, actor, reason, Instant.now());
+            return task.withStatus(to).withEndedAt(null).withErrorMessage(null);
+        });
+    }
+
+    /** The safe status a resumed task re-enters, derived from its held
+     *  phase: local gate → AWAITING_REVIEW, remote spine → IN_REVIEW,
+     *  executable local work → IDLE (the projection promotes RUNNING only
+     *  when a replacement turn actually starts). */
+    static TaskStatus resumedStatus(TaskPhase phase)
+    {
+        return switch (phase) {
+            case AWAITING_PUSH -> TaskStatus.AWAITING_REVIEW;
+            case PUSHED_AWAITING_CI, AWAITING_READY, AWAITING_REMOTE_REVIEW -> TaskStatus.IN_REVIEW;
+            default -> TaskStatus.IDLE;
+        };
     }
 
     private void applyTransition(Task task, TaskPhase from, TaskPhase to, String reason, Actor actor)

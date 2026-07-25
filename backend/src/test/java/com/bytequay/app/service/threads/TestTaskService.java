@@ -61,6 +61,7 @@ class TestTaskService
     private final NotificationService notificationService = mock(NotificationService.class);
     private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
     private final TaskPhaseMachine taskPhaseMachine = mock(TaskPhaseMachine.class);
+    private final TaskRuntimeStopReconciler stopReconciler = mock(TaskRuntimeStopReconciler.class);
     private final TaskTerminalSealer sealer = mock(TaskTerminalSealer.class);
     private final PRService prService = mock(PRService.class);
     private final BrainReviewService brainReview = mock(BrainReviewService.class);
@@ -69,7 +70,7 @@ class TestTaskService
             threadStore, taskStore, stageStore, watchedRepoStore, worktreeService, git,
             pullRequestRepository, patResolver, registry, workspaceService, notificationService,
             new ObjectMapper(), eventPublisher, taskPhaseMachine, sealer, prService, brainReview,
-            scheduler);
+            scheduler, stopReconciler);
 
     private static Task task()
     {

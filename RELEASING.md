@@ -169,7 +169,7 @@ npm i update-electron-app
 ```ts
 // frontend/src/main.ts, after app.whenReady()
 import { updateElectronApp } from 'update-electron-app';
-updateElectronApp({ repo: 'chenjian2664/bytequay', updateInterval: '1 hour' });
+updateElectronApp({ repo: 'bytequay/bytequay', updateInterval: '1 hour' });
 ```
 
 It polls every interval, downloads new DMGs/ZIPs in the background,

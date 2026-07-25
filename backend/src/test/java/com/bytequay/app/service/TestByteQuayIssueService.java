@@ -37,10 +37,10 @@ class TestByteQuayIssueService
         when(pats.resolve()).thenReturn("account-pat");
         RepoIssue created = new RepoIssue(
                 41L, 7, "Broken button", "chenjian2664", "open",
-                "https://github.com/chenjian2664/ByteQuay/issues/7",
+                "https://github.com/bytequay/bytequay/issues/7",
                 Instant.EPOCH, List.of(), 0);
         when(gitHub.createIssue(
-                "account-pat", RepoRef.of("chenjian2664", "ByteQuay"),
+                "account-pat", RepoRef.of("bytequay", "bytequay"),
                 "Broken button", "Steps to reproduce\n\n"
                         + "<!-- bytequay-origin:v1 kind=user-report -->"))
                 .thenReturn(created);
@@ -49,7 +49,7 @@ class TestByteQuayIssueService
                 .report("Broken button", "Steps to reproduce");
 
         verify(gitHub).createIssue(
-                "account-pat", RepoRef.of("chenjian2664", "ByteQuay"),
+                "account-pat", RepoRef.of("bytequay", "bytequay"),
                 "Broken button", "Steps to reproduce\n\n"
                         + "<!-- bytequay-origin:v1 kind=user-report -->");
         verify(origins).recordCreated(created, "user-report");

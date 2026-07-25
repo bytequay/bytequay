@@ -28,8 +28,9 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class IssueOriginService
 {
-    static final String CANONICAL_OWNER = "chenjian2664";
-    static final String CANONICAL_REPO = "ByteQuay";
+    static final String CANONICAL_OWNER = "bytequay";
+    static final String CANONICAL_REPO = "bytequay";
+    static final String TRUSTED_MARKER_AUTHOR = "chenjian2664";
 
     private final IssueOriginStore origins;
 
@@ -87,7 +88,7 @@ public class IssueOriginService
     private static String trustedMarker(String detected, String author)
     {
         if ((IssueOrigin.QUALITY_SCAN.equals(detected) || IssueOrigin.USER_REPORT.equals(detected))
-                && !CANONICAL_OWNER.equalsIgnoreCase(author == null ? "" : author.strip())) {
+                && !TRUSTED_MARKER_AUTHOR.equalsIgnoreCase(author == null ? "" : author.strip())) {
             return IssueOrigin.USER;
         }
         return detected;

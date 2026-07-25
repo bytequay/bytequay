@@ -31,7 +31,7 @@ import static org.mockito.Mockito.when;
 
 class TestIssueOriginService
 {
-    private static final RepoRef BYTEQUAY = RepoRef.of("chenjian2664", "ByteQuay");
+    private static final RepoRef BYTEQUAY = RepoRef.of("bytequay", "bytequay");
     private static final RepoRef OTHER_REPO = RepoRef.of("acme", "widget");
 
     @Test
@@ -73,7 +73,7 @@ class TestIssueOriginService
     }
 
     @Test
-    void onlyTheCanonicalOwnerCanSupplyAnAutomationMarker()
+    void onlyTheTrustedAuthorCanSupplyAnAutomationMarker()
     {
         IssueOriginStore store = mock(IssueOriginStore.class);
         when(store.find(41L)).thenReturn(Optional.empty());
@@ -102,7 +102,7 @@ class TestIssueOriginService
     {
         return new RepoIssue(
                 41L, 7, "Finding", author, "open",
-                "https://github.com/chenjian2664/ByteQuay/issues/7",
+                "https://github.com/bytequay/bytequay/issues/7",
                 Instant.EPOCH, List.of(), 0, origin);
     }
 }

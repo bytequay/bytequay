@@ -17,7 +17,7 @@ import { pasteClipboardImages } from '../../ui/shell/pasteClipboardImages';
 import SettingsPage from '../shared/SettingsPage';
 import { CheckIcon, ClipboardIcon, IssueIcon } from '../shared/icons';
 
-const REPO = 'chenjian2664/ByteQuay';
+const REPO = 'bytequay/bytequay';
 
 function HelpPage() {
   const [title, setTitle] = useState('');

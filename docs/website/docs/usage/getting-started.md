@@ -13,7 +13,7 @@ first review.
 ## Install
 
 Grab the latest `.dmg` from the
-[Releases page](https://github.com/chenjian2664/bytequay/releases), mount it,
+[Releases page](https://github.com/bytequay/bytequay/releases), mount it,
 and drag **ByteQuay.app** to **Applications**. The bundle ships its own
 backend — no Java, Node, or Maven install required. macOS 14+ (Apple Silicon
 or Intel).

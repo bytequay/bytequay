@@ -14,10 +14,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CredentialDto, WatchedRepoDto, WorkspaceRepoDto } from '../../types';
 import AddRepoModal from '../../AddRepoModal';
-import Avatar from '../../Avatar';
-import SettingCard from '../shared/SettingCard';
-
-type Tab = 'repos' | 'tokens';
+import SettingsPage from '../shared/SettingsPage';
+import { InfoIcon, LockIcon, PlusIcon, TrashIcon } from '../shared/icons';
 
 type Props = {
   workspaceId?: string | null;
@@ -26,7 +24,6 @@ type Props = {
 function WatchedReposPage({ workspaceId }: Props) {
   const wsId = workspaceId?.trim() ?? '';
   const hasWorkspace = wsId.length > 0;
-  const [tab, setTab] = useState<Tab>('repos');
   const [repos, setRepos] = useState<WatchedRepoDto[]>([]);
   const [workspaceRepos, setWorkspaceRepos] = useState<WorkspaceRepoDto[]>([]);
   const [tokens, setTokens] = useState<CredentialDto[]>([]);
@@ -34,6 +31,8 @@ function WatchedReposPage({ workspaceId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
+  /** Full name of the row whose per-repo token editor is open. */
+  const [tokenFor, setTokenFor] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -44,8 +43,8 @@ function WatchedReposPage({ workspaceId }: Props) {
         window.bridge.listCredentials('REPO'),
         // Pre-fetch in parallel; a backend that doesn't yet have the
         // workspace_repos endpoint shouldn't blank the rest of the
-        // settings page, so we swallow the error here and surface it
-        // only at the toggle level.
+        // page, so we swallow the error here and surface it only at
+        // the toggle level.
         hasWorkspace
           ? window.bridge.listWorkspaceRepos(wsId).catch((): WorkspaceRepoDto[] => [])
           : Promise.resolve([]),
@@ -60,27 +59,29 @@ function WatchedReposPage({ workspaceId }: Props) {
     }
   };
 
-  const setRepoAutoFix = async (owner: string, repo: string, enabled: boolean) => {
-    if (!hasWorkspace) {
-      throw new Error('Choose a workspace before changing auto-fix.');
-    }
-    const updated = await window.bridge.setWorkspaceRepoAutoFix(
-      wsId, owner, repo, enabled);
-    setWorkspaceRepos(prev => {
-      const next = prev.filter(r => r.repoFullName !== updated.repoFullName);
-      next.push(updated);
-      return next;
-    });
-  };
-
   useEffect(() => { void load(); }, [wsId]);
 
-  // The add modal watches + maps the repo in one step; re-read the list to
-  // pick up the new clone-backed row.
-  const handleAdded = () => { void load(); };
+  const wsByFullName = useMemo(() => {
+    const m = new Map<string, WorkspaceRepoDto>();
+    for (const r of workspaceRepos) m.set(r.repoFullName, r);
+    return m;
+  }, [workspaceRepos]);
+
+  const tokensByName = useMemo(() => {
+    const m = new Map<string, CredentialDto>();
+    for (const t of tokens) m.set(t.name, t);
+    return m;
+  }, [tokens]);
+
+  const setAutoFix = async (owner: string, repo: string, enabled: boolean) => {
+    if (!hasWorkspace) throw new Error('Choose a workspace before changing auto-fix.');
+    const updated = await window.bridge.setWorkspaceRepoAutoFix(wsId, owner, repo, enabled);
+    setWorkspaceRepos(prev => [...prev.filter(r => r.repoFullName !== updated.repoFullName), updated]);
+  };
 
   const handleRemove = async (owner: string, repo: string) => {
     const fullName = `${owner}/${repo}`;
+    if (!confirm(`Stop watching ${fullName}? ByteQuay will no longer poll its pull requests.`)) return;
     setRemoving(fullName);
     try {
       await window.bridge.removeWatchedRepo(owner, repo);
@@ -93,347 +94,227 @@ function WatchedReposPage({ workspaceId }: Props) {
   };
 
   return (
-    <>
-      <div className="settings-shell-page__head">
-        <div>
-          <h2 className="settings-shell-page__title">Watched repos</h2>
-          <div className="settings-shell-page__subtitle">
-            Repos ByteQuay polls for open pull requests. Each repo can override the
-            account-level token with a repo-specific PAT.
-          </div>
-        </div>
-        {tab === 'repos' && (
-          <button className="button button--primary" type="button" onClick={() => setAddOpen(true)}>
-            + Add repo
-          </button>
-        )}
-      </div>
-
-      <div className="settings-page-tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'repos'}
-          className={`settings-page-tab${tab === 'repos' ? ' settings-page-tab--active' : ''}`}
-          onClick={() => setTab('repos')}
-        >
-          Repos
+    <SettingsPage
+      title="Watched repos"
+      width={900}
+      subtitle="Repos ByteQuay polls for open pull requests. Each row can override the account token and opt into headless auto-fix."
+      action={
+        <button className="sv2-btn sv2-btn--dark" type="button" style={{ marginTop: 4 }} onClick={() => setAddOpen(true)}>
+          <PlusIcon size={13} />Add repo
         </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'tokens'}
-          className={`settings-page-tab${tab === 'tokens' ? ' settings-page-tab--active' : ''}`}
-          onClick={() => setTab('tokens')}
-        >
-          Tokens
-        </button>
-      </div>
-
-      {loading && <div className="repo-loading">Loading…</div>}
-      {error && <div className="repo-error">{error}</div>}
-
-      {!loading && tab === 'repos' && (
-        <ReposTab
-          repos={repos}
-          workspaceRepos={workspaceRepos}
-          hasWorkspace={hasWorkspace}
-          removing={removing}
-          onRemove={handleRemove}
-          onAutoFixChange={setRepoAutoFix}
-        />
-      )}
-      {!loading && tab === 'tokens' && <TokensTab repos={repos} tokens={tokens} onChange={load} />}
-
-      {addOpen && (
-        <AddRepoModal
-          watchedRepos={repos}
-          onAdded={handleAdded}
-          onClose={() => setAddOpen(false)}
-        />
-      )}
-    </>
-  );
-}
-
-function ReposTab({
-  repos,
-  workspaceRepos,
-  hasWorkspace,
-  removing,
-  onRemove,
-  onAutoFixChange,
-}: {
-  repos: WatchedRepoDto[];
-  workspaceRepos: WorkspaceRepoDto[];
-  hasWorkspace: boolean;
-  removing: string | null;
-  onRemove: (owner: string, repo: string) => void;
-  onAutoFixChange: (owner: string, repo: string, enabled: boolean) => Promise<void>;
-}) {
-  const wsByFullName = useMemo(() => {
-    const m = new Map<string, WorkspaceRepoDto>();
-    for (const r of workspaceRepos) m.set(r.repoFullName, r);
-    return m;
-  }, [workspaceRepos]);
-
-  if (repos.length === 0) {
-    return (
-      <SettingCard>
-        <div className="settings-shell-page__subtitle" style={{ padding: '20px 0' }}>
-          No repos watched yet. Add one to start seeing PRs in your inbox.
-        </div>
-      </SettingCard>
-    );
-  }
-  return (
-    <SettingCard
-      hint={
-        <>
-          The <em>headless auto-fix</em> toggle is off by default. When
-          enabled, ByteQuay queues an agent turn against this repo's
-          failing-CI tasks; the agent still parks at the publish gate
-          (no silent push). Leave it off until you trust auto-fix for a
-          given repo.
-        </>
       }
     >
+      <div className="sv2-note">
+        <span className="sv2-note__icon"><InfoIcon size={14} /></span>
+        <span>
+          Headless auto-fix queues an agent turn against this repo’s failing-CI tasks. The agent
+          still parks at the publish gate — nothing is pushed silently. Leave it off until you
+          trust auto-fix for a repo.
+        </span>
+      </div>
+
+      {loading && <div className="sv2-loading">Loading…</div>}
+      {error !== null && <div className="sv2-error" role="alert">{error}</div>}
+
+      {!loading && repos.length === 0 && (
+        <div className="sv2-empty">
+          <div className="sv2-empty__title">No repos watched</div>
+          <div className="sv2-empty__body">Add one and ByteQuay starts polling its open pull requests.</div>
+        </div>
+      )}
+
       {repos.map(r => {
         const fullName = `${r.owner}/${r.repo}`;
         const workspaceRepo = wsByFullName.get(fullName);
         return (
-          <div key={r.id} className="watched-row">
-            <Avatar login={r.owner} size={20} className="avatar--repo" />
-            <div className="watched-row__name">{fullName}</div>
-            <AutoFixToggle
+          <div key={r.id}>
+            <RepoRow
               fullName={fullName}
+              cloned={r.localClonePath !== null}
+              token={tokensByName.get(fullName)}
               workspaceRepo={workspaceRepo}
               hasWorkspace={hasWorkspace}
-              onChange={enabled => onAutoFixChange(r.owner, r.repo, enabled)}
+              removing={removing === fullName}
+              tokenOpen={tokenFor === fullName}
+              onToggleToken={() => setTokenFor(tokenFor === fullName ? null : fullName)}
+              onAutoFix={enabled => setAutoFix(r.owner, r.repo, enabled)}
+              onRemove={() => { void handleRemove(r.owner, r.repo); }}
             />
-            <button
-              className="button button--danger"
-              type="button"
-              disabled={removing === fullName}
-              onClick={() => onRemove(r.owner, r.repo)}
-            >
-              {removing === fullName ? 'Removing…' : 'Remove'}
-            </button>
+            {tokenFor === fullName && (
+              <TokenEditor
+                fullName={fullName}
+                existing={tokensByName.get(fullName)}
+                onDone={async () => { setTokenFor(null); await load(); }}
+                onCancel={() => setTokenFor(null)}
+              />
+            )}
           </div>
         );
       })}
-    </SettingCard>
+
+      <div className="sv2-foot-note">
+        Rows without a per-repo token fall back to the account token in Credentials → Git PAT.
+      </div>
+
+      {addOpen && (
+        <AddRepoModal
+          watchedRepos={repos}
+          onAdded={() => { void load(); }}
+          onClose={() => setAddOpen(false)}
+        />
+      )}
+    </SettingsPage>
   );
 }
 
-function AutoFixToggle({
-  fullName,
-  workspaceRepo,
-  hasWorkspace,
-  onChange,
+function RepoRow({
+  fullName, cloned, token, workspaceRepo, hasWorkspace, removing, tokenOpen,
+  onToggleToken, onAutoFix, onRemove,
 }: {
   fullName: string;
+  cloned: boolean;
+  token: CredentialDto | undefined;
   workspaceRepo: WorkspaceRepoDto | undefined;
   hasWorkspace: boolean;
-  onChange: (enabled: boolean) => Promise<void>;
+  removing: boolean;
+  tokenOpen: boolean;
+  onToggleToken: () => void;
+  onAutoFix: (enabled: boolean) => Promise<void>;
+  onRemove: () => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const enabled = workspaceRepo?.autoFixEnabled === true;
-  // Repo isn't attached to the workspace yet — the V73 backfill
-  // covers existing repos, but ones added after the migration land
-  // outside it. Surface a hint so the user knows why the toggle is
-  // greyed out instead of guessing the backend was sleeping.
+  // The V73 backfill covers existing repos, but ones added after the
+  // migration land outside the workspace. Say so rather than leaving a
+  // greyed-out toggle with no explanation.
   const attached = hasWorkspace && workspaceRepo !== undefined;
+
   const flip = async () => {
     setSaving(true);
     setError(null);
     try {
-      await onChange(!enabled);
+      await onAutoFix(!enabled);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSaving(false);
     }
   };
-  return (
-    <label
-      style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}
-      title={attached
-        ? `Headless auto-fix on CI failure for ${fullName}`
-        : hasWorkspace
-          ? `${fullName} isn't attached to this workspace yet`
-          : 'Choose a workspace before changing auto-fix'}
-    >
-      <input
-        type="checkbox"
-        checked={enabled}
-        disabled={saving || !attached}
-        onChange={() => { void flip(); }}
-      />
-      <span>{saving ? 'Saving…' : 'Headless auto-fix'}</span>
-      {error !== null && <span style={{ color: '#b91c1c', fontStyle: 'italic' }}>{error}</span>}
-    </label>
-  );
-}
-
-function TokensTab({
-  repos,
-  tokens,
-  onChange,
-}: {
-  repos: WatchedRepoDto[];
-  tokens: CredentialDto[];
-  onChange: () => Promise<void>;
-}) {
-  const tokensByName = useMemo(() => {
-    const m = new Map<string, CredentialDto>();
-    for (const t of tokens) m.set(t.name, t);
-    return m;
-  }, [tokens]);
 
   return (
-    <SettingCard
-      title="Per-repo tokens"
-      hint={
-        <>
-          Each watched repo can use its own PAT — useful when one repo lives in a
-          different org with stricter token scopes than your account-level GitHub
-          token. Repos without a per-repo token fall back to the
-          <em> Settings → GitHub token</em>.
-        </>
-      }
-    >
-      {repos.length === 0 ? (
-        <div className="settings-shell-page__subtitle" style={{ padding: '20px 0' }}>
-          Add a watched repo first, then come back to set its token.
-        </div>
-      ) : (
-        repos.map(r => {
-          const fullName = `${r.owner}/${r.repo}`;
-          const existing = tokensByName.get(fullName);
-          return (
-            <RepoTokenRow
-              key={r.id}
-              fullName={fullName}
-              existing={existing}
-              onChange={onChange}
-            />
-          );
-        })
+    <div className="sv2-repo" style={tokenOpen ? { borderRadius: '12px 12px 0 0' } : undefined}>
+      <span className="sv2-repo__tile">{fullName.slice(0, 1)}</span>
+      <span className="sv2-repo__main">
+        <span className="sv2-repo__name">{fullName}</span>
+        <span className="sv2-repo__meta">
+          {cloned ? 'Local clone ready' : 'Watch only — no local clone'}
+          {error !== null && <span style={{ color: '#cf222e' }}> · {error}</span>}
+        </span>
+      </span>
+
+      {token !== undefined && (
+        <span className="sv2-repo__token" title="Per-repo token">
+          <LockIcon size={11} width={2} />
+          <span className="sv2-mono">{token.preview}</span>
+        </span>
       )}
-    </SettingCard>
+
+      <button
+        className="sv2-repo__autofix"
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        disabled={saving || !attached}
+        title={attached
+          ? `Headless auto-fix on CI failure for ${fullName}`
+          : hasWorkspace
+            ? `${fullName} isn't attached to this workspace yet`
+            : 'Choose a workspace before changing auto-fix'}
+        onClick={() => { void flip(); }}
+      >
+        <span style={{ color: enabled ? '#1a7f37' : '#8b949e' }}>
+          {saving ? 'Saving…' : `Headless auto-fix ${enabled ? 'on' : 'off'}`}
+        </span>
+        <span className={'sv2-toggle' + (enabled ? ' sv2-toggle--on' : '')}><i /></span>
+      </button>
+
+      <button className="sv2-btn sv2-btn--sm" type="button" title="Per-repo token" onClick={onToggleToken}>
+        Token
+      </button>
+      <button
+        className="sv2-icon-btn"
+        type="button"
+        title="Stop watching"
+        aria-label={`Stop watching ${fullName}`}
+        disabled={removing}
+        onClick={onRemove}
+      >
+        <TrashIcon size={13} />
+      </button>
+    </div>
   );
 }
 
-function RepoTokenRow({
-  fullName,
-  existing,
-  onChange,
-}: {
+function TokenEditor({ fullName, existing, onDone, onCancel }: {
   fullName: string;
   existing: CredentialDto | undefined;
-  onChange: () => Promise<void>;
+  onDone: () => Promise<void>;
+  onCancel: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const save = async () => {
-    if (!value.trim()) {
-      setError('Token must not be blank.');
-      return;
-    }
+  const run = async (action: () => Promise<unknown>): Promise<void> => {
     setSaving(true);
     setError(null);
     try {
-      await window.bridge.upsertCredential({
-        type: 'REPO',
-        name: fullName,
-        value: value.trim(),
-        label: null,
-        notes: null,
-      });
-      setEditing(false);
-      setValue('');
-      await onChange();
+      await action();
+      await onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const remove = async () => {
-    if (!confirm(`Delete the per-repo token for ${fullName}? It'll fall back to the account-level GitHub token.`)) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await window.bridge.deleteCredential('REPO', fullName);
-      await onChange();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="watched-row" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
-      <div className="watched-row__name" style={{ flex: '0 0 220px' }}>{fullName}</div>
-      {!editing && existing && (
-        <>
-          <code style={{ flex: '1 1 auto', minWidth: 0, fontSize: 12, color: 'var(--text-3)' }}>
-            {existing.preview}
-          </code>
-          <button className="button button--secondary" type="button" onClick={() => setEditing(true)}>
-            Replace
-          </button>
-          <button className="button button--danger" type="button" onClick={() => void remove()} disabled={saving}>
-            Remove
-          </button>
-        </>
+    <div className="sv2-repo__editor">
+      <input
+        className="sv2-input"
+        style={{ flex: 1 }}
+        type="password"
+        placeholder={existing === undefined ? 'ghp_…' : 'Paste a new token to replace'}
+        aria-label={`Per-repo token for ${fullName}`}
+        value={value}
+        autoFocus
+        onChange={e => setValue(e.target.value)}
+      />
+      <button
+        className="sv2-btn sv2-btn--primary"
+        type="button"
+        disabled={saving || value.trim() === ''}
+        onClick={() => { void run(() => window.bridge.upsertCredential({
+          type: 'REPO', name: fullName, value: value.trim(), label: null, notes: null,
+        })); }}
+      >
+        {saving ? 'Saving…' : 'Save'}
+      </button>
+      {existing !== undefined && (
+        <button
+          className="sv2-btn sv2-btn--danger"
+          type="button"
+          disabled={saving}
+          onClick={() => {
+            if (!confirm(`Delete the per-repo token for ${fullName}? It'll fall back to the account token.`)) return;
+            void run(() => window.bridge.deleteCredential('REPO', fullName));
+          }}
+        >
+          Remove
+        </button>
       )}
-      {!editing && !existing && (
-        <>
-          <div style={{ flex: '1 1 auto', fontSize: 12, color: 'var(--text-3)' }}>
-            Falls back to the account-level token.
-          </div>
-          <button className="button button--secondary" type="button" onClick={() => setEditing(true)}>
-            + Add token
-          </button>
-        </>
-      )}
-      {editing && (
-        <>
-          <input
-            className="settings-input-number"
-            style={{ flex: '1 1 auto', minWidth: 200 }}
-            type="password"
-            placeholder="ghp_…"
-            value={value}
-            onChange={e => setValue(e.target.value)}
-            autoFocus
-          />
-          <button className="button button--primary" type="button" onClick={() => void save()} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          <button
-            className="button button--secondary"
-            type="button"
-            onClick={() => { setEditing(false); setValue(''); setError(null); }}
-            disabled={saving}
-          >
-            Cancel
-          </button>
-        </>
-      )}
-      {error && (
-        <div style={{ flex: '1 1 100%', color: 'var(--col-attn, #c0303d)', fontSize: 12 }}>
-          {error}
-        </div>
-      )}
+      <button className="sv2-btn sv2-btn--sm" type="button" disabled={saving} onClick={onCancel}>Cancel</button>
+      {error !== null && <span style={{ fontSize: 12, color: '#cf222e' }}>{error}</span>}
     </div>
   );
 }

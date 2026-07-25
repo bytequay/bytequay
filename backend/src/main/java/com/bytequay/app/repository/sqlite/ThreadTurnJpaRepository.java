@@ -20,10 +20,13 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 interface ThreadTurnJpaRepository
         extends JpaRepository<ThreadTurnEntity, String>
 {
+    Optional<ThreadTurnEntity> findByKickKey(String kickKey);
+
     List<ThreadTurnEntity> findByStatusOrderByCreatedAtMsAscIdAsc(String status, Pageable pageable);
 
     @Query("""

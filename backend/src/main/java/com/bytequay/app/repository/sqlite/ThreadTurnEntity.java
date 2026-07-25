@@ -70,6 +70,32 @@ class ThreadTurnEntity
     @Column(name = "agent_run_id")
     private String agentRunId;
 
+    @Column(name = "affects_task_liveness", nullable = false)
+    private boolean affectsTaskLiveness;
+
+    @Column(name = "kick_key")
+    private String kickKey;
+
+    boolean isAffectsTaskLiveness()
+    {
+        return affectsTaskLiveness;
+    }
+
+    void setAffectsTaskLiveness(boolean affectsTaskLiveness)
+    {
+        this.affectsTaskLiveness = affectsTaskLiveness;
+    }
+
+    String getKickKey()
+    {
+        return kickKey;
+    }
+
+    void setKickKey(String kickKey)
+    {
+        this.kickKey = kickKey;
+    }
+
     String getAgentRunId()
     {
         return agentRunId;

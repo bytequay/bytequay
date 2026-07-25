@@ -32,6 +32,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -884,12 +885,13 @@ public class BrainReviewServiceImpl
             TurnInitiator initiator = TurnInitiator.unattended(SOURCE_PLAN_SELF_REVIEW);
             if (agentRunId == null) {
                 scheduler.enqueueTaskTurn(
-                        brain.get(), PLAN_SELF_REVIEW_PROMPT, taskId, stageId.toString(), initiator);
+                        brain.get(), PLAN_SELF_REVIEW_PROMPT, taskId, stageId.toString(),
+                        initiator, null, TurnLiveness.NARRATION);
             }
             else {
                 scheduler.enqueueTaskTurn(
                         brain.get(), PLAN_SELF_REVIEW_PROMPT, taskId, stageId.toString(),
-                        initiator, agentRunId);
+                        initiator, agentRunId, TurnLiveness.NARRATION);
             }
         }
         catch (RuntimeException e) {
@@ -1477,7 +1479,7 @@ public class BrainReviewServiceImpl
             scheduler.enqueueTaskTurn(
                     taskThread.get(), brainFixPrompt(task) + "\n\n" + fixIterationMarker(round.iteration()),
                     task.id(), run.stageId(),
-                    TurnInitiator.unattended(SOURCE_BRAIN_FIX), run.id());
+                    TurnInitiator.unattended(SOURCE_BRAIN_FIX), run.id(), TurnLiveness.CODE);
             if (!ReviewRound.STATUS_ADDRESSING.equals(round.status())) {
                 roundStore.save(round.withStatus(ReviewRound.STATUS_ADDRESSING));
             }
@@ -1501,7 +1503,7 @@ public class BrainReviewServiceImpl
             scheduler.enqueueTaskTurn(
                     brainThread.get(), BRAIN_REVIEW_PROMPT + "\n\n" + reviewIterationMarker(iteration),
                     task.id(), run.stageId(),
-                    TurnInitiator.unattended(SOURCE_BRAIN_REVIEW), run.id());
+                    TurnInitiator.unattended(SOURCE_BRAIN_REVIEW), run.id(), TurnLiveness.NARRATION);
             return true;
         }
         catch (RuntimeException e) {

@@ -29,6 +29,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -623,7 +624,7 @@ public class TaskLifecycleDriver
                         .orElse(null);
                 scheduler.enqueueTaskTurn(
                         thread, prompt, current.id(), stageId,
-                        TurnInitiator.unattended(SOURCE_ADDRESS_LOCAL_COMMENTS));
+                        TurnInitiator.unattended(SOURCE_ADDRESS_LOCAL_COMMENTS), null, TurnLiveness.CODE);
                 // This marker is the revision actually carried by the queued
                 // turn. A newer resubmission that arrives while the turn is
                 // busy stays beyond it and cannot be closed by stale work.

@@ -29,6 +29,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -315,7 +316,7 @@ public class CiFixRunExecutor
             // thread slice.
             String turnId = scheduler.enqueueTaskTurn(
                     thread, prompt, task.id(), remoteStage.id().toString(),
-                    TurnInitiator.unattended("auto-fix-ci-fail"), run.id());
+                    TurnInitiator.unattended("auto-fix-ci-fail"), run.id(), TurnLiveness.CODE);
             agentRuns.recordIteration(run.id(), headlineFor(failingRuns));
             log.info("auto-fix queued: task {} on {} (worktree {}, PR #{}) → turn {}",
                     task.id(), repoFullName, task.worktreePath(),
@@ -501,7 +502,7 @@ public class CiFixRunExecutor
             // the fix's messages in stage_messages instead of the thread slice.
             String turnId = scheduler.enqueueTaskTurn(
                     thread, prompt, task.id(), run.stageId(),
-                    TurnInitiator.unattended("ci-fix-shipped"), run.id());
+                    TurnInitiator.unattended("ci-fix-shipped"), run.id(), TurnLiveness.CODE);
             AgentRun updated = agentRuns.recordIteration(run.id(), headlineFor(failingRuns));
             ciFixCooldown.put(task.id(), now.plus(CI_FIX_COOLDOWN));
             log.info("shipped CI-fix queued: task {} on {} PR #{} → turn {} (iteration {})",

@@ -18,6 +18,7 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.checks.ValidationFailure;
@@ -112,7 +113,7 @@ public class LocalCiFixExecutor
         try {
             String turnId = scheduler.enqueueTaskTurn(
                     thread, buildPrompt(failures), task.id(), stageId,
-                    TurnInitiator.unattended("local-ci-fix"), run.id());
+                    TurnInitiator.unattended("local-ci-fix"), run.id(), TurnLiveness.CODE);
             agentRuns.recordIteration(run.id(), headline(failures));
             log.info("local CI fix queued for task {} → turn {} (attempt {})",
                     task.id(), turnId, run.iterations() + 1);

@@ -28,6 +28,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -313,7 +314,7 @@ class ReviewRoundServiceImpl
         try {
             scheduler.enqueueTaskTurn(
                     threadOpt.get(), prompt, task.id(), run.stageId(),
-                    TurnInitiator.unattended("review-round"), run.id());
+                    TurnInitiator.unattended("review-round"), run.id(), TurnLiveness.CODE);
             log.info("review-round: round {} ({}) queued for task {}",
                     round.idx(), round.id(), task.id());
         }

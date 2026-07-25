@@ -22,6 +22,7 @@ import com.bytequay.app.domain.TaskStageIteration;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.repository.IterationStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -298,7 +299,7 @@ public class IterationService
             // stage id directly, so pin it.)
             String turnId = scheduler.enqueueTaskTurn(
                     thread.get(), prompt, iteration.taskId(), iteration.stageId().toString(),
-                    TurnInitiator.unattended("iteration-summary-request"));
+                    TurnInitiator.unattended("iteration-summary-request"), null, TurnLiveness.NARRATION);
             iterationStore.save(iteration.withSummaryRequestTurnId(turnId));
         }
         catch (RuntimeException e) {

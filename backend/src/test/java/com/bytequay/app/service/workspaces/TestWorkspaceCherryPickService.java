@@ -22,6 +22,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -234,7 +235,8 @@ class TestWorkspaceCherryPickService
                 eq("task-conflict"),
                 eq(stage.id().toString()),
                 any(),
-                eq(run.id()));
+                eq(run.id()),
+                eq(TurnLiveness.CODE));
         verify(git, never()).worktreeRemove(
                 eq(main), any(Path.class));
     }

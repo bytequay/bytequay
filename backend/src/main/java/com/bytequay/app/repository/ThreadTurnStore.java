@@ -26,8 +26,33 @@ import java.util.Optional;
  */
 public interface ThreadTurnStore
 {
-    /** Insert or update a scheduler turn by primary key. */
+    /** Insert or update a scheduler turn by primary key. The liveness
+     *  flag and kick key are entity-managed — set only by
+     *  {@link #insertTurn} at creation and never rewritten here. */
     void saveTurn(ThreadTurn turn);
+
+    /** Insert a freshly enqueued turn with its explicit liveness flag
+     *  and optional idempotency kick key. Same-key inserts are
+     *  serialized by the task command stripe; the unique index is the
+     *  backstop. */
+    default void insertTurn(ThreadTurn turn, boolean affectsTaskLiveness, String kickKey)
+    {
+        saveTurn(turn);
+    }
+
+    /** The turn already holding {@code kickKey}, if any — the
+     *  claim-once check for keyed enqueues. */
+    default Optional<String> findTurnIdByKickKey(String kickKey)
+    {
+        return Optional.empty();
+    }
+
+    /** True when the turn was enqueued as task-runtime work
+     *  ({@code affects_task_liveness}). */
+    default boolean turnAffectsTaskLiveness(String turnId)
+    {
+        return false;
+    }
 
     /** Single-row lookup by id. Empty when no such turn exists. */
     Optional<ThreadTurn> findTurnById(String id);

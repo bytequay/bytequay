@@ -182,6 +182,43 @@ class TestSqliteThreadTurnStore
                 .hasMessage("limit must be positive");
     }
 
+    @Test
+    void keyedInsertIsClaimOnceAndPreservesLivenessAcrossStatusSaves()
+    {
+        String threadId = newTask();
+        Instant now = Instant.parse("2026-07-25T12:00:00Z");
+        String kickKey = "test-kick:" + threadId;
+        ThreadTurn turn = new ThreadTurn(
+                id(threadId, "keyed"), threadId, /* taskId */ null,
+                ThreadResourceLane.CLI, QUEUED, "input", now, now,
+                null, null, null,
+                TurnInitiator.unattended("brain-review-fix"));
+
+        turns.insertTurn(turn, true, kickKey);
+        assertThat(turns.findTurnIdByKickKey(kickKey)).contains(turn.id());
+        assertThat(turns.turnAffectsTaskLiveness(turn.id())).isTrue();
+
+        // A second keyed insert is a no-op — the first claim holds.
+        ThreadTurn duplicate = new ThreadTurn(
+                id(threadId, "keyed-dup"), threadId, null,
+                ThreadResourceLane.CLI, QUEUED, "input", now, now,
+                null, null, null,
+                TurnInitiator.unattended("brain-review-fix"));
+        turns.insertTurn(duplicate, false, kickKey);
+        assertThat(turns.findTurnIdByKickKey(kickKey)).contains(turn.id());
+        assertThat(turns.findTurnById(duplicate.id())).isEmpty();
+
+        // Status updates through the legacy full-row save keep the
+        // entity-managed liveness flag and kick key intact.
+        turns.saveTurn(new ThreadTurn(
+                turn.id(), threadId, null,
+                ThreadResourceLane.CLI, ThreadTurnStatus.COMPLETED, "input", now, now,
+                now, now, null,
+                TurnInitiator.unattended("brain-review-fix")));
+        assertThat(turns.turnAffectsTaskLiveness(turn.id())).isTrue();
+        assertThat(turns.findTurnIdByKickKey(kickKey)).contains(turn.id());
+    }
+
     private String newTask()
     {
         String threadId = UUID.randomUUID().toString();

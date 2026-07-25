@@ -175,7 +175,7 @@ class TestBranchGuardJob
         verify(agentRuns).transition(run.id(), AgentRun.STATUS_SUCCEEDED, "rebased_and_pushed");
         verify(guards).save(argThatState(BranchGuard.STATE_HEALTHY));
         verify(notifications, never()).notifyNeedsAttention(any(), any(), any());
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -227,7 +227,7 @@ class TestBranchGuardJob
         verify(git, never()).rebase(any(), any());
         verify(git, never()).pushForceWithLease(any());
         verify(scheduler).enqueueTaskTurn(any(Thread.class), anyString(), eq(TASK_ID),
-                eq(run.stageId()), any(TurnInitiator.class), eq(run.id()));
+                eq(run.stageId()), any(TurnInitiator.class), eq(run.id()), any());
         verify(guards).save(argThatState(BranchGuard.STATE_CONFLICTED));
         verify(guards).save(argThatState(BranchGuard.STATE_FIXING));
         verify(agentRuns, never()).transition(any(), eq(AgentRun.STATUS_FAILED), any());

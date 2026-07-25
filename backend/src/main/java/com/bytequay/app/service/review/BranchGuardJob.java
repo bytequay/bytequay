@@ -27,6 +27,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.repository.BranchGuardStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -321,7 +322,7 @@ public class BranchGuardJob
         try {
             scheduler.enqueueTaskTurn(
                     thread, prompt, task.id(), run.stageId(),
-                    TurnInitiator.unattended("branch-guard-fix"), run.id());
+                    TurnInitiator.unattended("branch-guard-fix"), run.id(), TurnLiveness.CODE);
             guards.save(guard.withState(BranchGuard.STATE_FIXING).withLastRun(run.id(), Instant.now()));
         }
         catch (RuntimeException e) {

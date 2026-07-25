@@ -159,7 +159,7 @@ class TestCiFixRunExecutor
         // Bound to the task id, Remote Development stage, and CI-fix run id.
         verify(scheduler).enqueueTaskTurn(
                 threadArg.capture(), promptArg.capture(), taskIdArg.capture(),
-                stageArg.capture(), initiatorArg.capture(), runArg.capture());
+                stageArg.capture(), initiatorArg.capture(), runArg.capture(), any());
         assertThat(threadArg.getValue().id()).isEqualTo("thread-1");
         assertThat(taskIdArg.getValue()).isEqualTo("task-1");
         assertThat(stageArg.getValue()).isEqualTo(REMOTE_STAGE_ID);
@@ -187,7 +187,7 @@ class TestCiFixRunExecutor
 
         executor.tryAutoFix(task, REPO, List.of("backend-tests"), List.of(checkRunState("backend-tests")));
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -200,7 +200,7 @@ class TestCiFixRunExecutor
 
         executor.tryAutoFix(task, REPO, List.of("backend-tests"), List.of(checkRunState("backend-tests")));
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -215,7 +215,7 @@ class TestCiFixRunExecutor
 
         executor.tryAutoFix(task, REPO, List.of("backend-tests"), List.of(checkRunState("backend-tests")));
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -232,7 +232,7 @@ class TestCiFixRunExecutor
 
         // Exactly one enqueue across the two calls — the dedup set guards
         // the enqueue side regardless of how many times detection re-fires.
-        verify(scheduler).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any());
+        verify(scheduler).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -248,7 +248,7 @@ class TestCiFixRunExecutor
         // Cheapest first: the failed checks are re-run in place by PR number —
         // no agent turn, no escalation.
         verify(pullRequests).rerunFailedChecks(REPO, PR_NUMBER);
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any());
         verify(notificationService, never())
                 .notifyNeedsAttention(anyString(), anyString(), anyString());
     }
@@ -287,7 +287,7 @@ class TestCiFixRunExecutor
         // The cooldown holds the loop while the re-run is in flight, so the
         // second call neither re-runs again nor jumps to an agent turn.
         verify(pullRequests).rerunFailedChecks(REPO, PR_NUMBER);
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -299,7 +299,7 @@ class TestCiFixRunExecutor
         Thread thread = newThread("thread-3", ThreadStatus.IDLE);
         when(threadStore.findThreadById(eq("thread-3"))).thenReturn(Optional.of(thread));
         when(leaseService.isHeldByAnotherTask(eq(WORKTREE_PATH), eq("ship-3"))).thenReturn(false);
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn("turn-id");
         CiFixRunExecutor executor = newExecutor();
 
@@ -310,7 +310,7 @@ class TestCiFixRunExecutor
         ArgumentCaptor<TurnInitiator> initiatorArg = ArgumentCaptor.forClass(TurnInitiator.class);
         // Bound to the task id → runs on the task's agent, never the trunk.
         verify(scheduler).enqueueTaskTurn(
-                any(), promptArg.capture(), taskIdArg.capture(), any(), initiatorArg.capture(), eq("run-1"));
+                any(), promptArg.capture(), taskIdArg.capture(), any(), initiatorArg.capture(), eq("run-1"), any());
         assertThat(taskIdArg.getValue()).isEqualTo("ship-3");
         // Autonomous CI-fix prompt: commits for ByteQuay to auto-push, with
         // no second review gate.
@@ -353,7 +353,7 @@ class TestCiFixRunExecutor
         when(threadStore.findThreadById(thread.id())).thenReturn(Optional.of(thread));
         when(leaseService.isHeldByAnotherTask(WORKTREE_PATH, task.id())).thenReturn(false);
         when(notificationService.listUnread()).thenReturn(List.of());
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn("turn-1", "turn-2", "turn-3", "turn-4");
         for (int i = 1; i <= 4; i++) {
             String turnId = "turn-" + i;
@@ -375,7 +375,7 @@ class TestCiFixRunExecutor
         newExecutor().driveShippedCiFix(task, REPO, failingCi());
 
         verify(scheduler, times(4)).enqueueTaskTurn(
-                any(), anyString(), eq(task.id()), eq(REMOTE_STAGE_ID), any(), eq("run-episode"));
+                any(), anyString(), eq(task.id()), eq(REMOTE_STAGE_ID), any(), eq("run-episode"), any());
         verify(agentRuns, times(5)).openInStage(
                 task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
                 REMOTE_STAGE_ID, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS);
@@ -400,7 +400,7 @@ class TestCiFixRunExecutor
         // Budget spent → hand it to the user; no more re-runs or agent turns;
         // the run is failed.
         verify(notificationService).notifyNeedsAttention(eq("thread-4"), eq("ship-4"), anyString());
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any());
         verify(pullRequests, never()).rerunFailedChecks(anyString(), anyString());
         verify(agentRuns).transition("run-1", AgentRun.STATUS_FAILED, "attempts_exhausted");
         verify(phaseMachine).transition(
@@ -454,7 +454,7 @@ class TestCiFixRunExecutor
         newExecutor().driveShippedCiFix(task, REPO, failingCi());
 
         verify(agentRuns).transition("run-legacy", AgentRun.STATUS_FAILED, "attempts_exhausted");
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -604,14 +604,15 @@ class TestCiFixRunExecutor
         Thread thread = newThread("thread-seed", ThreadStatus.IDLE);
         when(threadStore.findThreadById(eq("thread-seed"))).thenReturn(Optional.of(thread));
         when(leaseService.isHeldByAnotherTask(eq(WORKTREE_PATH), eq("ship-seed"))).thenReturn(false);
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn("turn-id");
         CiFixRunExecutor executor = newExecutor();
 
         executor.driveShippedCiFix(task, REPO, failingCi());
 
         ArgumentCaptor<String> promptArg = ArgumentCaptor.forClass(String.class);
-        verify(scheduler).enqueueTaskTurn(any(), promptArg.capture(), eq("ship-seed"), any(), any(), eq("run-1"));
+        verify(scheduler).enqueueTaskTurn(
+                any(), promptArg.capture(), eq("ship-seed"), any(), any(), eq("run-1"), any());
         assertThat(promptArg.getValue())
                 .contains("Context from prior stages")
                 .contains("Built the widget and wired it up.");
@@ -666,7 +667,7 @@ class TestCiFixRunExecutor
                         autoFixEnabled, NOW)));
         when(leaseService.isHeldByAnotherTask(eq(WORKTREE_PATH), anyString())).thenReturn(leaseHeld);
         when(threadStore.findThreadById(eq(thread.id()))).thenReturn(Optional.of(thread));
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn("turn-mock-id");
     }
 

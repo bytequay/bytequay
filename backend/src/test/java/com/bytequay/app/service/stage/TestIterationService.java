@@ -106,7 +106,7 @@ class TestIterationService
 
         // Closed with a reason, but no follow-up turn enqueued.
         verify(iterationStore).save(any(TaskStageIteration.class));
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test
@@ -117,13 +117,14 @@ class TestIterationService
         task(TaskPhase.PUSHED_AWAITING_CI);
         Thread thread = thread();
         when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread));
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any())).thenReturn("followup-1");
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any())).thenReturn("followup-1");
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
 
         // Bound to the task id + the iteration's own stage so the summary turn
         // runs on the task's stage agent and writes to stage_messages.
-        verify(scheduler).enqueueTaskTurn(any(), anyString(), eq(TASK_ID), eq(stageId.toString()), any());
+        verify(scheduler).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq(stageId.toString()), any(), any(), any());
         // The follow-up turn id is recorded so its completion can be matched.
         verify(iterationStore).save(argThatHasSummaryRequestTurn());
     }

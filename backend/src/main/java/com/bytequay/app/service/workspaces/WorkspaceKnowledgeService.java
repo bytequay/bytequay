@@ -25,6 +25,7 @@ import com.bytequay.app.beans.workspace.DistillOperationDto;
 import com.bytequay.app.beans.workspace.DistillRunDto;
 import com.bytequay.app.beans.workspace.KBEntryDto;
 import com.bytequay.app.beans.workspace.WorkspaceMemoryDto;
+import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.domain.MemoryItem;
 import com.bytequay.app.domain.MemoryItemConfidence;
 import com.bytequay.app.domain.MemoryItemKind;
@@ -36,6 +37,7 @@ import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -86,7 +88,6 @@ public class WorkspaceKnowledgeService
     private static final TypeReference<List<Map<String, Object>>> MAP_LIST = new TypeReference<>() {};
     private static final TypeReference<List<DistillOperationDto>> OPERATIONS = new TypeReference<>() {};
     private static final TypeReference<List<InverseOperation>> INVERSES = new TypeReference<>() {};
-    private static final TypeReference<List<String>> STRINGS = new TypeReference<>() {};
     private static final TypeReference<Map<String, Object>> OBJECT_MAP = new TypeReference<>() {};
 
     private final JdbcTemplate jdbc;
@@ -95,6 +96,7 @@ public class WorkspaceKnowledgeService
     private final WorkspaceConfigurationService configuration;
     private final MemoryItemService memoryItems;
     private final MemoryItemStore memoryStore;
+    private final KnowledgeItemStore knowledgeStore;
     private final WorkspaceRepositoryResolver repositories;
     private final WatchedRepoStore watchedRepos;
     private final WorkspaceMemoryDistiller distiller;
@@ -107,6 +109,7 @@ public class WorkspaceKnowledgeService
             WorkspaceConfigurationService configuration,
             MemoryItemService memoryItems,
             MemoryItemStore memoryStore,
+            KnowledgeItemStore knowledgeStore,
             WorkspaceRepositoryResolver repositories,
             WatchedRepoStore watchedRepos,
             WorkspaceMemoryDistiller distiller,
@@ -118,6 +121,7 @@ public class WorkspaceKnowledgeService
         this.configuration = requireNonNull(configuration, "configuration is null");
         this.memoryItems = requireNonNull(memoryItems, "memoryItems is null");
         this.memoryStore = requireNonNull(memoryStore, "memoryStore is null");
+        this.knowledgeStore = requireNonNull(knowledgeStore, "knowledgeStore is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.distiller = requireNonNull(distiller, "distiller is null");
@@ -190,19 +194,9 @@ public class WorkspaceKnowledgeService
     public List<KBEntryDto> listKnowledge(String workspaceId)
     {
         workspaces.require(workspaceId);
-        return jdbc.query("""
-                SELECT * FROM kb_entry
-                WHERE workspace_id = ?
-                ORDER BY updated_at_ms DESC, id
-                """, (rs, ignored) -> new KBEntryDto(
-                rs.getString("id"),
-                rs.getString("workspace_id"),
-                rs.getString("title"),
-                rs.getString("body"),
-                read(rs.getString("audience_json"), STRINGS, List.of()),
-                read(rs.getString("provenance_json"), OBJECT_MAP, Map.of()),
-                rs.getLong("created_at_ms"),
-                rs.getLong("updated_at_ms")), workspaceId);
+        return knowledgeStore.listManaged(workspaceId).stream()
+                .map(this::toDto)
+                .toList();
     }
 
     public KBEntryDto getKnowledge(String workspaceId, String entryId)
@@ -230,23 +224,29 @@ public class WorkspaceKnowledgeService
                 ? UUID.randomUUID().toString()
                 : entryId;
         long now = Instant.now().toEpochMilli();
-        jdbc.update("""
-                INSERT INTO kb_entry (
-                    id, workspace_id, title, body, audience_json,
-                    provenance_json, created_at_ms, updated_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    title = excluded.title,
-                    body = excluded.body,
-                    audience_json = excluded.audience_json,
-                    provenance_json = excluded.provenance_json,
-                    updated_at_ms = excluded.updated_at_ms
-                WHERE kb_entry.workspace_id = excluded.workspace_id
-                """,
-                id, workspaceId, titleValue, bodyValue,
-                write(audienceValue),
-                write(provenance == null ? Map.of() : provenance),
-                now, now);
+        KnowledgeItem existing = knowledgeStore.findById(id)
+                .filter(item -> workspaceId.equals(item.workspaceId()))
+                .orElse(null);
+        if (existing != null) {
+            // Edit keeps learned evidence links; only the curation provenance
+            // (distill-operation / imported / user) is replaced.
+            knowledgeStore.updateContent(
+                    id, titleValue, bodyValue, existing.rationale(), audienceValue, now);
+            knowledgeStore.replaceCurationProvenance(id, provenanceRows(provenance));
+        }
+        else {
+            String repo = repoNameOf(workspaceId);
+            boolean fromDistill = provenance != null
+                    && provenance.containsKey("distillOperation");
+            knowledgeStore.insert(
+                    new KnowledgeItem(
+                            id, workspaceId, repo, "doc-note", titleValue, bodyValue,
+                            null, audienceValue, "high", KnowledgeItem.LIFECYCLE_ACTIVE,
+                            null, null, fromDistill ? "distill" : "user", null, "{}",
+                            now, now),
+                    provenanceRows(provenance),
+                    List.of());
+        }
         return getKnowledge(workspaceId, id);
     }
 
@@ -254,11 +254,85 @@ public class WorkspaceKnowledgeService
     public void deleteKnowledge(String workspaceId, String entryId)
     {
         workspaces.require(workspaceId);
-        int changed = jdbc.update(
-                "DELETE FROM kb_entry WHERE workspace_id = ? AND id = ?",
-                workspaceId, entryId);
-        if (changed == 0) {
-            throw status(404, "knowledge entry not found: " + entryId);
+        KnowledgeItem existing = knowledgeStore.findById(entryId)
+                .filter(item -> workspaceId.equals(item.workspaceId()))
+                .filter(item -> KnowledgeItemStore.isManagedCreator(item.createdBy()))
+                .orElseThrow(() -> status(404, "knowledge entry not found: " + entryId));
+        knowledgeStore.delete(existing.id());
+    }
+
+    private KBEntryDto toDto(KnowledgeItem item)
+    {
+        return new KBEntryDto(
+                item.id(),
+                item.workspaceId(),
+                item.title() == null ? "Note" : item.title(),
+                item.statement(),
+                item.audiences(),
+                provenanceMap(item.id()),
+                item.createdAtMs(),
+                item.updatedAtMs());
+    }
+
+    /** Rebuild the DTO's provenance map from typed provenance rows so the
+     *  existing KB surface keeps its shape. */
+    private Map<String, Object> provenanceMap(String itemId)
+    {
+        Map<String, Object> out = new LinkedHashMap<>();
+        List<Map<String, Object>> sources = new ArrayList<>();
+        for (KnowledgeItem.Provenance row : knowledgeStore.provenance(itemId)) {
+            if ("distill-operation".equals(row.sourceKind())) {
+                out.put("distillOperation", row.sourceRef());
+            }
+            else if ("imported".equals(row.sourceKind())) {
+                out.putAll(read(row.sourceRef(), OBJECT_MAP, Map.of()));
+            }
+            else {
+                Map<String, Object> source = new LinkedHashMap<>();
+                source.put("kind", row.sourceKind());
+                source.put("ref", row.sourceRef());
+                if (row.url() != null) {
+                    source.put("url", row.url());
+                }
+                sources.add(source);
+            }
+        }
+        if (!sources.isEmpty()) {
+            out.put("sources", sources);
+        }
+        return out;
+    }
+
+    /** The inverse mapping: a DTO provenance map becomes typed curation rows
+     *  ({@code distillOperation} pointer, everything else kept verbatim). */
+    private List<KnowledgeItem.Provenance> provenanceRows(Map<String, Object> provenance)
+    {
+        if (provenance == null || provenance.isEmpty()) {
+            return List.of();
+        }
+        List<KnowledgeItem.Provenance> out = new ArrayList<>();
+        Map<String, Object> rest = new LinkedHashMap<>(provenance);
+        Object distillOperation = rest.remove("distillOperation");
+        rest.remove("sources");     // learned rows already own these
+        if (distillOperation != null) {
+            out.add(new KnowledgeItem.Provenance(
+                    "distill-operation", String.valueOf(distillOperation),
+                    null, null, null, null));
+        }
+        if (!rest.isEmpty()) {
+            out.add(new KnowledgeItem.Provenance(
+                    "imported", write(rest), null, null, null, null));
+        }
+        return out;
+    }
+
+    private String repoNameOf(String workspaceId)
+    {
+        try {
+            return repositories.resolve(workspaceId).fullName();
+        }
+        catch (RuntimeException e) {
+            return workspaces.require(workspaceId).name();
         }
     }
 
@@ -733,32 +807,38 @@ public class WorkspaceKnowledgeService
                         WHERE id = ? AND scope_kind = 'WORKSPACE' AND scope_id = ?
                         """, inverse.oldBrainId(), workspaceId);
             }
-            case "delete-kb" -> jdbc.update(
-                    "DELETE FROM kb_entry WHERE id = ? AND workspace_id = ?",
-                    inverse.kbEntryId(), workspaceId);
+            case "delete-kb" -> knowledgeStore.findById(inverse.kbEntryId())
+                    .filter(item -> workspaceId.equals(item.workspaceId()))
+                    .ifPresent(item -> knowledgeStore.delete(item.id()));
             case "restore-kb" -> upsertExactKnowledge(inverse.kbBefore());
             default -> throw new IllegalStateException(
                     "unknown distill inverse " + inverse.action());
         }
     }
 
+    /** Exact restore for revert: bring back the entry as captured before the
+     *  applied operation, keeping any learned evidence links intact. */
     private void upsertExactKnowledge(KBEntryDto entry)
     {
-        jdbc.update("""
-                INSERT INTO kb_entry (
-                    id, workspace_id, title, body, audience_json,
-                    provenance_json, created_at_ms, updated_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    title = excluded.title,
-                    body = excluded.body,
-                    audience_json = excluded.audience_json,
-                    provenance_json = excluded.provenance_json,
-                    updated_at_ms = excluded.updated_at_ms
-                """,
-                entry.id(), entry.workspaceId(), entry.title(), entry.body(),
-                write(entry.audience()), write(entry.provenance()),
-                entry.createdAt(), entry.updatedAt());
+        KnowledgeItem existing = knowledgeStore.findById(entry.id()).orElse(null);
+        if (existing != null) {
+            knowledgeStore.updateContent(entry.id(), entry.title(), entry.body(),
+                    existing.rationale(), entry.audience(), entry.updatedAt());
+            knowledgeStore.replaceCurationProvenance(
+                    entry.id(), provenanceRows(entry.provenance()));
+            return;
+        }
+        knowledgeStore.insert(
+                new KnowledgeItem(
+                        entry.id(), entry.workspaceId(), repoNameOf(entry.workspaceId()),
+                        "doc-note", entry.title(), entry.body(), null, entry.audience(),
+                        "high", KnowledgeItem.LIFECYCLE_ACTIVE, null, null,
+                        entry.provenance() != null
+                                && entry.provenance().containsKey("distillOperation")
+                                ? "distill" : "user",
+                        null, "{}", entry.createdAt(), entry.updatedAt()),
+                provenanceRows(entry.provenance()),
+                List.of());
     }
 
     private void enforceProjectedBudget(

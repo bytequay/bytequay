@@ -49,6 +49,8 @@ public record PrEvidenceBundle(
         String repo,
         int prNumber,
         String author,
+        String title,
+        String bodyText,
         String baseSha,
         String headSha,
         String mergeSha,

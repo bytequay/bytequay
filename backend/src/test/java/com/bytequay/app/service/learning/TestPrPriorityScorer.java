@@ -126,7 +126,7 @@ class TestPrPriorityScorer
             List<PrReviewThreadMessage> comments)
     {
         return new PrEvidenceBundle("ws-1", "acme/widget", prNumber, author,
-                "base", "head", mergeSha, "repoSha",
+                "Title", "Body", "base", "head", mergeSha, "repoSha",
                 reviews, files, commits, comments, List.of(),
                 Map.of("reviews", "complete"), "complete", List.of(), List.of());
     }

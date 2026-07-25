@@ -79,6 +79,7 @@ public class PrEvidenceFetcher
             String repoFullName,
             int prNumber,
             String author,
+            String title,
             Path checkout,
             String repoSha)
     {
@@ -87,7 +88,7 @@ public class PrEvidenceFetcher
 
         PrRawDetail detail = gitHub.fetchPrDetail(pat, ref);
         if (detail == null) {
-            return unavailable(workspaceId, repoFullName, prNumber, author, repoSha);
+            return unavailable(workspaceId, repoFullName, prNumber, author, title, repoSha);
         }
 
         Paged<PrReviewState> reviews = gitHub.fetchAllPrReviews(pat, ref);
@@ -109,6 +110,8 @@ public class PrEvidenceFetcher
                 repoFullName,
                 prNumber,
                 author,
+                title,
+                detail.body(),
                 detail.baseSha(),
                 detail.headSha(),
                 detail.mergeCommitSha(),
@@ -218,12 +221,13 @@ public class PrEvidenceFetcher
     }
 
     private PrEvidenceBundle unavailable(
-            String workspaceId, String repo, int prNumber, String author, String repoSha)
+            String workspaceId, String repo, int prNumber, String author, String title,
+            String repoSha)
     {
         Map<String, String> completeness = new LinkedHashMap<>();
         SOURCE_ORDER.forEach(s -> completeness.put(s, "unavailable"));
         return new PrEvidenceBundle(
-                workspaceId, repo, prNumber, author, null, null, null, repoSha,
+                workspaceId, repo, prNumber, author, title, null, null, null, null, repoSha,
                 List.of(), List.of(), List.of(), List.of(), List.of(),
                 completeness, "unavailable", List.of(), List.of());
     }
@@ -232,7 +236,7 @@ public class PrEvidenceFetcher
             PrEvidenceBundle b, List<OutcomeChain> chains, List<PrEvidenceBundle.EvidenceRef> refs)
     {
         return new PrEvidenceBundle(
-                b.workspaceId(), b.repo(), b.prNumber(), b.author(),
+                b.workspaceId(), b.repo(), b.prNumber(), b.author(), b.title(), b.bodyText(),
                 b.baseSha(), b.headSha(), b.mergeSha(), b.repoSha(),
                 b.reviews(), b.files(), b.commits(), b.reviewComments(), b.timeline(),
                 b.completeness(), b.overallCompleteness(), refs, chains);

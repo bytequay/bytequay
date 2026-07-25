@@ -30,6 +30,8 @@ import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.PullRequestRepository;
@@ -993,6 +995,16 @@ public class TaskService
                 || routed.phase() == TaskPhase.NEEDS_ATTENTION) {
             return recoverParkedTask(taskId, retryingCi);
         }
+        if (routed.status() == TaskStatus.ERRORED
+                && taskStore.currentLivenessTurnId(taskId).isPresent()) {
+            // A legacy ERRORED row with no liveness pointer falls through to
+            // the plain revive — with no pointer the projection cannot
+            // re-error it, so restarting the agent stays safe.
+            return retryErroredTask(taskId);
+        }
+        if (routed.status() == TaskStatus.ARCHIVED) {
+            return reviveArchivedTask(taskId);
+        }
         Object pauseTeardownToken = pauseTeardownTokens.remove(taskId);
         try {
             return resumeTaskAfterPauseInvalidated(taskId, retryingCi);
@@ -1184,6 +1196,55 @@ public class TaskService
         }
     }
 
+    /**
+     * Retry is the only exit from a pointer-backed ERRORED task: the
+     * machine re-verifies the exact failed turn is still the liveness
+     * authority and moves ERRORED → IDLE, then this command inserts the
+     * keyed replacement turn and hands it the pointer. An insert failure
+     * rolls the whole command back, leaving ERRORED intact.
+     */
+    private Task retryErroredTask(String taskId)
+    {
+        String failedTurnId = taskStore.currentLivenessTurnId(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(409), "task " + taskId + " has no current failure"));
+        ThreadTurn failed = taskPhaseMachine.retryErrored(taskId, failedTurnId);
+        Task retried = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        Thread thread = threadStore.findThreadById(retried.threadId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no thread: " + retried.threadId()));
+        Thread resumedThread = revivedThread(thread);
+        if (resumedThread != thread) {
+            threadStore.saveThread(resumedThread);
+        }
+        // Attempt is always 1 per failed id: a failed retry becomes the
+        // new failure identity, so the next retry keys off the new turn.
+        String replacementId = scheduler.enqueueTaskTurnOnce(
+                "task-retry:" + failedTurnId + ":1", resumedThread, failed.input(), taskId,
+                failed.stageId(), failed.initiator(), failed.agentRunId(), TurnLiveness.CODE);
+        taskStore.setCurrentLivenessTurnIdIf(taskId, failedTurnId, replacementId);
+        return retried.withStatus(TaskStatus.IDLE).withEndedAt(null).withErrorMessage(null);
+    }
+
+    private Task reviveArchivedTask(String taskId)
+    {
+        Task revived = taskPhaseMachine.reviveArchived(taskId);
+        Thread thread = threadStore.findThreadById(revived.threadId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no thread: " + revived.threadId()));
+        Thread resumedThread = revivedThread(thread);
+        if (resumedThread != thread) {
+            threadStore.saveThread(resumedThread);
+        }
+        Optional<StageInstance> activeStage = stageStore.findActiveStage(taskId);
+        if (revived.phase() != TaskPhase.VALIDATING) {
+            resumeRuntime(resumedThread, revived, activeStage);
+        }
+        return revived;
+    }
+
     private Task resumeTaskAfterPauseInvalidated(String taskId, boolean retryingCi)
     {
         Task task = taskStore.findTaskById(taskId)
@@ -1314,7 +1375,7 @@ public class TaskService
             return false;
         }
         return switch (task.status()) {
-            case IDLE, ERRORED, ARCHIVED -> true;
+            case IDLE, ERRORED -> true;
             default -> false;
         };
     }

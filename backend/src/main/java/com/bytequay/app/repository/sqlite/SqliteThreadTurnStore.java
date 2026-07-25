@@ -68,6 +68,37 @@ class SqliteThreadTurnStore
     }
 
     @Override
+    @Transactional
+    public void insertTurn(ThreadTurn turn, boolean affectsTaskLiveness, String kickKey)
+    {
+        // Same-key inserts are serialized by the task command stripe (kick
+        // keys embed their task scope); the unique index is the backstop.
+        if (kickKey != null && turns.findByKickKey(kickKey).isPresent()) {
+            return;
+        }
+        saveTurn(turn);
+        turns.findById(turn.id()).ifPresent(entity -> {
+            entity.setAffectsTaskLiveness(affectsTaskLiveness);
+            entity.setKickKey(kickKey);
+            turns.save(entity);
+        });
+    }
+
+    @Override
+    public Optional<String> findTurnIdByKickKey(String kickKey)
+    {
+        return turns.findByKickKey(kickKey).map(ThreadTurnEntity::getId);
+    }
+
+    @Override
+    public boolean turnAffectsTaskLiveness(String turnId)
+    {
+        return turns.findById(turnId)
+                .map(ThreadTurnEntity::isAffectsTaskLiveness)
+                .orElse(false);
+    }
+
+    @Override
     public Optional<ThreadTurn> findTurnById(String id)
     {
         return turns.findById(id).map(SqliteThreadTurnStore::toTurn);

@@ -15,6 +15,7 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 
 /**
  * Boundary ThreadService uses to queue agent work.
@@ -100,6 +101,29 @@ public interface ThreadTurnScheduler
             TurnInitiator initiator, String agentRunId)
     {
         return enqueueTaskTurn(thread, input, taskId, stageId, initiator);
+    }
+
+    /** As the run-correlated overload, with the turn's explicit liveness
+     *  classification — every automated task-owned enqueue site states
+     *  whether the turn is the task's own runtime ({@code CODE}) or
+     *  brain/planning/review narration ({@code NARRATION}); it is never
+     *  inferred from the shared thread. */
+    default String enqueueTaskTurn(
+            Thread thread, String input, String taskId, String stageId,
+            TurnInitiator initiator, String agentRunId, TurnLiveness liveness)
+    {
+        return enqueueTaskTurn(thread, input, taskId, stageId, initiator, agentRunId);
+    }
+
+    /** Idempotent keyed enqueue: at most one turn ever exists per
+     *  {@code kickKey} — a repeat (listener and sweep racing, or a retry
+     *  after a crash between claim and launch) returns the existing
+     *  turn's id instead of inserting a duplicate. */
+    default String enqueueTaskTurnOnce(
+            String kickKey, Thread thread, String input, String taskId, String stageId,
+            TurnInitiator initiator, String agentRunId, TurnLiveness liveness)
+    {
+        return enqueueTaskTurn(thread, input, taskId, stageId, initiator, agentRunId, liveness);
     }
 
     /** Cancel queued turns for one thread and return the number cancelled. */

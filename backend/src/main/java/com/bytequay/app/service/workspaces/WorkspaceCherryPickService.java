@@ -22,6 +22,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -347,7 +348,8 @@ public class WorkspaceCherryPickService
                 task.id(),
                 stage.id().toString(),
                 TurnInitiator.unattended("cherry-pick-conflict"),
-                run.id());
+                run.id(),
+                TurnLiveness.CODE);
         return new ConflictSession(trunk.id(), task.id(), run.id());
     }
 

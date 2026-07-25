@@ -574,8 +574,8 @@ class TestBrainReviewServiceImpl
                 anyString(), anyString(), anyInt(), anyString(), anyString(), anyString());
         verify(roundStore).save(argThat(round -> ReviewRound.STATUS_PAUSED.equals(round.status())));
         verify(agentRuns).pause(live.runId(), "brain_review_budget_paused");
-        verify(taskStore).saveTask(argThat(saved -> saved.status() == TaskStatus.PAUSED
-                && "brain_review_budget_paused".equals(saved.errorMessage())));
+        verify(phaseMachine).pause(TASK_ID, Actor.AGENT, "brain_review_budget_paused");
+        verify(taskStore).updateRuntimeFailure(TASK_ID, null, "brain_review_budget_paused");
     }
 
     @Test
@@ -630,8 +630,8 @@ class TestBrainReviewServiceImpl
                 anyString(), anyString(), any(), anyInt(), anyString());
         verify(roundStore).save(argThat(round -> ReviewRound.STATUS_PAUSED.equals(round.status())));
         verify(agentRuns).pause(live.runId(), "brain_fix_budget_paused");
-        verify(taskStore).saveTask(argThat(saved -> saved.status() == TaskStatus.PAUSED
-                && "brain_fix_budget_paused".equals(saved.errorMessage())));
+        verify(phaseMachine).pause(TASK_ID, Actor.AGENT, "brain_fix_budget_paused");
+        verify(taskStore).updateRuntimeFailure(TASK_ID, null, "brain_fix_budget_paused");
     }
 
     @Test

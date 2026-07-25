@@ -17,13 +17,17 @@ import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.localpr.LocalReviewClearedEvent;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -46,8 +50,9 @@ class TestTaskPhaseMachine
     // Default mock: tryFix returns false, so a failed validation still parks —
     // exactly the pre-fix-loop behaviour these tests assert.
     private final LocalCiFixExecutor localCiFix = mock(LocalCiFixExecutor.class);
+    private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
     private final TaskPhaseMachine machine =
-            new TaskPhaseMachine(taskStore, notifications, events, localCiFix);
+            new TaskPhaseMachine(taskStore, notifications, events, localCiFix, turnStore);
 
     @Test
     void legalForwardTransitionPersistsAuditsAndPublishes()
@@ -290,6 +295,88 @@ class TestTaskPhaseMachine
         verify(taskStore, never()).cancelTask(any(), any());
         verify(taskStore, never()).updatePhase(any(), any());
         verify(taskStore, never()).appendStatusEvent(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void pauseCheckpointsStatusClearsPidAndAudits()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(taskAt("t1", TaskPhase.IMPLEMENTING)));
+
+        Task paused = machine.pause("t1", Actor.HUMAN, "user_paused_task");
+
+        assertThat(paused.status()).isEqualTo(TaskStatus.PAUSED);
+        verify(taskStore).checkpointPause("t1", TaskStatus.RUNNING);
+        verify(taskStore).clearProcessPid("t1");
+        verify(taskStore).updateStatusIf("t1", TaskStatus.RUNNING, TaskStatus.PAUSED);
+        verify(taskStore).appendStatusEvent(
+                eq("t1"), eq(TaskStatus.RUNNING), eq(TaskStatus.PAUSED),
+                eq(Actor.HUMAN), eq("user_paused_task"), any());
+    }
+
+    @Test
+    void pauseIsIdempotentAndRejectsStoppedStatuses()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(
+                Optional.of(taskAt("t1", TaskPhase.IMPLEMENTING).withStatus(TaskStatus.PAUSED)));
+        assertThat(machine.pause("t1", Actor.HUMAN, "again").status()).isEqualTo(TaskStatus.PAUSED);
+        verify(taskStore, never()).checkpointPause(any(), any());
+
+        when(taskStore.findTaskById("t2")).thenReturn(
+                Optional.of(taskAt("t2", TaskPhase.IMPLEMENTING).withStatus(TaskStatus.NEEDS_ATTENTION)));
+        assertThatThrownBy(() -> machine.pause("t2", Actor.HUMAN, "nope"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("cannot be paused");
+    }
+
+    @Test
+    void requestResumeRequiresPausedAndRecordsTheRequest()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(
+                Optional.of(taskAt("t1", TaskPhase.IMPLEMENTING).withStatus(TaskStatus.PAUSED)));
+
+        machine.requestResume("t1");
+
+        verify(taskStore).requestResume(eq("t1"), any());
+
+        when(taskStore.findTaskById("t2")).thenReturn(Optional.of(taskAt("t2", TaskPhase.IMPLEMENTING)));
+        assertThatThrownBy(() -> machine.requestResume("t2"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not paused");
+    }
+
+    @Test
+    void completeResumeDerivesTheSafeStatusFromPhase()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(
+                Optional.of(taskAt("t1", TaskPhase.AWAITING_PUSH).withStatus(TaskStatus.PAUSED)));
+
+        Task resumed = machine.completeResume("t1", Actor.HUMAN, "user_resumed_task");
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.AWAITING_REVIEW);
+        verify(taskStore).clearPauseCheckpoint("t1");
+        verify(taskStore).updateRuntimeFailure("t1", null, null);
+        verify(taskStore).updateStatusIf("t1", TaskStatus.PAUSED, TaskStatus.AWAITING_REVIEW);
+        verify(taskStore).appendStatusEvent(
+                eq("t1"), eq(TaskStatus.PAUSED), eq(TaskStatus.AWAITING_REVIEW),
+                eq(Actor.HUMAN), eq("user_resumed_task"), any());
+        assertThat(TaskPhaseMachine.resumedStatus(TaskPhase.PUSHED_AWAITING_CI))
+                .isEqualTo(TaskStatus.IN_REVIEW);
+        assertThat(TaskPhaseMachine.resumedStatus(TaskPhase.IMPLEMENTING))
+                .isEqualTo(TaskStatus.IDLE);
+    }
+
+    @Test
+    void completeResumeRefusesWhilePrePauseTurnsAreLive()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(
+                Optional.of(taskAt("t1", TaskPhase.IMPLEMENTING).withStatus(TaskStatus.PAUSED)));
+        when(turnStore.listTurnsByExactTaskIdAndStatus("t1", ThreadTurnStatus.QUEUED, 1))
+                .thenReturn(List.of(mock(ThreadTurn.class)));
+
+        assertThatThrownBy(() -> machine.completeResume("t1", Actor.HUMAN, "user_resumed_task"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("live pre-pause turns");
+        verify(taskStore, never()).updateStatusIf(any(), any(), any());
     }
 
     private static Task taskAt(String id, TaskPhase phase)

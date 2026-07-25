@@ -110,6 +110,12 @@ class TaskEntity
     @Column(name = "current_liveness_turn_id")
     private String currentLivenessTurnId;
 
+    @Column(name = "paused_status")
+    private String pausedStatus;
+
+    @Column(name = "resume_requested_at_ms")
+    private Long resumeRequestedAtMs;
+
     @Column(name = "auto_approve", nullable = false)
     private boolean autoApprove;
 
@@ -223,6 +229,15 @@ class TaskEntity
     void setCurrentLivenessTurnId(String currentLivenessTurnId)
     {
         this.currentLivenessTurnId = currentLivenessTurnId;
+    }
+
+    String getPausedStatus() { return pausedStatus; }
+    void setPausedStatus(String pausedStatus) { this.pausedStatus = pausedStatus; }
+
+    Long getResumeRequestedAtMs() { return resumeRequestedAtMs; }
+    void setResumeRequestedAtMs(Long resumeRequestedAtMs)
+    {
+        this.resumeRequestedAtMs = resumeRequestedAtMs;
     }
 
     String getOrigin() { return origin; }

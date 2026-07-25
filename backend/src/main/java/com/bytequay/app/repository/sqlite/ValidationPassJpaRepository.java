@@ -84,4 +84,9 @@ interface ValidationPassJpaRepository
             + "AND v.supersededAtMs IS NULL "
             + "AND (v.leaseUntilMs IS NULL OR v.leaseUntilMs < :now)")
     List<ValidationPassEntity> findResumableStarted(@Param("now") long now);
+
+    @Query("SELECT v FROM ValidationPassEntity v WHERE v.taskId = :taskId "
+            + "AND v.claimKey IS NOT NULL AND v.endedAtMs IS NULL "
+            + "AND v.supersededAtMs IS NULL")
+    List<ValidationPassEntity> findOpenByTask(@Param("taskId") String taskId);
 }

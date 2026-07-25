@@ -729,13 +729,17 @@ public class TaskLifecycleDriver
     {
         // Durable terminal intent first: status + phase + audit commit in
         // one locked step, and only then does runtime teardown run — each
-        // step idempotent, retried by the orphan sweep.
+        // step idempotent, retried by the orphan sweep. The effect gate
+        // serializes this against pause/submission commands on the task.
         if (!isTerminal(task.status())) {
-            phaseMachine.finishTerminal(
-                    task.id(),
-                    merged ? TaskStatus.COMPLETED : TaskStatus.REMOTE_CLOSED,
-                    Actor.WEBHOOK,
-                    merged ? "pr_merged_observed" : "pr_closed_observed");
+            TaskExternalEffectGate.withEffectGate(task.id(), () -> {
+                phaseMachine.finishTerminal(
+                        task.id(),
+                        merged ? TaskStatus.COMPLETED : TaskStatus.REMOTE_CLOSED,
+                        Actor.WEBHOOK,
+                        merged ? "pr_merged_observed" : "pr_closed_observed");
+                return null;
+            });
         }
         // Record the terminal PR state so the task/stage surfaces stop showing
         // a merged/closed PR as "open" once the remote PR resolves (incl. via

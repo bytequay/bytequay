@@ -1,0 +1,93 @@
+{
+  "comment": "Gold corpus for the Project Intelligence retrieval evaluation. items seed the canonical knowledge store; queries assert which item ids a task-shaped question must retrieve in its top K. Extend with distilled real-repository lessons as they accumulate — the harness (TestRetrievalQualityEval) recomputes recall@K and the inactive-leak rate on every build.",
+  "items": [
+    {
+      "id": "gold-scheduler-slots",
+      "kind": "recurring-concern",
+      "lifecycle": "active",
+      "confidence": "high",
+      "title": "Scheduler slot release",
+      "statement": "Scheduler slots must be released in a finally block after every turn, or the API lane deadlocks under load.",
+      "paths": ["core/scheduler/AgentScheduler.java"],
+      "symbols": ["AgentScheduler"],
+      "audiences": ["dev", "review"]
+    },
+    {
+      "id": "gold-split-invariant",
+      "kind": "domain-invariant",
+      "lifecycle": "active",
+      "confidence": "high",
+      "title": "Split is the unit",
+      "statement": "A split is the smallest schedulable unit of work; stages group splits and never schedule below them.",
+      "paths": ["core/execution/SplitSource.java"],
+      "symbols": ["SplitSource"],
+      "audiences": ["plan", "dev", "review"]
+    },
+    {
+      "id": "gold-spi-contract",
+      "kind": "compatibility-contract",
+      "lifecycle": "active",
+      "confidence": "high",
+      "title": "Connector SPI frozen",
+      "statement": "Connector SPI signatures must not change within a release line; plugins compiled against it must keep loading.",
+      "paths": ["core/spi/Connector.java"],
+      "symbols": ["Connector"],
+      "audiences": ["dev", "review"]
+    },
+    {
+      "id": "gold-ui-convention",
+      "kind": "build-test-rule",
+      "lifecycle": "active",
+      "confidence": "medium",
+      "title": "Dialog copy style",
+      "statement": "Dialog buttons use sentence case and never end with a period.",
+      "paths": ["frontend/src/ui/Dialog.tsx"],
+      "symbols": [],
+      "audiences": ["dev"]
+    },
+    {
+      "id": "gold-pending-noise",
+      "kind": "recurring-concern",
+      "lifecycle": "pending",
+      "confidence": "low",
+      "title": "Unconfirmed scheduler hunch",
+      "statement": "Scheduler retries might double-count slot budgets in rare paths.",
+      "paths": ["core/scheduler/AgentScheduler.java"],
+      "symbols": ["AgentScheduler"],
+      "audiences": ["dev"]
+    },
+    {
+      "id": "gold-retired-noise",
+      "kind": "recurring-concern",
+      "lifecycle": "retired",
+      "confidence": "medium",
+      "title": "Old scheduler advice",
+      "statement": "Scheduler slots used to be pooled per thread; tune the pool size when latency spikes.",
+      "paths": ["core/scheduler/AgentScheduler.java"],
+      "symbols": ["AgentScheduler"],
+      "audiences": ["dev"]
+    }
+  ],
+  "queries": [
+    {
+      "query": "fix a deadlock when the agent scheduler runs many API turns",
+      "audience": "dev",
+      "relevant": ["gold-scheduler-slots"]
+    },
+    {
+      "query": "change split scheduling in core/execution/SplitSource.java",
+      "audience": "dev",
+      "relevant": ["gold-split-invariant"]
+    },
+    {
+      "query": "refactor the Connector SPI interface method signatures",
+      "audience": "review",
+      "relevant": ["gold-spi-contract"]
+    },
+    {
+      "query": "add a confirmation dialog to the frontend",
+      "audience": "dev",
+      "relevant": ["gold-ui-convention"]
+    }
+  ]
+}

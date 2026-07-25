@@ -37,7 +37,10 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.checks.ValidationExecutorRegistry;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
@@ -45,11 +48,14 @@ import com.bytequay.app.service.localpr.PrPushedEvent;
 import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
@@ -118,13 +124,58 @@ class TestTaskServiceShipAndContinue
     private final PRService prService = mock(PRService.class);
     private final BrainReviewService brainReview = mock(BrainReviewService.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
+    // Real reconciler over the same mocks: the pause/resume tests assert
+    // its turn-cancel + agent-evict teardown exactly as they did when
+    // TaskService owned that block inline.
+    // The sweep's TaskService provider stays unused here; the interface
+    // default throws if a test unexpectedly reaches it.
+    private final TaskRuntimeStopReconciler stopReconciler = new TaskRuntimeStopReconciler(
+            taskStore, stageStore, mock(ThreadTurnStore.class), registry, scheduler,
+            mock(ValidationPassStore.class), mock(ValidationExecutorRegistry.class),
+            new ObjectProvider<>() {});
 
     private final TaskService service = new TaskService(
             threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
             git, pullRequests, patResolver,
             registry, workspaces, notifications, mapper,
             NOOP_PUBLISHER,
-            taskPhaseMachine, sealer, prService, brainReview, scheduler);
+            taskPhaseMachine, sealer, prService, brainReview, scheduler, stopReconciler);
+
+    /** The machine mock emulates the real pause/resume intents against
+     *  the mocked store: guard, write through saveTask (so state-backed
+     *  stubs observe the move), and hand back the moved row. The real
+     *  guards live in TestTaskPhaseMachine. */
+    @BeforeEach
+    void stubPauseResumeIntents()
+    {
+        when(taskPhaseMachine.pause(anyString(), any(), anyString())).thenAnswer(invocation -> {
+            String id = invocation.getArgument(0);
+            Task current = taskStore.findTaskById(id).orElseThrow();
+            if (current.status() == TaskStatus.PAUSED) {
+                return current;
+            }
+            if (current.status().isDone()
+                    || current.status() == TaskStatus.NEEDS_ATTENTION
+                    || current.status() == TaskStatus.ERRORED
+                    || current.status() == TaskStatus.ARCHIVED) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + id + " cannot be paused from status " + current.status());
+            }
+            Task paused = current.withStatus(TaskStatus.PAUSED).withProcessPid(null);
+            taskStore.saveTask(paused);
+            return paused;
+        });
+        when(taskPhaseMachine.completeResume(anyString(), any(), anyString())).thenAnswer(invocation -> {
+            String id = invocation.getArgument(0);
+            Task current = taskStore.findTaskById(id).orElseThrow();
+            Task resumed = current
+                    .withStatus(TaskPhaseMachine.resumedStatus(current.phase()))
+                    .withEndedAt(null)
+                    .withErrorMessage(null);
+            taskStore.saveTask(resumed);
+            return resumed;
+        });
+    }
 
     @Test
     void shipOpensADraftPrKeepsTheWorktreeAndCutsNoSuccessor()
@@ -234,7 +285,7 @@ class TestTaskServiceShipAndContinue
                 git, pullRequests, patResolver,
                 registry, workspaces, notifications, mapper,
                 eventPublisher,
-                taskPhaseMachine, sealer, prService, brainReview, scheduler);
+                taskPhaseMachine, sealer, prService, brainReview, scheduler, stopReconciler);
 
         when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread("thread-1")));
         Task shipped = task("task-1", "thread-1", 1L, "dev/task-1-fix-the-thing",
@@ -463,8 +514,7 @@ class TestTaskServiceShipAndContinue
     void pauseStopsTheAgentAndParksAtPausedKeepingTheWorktree()
     {
         Task active = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);
-        when(taskStore.findTaskById("t1.k1")).thenReturn(
-                Optional.of(active), Optional.of(active.withStatus(TaskStatus.PAUSED)));
+        taskState(active);
         ThreadAgent session = mock(ThreadAgent.class);
         when(registry.findStages(List.of("t1.k1"))).thenReturn(List.of(session));
 
@@ -533,8 +583,12 @@ class TestTaskServiceShipAndContinue
         assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
         assertThat(state.get().status()).isEqualTo(TaskStatus.IDLE);
         verify(resumedAgent).resume();
-        verify(scheduler, never()).cancelTaskTurns(taskId);
-        verify(registry, never()).evictStages(anyString(), any());
+        // Resume's own inline reconcile tore the pre-pause runtime down
+        // exactly once; the late pause callback lost its token and must
+        // not run a second teardown against the resumed runtime.
+        verify(scheduler, times(1)).cancelTaskTurns(taskId);
+        verify(registry, times(1)).evictStages(anyString(), any());
+        verify(resumedAgent, never()).interrupt();
     }
 
     @Test
@@ -1063,7 +1117,7 @@ class TestTaskServiceShipAndContinue
                 threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
                 git, pullRequests, patResolver, registry, workspaces, notifications, mapper,
                 NOOP_PUBLISHER, taskPhaseMachine, sealer, prService, brainReview, scheduler,
-                dispatcher);
+                stopReconciler, dispatcher);
     }
 
     private static void commitPause(TaskService service, String threadId, String taskId)

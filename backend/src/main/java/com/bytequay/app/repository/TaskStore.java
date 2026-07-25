@@ -103,6 +103,47 @@ public interface TaskStore
         throw new UnsupportedOperationException("updateRuntimeFailure");
     }
 
+    /** Checkpoint the pre-pause status in {@code paused_status}; written
+     *  in the same transaction as the PAUSED status move. Entity-managed —
+     *  never written by {@link #saveTask}. */
+    default void checkpointPause(String taskId, TaskStatus pausedStatus)
+    {
+        throw new UnsupportedOperationException("checkpointPause");
+    }
+
+    /** The pre-pause status checkpoint, when one was recorded. */
+    default Optional<TaskStatus> pausedStatus(String taskId)
+    {
+        throw new UnsupportedOperationException("pausedStatus");
+    }
+
+    /** Durably record that a resume was requested while the task stays
+     *  PAUSED; the stop reconciler completes it once the pre-pause
+     *  runtime is proven gone. Idempotent. */
+    default void requestResume(String taskId, Instant at)
+    {
+        throw new UnsupportedOperationException("requestResume");
+    }
+
+    default Optional<Instant> resumeRequestedAt(String taskId)
+    {
+        throw new UnsupportedOperationException("resumeRequestedAt");
+    }
+
+    /** Clear {@code paused_status} + {@code resume_requested_at_ms}
+     *  together — the resume-completion write. */
+    default void clearPauseCheckpoint(String taskId)
+    {
+        throw new UnsupportedOperationException("clearPauseCheckpoint");
+    }
+
+    /** Clear the recorded CLI subprocess pid — runtime metadata that is
+     *  stale the moment the task stops. Never touches status. */
+    default void clearProcessPid(String taskId)
+    {
+        throw new UnsupportedOperationException("clearProcessPid");
+    }
+
     /** Single-row lookup by id. */
     Optional<Task> findTaskById(String id);
 

@@ -141,6 +141,55 @@ class SqliteTaskStore
 
     @Override
     @Transactional
+    public void checkpointPause(String taskId, TaskStatus pausedStatus)
+    {
+        mutate(taskId, entity -> entity.setPausedStatus(pausedStatus.name()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<TaskStatus> pausedStatus(String taskId)
+    {
+        return tasks.findById(taskId)
+                .map(TaskEntity::getPausedStatus)
+                .map(TaskStatus::valueOf);
+    }
+
+    @Override
+    @Transactional
+    public void requestResume(String taskId, Instant at)
+    {
+        mutate(taskId, entity -> entity.setResumeRequestedAtMs(at.toEpochMilli()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Instant> resumeRequestedAt(String taskId)
+    {
+        return tasks.findById(taskId)
+                .map(TaskEntity::getResumeRequestedAtMs)
+                .map(Instant::ofEpochMilli);
+    }
+
+    @Override
+    @Transactional
+    public void clearPauseCheckpoint(String taskId)
+    {
+        mutate(taskId, entity -> {
+            entity.setPausedStatus(null);
+            entity.setResumeRequestedAtMs(null);
+        });
+    }
+
+    @Override
+    @Transactional
+    public void clearProcessPid(String taskId)
+    {
+        mutate(taskId, entity -> entity.setProcessPid(null));
+    }
+
+    @Override
+    @Transactional
     public void updateRuntimeFailure(String taskId, Instant endedAt, String errorMessage)
     {
         mutate(taskId, entity -> {

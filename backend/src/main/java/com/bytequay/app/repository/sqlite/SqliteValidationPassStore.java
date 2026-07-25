@@ -139,6 +139,15 @@ class SqliteValidationPassStore
                 .toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<ValidationClaim> findOpenByTask(String taskId)
+    {
+        return rows.findOpenByTask(taskId).stream()
+                .map(SqliteValidationPassStore::toDomain)
+                .toList();
+    }
+
     private static ValidationClaim toDomain(ValidationPassEntity e)
     {
         return new ValidationClaim(

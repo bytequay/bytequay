@@ -114,6 +114,7 @@ public class TaskService
     private final PRService prService;
     private final BrainReviewService brainReview;
     private final ThreadTurnScheduler scheduler;
+    private final TaskRuntimeStopReconciler stopReconciler;
     private final Executor pauseTeardownExecutor;
     /** Generation token for the one committed Pause teardown still allowed to
      *  touch a task's runtime. Resume/Cancel remove it under the task lock. */
@@ -138,12 +139,13 @@ public class TaskService
             TaskTerminalSealer sealer,
             PRService prService,
             BrainReviewService brainReview,
-            ThreadTurnScheduler scheduler)
+            ThreadTurnScheduler scheduler,
+            TaskRuntimeStopReconciler stopReconciler)
     {
         this(threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
                 git, pullRequestRepository, patResolver, registry, workspaceService,
                 notificationService, mapper, eventPublisher, taskPhaseMachine, sealer,
-                prService, brainReview, scheduler,
+                prService, brainReview, scheduler, stopReconciler,
                 action -> java.lang.Thread.startVirtualThread(action));
     }
 
@@ -166,6 +168,7 @@ public class TaskService
             PRService prService,
             BrainReviewService brainReview,
             ThreadTurnScheduler scheduler,
+            TaskRuntimeStopReconciler stopReconciler,
             Executor pauseTeardownExecutor)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
@@ -186,6 +189,7 @@ public class TaskService
         this.prService = requireNonNull(prService, "prService is null");
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.stopReconciler = requireNonNull(stopReconciler, "stopReconciler is null");
         this.pauseTeardownExecutor = requireNonNull(
                 pauseTeardownExecutor, "pauseTeardownExecutor is null");
     }
@@ -877,22 +881,16 @@ public class TaskService
         if (task.status() == TaskStatus.PAUSED) {
             return task;
         }
-        if (!isPausable(task.status())) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "task " + taskId + " cannot be paused from status " + task.status());
-        }
         // The worktree is NOT reaped (cancel does that); pause keeps it for
         // resume. Runtime teardown waits for commit so a rolled-back pause
         // cannot remove a runnable durable turn from the scheduler. The exact
         // task id keeps sibling tasks on this thread untouched.
-        List<String> stageKeys = List.copyOf(stageKeysForTask(taskId));
+        Task paused = taskPhaseMachine.pause(taskId, Actor.HUMAN, "user_paused_task");
         brainReview.pauseActiveReview(taskId, "user_paused_task");
-        Task paused = task.withStatus(TaskStatus.PAUSED).withProcessPid(null);
-        taskStore.saveTask(paused);
         Object teardownToken = new Object();
         pauseTeardownTokens.put(taskId, teardownToken);
         afterCommitOrNow(
-                () -> stopPausedTaskRuntime(threadId, taskId, stageKeys, teardownToken),
+                () -> stopPausedTaskRuntime(taskId, teardownToken),
                 () -> pauseTeardownTokens.remove(taskId, teardownToken));
         // Clear any parked approve/discard notification for this task — a
         // paused task is set aside, so it must not keep showing "needs your
@@ -910,32 +908,14 @@ public class TaskService
         return paused;
     }
 
-    private void stopPausedTaskRuntime(
-            String threadId, String taskId, List<String> stageKeys, Object teardownToken)
+    private void stopPausedTaskRuntime(String taskId, Object teardownToken)
     {
         TaskPhaseMachine.withTaskLock(taskId, () -> {
             if (pauseTeardownTokens.get(taskId) != teardownToken) {
                 return null;
             }
-            Task current = taskStore.findTaskById(taskId).orElse(null);
-            if (current == null || current.status() != TaskStatus.PAUSED) {
-                pauseTeardownTokens.remove(taskId, teardownToken);
-                return null;
-            }
             try {
-                try {
-                    scheduler.cancelTaskTurns(taskId);
-                }
-                catch (RuntimeException e) {
-                    log.warn("cancelling durable turns while pausing {} threw: {}",
-                            taskId, e.getMessage());
-                }
-                try {
-                    registry.findStages(stageKeys).forEach(ThreadAgent::interrupt);
-                }
-                finally {
-                    registry.evictStages(threadId, stageKeys);
-                }
+                stopReconciler.reconcileStoppedTask(taskId);
             }
             finally {
                 pauseTeardownTokens.remove(taskId, teardownToken);
@@ -1002,6 +982,12 @@ public class TaskService
 
     private Task resumeTaskLocked(String taskId, boolean retryingCi)
     {
+        Task routed = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (routed.status() == TaskStatus.PAUSED && routed.phase() != TaskPhase.NEEDS_ATTENTION) {
+            return resumePausedTask(taskId);
+        }
         Object pauseTeardownToken = pauseTeardownTokens.remove(taskId);
         try {
             return resumeTaskAfterPauseInvalidated(taskId, retryingCi);
@@ -1009,6 +995,86 @@ public class TaskService
         catch (RuntimeException e) {
             // The callback is blocked on this same task lock. Restore its claim
             // before releasing the lock when Resume failed before taking over.
+            if (pauseTeardownToken != null) {
+                pauseTeardownTokens.putIfAbsent(taskId, pauseTeardownToken);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Resume for a cleanly paused task is a durable request plus a
+     * teardown barrier, not one leap: the request survives while the
+     * pre-pause runtime winds down, and only the proven-stopped barrier
+     * command leaves PAUSED. The inline reconcile makes the common case
+     * (teardown finished long ago) complete within this request.
+     */
+    private Task resumePausedTask(String taskId)
+    {
+        taskPhaseMachine.requestResume(taskId);
+        stopReconciler.reconcileStoppedTask(taskId);
+        if (!stopReconciler.runtimeStopped(taskId)) {
+            // Still winding down; the stop reconciler's sweep completes
+            // this request once the barrier is proven.
+            return taskStore.findTaskById(taskId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no task: " + taskId));
+        }
+        return completeRequestedResumeLocked(taskId);
+    }
+
+    /**
+     * The resume barrier's completion command — invoked inline when the
+     * pre-pause runtime is already proven gone, or by
+     * {@link TaskRuntimeStopReconciler}'s sweep once it is. Invalidates
+     * the pause teardown token, leaves PAUSED via the machine's derived
+     * safe status, and re-drives the owning coordinator or stage runtime.
+     */
+    @Transactional
+    public Task completeRequestedResume(String taskId)
+    {
+        return TaskPhaseMachine.withTaskLock(taskId, () -> completeRequestedResumeLocked(taskId));
+    }
+
+    private Task completeRequestedResumeLocked(String taskId)
+    {
+        Object pauseTeardownToken = pauseTeardownTokens.remove(taskId);
+        try {
+            Task task = taskStore.findTaskById(taskId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no task: " + taskId));
+            if (task.status() != TaskStatus.PAUSED) {
+                return task;
+            }
+            boolean brainOwnsResume = brainReview.ownsParkedResume(taskId);
+            Task resumed = taskPhaseMachine.completeResume(taskId, Actor.HUMAN, "user_resumed_task");
+            Thread thread = threadStore.findThreadById(task.threadId())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no thread: " + task.threadId()));
+            Thread resumedThread = revivedThread(thread);
+            if (resumedThread != thread) {
+                threadStore.saveThread(resumedThread);
+            }
+            Optional<StageInstance> activeStage = stageStore.findActiveStage(taskId);
+            if (brainOwnsResume && !brainReview.resumeParkedReview(taskId)) {
+                // The coordinator re-parks failed validation/enqueue attempts
+                // with a fresh durable reason. Return that authoritative state
+                // so the Resume request commits the failure trail instead of
+                // rolling it all back behind a 409.
+                Task current = taskStore.findTaskById(taskId).orElse(resumed);
+                if (current.phase() == TaskPhase.NEEDS_ATTENTION
+                        || current.status() == TaskStatus.NEEDS_ATTENTION) {
+                    return current;
+                }
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " has no resumable Brain review");
+            }
+            if (!brainOwnsResume && task.phase() != TaskPhase.VALIDATING) {
+                resumeRuntime(resumedThread, resumed, activeStage);
+            }
+            return resumed;
+        }
+        catch (RuntimeException e) {
             if (pauseTeardownToken != null) {
                 pauseTeardownTokens.putIfAbsent(taskId, pauseTeardownToken);
             }
@@ -1232,17 +1298,6 @@ public class TaskService
         }
         String stageId = activeStage.map(stage -> stage.id().toString()).orElse(null);
         registry.getOrCreateStageAgent(parentThread, task, stageId).resume();
-    }
-
-    /** A task can be paused only while it's live, non-terminal work — not
-     *  once shipped (IN_REVIEW), already parked terminally, or done. */
-    private static boolean isPausable(TaskStatus status)
-    {
-        return switch (status) {
-            case PENDING, RUNNING, IDLE,
-                    AWAITING_REVIEW, IN_REVIEW, NEEDS_ATTENTION -> true;
-            default -> false;
-        };
     }
 
     /** True when the task's working dir maps to {@code repoFullName}. A

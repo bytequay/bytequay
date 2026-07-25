@@ -118,5 +118,12 @@ public enum TaskStatus
      *  wasn't finished — it just went dormant with the thread — so the
      *  UI labels it "Archived", not "Completed", and {@code resume()}
      *  revives it to {@link #IDLE} with its session + worktree intact. */
-    ARCHIVED,
+    ARCHIVED;
+
+    /** Sticky terminal statuses. ERRORED is retryable and ARCHIVED is
+     *  dormant-but-resumable, so neither is done. */
+    public boolean isDone()
+    {
+        return this == COMPLETED || this == REMOTE_CLOSED || this == CANCELED;
+    }
 }

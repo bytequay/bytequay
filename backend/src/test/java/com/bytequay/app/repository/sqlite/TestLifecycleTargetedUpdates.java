@@ -81,6 +81,28 @@ class TestLifecycleTargetedUpdates
     }
 
     @Test
+    void pauseCheckpointRoundTripsAndSurvivesFullRowSaves()
+    {
+        String taskId = seedTask();
+
+        taskStore.checkpointPause(taskId, TaskStatus.RUNNING);
+        taskStore.requestResume(taskId, NOW);
+        taskStore.clearProcessPid(taskId);
+        assertThat(taskStore.pausedStatus(taskId)).contains(TaskStatus.RUNNING);
+        assertThat(taskStore.resumeRequestedAt(taskId)).contains(NOW);
+
+        // A full-row save must not clobber the entity-managed checkpoint.
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+        taskStore.saveTask(task.withStatus(TaskStatus.PAUSED));
+        assertThat(taskStore.pausedStatus(taskId)).contains(TaskStatus.RUNNING);
+        assertThat(taskStore.resumeRequestedAt(taskId)).contains(NOW);
+
+        taskStore.clearPauseCheckpoint(taskId);
+        assertThat(taskStore.pausedStatus(taskId)).isEmpty();
+        assertThat(taskStore.resumeRequestedAt(taskId)).isEmpty();
+    }
+
+    @Test
     void roundStatusCasAndMetadataUpdatesAreIndependent()
     {
         ReviewRound round = seedRound(seedTask());

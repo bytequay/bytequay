@@ -749,9 +749,8 @@ public class BrainReviewServiceImpl
                 }
                 if (planSelfReviewPending(task)) {
                     pauseRun(turn.agentRunId(), PLAN_BUDGET_PAUSED);
-                    taskStore.saveTask(task.withStatus(TaskStatus.PAUSED)
-                            .withProcessPid(null)
-                            .withErrorMessage(PLAN_BUDGET_PAUSED));
+                    phaseMachine.pause(task.id(), Actor.AGENT, PLAN_BUDGET_PAUSED);
+                    taskStore.updateRuntimeFailure(task.id(), null, PLAN_BUDGET_PAUSED);
                 }
                 return null;
             }
@@ -796,9 +795,8 @@ public class BrainReviewServiceImpl
                 return null;
             }
             pauseCoordinatorRound(round, reason);
-            taskStore.saveTask(task.withStatus(TaskStatus.PAUSED)
-                    .withProcessPid(null)
-                    .withErrorMessage(reason));
+            phaseMachine.pause(task.id(), Actor.AGENT, reason);
+            taskStore.updateRuntimeFailure(task.id(), null, reason);
             return null;
         });
     }

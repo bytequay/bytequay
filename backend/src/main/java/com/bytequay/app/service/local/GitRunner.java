@@ -27,11 +27,15 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -58,6 +62,7 @@ public class GitRunner
     // keeps the source plain ASCII.
     private static final String NUL_SEP = String.valueOf((char) 0);
     private static final String US_SEP = String.valueOf((char) 0x1F);
+    private static final String RS_SEP = String.valueOf((char) 0x1E);
 
     /**
      * Returns true iff `git --version` succeeded — used as a startup
@@ -219,6 +224,27 @@ public class GitRunner
         return result.stdout().strip();
     }
 
+    /** True when both checkouts share the same git object and ref store. */
+    public boolean sharesCommonDirectory(Path first, Path second)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(first, "first is null");
+        requireNonNull(second, "second is null");
+        return gitCommonDirectory(first).equals(gitCommonDirectory(second));
+    }
+
+    private Path gitCommonDirectory(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(List.of("git", "rev-parse", "--git-common-dir"), workingDir);
+        result.requireSuccess();
+        Path path = Path.of(result.stdout().strip());
+        if (!path.isAbsolute()) {
+            path = workingDir.resolve(path);
+        }
+        return path.toRealPath();
+    }
+
     /**
      * Resolves the local exclude file for this checkout. Linked
      * worktrees have a {@code .git} file instead of a directory, so
@@ -286,6 +312,26 @@ public class GitRunner
     }
 
     /**
+     * Copies the selected commit objects from another local checkout without
+     * adding or changing a remote. Workspace relations point at independent
+     * clones, so the fork must receive these objects before it can cherry-pick
+     * an upstream SHA.
+     */
+    public void fetchObjects(Path workingDir, Path sourceRepository, List<String> commits)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(sourceRepository, "sourceRepository is null");
+        requireNonNull(commits, "commits is null");
+        if (commits.isEmpty()) {
+            return;
+        }
+        List<String> args = new ArrayList<>(List.of(
+                "git", "fetch", "--no-tags", sourceRepository.toString()));
+        args.addAll(commits);
+        run(args, workingDir, 300).requireSuccess();
+    }
+
+    /**
      * Runs {@code git pull --ff-only} — fast-forward only, no merge
      * commits. If the local branch has diverged from upstream the
      * pull fails loudly; resolving the divergence is explicitly out
@@ -318,6 +364,17 @@ public class GitRunner
             args.add(baseRef);
         }
         run(args, workingDir).requireSuccess();
+    }
+
+    /** Uses git's own ref-name validator instead of duplicating its rules. */
+    public boolean isValidBranchName(String branchName)
+            throws IOException, InterruptedException
+    {
+        if (branchName == null || branchName.isBlank()) {
+            return false;
+        }
+        return run(List.of("git", "check-ref-format", "--branch", branchName), null, 5)
+                .exitCode() == 0;
     }
 
     /**
@@ -405,6 +462,25 @@ public class GitRunner
                         baseRef),
                 mainRepoDir)
                 .requireSuccess();
+    }
+
+    /** Re-attaches a pre-existing branch after a process stopped between
+     * creating the branch and durably recording the linked worktree. */
+    public void worktreeAddExisting(Path mainRepoDir, Path worktreePath, String branchName)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(worktreePath, "worktreePath is null");
+        requireNonNull(branchName, "branchName is null");
+        run(List.of("git", "worktree", "add", worktreePath.toString(), branchName),
+                mainRepoDir)
+                .requireSuccess();
+    }
+
+    /** Drops registrations whose checkout directory no longer exists. */
+    public void worktreePrune(Path mainRepoDir)
+            throws IOException, InterruptedException
+    {
+        run(List.of("git", "worktree", "prune"), mainRepoDir).requireSuccess();
     }
 
     /**
@@ -516,6 +592,90 @@ public class GitRunner
         }
         return new CherryPickOutcome(
                 true, applied, null, List.of(), null);
+    }
+
+    /** True when this worktree contains a stopped cherry-pick. */
+    public boolean cherryPickInProgress(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(
+                List.of("git", "rev-parse", "--verify", "--quiet", "CHERRY_PICK_HEAD"),
+                workingDir,
+                15);
+        return result.exitCode() == 0;
+    }
+
+    /** Paths which still have unresolved index stages. */
+    public List<String> unresolvedPaths(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(
+                List.of("git", "diff", "--name-only", "--diff-filter=U", "-z"),
+                workingDir,
+                30);
+        result.requireSuccess();
+        return Arrays.stream(result.stdout().split(NUL_SEP, -1))
+                .filter(path -> !path.isBlank())
+                .toList();
+    }
+
+    /** Continues a human-resolved cherry-pick without opening an editor. */
+    public CherryPickOutcome continueCherryPick(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        List<String> unresolved = unresolvedPaths(workingDir);
+        if (!unresolved.isEmpty()) {
+            return new CherryPickOutcome(
+                    false, 0, null, unresolved,
+                    "resolve every conflict before continuing");
+        }
+        GitResult result = run(
+                List.of("git", "-c", "core.editor=true", "cherry-pick", "--continue"),
+                workingDir,
+                300);
+        if (result.exitCode() == 0) {
+            return new CherryPickOutcome(true, 1, null, List.of(), null);
+        }
+        String detail = result.stderr().isBlank()
+                ? result.stdout().strip()
+                : result.stderr().strip();
+        return new CherryPickOutcome(
+                false, 0, null, unresolvedPaths(workingDir), detail);
+    }
+
+    /**
+     * Rewrites HEAD's message so it contains exactly one value for the named
+     * trailer. The cherry-picked author remains intact; only the committer and
+     * commit message change, as they do for a normal amend.
+     */
+    public void amendHeadTrailer(Path workingDir, String key, String value)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(key, "key is null");
+        requireNonNull(value, "value is null");
+        if (!key.matches("[A-Za-z0-9-]+") || value.isBlank()) {
+            throw new IllegalArgumentException("invalid commit trailer");
+        }
+        CommitDetailEntry head = commitDetail(workingDir, "HEAD")
+                .orElseThrow(() -> new IllegalStateException("HEAD commit is unavailable"));
+        String prefix = key.toLowerCase(Locale.ROOT) + ":";
+        String body = head.body().lines()
+                .filter(line -> !line.stripLeading()
+                        .toLowerCase(Locale.ROOT)
+                        .startsWith(prefix))
+                .collect(Collectors.joining("\n"))
+                .strip();
+        boolean hasTrailerBlock = !body.isBlank()
+                && body.lines().reduce((first, second) -> second).orElse("")
+                        .matches("[A-Za-z0-9-]+:\\s+\\S.*");
+        String message = head.subject()
+                + (body.isBlank() ? "" : "\n\n" + body)
+                + (hasTrailerBlock ? "\n" : "\n\n")
+                + key + ": " + value;
+        run(List.of("git", "commit", "--amend", "-m", message),
+                workingDir,
+                300)
+                .requireSuccess();
     }
 
     public record CherryPickOutcome(
@@ -1218,6 +1378,117 @@ public class GitRunner
             String authorEmail,
             String authoredAt,
             String subject) {}
+
+    /** Commit-list projection with exact tag decorations and one trailer key. */
+    public List<DecoratedCommitEntry> listDecoratedCommits(
+            Path workingDir,
+            String revision,
+            int limit,
+            String trailerKey)
+            throws IOException, InterruptedException
+    {
+        if (limit <= 0) {
+            return List.of();
+        }
+        requireTrailerKey(trailerKey);
+        String fmt = "%H" + US_SEP + "%h" + US_SEP + "%an" + US_SEP
+                + "%ae" + US_SEP + "%aI" + US_SEP + "%s" + US_SEP
+                + "%D" + US_SEP
+                + "%(trailers:key=" + trailerKey
+                + ",valueonly,separator=%x1e)";
+        List<String> args = new ArrayList<>(List.of(
+                "git", "log", "--max-count=" + limit, "-z",
+                "--pretty=format:" + fmt));
+        if (revision != null && !revision.isBlank()) {
+            args.add(revision);
+        }
+        GitResult result = run(args, workingDir);
+        result.requireSuccess();
+        List<DecoratedCommitEntry> entries = new ArrayList<>();
+        for (String record : result.stdout().split(NUL_SEP, -1)) {
+            if (record.isEmpty()) {
+                continue;
+            }
+            String[] parts = record.split(US_SEP, -1);
+            if (parts.length < 8) {
+                continue;
+            }
+            List<String> tags = Arrays.stream(parts[6].split(", "))
+                    .map(String::strip)
+                    .filter(decoration -> decoration.startsWith("tag: "))
+                    .map(decoration -> decoration.substring("tag: ".length()))
+                    .toList();
+            List<String> trailers = Arrays.stream(parts[7].split(RS_SEP, -1))
+                    .map(String::strip)
+                    .filter(value -> !value.isBlank())
+                    .toList();
+            entries.add(new DecoratedCommitEntry(
+                    parts[0], parts[1], parts[2], parts[3], parts[4],
+                    parts[5], tags, trailers));
+        }
+        return List.copyOf(entries);
+    }
+
+    public record DecoratedCommitEntry(
+            String sha,
+            String shortSha,
+            String authorName,
+            String authorEmail,
+            String authoredAt,
+            String subject,
+            List<String> tags,
+            List<String> trailerValues) {}
+
+    /** Every distinct value for one commit-message trailer reachable from the
+     * supplied revision. Callers choose the real target branch explicitly so
+     * abandoned worktree and topic refs cannot produce false positives. */
+    public Set<String> listTrailerValues(
+            Path workingDir,
+            String revision,
+            String trailerKey,
+            int limit)
+            throws IOException, InterruptedException
+    {
+        if (limit <= 0) {
+            return Set.of();
+        }
+        requireNonNull(revision, "revision is null");
+        requireTrailerKey(trailerKey);
+        String fmt = "%(trailers:key=" + trailerKey
+                + ",valueonly,separator=%x1e)";
+        GitResult result = run(List.of(
+                "git", "log", "--max-count=" + limit, "-z",
+                "--pretty=format:" + fmt, revision), workingDir, 60);
+        result.requireSuccess();
+        Set<String> values = new LinkedHashSet<>();
+        for (String record : result.stdout().split(NUL_SEP, -1)) {
+            Arrays.stream(record.split(RS_SEP, -1))
+                    .map(String::strip)
+                    .filter(value -> !value.isBlank())
+                    .forEach(values::add);
+        }
+        return Set.copyOf(values);
+    }
+
+    public int countCommits(Path workingDir, String revision)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(revision, "revision is null");
+        GitResult result = run(
+                List.of("git", "rev-list", "--count", revision),
+                workingDir,
+                60);
+        result.requireSuccess();
+        return Integer.parseInt(result.stdout().strip());
+    }
+
+    private static void requireTrailerKey(String trailerKey)
+    {
+        requireNonNull(trailerKey, "trailerKey is null");
+        if (!trailerKey.matches("[A-Za-z0-9-]+")) {
+            throw new IllegalArgumentException("invalid trailer key");
+        }
+    }
 
     /**
      * Like {@link #listCommits} but scoped to commits authored after

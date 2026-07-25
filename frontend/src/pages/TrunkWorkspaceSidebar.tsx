@@ -24,6 +24,7 @@ import {
   WorkspaceSwitcherCard,
 } from '../ui/workspace/WorkspacePageChrome';
 import { taskLabel } from '../threads/taskLabel';
+import type { WorkspaceRelationDto } from '../workspace/workspaceApi';
 
 const EXPANSION_KEY = 'byq.trunkExpanded.v1';
 
@@ -36,6 +37,7 @@ type ExpansionStore = {
 export function TrunkWorkspaceSidebar({
   workspaceName,
   repository,
+  relation,
   threads,
   selectedThreadId,
   selectedTasks,
@@ -53,9 +55,11 @@ export function TrunkWorkspaceSidebar({
   onOpenTask,
   onSwitchWorkspace,
   onNewThread,
+  onOpenRelation,
 }: {
   workspaceName: string;
   repository: string;
+  relation?: WorkspaceRelationDto | null;
   threads: ThreadDto[];
   selectedThreadId?: string;
   selectedTasks: TaskNavRow[];
@@ -80,6 +84,7 @@ export function TrunkWorkspaceSidebar({
   onOpenTask?: (threadId: string, taskId: string) => void;
   onSwitchWorkspace?: () => void;
   onNewThread?: () => void;
+  onOpenRelation?: () => void;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean> | null>(() => readExpansion().b ?? null);
   const [workspaceOpen, setWorkspaceOpen] = useState(() => readExpansion().workspaceOpen ?? false);
@@ -152,6 +157,14 @@ export function TrunkWorkspaceSidebar({
       workspaceMode
     >
       <WorkspaceSwitcherCard name={workspaceName} repository={repository} onSwitch={onSwitchWorkspace} />
+      {relation !== null && relation !== undefined && (
+        <button type="button" className="workspace-relation-row" onClick={onOpenRelation}
+          title={`Manage read-only upstream ${relation.upstreamRepoFullName}`}>
+          <span aria-hidden>⑂</span>
+          <span>fork of <strong>{relation.upstreamWorkspaceName}</strong></span>
+          <small>reads</small>
+        </button>
+      )}
       <div className="trunk-page-v2-nav__today">
         <SidebarRow
           icon={<TodayIcon />}

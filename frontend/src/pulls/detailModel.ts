@@ -130,6 +130,8 @@ export type TimelineItem =
   | { kind: 'ci'; id: string; at: number; time: string; status: string;
       previousStatus: string | null; headSha: string | null; checkCount: number | null;
       name: string | null; trigger: string | null }
+  | { kind: 'ci-harness'; id: string; at: number; time: string; message: string;
+      phase: string | null; status: string | null; sha: string | null }
   | { kind: 'review-activity'; id: string; at: number; time: string; author: string;
       activity: 'started' | 'addressing-started' | 'failed'; scope: TimelineReviewScope;
       iteration: number | null; roundId: string | null; reason: string | null }
@@ -205,9 +207,10 @@ function duplicateLocalReviewIds(bundle: LocalPRBundle): Set<string> {
 /**
  * Maps the local timeline + comments to the template's card shapes: commit
  * rows, review lifecycle rows, review cards, local conversation threads,
- * remote PR-level comment cards, aggregate CI transitions, and a synthetic merged row. Event types with no
- * template counterpart (amend/branch/status/follow-up/plan-finalized,
- * plus `comment` events which render from `comments`) are omitted.
+ * remote PR-level comment cards, aggregate CI transitions, sparse local CI
+ * Harness milestones, and a synthetic merged row. Event types with no template
+ * counterpart (amend/branch/status/follow-up/plan-finalized, plus `comment`
+ * events which render from `comments`) are omitted.
  */
 export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
   const items: TimelineItem[] = [];
@@ -232,6 +235,15 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
       items.push({
         kind: 'commit', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
         message: message.split(/\r?\n/, 1)[0] ?? '', sha: canonicalSha,
+      });
+      continue;
+    }
+    if (event.eventType === 'ci' && event.actor === 'ci-harness') {
+      items.push({
+        kind: 'ci-harness', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
+        message: str(event.payload, 'message') ?? 'CI Harness updated the local branch',
+        phase: str(event.payload, 'phase'), status: str(event.payload, 'status'),
+        sha: str(event.payload, 'sha')?.slice(0, 7) ?? null,
       });
       continue;
     }

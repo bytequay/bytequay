@@ -29,13 +29,21 @@ import {
   workspaceApi,
   type BranchComparisonDto,
   type CherryPickResultDto,
+  type UpstreamCommitsDto,
   type WorkspaceBranchDto,
+  type WorkspaceRelationDto,
   type WorkspaceRepositoryDto,
   type WorkspaceTrunkDto,
 } from './workspaceApi';
 import PullRequestBoardList from './PullRequestBoardList';
 import WorkspacePullsScreen from '../pulls/WorkspacePullsScreen';
 import { CreationOriginBadge } from '../ui/CreationOriginBadge';
+import {
+  contiguousRangeAfterToggle,
+  rangeLabel,
+  UpstreamCherryPicker,
+  UpstreamCommitHistory,
+} from './WorkspaceUpstreamCommits';
 
 export type WorkspaceRepoSection = 'pull-requests' | 'issues' | 'branches' | 'commits';
 
@@ -46,6 +54,7 @@ type Props = {
   onOpenIssue: (number: number) => void;
   onOpenBranch?: (branchName: string) => void;
   onOpenTrunk?: (trunkId: string) => void;
+  onOpenHarness?: (watchId?: string) => void;
   selectedNumber?: number;
   /** Stable PR id for an AgentReview whose PR may still be local-only. */
   selectedPrId?: string;
@@ -67,6 +76,7 @@ export default function WorkspaceRepoPage({
   onOpenIssue,
   onOpenBranch,
   onOpenTrunk,
+  onOpenHarness,
   selectedNumber,
   selectedPrId,
   initialAgentView,
@@ -126,7 +136,8 @@ export default function WorkspaceRepoPage({
       />
     );
   }
-  return <CommitsPage workspaceId={workspaceId} repo={repo} onOpenTrunk={onOpenTrunk} />;
+  return <CommitsPage workspaceId={workspaceId} repo={repo} onOpenTrunk={onOpenTrunk}
+    onOpenHarness={onOpenHarness} />;
 }
 
 function PullRequestsPage({
@@ -1271,10 +1282,12 @@ function CommitsPage({
   workspaceId,
   repo,
   onOpenTrunk,
+  onOpenHarness,
 }: {
   workspaceId: string;
   repo: WorkspaceRepositoryDto;
   onOpenTrunk?: (trunkId: string) => void;
+  onOpenHarness?: (watchId?: string) => void;
 }) {
   const visualFrame = document.documentElement.dataset.workspaceVisualFrame;
   const visualCommitStudy = visualFrame === '3g' || visualFrame === '4a';
@@ -1293,8 +1306,23 @@ function CommitsPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [cherryOpen, setCherryOpen] = useState(false);
+  const [source, setSource] = useState<'fork' | 'upstream'>('fork');
+  const [relation, setRelation] = useState<WorkspaceRelationDto | null>(null);
+  const [upstream, setUpstream] = useState<UpstreamCommitsDto | null>(null);
+  const [upstreamRange, setUpstreamRange] = useState<[number, number] | null>(null);
+  const [rangeExpanded, setRangeExpanded] = useState(false);
+  const [upstreamCherryOpen, setUpstreamCherryOpen] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    void workspaceApi.relation(workspaceId)
+      .then(next => { if (!cancelled) setRelation(next); })
+      .catch(() => { if (!cancelled) setRelation(null); });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (source !== 'fork') return undefined;
     let cancelled = false;
     setLoading(true);
     void Promise.all([
@@ -1314,10 +1342,27 @@ function CommitsPage({
       .catch(reason => { if (!cancelled) setError(message(reason)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [branch, workspaceId]);
+  }, [branch, source, workspaceId]);
 
   useEffect(() => {
-    if (selected === null) {
+    if (source !== 'upstream') return undefined;
+    let cancelled = false;
+    setLoading(true);
+    setUpstreamRange(null);
+    setRangeExpanded(false);
+    void workspaceApi.upstreamCommits(workspaceId)
+      .then(next => {
+        if (cancelled) return;
+        setUpstream(next);
+        setError(null);
+      })
+      .catch(reason => { if (!cancelled) setError(message(reason)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [source, workspaceId]);
+
+  useEffect(() => {
+    if (source !== 'fork' || selected === null) {
       setDetail(null);
       setFiles([]);
       return;
@@ -1335,7 +1380,7 @@ function CommitsPage({
       }
     }).catch(reason => { if (!cancelled) setError(message(reason)); });
     return () => { cancelled = true; };
-  }, [workspaceId, selected]);
+  }, [workspaceId, selected, source]);
 
   const shown = rows.filter(row => `${row.subject} ${row.sha} ${row.authorName}`
     .toLowerCase().includes(query.trim().toLowerCase()));
@@ -1344,23 +1389,64 @@ function CommitsPage({
   return (
     <section className="wu-page wu-commits wu-commit-history">
       <PageHeader title="Commits">
-        <label className="wu-branch-select"><BranchIcon />
-          <select value={branch} onChange={event => setBranch(event.target.value)}>
-            {branches.length === 0 && <option value={branch}>{branch}</option>}
-            {branches.filter(candidate => !candidate.remoteOnly).map(candidate => (
-              <option value={candidate.name} key={candidate.name}>{candidate.name}</option>
-            ))}
-          </select>
-          <span>{branch}</span>
-          <ChevronDownIcon />
-        </label>
+        <span className="wu-commit-source" role="group" aria-label="Commit source">
+          <button type="button" className={source === 'fork' ? 'active' : ''}
+            onClick={() => setSource('fork')}>{repo.repo}</button>
+          <button type="button" className={source === 'upstream' ? 'active' : ''}
+            disabled={relation === null || !relation.commitsEnabled}
+            title={relation === null ? 'Link an upstream workspace in Settings → Relations' : undefined}
+            onClick={() => setSource('upstream')}>
+            <span aria-hidden>⑂</span>{relation?.upstreamWorkspaceName ?? 'upstream'}<small>UPSTREAM</small>
+          </button>
+        </span>
+        {source === 'fork' ? (
+          <label className="wu-branch-select"><BranchIcon />
+            <select value={branch} onChange={event => setBranch(event.target.value)}>
+              {branches.length === 0 && <option value={branch}>{branch}</option>}
+              {branches.filter(candidate => !candidate.remoteOnly).map(candidate => (
+                <option value={candidate.name} key={candidate.name}>{candidate.name}</option>
+              ))}
+            </select>
+            <span>{branch}</span>
+            <ChevronDownIcon />
+          </label>
+        ) : (
+          <span className="wu-branch-select is-static"><BranchIcon />
+            <span>{upstream?.revision ?? 'default'}</span>
+          </span>
+        )}
         <label className="wu-search">
           <SearchIcon />
           <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search commits…" />
         </label>
       </PageHeader>
+      {source === 'upstream' && upstream !== null && (
+        <div className="wu-upstream-banner">
+          <span aria-hidden>⑂</span>
+          <span>Reading from upstream workspace <b>{upstream.upstreamWorkspaceName}</b>
+            {' '}({upstream.upstreamRepoFullName}) — read-only
+            {upstream.lastFetchedAt !== null && <> · fetched {relative(upstream.lastFetchedAt)}</>}</span>
+          <i>{upstream.notInForkCount.toLocaleString()} not in {repo.repo}</i>
+          <button type="button" onClick={() => {
+            window.location.hash = `#/workspace/${encodeURIComponent(workspaceId)}/settings/relations`;
+          }}>Manage relation</button>
+        </div>
+      )}
       {error !== null && <div className="wu-inline-error">{error}</div>}
-      <div className="wu-commit-history__groups">
+      {source === 'upstream' ? (
+        <UpstreamCommitHistory
+          rows={upstream?.commits ?? []}
+          query={query}
+          loading={loading}
+          range={upstreamRange}
+          rangeExpanded={rangeExpanded}
+          onExpandRange={() => setRangeExpanded(true)}
+          onToggle={index => {
+            setUpstreamRange(current => contiguousRangeAfterToggle(current, index));
+            setRangeExpanded(false);
+          }}
+        />
+      ) : <div className="wu-commit-history__groups">
         {loading ? <BodyMessage>Loading commits…</BodyMessage> : [...groups].map(([day, commits]) => (
           <section key={day}>
             <h2>{day}</h2>
@@ -1440,7 +1526,21 @@ function CommitsPage({
           </section>
         ))}
         {!loading && rows.length === 0 && <BodyMessage>No commits found in the local clone.</BodyMessage>}
-      </div>
+      </div>}
+      {source === 'upstream' && upstreamRange !== null && upstream !== null && (
+        <div className="wu-upstream-cherry-bar">
+          <strong>{upstreamRange[1] - upstreamRange[0] + 1} commits</strong>
+          <span>{rangeLabel(
+            upstream.commits.slice(upstreamRange[0], upstreamRange[1] + 1),
+            upstream.commits[upstreamRange[1] + 1],
+          )}</span>
+          <code>{upstream.commits[upstreamRange[0]]?.shortSha}…{upstream.commits[upstreamRange[1]]?.shortSha}</code>
+          <button type="button" onClick={() => setUpstreamRange(null)}>Clear</button>
+          <button type="button" onClick={() => setUpstreamCherryOpen(true)}>
+            <span aria-hidden>⑂</span> Cherry-pick into {repo.repo}…
+          </button>
+        </div>
+      )}
       {cherryOpen && selected !== null && (
         <CommitCherryPicker
           workspaceId={workspaceId}
@@ -1449,6 +1549,16 @@ function CommitsPage({
           branches={branches}
           onOpenTrunk={onOpenTrunk}
           onClose={() => setCherryOpen(false)}
+        />
+      )}
+      {upstreamCherryOpen && upstream !== null && upstreamRange !== null && (
+        <UpstreamCherryPicker
+          workspaceId={workspaceId}
+          repo={repo}
+          snapshot={upstream}
+          commits={upstream.commits.slice(upstreamRange[0], upstreamRange[1] + 1)}
+          onClose={() => setUpstreamCherryOpen(false)}
+          onOpenHarness={onOpenHarness}
         />
       )}
     </section>

@@ -46,6 +46,7 @@ import PullRequestBoardList from './PullRequestBoardList';
 import WorkspaceRepoPage from './WorkspaceRepoPage';
 import WorkspaceSessionsPage from './WorkspaceSessionsPage';
 import WorkspaceSettingsPage from './WorkspaceSettingsPage';
+import WorkspaceHarnessPage from './WorkspaceHarnessPage';
 import WorkspaceShell, { type WorkspaceSection } from './WorkspaceShell';
 import { WorkModelPill } from './WorkModelPill';
 import AgentReviewConversationVisualFixture from './AgentReviewConversationVisualFixture';
@@ -168,6 +169,15 @@ function renderFrame(frame: string): ReactNode {
       return <AgentReviewConversationVisualFixture state="running" />;
     case 'rr-1a':
       return <AgentReviewConversationVisualFixture state="finished" />;
+    case 'ci-handoff':
+      return (
+        <WorkspaceHarnessPage
+          workspaceId={VISUAL_WORKSPACE_ID}
+          watchId="visual-ci-watch"
+          workspaceName="bytequay-v3-test"
+          workspaceRepository="chenjian2664/ByteQuay"
+        />
+      );
     case '1c':
       return <FullWorkspaceFrame section="trunks" activeNav="trunks" />;
     case '2a':

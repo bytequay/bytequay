@@ -31,6 +31,7 @@ import NewThreadDialog from './workspace/NewThreadDialog';
 import { useWorkspaceNav } from './pages/useWorkspaceNav';
 import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
 import WorkspaceCreationToasts from './workspace/WorkspaceCreationToasts';
+import WorkspaceHarnessPage from './workspace/WorkspaceHarnessPage';
 import {
   parseWorkspaceRoute, workspaceRouteHash, type WorkspaceRoute,
 } from './workspace/workspaceRoutes';
@@ -85,6 +86,7 @@ export type Nav =
   /** Stage drill-in — the detailed per-stage view reached from a brain-
    *  view stage chip or a brain-agent response's drill-in chip. */
   | { view: 'stage-detail'; threadId: string; taskId: string; stageId: string }
+  | { view: 'ci-harness'; watchId?: string }
   | { view: 'review-thread'; threadId: string; back?: Nav }
   | { view: 'notifications' }
   | { view: 'repos' }
@@ -258,6 +260,11 @@ function publicNavigation(route: WorkspaceRoute): PublicNavigation {
         nav: { view: 'workspace', section: route.kind },
         workspaceId: route.workspaceId,
       };
+    case 'ci-harness':
+      return {
+        nav: { view: 'ci-harness', watchId: route.watchId },
+        workspaceId: route.workspaceId,
+      };
     case 'settings':
       return {
         nav: { view: 'workspace', section: 'settings', settingsSection: route.section ?? 'agents' },
@@ -320,6 +327,10 @@ function publicRoute(nav: Nav, workspaceId: string | null): WorkspaceRoute | nul
       }
       return null;
     }
+    case 'ci-harness':
+      return workspaceId === null ? null : {
+        kind: 'ci-harness', workspaceId, watchId: nav.watchId,
+      };
     case 'repos': return { kind: 'legacy-repo' };
     case 'repository':
       return { kind: 'legacy-repo', owner: nav.owner, repo: nav.repo, page: 'pulls' };
@@ -838,7 +849,7 @@ function App() {
   // change the hook count between renders and crash the whole app.
   const inWorkspaceFlow = nav.view === 'workspace'
     || nav.view === 'thread-detail' || nav.view === 'task-brain'
-    || nav.view === 'stage-detail';
+    || nav.view === 'stage-detail' || nav.view === 'ci-harness';
   // The viewed thread's own workspace wins once resolved (e.g. by
   // TrunkRoute) — a thread opened from outside the workspace flow (a PR's
   // linked-task chip, footprint resume) shows ITS workspace's rail instead
@@ -900,6 +911,7 @@ function App() {
       case 'workspaces-landing': return 'workspaces';
       case 'workspace': return workspaceSectionNav(nav.section ?? 'today');
       case 'thread-detail': case 'task-brain': case 'stage-detail': return 'trunks';
+      case 'ci-harness': return 'commits';
       case 'pulls': return 'pulls';
       case 'repos': case 'repository': case 'local-repo': return 'repos';
       case 'email': return 'email';
@@ -913,7 +925,8 @@ function App() {
   // sidebar reuses the workspace chrome but replaces the trunk list with the
   // selected task's live plan.
   const ownsTaskSidebar = (nav.view as string) === 'task-brain'
-    || (nav.view as string) === 'stage-detail';
+    || (nav.view as string) === 'stage-detail'
+    || (nav.view as string) === 'ci-harness';
 
   const navigateSidebar = (key: WsNavKey) => {
     switch (key) {
@@ -965,7 +978,8 @@ function App() {
     || nav.view === 'workspace'
     || nav.view === 'thread-detail'
     || nav.view === 'task-brain'
-    || nav.view === 'stage-detail';
+    || nav.view === 'stage-detail'
+    || nav.view === 'ci-harness';
   const resolvingLegacyRepo = nav.view === 'repos' || nav.view === 'repo'
     || nav.view === 'repository' || nav.view === 'local-repo';
 
@@ -1004,6 +1018,9 @@ function App() {
           onOpenTask={(threadId, taskId) => setNav(lastTaskNav(threadId, taskId))}
           onSwitchWorkspace={openSidebarWorkspaceToday}
           onNewThread={() => setNewThreadDialogOpen(true)}
+          onOpenRelation={() => setNav({
+            view: 'workspace', section: 'settings', settingsSection: 'relations',
+          })}
         />
       )}
       <div className="app-content">
@@ -1163,6 +1180,18 @@ function App() {
             onSwitchWorkspace={openSidebarWorkspaceToday}
           />
         )}
+        {nav.view === 'ci-harness' && activeWorkspaceId && (
+          <WorkspaceHarnessPage
+            workspaceId={activeWorkspaceId}
+            watchId={nav.watchId}
+            workspaceName={sidebarWorkspace?.name}
+            workspaceRepository={taskWorkspaceRepository}
+            onOpenWatch={watchId => setNav({ view: 'ci-harness', watchId })}
+            onNewWatch={() => setNav({ view: 'ci-harness' })}
+            onNavigateGlobal={navigateSidebar}
+            onSwitchWorkspace={openSidebarWorkspaceToday}
+          />
+        )}
         {nav.view === 'notifications' && (
           <NotificationsScreen
             onOpenThread={openThread}
@@ -1205,6 +1234,7 @@ function App() {
             sessionId={nav.sessionId}
             backlogKey={nav.backlogKey}
             settingsSection={nav.settingsSection}
+            onOpenHarness={watchId => setNav({ view: 'ci-harness', watchId })}
             onSelectSettingsSection={settingsSection => setNav({
               view: 'workspace', section: 'settings', settingsSection,
             })}

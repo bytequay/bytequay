@@ -53,6 +53,9 @@ import type {
   WorkspaceRepositoryDto,
   WorkspaceSessionDto,
   WorkspaceSettingsDto,
+  CiHarnessWatchSnapshotDto,
+  CiHarnessWatchDto,
+  CiHarnessRuleDto,
   WorkspaceTrunkDto,
 } from './workspaceApi';
 
@@ -1902,6 +1905,100 @@ export const visualWorkspaceRepos: WorkspaceRepoDto[] = visualWorkspaces.map(wor
   addedAt: agoIso(30 * day),
 }));
 
+const visualHarnessWatch: CiHarnessWatchDto = {
+  id: 'visual-ci-watch',
+  status: 'handoff',
+  owner: 'chenjian2664',
+  repo: 'ByteQuay',
+  prNumber: VISUAL_PR_NUMBER,
+  localPrId: `visual-pr-${VISUAL_PR_NUMBER}`,
+  branch: VISUAL_BRANCH_NAME,
+  title: 'Use Math.clamp for clamp expressions',
+  headSha: '7be90d4d3f1d8b4af2a7ed96e14f170401aadfee',
+  bootstrapStatus: 'complete',
+  budgetMilliUsd: 5_000,
+  costMilliUsd: 410,
+  updatedAtMs: agoMs(3 * minute),
+};
+
+const visualHarnessSnapshot: CiHarnessWatchSnapshotDto = {
+  watchId: visualHarnessWatch.id,
+  workspaceId: VISUAL_WORKSPACE_ID,
+  status: 'handoff',
+  owner: visualHarnessWatch.owner,
+  repo: visualHarnessWatch.repo,
+  prNumber: visualHarnessWatch.prNumber,
+  localPrId: visualHarnessWatch.localPrId,
+  branch: visualHarnessWatch.branch,
+  title: visualHarnessWatch.title,
+  headSha: visualHarnessWatch.headSha,
+  bootstrapStatus: 'complete',
+  bootstrapProfile: null,
+  budget: {
+    limitMilliUsd: 5_000,
+    spentMilliUsd: 410,
+    cycleMilliUsd: 290,
+    remainingMilliUsd: 4_590,
+  },
+  activeCycle: null,
+  cycles: [{
+    id: 'visual-cycle-2', ordinal: 2, triggerKind: 'poll', status: 'handoff', phase: 'done',
+    headSha: visualHarnessWatch.headSha, costMilliUsd: 290,
+    backupRef: 'bytequay-backup/ci-harness/visual-7be90d4d',
+    netNeutralProof: null, runStatusTail: '22 checks complete · 1 failed',
+    startedAtMs: agoMs(8 * minute), finishedAtMs: agoMs(3 * minute), phaseStates: [],
+  }, {
+    id: 'visual-cycle-1', ordinal: 1, triggerKind: 'created', status: 'no_change', phase: 'probe',
+    headSha: visualHarnessWatch.headSha, costMilliUsd: 120, backupRef: null,
+    netNeutralProof: null, runStatusTail: '22 checks complete · 1 failed',
+    startedAtMs: agoMs(35 * minute), finishedAtMs: agoMs(34 * minute), phaseStates: [],
+  }],
+  milestones: [{
+    id: 5, cycleId: 'visual-cycle-2', phase: 'done', kind: 'handoff',
+    message: 'Verified fix is ready for human push',
+    detailJson: '{"target":"Update plan","files":["plan.txt"]}', createdAtMs: agoMs(3 * minute),
+  }, {
+    id: 4, cycleId: 'visual-cycle-2', phase: 'verify', kind: 'verified',
+    message: 'CI-derived local verification passed', detailJson: null, createdAtMs: agoMs(5 * minute),
+  }, {
+    id: 3, cycleId: 'visual-cycle-2', phase: 'classify', kind: 'classified',
+    message: 'Classified plan mismatch as resource:plan_mismatch', detailJson: null, createdAtMs: agoMs(7 * minute),
+  }],
+  failures: [{
+    id: 'visual-failure', cycleId: 'visual-cycle-2', status: 'verified',
+    bucket: 'resource:plan_mismatch', jobName: 'Maven tests', module: 'backend',
+    signature: 'Test plan differs from generated plan',
+    logExcerpt: 'Expected the generated plan to match the checked-in resource.',
+    targetSubject: 'Update plan', ruleId: null,
+  }],
+  stats: {
+    failuresByState: { verified: 1 }, activeRules: 3, candidateRules: 1,
+    cycleCostMilliUsd: 290, watchCostMilliUsd: 410,
+  },
+  backupRef: 'bytequay-backup/ci-harness/visual-7be90d4d',
+  netNeutralProof: {
+    beforeHead: '41b96f426e85c76b1e84eb54ab6e8bceca219ce1',
+    afterHead: '7be90d4d3f1d8b4af2a7ed96e14f170401aadfee',
+    beforeTree: 'bda503cda36d291ce532f4ef4a89fc600c12ca9f',
+    afterTree: 'bda503cda36d291ce532f4ef4a89fc600c12ca9f',
+    emptyTreeDiff: true, rangeEquivalent: true, remoteUndiverged: true,
+    detail: 'The rewritten range produces the same final tree.',
+  },
+  handoff: {
+    reason: 'verified_local_fix', failureId: 'visual-failure',
+    command: `git -C '/Users/chenjian2664/ByteQuay.bytequay-worktrees/ci-harness/visual-ci-watch' push --force-with-lease origin 'HEAD:${VISUAL_BRANCH_NAME}'`,
+    detail: 'Local verification and net-neutral history proof passed. The harness did not push.',
+  },
+  handoffCommand: `git -C '/Users/chenjian2664/ByteQuay.bytequay-worktrees/ci-harness/visual-ci-watch' push --force-with-lease origin 'HEAD:${VISUAL_BRANCH_NAME}'`,
+  runStatusTail: '22 checks complete · 1 failed',
+};
+
+const visualHarnessRules: CiHarnessRuleDto[] = [{
+  id: 'visual-rule', matcherPattern: 'generated plan.*differs', scope: 'backend',
+  bucket: 'resource:plan_mismatch', binding: 'refresh-plan-resource', status: 'candidate',
+  origin: 'agent', priority: 100, hits: 1, approvedAtMs: null,
+}];
+
 export function installWorkspaceVisualBridge(frame: string): void {
   const route = async <T>(request: WorkspaceApiRequest): Promise<T> =>
     cast<T>(workspaceResponse(frame, request));
@@ -2073,6 +2170,9 @@ export function installWorkspaceVisualBridge(frame: string): void {
 
 function workspaceResponse(frame: string, request: WorkspaceApiRequest): unknown {
   const path = request.path;
+  if (path.endsWith('/ci-harness/watches')) return [visualHarnessWatch];
+  if (path.endsWith('/ci-harness/watches/visual-ci-watch')) return visualHarnessSnapshot;
+  if (path.endsWith('/ci-harness/watches/visual-ci-watch/rules')) return visualHarnessRules;
   if (path === '/api/ai/plan-usage' || path === '/api/ai/plan-usage/claude/refresh') {
     return {
       providers: [{

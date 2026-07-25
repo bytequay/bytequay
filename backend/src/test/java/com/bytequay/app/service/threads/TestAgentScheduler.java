@@ -68,6 +68,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -1293,10 +1294,27 @@ class TestAgentScheduler
     {
         private final Map<String, TaskStatus> statuses = new LinkedHashMap<>();
         private final Map<String, TaskPhase> phases = new LinkedHashMap<>();
+        private final Map<String, String> livenessPointers = new LinkedHashMap<>();
 
         private void setStatus(String taskId, TaskStatus status)
         {
             statuses.put(taskId, status);
+        }
+
+        @Override
+        public Optional<String> currentLivenessTurnId(String taskId)
+        {
+            return Optional.ofNullable(livenessPointers.get(taskId));
+        }
+
+        @Override
+        public boolean setCurrentLivenessTurnIdIf(String taskId, String expected, String next)
+        {
+            if (!Objects.equals(livenessPointers.get(taskId), expected)) {
+                return false;
+            }
+            livenessPointers.put(taskId, next);
+            return true;
         }
 
         private void setPhase(String taskId, TaskPhase phase)

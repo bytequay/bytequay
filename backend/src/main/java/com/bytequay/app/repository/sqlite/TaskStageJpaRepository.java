@@ -24,7 +24,7 @@ import java.util.Optional;
 interface TaskStageJpaRepository
         extends JpaRepository<TaskStageEntity, String>
 {
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TaskStageEntity s SET s.state = :to, s.closedAtMs = :closedAtMs "
             + "WHERE s.id = :id AND s.state = :expected")
     int casState(

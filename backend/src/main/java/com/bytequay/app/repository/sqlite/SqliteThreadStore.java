@@ -15,7 +15,6 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
-import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadFlow;
@@ -162,51 +161,10 @@ class SqliteThreadStore
             entity.setPrRef(thread.prRef());
         }
         threads.save(entity);
-
-        // Mirror Thread-level lifecycle state (status, endedAt,
-        // errorMessage) onto the active task so a reader of the task row
-        // sees a consistent picture. Cost / tokens are deliberately NOT
-        // mirrored: the thread's counters are LIFETIME-cumulative across
-        // every task in the chain, so copying them onto a task makes a
-        // freshly-cut task inherit the whole thread's spend (a brand-new
-        // task showed 26M tokens this way). Each task owns its own usage —
-        // the agent accumulates it task-scoped and persists it via
-        // TaskStore — so here we preserve the task's existing values.
-        // branchName / worktreePath / workingDir / linked PR/issue /
-        // taskType also live on the task and aren't overridden via Thread.
-        // A thread can run several active tasks; mirror lifecycle onto each
-        // so a reader of any of them sees a consistent picture.
-        taskStore.activeTasksForThread(thread.id()).forEach(task -> {
-            Task next = new Task(
-                    task.id(),
-                    task.threadId(),
-                    task.seq(),
-                    mapStatus(thread.status()),
-                    task.branchName(),
-                    task.worktreePath(),
-                    task.baseBranch(),
-                    task.workingDir(),
-                    task.processPid(),
-                    task.logPath(),
-                    task.prNumber(),
-                    task.prState(),
-                    task.ciState(),
-                    task.taskType(),
-                    task.linkedPrNumber(),
-                    task.linkedIssueNumber(),
-                    task.costUsdMilli(),
-                    task.tokensIn(),
-                    task.tokensOut(),
-                    task.agentSessionId(),
-                    task.createdAt(),
-                    thread.endedAt() != null ? thread.endedAt() : task.endedAt(),
-                    thread.errorMessage() != null ? thread.errorMessage() : task.errorMessage(),
-                    task.name(),
-                    task.roleSkill(),
-                    task.workModel(),
-                    task.origin());
-            taskStore.saveTask(next);
-        });
+        // Task status is deliberately NOT mirrored from the thread: the
+        // runtime projection derives it from the task's own liveness
+        // turns (tasks.current_liveness_turn_id), so a shared thread's
+        // persist can never drag a sibling task's status around.
     }
 
     @Override
@@ -535,10 +493,5 @@ class SqliteThreadStore
                 e.getScope() == null
                         ? ThreadScope.of(e.getTaskId(), e.getStageId())
                         : ThreadScope.valueOf(e.getScope()));
-    }
-
-    private static TaskStatus mapStatus(ThreadStatus status)
-    {
-        return TaskStatus.valueOf(status.name());
     }
 }

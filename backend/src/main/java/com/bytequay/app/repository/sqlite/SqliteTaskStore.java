@@ -21,6 +21,7 @@ import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,17 +39,20 @@ class SqliteTaskStore
         implements TaskStore
 {
     private final TaskJpaRepository tasks;
+    private final TaskStatusEventJpaRepository statusEvents;
     private final TaskFileJpaRepository files;
     private final TaskPhaseEventJpaRepository phaseEvents;
     private final ObjectMapper objectMapper;
 
     SqliteTaskStore(
             TaskJpaRepository tasks,
+            TaskStatusEventJpaRepository statusEvents,
             TaskFileJpaRepository files,
             TaskPhaseEventJpaRepository phaseEvents,
             ObjectMapper objectMapper)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.statusEvents = requireNonNull(statusEvents, "statusEvents is null");
         this.files = requireNonNull(files, "files is null");
         this.phaseEvents = requireNonNull(phaseEvents, "phaseEvents is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
@@ -101,6 +105,58 @@ class SqliteTaskStore
     public boolean updateStatusIf(String taskId, TaskStatus expected, TaskStatus to)
     {
         return tasks.casStatus(taskId, expected.name(), to.name()) == 1;
+    }
+
+    @Override
+    @Transactional
+    public void appendStatusEvent(
+            String taskId, TaskStatus from, TaskStatus to, Actor actor, String reason, Instant occurredAt)
+    {
+        TaskStatusEventEntity event = new TaskStatusEventEntity();
+        event.setTaskId(taskId);
+        event.setFromStatus(from.name());
+        event.setToStatus(to.name());
+        event.setActor(actor.name());
+        event.setReason(reason);
+        event.setOccurredAtMs(occurredAt.toEpochMilli());
+        statusEvents.save(event);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<String> currentLivenessTurnId(String taskId)
+    {
+        return tasks.findById(taskId).map(TaskEntity::getCurrentLivenessTurnId);
+    }
+
+    @Override
+    @Transactional
+    public boolean setCurrentLivenessTurnIdIf(String taskId, String expected, String next)
+    {
+        if (expected == null) {
+            return tasks.setLivenessPointerIfUnset(taskId, next) == 1;
+        }
+        return tasks.casLivenessPointer(taskId, expected, next) == 1;
+    }
+
+    @Override
+    @Transactional
+    public void updateRuntimeFailure(String taskId, Instant endedAt, String errorMessage)
+    {
+        mutate(taskId, entity -> {
+            entity.setEndedAtMs(Timestamps.epochMilli(endedAt));
+            entity.setErrorMessage(errorMessage);
+        });
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Task> listByStatuses(Collection<TaskStatus> statuses, int limit)
+    {
+        List<String> names = statuses.stream().map(TaskStatus::name).toList();
+        return tasks.findByStatusInOrderByCreatedAtMsAsc(names, PageRequest.of(0, limit)).stream()
+                .map(this::toTask)
+                .toList();
     }
 
     @Override

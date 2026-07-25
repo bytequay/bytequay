@@ -25,24 +25,24 @@ interface ReviewRoundJpaRepository
 {
     List<ReviewRoundEntity> findByTaskIdOrderByOpenedAtMsDesc(String taskId);
 
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ReviewRoundEntity r SET r.status = :to "
             + "WHERE r.id = :id AND r.status = :expected")
     int casStatus(@Param("id") String id, @Param("expected") String expected, @Param("to") String to);
 
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ReviewRoundEntity r SET r.statsJson = :statsJson WHERE r.id = :id")
     int updateStatsJson(@Param("id") String id, @Param("statsJson") String statsJson);
 
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ReviewRoundEntity r SET r.runId = :runId WHERE r.id = :id")
     int updateRunId(@Param("id") String id, @Param("runId") String runId);
 
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ReviewRoundEntity r SET r.brainVerdict = :verdict WHERE r.id = :id")
     int updateBrainVerdict(@Param("id") String id, @Param("verdict") String verdict);
 
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ReviewRoundEntity r SET r.gatedAtMs = :gatedAtMs, r.postedAtMs = :postedAtMs "
             + "WHERE r.id = :id")
     int updateGateTimes(

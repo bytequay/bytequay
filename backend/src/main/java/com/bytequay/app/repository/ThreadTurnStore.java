@@ -54,6 +54,13 @@ public interface ThreadTurnStore
         return false;
     }
 
+    /** This task's liveness-affecting turns, oldest-first — the runtime
+     *  projection's evidence set. */
+    default List<ThreadTurn> listLivenessTurns(String taskId, int limit)
+    {
+        return List.of();
+    }
+
     /** Single-row lookup by id. Empty when no such turn exists. */
     Optional<ThreadTurn> findTurnById(String id);
 

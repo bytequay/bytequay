@@ -467,8 +467,9 @@ class TestSqliteThreadStore
         assertThat(got.tokensIn()).isEqualTo(11L);
         assertThat(got.tokensOut()).isEqualTo(13L);
         assertThat(got.costUsdMilli()).isEqualTo(7L);
-        // Status IS still mirrored from the thread (lifecycle sync).
-        assertThat(got.status()).isEqualTo(TaskStatus.RUNNING);
+        // Status is NOT mirrored either - the runtime projection derives it
+        // from the task's own liveness turns, never the shared thread.
+        assertThat(got.status()).isEqualTo(TaskStatus.IDLE);
     }
 
     private static Thread newTask(ThreadKind kind, ThreadStatus status)

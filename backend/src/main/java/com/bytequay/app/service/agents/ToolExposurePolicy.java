@@ -31,7 +31,7 @@ public class ToolExposurePolicy
     public static final int MAX_ACTIVE_TOOLS = 32;
 
     private static final Set<String> TRUNK = Set.of(
-            "approval_prompt", "ask_user_question", "codegraph_explore",
+            "approval_prompt", "ask_user_question", "codegraph_explore", "explore_project",
             "recall_memory", "lookup_memory", "read_workspace_memory", "recall_thread",
             "list_prs", "read_pr", "read_issue", "read_task", "read_current_repository",
             "read_file", "sync_repo", "create_task", "queue_task", "reorder_queue",
@@ -44,10 +44,10 @@ public class ToolExposurePolicy
             "check_test_coverage", "read_stage_metrics", "read_phase_history",
             "read_review_panel_findings", "read_remote_pr_status", "list_unresolved_comments",
             "record_plan", "read_plan_summary", "read_dev_report", "read_dev_conversation",
-            "record_pr_comment", "record_review_verdict");
+            "record_pr_comment", "record_review_verdict", "explore_project");
 
     private static final Set<String> TASK_CORE = Set.of(
-            "approval_prompt", "ask_user_question", "codegraph_explore", "read_file",
+            "approval_prompt", "ask_user_question", "codegraph_explore", "explore_project",
             "recall_memory", "lookup_memory", "read_workspace_memory", "lookup_term",
             "read_current_repository", "read_task", "read_plan_summary",
             "read_plan_conversation", "read_pr");

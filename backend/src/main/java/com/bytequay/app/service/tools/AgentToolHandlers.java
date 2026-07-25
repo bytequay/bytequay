@@ -187,7 +187,7 @@ public class AgentToolHandlers
     @AgentTool(
             name = "read_task",
             description = "Read one task row by id. Returns id, threadId, seq, status, "
-                    + "branchName, worktreePath, baseBranch, workingDir, prNumber, "
+                    + "phase, branchName, worktreePath, baseBranch, workingDir, prNumber, "
                     + "linkedPrNumber, linkedIssueNumber, taskType, createdAt, endedAt, "
                     + "errorMessage, name. Pure read — no GitHub call.",
             security = SecurityType.TASK_READ,
@@ -212,6 +212,7 @@ public class AgentToolHandlers
             String threadId,
             long seq,
             String status,
+            String phase,
             String branchName,
             String worktreePath,
             String baseBranch,
@@ -233,6 +234,7 @@ public class AgentToolHandlers
                     t.threadId(),
                     t.seq(),
                     t.status() == null ? null : t.status().name(),
+                    t.phase() == null ? null : t.phase().name(),
                     t.branchName(),
                     t.worktreePath(),
                     t.baseBranch(),

@@ -25,9 +25,7 @@ import com.bytequay.app.service.CredentialService;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -47,15 +45,15 @@ import static java.util.Objects.requireNonNull;
  *       + alternates).</li>
  * </ul>
  *
- * <p>CLI installation is checked with {@code --version}. Codex discovery
- * then uses its JSONL app-server protocol; interactive slash commands are
- * intentionally never scraped.
+ * <p>CLI agents are not probed for availability per host: the picker
+ * reports every CLI agent as available and a missing binary is discovered
+ * at use-time. Probing wedged startup on CLIs that drop into interactive
+ * flows. Codex model discovery still uses its JSONL app-server protocol;
+ * interactive slash commands are intentionally never scraped.
  */
 @Service
 public class WorkModelService
 {
-    private static final Duration CLI_PROBE_TIMEOUT = Duration.ofSeconds(2);
-
     private final CredentialService credentials;
     private final CodexModelCatalogProbe codexModels;
 
@@ -84,8 +82,11 @@ public class WorkModelService
     {
         ImmutableList.Builder<WorkModelAgentOption> out = ImmutableList.builder();
         for (WorkModelCatalog.CatalogAgent agent : WorkModelCatalog.CLI_AGENTS) {
-            boolean installed = cliAvailable(agent.id());
-            if (installed && "codex".equals(agent.id())) {
+            // No per-host probing: CLI agents always appear available and
+            // auth outside ByteQuay. A missing binary surfaces at use-time.
+            // Codex still gets its live picker-visible models when the probe
+            // can reach them, falling back to the curated catalog entries.
+            if ("codex".equals(agent.id())) {
                 var discovered = codexModels.models(refresh);
                 if (discovered.isPresent()) {
                     List<CodexModelCatalogProbe.Model> models = discovered.orElseThrow();
@@ -113,24 +114,6 @@ public class WorkModelService
                     toEntries(agent.models())));
         }
         return out.build();
-    }
-
-    private static boolean cliAvailable(String agentId)
-    {
-        String binary = "codex".equals(agentId) ? "codex" : "claude";
-        try {
-            Process process = new ProcessBuilder(binary, "--version")
-                    .redirectErrorStream(true)
-                    .start();
-            if (!process.waitFor(CLI_PROBE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly();
-                return false;
-            }
-            return process.exitValue() == 0;
-        }
-        catch (Exception ignored) {
-            return false;
-        }
     }
 
     private List<WorkModelProviderOption> apiProviderOptions()

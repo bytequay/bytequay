@@ -380,6 +380,28 @@ class TestPlanStageService
     }
 
     @Test
+    void aFailedDevKickoffTurnSurfacesNeedsAttention()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        recordPlan(plan, taskId, "finalized", "rev-1");
+        planStageService.approveByStage(plan.id());
+        StageInstance dev = stageStore.findActiveStage(taskId).orElseThrow();
+        String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
+        String turnId = saveKickoffTurn(taskId, devThread, "plan-approved", "claude-code exited 1");
+
+        planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, true));
+
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+        assertThat(task.phase()).isEqualTo(TaskPhase.NEEDS_ATTENTION);
+        assertThat(task.errorMessage()).contains("claude-code exited 1");
+        StageEvent failed = stageStore.findEventsByStage(dev.id()).stream()
+                .filter(e -> e.eventType() == StageEventType.DEV_FAILED)
+                .findFirst().orElseThrow();
+        assertThat(failed.payloadJson()).contains("claude-code exited 1");
+    }
+
+    @Test
     void theShipNudgeTurnItselfDoesNotReNudge()
     {
         String taskId = seedTask();

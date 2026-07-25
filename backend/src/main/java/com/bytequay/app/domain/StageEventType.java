@@ -62,6 +62,19 @@ public enum StageEventType
      *  the plan card / feed can surface it instead of a silent empty draft. */
     PLAN_FAILED,
 
+    /** The stranded-dev reconciler re-enqueued the development kickoff turn
+     *  for a DevelopmentStage that opened but never got a turn (or whose
+     *  kickoff turn failed). At most one per stage — its presence gates the
+     *  one-shot recovery so a still-stranded stage surfaces instead of
+     *  looping. Payload records when it fired and whether the re-enqueue took. */
+    DEV_KICKOFF_RECOVERED,
+
+    /** The development stage was surfaced as failed — its turn errored, or the
+     *  reconciler's one-shot recovery did not take. Payload carries the plain
+     *  reason so the task card / feed shows an error state instead of a stage
+     *  that looks perpetually "running". Mirrors {@link #PLAN_FAILED}. */
+    DEV_FAILED,
+
     /** A CLOSED stage was woken back up for a new burst of work of the same
      *  kind, reusing its id (and whatever agent session is cached under it)
      *  instead of opening a second stage. */

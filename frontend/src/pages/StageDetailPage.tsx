@@ -20,6 +20,7 @@ import {
   type TaskPageChanges,
   type TaskPageComposer,
   type TaskPagePr,
+  type TaskPageRun,
 } from './TaskPageFrame';
 
 /** Work-stage variants sharing the locked detail frame. */
@@ -50,15 +51,7 @@ export function StageDetailPage({
   conversationIndex?: ReactNode;
   collapsed?: boolean;
   composer: TaskPageComposer;
-  run?: {
-    statusLabel?: string;
-    statusDetail?: string;
-    paused?: boolean;
-    terminal?: boolean;
-    onPause?: () => void;
-    onResume?: () => void;
-    onClose?: () => void;
-  };
+  run?: TaskPageRun;
   tabs: { pr?: ReactNode; ci?: ReactNode };
   pr?: TaskPagePr;
   changes?: TaskPageChanges;

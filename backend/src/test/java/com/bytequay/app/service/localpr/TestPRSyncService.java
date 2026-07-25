@@ -204,6 +204,24 @@ class TestPRSyncService
     }
 
     @Test
+    void skipsALocalCommitAlreadyRecordedWithItsFullSha()
+            throws Exception
+    {
+        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task(TaskPhase.IMPLEMENTING)));
+        when(prService.createForTask(any(), any(), any(), any(), any())).thenReturn(draftPr());
+        when(prService.findById("pr1")).thenReturn(Optional.of(draftPr()));
+        when(prService.commits("pr1")).thenReturn(List.of(new PRCommit(
+                "id-aaa", "pr1", "abcdef0full", "first", 0, 0, NOW, null)));
+        when(git.resolveCommitBase(any(), eq("main"))).thenReturn("main");
+        when(git.listCommitsAhead(any(), eq("main"), eq(200)))
+                .thenReturn(List.of(commit("abcdef0", "first")));
+
+        service.syncFromTask("task1");
+
+        verify(prService, never()).recordCommit(any(), any(), any(), anyInt(), anyInt(), any());
+    }
+
+    @Test
     void returnsEmptyWhenTheTaskHasNoBranch()
     {
         Task noBranch = new Task(
@@ -333,6 +351,7 @@ class TestPRSyncService
         PullRequestDetail detail = detailWithActivity(List.of());
         when(detail.checkRuns()).thenReturn(List.of(
                 new PullRequestDetail.CheckRun(555L, "CI / Backend", "completed", "success", "https://x", null, null)));
+        when(detail.ciStatus()).thenReturn(PullRequestDetail.CiStatus.PASSING);
         when(detail.mergeable()).thenReturn(true);
         when(detail.mergeableState()).thenReturn("clean");
         when(pullRequests.refreshPullRequestDetail("acme/widget", 42, 20)).thenReturn(detail);
@@ -342,6 +361,8 @@ class TestPRSyncService
         verify(prService).recordSyncedCheck(
                 eq("pr1"), eq("555"), eq("CI / Backend"), eq(PRCheck.STATUS_PASSED), any(), any());
         verify(prService).retainSyncedChecks("pr1", Set.of("555"));
+        verify(prService).recordRemoteCiState(
+                "pr1", PRCheck.STATUS_PASSED, null, null, 1);
         verify(prService).updateSyncSnapshot(eq("pr1"), argThat(snap ->
                 Boolean.TRUE.equals(snap.mergeable()) && "clean".equals(snap.mergeableState())));
     }

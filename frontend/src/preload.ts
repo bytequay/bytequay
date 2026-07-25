@@ -811,6 +811,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:tasks:pause', { threadId, taskId }),
   resumePausedTask: (threadId: string, taskId: string): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:resume', { threadId, taskId }),
+  retryFailedCi: (threadId: string, taskId: string): Promise<WorkUnitTaskDto> =>
+    ipcRenderer.invoke('threads:tasks:retry-ci', { threadId, taskId }),
   parkAndStartNext: (
     threadId: string,
     taskId: string,

@@ -362,6 +362,10 @@ export function TaskBrainRoute({
       .catch((reason: unknown) => setActionError(
         reason instanceof Error ? reason.message : 'Could not update the task'));
   };
+  const retryingExhaustedCi = task.paused
+    && task.currentPhase === 'NEEDS_ATTENTION'
+    && ['ci fix attempts exhausted', 'ci fix no changes'].some(
+      reason => task.statusLabel.toLowerCase().startsWith(reason));
 
   // Close seals the task terminal and reaps its worktree; once it resolves
   // the page has nothing live to show, so leave for the thread trunk.
@@ -803,7 +807,13 @@ export function TaskBrainRoute({
         paused: task.paused,
         terminal: task.terminal,
         onPause: runAction(bridge?.pauseTask),
-        onResume: runAction(bridge?.resumePausedTask),
+        onResume: runAction(retryingExhaustedCi ? bridge?.retryFailedCi : bridge?.resumePausedTask),
+        resumeLabel: retryingExhaustedCi ? 'Retry CI' : undefined,
+        resumeConfirmation: retryingExhaustedCi ? {
+          title: 'Retry failed CI?',
+          body: `This asks GitHub Actions to rerun the failed checks for PR #${task.prNumber ?? ''}. No code will be changed unless a later CI-fix turn creates a commit.`,
+          confirmLabel: 'Retry CI',
+        } : undefined,
         onClose: closeTask,
       }}
       error={actionError ?? prError ?? viewError}

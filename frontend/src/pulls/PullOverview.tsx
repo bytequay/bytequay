@@ -58,6 +58,7 @@ function LoadingTimeline() {
 export default function PullOverview({
   row, bundle, isMerged, refresh, onComment, onClosePullRequest, onDescriptionSaved,
   onLocalReply, onLocalResolve, onLocalReopen, currentUserLogin, onOpenCommentLocation,
+  onOpenCommit,
 }: {
   row: PullRow;
   bundle: LocalPRBundle | null | undefined;
@@ -72,6 +73,7 @@ export default function PullOverview({
   onLocalReopen?: (commentId: string) => Promise<void>;
   currentUserLogin?: string | null;
   onOpenCommentLocation?: (filePath: string, line: number | null, side: 'LEFT' | 'RIGHT') => void;
+  onOpenCommit?: (sha: string) => void;
 }) {
   const loading = bundle === undefined;
   const opened = buildOpenedCard(row, bundle);
@@ -226,6 +228,7 @@ export default function PullOverview({
               onLocalReopen={onLocalReopen}
               currentUserLogin={currentUserLogin}
               onOpenCommentLocation={onOpenCommentLocation}
+              onOpenCommit={onOpenCommit}
             />
             {checks !== null && <PullChecksCard model={checks} />}
           </>

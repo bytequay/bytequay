@@ -1032,14 +1032,24 @@ public class TaskService
     @Transactional
     public Task resumeTask(String taskId)
     {
-        return TaskPhaseMachine.withTaskLock(taskId, () -> resumeTaskLocked(taskId));
+        return TaskPhaseMachine.withTaskLock(taskId, () -> resumeTaskLocked(taskId, false));
     }
 
-    private Task resumeTaskLocked(String taskId)
+    /** Explicitly restart a CI lifecycle that parked after exhausting its
+     *  autonomous attempts. Ordinary Resume deliberately refuses this state
+     *  because recovery causes a remote GitHub Actions rerun. */
+    @Transactional
+    public Task retryFailedCi(String threadId, String taskId)
+    {
+        requireTask(threadId, taskId);
+        return TaskPhaseMachine.withTaskLock(taskId, () -> resumeTaskLocked(taskId, true));
+    }
+
+    private Task resumeTaskLocked(String taskId, boolean retryingCi)
     {
         Object pauseTeardownToken = pauseTeardownTokens.remove(taskId);
         try {
-            return resumeTaskAfterPauseInvalidated(taskId);
+            return resumeTaskAfterPauseInvalidated(taskId, retryingCi);
         }
         catch (RuntimeException e) {
             // The callback is blocked on this same task lock. Restore its claim
@@ -1051,7 +1061,7 @@ public class TaskService
         }
     }
 
-    private Task resumeTaskAfterPauseInvalidated(String taskId)
+    private Task resumeTaskAfterPauseInvalidated(String taskId, boolean retryingCi)
     {
         Task task = taskStore.findTaskById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
@@ -1060,6 +1070,15 @@ public class TaskService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "task " + taskId + " cannot be resumed");
         }
+        boolean ciRetryRequired = latestNeedsAttentionReason(task)
+                .map(reason -> "ci_fix_attempts_exhausted".equals(reason)
+                        || "ci_fix_no_changes".equals(reason))
+                .orElse(false);
+        if (ciRetryRequired != retryingCi) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409), ciRetryRequired
+                    ? "task " + taskId + " requires the explicit Retry CI action"
+                    : "task " + taskId + " is not parked for exhausted CI attempts");
+        }
         boolean recovering = task.status() == TaskStatus.NEEDS_ATTENTION
                 || task.phase() == TaskPhase.NEEDS_ATTENTION;
         boolean brainOwnsResume = (recovering || task.status() == TaskStatus.PAUSED)
@@ -1067,7 +1086,8 @@ public class TaskService
         TaskPhase resumedPhase = task.phase();
         if (recovering) {
             resumedPhase = recoveryPhase(task);
-            taskPhaseMachine.recover(taskId, resumedPhase, "user_resumed_task");
+            taskPhaseMachine.recover(taskId, resumedPhase,
+                    retryingCi ? "user_retried_ci" : "user_resumed_task");
         }
         Thread thread = threadStore.findThreadById(task.threadId())
                 .orElseThrow(() -> new ResponseStatusException(
@@ -1101,6 +1121,18 @@ public class TaskService
             clearNeedsAttentionNotifications(task);
         }
         return resumed;
+    }
+
+    private Optional<String> latestNeedsAttentionReason(Task task)
+    {
+        if (task.phase() != TaskPhase.NEEDS_ATTENTION
+                && task.status() != TaskStatus.NEEDS_ATTENTION) {
+            return Optional.empty();
+        }
+        return taskStore.listPhaseEvents(task.id()).stream()
+                .filter(event -> event.toPhase() == TaskPhase.NEEDS_ATTENTION)
+                .max((left, right) -> left.transitionedAt().compareTo(right.transitionedAt()))
+                .map(TaskPhaseEvent::reason);
     }
 
     private TaskPhase recoveryPhase(Task task)

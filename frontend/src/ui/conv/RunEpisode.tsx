@@ -30,7 +30,7 @@ const KIND_LABEL: Record<AgentRunDto['kind'], string> = {
  * Phase 5) — the Development feed's `ci_fix` runs and a live round's nested
  * re-run. Opens the run's own log (`RunLogPage`) on click.
  */
-type RunEpisodeRow = Pick<AgentRunDto, 'kind' | 'source' | 'status' | 'iterations' | 'headline'>;
+type RunEpisodeRow = Pick<AgentRunDto, 'kind' | 'source' | 'status' | 'iterations' | 'budget' | 'headline'>;
 
 export function RunEpisode({ run, onOpen, onToggle, collapsed, name, state: stateOverride, meta: metaOverride, mark = '⚙', color, right }: {
   run: RunEpisodeRow;
@@ -52,7 +52,12 @@ export function RunEpisode({ run, onOpen, onToggle, collapsed, name, state: stat
           : run.status === 'paused' ? 'paused'
             : run.status === 'queued' ? 'queued'
               : 'running';
-  const meta = metaOverride ?? run.headline ?? (run.iterations > 0 ? `iter ${run.iterations}` : undefined);
+  const iterationMeta = run.iterations > 0
+    ? run.kind === 'ci_fix'
+      ? `CI-fix iteration ${run.iterations}${run.budget === null ? '' : ` of ${run.budget}`}`
+      : `iter ${run.iterations}`
+    : undefined;
+  const meta = metaOverride ?? run.headline ?? iterationMeta;
   return (
     <SpineNode
       mark={mark}

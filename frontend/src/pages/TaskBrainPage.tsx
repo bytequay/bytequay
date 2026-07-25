@@ -19,6 +19,7 @@ import {
   TaskPageFrame,
   type TaskPageChanges,
   type TaskPageComposer,
+  type TaskPageRun,
 } from './TaskPageFrame';
 
 type BrainTab = 'pr';
@@ -46,15 +47,7 @@ export function TaskBrainPage({
   /** Retained for call-site compatibility; the locked sidebar is always 216px. */
   collapsed?: boolean;
   composer: TaskPageComposer;
-  run?: {
-    statusLabel?: string;
-    statusDetail?: string;
-    paused?: boolean;
-    terminal?: boolean;
-    onPause?: () => void;
-    onResume?: () => void;
-    onClose?: () => void;
-  };
+  run?: TaskPageRun;
   tabs: { pr?: ReactNode };
   changes?: TaskPageChanges;
   planReminder?: 'awaiting' | 'locked';

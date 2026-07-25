@@ -17,6 +17,8 @@ import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRCommit;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.StageInstance;
@@ -33,6 +35,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
@@ -96,6 +99,7 @@ public class CiFixRunExecutor
     private final NotificationService notificationService;
     private final ThreadTurnScheduler scheduler;
     private final PullRequestService pullRequests;
+    private final PRService localPrs;
     private final GitRunner git;
     private final ObjectMapper mapper;
     private final ThreadTurnStore turnStore;
@@ -120,6 +124,7 @@ public class CiFixRunExecutor
             NotificationService notificationService,
             ThreadTurnScheduler scheduler,
             PullRequestService pullRequests,
+            PRService localPrs,
             GitRunner git,
             ObjectMapper mapper,
             ThreadTurnStore turnStore,
@@ -134,6 +139,7 @@ public class CiFixRunExecutor
         this.notificationService = requireNonNull(notificationService, "notificationService is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.localPrs = requireNonNull(localPrs, "localPrs is null");
         this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
@@ -164,13 +170,14 @@ public class CiFixRunExecutor
         }
         boolean shippedEpisode = "ci-fix-shipped".equals(turn.initiator().source());
         java.lang.Thread.startVirtualThread(
-                () -> pushCiFix(event.taskId(), turn.agentRunId(), shippedEpisode));
+                () -> pushCiFix(event.taskId(), turn.agentRunId(), shippedEpisode, event.codeChanged()));
     }
 
-    private void pushCiFix(String taskId, String agentRunId, boolean shippedEpisode)
+    private void pushCiFix(
+            String taskId, String agentRunId, boolean shippedEpisode, boolean codeChanged)
     {
         TaskPhaseMachine.withTaskLock(taskId, () -> {
-            pushCiFixLocked(taskId, agentRunId, shippedEpisode);
+            pushCiFixLocked(taskId, agentRunId, shippedEpisode, codeChanged);
             return null;
         });
     }
@@ -178,7 +185,8 @@ public class CiFixRunExecutor
     /** Re-read every durable guard after the async hand-off and while holding
      *  the task lifecycle lock. A completion event may have been queued just
      *  before the task was parked, closed, or merged. */
-    private void pushCiFixLocked(String taskId, String agentRunId, boolean shippedEpisode)
+    private void pushCiFixLocked(
+            String taskId, String agentRunId, boolean shippedEpisode, boolean codeChanged)
     {
         Task task = taskStore.findTaskById(taskId).orElse(null);
         AgentRun run = agentRunId == null ? null : agentRuns.findById(agentRunId).orElse(null);
@@ -200,9 +208,19 @@ public class CiFixRunExecutor
         }
         Path worktree = Path.of(task.worktreePath());
         try {
+            boolean dirty = git.hasUncommittedChanges(worktree);
+            if (!codeChanged && !dirty) {
+                agentRuns.updateHeadline(run.id(), "No code changes; retry CI manually");
+                if (shippedEpisode) {
+                    parkTask(task, "ci_fix_no_changes");
+                    agentRuns.transition(run.id(), AgentRun.STATUS_FAILED, "no_code_changes");
+                }
+                log.info("CI-fix turn made no code changes for task {}; no push requested", task.id());
+                return;
+            }
             // Belt-and-braces: if the agent forgot to commit, checkpoint its
             // edits (minus app-managed hook files) so the fix isn't lost.
-            if (git.hasUncommittedChanges(worktree)) {
+            if (dirty) {
                 git.stageAll(worktree, List.of(WorktreeService.HOOK_DIR_REL));
                 git.commit(worktree, "ByteQuay: CI-fix changes");
             }
@@ -349,9 +367,9 @@ public class CiFixRunExecutor
      *   <li>iteration 0 → <b>re-run</b> the failed checks in place — the
      *       cheapest way to clear a flaky/transient failure before
      *       spending an agent;</li>
-     *   <li>iterations 1–4 → spawn an <b>agent fix turn</b> that decides
-     *       whether the failure is ours, fixes + pushes if so, else stops
-     *       so the next sweep re-runs;</li>
+     *   <li>iterations 1–4 → spawn an <b>agent fix turn</b> that fixes and
+     *       pushes when it can; a no-change result parks for an explicit
+     *       user retry instead of silently burning another iteration;</li>
      *   <li>at the cap → <b>escalate</b> to a NEEDS_ATTENTION row, fail the
      *       run, and stop acting (the user takes over).</li>
      * </ol>
@@ -391,7 +409,11 @@ public class CiFixRunExecutor
         agentRuns.findByTask(task.id(), AgentRun.KIND_CI_FIX, null).stream()
                 .filter(AgentRun::isLive)
                 .findFirst()
-                .ifPresent(run -> agentRuns.transition(run.id(), AgentRun.STATUS_SUCCEEDED, "checks_green"));
+                .ifPresent(run -> {
+                    agentRuns.updateHeadline(run.id(), "CI passed after " + run.iterations()
+                            + (run.iterations() == 1 ? " attempt" : " attempts"));
+                    agentRuns.transition(run.id(), AgentRun.STATUS_SUCCEEDED, "checks_green");
+                });
     }
 
     /** Re-runs the failed checks on the PR's head commit (the cheap flaky
@@ -406,13 +428,38 @@ public class CiFixRunExecutor
         }
         try {
             int n = pullRequests.rerunFailedChecks(repoFullName, task.linkedPrNumber());
-            agentRuns.recordIteration(run.id(), null);
+            recordRerun(task, n);
+            agentRuns.recordIteration(run.id(), n == 1
+                    ? "Re-ran 1 failed CI workflow"
+                    : "Re-ran " + n + " failed CI workflows");
             ciFixCooldown.put(task.id(), now.plus(CI_FIX_COOLDOWN));
             log.info("CI re-run requested for shipped task {} on {} PR #{}: {} run(s)",
                     task.id(), repoFullName, task.linkedPrNumber(), n);
         }
         catch (RuntimeException e) {
             log.warn("CI re-run failed for task {}: {}", task.id(), e.getMessage());
+        }
+    }
+
+    private void recordRerun(Task task, int workflowCount)
+    {
+        try {
+            PR pr = localPrs.findByTask(task.id()).orElse(null);
+            if (pr == null) {
+                return;
+            }
+            List<PRCommit> commits = localPrs.commits(pr.id());
+            String headSha = commits.isEmpty() ? null : commits.get(commits.size() - 1).sha();
+            boolean userTriggered = taskStore.listPhaseEvents(task.id()).stream()
+                    .max((left, right) -> left.transitionedAt().compareTo(right.transitionedAt()))
+                    .map(event -> "user_retried_ci".equals(event.reason()))
+                    .orElse(false);
+            localPrs.recordRemoteCiRerun(
+                    pr.id(), userTriggered ? "user" : "automatic", headSha, workflowCount);
+        }
+        catch (RuntimeException e) {
+            log.warn("recording CI rerun timeline event for task {} failed: {}",
+                    task.id(), e.getMessage());
         }
     }
 
@@ -471,7 +518,7 @@ public class CiFixRunExecutor
     private boolean escalateShippedCiFix(
             AgentRun run, Task task, String repoFullName, AutomationCoordinator.CiAggregate ci)
     {
-        parkTask(task);
+        parkTask(task, "ci_fix_attempts_exhausted");
         agentRuns.transition(run.id(), AgentRun.STATUS_FAILED, "attempts_exhausted");
         if (hasOpenNotificationForTask(task.id())) {
             return false;
@@ -499,7 +546,7 @@ public class CiFixRunExecutor
     /** Persist both task axes before returning control to the periodic scan.
      *  Otherwise the failed run is no longer live, so the next scan opens a
      *  fresh iteration-0 run and silently restarts the exhausted loop. */
-    private void parkTask(Task task)
+    private void parkTask(Task task, String reason)
     {
         Task current = taskStore.findTaskById(task.id()).orElse(task);
         if (isTerminal(current)) {
@@ -507,7 +554,7 @@ public class CiFixRunExecutor
         }
         if (current.phase() != TaskPhase.NEEDS_ATTENTION) {
             phaseMachine.transition(
-                    current.id(), TaskPhase.NEEDS_ATTENTION, "ci_fix_attempts_exhausted", Actor.AGENT);
+                    current.id(), TaskPhase.NEEDS_ATTENTION, reason, Actor.AGENT);
         }
         if (current.status() != TaskStatus.NEEDS_ATTENTION) {
             taskStore.saveTask(current.withStatus(TaskStatus.NEEDS_ATTENTION));

@@ -16,6 +16,8 @@ package com.bytequay.app.service.stage;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
@@ -34,6 +36,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.UUID;
 
+import static com.bytequay.app.domain.TurnInitiator.SOURCE_PARKED_STEERING;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -104,12 +107,18 @@ public class StageSteeringServiceImpl
         // active set, so the active-task-derived enqueueTurn would stamp task_id = null
         // and misroute the steer to the trunk planner instead of the dev
         // agent — leaving review comments unaddressed.
+        boolean parked = task.phase() == TaskPhase.NEEDS_ATTENTION
+                && task.status() == TaskStatus.NEEDS_ATTENTION;
+        TurnInitiator initiator = TurnInitiator.attended(
+                parked ? SOURCE_PARKED_STEERING : "steering");
         String turnId = scheduler.enqueueTaskTurn(
-                devThread, input, task.id(), TurnInitiator.attended("steering"));
+                devThread, input, task.id(), stage.id().toString(), initiator);
         // 1 turn = 1 iteration: open a user_steering iteration so the steer
         // shows up as its own band on the stage detail page. A no-op unless
         // the stage is a monitor stage (the only loop stages with iterations).
-        iterationService.begin(task.id(), turnId, IterationService.TRIGGER_USER_STEERING);
+        if (!parked) {
+            iterationService.begin(task.id(), turnId, IterationService.TRIGGER_USER_STEERING);
+        }
         log.debug("Steered stage {} (task {}) via turn {}", stageId, task.id(), turnId);
         return new SteerResult(turnId);
     }

@@ -39,6 +39,19 @@ describe('RunMenu', () => {
     expect(onResume).toHaveBeenCalledOnce();
   });
 
+  it('confirms an explicit CI retry before running it', () => {
+    const onResume = vi.fn();
+    render(<RunMenu paused statusLabel="CI fix attempts exhausted (5/5)"
+      resumeLabel="Retry CI" resumeConfirmation={{
+        title: 'Retry failed CI?', body: 'This reruns GitHub Actions.', confirmLabel: 'Retry CI',
+      }} onResume={onResume} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry CI · CI fix attempts exhausted (5/5)' }));
+    expect(onResume).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Retry CI' }));
+    expect(onResume).toHaveBeenCalledOnce();
+  });
+
   it('closes via the direct danger button only after confirming', () => {
     const onClose = vi.fn();
     render(<RunMenu onPause={() => {}} onClose={onClose} />);

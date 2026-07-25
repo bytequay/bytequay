@@ -213,8 +213,8 @@ class TestTaskLifecycleDriver
         // A remote merge fired no in-app merge event, so the driver itself
         // must finish the task: flip the runtime status, drain the phase
         // off the spine, and reap the now-dead worktree + branch.
-        verify(taskStore).completeTask(eq("t1.k2"), any());
-        verify(phaseMachine).observe("t1.k2", TaskPhase.COMPLETED, "pr_merged_observed");
+        verify(phaseMachine).finishTerminal(
+                eq("t1.k2"), eq(TaskStatus.COMPLETED), eq(Actor.WEBHOOK), eq("pr_merged_observed"));
         verify(worktrees).reap(task);
         // The PR merged, so the remote head branch is deleted too.
         verify(worktrees).deleteRemoteBranch(task);
@@ -257,9 +257,10 @@ class TestTaskLifecycleDriver
         // A closed-unmerged PR is terminal too: land at the distinct
         // REMOTE_CLOSED status (not a merge-COMPLETED) and clean up resources
         // anyway — the work never landed, so the branch is dead weight.
-        verify(taskStore).remoteCloseTask(eq("t1.k2"), any());
-        verify(taskStore, never()).completeTask(any(), any());
-        verify(phaseMachine).observe("t1.k2", TaskPhase.COMPLETED, "pr_closed_observed");
+        verify(phaseMachine).finishTerminal(
+                eq("t1.k2"), eq(TaskStatus.REMOTE_CLOSED), eq(Actor.WEBHOOK), eq("pr_closed_observed"));
+        verify(phaseMachine, never()).finishTerminal(
+                any(), eq(TaskStatus.COMPLETED), any(), any());
         verify(worktrees).reap(task);
         // A close is not a merge — leave the remote branch (the PR may reopen).
         verify(worktrees, never()).deleteRemoteBranch(any());

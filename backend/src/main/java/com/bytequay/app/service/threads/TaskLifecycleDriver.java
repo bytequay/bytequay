@@ -727,17 +727,15 @@ public class TaskLifecycleDriver
      *  so the branch is dead weight. */
     private void completeRemotelyTerminal(Task task, boolean merged)
     {
-        // Interrupt + evict any still-running per-stage agents BEFORE the reap,
-        // so a live subprocess isn't yanked out from under a worktree it's
-        // mid-tool-call inside. Best-effort: the orphan sweep retries the reap.
-        evictRunningStages(task);
+        // Durable terminal intent first: status + phase + audit commit in
+        // one locked step, and only then does runtime teardown run — each
+        // step idempotent, retried by the orphan sweep.
         if (!isTerminal(task.status())) {
-            if (merged) {
-                taskStore.completeTask(task.id(), Instant.now());
-            }
-            else {
-                taskStore.remoteCloseTask(task.id(), Instant.now());
-            }
+            phaseMachine.finishTerminal(
+                    task.id(),
+                    merged ? TaskStatus.COMPLETED : TaskStatus.REMOTE_CLOSED,
+                    Actor.WEBHOOK,
+                    merged ? "pr_merged_observed" : "pr_closed_observed");
         }
         // Record the terminal PR state so the task/stage surfaces stop showing
         // a merged/closed PR as "open" once the remote PR resolves (incl. via
@@ -745,8 +743,10 @@ public class TaskLifecycleDriver
         if (task.prNumber() != null) {
             taskStore.linkPullRequest(task.id(), task.prNumber(), merged ? "merged" : "closed");
         }
-        phaseMachine.observe(
-                task.id(), TaskPhase.COMPLETED, merged ? "pr_merged_observed" : "pr_closed_observed");
+        // Interrupt + evict any still-running per-stage agents BEFORE the reap,
+        // so a live subprocess isn't yanked out from under a worktree it's
+        // mid-tool-call inside. Best-effort: the orphan sweep retries the reap.
+        evictRunningStages(task);
         // Seal any still-open review round or stage so neither keeps
         // rendering as live once the task itself is terminal.
         sealer.seal(task.id(), merged ? "pr_merged" : "pr_closed");

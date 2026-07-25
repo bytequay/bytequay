@@ -17,7 +17,6 @@ import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadKind;
@@ -684,31 +683,10 @@ public abstract class AbstractCliThreadAgent
                 || current.status() == ThreadStatus.ARCHIVED;
         if (inMemoryTerminal || persistedTerminal) {
             status.set(ThreadStatus.IDLE);
-            // Flip the bound task back to IDLE first so the thread-side
-            // saveThread cascade sees a non-terminal active task and the two
-            // stay in sync. Trunk agents have no bound task and must not
-            // revive task work as a side effect.
-            if (activeTaskId != null) {
-                taskStore.findTaskById(activeTaskId).ifPresent(task -> {
-                    if (task.status() != TaskStatus.COMPLETED
-                            && task.status() != TaskStatus.REMOTE_CLOSED) {
-                        taskStore.saveTask(new Task(
-                                task.id(), task.threadId(), task.seq(), TaskStatus.IDLE,
-                                task.branchName(), task.worktreePath(), task.baseBranch(),
-                                task.workingDir(), task.processPid(), task.logPath(),
-                                task.prNumber(), task.prState(), task.ciState(),
-                                task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
-                                task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
-                                agentSessionId.get(),
-                                task.createdAt(), /* endedAt */ null,
-                                /* errorMessage */ null,
-                                task.name(), task.roleSkill(), task.workModel(),
-                                task.pushedAt(), task.phase(), task.agendaJson(),
-                                task.consecutiveAutoPushes(), task.linkedPrRef(), task.openingPrompt(),
-                                task.origin()));
-                    }
-                });
-            }
+            // CLI revive updates the THREAD only. The task's status is the
+            // runtime projection's to derive from its own liveness turns —
+            // a revive here must never resurrect a CANCELED task or clobber
+            // PAUSED/NEEDS_ATTENTION via a full-row save.
             store.saveThread(new Thread(
                     current.id(), current.kind(), current.provider(), current.agentSessionId(),
                     current.title(), ThreadStatus.IDLE,

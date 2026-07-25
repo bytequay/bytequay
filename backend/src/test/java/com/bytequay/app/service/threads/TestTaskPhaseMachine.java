@@ -462,6 +462,72 @@ class TestTaskPhaseMachine
         verify(taskStore, never()).updateStatusIf(any(), any(), any());
     }
 
+    @Test
+    void retryErroredRequiresTheExactCurrentFailureAndMovesToIdle()
+    {
+        Task errored = taskAt("t1", TaskPhase.IMPLEMENTING).withStatus(TaskStatus.ERRORED);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(errored));
+        when(taskStore.currentLivenessTurnId("t1")).thenReturn(Optional.of("turn-9"));
+        ThreadTurn failed = mock(ThreadTurn.class);
+        when(failed.status()).thenReturn(ThreadTurnStatus.FAILED);
+        when(turnStore.findTurnById("turn-9")).thenReturn(Optional.of(failed));
+
+        assertThat(machine.retryErrored("t1", "turn-9")).isSameAs(failed);
+
+        verify(taskStore).updateStatusIf("t1", TaskStatus.ERRORED, TaskStatus.IDLE);
+        verify(taskStore).appendStatusEvent(
+                eq("t1"), eq(TaskStatus.ERRORED), eq(TaskStatus.IDLE),
+                eq(Actor.HUMAN), eq("task_retry"), any());
+        verify(taskStore).updateRuntimeFailure("t1", null, null);
+
+        // A superseded pointer refuses the retry.
+        when(taskStore.currentLivenessTurnId("t1")).thenReturn(Optional.of("turn-10"));
+        assertThatThrownBy(() -> machine.retryErrored("t1", "turn-9"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no longer");
+    }
+
+    @Test
+    void archiveIdleRefusesLiveWorkAndPendingRequests()
+    {
+        Task idle = taskAt("t1", TaskPhase.IMPLEMENTING).withStatus(TaskStatus.IDLE);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(idle));
+        when(taskStore.resumeRequestedAt("t1")).thenReturn(Optional.empty());
+        when(taskStore.recoveryRequest("t1")).thenReturn(Optional.empty());
+        when(turnStore.listTurnsByExactTaskIdAndStatus("t1", ThreadTurnStatus.QUEUED, 1))
+                .thenReturn(List.of(mock(ThreadTurn.class)));
+
+        machine.archiveIdle("t1");
+        verify(taskStore, never()).updateStatusIf(any(), any(), any());
+
+        when(turnStore.listTurnsByExactTaskIdAndStatus("t1", ThreadTurnStatus.QUEUED, 1))
+                .thenReturn(List.of());
+        machine.archiveIdle("t1");
+        verify(taskStore).updateStatusIf("t1", TaskStatus.IDLE, TaskStatus.ARCHIVED);
+        verify(taskStore).appendStatusEvent(
+                eq("t1"), eq(TaskStatus.IDLE), eq(TaskStatus.ARCHIVED),
+                eq(Actor.SCHEDULER), eq("idle_archived"), any());
+    }
+
+    @Test
+    void reviveArchivedMovesBackToIdleAndClearsFailureFields()
+    {
+        Task archived = taskAt("t1", TaskPhase.IMPLEMENTING).withStatus(TaskStatus.ARCHIVED);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(archived));
+
+        Task revived = machine.reviveArchived("t1");
+
+        assertThat(revived.status()).isEqualTo(TaskStatus.IDLE);
+        verify(taskStore).updateStatusIf("t1", TaskStatus.ARCHIVED, TaskStatus.IDLE);
+        verify(taskStore).updateRuntimeFailure("t1", null, null);
+
+        when(taskStore.findTaskById("t2")).thenReturn(
+                Optional.of(taskAt("t2", TaskPhase.IMPLEMENTING)));
+        assertThatThrownBy(() -> machine.reviveArchived("t2"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not archived");
+    }
+
     private static Task taskAt(String id, TaskPhase phase)
     {
         Instant now = Instant.parse("2026-06-15T12:00:00Z");

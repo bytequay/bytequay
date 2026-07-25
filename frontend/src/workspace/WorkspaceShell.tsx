@@ -88,6 +88,7 @@ type Props = {
   issueNumber?: number;
   branchName?: string;
   onOpenBranch?: (branchName: string) => void;
+  onOpenHarness?: (watchId?: string) => void;
   sessionId?: string;
   onOpenSession?: (sessionId: string) => void;
   onOpenReview?: (target: WorkspaceReviewSessionTarget) => void;
@@ -118,7 +119,7 @@ function WorkspaceShell({
   onOpenIssue, prNumber, prId, agentColumn, issueNumber, branchName, onOpenBranch,
   sessionId, onOpenSession, onOpenReview,
   backlogKey, onOpenBacklog,
-  settingsSection, onSelectSettingsSection,
+  settingsSection, onSelectSettingsSection, onOpenHarness,
 }: Props) {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [pendingBacklogStartKey, setPendingBacklogStartKey] = useState<string | null>(null);
@@ -160,6 +161,7 @@ function WorkspaceShell({
             onOpenIssue={number => onOpenIssue?.(number)}
             onOpenBranch={onOpenBranch}
             onOpenTrunk={onOpenThread}
+            onOpenHarness={onOpenHarness}
             selectedNumber={activeSection === 'pull-requests' ? prNumber : issueNumber}
             selectedPrId={activeSection === 'pull-requests' ? prId : undefined}
             initialAgentView={activeSection === 'pull-requests' ? agentColumn : undefined}
@@ -244,7 +246,8 @@ function isRepoSection(section: WorkspaceSection): section is WorkspaceRepoSecti
 
 function isSettingsSection(value: string | undefined): value is WorkspaceSettingsSection {
   return value === 'general' || value === 'agents' || value === 'notifications'
-    || value === 'sync' || value === 'automation' || value === 'memory' || value === 'danger';
+    || value === 'relations' || value === 'sync' || value === 'automation'
+    || value === 'memory' || value === 'danger';
 }
 
 export default WorkspaceShell;

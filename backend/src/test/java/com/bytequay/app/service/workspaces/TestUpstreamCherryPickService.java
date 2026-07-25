@@ -1,0 +1,784 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.workspaces;
+
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRSyncService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.server.ResponseStatusException;
+import org.sqlite.SQLiteDataSource;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+class TestUpstreamCherryPickService
+{
+    @Test
+    @SuppressWarnings("unchecked")
+    void appliesEverySelectedCommitWhenTheyShareOneUpstreamPr(@TempDir Path root)
+            throws Exception
+    {
+        Path target = Files.createDirectory(root.resolve("target"));
+        Path upstream = Files.createDirectory(root.resolve("upstream"));
+        initialise(target);
+        initialise(upstream);
+        commit(target, "base.txt", "base", "Fork base");
+        commit(upstream, "one.txt", "one", "Part one (#101)");
+        String first = output(upstream, "rev-parse", "HEAD");
+        commit(upstream, "two.txt", "two", "Part two (#101)");
+        String second = output(upstream, "rev-parse", "HEAD");
+
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
+        WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "fork", "acme/fork", "main");
+        WorkspaceRepositoryResolver.RepositoryIdentity upstreamIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "upstream", "acme/upstream", "main");
+        WorkspaceRelationService.WorkspaceRelationDto relationDto =
+                new WorkspaceRelationService.WorkspaceRelationDto(
+                        "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
+                        true, true, false, false, null, 15, 2);
+        when(relations.requireResolved("fork-ws"))
+                .thenReturn(new WorkspaceRelationService.ResolvedRelation(
+                        relationDto, targetIdentity, upstreamIdentity, target, upstream));
+        when(relations.defaultBranch(upstreamIdentity, upstream)).thenReturn("main");
+        when(relations.defaultBranch(targetIdentity, target)).thenReturn("main");
+        when(relations.resolveFetchedRemoteRef(upstream, "main")).thenReturn("main");
+        when(relations.resolveFetchedRemoteRef(target, "main")).thenReturn("main");
+        GitRunner git = new GitRunner();
+        UpstreamCherryPickService service = new UpstreamCherryPickService(
+                jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
+                mock(PullRequestRepository.class), mock(PRSyncService.class),
+                mock(ObjectProvider.class));
+
+        UpstreamCherryPickService.UpstreamCherryPickJobDto started = service.enqueue(
+                "fork-ws",
+                new UpstreamCherryPickService.StartRequest(
+                        "main", "same-pr-pick", List.of(first, second),
+                        false, false, null));
+        UpstreamCherryPickService.UpstreamCherryPickJobDto completed = awaitStatus(
+                service, "fork-ws", started.jobId(), Set.of("COMPLETED", "FAILED"));
+
+        assertThat(completed.status()).isEqualTo("COMPLETED");
+        assertThat(completed.appliedCount()).isEqualTo(2);
+        assertThat(completed.skippedCount()).isZero();
+        assertThat(git.listTrailerValues(
+                target, "same-pr-pick",
+                WorkspaceRelationService.UPSTREAM_COMMIT_TRAILER, 100))
+                .containsExactlyInAnyOrder(first, second);
+        assertThat(output(
+                target, "rev-list", "--count", "main..same-pr-pick"))
+                .isEqualTo("2");
+        assertThat(output(
+                target, "log", "--reverse", "--format=%s", "main..same-pr-pick")
+                .lines().toList())
+                .containsExactly("Part one (#101)", "Part two (#101)");
+        assertThat(output(
+                target, "log", "--format=%(trailers:key=Upstream-PR,valueonly)",
+                "main..same-pr-pick").lines()
+                .filter("acme/upstream#101"::equals)
+                .toList())
+                .hasSize(2);
+    }
+
+    @Test
+    void allowsOnlyOneLiveOrPausedJobPerWorkspace(@TempDir Path root)
+    {
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        insertJob(jdbc, "job-1", "fork-ws", "PAUSED_CONFLICT", root.resolve("one"));
+
+        assertThatThrownBy(() -> insertJob(
+                jdbc, "job-2", "fork-ws", "QUEUED", root.resolve("two")))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("UNIQUE constraint failed");
+
+        insertJob(jdbc, "job-3", "other-ws", "RUNNING", root.resolve("three"));
+        jdbc.update("UPDATE upstream_cherry_pick_job SET status = 'COMPLETED' WHERE id = 'job-1'");
+        insertJob(jdbc, "job-4", "fork-ws", "QUEUED", root.resolve("four"));
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM upstream_cherry_pick_job", Integer.class))
+                .isEqualTo(3);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void listsDurableJobsNewestFirstForDialogRecovery(@TempDir Path root)
+    {
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        insertJob(jdbc, "older", "fork-ws", "COMPLETED", root.resolve("older"));
+        insertJob(jdbc, "newer", "fork-ws", "PAUSED_CONFLICT", root.resolve("newer"));
+        insertJob(jdbc, "other", "other-ws", "COMPLETED", root.resolve("other"));
+        jdbc.update("UPDATE upstream_cherry_pick_job SET created_at_ms = 10 WHERE id = 'older'");
+        jdbc.update("UPDATE upstream_cherry_pick_job SET created_at_ms = 20 WHERE id = 'newer'");
+        UpstreamCherryPickService service = new UpstreamCherryPickService(
+                jdbc, new ObjectMapper(), mock(WorkspaceRelationService.class),
+                mock(GitRunner.class), mock(PatResolver.class),
+                mock(PullRequestRepository.class), mock(PRSyncService.class),
+                mock(ObjectProvider.class));
+
+        assertThat(service.list("fork-ws", 20))
+                .extracting(UpstreamCherryPickService.UpstreamCherryPickJobDto::jobId)
+                .containsExactly("newer", "older");
+        assertThat(service.list("fork-ws", 1))
+                .extracting(UpstreamCherryPickService.UpstreamCherryPickJobDto::jobId)
+                .containsExactly("newer");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void rejectsAnUnassociatedCommitBeforeCreatingTheBranch(@TempDir Path root)
+            throws Exception
+    {
+        Path target = Files.createDirectory(root.resolve("target"));
+        Path upstream = Files.createDirectory(root.resolve("upstream"));
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
+        GitRunner git = mock(GitRunner.class);
+        PatResolver pats = mock(PatResolver.class);
+        PullRequestRepository pullRequests = mock(PullRequestRepository.class);
+        ObjectProvider<HarnessWatchHandoff> handoff = mock(ObjectProvider.class);
+        WorkspaceRelationService.WorkspaceRelationDto relationDto =
+                new WorkspaceRelationService.WorkspaceRelationDto(
+                        "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
+                        true, true, false, false, null, 15, 1);
+        WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "fork", "acme/fork", "main");
+        WorkspaceRepositoryResolver.RepositoryIdentity upstreamIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "upstream", "acme/upstream", "main");
+        WorkspaceRelationService.ResolvedRelation resolved =
+                new WorkspaceRelationService.ResolvedRelation(
+                        relationDto, targetIdentity, upstreamIdentity, target, upstream);
+        when(relations.requireResolved("fork-ws")).thenReturn(resolved);
+        when(relations.defaultBranch(upstreamIdentity, upstream)).thenReturn("main");
+        when(relations.defaultBranch(targetIdentity, target)).thenReturn("main");
+        when(relations.resolveFetchedRemoteRef(upstream, "main"))
+                .thenReturn("origin/main");
+        when(relations.resolveFetchedRemoteRef(target, "main"))
+                .thenReturn("origin/main");
+        when(git.isValidBranchName("release-pick")).thenReturn(true);
+        when(git.resolveCommitSha(target, "origin/main"))
+                .thenReturn(Optional.of("base-sha"));
+        when(git.refExists(target, "release-pick")).thenReturn(false);
+        GitRunner.DecoratedCommitEntry commit = new GitRunner.DecoratedCommitEntry(
+                "commit-1", "commit-1", "Test", "test@example.com",
+                "2026-07-24T00:00:00Z", "Commit without PR suffix",
+                List.of(), List.of());
+        when(git.listDecoratedCommits(
+                upstream, "origin/main", 50_000,
+                WorkspaceRelationService.UPSTREAM_PR_TRAILER))
+                .thenReturn(List.of(commit));
+        when(git.resolveCommitSha(upstream, "commit-1"))
+                .thenReturn(Optional.of("commit-1"));
+        when(pats.resolve("acme/upstream")).thenReturn("pat");
+        when(pullRequests.listPullRequestsForCommit(
+                "pat", RepoRef.of("acme", "upstream"), "commit-1"))
+                .thenReturn(List.of());
+        UpstreamCherryPickService service = new UpstreamCherryPickService(
+                jdbc, new ObjectMapper(), relations, git, pats, pullRequests,
+                mock(PRSyncService.class), handoff);
+
+        assertThatThrownBy(() -> service.enqueue(
+                "fork-ws",
+                new UpstreamCherryPickService.StartRequest(
+                        null, "release-pick", List.of("commit-1"),
+                        false, false, null)))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not associated with a pull request");
+
+        verify(pullRequests).listPullRequestsForCommit(
+                "pat", RepoRef.of("acme", "upstream"), "commit-1");
+        verify(git).fetch(upstream);
+        verify(git).fetch(target);
+        verify(git, never()).worktreeAdd(any(), any(), any(), any());
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM upstream_cherry_pick_job", Integer.class))
+                .isZero();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void rejectsAnExistingRemoteResultBranchAfterFetchingBothRepositories(
+            @TempDir Path root)
+            throws Exception
+    {
+        Path target = Files.createDirectory(root.resolve("target"));
+        Path upstream = Files.createDirectory(root.resolve("upstream"));
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
+        GitRunner git = mock(GitRunner.class);
+        WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "fork", "acme/fork", "main");
+        WorkspaceRepositoryResolver.RepositoryIdentity upstreamIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "upstream", "acme/upstream", "main");
+        WorkspaceRelationService.WorkspaceRelationDto relationDto =
+                new WorkspaceRelationService.WorkspaceRelationDto(
+                        "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
+                        true, true, false, false, null, 15, 1);
+        when(relations.requireResolved("fork-ws")).thenReturn(
+                new WorkspaceRelationService.ResolvedRelation(
+                        relationDto, targetIdentity, upstreamIdentity, target, upstream));
+        when(relations.defaultBranch(upstreamIdentity, upstream)).thenReturn("main");
+        when(relations.defaultBranch(targetIdentity, target)).thenReturn("main");
+        when(relations.resolveFetchedRemoteRef(upstream, "main"))
+                .thenReturn("origin/main");
+        when(relations.resolveFetchedRemoteRef(target, "main"))
+                .thenReturn("origin/main");
+        when(git.isValidBranchName("release-pick")).thenReturn(true);
+        when(git.resolveCommitSha(target, "origin/main"))
+                .thenReturn(Optional.of("base-sha"));
+        when(git.refExists(target, "release-pick")).thenReturn(false);
+        when(git.refExists(target, "origin/release-pick")).thenReturn(true);
+        UpstreamCherryPickService service = new UpstreamCherryPickService(
+                jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
+                mock(PullRequestRepository.class), mock(PRSyncService.class),
+                mock(ObjectProvider.class));
+
+        assertThatThrownBy(() -> service.enqueue(
+                "fork-ws",
+                new UpstreamCherryPickService.StartRequest(
+                        null, "release-pick", List.of("commit-1"),
+                        false, false, null)))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> {
+                    assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(failure.getReason()).contains("already exists");
+                });
+
+        verify(git).fetch(upstream);
+        verify(git).fetch(target);
+        verify(git, never()).listDecoratedCommits(any(), any(), eq(50_000), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void restartRepairsACherryPickThatCompletedBeforeProgressWasPersisted(
+            @TempDir Path root)
+            throws Exception
+    {
+        Path target = Files.createDirectory(root.resolve("target"));
+        Path upstream = Files.createDirectory(root.resolve("upstream"));
+        Path worktree = Files.createDirectory(root.resolve("worktree"));
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        jdbc.update("""
+                INSERT INTO upstream_cherry_pick_job (
+                    id, workspace_id, upstream_workspace_id, status,
+                    source_branch, source_ref, base_branch, base_ref,
+                    result_branch, commit_specs_json, applied_shas_json,
+                    skipped_shas_json, next_commit_index,
+                    conflict_paths_json, worktree_path,
+                    open_draft_pr, create_harness_watch, budget_milli_usd,
+                    created_at_ms, updated_at_ms)
+                VALUES ('job-1', 'fork-ws', 'upstream-ws', 'RUNNING',
+                    'main', 'source-sha', 'main', 'base-sha',
+                    'pick-release',
+                    '[{"sha":"commit-1","upstreamPr":"acme/upstream#101","subject":"Feature (#101)"}]',
+                    '[]', '[]', 0, '[]', ?, 0, 0, 5000, 1, 1)
+                """, worktree.toString());
+
+        WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
+        GitRunner git = mock(GitRunner.class);
+        PatResolver pats = mock(PatResolver.class);
+        PullRequestRepository pullRequests = mock(PullRequestRepository.class);
+        ObjectProvider<HarnessWatchHandoff> handoff = mock(ObjectProvider.class);
+        WorkspaceRelationService.WorkspaceRelationDto relationDto =
+                new WorkspaceRelationService.WorkspaceRelationDto(
+                        "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
+                        true, true, false, false, null, 15, 1);
+        WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "fork", "acme/fork", "main");
+        WorkspaceRepositoryResolver.RepositoryIdentity upstreamIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "upstream", "acme/upstream", "main");
+        when(relations.requireResolved("fork-ws"))
+                .thenReturn(new WorkspaceRelationService.ResolvedRelation(
+                        relationDto, targetIdentity, upstreamIdentity, target, upstream));
+        when(git.cherryPickInProgress(worktree)).thenReturn(false);
+        when(git.listCommits(worktree, "base-sha..HEAD", 2))
+                .thenReturn(List.of(new GitRunner.CommitEntry(
+                        "new-head", "new-head", "Test", "test@example.com",
+                        "2026-07-24T00:00:00Z", "Feature (#101)")));
+        when(git.listTrailerValues(
+                target, "base-sha",
+                WorkspaceRelationService.UPSTREAM_COMMIT_TRAILER, 50_000))
+                .thenReturn(Set.of());
+
+        UpstreamCherryPickService service = new UpstreamCherryPickService(
+                jdbc,
+                new ObjectMapper(),
+                relations,
+                git,
+                pats,
+                pullRequests,
+                mock(PRSyncService.class),
+                handoff);
+        service.recover();
+
+        UpstreamCherryPickService.UpstreamCherryPickJobDto job =
+                awaitTerminal(service);
+        assertThat(job.status()).isEqualTo("COMPLETED");
+        assertThat(job.appliedCount()).isEqualTo(1);
+        verify(git).amendHeadTrailer(
+                worktree,
+                WorkspaceRelationService.UPSTREAM_PR_TRAILER,
+                "acme/upstream#101");
+        verify(git).amendHeadTrailer(
+                worktree,
+                WorkspaceRelationService.UPSTREAM_COMMIT_TRAILER,
+                "commit-1");
+        verify(git, never()).cherryPick(eq(worktree), anyList());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void retriesAFailedJobFromItsDurableProgressAndRejectsInvalidStates(
+            @TempDir Path root)
+            throws Exception
+    {
+        Path target = Files.createDirectory(root.resolve("target"));
+        Path upstream = Files.createDirectory(root.resolve("upstream"));
+        Path worktree = Files.createDirectory(root.resolve("worktree"));
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        jdbc.update("""
+                INSERT INTO upstream_cherry_pick_job (
+                    id, workspace_id, upstream_workspace_id, status,
+                    source_branch, source_ref, base_branch, base_ref,
+                    result_branch, commit_specs_json, applied_shas_json,
+                    skipped_shas_json, next_commit_index,
+                    conflict_paths_json, worktree_path,
+                    open_draft_pr, create_harness_watch, budget_milli_usd,
+                    error_message, created_at_ms, updated_at_ms)
+                VALUES ('job-1', 'fork-ws', 'upstream-ws', 'FAILED',
+                    'main', 'origin/main', 'main', 'base-sha',
+                    'pick-release',
+                    '[{"sha":"commit-1","upstreamPr":"acme/upstream#101","subject":"First"},'
+                    || '{"sha":"commit-2","upstreamPr":"acme/upstream#102","subject":"Second"}]',
+                    '["commit-1"]', '[]', 1, '["stale.txt"]', ?,
+                    0, 0, 5000, 'temporary failure', 1, 1)
+                """, worktree.toString());
+
+        WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
+        GitRunner git = mock(GitRunner.class);
+        WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "fork", "acme/fork", "main");
+        WorkspaceRepositoryResolver.RepositoryIdentity upstreamIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "upstream", "acme/upstream", "main");
+        WorkspaceRelationService.WorkspaceRelationDto relationDto =
+                new WorkspaceRelationService.WorkspaceRelationDto(
+                        "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
+                        true, true, false, false, null, 15, 2);
+        WorkspaceRelationService.ResolvedRelation resolved =
+                new WorkspaceRelationService.ResolvedRelation(
+                        relationDto, targetIdentity, upstreamIdentity, target, upstream);
+        when(relations.requireResolved("fork-ws")).thenReturn(resolved);
+        when(git.cherryPickInProgress(worktree)).thenReturn(false);
+        when(git.listCommits(worktree, "base-sha..HEAD", 3))
+                .thenReturn(List.of(new GitRunner.CommitEntry(
+                        "picked-head", "picked", "Test", "test@example.com",
+                        "2026-07-24T00:00:00Z", "First")));
+        List<GitRunner.DecoratedCommitEntry> history = List.of(
+                new GitRunner.DecoratedCommitEntry(
+                        "commit-2", "commit-2", "Test", "test@example.com",
+                        "2026-07-24T00:00:00Z", "Second",
+                        List.of(), List.of("acme/upstream#102")),
+                new GitRunner.DecoratedCommitEntry(
+                        "commit-1", "commit-1", "Test", "test@example.com",
+                        "2026-07-23T00:00:00Z", "First",
+                        List.of(), List.of("acme/upstream#101")));
+        when(git.listDecoratedCommits(
+                upstream, "origin/main", 50_000,
+                WorkspaceRelationService.UPSTREAM_PR_TRAILER))
+                .thenReturn(history);
+        when(relations.pickedCommitShas(resolved, "base-sha", history))
+                .thenReturn(Set.of("commit-1"));
+        when(git.cherryPick(worktree, List.of("commit-2")))
+                .thenReturn(new GitRunner.CherryPickOutcome(
+                        true, 0, "commit-2", List.of(), null));
+        UpstreamCherryPickService service = new UpstreamCherryPickService(
+                jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
+                mock(PullRequestRepository.class), mock(PRSyncService.class),
+                mock(ObjectProvider.class));
+
+        assertThatThrownBy(() -> service.retry("other-ws", "job-1"))
+                .isInstanceOf(NoSuchElementException.class);
+        service.retry("fork-ws", "job-1");
+        UpstreamCherryPickService.UpstreamCherryPickJobDto completed =
+                awaitTerminal(service);
+
+        assertThat(completed.status()).isEqualTo("COMPLETED");
+        assertThat(completed.appliedCount()).isEqualTo(2);
+        assertThat(completed.conflictPaths()).isEmpty();
+        verify(git, never()).cherryPick(worktree, List.of("commit-1"));
+        verify(git).cherryPick(worktree, List.of("commit-2"));
+        assertThatThrownBy(() -> service.retry("fork-ws", "job-1"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure ->
+                        assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void conflictPausesForAHumanWithoutCreatingAHarnessWatch(@TempDir Path root)
+            throws Exception
+    {
+        Path target = Files.createDirectory(root.resolve("target"));
+        Path upstream = Files.createDirectory(root.resolve("upstream"));
+        Path worktree = Files.createDirectory(root.resolve("worktree"));
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        jdbc.update("""
+                INSERT INTO upstream_cherry_pick_job (
+                    id, workspace_id, upstream_workspace_id, status,
+                    source_branch, source_ref, base_branch, base_ref,
+                    result_branch, commit_specs_json, applied_shas_json,
+                    skipped_shas_json, next_commit_index,
+                    conflict_paths_json, worktree_path,
+                    open_draft_pr, create_harness_watch, budget_milli_usd,
+                    created_at_ms, updated_at_ms)
+                VALUES ('job-1', 'fork-ws', 'upstream-ws', 'QUEUED',
+                    'main', 'source-sha', 'main', 'base-sha',
+                    'pick-release',
+                    '[{"sha":"commit-1","upstreamPr":"acme/upstream#101","subject":"Feature (#101)"}]',
+                    '[]', '[]', 0, '[]', ?, 0, 0, 5000, 1, 1)
+                """, worktree.toString());
+
+        WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
+        GitRunner git = mock(GitRunner.class);
+        PatResolver pats = mock(PatResolver.class);
+        PullRequestRepository pullRequests = mock(PullRequestRepository.class);
+        ObjectProvider<HarnessWatchHandoff> handoff = mock(ObjectProvider.class);
+        WorkspaceRelationService.WorkspaceRelationDto relationDto =
+                new WorkspaceRelationService.WorkspaceRelationDto(
+                        "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
+                        true, true, false, false, null, 15, 1);
+        WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "fork", "acme/fork", "main");
+        WorkspaceRepositoryResolver.RepositoryIdentity upstreamIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "upstream", "acme/upstream", "main");
+        when(relations.requireResolved("fork-ws"))
+                .thenReturn(new WorkspaceRelationService.ResolvedRelation(
+                        relationDto, targetIdentity, upstreamIdentity, target, upstream));
+        when(git.cherryPickInProgress(worktree)).thenReturn(false, true, false, false);
+        when(git.listCommits(worktree, "base-sha..HEAD", 2))
+                .thenReturn(
+                        List.of(),
+                        List.of(new GitRunner.CommitEntry(
+                                "picked-head", "picked", "Test", "test@example.com",
+                                "2026-07-24T00:00:00Z", "Feature (#101)")));
+        when(git.commitDetail(worktree, "HEAD"))
+                .thenReturn(Optional.of(new GitRunner.CommitDetailEntry(
+                        "picked-head", "Feature (#101)", "")));
+        when(git.listTrailerValues(
+                target, "base-sha",
+                WorkspaceRelationService.UPSTREAM_COMMIT_TRAILER, 50_000))
+                .thenReturn(Set.of());
+        when(git.cherryPick(worktree, List.of("commit-1")))
+                .thenReturn(new GitRunner.CherryPickOutcome(
+                        false, 0, "commit-1", List.of("src/Main.java"),
+                        "resolve conflicts and continue"));
+
+        UpstreamCherryPickService service = new UpstreamCherryPickService(
+                jdbc, new ObjectMapper(), relations, git, pats, pullRequests,
+                mock(PRSyncService.class), handoff);
+        service.recover();
+
+        UpstreamCherryPickService.UpstreamCherryPickJobDto job = awaitStatus(
+                service, Set.of("PAUSED_CONFLICT", "FAILED"));
+        assertThat(job.status()).isEqualTo("PAUSED_CONFLICT");
+        assertThat(job.conflictPaths()).containsExactly("src/Main.java");
+
+        service.resume("fork-ws", "job-1");
+        job = awaitTerminal(service);
+        assertThat(job.status()).isEqualTo("COMPLETED");
+        assertThat(service.list("fork-ws", 1))
+                .extracting(UpstreamCherryPickService.UpstreamCherryPickJobDto::jobId)
+                .containsExactly("job-1");
+        verify(git).amendHeadTrailer(
+                worktree, WorkspaceRelationService.UPSTREAM_PR_TRAILER,
+                "acme/upstream#101");
+        verify(git).amendHeadTrailer(
+                worktree, WorkspaceRelationService.UPSTREAM_COMMIT_TRAILER,
+                "commit-1");
+        verifyNoInteractions(handoff);
+        verify(pullRequests, never()).createPullRequest(any(), any(), any());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void harnessHandoffCarriesTheSyncedLocalPrId(@TempDir Path root)
+            throws Exception
+    {
+        Path target = Files.createDirectory(root.resolve("target"));
+        Path upstream = Files.createDirectory(root.resolve("upstream"));
+        Path worktree = Files.createDirectory(root.resolve("worktree"));
+        JdbcTemplate jdbc = jdbc(root.resolve("jobs.db"));
+        createTable(jdbc);
+        jdbc.update("""
+                INSERT INTO upstream_cherry_pick_job (
+                    id, workspace_id, upstream_workspace_id, status,
+                    source_branch, source_ref, base_branch, base_ref,
+                    result_branch, commit_specs_json, applied_shas_json,
+                    skipped_shas_json, next_commit_index,
+                    conflict_paths_json, worktree_path,
+                    open_draft_pr, create_harness_watch, budget_milli_usd,
+                    pr_number, pr_url, created_at_ms, updated_at_ms)
+                VALUES ('job-1', 'fork-ws', 'upstream-ws', 'QUEUED',
+                    'main', 'source-sha', 'main', 'base-sha',
+                    'pick-release', '[]', '[]', '[]', 0, '[]', ?,
+                    1, 1, 5000, 123, 'https://example.test/pr/123', 1, 1)
+                """, worktree.toString());
+
+        WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
+        GitRunner git = mock(GitRunner.class);
+        PRSyncService prSync = mock(PRSyncService.class);
+        ObjectProvider<HarnessWatchHandoff> provider = mock(ObjectProvider.class);
+        HarnessWatchHandoff handoff = mock(HarnessWatchHandoff.class);
+        WorkspaceRepositoryResolver.RepositoryIdentity targetIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "fork", "acme/fork", "main");
+        WorkspaceRepositoryResolver.RepositoryIdentity upstreamIdentity =
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "upstream", "acme/upstream", "main");
+        WorkspaceRelationService.WorkspaceRelationDto relationDto =
+                new WorkspaceRelationService.WorkspaceRelationDto(
+                        "fork-ws", "upstream-ws", "Upstream", "acme/upstream",
+                        true, true, false, false, null, 15, 0);
+        when(relations.requireResolved("fork-ws"))
+                .thenReturn(new WorkspaceRelationService.ResolvedRelation(
+                        relationDto, targetIdentity, upstreamIdentity, target, upstream));
+        when(git.cherryPickInProgress(worktree)).thenReturn(false);
+        when(git.listCommits(worktree, "base-sha..HEAD", 1)).thenReturn(List.of());
+        when(git.listTrailerValues(
+                target, "base-sha",
+                WorkspaceRelationService.UPSTREAM_COMMIT_TRAILER, 50_000))
+                .thenReturn(Set.of());
+        PR localPr = PR.createExternal(
+                "local-pr-1", "acme/fork", 123, "https://example.test/pr/123",
+                "octocat", "pick-release", "main", "Release pick", "",
+                PR.STATUS_REMOTE_DRAFTED, Instant.now(), null, null);
+        when(prSync.syncExternalPR("acme/fork", 123)).thenReturn(Optional.of(localPr));
+        when(provider.getIfAvailable()).thenReturn(handoff);
+        when(handoff.create(
+                "fork-ws", "acme/fork", 123, "local-pr-1", "pick-release",
+                worktree.toString(), 5_000L)).thenReturn("watch-1");
+        UpstreamCherryPickService service = new UpstreamCherryPickService(
+                jdbc, new ObjectMapper(), relations, git, mock(PatResolver.class),
+                mock(PullRequestRepository.class), prSync, provider);
+
+        service.recover();
+        UpstreamCherryPickService.UpstreamCherryPickJobDto completed =
+                awaitTerminal(service);
+
+        assertThat(completed.status()).isEqualTo("COMPLETED");
+        assertThat(completed.harnessWatchId()).isEqualTo("watch-1");
+        verify(prSync).syncExternalPR("acme/fork", 123);
+        verify(handoff).create(
+                "fork-ws", "acme/fork", 123, "local-pr-1", "pick-release",
+                worktree.toString(), 5_000L);
+    }
+
+    private static UpstreamCherryPickService.UpstreamCherryPickJobDto awaitTerminal(
+            UpstreamCherryPickService service)
+            throws InterruptedException
+    {
+        return awaitStatus(
+                service, "fork-ws", "job-1", Set.of("COMPLETED", "FAILED"));
+    }
+
+    private static UpstreamCherryPickService.UpstreamCherryPickJobDto awaitStatus(
+            UpstreamCherryPickService service,
+            Set<String> statuses)
+            throws InterruptedException
+    {
+        return awaitStatus(service, "fork-ws", "job-1", statuses);
+    }
+
+    private static UpstreamCherryPickService.UpstreamCherryPickJobDto awaitStatus(
+            UpstreamCherryPickService service,
+            String workspaceId,
+            String jobId,
+            Set<String> statuses)
+            throws InterruptedException
+    {
+        UpstreamCherryPickService.UpstreamCherryPickJobDto job =
+                service.require(workspaceId, jobId);
+        for (int i = 0; i < 200 && !statuses.contains(job.status()); i++) {
+            Thread.sleep(10);
+            job = service.require(workspaceId, jobId);
+        }
+        return job;
+    }
+
+    private static JdbcTemplate jdbc(Path database)
+    {
+        SQLiteDataSource dataSource = new SQLiteDataSource();
+        dataSource.setUrl("jdbc:sqlite:" + database);
+        return new JdbcTemplate(dataSource);
+    }
+
+    private static void createTable(JdbcTemplate jdbc)
+    {
+        jdbc.execute("""
+                CREATE TABLE upstream_cherry_pick_job (
+                    id TEXT PRIMARY KEY,
+                    workspace_id TEXT NOT NULL,
+                    upstream_workspace_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    source_branch TEXT NOT NULL,
+                    source_ref TEXT NOT NULL,
+                    base_branch TEXT NOT NULL,
+                    base_ref TEXT NOT NULL,
+                    result_branch TEXT NOT NULL,
+                    commit_specs_json TEXT NOT NULL,
+                    applied_shas_json TEXT NOT NULL,
+                    skipped_shas_json TEXT NOT NULL,
+                    next_commit_index INTEGER NOT NULL,
+                    conflict_paths_json TEXT NOT NULL,
+                    worktree_path TEXT NOT NULL,
+                    open_draft_pr INTEGER NOT NULL,
+                    create_harness_watch INTEGER NOT NULL,
+                    budget_milli_usd INTEGER NOT NULL,
+                    pr_number INTEGER,
+                    pr_url TEXT,
+                    harness_watch_id TEXT,
+                    error_message TEXT,
+                    created_at_ms INTEGER NOT NULL,
+                    updated_at_ms INTEGER NOT NULL)
+                """);
+        jdbc.execute("""
+                CREATE UNIQUE INDEX idx_upstream_cherry_pick_job_one_live
+                ON upstream_cherry_pick_job(workspace_id)
+                WHERE status IN ('QUEUED', 'RUNNING', 'PAUSED_CONFLICT')
+                """);
+    }
+
+    private static void insertJob(
+            JdbcTemplate jdbc,
+            String id,
+            String workspaceId,
+            String status,
+            Path worktree)
+    {
+        jdbc.update("""
+                INSERT INTO upstream_cherry_pick_job (
+                    id, workspace_id, upstream_workspace_id, status,
+                    source_branch, source_ref, base_branch, base_ref,
+                    result_branch, commit_specs_json, applied_shas_json,
+                    skipped_shas_json, next_commit_index,
+                    conflict_paths_json, worktree_path,
+                    open_draft_pr, create_harness_watch, budget_milli_usd,
+                    created_at_ms, updated_at_ms)
+                VALUES (?, ?, 'upstream-ws', ?, 'main', 'source-sha',
+                    'main', 'base-sha', 'pick-release',
+                    '[{"sha":"commit-1","upstreamPr":"acme/upstream#101","subject":"Feature (#101)"}]',
+                    '[]', '[]', 0, '[]', ?, 0, 0, 5000, 1, 1)
+                """, id, workspaceId, status, worktree.toString());
+    }
+
+    private static void initialise(Path repo)
+            throws IOException, InterruptedException
+    {
+        run(repo, "init", "-b", "main");
+        run(repo, "config", "user.email", "test@example.com");
+        run(repo, "config", "user.name", "Test");
+        run(repo, "remote", "add", "origin", repo.toString());
+    }
+
+    private static void commit(Path repo, String file, String content, String message)
+            throws IOException, InterruptedException
+    {
+        Files.writeString(repo.resolve(file), content);
+        run(repo, "add", file);
+        run(repo, "commit", "-m", message);
+    }
+
+    private static void run(Path repo, String... args)
+            throws IOException, InterruptedException
+    {
+        Process process = process(repo, args).start();
+        String output = new String(
+                process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        int code = process.waitFor();
+        if (code != 0) {
+            throw new IllegalStateException(
+                    "git " + String.join(" ", args) + " failed: " + output);
+        }
+    }
+
+    private static String output(Path repo, String... args)
+            throws IOException, InterruptedException
+    {
+        Process process = process(repo, args).start();
+        String output = new String(
+                process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        int code = process.waitFor();
+        if (code != 0) {
+            throw new IllegalStateException(
+                    "git " + String.join(" ", args) + " failed: " + output);
+        }
+        return output.strip();
+    }
+
+    private static ProcessBuilder process(Path repo, String... args)
+    {
+        String[] command = new String[args.length + 1];
+        command[0] = "git";
+        System.arraycopy(args, 0, command, 1, args.length);
+        return new ProcessBuilder(command)
+                .directory(repo.toFile())
+                .redirectErrorStream(true);
+    }
+}

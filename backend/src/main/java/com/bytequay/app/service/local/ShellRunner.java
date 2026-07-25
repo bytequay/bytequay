@@ -23,6 +23,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
@@ -99,12 +100,31 @@ public class ShellRunner
     public Result runArgv(Path workingDir, List<String> argv, long timeoutSeconds, int maxOutputBytes)
             throws InterruptedException
     {
+        return runArgv(workingDir, argv, Map.of(), timeoutSeconds, maxOutputBytes);
+    }
+
+    /**
+     * Runs a pre-validated argv with explicit environment overrides.
+     * The child still inherits the user's environment; supplied values
+     * replace only matching keys. This is used by CI-derived verifiers
+     * that need the same flags as the workflow without invoking a shell.
+     */
+    public Result runArgv(
+            Path workingDir, List<String> argv, Map<String, String> environment,
+            long timeoutSeconds, int maxOutputBytes)
+            throws InterruptedException
+    {
         if (argv == null || argv.isEmpty()) {
             return Result.refused("argv is empty — nothing to run");
+        }
+        if (environment == null || environment.entrySet().stream()
+                .anyMatch(entry -> entry.getKey() == null || entry.getValue() == null)) {
+            return Result.refused("environment contains a null key or value");
         }
         ProcessBuilder pb = new ProcessBuilder(argv)
                 .directory(workingDir.toFile())
                 .redirectErrorStream(true);
+        pb.environment().putAll(environment);
         Process process;
         try {
             process = pb.start();

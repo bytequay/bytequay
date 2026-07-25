@@ -265,9 +265,14 @@ describe('inline diff comment actions', () => {
 
   it('disables composing on a historical commit diff whose anchors do not match the live head', async () => {
     const remote = bundle();
+    const authoredAt = new Date('2026-07-24T09:30:00Z').getTime();
     remote.commits = [{
       id: 'commit-1', localPrId: 'pr-1', sha: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',
-      message: 'Older commit', additions: 2, deletions: 0, authoredAt: Date.now(), pushedAt: Date.now(),
+      message: 'Older commit', additions: 2, deletions: 0, authoredAt, pushedAt: Date.now(),
+    }];
+    remote.timeline = [{
+      id: 'event-1', localPrId: 'pr-1', eventType: 'commit', actor: '@octocat', isLocalOnly: false,
+      strippedOnPushAt: null, createdAt: authoredAt, payload: { sha: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef' },
     }];
     const fetchPrCommitDiff = vi.fn().mockResolvedValue([FILE]);
     window.bridge = {
@@ -281,7 +286,10 @@ describe('inline diff comment actions', () => {
     );
     await waitFor(() => expect(container.querySelector(`[data-pl-anchor="${FILE.filename}:RIGHT:1"]`)).not.toBeNull());
     fireEvent.click(screen.getByRole('button', { name: /All commits/ }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Older commit/ }));
+    const commitItem = screen.getByRole('menuitem', { name: /Older commit/ });
+    expect(commitItem.textContent).toContain('@octocat');
+    expect(commitItem.querySelector('time')?.dateTime).toBe('2026-07-24T09:30:00.000Z');
+    fireEvent.click(commitItem);
 
     await waitFor(() => expect(fetchPrCommitDiff).toHaveBeenCalledWith(
       'acme/widget', 12, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef',

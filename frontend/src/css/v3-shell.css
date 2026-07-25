@@ -651,6 +651,25 @@
 .shell .run-menu__item.danger {
   color: var(--red);
 }
+.shell .commits-dropdown__pop {
+  width: 320px;
+  max-width: calc(100vw - 24px);
+}
+.shell .commits-dropdown__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.shell .commits-dropdown__label,
+.shell .commits-dropdown__meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell .commits-dropdown__meta {
+  color: var(--text-3);
+  font-size: 11px;
+}
 
 /* Body — conversation column + optional right pane */
 .shell .body {

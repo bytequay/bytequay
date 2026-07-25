@@ -15,6 +15,7 @@ package com.bytequay.app.service.learning;
 
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +28,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -90,8 +92,16 @@ class TestProjectLearningService
         when(indexer.index(anyString(), anyString(), any(), any()))
                 .thenReturn(new DocumentIndexer.IndexResult(0, "capsule", "digest"));
 
+        LessonExtractor extractor = mock(LessonExtractor.class);
+        when(extractor.extract(anyString(), any(), any())).thenReturn(List.of());
+        KnowledgeIngestor ingestor = mock(KnowledgeIngestor.class);
+        when(ingestor.ingest(anyString(), any(), any(), any()))
+                .thenReturn(new KnowledgeIngestor.IngestResult(0, 0, 0));
+        KnowledgeItemStore knowledge = new KnowledgeItemStore(jdbc, new ObjectMapper());
+
         service = new ProjectLearningService(store, resolver, watchedRepos, indexer,
-                catalog, scorer, selector, evidenceFetcher, patResolver, new ObjectMapper());
+                catalog, scorer, selector, evidenceFetcher, extractor, ingestor,
+                knowledge, patResolver, new ObjectMapper());
     }
 
     @Test
@@ -118,7 +128,8 @@ class TestProjectLearningService
     {
         for (int attempt = 0; attempt < 200; attempt++) {
             String state = store.findRun(id).map(ProjectLearningRun::state).orElse(null);
-            if ("caught-up".equals(state) || "failed".equals(state) || "partial".equals(state)) {
+            if ("caught-up".equals(state) || "useful".equals(state)
+                    || "failed".equals(state) || "partial".equals(state)) {
                 return;
             }
             Thread.sleep(10);

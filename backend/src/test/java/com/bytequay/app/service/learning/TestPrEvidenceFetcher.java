@@ -62,7 +62,7 @@ class TestPrEvidenceFetcher
                         List.of(new PrReviewState("bob", "APPROVED", T0))));
 
         PrEvidenceBundle bundle = fetcher(github)
-                .fetch("pat", "ws-1", "acme/widget", 7, "alice", null, "repoSha");
+                .fetch("pat", "ws-1", "acme/widget", 7, "alice", "Title", null, "repoSha");
 
         assertThat(bundle.completeness().get("reviews")).isEqualTo("partial:reviews");
         assertThat(bundle.completeness().get("files")).isEqualTo("complete");
@@ -78,7 +78,7 @@ class TestPrEvidenceFetcher
                         List.of(file("core/Scheduler.java"), file("core/SchedulerTest.java"))));
 
         PrEvidenceBundle bundle = fetcher(github)
-                .fetch("pat", "ws-1", "acme/widget", 7, "alice", null, "repoSha");
+                .fetch("pat", "ws-1", "acme/widget", 7, "alice", "Title", null, "repoSha");
 
         // Every changed file still produced a path ref pinned to repoSha, even
         // with no CodeGraph to enrich symbols.
@@ -105,7 +105,7 @@ class TestPrEvidenceFetcher
                         root(302, "bob", "core/Other.java", "sha-from-a-later-push"))));
 
         PrEvidenceBundle bundle = fetcher(github)
-                .fetch("pat", "ws-1", "acme/widget", 7, "alice", null, "repoSha");
+                .fetch("pat", "ws-1", "acme/widget", 7, "alice", "Title", null, "repoSha");
 
         assertThat(bundle.refs())
                 .allMatch(r -> r.commitSha() == null || bundle.pinnedShas().contains(r.commitSha()));
@@ -125,7 +125,7 @@ class TestPrEvidenceFetcher
                         timeline(null, "labeled"))));
 
         PrEvidenceBundle bundle = fetcher(github)
-                .fetch("pat", "ws-1", "acme/widget", 7, "alice", null, "repoSha");
+                .fetch("pat", "ws-1", "acme/widget", 7, "alice", "Title", null, "repoSha");
 
         // The fetched timeline now yields queryable refs — but only for events
         // carrying a stable GitHub id; the id-less one is skipped.
@@ -147,7 +147,7 @@ class TestPrEvidenceFetcher
                 .withResolvedRoot(301L);
 
         PrEvidenceBundle bundle = fetcher(github)
-                .fetch("pat", "ws-1", "acme/widget", 7, "alice", null, "repoSha");
+                .fetch("pat", "ws-1", "acme/widget", 7, "alice", "Title", null, "repoSha");
 
         OutcomeChain chain = bundle.chains().stream()
                 .filter(c -> "comment:301".equals(c.concernRef()))

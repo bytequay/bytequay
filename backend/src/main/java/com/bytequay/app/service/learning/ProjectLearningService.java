@@ -13,11 +13,14 @@
  */
 package com.bytequay.app.service.learning;
 
+import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +39,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -70,6 +74,18 @@ public class ProjectLearningService
     private static final int SELECT_LIMIT = 50;
     /** Selected rows analyzed per pass; the loop repeats until the queue drains. */
     private static final int ANALYZE_BATCH = 25;
+    /** Initial quality bar: deep-analyze at least this many top-ranked PRs
+     *  (when the repository has that many) before diminishing yield may stop
+     *  the initial pass. */
+    private static final int INITIAL_DEEP_TARGET = 200;
+    /** Diminishing yield: two consecutive waves each producing fewer new,
+     *  non-duplicate, currently-applicable candidates than this stop the
+     *  initial pass; the long tail stays cataloged for backfill. */
+    private static final int WAVE_YIELD_FLOOR = 5;
+    /** Consecutive extraction failures that park the run retryable. */
+    private static final int MAX_CONSECUTIVE_EXTRACTION_FAILURES = 3;
+    /** Nearby existing knowledge shown to the extractor for dedup/conflicts. */
+    private static final int EXISTING_CONTEXT_LIMIT = 24;
 
     private final ProjectLearningStore store;
     private final WorkspaceRepositoryResolver repositories;
@@ -79,6 +95,9 @@ public class ProjectLearningService
     private final PrPriorityScorer scorer;
     private final ModuleCoverageSelector selector;
     private final PrEvidenceFetcher evidenceFetcher;
+    private final LessonExtractor extractor;
+    private final KnowledgeIngestor ingestor;
+    private final KnowledgeItemStore knowledge;
     private final PatResolver patResolver;
     private final ObjectMapper json;
     private final Set<String> activeJobs = ConcurrentHashMap.newKeySet();
@@ -92,6 +111,9 @@ public class ProjectLearningService
             PrPriorityScorer scorer,
             ModuleCoverageSelector selector,
             PrEvidenceFetcher evidenceFetcher,
+            LessonExtractor extractor,
+            KnowledgeIngestor ingestor,
+            KnowledgeItemStore knowledge,
             PatResolver patResolver,
             ObjectMapper json)
     {
@@ -103,6 +125,9 @@ public class ProjectLearningService
         this.scorer = requireNonNull(scorer, "scorer is null");
         this.selector = requireNonNull(selector, "selector is null");
         this.evidenceFetcher = requireNonNull(evidenceFetcher, "evidenceFetcher is null");
+        this.extractor = requireNonNull(extractor, "extractor is null");
+        this.ingestor = requireNonNull(ingestor, "ingestor is null");
+        this.knowledge = requireNonNull(knowledge, "knowledge is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.json = requireNonNull(json, "json is null");
     }
@@ -225,10 +250,10 @@ public class ProjectLearningService
 
             boolean caughtUp = catalogHistory(run, identity.fullName(), head);
             if (caughtUp) {
-                // Deterministic Phase 2: rank + snapshot-pinned evidence. Runs on
-                // the same background thread once the catalog is complete; leaves
-                // the run terminal at 'caught-up' when the analysis queue drains.
-                analyze(run, identity.fullName(), clone, head);
+                // Re-read the run so analysis carries the cursor the catalog
+                // just persisted instead of writing the stale one back.
+                ProjectLearningRun cataloged = store.findRun(id).orElse(run);
+                analyze(cataloged, identity.fullName(), clone, head);
             }
         }
         catch (RuntimeException e) {
@@ -269,8 +294,10 @@ public class ProjectLearningService
 
         long now = Instant.now().toEpochMilli();
         if (outcome.state() == MergedPrCatalog.State.CAUGHT_UP) {
-            store.updateRun(run.id(), "caught-up", head, writeCursor(outcome.cursor()),
-                    counts(run), now, null, now);
+            // Hand off to analysis without a transient terminal state — an
+            // observer must never see 'caught-up' while work is still queued.
+            store.updateRun(run.id(), "analyzing", head, writeCursor(outcome.cursor()),
+                    counts(run), null, null, now);
             return true;
         }
         // Partial: visible via state + last_error, retryable via the
@@ -280,39 +307,105 @@ public class ProjectLearningService
         return false;
     }
 
-    // ── analysis (Phase 2) ──────────────────────────────────────────
+    // ── analysis (Phases 2 + 3) ─────────────────────────────────────
 
     /**
-     * Rank cataloged PRs and build snapshot-pinned evidence bundles. Resumable:
-     * selection persists 'selected' rows and analysis flips them to 'analyzed',
-     * so a restart picks up the unfinished queue. Marks the run terminal at
-     * 'caught-up' when the queue drains (a crash mid-analysis parks it at
-     * 'analyzing', which {@link #recover()} re-launches).
+     * Rank cataloged PRs, build snapshot-pinned evidence bundles, and distill
+     * lessons from each. Resumable: selection persists 'selected' rows and
+     * analysis flips them to 'analyzed', so a restart picks up the unfinished
+     * queue, and the recent per-wave yield history rides in counts_json so
+     * the quality bar keeps its memory across restarts.
+     *
+     * <p>Terminal states: 'caught-up' when the catalog drains; 'useful' when
+     * the initial quality bar is met with rows remaining (backfill continues
+     * incrementally later); 'partial' when extraction is unavailable or keeps
+     * failing, leaving the queue intact and the run retryable.
      */
     private void analyze(ProjectLearningRun run, String repoFullName, Path clone, String head)
     {
         markState(run, "analyzing", head);
         String pat = patResolver.resolve(repoFullName);
+        List<Integer> recentWaves = readRecentWaves(run.id());
+        int consecutiveFailures = 0;
 
-        // Drain the whole catalog in SELECT_LIMIT waves: promote a
-        // module-covering batch, analyze it, then re-select until no
-        // 'cataloged' rows remain. Without the outer loop only the first 50
-        // PRs of a large repo would ever be analyzed.
-        while (selectBatch(run) > 0) {
+        while (true) {
+            if (qualityBarMet(run, recentWaves)) {
+                long now = Instant.now().toEpochMilli();
+                store.updateRun(run.id(), "useful", head, run.catalogCursor(),
+                        counts(run, recentWaves), now, null, now);
+                return;
+            }
+            if (selectBatch(run) == 0) {
+                break;
+            }
+            int waveLessons = 0;
             while (true) {
                 var selected = store.selectedSources(run.workspaceId(), run.repo(), ANALYZE_BATCH);
                 if (selected.isEmpty()) {
                     break;
                 }
                 for (RepoPrSource source : selected) {
-                    analyzeOne(run, repoFullName, pat, clone, head, source);
+                    Integer fresh;
+                    try {
+                        fresh = analyzeOne(run, repoFullName, pat, clone, head, source);
+                    }
+                    catch (LessonExtractor.ExtractionUnavailableException e) {
+                        // No usable provider/key: leave the queue 'selected'
+                        // and park retryable rather than draining lessonless.
+                        parkPartial(run, head, recentWaves, e.getMessage());
+                        return;
+                    }
+                    if (fresh == null) {
+                        consecutiveFailures++;
+                        if (consecutiveFailures >= MAX_CONSECUTIVE_EXTRACTION_FAILURES) {
+                            parkPartial(run, head, recentWaves,
+                                    "extraction failed " + consecutiveFailures
+                                            + " times in a row");
+                            return;
+                        }
+                    }
+                    else {
+                        consecutiveFailures = 0;
+                        waveLessons += fresh;
+                    }
                 }
             }
+            recentWaves.add(waveLessons);
+            while (recentWaves.size() > 2) {
+                recentWaves.removeFirst();
+            }
+            store.updateRun(run.id(), "analyzing", head, run.catalogCursor(),
+                    counts(run, recentWaves), null, null, Instant.now().toEpochMilli());
         }
 
         long now = Instant.now().toEpochMilli();
         store.updateRun(run.id(), "caught-up", head, run.catalogCursor(),
-                counts(run), now, null, now);
+                counts(run, recentWaves), now, null, now);
+    }
+
+    /**
+     * The initial deep-analysis bar: at least {@link #INITIAL_DEEP_TARGET}
+     * top-ranked PRs analyzed (a smaller catalog just drains) and two
+     * consecutive waves under {@link #WAVE_YIELD_FLOOR} fresh candidates.
+     */
+    // ponytail: module-coverage (>=5 analyzed per major module) biases
+    // selection via ModuleCoverageSelector but is not yet a stop condition.
+    private boolean qualityBarMet(ProjectLearningRun run, List<Integer> recentWaves)
+    {
+        if (store.countAnalyzed(run.workspaceId(), run.repo()) < INITIAL_DEEP_TARGET) {
+            return false;
+        }
+        return recentWaves.size() >= 2
+                && recentWaves.get(recentWaves.size() - 1) < WAVE_YIELD_FLOOR
+                && recentWaves.get(recentWaves.size() - 2) < WAVE_YIELD_FLOOR;
+    }
+
+    private void parkPartial(
+            ProjectLearningRun run, String head, List<Integer> recentWaves, String error)
+    {
+        log.warn("project learning run {} parked partial: {}", run.id(), error);
+        store.updateRun(run.id(), "partial", head, run.catalogCursor(),
+                counts(run, recentWaves), null, error, Instant.now().toEpochMilli());
     }
 
     /**
@@ -343,19 +436,26 @@ public class ProjectLearningService
         return promoted;
     }
 
-    private void analyzeOne(
+    /**
+     * Evidence + extraction for one PR. Returns the number of fresh (new,
+     * non-duplicate) knowledge candidates it produced, or null when the
+     * extraction call itself failed so the caller can count consecutive
+     * failures. Throws {@link LessonExtractor.ExtractionUnavailableException}
+     * when no provider can be used at all.
+     */
+    private Integer analyzeOne(
             ProjectLearningRun run, String repoFullName, String pat, Path clone, String head,
             RepoPrSource source)
     {
         long now = Instant.now().toEpochMilli();
+        PrEvidenceBundle bundle;
+        double score;
         try {
-            PrEvidenceBundle bundle = evidenceFetcher.fetch(
+            bundle = evidenceFetcher.fetch(
                     pat, run.workspaceId(), repoFullName, source.prNumber(),
-                    authorOf(source), clone, head);
-            double score = scorer.refine(source, bundle, bundle.chains());
+                    authorOf(source), titleOf(source), clone, head);
+            score = scorer.refine(source, bundle, bundle.chains());
             store.persistEvidence(bundle, score, now);
-            store.markAnalyzed(run.workspaceId(), run.repo(), source.prNumber(),
-                    score, bundle.mergeSha(), now);
         }
         catch (RuntimeException e) {
             // Don't fail the whole run on one PR — mark it analyzed with the
@@ -363,13 +463,52 @@ public class ProjectLearningService
             log.warn("evidence analysis failed for {}#{}: {}",
                     repoFullName, source.prNumber(), e.getMessage());
             store.markAnalyzed(run.workspaceId(), run.repo(), source.prNumber(),
-                    source.priorityScore() == null ? 0.0 : source.priorityScore(), null, now);
+                    source.priorityScore() == null ? 0.0 : source.priorityScore(), null, now,
+                    "evidence: " + e.getMessage());
+            return 0;
         }
+
+        try {
+            List<KnowledgeItem> existing = existingContext(run.workspaceId(), run.repo());
+            List<ExtractedLesson> lessons =
+                    extractor.extract(run.workspaceId(), bundle, existing);
+            KnowledgeIngestor.IngestResult result =
+                    ingestor.ingest(run.workspaceId(), bundle, lessons, clone);
+            store.markAnalyzed(run.workspaceId(), run.repo(), source.prNumber(),
+                    score, bundle.mergeSha(), Instant.now().toEpochMilli());
+            return result.newCandidates();
+        }
+        catch (LessonExtractor.ExtractionFailedException e) {
+            log.warn("lesson extraction failed for {}#{}: {}",
+                    repoFullName, source.prNumber(), e.getMessage());
+            store.markAnalyzed(run.workspaceId(), run.repo(), source.prNumber(),
+                    score, bundle.mergeSha(), Instant.now().toEpochMilli(),
+                    "extraction: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** Recent knowledge for the extractor's dedup/conflict context: pending
+     *  and active learned rows for this repository, newest first. */
+    private List<KnowledgeItem> existingContext(String workspaceId, String repo)
+    {
+        List<KnowledgeItem> out = new ArrayList<>();
+        out.addAll(knowledge.listByLifecycle(workspaceId, KnowledgeItem.LIFECYCLE_ACTIVE));
+        out.addAll(knowledge.listByLifecycle(workspaceId, KnowledgeItem.LIFECYCLE_PENDING));
+        return out.stream()
+                .filter(item -> repo.equals(item.repo()))
+                .limit(EXISTING_CONTEXT_LIMIT)
+                .toList();
     }
 
     private String authorOf(RepoPrSource source)
     {
         return metaText(source, "author");
+    }
+
+    private String titleOf(RepoPrSource source)
+    {
+        return metaText(source, "title");
     }
 
     /**
@@ -429,11 +568,42 @@ public class ProjectLearningService
 
     private String counts(ProjectLearningRun run)
     {
+        return counts(run, readRecentWaves(run.id()));
+    }
+
+    private String counts(ProjectLearningRun run, List<Integer> recentWaves)
+    {
         Map<String, Object> counts = new LinkedHashMap<>();
         counts.put("docsIndexed", store.countDocSections(run.workspaceId(), run.repo()));
         counts.put("cataloged", store.countCataloged(run.workspaceId(), run.repo()));
         counts.put("analyzed", store.countAnalyzed(run.workspaceId(), run.repo()));
+        counts.put("lessons", knowledge.countByCreator(
+                run.workspaceId(), run.repo(), "pr-learning"));
+        counts.put("pendingLessons", knowledge.countPending(run.workspaceId(), run.repo()));
+        counts.put("recentWaves", recentWaves);
         return write(counts);
+    }
+
+    /** The last wave yields, restored from the persisted counts so the
+     *  diminishing-yield bar keeps its memory across restarts. */
+    private List<Integer> readRecentWaves(String runId)
+    {
+        List<Integer> waves = new ArrayList<>();
+        String countsJson = store.findRun(runId)
+                .map(ProjectLearningRun::countsJson)
+                .orElse(null);
+        if (countsJson == null || countsJson.isBlank()) {
+            return waves;
+        }
+        try {
+            for (JsonNode wave : json.readTree(countsJson).path("recentWaves")) {
+                waves.add(wave.asInt());
+            }
+        }
+        catch (IOException e) {
+            return new ArrayList<>();
+        }
+        return waves;
     }
 
     private Path clonePath(String owner, String repo)

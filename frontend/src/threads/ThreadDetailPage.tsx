@@ -2402,7 +2402,6 @@ function summarizeTurnState(turns: ThreadTurnDto[], threadStatus: ThreadStatusDt
   // on the thread itself in that case and only borrow the turn's
   // status when the scheduler actually has work for this thread.
   const liveTaskStatus = threadStatus === 'IDLE'
-      || threadStatus === 'AWAITING'
       || threadStatus === 'RUNNING'
       || threadStatus === 'PENDING';
   if (running !== null) {
@@ -2537,7 +2536,6 @@ function pollInterval(status: ThreadStatusDto | undefined, hasActiveTurn: boolea
 function statusPillPalette(status: ThreadStatusDto): React.CSSProperties {
   switch (status) {
     case 'RUNNING':   return { background: '#d1fae5', color: '#047857' };
-    case 'AWAITING':  return { background: '#fef3c7', color: '#92400e' };
     case 'PENDING':   return { background: '#e5e7eb', color: '#1f2937' };
     case 'IDLE':      return { background: '#fef9c3', color: '#854d0e' };
     case 'COMPLETED': return { background: '#e2e8f0', color: '#475569' };

@@ -76,8 +76,6 @@ export function threadActivityRank(
   switch (displayStatusForTask(thread, summary)) {
     case 'RUNNING':
       return 0;
-    case 'AWAITING':
-      return 1;
     case 'QUEUED':
     case 'PENDING':
       return 2;

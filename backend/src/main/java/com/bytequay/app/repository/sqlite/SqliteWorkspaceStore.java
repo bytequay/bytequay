@@ -41,7 +41,6 @@ class SqliteWorkspaceStore
     private static final List<String> ACTIVE_THREAD_STATUSES = List.of(
             ThreadStatus.PENDING.name(),
             ThreadStatus.RUNNING.name(),
-            ThreadStatus.AWAITING.name(),
             ThreadStatus.IDLE.name(),
             ThreadStatus.AWAITING_REVIEW.name(),
             ThreadStatus.NEEDS_ATTENTION.name());
@@ -51,7 +50,6 @@ class SqliteWorkspaceStore
     private static final List<String> IN_FLIGHT_TASK_STATUSES = List.of(
             TaskStatus.PENDING.name(),
             TaskStatus.RUNNING.name(),
-            TaskStatus.AWAITING.name(),
             TaskStatus.IDLE.name(),
             TaskStatus.AWAITING_REVIEW.name(),
             TaskStatus.NEEDS_ATTENTION.name());

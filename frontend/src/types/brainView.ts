@@ -39,7 +39,7 @@ export type TaskPhase =
   | 'ADDRESSING_LOCAL_COMMENTS'
   | 'PUSHED_AWAITING_CI' | 'AWAITING_READY'
   | 'AWAITING_REMOTE_REVIEW'
-  | 'COMPLETED' | 'NEEDS_ATTENTION' | 'QUEUED';
+  | 'COMPLETED' | 'NEEDS_ATTENTION';
 
 /** {@code CI_FIXING_STAGE} / {@code REVIEW_ROUND_STAGE} / {@code
  *  BRANCH_GUARD_STAGE} are pure run containers now — never opened via a
@@ -161,7 +161,7 @@ export type DevPhaseDto = {
   badgeRunId: string | null;
 };
 
-export type StageState = 'OPEN' | 'ACTIVE' | 'PAUSED' | 'CLOSED';
+export type StageState = 'OPEN' | 'CLOSED';
 
 export type StageDto = {
   id: string;

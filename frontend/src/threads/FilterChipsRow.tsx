@@ -88,7 +88,7 @@ function computeCounts(
     else if (!isAuto) {
       mine++;
     }
-    if (t.status === 'AWAITING') {
+    if (t.status === 'NEEDS_ATTENTION') {
       awaiting++;
     }
   }

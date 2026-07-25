@@ -155,7 +155,7 @@ class TestWorkspaceQualityScanCoordinator
                 .thenReturn(Optional.of(fixture.thread()));
         UUID stageId = UUID.randomUUID();
         StageInstance stage = new StageInstance(
-                stageId, "scan-task", StageType.PLAN_STAGE, StageState.ACTIVE,
+                stageId, "scan-task", StageType.PLAN_STAGE, StageState.OPEN,
                 Instant.now(), null, null);
         when(fixture.stages().findActiveStage("scan-task")).thenReturn(Optional.of(stage));
         when(fixture.stages().findEventsByStage(stageId)).thenReturn(List.of(new StageEvent(

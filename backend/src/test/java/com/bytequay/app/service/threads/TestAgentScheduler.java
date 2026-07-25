@@ -552,7 +552,6 @@ class TestAgentScheduler
         List<TaskStatus> runnable = List.of(
                 TaskStatus.PENDING,
                 TaskStatus.RUNNING,
-                TaskStatus.AWAITING,
                 TaskStatus.IDLE,
                 TaskStatus.AWAITING_REVIEW,
                 TaskStatus.IN_REVIEW);

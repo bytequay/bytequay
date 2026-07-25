@@ -198,7 +198,6 @@ function titleFor(filter: StatusFilter): string {
     case 'AUTO':        return 'Automation threads';
     case 'AWAITING_ME': return 'Awaiting me';
     case 'RUNNING':     return 'Running';
-    case 'AWAITING':    return 'Awaiting input';
     case 'PENDING':     return 'Pending';
     case 'IDLE':        return 'Alive';
     case 'COMPLETED':   return 'Completed';
@@ -225,7 +224,6 @@ function classify(thread: ThreadDto, isAuto: boolean): RowStatus {
   // Non-AUTO surfaces use the thread's own status.
   switch (thread.status) {
     case 'RUNNING':   return 'RUNNING';
-    case 'AWAITING':  return 'AWAITING';
     case 'IDLE':      return 'IDLE';
     case 'COMPLETED': return 'COMPLETED';
     case 'ERRORED':   return 'ERRORED';

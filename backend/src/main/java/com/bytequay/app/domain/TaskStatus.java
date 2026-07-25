@@ -36,10 +36,6 @@ public enum TaskStatus
     /** Agent process is alive and producing events. */
     RUNNING,
 
-    /** Paused waiting for the human at a per-tool permission gate
-     *  (e.g. approve a destructive command). Short-lived. */
-    AWAITING,
-
     /** Agent is idle (no live process) but the task hasn't terminated. */
     IDLE,
 

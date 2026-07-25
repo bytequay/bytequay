@@ -136,7 +136,6 @@ function stageStatus(stage: StageDto | undefined, planning = false): LivePlanSta
   if (stage === undefined) return 'future';
   switch (stage.state) {
     case 'CLOSED': return 'done';
-    case 'ACTIVE': return planning ? 'planning' : 'running';
     default: return 'sleep';
   }
 }
@@ -189,8 +188,6 @@ function pausedCheckpoint(
       return { nodeKey: 'remote-development' };
     case 'NEEDS_ATTENTION':
       return { nodeKey: prNumber === null ? 'local-development' : 'remote-development' };
-    case 'QUEUED':
-      return { nodeKey: 'local-development' };
     case 'COMPLETED':
       return { nodeKey: 'cleanup' };
   }
@@ -287,7 +284,7 @@ function localReviewStatus(
   // irrevocably completed. A later CI/review NEEDS_ATTENTION state belongs to
   // the remote half and must not make this earlier gate look open again.
   if (prNumber !== null) return 'done';
-  if (phase === 'PLANNING' || phase === 'QUEUED' || phase === 'IMPLEMENTING'
+  if (phase === 'PLANNING' || phase === 'IMPLEMENTING'
       || phase === 'VALIDATING' || phase === 'INTERNAL_REVIEW') {
     return 'future';
   }
@@ -368,15 +365,15 @@ function buildDevCorePhases(devPhases: DevPhaseDto[], liveRuns: AgentRunDto[]): 
 
 function derivedDevCorePhases(phase: TaskPhase): LivePlanPhaseNode[] {
   const implementing: LivePlanStatus =
-    phase === 'PLANNING' || phase === 'QUEUED' ? 'future'
+    phase === 'PLANNING' ? 'future'
       : phase === 'IMPLEMENTING' ? 'running' : 'done';
   const validation: LivePlanStatus =
     phase === 'VALIDATING' ? 'running'
-      : phase === 'PLANNING' || phase === 'QUEUED' || phase === 'IMPLEMENTING'
+      : phase === 'PLANNING' || phase === 'IMPLEMENTING'
         || phase === 'NEEDS_ATTENTION' ? 'future' : 'done';
   const brainReview: LivePlanStatus =
     phase === 'INTERNAL_REVIEW' ? 'running'
-      : phase === 'PLANNING' || phase === 'QUEUED' || phase === 'IMPLEMENTING' || phase === 'VALIDATING'
+      : phase === 'PLANNING' || phase === 'IMPLEMENTING' || phase === 'VALIDATING'
         || phase === 'NEEDS_ATTENTION'
         ? 'future' : 'done';
   return [

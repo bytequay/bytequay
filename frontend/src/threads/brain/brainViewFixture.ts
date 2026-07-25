@@ -24,7 +24,7 @@ export function buildEmptyBrainView(taskId: string): TaskBrainViewData {
   return {
     task: {
       id: taskId, title: '', taskNumber: 0, branch: '', repoFullName: '',
-      prNumber: null, prDraft: false, currentPhase: 'QUEUED',
+      prNumber: null, prDraft: false, currentPhase: 'PLANNING',
       statusLabel: '', agentRuntime: 'CLI', agentModel: '',
       paused: false, terminal: false,
     },
@@ -119,13 +119,13 @@ export function buildMockBrainView(nowMs: number): TaskBrainViewData {
       loopIteration: 1,
     },
     {
-      id: CIFIX, taskId: '...', type: 'CI_FIXING_STAGE', state: 'ACTIVE',
+      id: CIFIX, taskId: '...', type: 'CI_FIXING_STAGE', state: 'OPEN',
       openedAt: ago(10), closedAt: null, callerStageId: null,
       summary: 'Driving CI back to green; iteration #3 awaiting a push approval.',
       loopIteration: 3,
     },
     {
-      id: REVMON, taskId: '...', type: 'REVIEW_MONITOR_STAGE', state: 'PAUSED',
+      id: REVMON, taskId: '...', type: 'REVIEW_MONITOR_STAGE', state: 'OPEN',
       openedAt: ago(10), closedAt: null, callerStageId: null,
       summary: 'Watching for new review comments; addressed one so far.',
       loopIteration: 1,

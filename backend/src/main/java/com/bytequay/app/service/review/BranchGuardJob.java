@@ -450,7 +450,7 @@ public class BranchGuardJob
             return true;
         }
         return switch (task.status()) {
-            case AWAITING, AWAITING_REVIEW, NEEDS_ATTENTION, PAUSED -> true;
+            case AWAITING_REVIEW, NEEDS_ATTENTION, PAUSED -> true;
             default -> false;
         };
     }

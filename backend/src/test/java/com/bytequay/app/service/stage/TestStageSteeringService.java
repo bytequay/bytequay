@@ -81,7 +81,7 @@ class TestStageSteeringService
     {
         UUID stageId = UUID.randomUUID();
         when(stageStore.findStageById(stageId)).thenReturn(Optional.of(
-                stage(stageId, "task-7", StageState.ACTIVE)));
+                stage(stageId, "task-7", StageState.OPEN)));
         when(taskStore.findTaskById("task-7")).thenReturn(Optional.of(task("task-7", "thread-9")));
         when(threadStore.findThreadById("thread-9")).thenReturn(Optional.of(thread("thread-9")));
         // Bound to the explicit task id (not the active-task projection) so a
@@ -103,7 +103,7 @@ class TestStageSteeringService
     {
         UUID stageId = UUID.randomUUID();
         when(stageStore.findStageById(stageId)).thenReturn(Optional.of(
-                stage(stageId, "task-7", StageState.ACTIVE)));
+                stage(stageId, "task-7", StageState.OPEN)));
         when(taskStore.findTaskById("task-7")).thenReturn(Optional.of(task("task-7", "thread-9")));
         when(threadStore.findThreadById("thread-9")).thenReturn(Optional.of(thread("thread-9")));
         when(attachmentStore.save(eq("thread-9"), eq(List.of("data:image/png;base64,abc"))))

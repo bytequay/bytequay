@@ -60,8 +60,6 @@ class TestIdleThreadArchiver
         Thread stale = thread("stale", ThreadStatus.IDLE, now.minus(Duration.ofDays(3)));
         when(threadStore.listTasksByStatus(eq(ThreadStatus.IDLE), anyInt()))
                 .thenReturn(List.of(fresh, stale));
-        when(threadStore.listTasksByStatus(eq(ThreadStatus.AWAITING), anyInt()))
-                .thenReturn(List.of());
 
         archiver.sweepOnce(now);
 
@@ -79,7 +77,6 @@ class TestIdleThreadArchiver
         Instant now = Instant.parse("2026-05-22T12:00:00Z");
         when(behavior.get()).thenReturn(settings("1h"));
         when(threadStore.listTasksByStatus(eq(ThreadStatus.IDLE), anyInt())).thenReturn(List.of());
-        when(threadStore.listTasksByStatus(eq(ThreadStatus.AWAITING), anyInt())).thenReturn(List.of());
 
         archiver.sweepOnce(now);
 

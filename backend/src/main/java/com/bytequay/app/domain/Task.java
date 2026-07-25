@@ -125,13 +125,10 @@ public record Task(
         /** The {@code owner/repo#n} this task is permanently linked to,
          *  or null. Entity-managed via {@code linkTaskToPr}. */
         String linkedPrRef,
-        /** Opening-prompt accumulator for a task materialised from the
-         *  queue (V110). Seeded from the queue entry's initial prompt;
-         *  the composer appends to it while the task is in
-         *  {@link TaskPhase#QUEUED}; the agent reads it as its first-turn
-         *  input on the QUEUED → IMPLEMENTING promotion. Null on tasks
-         *  not born from the queue. Entity-managed (not mapped by
-         *  {@code saveTask}); the row mapper populates it. */
+        /** Opening-prompt accumulator (V110): the text the agent reads as
+         *  its first-turn input when work starts. Null when the task never
+         *  accumulated one. Entity-managed (not mapped by {@code saveTask});
+         *  the row mapper populates it. */
         String openingPrompt,
         /** Immutable creator provenance. Values are the {@code ORIGIN_*}
          *  constants below; custom internal producers may use another stable

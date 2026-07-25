@@ -927,6 +927,8 @@ function App() {
   const ownsTaskSidebar = (nav.view as string) === 'task-brain'
     || (nav.view as string) === 'stage-detail'
     || (nav.view as string) === 'ci-harness';
+  const usesSharedCollapsedRail = railCollapsed
+    && (nav.view === 'task-brain' || nav.view === 'stage-detail');
 
   const navigateSidebar = (key: WsNavKey) => {
     switch (key) {
@@ -986,7 +988,7 @@ function App() {
   return (
     <div className={`app-shell${usesWorkspaceRedesign ? ' workspace-redesign' : ''}`}>
       <div className="app-window-drag-region" aria-hidden="true" />
-      {!hideTopbar && !ownsTaskSidebar && (
+      {!hideTopbar && (!ownsTaskSidebar || usesSharedCollapsedRail) && (
         <WorkspaceNavShell
           activeWorkspaceId={sidebarWorkspaceId}
           selectedThreadId={selectedThreadId}

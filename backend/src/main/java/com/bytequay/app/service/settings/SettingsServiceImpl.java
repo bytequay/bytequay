@@ -18,6 +18,7 @@ import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.SyncSettingsService;
 import com.bytequay.app.service.WorkspaceBehaviorService;
 import com.bytequay.app.service.WorkspaceBehaviorService.Settings;
+import com.bytequay.app.service.settings.AiDefaultsService.AiDefaults;
 import org.springframework.stereotype.Service;
 
 import static java.util.Objects.requireNonNull;
@@ -29,15 +30,18 @@ public class SettingsServiceImpl
     private final SyncSettingsService syncSettingsService;
     private final PullRequestSyncJob syncJob;
     private final WorkspaceBehaviorService workspaceBehavior;
+    private final AiDefaultsService aiDefaults;
 
     public SettingsServiceImpl(
             SyncSettingsService syncSettingsService,
             PullRequestSyncJob syncJob,
-            WorkspaceBehaviorService workspaceBehavior)
+            WorkspaceBehaviorService workspaceBehavior,
+            AiDefaultsService aiDefaults)
     {
         this.syncSettingsService = requireNonNull(syncSettingsService, "syncSettingsService is null");
         this.syncJob = requireNonNull(syncJob, "syncJob is null");
         this.workspaceBehavior = requireNonNull(workspaceBehavior, "workspaceBehavior is null");
+        this.aiDefaults = requireNonNull(aiDefaults, "aiDefaults is null");
     }
 
     @Override
@@ -68,5 +72,17 @@ public class SettingsServiceImpl
     public void triggerSync()
     {
         syncJob.requestImmediateSync();
+    }
+
+    @Override
+    public AiDefaults getAiDefaults()
+    {
+        return aiDefaults.get();
+    }
+
+    @Override
+    public AiDefaults updateAiDefaults(AiDefaults defaults)
+    {
+        return aiDefaults.update(defaults);
     }
 }

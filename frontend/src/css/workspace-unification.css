@@ -590,6 +590,29 @@
   border-radius: 0;
 }
 
+.workspace-redesign .shell.shell-rail.sidebar-collapsed .sb-traffic {
+  height: auto;
+  padding: 11px 0 8px;
+  align-items: center;
+}
+
+.workspace-redesign .shell.shell-rail.sidebar-collapsed > .sidebar > .sb-nav:not(.sb-nav--bottom) {
+  padding: 4px;
+  gap: 2px;
+}
+
+.workspace-redesign .shell.shell-rail.sidebar-collapsed > .sidebar > .sb-nav:not(.sb-nav--bottom) .sb-nav-item {
+  padding: 6px 0;
+  justify-content: center;
+  gap: 0;
+}
+
+.workspace-redesign .shell.shell-rail.sidebar-collapsed > .sidebar > .sb-nav:not(.sb-nav--bottom) .sb-nav-item .ic {
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+}
+
 .workspace-redesign .shell > .sidebar > .sb-nav:not(.sb-nav--bottom) {
   padding: 6px 8px;
 }
@@ -10523,4 +10546,19 @@ button.workspace-redesign .wu-table-row,
 
 .workspace-visual-frame-5b .wu-trunk-picker {
   width: 100%;
+}
+
+/* A workspace row whose engine differs from the account-level default in
+   Settings → AI. The account value is what a fresh workspace inherits;
+   this marks where a workspace has deliberately stepped off it. */
+.wu-model-row .wu-override {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(154, 103, 0, 0.10);
+  color: #9a6700;
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }

@@ -15,6 +15,7 @@ package com.bytequay.app.service.settings;
 
 import com.bytequay.app.domain.SyncSettings;
 import com.bytequay.app.service.WorkspaceBehaviorService.Settings;
+import com.bytequay.app.service.settings.AiDefaultsService.AiDefaults;
 
 /**
  * User-visible app settings — workspace-behavior preferences and the
@@ -38,4 +39,9 @@ public interface SettingsService
     /** Schedule an immediate sync on the next scheduler tick (within
      *  10 s). */
     void triggerSync();
+
+    /** Account-level engine defaults every workspace starts from. */
+    AiDefaults getAiDefaults();
+
+    AiDefaults updateAiDefaults(AiDefaults defaults);
 }

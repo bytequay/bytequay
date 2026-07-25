@@ -21,7 +21,6 @@ import CredentialsPage from './pages/CredentialsPage';
 import EmailSettingsPage from './pages/EmailPage';
 import HelpPage from './pages/HelpPage';
 import IntegrationsPage from './pages/IntegrationsPage';
-import LocalAiPage from './pages/LocalAiPage';
 import AgentRolesPage from './pages/AgentRolesPage';
 import ConceptsPage from './pages/ConceptsPage';
 import SavedViewsPage from './pages/SavedViewsPage';
@@ -43,6 +42,10 @@ function SettingsShell({ section, workspaceId, onSelectSection, onOpenThread }: 
   // deep links resolve cleanly; the Credentials → Git PAT tab owns the
   // PAT now, so we alias the old id at render time.
   const resolved = section === 'github-token' ? 'credentials' : section;
+  // Local AI is a tab of the AI page, not a page of its own. The rail
+  // entry and every existing 'local-ai' deep link land on the AI page
+  // with that tab already open.
+  const isAi = resolved === 'ai-review' || resolved === 'local-ai';
   return (
     <section className="sv2">
       <SettingsSidebar active={resolved} onSelect={onSelectSection} />
@@ -50,8 +53,7 @@ function SettingsShell({ section, workspaceId, onSelectSection, onOpenThread }: 
           {resolved === 'account' && <AccountPage />}
           {resolved === 'appearance' && <AppearancePage />}
           {resolved === 'credentials' && <CredentialsPage />}
-          {resolved === 'ai-review' && <AiReviewPage />}
-          {resolved === 'local-ai' && <LocalAiPage />}
+          {isAi && <AiReviewPage key={resolved} initialTab={resolved === 'local-ai' ? 'local' : 'defaults'} />}
           {resolved === 'skills' && <SkillsPage />}
           {resolved === 'agent-roles' && <AgentRolesPage />}
           {resolved === 'saved-views' && <SavedViewsPage />}

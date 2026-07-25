@@ -176,6 +176,17 @@ function installBridge(
       uptimeSec: localAiState === 'RUNNING' ? 30 : 0,
       lastError: null,
     })),
+    // Account-level defaults the Agents rows inherit from. Matching the
+    // persisted workspace values keeps the "override" chip off unless a
+    // test deliberately diverges.
+    getAiDefaults: vi.fn(async () => ({
+      plan: 'cli:claude-code',
+      dev: 'cli:claude-code',
+      review: 'cli:claude-code',
+      ciFix: 'cli:codex',
+      triage: 'cli:claude-code',
+      perf: 'cli:claude-code',
+    })),
   };
   return workspaceApi;
 }

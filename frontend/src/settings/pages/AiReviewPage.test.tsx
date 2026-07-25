@@ -11,10 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import AiReviewPage from './AiReviewPage';
-import type { AiLedgerDto } from '../../types';
+import type { AiDefaultsDto, AiLedgerDto, WorkModelOptionsDto } from '../../types';
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); Reflect.deleteProperty(window, 'bridge'); });
 
@@ -31,12 +31,42 @@ const LEDGER: AiLedgerDto = {
   apiByProvider: [],
 };
 
+const DEFAULTS: AiDefaultsDto = {
+  plan: 'cli:claude-code',
+  dev: 'cli:codex',
+  review: 'cli:claude-code',
+  ciFix: 'cli:codex',
+  triage: 'cli:claude-code',
+  perf: 'cli:claude-code',
+};
+
+const OPTIONS: WorkModelOptionsDto = {
+  cliAgents: [
+    { id: 'claude-code', displayName: 'Claude Code CLI', installed: true, authed: true, defaultModel: 'opus', models: [] },
+    { id: 'codex', displayName: 'Codex CLI', installed: true, authed: true, defaultModel: 'gpt', models: [] },
+  ],
+  apiProviders: [],
+};
+
+function installEngineBridge(extra: Record<string, unknown> = {}) {
+  const setAiDefaults = vi.fn(async (next: AiDefaultsDto) => next);
+  (window as unknown as { bridge: unknown }).bridge = {
+    getAiDefaults: vi.fn(async () => DEFAULTS),
+    setAiDefaults,
+    getWorkModelOptions: vi.fn(async () => OPTIONS),
+    refreshWorkModelOptions: vi.fn(async () => OPTIONS),
+    getDs4Status: vi.fn(async () => ({ state: 'DISABLED' })),
+    ...extra,
+  };
+  return setAiDefaults;
+}
+
 describe('AiReviewPage', () => {
   it('renders the monthly ledger totals and breakdowns', async () => {
     const getAiLedger = vi.fn().mockResolvedValue(LEDGER);
-    (window as unknown as { bridge: unknown }).bridge = { getAiLedger };
+    installEngineBridge({ getAiLedger });
 
-    render(<AiReviewPage />);
+    render(<AiReviewPage initialTab="usage" />);
 
     await waitFor(() => expect(screen.getByText('$6.00')).toBeTruthy());
     expect(screen.getByText('24')).toBeTruthy();
@@ -45,5 +75,28 @@ describe('AiReviewPage', () => {
     expect(screen.getByText('review')).toBeTruthy();
     // It asked the backend for the most recent month.
     expect(getAiLedger).toHaveBeenCalled();
+  });
+
+  it('persists an account default when a session kind picks a different engine', async () => {
+    const setAiDefaults = installEngineBridge();
+
+    render(<AiReviewPage />);
+
+    const picker = await screen.findByLabelText('Code writing & tests engine');
+    expect((picker as HTMLSelectElement).value).toBe('cli:codex');
+
+    fireEvent.change(picker, { target: { value: 'cli:claude-code' } });
+
+    await waitFor(() => expect(setAiDefaults)
+      .toHaveBeenCalledWith({ ...DEFAULTS, dev: 'cli:claude-code' }));
+  });
+
+  it('offers the account-wide roles that have no workspace equivalent', async () => {
+    installEngineBridge();
+
+    render(<AiReviewPage />);
+
+    expect(await screen.findByText('Issue triage')).toBeTruthy();
+    expect(screen.getByText('Performance investigator')).toBeTruthy();
   });
 });

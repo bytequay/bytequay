@@ -1425,6 +1425,19 @@ export type WorkModelProviderOptionDto = {
   accounts: WorkModelAccountDto[];
 };
 
+/** Account-level engine choice per kind of agent work. Workspaces start
+ *  from these; the account-wide roles (triage, perf) have no workspace
+ *  equivalent and always read them. Values are picker choice ids —
+ *  "cli:codex", "api:deepseek", "local", … */
+export type AiDefaultsDto = {
+  plan: string;
+  dev: string;
+  review: string;
+  ciFix: string;
+  triage: string;
+  perf: string;
+};
+
 export type WorkModelOptionsDto = {
   cliAgents: WorkModelAgentOptionDto[];
   apiProviders: WorkModelProviderOptionDto[];
@@ -2995,6 +3008,8 @@ export type Bridge = {
   getSyncSettings: () => Promise<SyncSettingsDto>;
   setSyncSettings: (settings: SyncSettingsDto) => Promise<SyncSettingsDto>;
   triggerSync: () => Promise<void>;
+  getAiDefaults: () => Promise<AiDefaultsDto>;
+  setAiDefaults: (defaults: AiDefaultsDto) => Promise<AiDefaultsDto>;
   markPrViewed: (prId: number) => Promise<void>;
   /** Id-namespace-safe viewed marker: rows from the REST pulls endpoints
    *  carry pull-request ids, but the local PR store keys by the

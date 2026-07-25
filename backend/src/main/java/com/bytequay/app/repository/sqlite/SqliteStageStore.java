@@ -99,6 +99,15 @@ class SqliteStageStore
 
     @Override
     @Transactional
+    public boolean updateStateIf(UUID stageId, StageState expected, StageState to, Instant closedAt)
+    {
+        return stages.casState(
+                stageId.toString(), expected.name(), to.name(),
+                closedAt == null ? null : closedAt.toEpochMilli()) == 1;
+    }
+
+    @Override
+    @Transactional
     public void closeStage(UUID stageId, String reason)
     {
         closeStage(stageId, reason, Map.of());

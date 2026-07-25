@@ -14,12 +14,45 @@
 package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
 interface AgentRunJpaRepository
         extends JpaRepository<AgentRunEntity, String>
 {
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE AgentRunEntity r SET r.status = :to, r.finishedAtMs = :finishedAtMs "
+            + "WHERE r.id = :id AND r.status = :expected")
+    int casStatus(
+            @Param("id") String id,
+            @Param("expected") String expected,
+            @Param("to") String to,
+            @Param("finishedAtMs") Long finishedAtMs);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE AgentRunEntity r SET r.iterations = :iterations, r.costUsdMilli = :costUsdMilli, "
+            + "r.tokensIn = :tokensIn, r.tokensOut = :tokensOut WHERE r.id = :id")
+    int updateProgress(
+            @Param("id") String id,
+            @Param("iterations") int iterations,
+            @Param("costUsdMilli") long costUsdMilli,
+            @Param("tokensIn") long tokensIn,
+            @Param("tokensOut") long tokensOut);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE AgentRunEntity r SET r.budget = :budget WHERE r.id = :id")
+    int updateBudget(@Param("id") String id, @Param("budget") Integer budget);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE AgentRunEntity r SET r.headline = :headline, r.outcome = :outcome WHERE r.id = :id")
+    int updateHeadline(
+            @Param("id") String id,
+            @Param("headline") String headline,
+            @Param("outcome") String outcome);
+
     List<AgentRunEntity> findByWorkspaceIdOrderByStartedAtMsDesc(String workspaceId);
 
     List<AgentRunEntity> findByThreadIdOrderByStartedAtMsDesc(String threadId);

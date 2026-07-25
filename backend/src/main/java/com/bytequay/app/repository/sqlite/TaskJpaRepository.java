@@ -130,4 +130,9 @@ interface TaskJpaRepository
 
     /** Resolve a finished turn id back to the task it was summarizing. */
     Optional<TaskEntity> findByPendingCompletionSummaryTurnId(String pendingCompletionSummaryTurnId);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE TaskEntity t SET t.status = :to "
+            + "WHERE t.id = :taskId AND t.status = :expected")
+    int casStatus(@Param("taskId") String taskId, @Param("expected") String expected, @Param("to") String to);
 }

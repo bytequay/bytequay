@@ -68,6 +68,34 @@ class SqliteAgentRunStore
     }
 
     @Override
+    @Transactional
+    public boolean updateStatusIf(String runId, String expected, String to, Instant finishedAt)
+    {
+        return runs.casStatus(runId, expected, to, epochOrNull(finishedAt)) == 1;
+    }
+
+    @Override
+    @Transactional
+    public void updateProgress(String runId, int iterations, long costUsdMilli, long tokensIn, long tokensOut)
+    {
+        runs.updateProgress(runId, iterations, costUsdMilli, tokensIn, tokensOut);
+    }
+
+    @Override
+    @Transactional
+    public void updateBudget(String runId, Integer budget)
+    {
+        runs.updateBudget(runId, budget);
+    }
+
+    @Override
+    @Transactional
+    public void updateHeadline(String runId, String headline, String outcome)
+    {
+        runs.updateHeadline(runId, headline, outcome);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Optional<AgentRun> findById(String id)
     {

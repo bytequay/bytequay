@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.domain.LocalReviewSubmission;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRComment;
@@ -30,6 +31,7 @@ import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -79,9 +81,10 @@ class TestPRService
     private final TaskStore taskStore = mock(TaskStore.class);
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
+    private final LocalReviewSubmissionStore submissions = mock(LocalReviewSubmissionStore.class);
     private final PRService service = new PRServiceImpl(
             store, devReports, new ObjectMapper(), stageStore, taskStore, turnStore,
-            events, Clock.fixed(NOW, ZoneOffset.UTC));
+            submissions, events, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private PR pr(String status)
     {
@@ -1266,6 +1269,28 @@ class TestPRService
                 new PRService.LocalReviewSubmission(
                         NOW, List.of("c1", "summary"), "Please fix both.",
                         "REQUEST_CHANGES", "summary"));
+    }
+
+    @Test
+    void localReviewSubmissionAlsoWritesTheDurableBatchRowAndBumpsTheEpoch()
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+        when(submissions.nextSeq("task1")).thenReturn(3L);
+
+        service.recordLocalReviewSubmission(
+                "pr1", List.of("c1"), "", "COMMENT", null);
+
+        ArgumentCaptor<LocalReviewSubmission> row =
+                ArgumentCaptor.forClass(LocalReviewSubmission.class);
+        verify(submissions).insert(row.capture());
+        assertThat(row.getValue().taskId()).isEqualTo("task1");
+        assertThat(row.getValue().prId()).isEqualTo("pr1");
+        assertThat(row.getValue().submissionSeq()).isEqualTo(3L);
+        assertThat(row.getValue().rootIdsJson()).isEqualTo("[\"c1\"]");
+        assertThat(row.getValue().submittedThroughAt()).isEqualTo(NOW);
+        assertThat(row.getValue().activatedAt()).isNull();
+        assertThat(row.getValue().isOpen()).isTrue();
+        verify(store).incrementLocalReviewEpoch("pr1");
     }
 
     @Test

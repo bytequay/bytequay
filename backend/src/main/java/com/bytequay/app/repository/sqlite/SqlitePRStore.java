@@ -91,7 +91,27 @@ class SqlitePRStore
         e.setSyncedAtMs(epochOrNull(pr.syncedAt()));
         e.setBranchDeletedAtMs(epochOrNull(pr.branchDeletedAt()));
         applySyncSnapshot(e, pr.githubSync());
+        // Entity-managed counter: this full-row save builds a fresh entity,
+        // so carry the current epoch forward instead of resetting it.
+        e.setLocalReviewEpoch(prs.findById(pr.id())
+                .map(PrEntity::getLocalReviewEpoch)
+                .orElse(0L));
         return toDomain(prs.save(e));
+    }
+
+    @Override
+    @Transactional
+    public long incrementLocalReviewEpoch(String prId)
+    {
+        prs.incrementLocalReviewEpoch(prId);
+        return prs.findById(prId).map(PrEntity::getLocalReviewEpoch).orElse(0L);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public long localReviewEpoch(String prId)
+    {
+        return prs.findById(prId).map(PrEntity::getLocalReviewEpoch).orElse(0L);
     }
 
     private static void applySyncSnapshot(PrEntity e, PRSyncSnapshot snap)

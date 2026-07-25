@@ -851,6 +851,12 @@ class PRServiceImpl
         appendEvent(pr.id(), PRTimelineEntry.TYPE_STATUS, actor, /* localOnly */ false, when,
                 payload("from", from, "to", newStatus));
         notifyUpdated(pr.id());
+        if (PR.STATUS_MERGED.equals(newStatus)
+                && flipped.repo() != null && flipped.remotePrNumber() != null) {
+            events.publishEvent(new PrMergedEvent(
+                    flipped.repo(), flipped.remotePrNumber(),
+                    flipped.title(), flipped.author()));
+        }
         return flipped;
     }
 

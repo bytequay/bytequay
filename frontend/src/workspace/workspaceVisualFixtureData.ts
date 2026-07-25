@@ -1472,6 +1472,11 @@ export function visualOnboarding(frame: string): WorkspaceOnboardingDto {
     memorySeedComplete: !syncing,
     firstTrunkComplete: !syncing,
     memoryImported: !syncing,
+    learningState: syncing ? 'analyzing' : 'caught-up',
+    learningCataloged: syncing ? 412 : 1842,
+    learningAnalyzed: syncing ? 36 : 236,
+    learningLessons: syncing ? 4 : 31,
+    learningPendingLessons: syncing ? 2 : 0,
     dismissedAt: syncing ? null : agoMs(day),
     updatedAt: now,
   };

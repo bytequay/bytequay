@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -69,6 +70,27 @@ public class WorkspaceKnowledgeController
     public List<KBEntryDto> listKnowledge(@PathVariable String workspaceId)
     {
         return knowledge.listKnowledge(workspaceId);
+    }
+
+    @GetMapping("/learned")
+    public List<WorkspaceKnowledgeService.LearnedKnowledgeDto> listLearned(
+            @PathVariable String workspaceId,
+            @RequestParam(required = false) String lifecycle)
+    {
+        return knowledge.listLearned(workspaceId, lifecycle);
+    }
+
+    /** Body for a learned-knowledge decision: action = activate | retire. */
+    public record LearnedDecisionBody(String action) {}
+
+    @PostMapping("/learned/{itemId}/decision")
+    public WorkspaceKnowledgeService.LearnedKnowledgeDto decideLearned(
+            @PathVariable String workspaceId,
+            @PathVariable String itemId,
+            @RequestBody LearnedDecisionBody body)
+    {
+        return knowledge.decideLearned(
+                workspaceId, itemId, body == null ? null : body.action());
     }
 
     @PostMapping("/knowledge")

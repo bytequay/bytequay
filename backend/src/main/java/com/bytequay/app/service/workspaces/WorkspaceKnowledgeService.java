@@ -38,6 +38,7 @@ import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
+import com.bytequay.app.service.learning.KnowledgeIngestor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -97,6 +98,7 @@ public class WorkspaceKnowledgeService
     private final MemoryItemService memoryItems;
     private final MemoryItemStore memoryStore;
     private final KnowledgeItemStore knowledgeStore;
+    private final KnowledgeIngestor ingestor;
     private final WorkspaceRepositoryResolver repositories;
     private final WatchedRepoStore watchedRepos;
     private final WorkspaceMemoryDistiller distiller;
@@ -110,6 +112,7 @@ public class WorkspaceKnowledgeService
             MemoryItemService memoryItems,
             MemoryItemStore memoryStore,
             KnowledgeItemStore knowledgeStore,
+            KnowledgeIngestor ingestor,
             WorkspaceRepositoryResolver repositories,
             WatchedRepoStore watchedRepos,
             WorkspaceMemoryDistiller distiller,
@@ -122,6 +125,7 @@ public class WorkspaceKnowledgeService
         this.memoryItems = requireNonNull(memoryItems, "memoryItems is null");
         this.memoryStore = requireNonNull(memoryStore, "memoryStore is null");
         this.knowledgeStore = requireNonNull(knowledgeStore, "knowledgeStore is null");
+        this.ingestor = requireNonNull(ingestor, "ingestor is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.distiller = requireNonNull(distiller, "distiller is null");
@@ -259,6 +263,90 @@ public class WorkspaceKnowledgeService
                 .filter(item -> KnowledgeItemStore.isManagedCreator(item.createdBy()))
                 .orElseThrow(() -> status(404, "knowledge entry not found: " + entryId));
         knowledgeStore.delete(existing.id());
+    }
+
+    /** One learned (pr-learning) knowledge row for the review surface, with
+     *  its lifecycle and typed evidence links. */
+    public record LearnedKnowledgeDto(
+            String id,
+            String kind,
+            String title,
+            String statement,
+            String rationale,
+            String confidence,
+            String lifecycle,
+            List<String> audience,
+            List<Map<String, Object>> sources,
+            String validatedAtCommit,
+            long updatedAt) {}
+
+    public List<LearnedKnowledgeDto> listLearned(String workspaceId, String lifecycle)
+    {
+        workspaces.require(workspaceId);
+        List<KnowledgeItem> items = new ArrayList<>();
+        if (lifecycle == null || lifecycle.isBlank()) {
+            for (String state : List.of("pending", "active", "decayed", "retired")) {
+                items.addAll(knowledgeStore.listByLifecycle(workspaceId, state));
+            }
+        }
+        else {
+            items.addAll(knowledgeStore.listByLifecycle(workspaceId, lifecycle));
+        }
+        return items.stream()
+                .filter(item -> "pr-learning".equals(item.createdBy()))
+                .map(this::toLearnedDto)
+                .toList();
+    }
+
+    /**
+     * User decision on a learned item: {@code activate} (user confirmation is
+     * always sufficient) or {@code retire}. Provenance is untouched either
+     * way — accepting or rejecting a lesson never drops its evidence.
+     */
+    @Transactional
+    public LearnedKnowledgeDto decideLearned(String workspaceId, String itemId, String action)
+    {
+        workspaces.require(workspaceId);
+        boolean known = knowledgeStore.findById(itemId)
+                .filter(found -> workspaceId.equals(found.workspaceId()))
+                .filter(found -> "pr-learning".equals(found.createdBy()))
+                .isPresent();
+        if (!known) {
+            throw status(404, "learned knowledge not found: " + itemId);
+        }
+        String lifecycle = switch (required(action, "action").toLowerCase(Locale.ROOT)) {
+            case "activate" -> KnowledgeItem.LIFECYCLE_ACTIVE;
+            case "retire" -> KnowledgeItem.LIFECYCLE_RETIRED;
+            default -> throw status(400, "action must be activate or retire");
+        };
+        knowledgeStore.setLifecycle(itemId, lifecycle, null, Instant.now().toEpochMilli());
+        KnowledgeItem updated = knowledgeStore.findById(itemId).orElseThrow();
+        if (updated.isActive()) {
+            ingestor.onActivated(updated);
+        }
+        return toLearnedDto(updated);
+    }
+
+    private LearnedKnowledgeDto toLearnedDto(KnowledgeItem item)
+    {
+        List<Map<String, Object>> sources = new ArrayList<>();
+        for (KnowledgeItem.Provenance row : knowledgeStore.provenance(item.id())) {
+            Map<String, Object> source = new LinkedHashMap<>();
+            source.put("kind", row.sourceKind());
+            source.put("ref", row.sourceRef());
+            if (row.url() != null) {
+                source.put("url", row.url());
+            }
+            if (row.filePath() != null) {
+                source.put("path", row.filePath());
+            }
+            sources.add(source);
+        }
+        return new LearnedKnowledgeDto(
+                item.id(), item.kind(), item.title(), item.statement(),
+                item.rationale(), item.confidence(), item.lifecycle(),
+                item.audiences(), sources, item.validatedAtCommit(),
+                item.updatedAtMs());
     }
 
     private KBEntryDto toDto(KnowledgeItem item)

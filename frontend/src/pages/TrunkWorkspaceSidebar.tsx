@@ -193,7 +193,6 @@ export function TrunkWorkspaceSidebar({
                   <TrunkLineIcon />
                 </span>
                 {!open && thread.unread === true && <i title="Needs you" />}
-                {!open && thread.unread !== true && taskCount > 0 && <small>{taskCount}</small>}
               </button>
               {open && (
                 <div className="trunk-page-v2-nav__tasks">
@@ -223,14 +222,14 @@ export function TrunkWorkspaceSidebar({
         </button>
         {workspaceOpen && (
           <div className="trunk-page-v2-nav__workspace-items">
-            <WorkspaceItem icon={<PullRequestsIcon />} label="Pull requests" count={counts?.pullRequests}
+            <WorkspaceItem icon={<PullRequestsIcon />} label="Pull requests"
               onClick={() => onNavigate?.('pull-requests')} />
-            <WorkspaceItem icon={<IssueIcon />} label="Issues" count={counts?.issues ?? undefined}
+            <WorkspaceItem icon={<IssueIcon />} label="Issues"
               onClick={() => onNavigate?.('issues')} />
-            <WorkspaceItem icon={<BacklogIcon />} label="Backlog" count={counts?.backlog} disabled
+            <WorkspaceItem icon={<BacklogIcon />} label="Backlog" disabled
               disabledTitle="Backlog is managed inside each trunk"
               onClick={() => onNavigate?.('backlog')} />
-            <WorkspaceItem icon={<BranchIcon />} label="Branches" count={counts?.branches ?? undefined}
+            <WorkspaceItem icon={<BranchIcon />} label="Branches"
               onClick={() => onNavigate?.('branches')} />
             <WorkspaceItem icon={<CommitIcon />} label="Commits" onClick={() => onNavigate?.('commits')} />
             <WorkspaceItem icon={<SessionIcon />} label="Sessions" disabled
@@ -289,20 +288,16 @@ function taskStateIcon(state: ReturnType<typeof taskState> | 'quiet'): ReactNode
 }
 
 function WorkspaceItem({
-  icon, label, count, running = false, disabled = false, disabledTitle, onClick,
+  icon, label, disabled = false, disabledTitle, onClick,
 }: {
   icon: ReactNode;
   label: string;
-  count?: number;
-  running?: boolean;
   disabled?: boolean;
   disabledTitle?: string;
   onClick: () => void;
 }) {
   return (
-    <SidebarRow icon={icon} trailing={running
-      ? <span className="trunk-page-v2-nav__live"><i />{count}</span>
-      : count !== undefined && count > 0 ? count : undefined} disabled={disabled}
+    <SidebarRow icon={icon} disabled={disabled}
       title={disabled ? disabledTitle ?? 'Still in progress' : undefined} onClick={onClick}>
       {label}
     </SidebarRow>

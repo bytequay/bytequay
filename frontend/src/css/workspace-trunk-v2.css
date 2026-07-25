@@ -146,14 +146,6 @@
   background: #d4a72c;
 }
 
-.workspace-redesign .trunk-page-v2-nav__trunk > button > small {
-  margin-left: auto;
-  flex-shrink: 0;
-  color: #8b949e;
-  font-size: var(--left-nav-meta-font-size);
-  font-weight: var(--left-nav-font-weight);
-}
-
 .workspace-redesign .trunk-page-v2-nav__tasks {
   display: flex;
   padding: 1px 0 3px;
@@ -230,20 +222,6 @@
 .workspace-redesign .trunk-page-v2-nav__workspace-toggle > span.is-open { transform: rotate(90deg); }
 .workspace-redesign .trunk-page-v2-nav__workspace-items { display: flex; padding: 1px 0 2px; flex-direction: column; gap: var(--left-nav-group-gap); }
 .workspace-redesign .trunk-page-v2-nav__workspace-items .workspace-page-row { padding: var(--left-nav-row-padding); font-size: var(--left-nav-font-size); }
-.workspace-redesign .trunk-page-v2-nav__live {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: #8b949e;
-  font-size: var(--left-nav-meta-font-size);
-}
-.workspace-redesign .trunk-page-v2-nav__live > i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #2da44e;
-  animation: trunk-page-v2-pulse 2s infinite;
-}
 /* ── Center column ──────────────────────────────────────────── */
 
 .workspace-redesign .trunk-page-v2 {

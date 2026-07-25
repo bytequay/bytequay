@@ -48,6 +48,48 @@ class ValidationPassEntity
     @Column(name = "failures_json")
     private String failuresJson;
 
+    @Column(name = "claim_key")
+    private String claimKey;
+
+    @Column(name = "context")
+    private String context;
+
+    @Column(name = "round_id")
+    private String roundId;
+
+    @Column(name = "code_fingerprint")
+    private String codeFingerprint;
+
+    @Column(name = "through_sequence")
+    private Long throughSequence;
+
+    @Column(name = "root_set_digest")
+    private String rootSetDigest;
+
+    @Column(name = "cancel_requested_at_ms")
+    private Long cancelRequestedAtMs;
+
+    @Column(name = "cancel_deadline_at_ms")
+    private Long cancelDeadlineAtMs;
+
+    @Column(name = "cancel_attempts", nullable = false)
+    private int cancelAttempts;
+
+    @Column(name = "superseded_at_ms")
+    private Long supersededAtMs;
+
+    @Column(name = "owner_id")
+    private String ownerId;
+
+    @Column(name = "executor_identity")
+    private String executorIdentity;
+
+    @Column(name = "lease_until_ms")
+    private Long leaseUntilMs;
+
+    @Column(name = "heartbeat_at_ms")
+    private Long heartbeatAtMs;
+
     Long getId() { return id; }
     void setId(Long id) { this.id = id; }
 
@@ -68,4 +110,46 @@ class ValidationPassEntity
 
     String getFailuresJson() { return failuresJson; }
     void setFailuresJson(String failuresJson) { this.failuresJson = failuresJson; }
+
+    String getClaimKey() { return claimKey; }
+    void setClaimKey(String claimKey) { this.claimKey = claimKey; }
+
+    String getContext() { return context; }
+    void setContext(String context) { this.context = context; }
+
+    String getRoundId() { return roundId; }
+    void setRoundId(String roundId) { this.roundId = roundId; }
+
+    String getCodeFingerprint() { return codeFingerprint; }
+    void setCodeFingerprint(String codeFingerprint) { this.codeFingerprint = codeFingerprint; }
+
+    Long getThroughSequence() { return throughSequence; }
+    void setThroughSequence(Long throughSequence) { this.throughSequence = throughSequence; }
+
+    String getRootSetDigest() { return rootSetDigest; }
+    void setRootSetDigest(String rootSetDigest) { this.rootSetDigest = rootSetDigest; }
+
+    Long getCancelRequestedAtMs() { return cancelRequestedAtMs; }
+    void setCancelRequestedAtMs(Long cancelRequestedAtMs) { this.cancelRequestedAtMs = cancelRequestedAtMs; }
+
+    Long getCancelDeadlineAtMs() { return cancelDeadlineAtMs; }
+    void setCancelDeadlineAtMs(Long cancelDeadlineAtMs) { this.cancelDeadlineAtMs = cancelDeadlineAtMs; }
+
+    int getCancelAttempts() { return cancelAttempts; }
+    void setCancelAttempts(int cancelAttempts) { this.cancelAttempts = cancelAttempts; }
+
+    Long getSupersededAtMs() { return supersededAtMs; }
+    void setSupersededAtMs(Long supersededAtMs) { this.supersededAtMs = supersededAtMs; }
+
+    String getOwnerId() { return ownerId; }
+    void setOwnerId(String ownerId) { this.ownerId = ownerId; }
+
+    String getExecutorIdentity() { return executorIdentity; }
+    void setExecutorIdentity(String executorIdentity) { this.executorIdentity = executorIdentity; }
+
+    Long getLeaseUntilMs() { return leaseUntilMs; }
+    void setLeaseUntilMs(Long leaseUntilMs) { this.leaseUntilMs = leaseUntilMs; }
+
+    Long getHeartbeatAtMs() { return heartbeatAtMs; }
+    void setHeartbeatAtMs(Long heartbeatAtMs) { this.heartbeatAtMs = heartbeatAtMs; }
 }

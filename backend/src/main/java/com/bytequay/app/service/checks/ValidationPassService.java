@@ -71,17 +71,8 @@ public class ValidationPassService
      */
     public ValidationPassResult run(String taskId)
     {
-        Task task = taskStore.findTaskById(taskId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "no task: " + taskId));
-        Path worktree = task.worktreePath() == null || task.worktreePath().isBlank()
-                ? null
-                : Path.of(task.worktreePath());
-
         long rowId = validationStore.startPass(taskId, Instant.now());
-        List<ValidationFailure> failures = checks.stream()
-                .flatMap(check -> check.run(taskId, worktree).stream())
-                .toList();
+        List<ValidationFailure> failures = runChecks(taskId);
         if (failures.isEmpty()) {
             validationStore.finishPass(rowId, Instant.now(), true, 0, "[]");
             events.publishEvent(new ValidationPassFinishedEvent(taskId, true, List.of()));
@@ -90,6 +81,21 @@ public class ValidationPassService
         validationStore.finishPass(rowId, Instant.now(), false, 0, toJson(failures));
         events.publishEvent(new ValidationPassFinishedEvent(taskId, false, failures));
         return new ValidationPassResult(false, 0, failures);
+    }
+
+    /** Execute every registered check for the task's worktree — no
+     *  audit row, no event; the claimed-validation path owns those. */
+    List<ValidationFailure> runChecks(String taskId)
+    {
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        Path worktree = task.worktreePath() == null || task.worktreePath().isBlank()
+                ? null
+                : Path.of(task.worktreePath());
+        return checks.stream()
+                .flatMap(check -> check.run(taskId, worktree).stream())
+                .toList();
     }
 
     private String toJson(List<ValidationFailure> failures)

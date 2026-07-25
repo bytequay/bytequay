@@ -26,27 +26,27 @@ class TestRoundValidationListener
     @Test
     void runsLocalCiWhenACodeTouchingRoundSucceeds()
     {
-        ValidationPassService validation = mock(ValidationPassService.class);
+        ValidationClaimService validation = mock(ValidationClaimService.class);
         new RoundValidationListener(validation)
                 .onTurnFinished(new TaskTurnFinishedEvent("task-1", "turn-1", false, true));
-        verify(validation).run("task-1");
+        verify(validation).claimAndRunDevRound("task-1");
     }
 
     @Test
     void skipsWhenTheRoundDidNotTouchCode()
     {
-        ValidationPassService validation = mock(ValidationPassService.class);
+        ValidationClaimService validation = mock(ValidationClaimService.class);
         new RoundValidationListener(validation)
                 .onTurnFinished(new TaskTurnFinishedEvent("task-1", "turn-1", false, false));
-        verify(validation, never()).run(any());
+        verify(validation, never()).claimAndRunDevRound(any());
     }
 
     @Test
     void skipsWhenTheRoundFailed()
     {
-        ValidationPassService validation = mock(ValidationPassService.class);
+        ValidationClaimService validation = mock(ValidationClaimService.class);
         new RoundValidationListener(validation)
                 .onTurnFinished(new TaskTurnFinishedEvent("task-1", "turn-1", true, true));
-        verify(validation, never()).run(any());
+        verify(validation, never()).claimAndRunDevRound(any());
     }
 }

@@ -24,23 +24,23 @@ import org.springframework.stereotype.Component;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Runs the local CI pass at the end of every code-touching agent round —
+ * Claims the local CI pass at the end of every code-touching agent round —
  * local CI is a step of the code-change operation, not a one-off phase gate.
  *
- * <p>The scheduler publishes {@link TaskTurnFinishedEvent} on the finished
- * turn's own per-session thread, and Spring event delivery is synchronous, so
- * running the (blocking) validation here keeps CI genuinely part of the round
- * without wedging a shared pool. The round is not observably done until CI
- * has run.
+ * <p>The listener only records the durable, fingerprinted claim (the owed
+ * validation) and admits an executor; the checks themselves run on the
+ * validation pool with no transaction and no event thread held. The
+ * finished event fires when the owned pass completes, and the phase
+ * machine's existing listener consumes it exactly as before.
  */
 @Component
 public class RoundValidationListener
 {
     private static final Logger log = LoggerFactory.getLogger(RoundValidationListener.class);
 
-    private final ValidationPassService validation;
+    private final ValidationClaimService validation;
 
-    public RoundValidationListener(ValidationPassService validation)
+    public RoundValidationListener(ValidationClaimService validation)
     {
         this.validation = requireNonNull(validation, "validation is null");
     }
@@ -57,10 +57,10 @@ public class RoundValidationListener
         }
         // ponytail: runs the whole local CI script every code-touching round.
         //   Upgrade path: scope to the changed component/module instead of a
-        //   full verify. And if many tasks validate at once and the local
-        //   machine saturates, bound concurrent runs with a semaphore.
+        //   full verify. The claim's fingerprint + owner lease already dedupe
+        //   concurrent runs of the same code state.
         try {
-            validation.run(event.taskId());
+            validation.claimAndRunDevRound(event.taskId());
         }
         catch (RuntimeException e) {
             log.warn("per-round local CI failed to run for task {}: {}", event.taskId(), e.getMessage());

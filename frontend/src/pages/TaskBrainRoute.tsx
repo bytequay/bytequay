@@ -55,7 +55,7 @@ import { activelySubmittedCommentIds } from '../pr/localpr/localReviewSubmission
  */
 export function TaskBrainRoute({
   threadId, taskId, onOpenStage, onOpenRun, onOpenTask, onClosed,
-  onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, onToggleCollapse,
+  onBack, onHistoryBack, onForward, backEnabled, forwardEnabled, collapsed, onToggleCollapse,
   trunkLabel, workspaceName, workspaceRepository,
   onNavigateGlobal, onSwitchWorkspace,
   initialReviewRoundId, initialPrSubTab, onOpenAgentReview,
@@ -75,6 +75,7 @@ export function TaskBrainRoute({
   onForward?: () => void;
   backEnabled?: boolean;
   forwardEnabled?: boolean;
+  collapsed?: boolean;
   onToggleCollapse?: () => void;
   trunkLabel?: string;
   workspaceName?: string;
@@ -770,7 +771,7 @@ export function TaskBrainRoute({
         trunkLabel,
       }}
       pr={taskPullDetail !== null ? pr : undefined}
-      sidebar={sidebar}
+      sidebar={collapsed ? undefined : sidebar}
       onOpenTrunk={onBack}
       openTabRequest={openTabRequest}
       conversation={conversation}

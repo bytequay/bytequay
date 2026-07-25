@@ -31,6 +31,7 @@ import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnEventType;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -272,7 +273,8 @@ public class AgentScheduler
         // Trunk turn: no task, no stage — planning altitude.
         return enqueueTurnInternal(
                 thread, input, /* taskId */ null, /* stageId */ null,
-                TurnInitiator.user(), /* agentRunId */ null);
+                TurnInitiator.user(), /* agentRunId */ null,
+                TurnLiveness.NARRATION, /* kickKey */ null);
     }
 
     @Override
@@ -280,7 +282,8 @@ public class AgentScheduler
     {
         return enqueueTurnInternal(
                 thread, input, /* taskId */ null, /* stageId */ null,
-                requireNonNull(initiator, "initiator is null"), /* agentRunId */ null);
+                requireNonNull(initiator, "initiator is null"), /* agentRunId */ null,
+                TurnLiveness.NARRATION, /* kickKey */ null);
     }
 
     @Override
@@ -288,7 +291,8 @@ public class AgentScheduler
     {
         return enqueueTurnInternal(
                 thread, input, /* taskId */ null, /* stageId */ null,
-                TurnInitiator.user(), agentRunId);
+                TurnInitiator.user(), agentRunId,
+                TurnLiveness.NARRATION, /* kickKey */ null);
     }
 
     /**
@@ -316,7 +320,11 @@ public class AgentScheduler
         String stageId = taskId == null || taskId.isBlank()
                 ? null
                 : stages.findActiveStage(taskId).map(s -> s.id().toString()).orElse(null);
-        return enqueueTurnInternal(thread, input, taskId, stageId, initiator, null);
+        // Attended composer/steering turns are the dev agent doing the
+        // user's code work — task-runtime liveness by definition.
+        return enqueueTurnInternal(
+                thread, input, taskId, stageId, initiator, null,
+                TurnLiveness.CODE, /* kickKey */ null);
     }
 
     @Override
@@ -327,7 +335,9 @@ public class AgentScheduler
         // stage is known) — bypass findActiveStage so the turn is stage-scoped
         // even if the active-stage projection is momentarily empty. A turn that
         // carries a stage_id writes to stage_messages, never the thread slice.
-        return enqueueTurnInternal(thread, input, taskId, stageId, initiator, null);
+        return enqueueTurnInternal(
+                thread, input, taskId, stageId, initiator, null,
+                TurnLiveness.CODE, /* kickKey */ null);
     }
 
     @Override
@@ -335,18 +345,53 @@ public class AgentScheduler
             Thread thread, String input, String taskId, String stageId,
             TurnInitiator initiator, String agentRunId)
     {
-        return enqueueTurnInternal(thread, input, taskId, stageId, initiator, agentRunId);
+        return enqueueTurnInternal(
+                thread, input, taskId, stageId, initiator, agentRunId,
+                TurnLiveness.CODE, /* kickKey */ null);
+    }
+
+    @Override
+    public String enqueueTaskTurn(
+            Thread thread, String input, String taskId, String stageId,
+            TurnInitiator initiator, String agentRunId, TurnLiveness liveness)
+    {
+        return enqueueTurnInternal(
+                thread, input, taskId, stageId, initiator, agentRunId,
+                requireNonNull(liveness, "liveness is null"), /* kickKey */ null);
+    }
+
+    @Override
+    public String enqueueTaskTurnOnce(
+            String kickKey, Thread thread, String input, String taskId, String stageId,
+            TurnInitiator initiator, String agentRunId, TurnLiveness liveness)
+    {
+        requireNonNull(kickKey, "kickKey is null");
+        return enqueueTurnInternal(
+                thread, input, taskId, stageId, initiator, agentRunId,
+                requireNonNull(liveness, "liveness is null"), kickKey);
     }
 
     private String enqueueTurnInternal(
             Thread thread, String input, String taskId, String stageId,
-            TurnInitiator initiator, String agentRunId)
+            TurnInitiator initiator, String agentRunId,
+            TurnLiveness liveness, String kickKey)
     {
         requireNonNull(thread, "thread is null");
         requireNonNull(input, "input is null");
         requireNonNull(initiator, "initiator is null");
         if (input.isBlank()) {
             throw new IllegalArgumentException("input is blank");
+        }
+        if (kickKey != null) {
+            // Keyed enqueue is claim-once: the durable turn IS the kick
+            // claim, so a repeat (listener + sweep racing, retry after a
+            // crash-before-launch) returns the existing turn instead of
+            // inserting a duplicate. Startup recovery launches a stranded
+            // QUEUED row, so claim-without-launch self-heals.
+            var existing = turns.findTurnIdByKickKey(kickKey);
+            if (existing.isPresent()) {
+                return existing.get();
+            }
         }
         String correlatedRunId = agentRunId;
         if (correlatedRunId == null && agentRuns != null) {
@@ -370,7 +415,7 @@ public class AgentScheduler
                 stageId,
                 ThreadScope.of(taskId, stageId),
                 correlatedRunId);
-        turns.saveTurn(turn);
+        turns.insertTurn(turn, taskId != null && liveness.affectsTask(), kickKey);
         appendEvent(turn, TURN_QUEUED, null);
         enqueueAfterCommit(turn);
         return turn.id();

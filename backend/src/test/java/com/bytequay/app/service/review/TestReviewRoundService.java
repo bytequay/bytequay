@@ -185,7 +185,7 @@ class TestReviewRoundService
         service.reconcile(task);
 
         verify(brainReview, times(1)).reviewBeforeRoundGate(live, task);
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
     @Test
@@ -203,7 +203,7 @@ class TestReviewRoundService
         service.reconcile(task);
 
         verifyNoInteractions(brainReview);
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
     @Test
@@ -223,7 +223,7 @@ class TestReviewRoundService
 
         verify(scheduler).enqueueTaskTurn(
                 any(), anyString(), eq(TASK_ID), eq(run.stageId()),
-                argThat(i -> "review-round".equals(i.source())), eq(run.id()));
+                argThat(i -> "review-round".equals(i.source())), eq(run.id()), any());
         verifyNoInteractions(brainReview);
     }
 
@@ -242,7 +242,7 @@ class TestReviewRoundService
 
         verify(scheduler).enqueueTaskTurn(
                 any(), anyString(), eq(TASK_ID), eq(run.stageId()),
-                argThat(i -> "review-round".equals(i.source())), eq(run.id()));
+                argThat(i -> "review-round".equals(i.source())), eq(run.id()), any());
     }
 
     @Test
@@ -258,7 +258,7 @@ class TestReviewRoundService
         service.reconcile(task);
 
         verifyNoInteractions(brainReview);
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString());
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
     @Test
@@ -274,7 +274,7 @@ class TestReviewRoundService
 
         verify(roundStore, never()).findLiveByTask(TASK_ID);
         verify(scheduler, never()).enqueueTaskTurn(
-                any(), anyString(), anyString(), anyString(), any(), anyString());
+                any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
     @Test
@@ -310,7 +310,7 @@ class TestReviewRoundService
                 eq(REMOTE_STAGE_ID.toString()), eq(null))).thenReturn(run);
         Thread thread = idleThread();
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
-        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any()))
                 .thenReturn("turn-1");
 
         service.reconcile(task);
@@ -323,7 +323,7 @@ class TestReviewRoundService
                 // not just after the first resolve.
                 && r.stats().open() == 2 && r.stats().fixed() == 0 && r.stats().replied() == 0));
         verify(scheduler).enqueueTaskTurn(
-                eq(thread), anyString(), eq(TASK_ID), eq(run.stageId()), any(), eq(run.id()));
+                eq(thread), anyString(), eq(TASK_ID), eq(run.stageId()), any(), eq(run.id()), any());
     }
 
     @Test

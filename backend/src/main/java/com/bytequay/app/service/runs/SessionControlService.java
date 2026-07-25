@@ -16,6 +16,7 @@ package com.bytequay.app.service.runs;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.threads.ThreadAgent;
 import com.bytequay.app.service.threads.ThreadRegistry;
@@ -93,7 +94,18 @@ public class SessionControlService
                 run.taskId(),
                 run.stageId(),
                 TurnInitiator.user(),
-                run.id());
+                run.id(),
+                livenessFor(run));
+    }
+
+    /** A replayed session's liveness classification comes from the run's
+     *  persisted role, never the thread it happens to share. */
+    private static TurnLiveness livenessFor(AgentRun run)
+    {
+        return switch (run.kind()) {
+            case AgentRun.KIND_DEV, AgentRun.KIND_CI_FIX -> TurnLiveness.CODE;
+            default -> TurnLiveness.NARRATION;
+        };
     }
 
     private Thread validateReplay(AgentRun run)

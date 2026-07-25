@@ -113,6 +113,56 @@ const quickDraft: AiReviewDraftDto = {
 };
 
 describe('PullsScreen', () => {
+  it('shows 20 newest rows per tab and loads the next page at the bottom', async () => {
+    const makePrs = (prefix: string, origin: DashboardPR['origin'], state: DashboardPR['state']) =>
+      Array.from({ length: 25 }, (_, index): DashboardPR => ({
+        ...pr,
+        id: `${prefix}-${index}`,
+        number: index,
+        title: `${prefix} ${index}`,
+        origin,
+        state,
+        updatedAt: new Date(Date.now() - index * 1_000).toISOString(),
+      }));
+    const prs = [
+      ...makePrs('mine', 'AUTHORED', 'open'),
+      ...makePrs('request', 'REVIEW_REQUESTED', 'open'),
+      ...makePrs('done', 'AUTHORED', 'merged'),
+    ];
+    setCached('prs:list', prs);
+    window.bridge = {
+      listWorkspaces: vi.fn().mockResolvedValue([]),
+      fetchDashboardPrs: vi.fn().mockResolvedValue(prs),
+      syncDashboardPrs: vi.fn().mockResolvedValue(prs),
+      recordSurfaceVisit: vi.fn().mockResolvedValue(undefined),
+    } as unknown as typeof window.bridge;
+
+    render(<PullsScreen />);
+
+    const list = screen.getByRole('list', { name: 'Pull requests' });
+    const rowCount = () => list.querySelectorAll('.pl-hov-row').length;
+    const scrollToBottom = () => {
+      Object.defineProperties(list, {
+        clientHeight: { configurable: true, value: 200 },
+        scrollHeight: { configurable: true, value: 1_000 },
+      });
+      fireEvent.scroll(list, { target: { scrollTop: 800 } });
+    };
+
+    expect(rowCount()).toBe(20);
+    expect(screen.getByText('mine 0')).toBeTruthy();
+    expect(screen.queryByText('request 20')).toBeNull();
+    scrollToBottom();
+    expect(rowCount()).toBe(40);
+
+    for (const tab of ['Active', 'Review requests', 'Done']) {
+      fireEvent.click(screen.getByRole('button', { name: tab }));
+      expect(rowCount()).toBe(20);
+      scrollToBottom();
+      expect(rowCount()).toBe(25);
+    }
+  });
+
   it('executes a quick-review handoff from another PR surface without opening an agent route', async () => {
     setCached('prs:list', [pr]);
     const startQuickReview = vi.fn().mockResolvedValue({ state: 'RUNNING' });

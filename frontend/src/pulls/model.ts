@@ -104,9 +104,7 @@ export function rowsForTab(prs: DashboardPR[], tab: PullTab): PullRow[] {
       subset = open;
       break;
     case 'active':
-      // decision pending: "Active" = open PRs with activity in the last 7
-      // days for now; revisit once real usage shows what belongs here.
-      subset = open.filter(pr => pr.updatedAt !== null
+      subset = open.filter(pr => pr.origin === 'AUTHORED' && pr.updatedAt !== null
         && Date.now() - Date.parse(pr.updatedAt) < ACTIVE_WINDOW_MS);
       break;
     case 'req':

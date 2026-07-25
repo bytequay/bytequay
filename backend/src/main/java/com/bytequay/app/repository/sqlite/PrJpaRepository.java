@@ -14,7 +14,9 @@
 package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -22,6 +24,10 @@ import java.util.Optional;
 interface PrJpaRepository
         extends JpaRepository<PrEntity, String>
 {
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE PrEntity p SET p.localReviewEpoch = p.localReviewEpoch + 1 WHERE p.id = :prId")
+    int incrementLocalReviewEpoch(@Param("prId") String prId);
+
     /** The single local PR for a task, if one has been created. */
     Optional<PrEntity> findByTaskId(String taskId);
 

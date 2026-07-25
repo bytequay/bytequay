@@ -38,6 +38,20 @@ public interface PRStore
 
     Optional<PR> findById(String id);
 
+    /** Atomically bump the task-local review epoch and return the new
+     *  value. Entity-managed — {@link #save} never resets it. Every
+     *  submitted local review advances it; validation claims bound to
+     *  an older epoch are superseded. */
+    default long incrementLocalReviewEpoch(String prId)
+    {
+        throw new UnsupportedOperationException("incrementLocalReviewEpoch");
+    }
+
+    default long localReviewEpoch(String prId)
+    {
+        throw new UnsupportedOperationException("localReviewEpoch");
+    }
+
     Optional<PR> findByTaskId(String taskId);
 
     /** The external PR already synced in for this (repo, remote PR number),

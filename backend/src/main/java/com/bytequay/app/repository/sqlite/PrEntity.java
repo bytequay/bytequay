@@ -140,8 +140,14 @@ class PrEntity
     @Column(name = "branch_deleted_at_ms")
     private Long branchDeletedAtMs;
 
+    @Column(name = "local_review_epoch", nullable = false)
+    private long localReviewEpoch;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
+
+    long getLocalReviewEpoch() { return localReviewEpoch; }
+    void setLocalReviewEpoch(long localReviewEpoch) { this.localReviewEpoch = localReviewEpoch; }
 
     String getTaskId() { return taskId; }
     void setTaskId(String taskId) { this.taskId = taskId; }

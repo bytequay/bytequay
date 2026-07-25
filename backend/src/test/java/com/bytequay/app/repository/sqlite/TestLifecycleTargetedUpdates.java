@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.AgentRun;
+import com.bytequay.app.domain.LocalReviewSubmission;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
@@ -27,6 +28,7 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.AgentRunStore;
+import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -66,6 +68,8 @@ class TestLifecycleTargetedUpdates
     private StageStore stageStore;
     @Autowired
     private AgentRunStore runStore;
+    @Autowired
+    private LocalReviewSubmissionStore submissionStore;
 
     @Test
     void taskStatusCasOnlyMovesFromTheExpectedState()
@@ -126,6 +130,33 @@ class TestLifecycleTargetedUpdates
         taskStore.clearRecoveryState(taskId);
         assertThat(taskStore.recoveryPhase(taskId)).isEmpty();
         assertThat(taskStore.recoveryRequest(taskId)).isEmpty();
+    }
+
+    @Test
+    void submissionRowsAreInsertOnlyWithTargetedOutcomeStamps()
+    {
+        String taskId = seedTask();
+        assertThat(submissionStore.nextSeq(taskId)).isEqualTo(1L);
+
+        submissionStore.insert(new LocalReviewSubmission(
+                "sub-1", "evt-1", taskId, "pr-1", null, 1L,
+                "[\"c1\"]", "[{\"id\":\"c1\",\"order\":0}]", NOW,
+                null, 0, 0, NOW, null, null, null, null));
+        assertThat(submissionStore.nextSeq(taskId)).isEqualTo(2L);
+        assertThat(submissionStore.listOpenByTask(taskId)).hasSize(1);
+
+        submissionStore.bindRun("sub-1", "run-9", NOW);
+        submissionStore.incrementFailures("sub-1");
+        LocalReviewSubmission bound = submissionStore.findById("sub-1").orElseThrow();
+        assertThat(bound.agentRunId()).isEqualTo("run-9");
+        assertThat(bound.activatedAt()).isEqualTo(NOW);
+        assertThat(bound.failures()).isEqualTo(1);
+
+        submissionStore.markCompleted("sub-1", NOW);
+        assertThat(submissionStore.listOpenByTask(taskId)).isEmpty();
+        // Completed rows are immune to a later blanket cancel.
+        submissionStore.cancelOpenForTask(taskId, "replan", NOW);
+        assertThat(submissionStore.findById("sub-1").orElseThrow().canceledAt()).isNull();
     }
 
     @Test

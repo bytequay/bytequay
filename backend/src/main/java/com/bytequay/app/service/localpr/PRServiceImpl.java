@@ -31,11 +31,13 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.review.DevReportService;
+import com.bytequay.app.service.threads.TaskExternalEffectGate;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,6 +50,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -78,21 +81,26 @@ class PRServiceImpl
     private final StageStore stageStore;
     private final TaskStore taskStore;
     private final ThreadTurnStore turnStore;
+    private final LocalReviewSubmissionStore submissionStore;
     private final ApplicationEventPublisher events;
     private final Clock clock;
 
     @Autowired
     PRServiceImpl(
             PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore,
-            TaskStore taskStore, ThreadTurnStore turnStore, ApplicationEventPublisher events)
+            TaskStore taskStore, ThreadTurnStore turnStore,
+            LocalReviewSubmissionStore submissionStore, ApplicationEventPublisher events)
     {
-        this(store, devReports, mapper, stageStore, taskStore, turnStore, events, Clock.systemUTC());
+        this(store, devReports, mapper, stageStore, taskStore, turnStore, submissionStore,
+                events, Clock.systemUTC());
     }
 
     PRServiceImpl(
             PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore,
-            TaskStore taskStore, ThreadTurnStore turnStore, ApplicationEventPublisher events, Clock clock)
+            TaskStore taskStore, ThreadTurnStore turnStore,
+            LocalReviewSubmissionStore submissionStore, ApplicationEventPublisher events, Clock clock)
     {
+        this.submissionStore = requireNonNull(submissionStore, "submissionStore is null");
         this.store = requireNonNull(store, "store is null");
         this.devReports = requireNonNull(devReports, "devReports is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -1192,13 +1200,81 @@ class PRServiceImpl
                 .filter(id -> !id.isEmpty())
                 .distinct()
                 .toList();
-        appendEvent(pr.id(), PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
-                /* localOnly */ true, now(),
+        if (pr.taskId() == null) {
+            recordSubmissionRows(pr, ids, body, verdict, bodyCommentId);
+            return;
+        }
+        // Effect gate before the task stripe: the durable submission row,
+        // its timeline event, and the epoch bump commit as one admission
+        // that a concurrent ship/terminal command must serialize against.
+        TaskExternalEffectGate.withEffectGate(pr.taskId(),
+                () -> TaskPhaseMachine.withTaskLock(pr.taskId(), () -> {
+                    recordSubmissionRows(pr, ids, body, verdict, bodyCommentId);
+                    return null;
+                }));
+    }
+
+    private void recordSubmissionRows(
+            PR pr, List<String> ids, String body, String verdict, String bodyCommentId)
+    {
+        Instant when = now();
+        String eventId = UUID.randomUUID().toString();
+        store.addEvent(new PRTimelineEntry(
+                eventId, pr.id(), PRTimelineEntry.TYPE_REVIEW, PRTimelineEntry.ACTOR_USER,
+                /* localOnly */ true, /* strippedOnPushAt */ null, when,
                 payload("reviewEvent", "submitted", "verdict", verdict,
                         "commentIds", ids, "findingCount", ids.size(), "body", body,
-                        "bodyCommentId", bodyCommentId));
+                        "bodyCommentId", bodyCommentId),
+                /* remoteEventId */ null));
+        if (pr.taskId() != null) {
+            store.incrementLocalReviewEpoch(pr.id());
+            submissionStore.insert(new com.bytequay.app.domain.LocalReviewSubmission(
+                    UUID.randomUUID().toString(), eventId, pr.taskId(), pr.id(),
+                    /* agentRunId */ null, submissionStore.nextSeq(pr.taskId()),
+                    toJson(ids), rootSnapshotJson(pr.id(), ids), when,
+                    /* addressedThroughAt */ null, /* attempt */ 0, /* failures */ 0,
+                    when, /* activatedAt */ null, /* completedAt */ null,
+                    /* canceledAt */ null, /* cancelReason */ null));
+        }
         notifyUpdated(pr.id());
         events.publishEvent(new LocalReviewSubmittedEvent(pr.taskId(), pr.id()));
+    }
+
+    /** Freeze each submitted root's revision (body, anchor, order) so
+     *  later edits create a new submission instead of mutating what the
+     *  agent was asked to address. */
+    private String rootSnapshotJson(String prId, List<String> ids)
+    {
+        Map<String, PRComment> byId = new LinkedHashMap<>();
+        for (PRComment comment : comments(prId)) {
+            byId.put(comment.id(), comment);
+        }
+        List<Map<String, Object>> snapshot = new ArrayList<>();
+        int order = 0;
+        for (String id : ids) {
+            PRComment comment = byId.get(id);
+            Map<String, Object> frozen = new LinkedHashMap<>();
+            frozen.put("id", id);
+            frozen.put("order", order++);
+            if (comment != null) {
+                frozen.put("author", comment.author());
+                frozen.put("body", comment.body());
+                frozen.put("filePath", comment.filePath());
+                frozen.put("createdAtMs", comment.createdAt().toEpochMilli());
+            }
+            snapshot.add(frozen);
+        }
+        return toJson(snapshot);
+    }
+
+    private String toJson(Object value)
+    {
+        try {
+            return mapper.writeValueAsString(value);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("failed to serialise submission snapshot", e);
+        }
     }
 
     @Override

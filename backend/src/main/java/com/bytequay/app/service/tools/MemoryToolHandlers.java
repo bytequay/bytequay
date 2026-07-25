@@ -119,7 +119,11 @@ public class MemoryToolHandlers
             String scope,
             @ToolParam(description = "Max rows to return (default " + RECALL_DEFAULT_LIMIT
                     + ", capped at " + RECALL_HARD_CAP + ").")
-            Integer limit) {}
+            Integer limit,
+            @ToolParam(description = "Set true to audit historical rows too: pending "
+                    + "proposals, superseded and resolved items. Default false — only "
+                    + "live (applied, current) memory is returned.")
+            Boolean includeHistorical) {}
 
     @AgentTool(
             name = "recall_memory",
@@ -156,7 +160,11 @@ public class MemoryToolHandlers
                 : Math.clamp(args.limit(), 1, RECALL_HARD_CAP);
         String needle = args.query() == null ? "" : args.query().toLowerCase(Locale.ROOT).trim();
 
-        List<MemoryItem> all = store.findByScope(resolvedScope, scopeId.get());
+        // Live-by-default: historical/pending rows require the explicit audit
+        // flag so a stale or never-accepted item cannot steer an agent.
+        List<MemoryItem> all = Boolean.TRUE.equals(args.includeHistorical())
+                ? store.findByScope(resolvedScope, scopeId.get())
+                : store.findLive(resolvedScope, scopeId.get());
         List<MemoryBrief> briefs = new ArrayList<>();
         for (MemoryItem row : all) {
             if (kindFilter != null && row.kind() != kindFilter) {

@@ -13,78 +13,176 @@
  */
 package com.bytequay.app.service.workspaces;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.bytequay.app.domain.KnowledgeItem;
+import com.bytequay.app.service.learning.KnowledgeRetrievalService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
 /**
- * Small, cycle-free read path used when an agent Session starts. It combines
- * the compatibility brain mirror with only KB rows tagged for that Session's
- * public audience.
+ * Small, cycle-free read path used when an agent Session starts: the bounded
+ * project capsule, the critical workspace brain, and a small retrieved
+ * projection of ACTIVE knowledge — never the complete knowledge base. The
+ * whole KB can grow past any prompt limit without preventing a session from
+ * starting; the long tail stays behind {@code explore_project} lookups.
+ *
+ * <p>Each render records exactly which knowledge ids were inserted
+ * ({@code session_context_projection}) so the context inspector can explain
+ * why an agent knew — or missed — something.
  */
 @Service
 public class SessionKnowledgeProvider
 {
+    /** Starting budgets from the design; tune through measurement. */
+    static final int CAPSULE_CHAR_CAP = 4_000;
+    static final int BRAIN_CHAR_CAP = 4_000;
+    static final int RETRIEVED_ITEM_CAP = 8;
+    static final int RETRIEVED_CHAR_CAP = 8_000;
+
     private static final Set<String> AUDIENCES = Set.of(
             "plan", "dev", "review", "ci-fix");
-    private static final TypeReference<List<String>> STRINGS =
-            new TypeReference<>() {};
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper mapper;
+    private final KnowledgeRetrievalService retrieval;
 
-    public SessionKnowledgeProvider(JdbcTemplate jdbc, ObjectMapper mapper)
+    public SessionKnowledgeProvider(
+            JdbcTemplate jdbc,
+            ObjectMapper mapper,
+            KnowledgeRetrievalService retrieval)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.retrieval = requireNonNull(retrieval, "retrieval is null");
     }
 
     public String render(String workspaceId, String audience)
+    {
+        return render(workspaceId, audience, null);
+    }
+
+    /**
+     * Render the bounded projection. {@code queryHint} is the task/thread
+     * text retrieval keys on; blank falls back to the top-confidence active
+     * rows so a fresh thread still gets the always-relevant core.
+     */
+    public String render(String workspaceId, String audience, String queryHint)
     {
         if (workspaceId == null || workspaceId.isBlank()
                 || audience == null || !AUDIENCES.contains(audience)) {
             return "";
         }
+        String capsule = cap(capsuleOf(workspaceId), CAPSULE_CHAR_CAP);
+        String brain = cap(brainOf(workspaceId), BRAIN_CHAR_CAP);
+
+        StringBuilder out = new StringBuilder();
+        if (!capsule.isBlank()) {
+            out.append(capsule.strip());
+        }
+        if (!brain.isBlank()) {
+            if (!out.isEmpty()) {
+                out.append("\n\n");
+            }
+            out.append(brain.strip());
+        }
+
+        List<String> insertedIds = new ArrayList<>();
+        int retrievedChars = 0;
+        if (audienceEnabled(workspaceId, audience)) {
+            String repo = repoOf(workspaceId);
+            List<KnowledgeRetrievalService.Retrieved> retrieved = retrieval.retrieve(
+                    workspaceId, repo, queryHint, audience, RETRIEVED_ITEM_CAP);
+            boolean heading = false;
+            for (KnowledgeRetrievalService.Retrieved entry : retrieved) {
+                KnowledgeItem item = entry.item();
+                String block = "\n\n## " + (item.title() == null ? "Note" : item.title())
+                        + "\n\n" + item.statement().strip()
+                        + (item.rationale() == null || item.rationale().isBlank()
+                                ? "" : "\n\nWhy: " + item.rationale().strip());
+                if (retrievedChars + block.length() > RETRIEVED_CHAR_CAP) {
+                    break;
+                }
+                if (!heading) {
+                    if (!out.isEmpty()) {
+                        out.append("\n\n");
+                    }
+                    out.append("# Knowledge base (").append(audience).append(")");
+                    heading = true;
+                }
+                out.append(block);
+                retrievedChars += block.length();
+                insertedIds.add(item.id());
+            }
+        }
+
+        recordProjection(workspaceId, audience, queryHint, insertedIds,
+                capsule.length(), brain.length(), retrievedChars);
+        return out.toString();
+    }
+
+    private String capsuleOf(String workspaceId)
+    {
+        return jdbc.query("""
+                SELECT capsule_md FROM repo_project_capsule WHERE workspace_id = ?
+                """, rs -> rs.next() ? rs.getString(1) : "", workspaceId);
+    }
+
+    private String brainOf(String workspaceId)
+    {
         String brain = jdbc.query("""
                 SELECT memory_md FROM workspaces WHERE id = ?
                 """, rs -> rs.next() ? rs.getString(1) : "", workspaceId);
-        if (!audienceEnabled(workspaceId, audience)) {
-            return brain == null ? "" : brain;
-        }
+        return brain == null ? "" : brain;
+    }
 
-        // Canonical store: only active knowledge may influence a session —
-        // pending/decayed/retired rows are inspectable but never rendered.
-        List<Entry> entries = jdbc.query("""
-                SELECT title, statement, audiences_json
-                FROM knowledge_item
-                WHERE workspace_id = ? AND state = 'active'
-                ORDER BY updated_at_ms DESC, id
-                """, (rs, ignored) -> new Entry(
-                rs.getString("title"),
-                rs.getString("statement"),
-                strings(rs.getString("audiences_json"))), workspaceId);
-        StringBuilder out = new StringBuilder(brain == null ? "" : brain.strip());
-        boolean heading = false;
-        for (Entry entry : entries) {
-            if (!entry.audience().contains(audience)) {
-                continue;
-            }
-            if (!heading) {
-                if (!out.isEmpty()) out.append("\n\n");
-                out.append("# Knowledge base (").append(audience).append(")");
-                heading = true;
-            }
-            out.append("\n\n## ").append(entry.title() == null ? "Note" : entry.title())
-                    .append("\n\n").append(entry.body().strip());
+    private String repoOf(String workspaceId)
+    {
+        String repo = jdbc.query("""
+                SELECT repo FROM repo_project_capsule WHERE workspace_id = ?
+                """, rs -> rs.next() ? rs.getString(1) : null, workspaceId);
+        if (repo != null && !repo.isBlank()) {
+            return repo;
         }
-        return out.toString();
+        String name = jdbc.query("""
+                SELECT name FROM workspaces WHERE id = ?
+                """, rs -> rs.next() ? rs.getString(1) : "", workspaceId);
+        return name == null ? "" : name;
+    }
+
+    private void recordProjection(
+            String workspaceId, String audience, String queryHint,
+            List<String> itemIds, int capsuleChars, int brainChars, int retrievedChars)
+    {
+        try {
+            jdbc.update("""
+                    INSERT INTO session_context_projection (
+                        workspace_id, audience, query_hint, item_ids_json,
+                        capsule_chars, brain_chars, retrieved_chars, created_at_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(workspace_id, audience) DO UPDATE SET
+                        query_hint = excluded.query_hint,
+                        item_ids_json = excluded.item_ids_json,
+                        capsule_chars = excluded.capsule_chars,
+                        brain_chars = excluded.brain_chars,
+                        retrieved_chars = excluded.retrieved_chars,
+                        created_at_ms = excluded.created_at_ms
+                    """,
+                    workspaceId, audience, queryHint,
+                    mapper.writeValueAsString(itemIds),
+                    capsuleChars, brainChars, retrievedChars,
+                    Instant.now().toEpochMilli());
+        }
+        catch (Exception e) {
+            // Recording must never block a session from starting.
+        }
     }
 
     private boolean audienceEnabled(String workspaceId, String audience)
@@ -113,15 +211,13 @@ public class SessionKnowledgeProvider
         }
     }
 
-    private List<String> strings(String json)
+    private static String cap(String value, int max)
     {
-        try {
-            return mapper.readValue(json, STRINGS);
+        if (value == null) {
+            return "";
         }
-        catch (Exception ignored) {
-            return List.of();
-        }
+        return value.length() <= max
+                ? value
+                : value.substring(0, max) + "\n… (truncated)";
     }
-
-    private record Entry(String title, String body, List<String> audience) {}
 }

@@ -594,6 +594,28 @@ class TestStageBrain
     }
 
     @Test
+    void exhaustedCiFixStatusIncludesTheAttemptCount()
+    {
+        String taskId = seedTask();
+        StageInstance remote = stageStore.openStage(
+                taskId, StageType.REMOTE_DEVELOPMENT_STAGE, null);
+        AgentRun run = agentRuns.openInStage(
+                taskId, AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
+                remote.id().toString(), 5);
+        for (int i = 0; i < 5; i++) {
+            agentRuns.recordIteration(run.id(), null);
+        }
+        agentRuns.transition(run.id(), AgentRun.STATUS_FAILED, "attempts_exhausted");
+        machine.transition(
+                taskId, TaskPhase.NEEDS_ATTENTION, "ci_fix_attempts_exhausted", Actor.AGENT);
+        taskStore.saveTask(taskStore.findTaskById(taskId).orElseThrow()
+                .withStatus(TaskStatus.NEEDS_ATTENTION));
+
+        assertThat(stageService.getBrain(taskId).task().statusLabel())
+                .isEqualTo("ci fix attempts exhausted (5/5)");
+    }
+
+    @Test
     void budgetPauseProjectsAnAmberSettingsActionIntoTheConversation()
     {
         String taskId = seedTask();

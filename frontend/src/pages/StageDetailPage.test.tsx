@@ -101,9 +101,9 @@ describe('StageDetailPage locked frame', () => {
     render(stage('dev', {
       run: { paused: true, statusLabel: 'needs attention', statusDetail: 'Validation failed', onResume, onClose },
     }));
-    fireEvent.click(screen.getByRole('button', { name: /NEEDS ATTENTION/ }));
-    expect(screen.getByRole('status').textContent).toBe('Validation failed');
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Resume' }));
+    const resume = screen.getByRole('button', { name: 'Resume · NEEDS ATTENTION' });
+    expect(resume.getAttribute('title')).toBe('Validation failed');
+    fireEvent.click(resume);
     expect(onResume).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', { name: /Close task/ })).toBeTruthy();
   });

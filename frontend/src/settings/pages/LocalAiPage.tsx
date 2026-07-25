@@ -30,7 +30,7 @@ type Tab = 'management' | 'metrics';
  * ByteQuay-only calls log). Switching tabs preserves the header so
  * the lifecycle actions are always one click away.
  */
-export default function LocalAiPage() {
+export default function LocalAiPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [tab, setTab] = useState<Tab>('management');
   const [status, setStatus] = useState<Ds4StatusDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,17 +56,21 @@ export default function LocalAiPage() {
   }, [refresh]);
 
   return (
-    <div style={pageStyle}>
-      <header style={headerWrapStyle}>
-        <h1 style={titleStyle}>Local AI (ds4) · Experimental</h1>
-        <p style={subtitleStyle}>
-          Experimental: run a local DeepSeek V4 Flash inference server on
-          your own machine. It's off by default and needs real GPU memory
-          to run, so treat it as a preview that may change or break. The
-          server is shared with external clients that may already be
-          connected; Stop and Restart affect every consumer at once.
-        </p>
-      </header>
+    <div style={embedded ? undefined : pageStyle}>
+      {/* Settings → AI hosts this as a tab and supplies its own page
+          header, so the standalone title is skipped there. */}
+      {!embedded && (
+        <header style={headerWrapStyle}>
+          <h1 style={titleStyle}>Local AI (ds4) · Experimental</h1>
+          <p style={subtitleStyle}>
+            Experimental: run a local DeepSeek V4 Flash inference server on
+            your own machine. It's off by default and needs real GPU memory
+            to run, so treat it as a preview that may change or break. The
+            server is shared with external clients that may already be
+            connected; Stop and Restart affect every consumer at once.
+          </p>
+        </header>
+      )}
 
       {error !== null && (
         <div role="alert" style={alertStyle}>{error}</div>

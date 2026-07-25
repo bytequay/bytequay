@@ -13,7 +13,11 @@
  */
 package com.bytequay.app.repository;
 
+import com.bytequay.app.domain.ValidationClaim;
+
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 
 /** Persistence for the {@code validation_pass} audit log. */
 public interface ValidationPassStore
@@ -23,4 +27,61 @@ public interface ValidationPassStore
 
     /** Close the run row with its outcome. */
     void finishPass(long id, Instant endedAt, boolean passed, int fixRounds, String failuresJson);
+
+    /** Insert a STARTED claim row. Empty on a claim-key conflict — the
+     *  caller reloads via {@link #findByClaimKey} (idempotent claims). */
+    default Optional<Long> insertClaim(
+            String claimKey, String taskId, String context, String roundId,
+            String codeFingerprint, Long throughSequence, String rootSetDigest, Instant startedAt)
+    {
+        throw new UnsupportedOperationException("insertClaim");
+    }
+
+    default Optional<ValidationClaim> findByClaimKey(String claimKey)
+    {
+        throw new UnsupportedOperationException("findByClaimKey");
+    }
+
+    /** CAS ownership: succeeds only while the claim is live (not ended /
+     *  cancelled / superseded) and unowned or lease-expired. */
+    default boolean acquireOwner(
+            String claimKey, String ownerId, String executorIdentity, Instant leaseUntil, Instant now)
+    {
+        throw new UnsupportedOperationException("acquireOwner");
+    }
+
+    /** Renew the owner's lease; false when ownership was lost. */
+    default boolean renewLease(String claimKey, String ownerId, Instant leaseUntil, Instant heartbeatAt)
+    {
+        throw new UnsupportedOperationException("renewLease");
+    }
+
+    /** Terminal completion CAS: only the current owner of the exact
+     *  fingerprint may finish the pass, exactly once. */
+    default boolean completeOwned(
+            String claimKey, String ownerId, String codeFingerprint,
+            Instant endedAt, boolean passed, String failuresJson)
+    {
+        throw new UnsupportedOperationException("completeOwned");
+    }
+
+    /** Durable cancellation request; the executor and the cancellation
+     *  reconciler act on it. False when the claim is already terminal. */
+    default boolean requestCancel(String claimKey, Instant requestedAt, Instant deadline)
+    {
+        throw new UnsupportedOperationException("requestCancel");
+    }
+
+    /** Mark a live claim superseded by a newer submission/fingerprint. */
+    default boolean markSuperseded(String claimKey, Instant at)
+    {
+        throw new UnsupportedOperationException("markSuperseded");
+    }
+
+    /** STARTED claims with no live lease and no cancel/supersede mark —
+     *  the startup/sweep resume set. */
+    default List<ValidationClaim> findResumableStarted(Instant now)
+    {
+        throw new UnsupportedOperationException("findResumableStarted");
+    }
 }

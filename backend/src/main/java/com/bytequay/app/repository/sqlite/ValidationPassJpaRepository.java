@@ -14,8 +14,74 @@
 package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+import java.util.List;
+import java.util.Optional;
 
 interface ValidationPassJpaRepository
         extends JpaRepository<ValidationPassEntity, Long>
 {
+    Optional<ValidationPassEntity> findByClaimKey(String claimKey);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE ValidationPassEntity v SET v.ownerId = :ownerId, "
+            + "v.executorIdentity = :executorIdentity, v.leaseUntilMs = :leaseUntilMs, "
+            + "v.heartbeatAtMs = :now "
+            + "WHERE v.claimKey = :claimKey AND v.endedAtMs IS NULL "
+            + "AND v.cancelRequestedAtMs IS NULL AND v.supersededAtMs IS NULL "
+            + "AND (v.ownerId IS NULL OR v.leaseUntilMs < :now)")
+    int acquireOwner(
+            @Param("claimKey") String claimKey,
+            @Param("ownerId") String ownerId,
+            @Param("executorIdentity") String executorIdentity,
+            @Param("leaseUntilMs") long leaseUntilMs,
+            @Param("now") long now);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE ValidationPassEntity v SET v.leaseUntilMs = :leaseUntilMs, "
+            + "v.heartbeatAtMs = :heartbeatAtMs "
+            + "WHERE v.claimKey = :claimKey AND v.ownerId = :ownerId AND v.endedAtMs IS NULL")
+    int renewLease(
+            @Param("claimKey") String claimKey,
+            @Param("ownerId") String ownerId,
+            @Param("leaseUntilMs") long leaseUntilMs,
+            @Param("heartbeatAtMs") long heartbeatAtMs);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE ValidationPassEntity v SET v.endedAtMs = :endedAtMs, v.passed = :passed, "
+            + "v.failuresJson = :failuresJson "
+            + "WHERE v.claimKey = :claimKey AND v.endedAtMs IS NULL "
+            + "AND v.ownerId = :ownerId AND v.codeFingerprint = :codeFingerprint")
+    int completeOwned(
+            @Param("claimKey") String claimKey,
+            @Param("ownerId") String ownerId,
+            @Param("codeFingerprint") String codeFingerprint,
+            @Param("endedAtMs") long endedAtMs,
+            @Param("passed") boolean passed,
+            @Param("failuresJson") String failuresJson);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE ValidationPassEntity v SET v.cancelRequestedAtMs = :requestedAtMs, "
+            + "v.cancelDeadlineAtMs = :deadlineMs "
+            + "WHERE v.claimKey = :claimKey AND v.endedAtMs IS NULL "
+            + "AND v.cancelRequestedAtMs IS NULL")
+    int requestCancel(
+            @Param("claimKey") String claimKey,
+            @Param("requestedAtMs") long requestedAtMs,
+            @Param("deadlineMs") long deadlineMs);
+
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE ValidationPassEntity v SET v.supersededAtMs = :atMs "
+            + "WHERE v.claimKey = :claimKey AND v.endedAtMs IS NULL "
+            + "AND v.supersededAtMs IS NULL")
+    int markSuperseded(@Param("claimKey") String claimKey, @Param("atMs") long atMs);
+
+    @Query("SELECT v FROM ValidationPassEntity v WHERE v.claimKey IS NOT NULL "
+            + "AND v.endedAtMs IS NULL AND v.cancelRequestedAtMs IS NULL "
+            + "AND v.supersededAtMs IS NULL "
+            + "AND (v.leaseUntilMs IS NULL OR v.leaseUntilMs < :now)")
+    List<ValidationPassEntity> findResumableStarted(@Param("now") long now);
 }

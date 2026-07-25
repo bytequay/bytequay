@@ -27,6 +27,9 @@ interface ThreadTurnJpaRepository
 {
     Optional<ThreadTurnEntity> findByKickKey(String kickKey);
 
+    List<ThreadTurnEntity> findByTaskIdAndAffectsTaskLivenessTrueOrderByCreatedAtMsAscIdAsc(
+            String taskId, Pageable pageable);
+
     List<ThreadTurnEntity> findByStatusOrderByCreatedAtMsAscIdAsc(String status, Pageable pageable);
 
     @Query("""

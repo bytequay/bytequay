@@ -74,14 +74,14 @@ interface TaskJpaRepository
 
     /** Stamp the sentinel iff unset. Returns 1 when this caller is the
      *  first to detect the ready state (so it fires the notification). */
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TaskEntity t SET t.mergeNotificationSentAtMs = :atMs "
             + "WHERE t.id = :taskId AND t.mergeNotificationSentAtMs IS NULL")
     int setMergeNotificationSentAtIfNull(@Param("taskId") String taskId, @Param("atMs") long atMs);
 
     /** Clear the sentinel when a ready condition breaks. Returns rows
      *  affected. */
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TaskEntity t SET t.mergeNotificationSentAtMs = null "
             + "WHERE t.id = :taskId AND t.mergeNotificationSentAtMs IS NOT NULL")
     int clearMergeNotificationSentAt(@Param("taskId") String taskId);
@@ -91,7 +91,7 @@ interface TaskJpaRepository
     /** Stamp the ready-gate sentinel iff unset. Returns 1 when this caller is
      *  the first to offer the mark-ready gate (so it parks it). Never cleared
      *  — the gate is offered exactly once per task. */
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TaskEntity t SET t.readyGateSentAtMs = :atMs "
             + "WHERE t.id = :taskId AND t.readyGateSentAtMs IS NULL")
     int setReadyGateSentAtIfNull(@Param("taskId") String taskId, @Param("atMs") long atMs);
@@ -99,40 +99,55 @@ interface TaskJpaRepository
     // ── standing merge consent + auto-retry state (V129) ────────────────
 
     /** Record standing merge consent and reset the retry counter. */
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TaskEntity t SET t.mergeAuthorizedAtMs = :atMs, t.mergeQueueRetries = 0 "
             + "WHERE t.id = :taskId")
     int authorizeMerge(@Param("taskId") String taskId, @Param("atMs") long atMs);
 
     /** Drop standing merge consent and reset the retry counter. */
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TaskEntity t SET t.mergeAuthorizedAtMs = null, t.mergeQueueRetries = 0 "
             + "WHERE t.id = :taskId")
     int clearMergeAuthorization(@Param("taskId") String taskId);
 
     /** Set the auto re-enqueue retry counter. */
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TaskEntity t SET t.mergeQueueRetries = :retries WHERE t.id = :taskId")
     int setMergeQueueRetries(@Param("taskId") String taskId, @Param("retries") int retries);
 
     // ── completion-summary brain turn (V149) ────────────────────────────
 
     /** Record the in-flight "summarize this task" brain turn. */
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TaskEntity t SET t.pendingCompletionSummaryTurnId = :turnId WHERE t.id = :taskId")
     int setPendingCompletionSummaryTurnId(@Param("taskId") String taskId, @Param("turnId") String turnId);
 
     /** Clear it once the turn's finish event has been handled (or the
      *  stale-completion sweep gives up on it). */
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TaskEntity t SET t.pendingCompletionSummaryTurnId = null WHERE t.id = :taskId")
     int clearPendingCompletionSummaryTurnId(@Param("taskId") String taskId);
 
     /** Resolve a finished turn id back to the task it was summarizing. */
     Optional<TaskEntity> findByPendingCompletionSummaryTurnId(String pendingCompletionSummaryTurnId);
 
-    @Modifying(clearAutomatically = true)
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE TaskEntity t SET t.status = :to "
             + "WHERE t.id = :taskId AND t.status = :expected")
     int casStatus(@Param("taskId") String taskId, @Param("expected") String expected, @Param("to") String to);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE TaskEntity t SET t.currentLivenessTurnId = :next "
+            + "WHERE t.id = :taskId AND t.currentLivenessTurnId = :expected")
+    int casLivenessPointer(
+            @Param("taskId") String taskId,
+            @Param("expected") String expected,
+            @Param("next") String next);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE TaskEntity t SET t.currentLivenessTurnId = :next "
+            + "WHERE t.id = :taskId AND t.currentLivenessTurnId IS NULL")
+    int setLivenessPointerIfUnset(@Param("taskId") String taskId, @Param("next") String next);
+
+    List<TaskEntity> findByStatusInOrderByCreatedAtMsAsc(List<String> statuses, Pageable pageable);
 }

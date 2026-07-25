@@ -522,6 +522,11 @@ function registerIpc(): void {
     else if (action === 'zoom') mainWindow.setFullScreen(!mainWindow.isFullScreen());
   });
 
+  // Shown in the Settings rail footer and stamped into bug reports.
+  ipcMain.handle('app:version', () => {
+    return { version: app.getVersion() };
+  });
+
   ipcMain.handle('dev:local-data-reset-available', () => {
     const marker = process.env.BYTEQUAY_DEV_RESET_MARKER;
     return !app.isPackaged && typeof marker === 'string' && path.isAbsolute(marker);

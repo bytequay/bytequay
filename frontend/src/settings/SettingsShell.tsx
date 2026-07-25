@@ -46,10 +46,9 @@ function SettingsShell({ section, workspaceId, onSelectSection, onClearPat, onOp
   // PAT now, so we alias the old id at render time.
   const resolved = section === 'github-token' ? 'credentials' : section;
   return (
-    <section className="settings-shell">
-      <div className="settings-shell__layout">
-        <SettingsSidebar active={resolved} onSelect={onSelectSection} />
-        <div className="settings-shell__content">
+    <section className="sv2">
+      <SettingsSidebar active={resolved} onSelect={onSelectSection} />
+      <div className="sv2-content">
           {resolved === 'account' && <AccountPage onClearPat={onClearPat} />}
           {resolved === 'appearance' && <AppearancePage />}
           {resolved === 'credentials' && <CredentialsPage />}
@@ -66,7 +65,6 @@ function SettingsShell({ section, workspaceId, onSelectSection, onClearPat, onOp
           {resolved === 'integrations' && <IntegrationsPage />}
           {resolved === 'email' && <EmailSettingsPage />}
           {resolved === 'help' && <HelpPage />}
-        </div>
       </div>
     </section>
   );

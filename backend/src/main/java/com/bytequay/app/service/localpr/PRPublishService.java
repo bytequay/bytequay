@@ -32,6 +32,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -99,6 +100,7 @@ public class PRPublishService
     private final TaskPhaseMachine phaseMachine;
     private final NotificationService notifications;
     private final TaskService taskService;
+    private final LocalReviewSubmissionStore submissions;
 
     public PRPublishService(
             PRService prService,
@@ -112,8 +114,10 @@ public class PRPublishService
             ReadyToMergeService readyToMerge,
             TaskPhaseMachine phaseMachine,
             NotificationService notifications,
-            TaskService taskService)
+            TaskService taskService,
+            LocalReviewSubmissionStore submissions)
     {
+        this.submissions = requireNonNull(submissions, "submissions is null");
         this.prService = requireNonNull(prService, "prService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
@@ -280,6 +284,9 @@ public class PRPublishService
         }
         // Mirror the push onto the task row so the rest of the app sees the
         // pushed/linked state, then strip locals + flip the local PR status.
+        // Incomplete local review batches are superseded by the ship — the
+        // remote review loop owns feedback from here on.
+        submissions.cancelOpenForTask(task.id(), "local_pr_pushed", Instant.now());
         taskStore.markPushed(task.id(), Instant.now());
         taskStore.linkPullRequest(task.id(), opened.number(), LINKED_STATUS_DRAFT);
         taskStore.linkTaskToPr(task.id(), opened.repo() + "#" + opened.number());

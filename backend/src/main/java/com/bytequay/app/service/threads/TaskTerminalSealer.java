@@ -16,11 +16,14 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
+import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.runs.AgentRunService;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
 
 import static java.util.Objects.requireNonNull;
 
@@ -39,12 +42,16 @@ class TaskTerminalSealer
     private final StageStore stageStore;
     private final ReviewRoundService reviewRounds;
     private final AgentRunService agentRuns;
+    private final LocalReviewSubmissionStore submissions;
 
-    TaskTerminalSealer(StageStore stageStore, ReviewRoundService reviewRounds, AgentRunService agentRuns)
+    TaskTerminalSealer(
+            StageStore stageStore, ReviewRoundService reviewRounds, AgentRunService agentRuns,
+            LocalReviewSubmissionStore submissions)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
         this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
+        this.submissions = requireNonNull(submissions, "submissions is null");
     }
 
     @Transactional
@@ -59,5 +66,8 @@ class TaskTerminalSealer
                 stageStore.closeStage(stage.id(), reason);
             }
         }
+        // Incomplete review batches are sealed with the task so no sweep
+        // can revive superseded feedback.
+        submissions.cancelOpenForTask(taskId, reason, Instant.now());
     }
 }

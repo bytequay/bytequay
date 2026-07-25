@@ -70,6 +70,41 @@ class SqliteReviewRoundStore
     }
 
     @Override
+    @Transactional
+    public boolean updateStatusIf(String id, String expected, String to)
+    {
+        return rounds.casStatus(id, expected, to) == 1;
+    }
+
+    @Override
+    @Transactional
+    public void updateStats(String id, ReviewRound.ReviewRoundStats stats)
+    {
+        rounds.updateStatsJson(id, toJson(stats));
+    }
+
+    @Override
+    @Transactional
+    public void updateRunId(String id, String runId)
+    {
+        rounds.updateRunId(id, runId);
+    }
+
+    @Override
+    @Transactional
+    public void updateBrainVerdict(String id, String verdict)
+    {
+        rounds.updateBrainVerdict(id, verdict);
+    }
+
+    @Override
+    @Transactional
+    public void updateGateTimes(String id, Instant gatedAt, Instant postedAt)
+    {
+        rounds.updateGateTimes(id, epochOrNull(gatedAt), epochOrNull(postedAt));
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Optional<ReviewRound> findById(String id)
     {

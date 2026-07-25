@@ -15,13 +15,53 @@ package com.bytequay.app.repository;
 
 import com.bytequay.app.domain.AgentRun;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 /** Persistence boundary for {@link AgentRun}. */
 public interface AgentRunStore
 {
+    /** Full-row upsert. Legacy write path — it rewrites {@code status},
+     *  so lifecycle callers migrate to {@link #insert} plus the targeted
+     *  methods below, which cannot clobber a concurrent transition. */
     AgentRun save(AgentRun run);
+
+    /** Insert a freshly opened run — the one write that legitimately
+     *  carries an initial status. */
+    default AgentRun insert(AgentRun run)
+    {
+        return save(run);
+    }
+
+    /** Compare-and-set the status column (with {@code finishedAt}
+     *  stamped or cleared to match): move to {@code to} only while the
+     *  row still holds {@code expected}. Never touches metadata.
+     *
+     *  @return true when the row was updated */
+    default boolean updateStatusIf(String runId, String expected, String to, Instant finishedAt)
+    {
+        throw new UnsupportedOperationException("updateStatusIf");
+    }
+
+    /** Targeted progress write (iterations + usage); never touches
+     *  status. */
+    default void updateProgress(String runId, int iterations, long costUsdMilli, long tokensIn, long tokensOut)
+    {
+        throw new UnsupportedOperationException("updateProgress");
+    }
+
+    /** Targeted budget write; never touches status. */
+    default void updateBudget(String runId, Integer budget)
+    {
+        throw new UnsupportedOperationException("updateBudget");
+    }
+
+    /** Targeted headline/outcome write; never touches status. */
+    default void updateHeadline(String runId, String headline, String outcome)
+    {
+        throw new UnsupportedOperationException("updateHeadline");
+    }
 
     Optional<AgentRun> findById(String id);
 

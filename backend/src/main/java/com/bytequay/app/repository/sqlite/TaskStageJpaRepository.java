@@ -14,6 +14,9 @@
 package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +24,15 @@ import java.util.Optional;
 interface TaskStageJpaRepository
         extends JpaRepository<TaskStageEntity, String>
 {
+    @Modifying(clearAutomatically = true)
+    @Query("UPDATE TaskStageEntity s SET s.state = :to, s.closedAtMs = :closedAtMs "
+            + "WHERE s.id = :id AND s.state = :expected")
+    int casState(
+            @Param("id") String id,
+            @Param("expected") String expected,
+            @Param("to") String to,
+            @Param("closedAtMs") Long closedAtMs);
+
     /** A task's stages oldest-first. */
     List<TaskStageEntity> findByTaskIdOrderByOpenedAtMsAsc(String taskId);
 

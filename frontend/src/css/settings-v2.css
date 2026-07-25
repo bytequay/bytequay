@@ -1,0 +1,523 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* ===================================================================
+   Settings, second pass. Replaces the flat card list with a filtered
+   rail plus per-page sticky headers over a centred body.
+
+   The palette is written out rather than pulled from theme tokens:
+   the theme picker is now a single light theme, so these values are
+   the only ones that can apply. Namespaced `sv2-` so nothing here
+   collides with the legacy `.setting-*` rules still in ai.css.
+   =================================================================== */
+
+.sv2 {
+  --sv2-text-1: #17191c;
+  --sv2-text-2: #454c54;
+  --sv2-text-3: #57606a;
+  --sv2-text-4: #8b949e;
+  --sv2-text-5: #a0a6ad;
+  --sv2-line: #e1e5e9;
+  --sv2-line-soft: #eef0f2;
+  --sv2-line-row: #f0f2f4;
+  --sv2-line-strong: #d0d7de;
+  --sv2-accent: #0969da;
+  --sv2-accent-bg: #ddf4ff;
+  --sv2-accent-soft: #f0f7ff;
+  --sv2-accent-deep: #0a3069;
+  --sv2-green: #1a7f37;
+  --sv2-green-bg: #dafbe1;
+  --sv2-red: #cf222e;
+  --sv2-red-bg: #ffebe9;
+  --sv2-mono: 'SF Mono', ui-monospace, Menlo, monospace;
+
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  background: #fff;
+  color: var(--sv2-text-1);
+  font-size: 14px;
+}
+
+/* ------------------------------------------------------------------ rail */
+
+.sv2-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #fbfbfc;
+  border-right: 1px solid #e7e9ec;
+}
+
+.sv2-rail__head {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 10px;
+}
+
+.sv2-rail__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--sv2-text-1);
+}
+
+.sv2-rail__chord {
+  margin-left: auto;
+  font-family: var(--sv2-mono);
+  font-size: 11px;
+  color: var(--sv2-text-5);
+}
+
+.sv2-rail__search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 29px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #f0f1f3;
+  color: var(--sv2-text-4);
+}
+
+.sv2-rail__search:focus-within {
+  border-color: var(--sv2-accent);
+  background: #fff;
+}
+
+.sv2-rail__search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12.5px;
+  color: var(--sv2-text-1);
+}
+
+.sv2-rail__search input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.sv2-rail__clear {
+  flex-shrink: 0;
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--sv2-text-4);
+  cursor: pointer;
+}
+
+.sv2-rail__clear:hover {
+  color: var(--sv2-text-2);
+}
+
+.sv2-rail__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 10px;
+}
+
+.sv2-rail__group {
+  padding-bottom: 10px;
+}
+
+.sv2-rail__group-label {
+  padding: 6px 10px 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #9aa0a7;
+}
+
+.sv2-rail__link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  margin-bottom: 1px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--sv2-text-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sv2-rail__link:hover {
+  background: var(--sv2-line-soft);
+}
+
+.sv2-rail__link--active {
+  background: #ececee;
+  color: var(--sv2-text-1);
+  font-weight: 600;
+}
+
+.sv2-rail__link--child {
+  padding-left: 30px;
+}
+
+.sv2-rail__icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  justify-content: center;
+  width: 17px;
+  color: var(--sv2-text-4);
+}
+
+.sv2-rail__link--active .sv2-rail__icon {
+  color: var(--sv2-text-2);
+}
+
+.sv2-rail__label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sv2-rail__badge {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--sv2-accent-bg);
+  color: var(--sv2-accent);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.sv2-rail__empty {
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--sv2-text-5);
+}
+
+.sv2-rail__foot {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--sv2-line-soft);
+  font-size: 11.5px;
+  color: var(--sv2-text-4);
+}
+
+.sv2-rail__foot button {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--sv2-accent);
+  cursor: pointer;
+}
+
+.sv2-rail__foot button:hover {
+  text-decoration: underline;
+}
+
+/* ------------------------------------------------------------- page frame */
+
+.sv2-content {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Sections not yet on the SettingsPage frame render bare fragments, so
+   they need the old content padding back. Drops out on its own as each
+   page converts. */
+.sv2-content:not(:has(.sv2-page)) {
+  padding: 30px 32px;
+}
+
+.sv2-page {
+  min-height: 100%;
+}
+
+.sv2-page__head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 22px 0 15px;
+  background: #fff;
+  border-bottom: 1px solid var(--sv2-line-soft);
+}
+
+/* Tabs sit flush against the header's bottom rule, so the tabbed
+   variant drops the head's own bottom padding. */
+.sv2-page__head--tabbed {
+  padding-bottom: 0;
+}
+
+.sv2-page__head-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  margin: 0 auto;
+  padding: 0 40px;
+}
+
+.sv2-page__heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.sv2-page__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--sv2-text-1);
+}
+
+.sv2-page__subtitle {
+  max-width: 660px;
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--sv2-text-3);
+}
+
+.sv2-page__body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 0 auto;
+  padding: 24px 40px 60px;
+}
+
+.sv2-page__tabs {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-top: 14px;
+}
+
+.sv2-page__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 1px 11px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--sv2-text-3);
+  cursor: pointer;
+}
+
+.sv2-page__tab--active {
+  border-bottom-color: var(--sv2-text-1);
+  color: var(--sv2-text-1);
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------- shared pieces */
+
+.sv2-card {
+  overflow: hidden;
+  border: 1px solid var(--sv2-line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.sv2-card__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 14px 18px 12px;
+}
+
+.sv2-card__title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--sv2-text-1);
+}
+
+.sv2-card__hint {
+  font-size: 12.5px;
+  color: var(--sv2-text-4);
+}
+
+.sv2-card__row {
+  border-top: 1px solid var(--sv2-line-row);
+}
+
+.sv2-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--sv2-line-strong);
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--sv2-text-2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sv2-btn:hover:not(:disabled) {
+  background: #f6f8fa;
+  color: var(--sv2-text-1);
+}
+
+.sv2-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.sv2-btn--sm {
+  padding: 4px 11px;
+  border-color: var(--sv2-line);
+  border-radius: 7px;
+  color: var(--sv2-text-3);
+}
+
+.sv2-btn--dark {
+  padding: 7px 14px;
+  border: 0;
+  background: #24292f;
+  color: #fff;
+}
+
+.sv2-btn--dark:hover:not(:disabled) {
+  background: #32383f;
+  color: #fff;
+}
+
+.sv2-btn--danger {
+  border-color: #ffb3ad;
+  color: var(--sv2-red);
+}
+
+.sv2-btn--danger:hover:not(:disabled) {
+  border-color: var(--sv2-red);
+  background: var(--sv2-red);
+  color: #fff;
+}
+
+.sv2-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--sv2-line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--sv2-text-4);
+  cursor: pointer;
+}
+
+.sv2-icon-btn:hover:not(:disabled) {
+  border-color: #ffcdc9;
+  background: var(--sv2-red-bg);
+  color: var(--sv2-red);
+}
+
+.sv2-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 11px 14px;
+  border: 1px solid var(--sv2-line-soft);
+  border-radius: 11px;
+  background: #f6f8fa;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--sv2-text-3);
+}
+
+.sv2-note--info {
+  border-color: rgba(9, 105, 218, 0.2);
+  background: var(--sv2-accent-soft);
+  color: var(--sv2-accent-deep);
+}
+
+.sv2-note__icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  display: inline-flex;
+}
+
+.sv2-error {
+  padding: 10px 14px;
+  border: 1px solid #ffcdc9;
+  border-radius: 11px;
+  background: #fff5f4;
+  font-size: 12.5px;
+  color: #b31d28;
+}
+
+.sv2-loading {
+  padding: 10px 2px;
+  font-size: 12.5px;
+  color: var(--sv2-text-4);
+}
+
+.sv2-empty {
+  padding: 30px 20px;
+  border: 1px dashed var(--sv2-line-strong);
+  border-radius: 11px;
+  text-align: center;
+}
+
+.sv2-empty__title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--sv2-text-2);
+}
+
+.sv2-empty__body {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--sv2-text-4);
+}
+
+.sv2-mono {
+  font-family: var(--sv2-mono);
+}
+
+@keyframes sv2-spin {
+  to { transform: rotate(360deg); }
+}
+
+.sv2-spin {
+  display: inline-flex;
+  animation: sv2-spin 0.9s linear infinite;
+}

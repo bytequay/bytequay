@@ -397,6 +397,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workModels:options'),
   refreshWorkModelOptions: (): Promise<WorkModelOptionsDto> =>
     ipcRenderer.invoke('workModels:refresh'),
+  getAppVersion: (): Promise<{ version: string }> =>
+    ipcRenderer.invoke('app:version'),
   getCodexCliVersion: (): Promise<{ version: string }> =>
     ipcRenderer.invoke('codex:version'),
   updateCodexCli: (): Promise<CodexCliUpdateResultDto> =>

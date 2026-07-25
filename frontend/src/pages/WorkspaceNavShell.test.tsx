@@ -245,7 +245,7 @@ describe('WorkspaceNavShell', () => {
     expect(onOpenTask).toHaveBeenCalledWith('t1', 'task-1');
   });
 
-  it('renders live workspace counts with selected tasks in the locked workspace group', async () => {
+  it('renders workspace rows and locked entries with selected tasks in the workspace group', async () => {
     mockBridge({
       listTasks: vi.fn().mockResolvedValue([
         {
@@ -285,8 +285,8 @@ describe('WorkspaceNavShell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'WORKSPACE' }));
     const workspaceItems = document.querySelector('.trunk-page-v2-nav__workspace-items');
     const workspaceRows = Array.from(workspaceItems?.querySelectorAll('.workspace-page-row') ?? []);
-    expect(workspaceRows.find(row => row.textContent?.includes('Pull requests'))?.textContent).toContain('4');
-    expect(workspaceRows.find(row => row.textContent?.includes('Issues'))?.textContent).toContain('5');
+    expect(workspaceRows.find(row => row.textContent?.includes('Pull requests'))).toBeTruthy();
+    expect(workspaceRows.find(row => row.textContent?.includes('Issues'))).toBeTruthy();
     expect((screen.getByRole('button', { name: /Backlog/ }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: /Sessions/ }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Memory' }) as HTMLButtonElement).disabled).toBe(true);

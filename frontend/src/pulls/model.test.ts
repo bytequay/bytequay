@@ -69,8 +69,8 @@ describe('rowsForTab', () => {
     expect(rowsForTab(all, 'done').map(r => r.id).sort()).toEqual(['d']);
   });
 
-  it('Active drops rows without recent activity', () => {
-    expect(rowsForTab(all, 'active').map(r => r.id).sort()).toEqual(['a', 'c']);
+  it('Active includes only my recently updated PRs', () => {
+    expect(rowsForTab(all, 'active').map(r => r.id)).toEqual(['a']);
   });
 
   it('Review requests filters on origin', () => {

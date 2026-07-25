@@ -35,7 +35,7 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class ValidationExecutorRegistry
 {
-    private final ConcurrentHashMap<String, CompletableFuture<Void>> inFlight = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, InFlightWork> inFlight = new ConcurrentHashMap<>();
     private final ExecutorService pool =
             Executors.newCachedThreadPool(runnable -> {
                 Thread thread = new Thread(runnable, "validation-executor");
@@ -49,6 +49,14 @@ public class ValidationExecutorRegistry
                 return thread;
             });
 
+    /** One admitted executor: its completion future plus the worker
+     *  thread while it runs, so a cancellation can interrupt it. */
+    private static final class InFlightWork
+    {
+        final CompletableFuture<Void> done = new CompletableFuture<>();
+        volatile Thread worker;
+    }
+
     /**
      * Run {@code work} for {@code claimKey} unless this JVM already has
      * it in flight. Returns true when this call admitted the work.
@@ -57,20 +65,22 @@ public class ValidationExecutorRegistry
     {
         requireNonNull(claimKey, "claimKey is null");
         requireNonNull(work, "work is null");
-        CompletableFuture<Void> mine = new CompletableFuture<>();
-        CompletableFuture<Void> existing = inFlight.putIfAbsent(claimKey, mine);
+        InFlightWork mine = new InFlightWork();
+        InFlightWork existing = inFlight.putIfAbsent(claimKey, mine);
         if (existing != null) {
             return false;
         }
         pool.execute(() -> {
+            mine.worker = Thread.currentThread();
             try {
                 work.run();
-                mine.complete(null);
+                mine.done.complete(null);
             }
             catch (Throwable t) {
-                mine.completeExceptionally(t);
+                mine.done.completeExceptionally(t);
             }
             finally {
+                mine.worker = null;
                 inFlight.remove(claimKey, mine);
             }
         });
@@ -80,6 +90,26 @@ public class ValidationExecutorRegistry
     public boolean isInFlight(String claimKey)
     {
         return inFlight.containsKey(requireNonNull(claimKey, "claimKey is null"));
+    }
+
+    /**
+     * Interrupt the in-flight executor for {@code claimKey}, if any.
+     * The shell runner kills its child process on interrupt, so this is
+     * a complete stop request; absence still needs the durable proof.
+     * Returns true when a live worker was signalled.
+     */
+    public boolean requestStop(String claimKey)
+    {
+        InFlightWork work = inFlight.get(requireNonNull(claimKey, "claimKey is null"));
+        if (work == null) {
+            return false;
+        }
+        Thread worker = work.worker;
+        if (worker == null) {
+            return false;
+        }
+        worker.interrupt();
+        return true;
     }
 
     /** Schedule a repeating lease-renewal tick; cancel it when done. */

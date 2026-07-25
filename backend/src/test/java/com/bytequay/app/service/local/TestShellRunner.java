@@ -19,6 +19,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -157,5 +158,34 @@ class TestShellRunner
 
         assertThat(result.ran()).isFalse();
         assertThat(result.error()).contains("timed out");
+    }
+
+    @Test
+    void interruptKillsTheChildProcessBeforePropagating(@TempDir Path worktree)
+            throws Exception
+    {
+        // Validation cancellation interrupts the executor thread; the
+        // runner must take its child down with it, not leak a live
+        // process past the interrupt.
+        String marker = "876543219";
+        AtomicReference<Throwable> outcome = new AtomicReference<>();
+        Thread caller = new Thread(() -> {
+            try {
+                runner.runArgv(worktree, List.of("sleep", marker), 60L, 4096);
+            }
+            catch (Throwable t) {
+                outcome.set(t);
+            }
+        });
+        caller.start();
+        // Give the child a moment to spawn before interrupting.
+        Thread.sleep(300);
+        caller.interrupt();
+        caller.join(5_000);
+
+        assertThat(caller.isAlive()).isFalse();
+        assertThat(outcome.get()).isInstanceOf(InterruptedException.class);
+        Process pgrep = new ProcessBuilder("pgrep", "-f", "sleep " + marker).start();
+        assertThat(pgrep.waitFor()).isNotZero();
     }
 }

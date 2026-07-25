@@ -725,35 +725,40 @@ public class TaskService
     {
         try {
             for (Task candidate : taskStore.findByLinkedPrNumber(prNumber)) {
-                TaskPhaseMachine.withTaskLock(candidate.id(), () -> {
-                    // Re-read only after acquiring the same lock used by every
-                    // task-owned push. A merge can therefore seal/reap only
-                    // after an in-flight push has left its critical section.
-                    Task task = taskStore.findTaskById(candidate.id()).orElse(candidate);
-                    if (task.status() != TaskStatus.IN_REVIEW
-                            || !repoMatches(task, repoFullName)) {
-                        return null;
-                    }
-                    taskPhaseMachine.finishTerminal(
-                            task.id(),
-                            merged ? TaskStatus.COMPLETED : TaskStatus.REMOTE_CLOSED,
-                            Actor.WEBHOOK,
-                            merged ? "pr_merged" : "pr_closed");
-                    taskStore.linkPullRequest(task.id(), prNumber, merged ? "merged" : "closed");
-                    // Seal before reaping so queued/running lifecycle work sees
-                    // the terminal task while its worktree still exists.
-                    sealer.seal(task.id(), merged ? "pr_merged" : "pr_closed");
-                    notificationService.dismissOpenForTask(task.threadId(), task.id());
-                    worktreeService.reap(task);
-                    worktreeService.deleteRemoteBranch(task);
-                    return null;
-                });
+                TaskExternalEffectGate.withEffectGate(candidate.id(),
+                        () -> TaskPhaseMachine.withTaskLock(candidate.id(),
+                                () -> finishOneForRemotePr(candidate, repoFullName, prNumber, merged)));
             }
         }
         catch (RuntimeException e) {
             log.warn("completing tasks for merged PR {} #{} failed: {}",
                     repoFullName, prNumber, e.getMessage());
         }
+    }
+
+    private Void finishOneForRemotePr(Task candidate, String repoFullName, int prNumber, boolean merged)
+    {
+        // Re-read only after acquiring the same lock used by every
+        // task-owned push. A merge can therefore seal/reap only
+        // after an in-flight push has left its critical section.
+        Task task = taskStore.findTaskById(candidate.id()).orElse(candidate);
+        if (task.status() != TaskStatus.IN_REVIEW
+                || !repoMatches(task, repoFullName)) {
+            return null;
+        }
+        taskPhaseMachine.finishTerminal(
+                task.id(),
+                merged ? TaskStatus.COMPLETED : TaskStatus.REMOTE_CLOSED,
+                Actor.WEBHOOK,
+                merged ? "pr_merged" : "pr_closed");
+        taskStore.linkPullRequest(task.id(), prNumber, merged ? "merged" : "closed");
+        // Seal before reaping so queued/running lifecycle work sees
+        // the terminal task while its worktree still exists.
+        sealer.seal(task.id(), merged ? "pr_merged" : "pr_closed");
+        notificationService.dismissOpenForTask(task.threadId(), task.id());
+        worktreeService.reap(task);
+        worktreeService.deleteRemoteBranch(task);
+        return null;
     }
 
     /**
@@ -786,7 +791,8 @@ public class TaskService
      */
     public Task cancelTask(String threadId, String taskId)
     {
-        return TaskPhaseMachine.withTaskLock(taskId, () -> cancelTaskLocked(threadId, taskId));
+        return TaskExternalEffectGate.withEffectGate(taskId,
+                () -> TaskPhaseMachine.withTaskLock(taskId, () -> cancelTaskLocked(threadId, taskId)));
     }
 
     private Task cancelTaskLocked(String threadId, String taskId)
@@ -875,7 +881,8 @@ public class TaskService
     @Transactional
     public Task pauseTask(String threadId, String taskId)
     {
-        return TaskPhaseMachine.withTaskLock(taskId, () -> pauseTaskLocked(threadId, taskId));
+        return TaskExternalEffectGate.withEffectGate(taskId,
+                () -> TaskPhaseMachine.withTaskLock(taskId, () -> pauseTaskLocked(threadId, taskId)));
     }
 
     private Task pauseTaskLocked(String threadId, String taskId)

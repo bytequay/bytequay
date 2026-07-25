@@ -148,6 +148,29 @@ class SqliteValidationPassStore
                 .toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<PendingValidationCancel> findCancelPending()
+    {
+        return rows.findCancelPending().stream()
+                .map(e -> new PendingValidationCancel(
+                        e.getClaimKey(),
+                        e.getTaskId(),
+                        e.getExecutorIdentity(),
+                        e.getLeaseUntilMs() == null ? null : Instant.ofEpochMilli(e.getLeaseUntilMs()),
+                        e.getCancelDeadlineAtMs() == null
+                                ? null
+                                : Instant.ofEpochMilli(e.getCancelDeadlineAtMs())))
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void incrementCancelAttempts(String claimKey)
+    {
+        rows.incrementCancelAttempts(claimKey);
+    }
+
     private static ValidationClaim toDomain(ValidationPassEntity e)
     {
         return new ValidationClaim(

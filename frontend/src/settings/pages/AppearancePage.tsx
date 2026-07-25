@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect } from 'react';
-import { applyTheme } from '../../themes';
+import { useState } from 'react';
+import { applyTheme, loadTheme } from '../../themes';
 import SettingsPage from '../shared/SettingsPage';
 import { CheckIcon } from '../shared/icons';
 
@@ -24,10 +24,11 @@ import { CheckIcon } from '../shared/icons';
  * than a grid of swatches.
  */
 function AppearancePage() {
-  // Selecting the only option is a no-op, so normalise on mount instead:
-  // an install that still carries an older palette lands on the baseline
-  // the moment this page is opened.
-  useEffect(() => { applyTheme('github-light'); }, []);
+  // An install can still carry an older palette in localStorage. Say so
+  // rather than flipping the whole app on page load — the tile switches
+  // to the baseline when the user picks it.
+  const [theme, setTheme] = useState(loadTheme());
+  const active = theme === 'github-light';
 
   return (
     <SettingsPage title="Appearance" subtitle="Choose a theme. Applies immediately." width={820}>
@@ -37,15 +38,25 @@ function AppearancePage() {
           <span className="sv2-card__hint">Light themes for daytime focus.</span>
         </div>
         <div style={{ padding: '0 18px 18px' }}>
-          <div className="sv2-theme">
+          <div
+            className="sv2-theme"
+            role="button"
+            tabIndex={active ? -1 : 0}
+            style={active ? undefined : { borderColor: '#e1e5e9', boxShadow: 'none', cursor: 'pointer' }}
+            onClick={() => { applyTheme('github-light'); setTheme('github-light'); }}
+          >
             <ThemePreview />
             <div className="sv2-theme__foot">
-              <span className="sv2-theme__check"><CheckIcon size={11} width={3.2} /></span>
+              <span className="sv2-theme__check" style={active ? undefined : { background: '#fff', border: '1.6px solid #c6cbd1' }}>
+                {active && <CheckIcon size={11} width={3.2} />}
+              </span>
               <span style={{ minWidth: 0 }}>
                 <span className="sv2-theme__name">Codex Light</span>
                 <span className="sv2-theme__meta">Default · light · high-contrast diffs</span>
               </span>
-              <span className="sv2-theme__pill">Active</span>
+              {active
+                ? <span className="sv2-theme__pill">Active</span>
+                : <span className="sv2-btn sv2-btn--sm" style={{ marginLeft: 'auto' }}>Use this theme</span>}
             </div>
           </div>
           <div className="sv2-soon">More themes coming soon.</div>

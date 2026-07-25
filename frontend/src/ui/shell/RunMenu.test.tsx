@@ -31,12 +31,11 @@ describe('RunMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
-  it('offers Resume when paused', () => {
+  it('makes Resume the direct action when paused', () => {
     const onResume = vi.fn();
-    render(<RunMenu paused onResume={onResume} onPause={() => {}} />);
-    fireEvent.click(screen.getByRole('button', { name: /Paused/ }));
-    expect(screen.queryByRole('menuitem', { name: 'Pause' })).toBeNull();
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Resume' }));
+    render(<RunMenu paused statusLabel="CI fix attempts exhausted (5/5)" onResume={onResume} onPause={() => {}} />);
+    expect(screen.queryByRole('menu')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume · CI fix attempts exhausted (5/5)' }));
     expect(onResume).toHaveBeenCalledOnce();
   });
 

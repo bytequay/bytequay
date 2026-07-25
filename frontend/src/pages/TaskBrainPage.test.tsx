@@ -121,9 +121,9 @@ describe('TaskBrainPage locked frame', () => {
       task: { pillLabel: 'TASK #142', title: 'Needs help', finished: false },
       run: { paused: true, statusLabel: 'needs attention', statusDetail: 'Brain review failed', onResume, onClose },
     }));
-    fireEvent.click(screen.getByRole('button', { name: /NEEDS ATTENTION/ }));
-    expect(screen.getByRole('status').textContent).toBe('Brain review failed');
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Resume' }));
+    const resume = screen.getByRole('button', { name: 'Resume · NEEDS ATTENTION' });
+    expect(resume.getAttribute('title')).toBe('Brain review failed');
+    fireEvent.click(resume);
     expect(onResume).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', { name: /Close task/ })).toBeTruthy();
   });

@@ -291,6 +291,9 @@ class TestCiFixRunExecutor
         // no second review gate.
         assertThat(promptArg.getValue())
                 .contains("shipped PR")
+                .contains("deterministic failure reproduces on the PR base branch `main`")
+                .contains("first commit after the merge base")
+                .contains("followed by all original PR commits")
                 .contains("git push");
         assertThat(initiatorArg.getValue().attended()).isFalse();
         assertThat(initiatorArg.getValue().source()).isEqualTo("ci-fix-shipped");
@@ -299,7 +302,7 @@ class TestCiFixRunExecutor
     }
 
     @Test
-    void oneRedCiEpisodeKeepsItsBudgetAcrossTwoFixPushesAndThenParks()
+    void oneRedCiEpisodeKeepsItsBudgetAcrossFourFixPushesAndThenParks()
             throws Exception
     {
         Task task = newShippedTask("ship-episode", "thread-episode");
@@ -326,32 +329,29 @@ class TestCiFixRunExecutor
         when(leaseService.isHeldByAnotherTask(WORKTREE_PATH, task.id())).thenReturn(false);
         when(notificationService.listUnread()).thenReturn(List.of());
         when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
-                .thenReturn("turn-1", "turn-2");
-        when(turnStore.findTurnById("turn-1")).thenReturn(Optional.of(ciFixTurn(
-                "turn-1", task, "run-episode")));
-        when(turnStore.findTurnById("turn-2")).thenReturn(Optional.of(ciFixTurn(
-                "turn-2", task, "run-episode")));
+                .thenReturn("turn-1", "turn-2", "turn-3", "turn-4");
+        for (int i = 1; i <= 4; i++) {
+            String turnId = "turn-" + i;
+            when(turnStore.findTurnById(turnId)).thenReturn(Optional.of(ciFixTurn(
+                    turnId, task, "run-episode")));
+        }
 
         // Process restarts between scans deliberately discard the in-memory
         // cooldown. The attempt count must survive because it lives on the run.
-        CiFixRunExecutor firstScan = newExecutor();
-        firstScan.driveShippedCiFix(task, REPO, failingCi());
-        assertThat(episode.get().iterations()).isEqualTo(2);
-        firstScan.autoPushAfterCiFix(new TaskTurnFinishedEvent(task.id(), "turn-1", false));
-        verify(git, timeout(2000)).pushForceWithLease(Path.of(WORKTREE_PATH));
+        for (int i = 1; i <= 4; i++) {
+            CiFixRunExecutor scan = newExecutor();
+            scan.driveShippedCiFix(task, REPO, failingCi());
+            assertThat(episode.get().iterations()).isEqualTo(i + 1);
+            scan.autoPushAfterCiFix(new TaskTurnFinishedEvent(
+                    task.id(), "turn-" + i, false));
+            verify(git, timeout(2000).times(i)).pushForceWithLease(Path.of(WORKTREE_PATH));
+        }
 
-        CiFixRunExecutor secondScan = newExecutor();
-        secondScan.driveShippedCiFix(task, REPO, failingCi());
-        assertThat(episode.get().iterations()).isEqualTo(3);
-        secondScan.autoPushAfterCiFix(new TaskTurnFinishedEvent(task.id(), "turn-2", false));
-        verify(git, timeout(2000).times(2)).pushForceWithLease(Path.of(WORKTREE_PATH));
+        newExecutor().driveShippedCiFix(task, REPO, failingCi());
 
-        CiFixRunExecutor thirdRedScan = newExecutor();
-        thirdRedScan.driveShippedCiFix(task, REPO, failingCi());
-
-        verify(scheduler, times(2)).enqueueTaskTurn(
+        verify(scheduler, times(4)).enqueueTaskTurn(
                 any(), anyString(), eq(task.id()), eq(REMOTE_STAGE_ID), any(), eq("run-episode"));
-        verify(agentRuns, times(3)).openInStage(
+        verify(agentRuns, times(5)).openInStage(
                 task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
                 REMOTE_STAGE_ID, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS);
         verify(agentRuns).transition("run-episode", AgentRun.STATUS_FAILED, "attempts_exhausted");
@@ -410,6 +410,26 @@ class TestCiFixRunExecutor
         verify(agentRuns).openInStage(
                 "ship-4", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
                 REMOTE_STAGE_ID, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS);
+    }
+
+    @Test
+    void anExistingEpisodeKeepsItsPersistedAttemptLimit()
+    {
+        Task task = newShippedTask("ship-legacy-cap", "thread-legacy-cap");
+        AgentRun legacyRun = new AgentRun(
+                "run-legacy", task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
+                REMOTE_STAGE_ID, null, REMOTE_STAGE_ID, AgentRun.STATUS_RUNNING,
+                3, 3, null, null, NOW, null);
+        when(agentRuns.openInStage(
+                task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
+                REMOTE_STAGE_ID, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS)).thenReturn(legacyRun);
+        when(taskStore.findTaskById(task.id())).thenReturn(Optional.of(task));
+        when(notificationService.listUnread()).thenReturn(List.of());
+
+        newExecutor().driveShippedCiFix(task, REPO, failingCi());
+
+        verify(agentRuns).transition("run-legacy", AgentRun.STATUS_FAILED, "attempts_exhausted");
+        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any());
     }
 
     @Test

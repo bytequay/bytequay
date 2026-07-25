@@ -155,13 +155,24 @@ public class StageServiceImpl
         List<AgentRun> liveRuns = runtimeStopped ? List.of() : taskLiveRuns;
         ReviewRound liveRound = runtimeStopped ? null : liveRound(taskId);
         List<TaskPhaseEvent> phaseEvents = taskStore.listPhaseEvents(taskId);
+        String taskStatusLabel = statusLabel(task, phaseEvents);
+        if ("ci fix attempts exhausted".equalsIgnoreCase(taskStatusLabel)) {
+            AgentRun latestCiFixRun = agentRuns.findByTask(
+                            taskId, AgentRun.KIND_CI_FIX, null).stream()
+                    .findFirst()
+                    .orElse(null);
+            if (latestCiFixRun != null && latestCiFixRun.budget() != null) {
+                taskStatusLabel += " (" + latestCiFixRun.iterations()
+                        + "/" + latestCiFixRun.budget() + ")";
+            }
+        }
         StageInstance dev = allStages.stream()
                 .filter(s -> s.type() == StageType.DEVELOPMENT_STAGE)
                 .findFirst()
                 .orElse(null);
 
         return new TaskBrainViewData(
-                buildTask(task, phaseEvents),
+                buildTask(task, taskStatusLabel),
                 buildAggregate(task, allStages, brainMessages, cost.totalCents()),
                 topLevel,
                 subStages,
@@ -301,7 +312,7 @@ public class StageServiceImpl
 
     // ── brain-view builders ─────────────────────────────────────────────
 
-    private static TaskBrainViewData.BrainTask buildTask(Task task, List<TaskPhaseEvent> phaseEvents)
+    private static TaskBrainViewData.BrainTask buildTask(Task task, String statusLabel)
     {
         return new TaskBrainViewData.BrainTask(
                 task.id(),
@@ -312,7 +323,7 @@ public class StageServiceImpl
                 task.prNumber(),
                 isDraft(task.prState()),
                 task.phase().name(),
-                statusLabel(task, phaseEvents),
+                statusLabel,
                 "CLI",
                 "",
                 task.status() == TaskStatus.PAUSED

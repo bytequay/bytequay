@@ -74,9 +74,9 @@ public class CiFixRunExecutor
 
     /** Total autonomous CI-fix attempts for a shipped task before we
      *  hand it to the user. Attempt 1 is the cheap re-run (flaky guard);
-     *  attempts 2–3 are agent fix turns. After this the loop escalates
+     *  attempts 2–5 are agent fix turns. After this the loop escalates
      *  to a NEEDS_ATTENTION notification per the post-ship design. */
-    static final int MAX_CI_FIX_ATTEMPTS = 3;
+    static final int MAX_CI_FIX_ATTEMPTS = 5;
 
     /** Cap the CI-fix error summary stamped on the run's headline so a
      *  giant log dump can't bloat the row. */
@@ -349,7 +349,7 @@ public class CiFixRunExecutor
      *   <li>iteration 0 → <b>re-run</b> the failed checks in place — the
      *       cheapest way to clear a flaky/transient failure before
      *       spending an agent;</li>
-     *   <li>iterations 1–2 → spawn an <b>agent fix turn</b> that decides
+     *   <li>iterations 1–4 → spawn an <b>agent fix turn</b> that decides
      *       whether the failure is ours, fixes + pushes if so, else stops
      *       so the next sweep re-runs;</li>
      *   <li>at the cap → <b>escalate</b> to a NEEDS_ATTENTION row, fail the
@@ -370,7 +370,7 @@ public class CiFixRunExecutor
         AgentRun run = agentRuns.openInStage(
                 task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
                 remoteStage.id().toString(), MAX_CI_FIX_ATTEMPTS);
-        if (run.iterations() >= MAX_CI_FIX_ATTEMPTS) {
+        if (run.iterations() >= attemptLimit(run)) {
             return escalateShippedCiFix(run, task, repoFullName, ci);
         }
         if (run.iterations() == 0) {
@@ -481,7 +481,7 @@ public class CiFixRunExecutor
                     repoFullName, task.linkedPrNumber(), ci.failingNames(), ci.total()));
             notificationService.notifyNeedsAttention(task.threadId(), task.id(), payloadJson);
             log.info("shipped CI-fix gave up after {} attempts on {} PR #{} (task {}); escalated",
-                    MAX_CI_FIX_ATTEMPTS, repoFullName, task.linkedPrNumber(), task.id());
+                    attemptLimit(run), repoFullName, task.linkedPrNumber(), task.id());
             return true;
         }
         catch (JsonProcessingException e) {
@@ -489,6 +489,11 @@ public class CiFixRunExecutor
                     task.id(), e.getMessage());
             return false;
         }
+    }
+
+    private static int attemptLimit(AgentRun run)
+    {
+        return run.budget() == null ? MAX_CI_FIX_ATTEMPTS : run.budget();
     }
 
     /** Persist both task axes before returning control to the periodic scan.
@@ -562,12 +567,15 @@ public class CiFixRunExecutor
     }
 
     /** The agent's first prompt for an autonomous shipped CI-fix turn. The
-     *  agent first decides whether the failure is ours and only changes +
-     *  commits code when it is; ByteQuay auto-pushes that commit. Otherwise
-     *  it stops and the system re-runs the failed checks. */
+     *  agent first attributes the failure. Deterministic failures inherited
+     *  from the base are fixed as the first PR commit; branch-caused failures
+     *  are fixed at the tip. Flakes and infrastructure failures only re-run. */
     private static String buildShippedCiFixPrompt(
             Task task, String repoFullName, List<String> failingChecks, String priorContext)
     {
+        String baseBranch = task.baseBranch() == null || task.baseBranch().isBlank()
+                ? "the PR base branch"
+                : "the PR base branch `" + task.baseBranch() + "`";
         StringBuilder out = new StringBuilder();
         if (priorContext != null && !priorContext.isBlank()) {
             out.append("## Context from prior stages\n")
@@ -586,10 +594,15 @@ public class CiFixRunExecutor
         }
         out.append('\n')
                 .append("First decide whether these failures are caused by this branch's ")
-                .append("changes. If they are NOT — a flaky test, an infra/network blip, or ")
-                .append("an unrelated breakage already on the base branch — do not change ")
-                .append("any code: say so briefly and stop, and the system will re-run the ")
-                .append("checks.\n")
+                .append("changes. If the failure is flaky or caused by infrastructure/network ")
+                .append("trouble, do not change code: say so briefly and stop so the system ")
+                .append("can re-run the checks.\n")
+                .append("If a deterministic failure reproduces on ").append(baseBranch)
+                .append(" without this PR's commits, fix it too. Preserve every original PR ")
+                .append("commit and its order, but rewrite the branch so the base-CI repair is ")
+                .append("the first commit after the merge base, followed by all original PR ")
+                .append("commits. Resolve any replay conflicts and test the final combined ")
+                .append("history before stopping.\n")
                 .append("If they ARE caused by this branch, fix them on the current branch, ")
                 .append("run the local checks to confirm green (`mvn verify` for the backend, ")
                 .append("`npx tsc --noEmit` + `npm test` for the frontend), then commit your fix ")

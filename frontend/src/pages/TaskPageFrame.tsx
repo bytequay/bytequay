@@ -60,6 +60,8 @@ export type TaskPageRun = {
   terminal?: boolean;
   onPause?: () => void;
   onResume?: () => void;
+  resumeLabel?: string;
+  resumeConfirmation?: { title: string; body: string; confirmLabel: string };
   onClose?: () => void;
 };
 
@@ -143,6 +145,8 @@ export function TaskPageFrame({
           terminal={runControls.terminal}
           onPause={runControls.onPause}
           onResume={runControls.onResume}
+          resumeLabel={runControls.resumeLabel}
+          resumeConfirmation={runControls.resumeConfirmation}
           onClose={runControls.onClose}
         />
       )}

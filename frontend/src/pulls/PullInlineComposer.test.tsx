@@ -301,6 +301,27 @@ describe('inline diff comment actions', () => {
     expect(container.querySelector('.pl-code textarea[placeholder="Leave a comment"]')).toBeNull();
   });
 
+  it('opens a timeline-selected commit even when the task supplied a cumulative diff', async () => {
+    const sha = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+    const fetchPrCommitDiff = vi.fn().mockResolvedValue([FILE]);
+    window.bridge = {
+      fetchPrCommitDiff,
+      fetchPullRequestDetail: vi.fn().mockResolvedValue({ recentActivity: [], reviewThreads: [] }),
+    } as unknown as typeof window.bridge;
+
+    render(
+      <PullChanges
+        row={row()}
+        bundle={bundle()}
+        refresh={vi.fn()}
+        filesOverride={[]}
+        initialCommit={sha}
+      />,
+    );
+
+    await waitFor(() => expect(fetchPrCommitDiff).toHaveBeenCalledWith('acme/widget', 12, sha));
+  });
+
   it('maps the safe keyboard shortcut to Add to review', async () => {
     const addLocalPrComment = vi.fn().mockResolvedValue(createdComment());
     const submitReview = vi.fn();

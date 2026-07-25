@@ -5042,6 +5042,25 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     });
   }
 
+  ipcMain.handle('threads:tasks:retry-ci', async (_event, args: unknown) => {
+    const params = args as { threadId?: unknown; taskId?: unknown };
+    const threadId = params?.threadId;
+    const taskId = params?.taskId;
+    if (typeof threadId !== 'string' || threadId.trim().length === 0
+        || typeof taskId !== 'string' || taskId.trim().length === 0) {
+      throw new Error('threadId and taskId must be non-empty strings');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
+        + `/tasks/${encodeURIComponent(taskId)}/retry-ci`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /tasks/${taskId}/retry-ci returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('threads:tasks:rename', async (_event, args: unknown) => {
     const params = args as {
       threadId?: unknown;

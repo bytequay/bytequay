@@ -15,6 +15,8 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.AgentRun;
+import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRCommit;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.StageInstance;
@@ -22,6 +24,7 @@ import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
@@ -41,6 +44,7 @@ import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.RemoteDevelopmentStageService;
@@ -93,6 +97,7 @@ class TestCiFixRunExecutor
     private final NotificationService notificationService = mock(NotificationService.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
+    private final PRService localPrs = mock(PRService.class);
     private final GitRunner git = mock(GitRunner.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
@@ -105,7 +110,7 @@ class TestCiFixRunExecutor
         when(remoteStages.ensureOpen(anyString())).thenReturn(remoteStage());
         return new CiFixRunExecutor(
                 leaseService, taskStore, threadStore, workspaceStore, notificationService,
-                scheduler, pullRequests, git, mapper, turnStore, agentRuns, remoteStages,
+                scheduler, pullRequests, localPrs, git, mapper, turnStore, agentRuns, remoteStages,
                 phaseMachine);
     }
 
@@ -249,6 +254,26 @@ class TestCiFixRunExecutor
     }
 
     @Test
+    void recordsAUserTriggeredRerunWithTheCurrentHead()
+    {
+        Task task = newShippedTask("ship-user-rerun", "thread-1");
+        PR pr = mock(PR.class);
+        when(pr.id()).thenReturn("local-pr");
+        wireRun(task.id(), 0);
+        when(pullRequests.rerunFailedChecks(REPO, PR_NUMBER)).thenReturn(1);
+        when(localPrs.findByTask(task.id())).thenReturn(Optional.of(pr));
+        when(localPrs.commits("local-pr")).thenReturn(List.of(new PRCommit(
+                "commit-1", "local-pr", "deadbeef", "Fix", 1, 0, NOW, NOW)));
+        when(taskStore.listPhaseEvents(task.id())).thenReturn(List.of(new TaskPhaseEvent(
+                1L, task.id(), TaskPhase.NEEDS_ATTENTION, TaskPhase.PUSHED_AWAITING_CI,
+                NOW, "user_retried_ci", Actor.HUMAN)));
+
+        newExecutor().driveShippedCiFix(task, REPO, failingCi());
+
+        verify(localPrs).recordRemoteCiRerun("local-pr", "user", "deadbeef", 1);
+    }
+
+    @Test
     void doesNotReRunAgainWhileTheFirstReRunIsStillInFlight()
     {
         Task task = newShippedTask("ship-2", "thread-2");
@@ -343,7 +368,7 @@ class TestCiFixRunExecutor
             scan.driveShippedCiFix(task, REPO, failingCi());
             assertThat(episode.get().iterations()).isEqualTo(i + 1);
             scan.autoPushAfterCiFix(new TaskTurnFinishedEvent(
-                    task.id(), "turn-" + i, false));
+                    task.id(), "turn-" + i, false, true));
             verify(git, timeout(2000).times(i)).pushForceWithLease(Path.of(WORKTREE_PATH));
         }
 
@@ -449,7 +474,7 @@ class TestCiFixRunExecutor
                 ThreadScope.STAGE, "run-push")));
         CiFixRunExecutor executor = newExecutor();
 
-        executor.autoPushAfterCiFix(new TaskTurnFinishedEvent("ship-push", "turn-x", false));
+        executor.autoPushAfterCiFix(new TaskTurnFinishedEvent("ship-push", "turn-x", false, true));
 
         // The push runs off-thread; await it.
         verify(git, timeout(2000)).pushForceWithLease(Path.of(WORKTREE_PATH));
@@ -471,7 +496,7 @@ class TestCiFixRunExecutor
         CiFixRunExecutor executor = newExecutor();
 
         executor.autoPushAfterCiFix(
-                new TaskTurnFinishedEvent("dashboard-push", "turn-dashboard", false));
+                new TaskTurnFinishedEvent("dashboard-push", "turn-dashboard", false, true));
 
         verify(git, timeout(2000)).pushForceWithLease(Path.of(WORKTREE_PATH));
     }
@@ -496,7 +521,7 @@ class TestCiFixRunExecutor
         // Hold the same lock the async pusher uses, deliver the completion,
         // then park the task before letting the pusher re-read durable state.
         TaskPhaseMachine.withTaskLock("ship-race", () -> {
-            executor.autoPushAfterCiFix(new TaskTurnFinishedEvent("ship-race", "turn-race", false));
+            executor.autoPushAfterCiFix(new TaskTurnFinishedEvent("ship-race", "turn-race", false, true));
             current.set(active.withStatus(TaskStatus.NEEDS_ATTENTION));
             return null;
         });
@@ -517,6 +542,35 @@ class TestCiFixRunExecutor
         executor.autoPushAfterCiFix(new TaskTurnFinishedEvent("ship-push", "turn-y", false));
 
         verify(git, after(300).never()).pushForceWithLease(any());
+    }
+
+    @Test
+    void parksAShippedCiFixWhenTheAgentMadeNoChanges()
+            throws Exception
+    {
+        Task task = newShippedTask("ship-no-change", "thread-1");
+        when(taskStore.findTaskById("ship-no-change")).thenReturn(Optional.of(task));
+        when(agentRuns.findById("run-no-change"))
+                .thenReturn(Optional.of(runningCiFixRun("run-no-change", "ship-no-change")));
+        when(turnStore.findTurnById("turn-no-change")).thenReturn(Optional.of(new ThreadTurn(
+                "turn-no-change", "thread-1", "ship-no-change", ThreadResourceLane.CLI,
+                ThreadTurnStatus.COMPLETED, "diagnose", NOW, NOW, NOW, NOW, null,
+                TurnInitiator.unattended("ci-fix-shipped"), REMOTE_STAGE_ID,
+                ThreadScope.STAGE, "run-no-change")));
+        when(git.hasUncommittedChanges(Path.of(WORKTREE_PATH))).thenReturn(false);
+        CiFixRunExecutor executor = newExecutor();
+
+        executor.autoPushAfterCiFix(
+                new TaskTurnFinishedEvent("ship-no-change", "turn-no-change", false, false));
+
+        verify(git, after(500).never()).pushForceWithLease(any());
+        verify(agentRuns, timeout(2000)).updateHeadline(
+                "run-no-change", "No code changes; retry CI manually");
+        verify(agentRuns, timeout(2000)).transition(
+                "run-no-change", AgentRun.STATUS_FAILED, "no_code_changes");
+        verify(phaseMachine, timeout(2000)).transition(
+                "ship-no-change", TaskPhase.NEEDS_ATTENTION,
+                "ci_fix_no_changes", Actor.AGENT);
     }
 
     @Test
@@ -575,6 +629,7 @@ class TestCiFixRunExecutor
 
         executor.closeIfGreen(task);
 
+        verify(agentRuns).updateHeadline("run-1", "CI passed after 2 attempts");
         verify(agentRuns).transition("run-1", AgentRun.STATUS_SUCCEEDED, "checks_green");
     }
 
@@ -587,6 +642,7 @@ class TestCiFixRunExecutor
 
         executor.closeIfGreen(task);
 
+        verify(agentRuns, never()).updateHeadline(any(), any());
         verify(agentRuns, never()).transition(any(), any(), any());
     }
 

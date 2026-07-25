@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
@@ -35,10 +36,10 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -85,7 +86,7 @@ class TestTaskPhaseMachine
         when(taskStore.findTaskById("t1")).thenReturn(Optional.of(taskAt("t1", TaskPhase.PUSHED_AWAITING_CI)));
         machine.transition("t1", TaskPhase.NEEDS_ATTENTION, "stuck", Actor.HUMAN);
         verify(taskStore).updatePhase("t1", TaskPhase.NEEDS_ATTENTION);
-        verify(taskStore).saveTask(argThat(task -> task.status() == TaskStatus.NEEDS_ATTENTION));
+        verify(taskStore).updateStatusIf("t1", TaskStatus.RUNNING, TaskStatus.NEEDS_ATTENTION);
 
         when(taskStore.findTaskById("t2")).thenReturn(Optional.of(taskAt("t2", TaskPhase.IMPLEMENTING)));
         machine.transition("t2", TaskPhase.COMPLETED, "closed", Actor.WEBHOOK);
@@ -93,18 +94,97 @@ class TestTaskPhaseMachine
     }
 
     @Test
-    void explicitRecoveryClearsStatusAndRestoresTheSelectedPhase()
+    void parkOperationalCheckpointsPhaseAndParksBothAxes()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(taskAt("t1", TaskPhase.VALIDATING)));
+        when(taskStore.recoveryPhase("t1")).thenReturn(Optional.empty());
+
+        machine.parkOperational("t1", Actor.AGENT, "validation_failed");
+
+        verify(taskStore).checkpointRecovery(
+                "t1", TaskPhase.VALIDATING, "{\"reason\":\"validation_failed\"}");
+        verify(taskStore).updateStatusIf("t1", TaskStatus.RUNNING, TaskStatus.NEEDS_ATTENTION);
+        verify(taskStore).appendStatusEvent(
+                eq("t1"), eq(TaskStatus.RUNNING), eq(TaskStatus.NEEDS_ATTENTION),
+                eq(Actor.AGENT), eq("validation_failed"), any());
+        verify(taskStore).updatePhase("t1", TaskPhase.NEEDS_ATTENTION);
+        verify(taskStore).appendPhaseEvent(eq("t1"), eq(TaskPhase.VALIDATING),
+                eq(TaskPhase.NEEDS_ATTENTION), any(), eq("validation_failed"), eq(Actor.AGENT));
+    }
+
+    @Test
+    void repeatedParkRepairsStatusWithoutClobberingTheCheckpoint()
+    {
+        Task parked = taskAt("t1", TaskPhase.NEEDS_ATTENTION);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(parked));
+
+        machine.parkOperational("t1", Actor.AGENT, "still_stuck");
+
+        verify(taskStore, never()).checkpointRecovery(any(), any(), any());
+        verify(taskStore, never()).updatePhase(any(), any());
+        verify(taskStore).updateStatusIf("t1", TaskStatus.RUNNING, TaskStatus.NEEDS_ATTENTION);
+    }
+
+    @Test
+    void requestRecoveryIsIdempotentPerKindAndRequiresAPark()
     {
         Task parked = taskAt("t1", TaskPhase.NEEDS_ATTENTION)
                 .withStatus(TaskStatus.NEEDS_ATTENTION);
         when(taskStore.findTaskById("t1")).thenReturn(Optional.of(parked));
+        when(taskStore.recoveryRequest("t1")).thenReturn(Optional.empty());
 
-        machine.recover("t1", TaskPhase.AWAITING_REMOTE_REVIEW, "user_resumed_task");
+        machine.requestRecovery("t1", TaskRecoveryRequest.KIND_NORMAL);
+        verify(taskStore).recordRecoveryRequest(
+                eq("t1"), any(), eq(TaskRecoveryRequest.KIND_NORMAL), eq(null), any());
 
-        verify(taskStore).saveTask(argThat(task -> task.status() == TaskStatus.IDLE));
+        when(taskStore.recoveryRequest("t1")).thenReturn(Optional.of(new TaskRecoveryRequest(
+                "req-1", TaskRecoveryRequest.KIND_NORMAL, null, Instant.parse("2026-06-15T12:00:00Z"))));
+        machine.requestRecovery("t1", TaskRecoveryRequest.KIND_NORMAL);
+        verify(taskStore, times(1)).recordRecoveryRequest(any(), any(), any(), any(), any());
+
+        when(taskStore.findTaskById("t2")).thenReturn(Optional.of(taskAt("t2", TaskPhase.IMPLEMENTING)));
+        assertThatThrownBy(() -> machine.requestRecovery("t2", TaskRecoveryRequest.KIND_NORMAL))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not parked");
+    }
+
+    @Test
+    void completeRecoveryRestoresTheCheckpointedPhaseAndDerivedStatus()
+    {
+        Task parked = taskAt("t1", TaskPhase.NEEDS_ATTENTION)
+                .withStatus(TaskStatus.NEEDS_ATTENTION);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(parked));
+        when(taskStore.recoveryPhase("t1")).thenReturn(Optional.of(TaskPhase.AWAITING_REMOTE_REVIEW));
+
+        Task recovered = machine.completeRecovery(
+                "t1", Actor.HUMAN, "user_resumed_task", TaskPhase.IMPLEMENTING);
+
+        assertThat(recovered.phase()).isEqualTo(TaskPhase.AWAITING_REMOTE_REVIEW);
+        assertThat(recovered.status()).isEqualTo(TaskStatus.IN_REVIEW);
+        verify(taskStore).clearRecoveryState("t1");
+        verify(taskStore).updateRuntimeFailure("t1", null, null);
         verify(taskStore).updatePhase("t1", TaskPhase.AWAITING_REMOTE_REVIEW);
         verify(taskStore).appendPhaseEvent(eq("t1"), eq(TaskPhase.NEEDS_ATTENTION),
                 eq(TaskPhase.AWAITING_REMOTE_REVIEW), any(), eq("user_resumed_task"), eq(Actor.HUMAN));
+        verify(taskStore).updateStatusIf("t1", TaskStatus.NEEDS_ATTENTION, TaskStatus.IN_REVIEW);
+        verify(taskStore).appendStatusEvent(
+                eq("t1"), eq(TaskStatus.NEEDS_ATTENTION), eq(TaskStatus.IN_REVIEW),
+                eq(Actor.HUMAN), eq("user_resumed_task"), any());
+    }
+
+    @Test
+    void completeRecoveryFallsBackToTheServerDerivedPhaseWithoutACheckpoint()
+    {
+        Task parked = taskAt("t1", TaskPhase.NEEDS_ATTENTION)
+                .withStatus(TaskStatus.NEEDS_ATTENTION);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(parked));
+        when(taskStore.recoveryPhase("t1")).thenReturn(Optional.empty());
+
+        Task recovered = machine.completeRecovery(
+                "t1", Actor.HUMAN, "user_resumed_task", TaskPhase.IMPLEMENTING);
+
+        assertThat(recovered.phase()).isEqualTo(TaskPhase.IMPLEMENTING);
+        assertThat(recovered.status()).isEqualTo(TaskStatus.IDLE);
     }
 
     @Test
@@ -196,7 +276,9 @@ class TestTaskPhaseMachine
 
         machine.observe("t1", TaskPhase.NEEDS_ATTENTION, "merge_queue_failed");
 
-        verify(taskStore).saveTask(argThat(task -> task.status() == TaskStatus.NEEDS_ATTENTION));
+        verify(taskStore).checkpointRecovery(
+                "t1", TaskPhase.AWAITING_REMOTE_REVIEW, "{\"reason\":\"merge_queue_failed\"}");
+        verify(taskStore).updateStatusIf("t1", TaskStatus.RUNNING, TaskStatus.NEEDS_ATTENTION);
         verify(taskStore).updatePhase("t1", TaskPhase.NEEDS_ATTENTION);
         verify(taskStore).appendPhaseEvent(eq("t1"), eq(TaskPhase.AWAITING_REMOTE_REVIEW),
                 eq(TaskPhase.NEEDS_ATTENTION), any(), eq("merge_queue_failed"), eq(Actor.WEBHOOK));
@@ -210,7 +292,8 @@ class TestTaskPhaseMachine
 
         machine.observe("t1", TaskPhase.NEEDS_ATTENTION, "repair_park");
 
-        verify(taskStore).saveTask(argThat(task -> task.status() == TaskStatus.NEEDS_ATTENTION));
+        verify(taskStore).updateStatusIf("t1", TaskStatus.RUNNING, TaskStatus.NEEDS_ATTENTION);
+        verify(taskStore, never()).checkpointRecovery(any(), any(), any());
         verify(taskStore, never()).updatePhase(any(), any());
         verify(taskStore, never()).appendPhaseEvent(any(), any(), any(), any(), any(), any());
     }

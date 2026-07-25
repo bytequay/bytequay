@@ -116,6 +116,24 @@ class TaskEntity
     @Column(name = "resume_requested_at_ms")
     private Long resumeRequestedAtMs;
 
+    @Column(name = "recovery_phase")
+    private String recoveryPhase;
+
+    @Column(name = "recovery_context_json")
+    private String recoveryContextJson;
+
+    @Column(name = "recovery_request_id")
+    private String recoveryRequestId;
+
+    @Column(name = "recovery_requested_kind")
+    private String recoveryRequestedKind;
+
+    @Column(name = "recovery_request_payload_json")
+    private String recoveryRequestPayloadJson;
+
+    @Column(name = "recovery_requested_at_ms")
+    private Long recoveryRequestedAtMs;
+
     @Column(name = "auto_approve", nullable = false)
     private boolean autoApprove;
 
@@ -238,6 +256,39 @@ class TaskEntity
     void setResumeRequestedAtMs(Long resumeRequestedAtMs)
     {
         this.resumeRequestedAtMs = resumeRequestedAtMs;
+    }
+
+    String getRecoveryPhase() { return recoveryPhase; }
+    void setRecoveryPhase(String recoveryPhase) { this.recoveryPhase = recoveryPhase; }
+
+    String getRecoveryContextJson() { return recoveryContextJson; }
+    void setRecoveryContextJson(String recoveryContextJson)
+    {
+        this.recoveryContextJson = recoveryContextJson;
+    }
+
+    String getRecoveryRequestId() { return recoveryRequestId; }
+    void setRecoveryRequestId(String recoveryRequestId)
+    {
+        this.recoveryRequestId = recoveryRequestId;
+    }
+
+    String getRecoveryRequestedKind() { return recoveryRequestedKind; }
+    void setRecoveryRequestedKind(String recoveryRequestedKind)
+    {
+        this.recoveryRequestedKind = recoveryRequestedKind;
+    }
+
+    String getRecoveryRequestPayloadJson() { return recoveryRequestPayloadJson; }
+    void setRecoveryRequestPayloadJson(String recoveryRequestPayloadJson)
+    {
+        this.recoveryRequestPayloadJson = recoveryRequestPayloadJson;
+    }
+
+    Long getRecoveryRequestedAtMs() { return recoveryRequestedAtMs; }
+    void setRecoveryRequestedAtMs(Long recoveryRequestedAtMs)
+    {
+        this.recoveryRequestedAtMs = recoveryRequestedAtMs;
     }
 
     String getOrigin() { return origin; }

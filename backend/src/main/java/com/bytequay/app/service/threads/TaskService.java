@@ -26,6 +26,7 @@ import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
+import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
@@ -988,6 +989,10 @@ public class TaskService
         if (routed.status() == TaskStatus.PAUSED && routed.phase() != TaskPhase.NEEDS_ATTENTION) {
             return resumePausedTask(taskId);
         }
+        if (routed.status() == TaskStatus.NEEDS_ATTENTION
+                || routed.phase() == TaskPhase.NEEDS_ATTENTION) {
+            return recoverParkedTask(taskId, retryingCi);
+        }
         Object pauseTeardownToken = pauseTeardownTokens.remove(taskId);
         try {
             return resumeTaskAfterPauseInvalidated(taskId, retryingCi);
@@ -1082,6 +1087,103 @@ public class TaskService
         }
     }
 
+    /**
+     * Recovery from NEEDS_ATTENTION mirrors the paused shape: a durable
+     * request, the teardown barrier, then the completion command that
+     * restores the checkpointed phase.
+     */
+    private Task recoverParkedTask(String taskId, boolean retryingCi)
+    {
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        boolean ciRetryRequired = requiresExplicitCiRetry(task);
+        if (ciRetryRequired != retryingCi) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409), ciRetryRequired
+                    ? "task " + taskId + " requires the explicit Retry CI action"
+                    : "task " + taskId + " is not parked for exhausted CI attempts");
+        }
+        taskPhaseMachine.requestRecovery(taskId, retryingCi
+                ? TaskRecoveryRequest.KIND_CI_RETRY
+                : TaskRecoveryRequest.KIND_NORMAL);
+        stopReconciler.reconcileStoppedTask(taskId);
+        if (!stopReconciler.runtimeStopped(taskId)) {
+            // Still winding down; the stop reconciler's sweep completes
+            // this request once the barrier is proven.
+            return taskStore.findTaskById(taskId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no task: " + taskId));
+        }
+        return completeRequestedRecoveryLocked(taskId);
+    }
+
+    /**
+     * The recovery barrier's completion command — invoked inline when
+     * the pre-park runtime is already proven gone, or by
+     * {@link TaskRuntimeStopReconciler}'s sweep once it is. Restores the
+     * checkpointed phase (server-derived fallback for legacy rows) and
+     * re-drives the owning coordinator or stage runtime.
+     */
+    @Transactional
+    public Task completeRequestedRecovery(String taskId)
+    {
+        return TaskPhaseMachine.withTaskLock(taskId, () -> completeRequestedRecoveryLocked(taskId));
+    }
+
+    private Task completeRequestedRecoveryLocked(String taskId)
+    {
+        Object pauseTeardownToken = pauseTeardownTokens.remove(taskId);
+        try {
+            Task task = taskStore.findTaskById(taskId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no task: " + taskId));
+            if (task.status() != TaskStatus.NEEDS_ATTENTION
+                    && task.phase() != TaskPhase.NEEDS_ATTENTION) {
+                return task;
+            }
+            boolean brainOwnsResume = brainReview.ownsParkedResume(taskId);
+            boolean retryingCi = taskStore.recoveryRequest(taskId)
+                    .map(request -> TaskRecoveryRequest.KIND_CI_RETRY.equals(request.kind()))
+                    .orElse(false);
+            Task recovered = taskPhaseMachine.completeRecovery(
+                    taskId, Actor.HUMAN,
+                    retryingCi ? "user_retried_ci" : "user_resumed_task",
+                    recoveryPhase(task));
+            Thread thread = threadStore.findThreadById(task.threadId())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404), "no thread: " + task.threadId()));
+            Thread resumedThread = revivedThread(thread);
+            if (resumedThread != thread) {
+                threadStore.saveThread(resumedThread);
+            }
+            Optional<StageInstance> activeStage = stageStore.findActiveStage(taskId);
+            if (brainOwnsResume && !brainReview.resumeParkedReview(taskId)) {
+                // The coordinator re-parks failed validation/enqueue attempts
+                // with a fresh durable reason. Return that authoritative state
+                // so the Resume request commits the failure trail instead of
+                // rolling it all back behind a 409.
+                Task current = taskStore.findTaskById(taskId).orElse(recovered);
+                if (current.phase() == TaskPhase.NEEDS_ATTENTION
+                        || current.status() == TaskStatus.NEEDS_ATTENTION) {
+                    return current;
+                }
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " has no resumable Brain review");
+            }
+            if (!brainOwnsResume && shouldResumeRuntime(recovered.phase(), activeStage)) {
+                resumeRuntime(resumedThread, recovered, activeStage);
+            }
+            clearNeedsAttentionNotifications(task);
+            return recovered;
+        }
+        catch (RuntimeException e) {
+            if (pauseTeardownToken != null) {
+                pauseTeardownTokens.putIfAbsent(taskId, pauseTeardownToken);
+            }
+            throw e;
+        }
+    }
+
     private Task resumeTaskAfterPauseInvalidated(String taskId, boolean retryingCi)
     {
         Task task = taskStore.findTaskById(taskId)
@@ -1091,55 +1193,22 @@ public class TaskService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "task " + taskId + " cannot be resumed");
         }
-        boolean ciRetryRequired = latestNeedsAttentionReason(task)
-                .map(reason -> "ci_fix_attempts_exhausted".equals(reason)
-                        || "ci_fix_no_changes".equals(reason))
-                .orElse(false);
-        if (ciRetryRequired != retryingCi) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409), ciRetryRequired
-                    ? "task " + taskId + " requires the explicit Retry CI action"
-                    : "task " + taskId + " is not parked for exhausted CI attempts");
-        }
-        boolean recovering = task.status() == TaskStatus.NEEDS_ATTENTION
-                || task.phase() == TaskPhase.NEEDS_ATTENTION;
-        boolean brainOwnsResume = (recovering || task.status() == TaskStatus.PAUSED)
-                && brainReview.ownsParkedResume(taskId);
-        TaskPhase resumedPhase = task.phase();
-        if (recovering) {
-            resumedPhase = recoveryPhase(task);
-            taskPhaseMachine.recover(taskId, resumedPhase,
-                    retryingCi ? "user_retried_ci" : "user_resumed_task");
+        if (retryingCi) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not parked for exhausted CI attempts");
         }
         Thread thread = threadStore.findThreadById(task.threadId())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no thread: " + task.threadId()));
-        Task resumed = revivedTask(task, resumedPhase);
+        Task resumed = revivedTask(task);
         taskStore.saveTask(resumed);
         Thread resumedThread = revivedThread(thread);
         if (resumedThread != thread) {
             threadStore.saveThread(resumedThread);
         }
         Optional<StageInstance> activeStage = stageStore.findActiveStage(taskId);
-        if (brainOwnsResume && !brainReview.resumeParkedReview(taskId)) {
-            // The coordinator re-parks failed validation/enqueue attempts with
-            // a fresh durable reason. Return that authoritative state so the
-            // Resume request commits the failure trail instead of rolling it
-            // all back behind a 409.
-            Task current = taskStore.findTaskById(taskId).orElse(resumed);
-            if (current.phase() == TaskPhase.NEEDS_ATTENTION
-                    || current.status() == TaskStatus.NEEDS_ATTENTION) {
-                return current;
-            }
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "task " + taskId + " has no resumable Brain review");
-        }
-        boolean validationRecovery = resumedPhase == TaskPhase.VALIDATING;
-        if (!brainOwnsResume && !validationRecovery
-                && (!recovering || shouldResumeRuntime(resumedPhase, activeStage))) {
+        if (task.phase() != TaskPhase.VALIDATING) {
             resumeRuntime(resumedThread, resumed, activeStage);
-        }
-        if (recovering) {
-            clearNeedsAttentionNotifications(task);
         }
         return resumed;
     }
@@ -1154,6 +1223,14 @@ public class TaskService
                 .filter(event -> event.toPhase() == TaskPhase.NEEDS_ATTENTION)
                 .max((left, right) -> left.transitionedAt().compareTo(right.transitionedAt()))
                 .map(TaskPhaseEvent::reason);
+    }
+
+    private boolean requiresExplicitCiRetry(Task task)
+    {
+        return latestNeedsAttentionReason(task)
+                .map(reason -> "ci_fix_attempts_exhausted".equals(reason)
+                        || "ci_fix_no_changes".equals(reason))
+                .orElse(false);
     }
 
     private TaskPhase recoveryPhase(Task task)
@@ -1236,23 +1313,15 @@ public class TaskService
         if (task.phase() == TaskPhase.COMPLETED) {
             return false;
         }
-        if (task.phase() == TaskPhase.NEEDS_ATTENTION
-                || task.status() == TaskStatus.NEEDS_ATTENTION) {
-            return true;
-        }
         return switch (task.status()) {
-            case IDLE, PAUSED, ERRORED, ARCHIVED -> true;
+            case IDLE, ERRORED, ARCHIVED -> true;
             default -> false;
         };
     }
 
     private static Task revivedTask(Task task)
     {
-        return revivedTask(task, task.phase());
-    }
-
-    private static Task revivedTask(Task task, TaskPhase phase)
-    {
+        TaskPhase phase = task.phase();
         return new Task(
                 task.id(), task.threadId(), task.seq(), TaskStatus.IDLE,
                 task.branchName(), task.worktreePath(), task.baseBranch(),

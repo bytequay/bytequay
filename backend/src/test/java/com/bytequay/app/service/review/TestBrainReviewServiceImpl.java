@@ -256,9 +256,7 @@ class TestBrainReviewServiceImpl
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "failed-review", true));
 
-        verify(phaseMachine).transition(
-                TASK_ID, TaskPhase.NEEDS_ATTENTION, "plan_self_review_failed", Actor.AGENT);
-        verify(taskStore).saveTask(argThat(task -> task.status() == TaskStatus.NEEDS_ATTENTION));
+        verify(phaseMachine).parkOperational(TASK_ID, Actor.AGENT, "plan_self_review_failed");
         verify(notifications).notifyNeedsAttention(eq("thread-1"), eq(TASK_ID), anyString());
         verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
     }

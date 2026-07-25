@@ -44,6 +44,24 @@ public interface TaskStore
      *  rewritten — callers pass the full updated state. */
     void saveTask(Task task);
 
+    /** Insert a freshly created task row. Creation is the one write
+     *  that legitimately carries an initial status; later lifecycle
+     *  moves use the targeted methods below instead of full-row saves. */
+    default void insertTask(Task task)
+    {
+        saveTask(task);
+    }
+
+    /** Compare-and-set the status column alone: move to {@code to} only
+     *  while the row still holds {@code expected}. Never touches any
+     *  other column.
+     *
+     *  @return true when the row was updated */
+    default boolean updateStatusIf(String taskId, TaskStatus expected, TaskStatus to)
+    {
+        throw new UnsupportedOperationException("updateStatusIf");
+    }
+
     /** Single-row lookup by id. */
     Optional<Task> findTaskById(String id);
 

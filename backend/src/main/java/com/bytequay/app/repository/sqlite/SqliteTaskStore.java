@@ -97,6 +97,13 @@ class SqliteTaskStore
     }
 
     @Override
+    @Transactional
+    public boolean updateStatusIf(String taskId, TaskStatus expected, TaskStatus to)
+    {
+        return tasks.casStatus(taskId, expected.name(), to.name()) == 1;
+    }
+
+    @Override
     public Optional<Task> findTaskById(String id)
     {
         return tasks.findById(id).map(this::toTask);

@@ -65,6 +65,17 @@ public interface StageStore
      *  unchanged) when the stage is unknown or not currently closed. */
     StageInstance reopenStage(UUID stageId);
 
+    /** Compare-and-set the lifecycle columns alone: state → {@code to}
+     *  (with {@code closedAt} stamped or cleared to match) only while the
+     *  row still holds {@code expected}. Writes no event and never touches
+     *  metadata columns — the stage machine composes the audit.
+     *
+     *  @return true when the row was updated */
+    default boolean updateStateIf(UUID stageId, StageState expected, StageState to, Instant closedAt)
+    {
+        throw new UnsupportedOperationException("updateStateIf");
+    }
+
     Optional<StageInstance> findStageById(UUID stageId);
 
     /** The raw {@code metrics_json} blob for a stage, or empty if unknown. */

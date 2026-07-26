@@ -50,7 +50,7 @@ public class NormalizeDeadLifecycleStates
     @Override
     public MigrationVersion getVersion()
     {
-        return MigrationVersion.fromVersion("199");
+        return MigrationVersion.fromVersion("204");
     }
 
     @Override

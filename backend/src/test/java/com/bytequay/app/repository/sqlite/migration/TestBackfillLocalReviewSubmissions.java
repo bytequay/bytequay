@@ -41,7 +41,7 @@ class TestBackfillLocalReviewSubmissions
     void backfillsDeterministicRowsWithEvidenceStamps()
             throws Exception
     {
-        String url = seedAt202("submissions.db");
+        String url = seedAt207("submissions.db");
         try (Connection connection = DriverManager.getConnection(url)) {
             // A live addressing loop: first batch's root resolved, second open.
             task(connection, "task-live", 1, "IDLE", "ADDRESSING_LOCAL_COMMENTS");
@@ -58,7 +58,7 @@ class TestBackfillLocalReviewSubmissions
             submittedEvent(connection, "evt-3", "pr-shipped", 300L, "[\"c-shipped\"]");
         }
 
-        migrateTo203(url);
+        migrateTo208(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             assertThat(scalar(connection,
@@ -87,14 +87,14 @@ class TestBackfillLocalReviewSubmissions
         }
     }
 
-    private String seedAt202(String dbName)
+    private String seedAt207(String dbName)
             throws Exception
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(dbName) + "?foreign_keys=ON";
         Flyway.configure()
                 .dataSource(url, "", "")
                 .javaMigrations(new NormalizeDeadLifecycleStates(), new BackfillTurnLiveness())
-                .target("202")
+                .target("207")
                 .load()
                 .migrate();
         try (Connection connection = DriverManager.getConnection(url)) {
@@ -116,7 +116,7 @@ class TestBackfillLocalReviewSubmissions
         return url;
     }
 
-    private static void migrateTo203(String url)
+    private static void migrateTo208(String url)
     {
         Flyway.configure()
                 .dataSource(url, "", "")
@@ -124,7 +124,7 @@ class TestBackfillLocalReviewSubmissions
                         new NormalizeDeadLifecycleStates(),
                         new BackfillTurnLiveness(),
                         new BackfillLocalReviewSubmissions(new ObjectMapper()))
-                .target("203")
+                .target("208")
                 .load()
                 .migrate();
     }

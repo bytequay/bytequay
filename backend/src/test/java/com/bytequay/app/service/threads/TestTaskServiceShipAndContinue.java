@@ -1229,6 +1229,10 @@ class TestTaskServiceShipAndContinue
         when(taskStore.listPhaseEvents(parked.id())).thenReturn(List.of(new TaskPhaseEvent(
                 1L, parked.id(), TaskPhase.PUSHED_AWAITING_CI, TaskPhase.NEEDS_ATTENTION,
                 parked.createdAt(), "ci_fix_attempts_exhausted", Actor.AGENT)));
+        TaskRecoveryRequest retryRequest = new TaskRecoveryRequest(
+                "retry-ci", TaskRecoveryRequest.KIND_CI_RETRY, null, parked.createdAt());
+        when(taskStore.recoveryRequest(parked.id())).thenReturn(
+                Optional.empty(), Optional.of(retryRequest), Optional.of(retryRequest));
         when(threadStore.findThreadById(parked.threadId()))
                 .thenReturn(Optional.of(thread(parked.threadId())));
         when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.empty());

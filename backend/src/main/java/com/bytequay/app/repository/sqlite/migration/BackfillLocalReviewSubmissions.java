@@ -66,7 +66,7 @@ public class BackfillLocalReviewSubmissions
     @Override
     public MigrationVersion getVersion()
     {
-        return MigrationVersion.fromVersion("203");
+        return MigrationVersion.fromVersion("208");
     }
 
     @Override

@@ -58,7 +58,7 @@ class TestBackfillTurnLiveness
             turn(connection, "t-r2", "task-ambiguous", "RUNNING", "user", 20);
         }
 
-        migrateTo202(url);
+        migrateTo207(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             // Narration roles never gain the flag; code roles do.
@@ -126,12 +126,12 @@ class TestBackfillTurnLiveness
         return url;
     }
 
-    private static void migrateTo202(String url)
+    private static void migrateTo207(String url)
     {
         Flyway.configure()
                 .dataSource(url, "", "")
                 .javaMigrations(new NormalizeDeadLifecycleStates(), new BackfillTurnLiveness())
-                .target("202")
+                .target("207")
                 .load()
                 .migrate();
     }

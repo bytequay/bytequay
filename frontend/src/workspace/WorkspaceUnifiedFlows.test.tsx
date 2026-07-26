@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceApiRequest, WorkspaceCardDto } from '../types';
 import WorkspaceCreationToasts from './WorkspaceCreationToasts';
@@ -342,6 +342,52 @@ describe('workspace unified interaction flows', () => {
       method: 'POST',
     }));
     expect(await screen.findByText('Preparing widget…')).toBeTruthy();
+  });
+
+  it('dismisses a ready setup notification before opening the workspace', async () => {
+    const ready = creationFixture({
+      state: 'ready',
+      stageMessage: 'Workspace ready',
+      workspaceId: 'w1',
+    });
+    const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
+      if (request.path === '/api/workspace-creations') return [creationFixture()];
+      throw new Error(`Unexpected request: ${request.path}`);
+    });
+    setBridge(workspaceApi);
+    const onOpenWorkspace = vi.fn();
+
+    render(<WorkspaceCreationToasts onOpenWorkspace={onOpenWorkspace} />);
+    await screen.findByText('Cloning widget…');
+    fireEvent(window, new CustomEvent(
+      'bytequay:workspace-creation-started',
+      { detail: ready },
+    ));
+
+    const open = await screen.findByRole('button', { name: 'Open' });
+    fireEvent.click(open);
+    expect(open.isConnected).toBe(false);
+    expect(onOpenWorkspace).toHaveBeenCalledWith('w1');
+    expect(screen.queryByLabelText('Workspace setup progress')).toBeNull();
+  });
+
+  it('auto-dismisses a ready setup notification', () => {
+    vi.useFakeTimers();
+    try {
+      setBridge(vi.fn(() => new Promise<unknown>(() => {})));
+      render(<WorkspaceCreationToasts onOpenWorkspace={() => {}} />);
+      fireEvent(window, new CustomEvent(
+        'bytequay:workspace-creation-started',
+        { detail: creationFixture({ state: 'ready', workspaceId: 'w1' }) },
+      ));
+
+      expect(screen.getByText('widget is ready')).toBeTruthy();
+      act(() => { vi.advanceTimersByTime(5_000); });
+      expect(screen.queryByLabelText('Workspace setup progress')).toBeNull();
+    }
+    finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders onboarding milestones and starts memory seeding', async () => {

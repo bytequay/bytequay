@@ -1522,17 +1522,6 @@
   font-size: 11px;
 }
 
-.workspace-redesign .wu-onboarding-card > header button {
-  margin-left: auto;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: #8c959f;
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
 .workspace-redesign .wu-onboarding-step {
   display: flex;
   align-items: flex-start;
@@ -1590,6 +1579,12 @@
   color: #1a7f37;
 }
 
+.workspace-redesign .wu-milestone.skipped {
+  border: 0;
+  background: #eef1f4;
+  color: #8c959f;
+}
+
 .workspace-redesign .wu-milestone svg {
   width: 12px;
   height: 12px;
@@ -1622,6 +1617,16 @@
 .workspace-redesign .wu-onboarding-step > button:disabled {
   cursor: default;
   opacity: .42;
+}
+
+.workspace-redesign .wu-onboarding-step__status {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #eef1f4;
+  color: #6e7781;
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .workspace-redesign .wu-onboarding-step--sync > div {

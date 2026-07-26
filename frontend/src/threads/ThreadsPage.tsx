@@ -596,7 +596,7 @@ export default function ThreadsPage({
             className="threads-pageheader__new"
             onClick={() => onNewTask(groupId ?? undefined)}
           >
-            + New thread
+            + New trunk
             <span className="threads-pageheader__new-kbd" aria-hidden>⌘N</span>
           </button>
         </header>
@@ -656,7 +656,7 @@ export default function ThreadsPage({
             <div style={emptyTitleStyle}>No threads yet</div>
             <div style={mutedTextStyle}>
               Trunks are agent runs you delegate from the app. Use{' '}
-              <strong>+ New thread</strong> on the left to start one.
+              <strong>+ New trunk</strong> on the left to start one.
             </div>
           </div>
         )}

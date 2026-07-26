@@ -1016,11 +1016,6 @@ export const workspaceApi = {
     window.bridge.workspaceApi<WorkspaceOnboardingDto>({
       path: `/api/workspaces/${enc(workspaceId)}/onboarding`,
     }),
-  dismissOnboarding: (workspaceId: string) =>
-    window.bridge.workspaceApi<WorkspaceOnboardingDto>({
-      path: `/api/workspaces/${enc(workspaceId)}/onboarding/dismiss`,
-      method: 'POST',
-    }),
   learning: (workspaceId: string) =>
     window.bridge.workspaceApi<LearningRunDto>({
       path: `/api/workspaces/${enc(workspaceId)}/learning`,

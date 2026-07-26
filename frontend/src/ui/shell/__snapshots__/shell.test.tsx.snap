@@ -190,7 +190,7 @@ exports[`Shell > matches snapshot in default and collapsed states > collapsed 1`
               ⛚
             </span>
             <span
-              aria-label="New thread"
+              aria-label="New trunk"
               role="button"
               tabindex="0"
             >
@@ -605,7 +605,7 @@ exports[`Shell > matches snapshot in default and collapsed states > default 1`] 
               ⛚
             </span>
             <span
-              aria-label="New thread"
+              aria-label="New trunk"
               role="button"
               tabindex="0"
             >

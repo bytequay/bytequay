@@ -141,7 +141,7 @@ function ControlBar({ open, onClose, onDispatch, contextTags }: Props) {
             type="text"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder=":go threads · :open memory · :create thread …"
+            placeholder=":go trunks · :open memory · :create trunk …"
             style={inputStyle}
             aria-label="Command bar input"
             aria-controls="control-bar-results"

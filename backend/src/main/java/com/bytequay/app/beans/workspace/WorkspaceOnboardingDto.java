@@ -39,7 +39,6 @@ public record WorkspaceOnboardingDto(
     {
         return cloneComplete
                 && "ready".equals(syncState)
-                && memorySeedComplete
                 && firstTrunkComplete
                 && (learningState == null
                         || "useful".equals(learningState)

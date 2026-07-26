@@ -14,20 +14,32 @@
 package com.bytequay.app.service.learning;
 
 import com.bytequay.app.domain.KnowledgeItem;
-import com.bytequay.app.repository.AppSettingsStore;
-import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.agents.TurnRunner;
+import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
 import com.bytequay.app.service.threads.AgentScheduler;
+import com.bytequay.app.service.workmodel.SessionAudience;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.Callable;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 /**
  * Parse/validation tests for the extraction contract: strict JSON, canonical
@@ -37,17 +49,47 @@ import static org.mockito.Mockito.mock;
 class TestLessonExtractor
 {
     private LessonExtractor extractor;
+    private AgentScheduler scheduler;
+    private ReviewProviderEndpoints endpoints;
+    private WorkModelResolver workModels;
+    private CliReviewRunner cliRunner;
 
     @BeforeEach
     void setUp()
     {
+        scheduler = mock(AgentScheduler.class);
+        endpoints = mock(ReviewProviderEndpoints.class);
+        workModels = mock(WorkModelResolver.class);
+        cliRunner = mock(CliReviewRunner.class);
         extractor = new LessonExtractor(
                 mock(TurnRunner.class),
-                mock(AgentScheduler.class),
-                mock(ReviewProviderEndpoints.class),
-                mock(WorkspaceStore.class),
-                mock(AppSettingsStore.class),
+                scheduler,
+                endpoints,
+                workModels,
+                cliRunner,
                 new ObjectMapper());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void testUsesWorkspaceDefaultCliForExtraction()
+            throws Exception
+    {
+        WorkModel model = new WorkModel(WorkModelKind.CLI, "codex", null, null);
+        when(workModels.resolveForWorkspace("ws-1", SessionAudience.REVIEW))
+                .thenReturn(new WorkModelResolver.Resolved(model,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.WORKSPACE, "ws-1", "workspace Widget")));
+        when(scheduler.invokeCli(any())).thenAnswer(invocation ->
+                ((Callable<CliReviewRunner.Result>) invocation.getArgument(0)).call());
+        when(cliRunner.runWithSchedulerCapacity(
+                eq(CliReviewRunner.Provider.CODEX), anyString(), isNull(), any(), isNull(), eq(30)))
+                .thenReturn(new CliReviewRunner.Result("{\"lessons\": []}", null, 0));
+
+        assertThat(extractor.extract("ws-1", bundle(), List.of())).isEmpty();
+
+        verify(workModels).resolveForWorkspace("ws-1", SessionAudience.REVIEW);
+        verifyNoInteractions(endpoints);
     }
 
     @Test
@@ -149,5 +191,13 @@ class TestLessonExtractor
                 .isInstanceOf(LessonExtractor.ExtractionFailedException.class);
         assertThatThrownBy(() -> extractor.parse("{\"other\": true}", 1, List.of()))
                 .isInstanceOf(LessonExtractor.ExtractionFailedException.class);
+    }
+
+    private static PrEvidenceBundle bundle()
+    {
+        return new PrEvidenceBundle(
+                "ws-1", "acme/widget", 7, "alice", "Title", "Body",
+                "base", "head", "merge", "repo", List.of(), List.of(), List.of(),
+                List.of(), List.of(), Map.of(), "complete", List.of(), List.of());
     }
 }

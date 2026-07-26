@@ -121,6 +121,9 @@ it('inherits the workspace agents and pins only the kind the user swaps', async 
   const { createTask } = installBridge(options(true, true));
   renderDialog();
 
+  expect(screen.getByRole('heading', { name: "What's a trunk?" })).toBeTruthy();
+  expect(screen.getByText(/focused, long-lived workspace/)).toBeTruthy();
+  expect(screen.getByText(/Core engine or Iceberg connector/)).toBeTruthy();
   await screen.findByText('chenjian2664/ByteQuay');
   await waitFor(() => expect(screen.getByText('inheriting bytequay-v3-test defaults')).toBeTruthy());
   // ci-fix has its own workspace pick; the other three take the default.
@@ -132,7 +135,7 @@ it('inherits the workspace agents and pins only the kind the user swaps', async 
   fireEvent.click(screen.getByText(/Codex CLI · available/));
   await waitFor(() => expect(screen.getByText('1 overridden for this trunk')).toBeTruthy());
 
-  fireEvent.click(screen.getByText(/Let's ride/));
+  fireEvent.click(screen.getByText(/Create trunk/));
   await waitFor(() => expect(createTask).toHaveBeenCalled());
   expect(createTask.mock.calls[0][0]).toMatchObject({ engines: { plan: 'cli:codex' } });
 });
@@ -143,7 +146,7 @@ it('blocks creation when the workspace has no usable agent', async () => {
 
   await screen.findByText(/No agents in bytequay-v3-test/);
   expect(screen.getAllByText('none available')).toHaveLength(4);
-  expect(screen.getByText(/Let's ride/).closest('button')?.disabled).toBe(true);
+  expect(screen.getByText(/Create trunk/).closest('button')?.disabled).toBe(true);
   expect(createTask).not.toHaveBeenCalled();
 });
 
@@ -156,7 +159,7 @@ it('defaults to the entire repository without assigning a code area', async () =
   expect(screen.getByText('modules/core')).toBeTruthy();
   expect(document.body.textContent).not.toMatch(/trunk directory/i);
 
-  fireEvent.click(screen.getByText(/Let's ride/));
+  fireEvent.click(screen.getByText(/Create trunk/));
   await waitFor(() => expect(createTask).toHaveBeenCalledOnce());
   expect(workspaceRequest.mock.calls.some(([request]) =>
     request.path.includes('/directory-scopes/threads/'))).toBe(false);
@@ -177,7 +180,7 @@ it('requires approval before using a learned code area and attaches it to the tr
   })));
   expect(moduleButton.getAttribute('aria-pressed')).toBe('true');
 
-  fireEvent.click(screen.getByText(/Let's ride/));
+  fireEvent.click(screen.getByText(/Create trunk/));
   await waitFor(() => expect(workspaceRequest).toHaveBeenCalledWith(expect.objectContaining({
     path: '/api/workspaces/w1/directory-scopes/threads/t-new',
     method: 'PUT',
@@ -191,6 +194,6 @@ it('keeps trunk creation available when code-area suggestions fail to load', asy
 
   await screen.findByText('chenjian2664/ByteQuay');
   expect(screen.queryByText('CODE AREA')).toBeNull();
-  fireEvent.click(screen.getByText(/Let's ride/));
+  fireEvent.click(screen.getByText(/Create trunk/));
   await waitFor(() => expect(createTask).toHaveBeenCalledOnce());
 });

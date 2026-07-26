@@ -249,7 +249,7 @@ describe('WorkspaceBacklogPage', () => {
     const onOpenThread = vi.fn();
     render(<WorkspaceBacklogPage workspaceId="w1" onOpenThread={onOpenThread} />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Start work under a thread' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Start work under a trunk' }));
     fireEvent.click(screen.getByRole('button', { name: /Backend cleanup/ }));
 
     await waitFor(() =>

@@ -394,7 +394,7 @@ describe('workspace unified interaction flows', () => {
     }
   });
 
-  it('renders onboarding milestones and starts memory seeding', async () => {
+  it('keeps required onboarding visible and marks unfinished memory seeding as skipped', async () => {
     const onboarding: WorkspaceOnboardingDto = {
       workspaceId: 'w1',
       cloneComplete: true,
@@ -409,48 +409,32 @@ describe('workspace unified interaction flows', () => {
       learningAnalyzed: 0,
       learningLessons: 0,
       learningPendingLessons: 0,
-      dismissedAt: null,
+      dismissedAt: Date.now(),
       updatedAt: Date.now(),
     };
     const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
       if (request.path === '/api/workspaces/w1/onboarding') return onboarding;
-      if (request.path.endsWith('/distill-runs/seed')) {
-        return {
-          id: 'seed-1',
-          workspaceId: 'w1',
-          trigger: 'seed',
-          status: 'pending',
-          sources: [],
-          operations: [],
-          createdAt: Date.now(),
-          appliedAt: null,
-          revertedAt: null,
-        };
-      }
       throw new Error(`Unexpected request: ${request.path}`);
     });
     setBridge(workspaceApi, {
       listActiveTaskTurns: vi.fn().mockResolvedValue([]),
     });
-    const onOpenMemory = vi.fn();
-
     render(
       <WorkspaceTodayPage
         workspace={workspaceFixture()}
         threads={[]}
         onNewThread={() => {}}
         onOpenInsights={() => {}}
-        onOpenMemory={onOpenMemory}
+        onOpenMemory={() => {}}
       />,
     );
 
-    expect(await screen.findByText('2 of 4 done')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Seed now' }));
-    await waitFor(() => expect(workspaceApi).toHaveBeenCalledWith({
-      path: '/api/workspaces/w1/memory/distill-runs/seed',
-      method: 'POST',
-    }));
-    expect(onOpenMemory).toHaveBeenCalledOnce();
+    expect(await screen.findByText('3 of 4 done')).toBeTruthy();
+    expect(screen.getByText('Seed memory')).toBeTruthy();
+    expect(screen.getByText('Workspace memory is still in progress — skipped for now')).toBeTruthy();
+    expect(screen.getByText('Skipped')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Seed now' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
   });
 
   it('keeps onboarding visible while project learning is unfinished', async () => {
@@ -529,7 +513,7 @@ describe('workspace unified interaction flows', () => {
     );
 
     fireEvent.click(await screen.findByRole('button', {
-      name: 'Start thread from issue',
+      name: 'Start trunk from issue',
     }));
     const picker = screen.getByRole('dialog');
     expect(picker.querySelector('.wu-trunk-picker__note')?.textContent).toBe(

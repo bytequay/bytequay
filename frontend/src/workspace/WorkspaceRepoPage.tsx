@@ -749,7 +749,7 @@ function IssueDetailPage({
           <section className="wu-work-card">
             <h2>Work on this</h2>
             <button type="button" className="wu-primary-button" onClick={() => setPicker('start')}>
-              <TrunkIcon /> Start thread from issue
+              <TrunkIcon /> Start trunk from issue
             </button>
             <button type="button" className="wu-icon-button" onClick={() => setPicker('backlog')}>
               Add to backlog
@@ -870,7 +870,7 @@ function TrunkPicker({
           <h2>{mode === 'start' ? 'Work on this' : 'Add to backlog'}</h2>
           <button type="button" className="wu-trunk-picker__action">
             <TrunkIcon />
-            <strong>{mode === 'start' ? 'Start work under a thread' : 'Park under a thread'}</strong>
+            <strong>{mode === 'start' ? 'Start work under a trunk' : 'Park under a trunk'}</strong>
             <ChevronDownIcon />
           </button>
         </div>
@@ -921,7 +921,7 @@ function TrunkPicker({
             }}
           >
             <PlusIcon />
-            <span className="wu-trunk-picker__new-title">New thread from this issue</span>
+            <span className="wu-trunk-picker__new-title">New trunk from this issue</span>
             <span className="wu-trunk-picker__new-meta">named after #{issueNumber}</span>
           </div>
         </div>

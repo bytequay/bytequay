@@ -173,9 +173,9 @@ export const ACTION_CATALOG: ControlAction[] = [
   },
   {
     id: 'create.thread',
-    label: 'New thread',
-    description: 'Start a new build / discussion thread in this workspace.',
-    keywords: ['new', 'thread', 'create', 'start', 'task'],
+    label: 'New trunk',
+    description: 'Start a focused component or system trunk in this workspace.',
+    keywords: ['new', 'trunk', 'thread', 'create', 'start', 'task'],
     icon: '+',
     source: 'create',
     dispatch: { kind: 'create.thread' },

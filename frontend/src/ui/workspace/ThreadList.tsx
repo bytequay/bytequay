@@ -112,7 +112,7 @@ export function ThreadList({
         {showActions && (
           <span className="actions">
             <span role="button" tabIndex={0} aria-label="Filter">⛚</span>
-            <span role="button" tabIndex={0} aria-label="New thread" onClick={onNewThread}>+</span>
+            <span role="button" tabIndex={0} aria-label="New trunk" onClick={onNewThread}>+</span>
           </span>
         )}
       </div>

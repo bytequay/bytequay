@@ -185,7 +185,7 @@ export default function ThreadsLeftRail({
     <aside style={railStyle}>
       <button type="button" onClick={onNewTask} style={newTaskBtnStyle}>
         <span style={plusStyle}>+</span>
-        <span>New thread</span>
+        <span>New trunk</span>
         <span style={kbdHintStyle}>⌘N</span>
       </button>
 

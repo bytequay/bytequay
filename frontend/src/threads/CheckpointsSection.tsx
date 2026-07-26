@@ -257,7 +257,7 @@ function CheckpointDrawer({ cp, onClose }: { cp: ThreadCheckpointDto; onClose: (
               setCopied(true);
             }}
           >
-            {copied ? '✓ Copied — paste into a new thread' : '↗ Continue this work'}
+            {copied ? '✓ Copied — paste into a new trunk' : '↗ Continue this work'}
           </button>
         </div>
       </div>

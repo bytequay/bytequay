@@ -151,7 +151,7 @@ export default function ThreadsGroupSidebar({
           cursor: canAddTask ? 'pointer' : 'not-allowed',
         }}
         title={canAddTask
-          ? 'Start a new thread pinned to this group (⌘N)'
+          ? 'Start a new trunk pinned to this group (⌘N)'
           : 'Group is full (4 threads). Remove one before adding another.'}
       >
         + Add thread

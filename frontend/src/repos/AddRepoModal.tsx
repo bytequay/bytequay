@@ -113,6 +113,13 @@ function AddRepoModal({ owner, repo, onClose, onStarted }: Props) {
                   ? `Push branches directly to ${owner}/${repo}.`
                   : `No write permission for ${owner}/${repo}.`}
               />
+              {writeMode === 'DIRECT' && plan.directAvailable && (
+                <div className="add-repo-modal__write-warning" role="alert">
+                  <strong>Write access required.</strong> Make sure the configured GitHub
+                  token can push to <code>{owner}/{repo}</code>. ByteQuay verifies this
+                  permission before cloning.
+                </div>
+              )}
             </div>
 
             <div className="add-repo-modal__managed-path">

@@ -77,7 +77,7 @@ function fixture(status: 'RUNNING' | 'COMPLETED_WITH_QUESTIONS'): {
     }],
     objectives: [
       { id: 'objective-1', round_id: round.id, criterion_id: 'criterion-1', statement: 'Re-verify the null handling fix', source: 'planner', applicability_status: 'applicable', resolution_status: 'finding' },
-      { id: 'objective-2', round_id: round.id, criterion_id: 'criterion-1', statement: 'Trace the executor configuration', source: 'planner', applicability_status: 'applicable', resolution_status: 'pending' },
+      { id: 'objective-2', round_id: round.id, criterion_id: 'criterion-1', statement: 'Trace the executor configuration', source: 'project-intelligence', applicability_status: 'applicable', resolution_status: 'pending' },
       { id: 'objective-3', round_id: round.id, criterion_id: 'criterion-1', statement: 'Check enumeration bounds', source: 'planner', applicability_status: 'applicable', resolution_status: 'pending' },
     ],
     assignments: [
@@ -148,6 +148,8 @@ describe('AgentReviewConversation', () => {
     expect(view.getByText('running · 12m')).not.toBeNull();
     expect(view.getByText('in progress · 12m')).not.toBeNull();
     expect(view.queryByRole('button', { name: 'Trigger next round' })).toBeNull();
+    const learnedFocus = view.getByText('Project Intelligence focus').parentElement;
+    expect(learnedFocus?.textContent).toContain('Trace the executor configuration');
     fireEvent.click(view.getByRole('button', { name: 'Stop round' }));
     expect(onStopRound).toHaveBeenCalledWith('round-2');
     fireEvent.click(view.getByRole('button', { name: 'Toggle PR panel' }));

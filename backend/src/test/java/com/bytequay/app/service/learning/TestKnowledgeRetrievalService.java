@@ -112,6 +112,33 @@ class TestKnowledgeRetrievalService
     }
 
     @Test
+    void testModuleApplicabilityMatchesDescendantsButNotSiblingPrefixes()
+    {
+        insert("k-module", "active", "high",
+                "Preserve connector metadata compatibility.",
+                List.of(new KnowledgeItem.Applicability(
+                        "module", "plugin/trino-iceberg")));
+        insert("k-sibling", "active", "high",
+                "Unrelated sibling module guidance.",
+                List.of(new KnowledgeItem.Applicability(
+                        "module", "plugin/trino-iceberg-extra")));
+
+        List<KnowledgeRetrievalService.Retrieved> descendantHits = retrieval.retrieve(
+                "ws-1", "acme/widget",
+                "plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java",
+                "review", 8);
+        List<KnowledgeRetrievalService.Retrieved> parentHits = retrieval.retrieve(
+                "ws-1", "acme/widget", "plugin/trino-iceberg", "review", 8);
+
+        assertThat(descendantHits).extracting(entry -> entry.item().id())
+                .contains("k-module")
+                .doesNotContain("k-sibling");
+        assertThat(parentHits).extracting(entry -> entry.item().id())
+                .contains("k-module")
+                .doesNotContain("k-sibling");
+    }
+
+    @Test
     void testBlankQueryReturnsTopActiveRows()
     {
         insert("k-1", "active", "high", "Always run the verifier before commit.", List.of());

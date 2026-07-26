@@ -29,7 +29,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -237,5 +239,76 @@ class TestProjectLearningService
         assertThat(started.getValue().partitions()).singleElement()
                 .satisfies(p -> assertThat(p.nextPage()).isEqualTo(1));
         assertThat(store.capsuleDigest("ws-1")).contains("digest");
+    }
+
+    @Test
+    void testRetryRequeuesIncompleteEvidence()
+            throws InterruptedException
+    {
+        when(catalog.catalog(anyString(), anyString(), anyString(), anyInt(), any(), any()))
+                .thenAnswer(inv -> new MergedPrCatalog.Outcome(
+                        inv.getArgument(4), MergedPrCatalog.State.CAUGHT_UP, null));
+        store.insertRun(new ProjectLearningRun("run-1", "ws-1", "acme/widget", "clone",
+                "partial", "sha", null, "{}", 1, 1, 1, null, "rate limit"));
+        store.upsertPrSource(new RepoPrSource("ws-1", "acme/widget", 7,
+                "2026-07-20T00:00:00Z", null, "{}", "{}", "digest-7",
+                null, "cataloged", 1, null, null));
+        store.persistEvidence(new PrEvidenceBundle(
+                "ws-1", "acme/widget", 7, "alice", "Title", "Body",
+                "base", "head", "merge", "repoSha", List.of(), List.of(), List.of(),
+                List.of(), List.of(), Map.of("reviews", "partial:reviews"),
+                "partial:reviews", List.of(), List.of()), 5.0, 100L);
+        store.markAnalyzed("ws-1", "acme/widget", 7, 5.0, "merge", 100L);
+        store.upsertPrSource(new RepoPrSource("ws-1", "acme/widget", 8,
+                "2026-07-20T00:00:00Z", null, "{}", "{}", "digest-8",
+                null, "cataloged", 1, null, null));
+        store.markAnalyzed("ws-1", "acme/widget", 8, 5.0, null, 100L,
+                "evidence: unavailable");
+
+        service.retry("run-1");
+        awaitTerminal("run-1");
+
+        verify(evidenceFetcher).fetch(
+                anyString(), anyString(), anyString(), eq(7), any(), any(), any(), any());
+        verify(evidenceFetcher).fetch(
+                anyString(), anyString(), anyString(), eq(8), any(), any(), any(), any());
+    }
+
+    @Test
+    void testCaughtUpRefreshOverlapsLastCoveredDayAndFindsNewMerge()
+            throws InterruptedException
+    {
+        String cursor = "{\"partitions\":[{\"from\":\"2008-01-01\","
+                + "\"to\":\"2026-07-20\",\"nextPage\":1,\"exhausted\":true}]}";
+        store.insertRun(new ProjectLearningRun("run-1", "ws-1", "acme/widget", "clone",
+                "caught-up", "sha", cursor, "{}", 1, 1, 1, 1L, null));
+        ArgumentCaptor<CatalogCursor> started = ArgumentCaptor.forClass(CatalogCursor.class);
+        when(catalog.catalog(anyString(), anyString(), anyString(), anyInt(),
+                started.capture(), any()))
+                .thenAnswer(inv -> {
+                    MergedPrCatalog.Sink sink = inv.getArgument(5);
+                    sink.record(new RepoPrSource(
+                            "ws-1", "acme/widget", 42, "2026-07-21T00:00:00Z",
+                            null, "{}", "{\"catalog\":\"complete\"}", "digest-42",
+                            null, "cataloged", 1, null, null));
+                    CatalogCursor next = inv.getArgument(4);
+                    return new MergedPrCatalog.Outcome(
+                            next.replace(0, new CatalogCursor.Partition(
+                                    next.partitions().getFirst().from(),
+                                    next.partitions().getFirst().to(), 1, true)),
+                            MergedPrCatalog.State.CAUGHT_UP, null);
+                });
+
+        service.refreshCompleted("run-1");
+        awaitTerminal("run-1");
+
+        assertThat(started.getValue().partitions()).singleElement().satisfies(partition -> {
+            assertThat(partition.from()).isEqualTo("2026-07-20");
+            assertThat(partition.to()).isEqualTo(LocalDate.now().toString());
+            assertThat(partition.nextPage()).isEqualTo(1);
+        });
+        assertThat(store.findPrSource("ws-1", "acme/widget", 42)).isPresent();
+        verify(evidenceFetcher).fetch(
+                anyString(), anyString(), anyString(), eq(42), any(), any(), any(), any());
     }
 }

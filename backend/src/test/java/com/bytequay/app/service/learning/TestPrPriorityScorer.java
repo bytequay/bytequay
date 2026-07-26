@@ -28,10 +28,9 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Acceptance criterion (1): a behavioural review whose concern the author
- * actually fixed outranks both a mechanical PR and a comment-only debate. The
- * scorer ranks outcome/change linkage, never raw comment count — so a
- * 40-comment naming debate that changed nothing loses to a small fix.
+ * A behavioural review with an explicitly resolved thread outranks both a
+ * mechanical PR and a comment-only debate. A later author commit alone is not
+ * treated as proof that the concern was addressed.
  */
 class TestPrPriorityScorer
 {
@@ -44,16 +43,16 @@ class TestPrPriorityScorer
     private final OutcomeChainReconstructor reconstructor = new OutcomeChainReconstructor();
 
     @Test
-    void testAuthorFixedReviewOutranksMechanicalAndDebate()
+    void testResolvedBehaviouralReviewOutranksMechanicalAndDebate()
     {
-        double fix = score(behaviouralFix());
+        double review = score(behaviouralReview());
         double mechanical = score(mechanicalBump());
         double debate = score(commentOnlyDebate());
 
-        assertThat(fix).isGreaterThan(debate);
-        assertThat(fix).isGreaterThan(mechanical);
-        // The debate's 40 comments never lift it over the real, linked fix,
-        // and the mechanical PR sits at the bottom.
+        assertThat(review).isGreaterThan(debate);
+        assertThat(review).isGreaterThan(mechanical);
+        // The debate's 40 comments never lift it over the explicitly resolved
+        // review, and the mechanical PR sits at the bottom.
         assertThat(debate).isGreaterThan(mechanical);
     }
 
@@ -65,9 +64,9 @@ class TestPrPriorityScorer
 
     // ── fixtures ────────────────────────────────────────────────────
 
-    /** A reviewer requested a change on Scheduler.java; the author pushed a
-     *  follow-up commit, the thread resolved, and the PR merged. */
-    private Fixture behaviouralFix()
+    /** A reviewer requested a change on Scheduler.java and explicitly resolved
+     *  the thread. The later commit is not enough to prove change linkage. */
+    private Fixture behaviouralReview()
     {
         RepoPrSource source = source(1, meta("alice", "Fix scheduler race", 30, 10, 3, "[]"));
         PrEvidenceBundle bundle = bundle(1, "alice", "m1",

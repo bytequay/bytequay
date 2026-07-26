@@ -14,6 +14,7 @@
 package com.bytequay.app.service.review;
 
 import com.bytequay.app.domain.InvestigationReviewData.ReviewObjectiveRow;
+import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.service.review.InvestigationReviewRunner.ProviderChoice;
 import com.bytequay.app.service.review.InvestigationReviewRunner.RunOutcome;
 
@@ -22,6 +23,14 @@ import java.util.List;
 /** Model-turn boundary used by the review orchestrator. */
 interface InvestigationReviewModel
 {
+    /** Active, path-relevant project knowledge that may seed the review plan.
+     * Implementations without Project Intelligence keep the deterministic
+     * safety plan by returning the empty default. */
+    default List<ReviewKnowledge> reviewKnowledge(InvestigationReviewContext.Snapshot snapshot)
+    {
+        return List.of();
+    }
+
     ProviderChoice choose(String requestedRunner, String requestedProvider);
 
     ProviderChoice chooseVerifier(ProviderChoice investigator, String requiredRunner);
@@ -59,4 +68,17 @@ interface InvestigationReviewModel
     String suggestPlanAmendment(
             ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives);
+
+    record ReviewKnowledge(
+            String id,
+            String kind,
+            String statement,
+            List<KnowledgeItem.Applicability> applicability,
+            long updatedAtMs)
+    {
+        public ReviewKnowledge
+        {
+            applicability = applicability == null ? List.of() : List.copyOf(applicability);
+        }
+    }
 }

@@ -13,17 +13,22 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewObjectiveRow;
 import com.bytequay.app.service.agents.ToolExecutor;
 import com.bytequay.app.service.agents.TurnHooks;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.agents.TurnSpec;
+import com.bytequay.app.service.review.InvestigationReviewModel.ReviewKnowledge;
 import com.bytequay.app.service.skills.CavemanPrompt;
 import com.bytequay.app.service.threads.AgentScheduler;
+import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -38,8 +43,11 @@ import static java.util.Objects.requireNonNull;
 public class InvestigationReviewRunner
         implements InvestigationReviewModel
 {
+    private static final Logger log = LoggerFactory.getLogger(InvestigationReviewRunner.class);
     private static final int MAX_OUTPUT_TOKENS = 4_096;
     private static final int MAX_TOOL_ITERATIONS = 18;
+    private static final int RETRIEVAL_FILE_LIMIT = 8;
+    private static final int RETRIEVAL_HINT_CHAR_LIMIT = 4_000;
     private static final String MCP_BASE = "http://127.0.0.1:53123";
 
     private final TurnRunner turnRunner;
@@ -48,12 +56,14 @@ public class InvestigationReviewRunner
     private final ReviewPassService legacyRoster;
     private final InvestigationReviewTools tools;
     private final AgentScheduler scheduler;
+    private final SessionKnowledgeProvider projectKnowledge;
     private final ObjectMapper mapper;
 
     public InvestigationReviewRunner(
             TurnRunner turnRunner, CliReviewRunner cliRunner,
             ReviewProviderEndpoints endpoints, ReviewPassService legacyRoster,
-            InvestigationReviewTools tools, AgentScheduler scheduler, ObjectMapper mapper)
+            InvestigationReviewTools tools, AgentScheduler scheduler,
+            SessionKnowledgeProvider projectKnowledge, ObjectMapper mapper)
     {
         this.turnRunner = requireNonNull(turnRunner, "turnRunner is null");
         this.cliRunner = requireNonNull(cliRunner, "cliRunner is null");
@@ -61,7 +71,22 @@ public class InvestigationReviewRunner
         this.legacyRoster = requireNonNull(legacyRoster, "legacyRoster is null");
         this.tools = requireNonNull(tools, "tools is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.projectKnowledge = requireNonNull(projectKnowledge, "projectKnowledge is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+    }
+
+    @Override
+    public List<ReviewKnowledge> reviewKnowledge(InvestigationReviewContext.Snapshot snapshot)
+    {
+        return projectKnowledge.reviewKnowledgeForRepository(
+                        snapshot.pr().repo(), retrievalHint(snapshot)).stream()
+                .map(entry -> new ReviewKnowledge(
+                        entry.item().id(),
+                        entry.item().kind(),
+                        entry.item().statement(),
+                        entry.applicability(),
+                        entry.item().updatedAtMs()))
+                .toList();
     }
 
     @Override
@@ -142,7 +167,22 @@ public class InvestigationReviewRunner
         if (persona != null && !persona.isBlank()) {
             system += "\nReviewer persona (method guidance only; evidence rules still control): " + persona.strip();
         }
-        String prompt = contextPrompt(snapshot, objectives) + "\n\n" + coverageContext + """
+        String prompt = contextPrompt(snapshot, objectives) + "\n\n" + coverageContext;
+        String guidance;
+        try {
+            guidance = projectKnowledge.renderForRepository(
+                    snapshot.pr().repo(), retrievalHint(snapshot));
+        }
+        catch (RuntimeException e) {
+            log.warn("Could not load Project Intelligence guidance for review {}: {}",
+                    reviewId, e.getMessage());
+            guidance = "";
+        }
+        if (!guidance.isBlank()) {
+            prompt += "\n\nProject Intelligence guidance (context only; verify every claim "
+                    + "against the reviewed code at this SHA):\n" + guidance;
+        }
+        prompt += """
 
                 Every applicable failure-class objective must end with an investigated hypothesis or a finding;
                 do not silently mark an untouched objective clean. Investigate the objectives now. For each candidate:
@@ -379,6 +419,44 @@ public class InvestigationReviewRunner
         user.put("content", prompt);
         messages.add(user);
         return messages;
+    }
+
+    static String retrievalHint(InvestigationReviewContext.Snapshot snapshot)
+    {
+        StringBuilder hint = new StringBuilder();
+        changedFilenames(snapshot).forEach(path -> hint.append(path).append('\n'));
+        if (snapshot.pr().title() != null) {
+            hint.append(snapshot.pr().title()).append('\n');
+        }
+        if (snapshot.pr().description() != null) {
+            hint.append(snapshot.pr().description());
+        }
+        return hint.substring(0, Math.min(RETRIEVAL_HINT_CHAR_LIMIT, hint.length()));
+    }
+
+    static List<String> changedFilenames(InvestigationReviewContext.Snapshot snapshot)
+    {
+        if (snapshot.files() != null && !snapshot.files().isEmpty()) {
+            return snapshot.files().stream()
+                    .map(DiffFile::filename)
+                    .filter(path -> path != null && !path.isBlank())
+                    .distinct()
+                    .limit(RETRIEVAL_FILE_LIMIT)
+                    .toList();
+        }
+        if (snapshot.diff() == null || snapshot.diff().isBlank()) {
+            return List.of();
+        }
+        return snapshot.diff().lines()
+                .filter(line -> line.startsWith("diff --git a/"))
+                .map(line -> {
+                    int right = line.indexOf(" b/");
+                    return right < 0 ? "" : line.substring(right + 3).strip();
+                })
+                .filter(path -> !path.isBlank())
+                .distinct()
+                .limit(RETRIEVAL_FILE_LIMIT)
+                .toList();
     }
 
     private static String contextPrompt(

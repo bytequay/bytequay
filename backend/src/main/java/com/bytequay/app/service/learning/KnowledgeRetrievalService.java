@@ -74,6 +74,13 @@ public class KnowledgeRetrievalService
     /** One retrieved knowledge item and why it ranked into the context. */
     public record Retrieved(KnowledgeItem item, double score, String why) {}
 
+    /** Structured applicability for callers that need to explain why a
+     * retrieved item belongs to a concrete module, path, symbol, or concept. */
+    public List<KnowledgeItem.Applicability> applicability(String itemId)
+    {
+        return store.applicability(itemId);
+    }
+
     /**
      * Ranked active knowledge for a query. A blank query returns the
      * top-confidence active rows (the pre-turn default when no task text is
@@ -257,8 +264,14 @@ public class KnowledgeRetrievalService
             if (i > 0) {
                 sql.append(" OR ");
             }
-            sql.append("lower(a.value) = ? OR lower(a.value) LIKE ?");
+            sql.append("lower(a.value) = ? "
+                    + "OR (a.kind IN ('module', 'path') AND ("
+                    + "? LIKE rtrim(lower(a.value), '/') || '/%' "
+                    + "OR lower(a.value) LIKE rtrim(?, '/') || '/%')) "
+                    + "OR (a.kind NOT IN ('module', 'path') AND lower(a.value) LIKE ?)");
             String token = tokens.get(i).toLowerCase(Locale.ROOT);
+            args.add(token);
+            args.add(token);
             args.add(token);
             args.add("%" + token + "%");
         }

@@ -394,13 +394,52 @@ describe('workspace unified interaction flows', () => {
       />,
     );
 
-    expect(await screen.findByText('1 of 3 done')).toBeTruthy();
+    expect(await screen.findByText('2 of 4 done')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Seed now' }));
     await waitFor(() => expect(workspaceApi).toHaveBeenCalledWith({
       path: '/api/workspaces/w1/memory/distill-runs/seed',
       method: 'POST',
     }));
     expect(onOpenMemory).toHaveBeenCalledOnce();
+  });
+
+  it('keeps onboarding visible while project learning is unfinished', async () => {
+    const onboarding: WorkspaceOnboardingDto = {
+      workspaceId: 'w1',
+      cloneComplete: true,
+      syncState: 'ready',
+      syncCurrent: 3,
+      syncTotal: 3,
+      memorySeedComplete: true,
+      firstTrunkComplete: true,
+      memoryImported: false,
+      learningState: 'analyzing',
+      learningCataloged: 120,
+      learningAnalyzed: 40,
+      learningLessons: 12,
+      learningPendingLessons: 2,
+      dismissedAt: null,
+      updatedAt: Date.now(),
+    };
+    const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
+      if (request.path === '/api/workspaces/w1/onboarding') return onboarding;
+      throw new Error(`Unexpected request: ${request.path}`);
+    });
+    setBridge(workspaceApi, { listActiveTaskTurns: vi.fn().mockResolvedValue([]) });
+
+    render(
+      <WorkspaceTodayPage
+        workspace={workspaceFixture()}
+        threads={[]}
+        onNewThread={() => {}}
+        onOpenInsights={() => {}}
+        onOpenMemory={() => {}}
+      />,
+    );
+
+    expect(await screen.findByText('Learn this project')).toBeTruthy();
+    expect(screen.getByText('4 of 5 done')).toBeTruthy();
+    expect(screen.getByText(/120 cataloged · 40 analyzed · 12 lessons/)).toBeTruthy();
   });
 
   it('starts an issue in an existing trunk without pasting stale issue context', async () => {

@@ -132,11 +132,35 @@ public class ProjectLearningStore
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(workspace_id, repo, pr_number) DO UPDATE SET
                     merged_at = excluded.merged_at,
-                    merge_sha = excluded.merge_sha,
+                    merge_sha = COALESCE(excluded.merge_sha, repo_pr_source.merge_sha),
                     metadata_json = excluded.metadata_json,
                     completeness_json = excluded.completeness_json,
                     source_digest = excluded.source_digest,
-                    extractor_version = excluded.extractor_version
+                    extractor_version = excluded.extractor_version,
+                    priority_score = CASE
+                        WHEN repo_pr_source.source_digest IS NOT excluded.source_digest
+                          OR repo_pr_source.extractor_version IS NOT excluded.extractor_version
+                        THEN excluded.priority_score
+                        ELSE repo_pr_source.priority_score
+                    END,
+                    analysis_state = CASE
+                        WHEN repo_pr_source.source_digest IS NOT excluded.source_digest
+                          OR repo_pr_source.extractor_version IS NOT excluded.extractor_version
+                        THEN excluded.analysis_state
+                        ELSE repo_pr_source.analysis_state
+                    END,
+                    analyzed_at_ms = CASE
+                        WHEN repo_pr_source.source_digest IS NOT excluded.source_digest
+                          OR repo_pr_source.extractor_version IS NOT excluded.extractor_version
+                        THEN excluded.analyzed_at_ms
+                        ELSE repo_pr_source.analyzed_at_ms
+                    END,
+                    last_error = CASE
+                        WHEN repo_pr_source.source_digest IS NOT excluded.source_digest
+                          OR repo_pr_source.extractor_version IS NOT excluded.extractor_version
+                        THEN excluded.last_error
+                        ELSE repo_pr_source.last_error
+                    END
                 """,
                 s.workspaceId(), s.repo(), s.prNumber(), s.mergedAt(),
                 s.mergeSha(), s.metadataJson(), s.completenessJson(),
@@ -161,6 +185,26 @@ public class ProjectLearningStore
                 SET analysis_state = 'selected', last_error = NULL
                 WHERE workspace_id = ? AND repo = ? AND pr_number = ?
                 """, workspaceId, repo, prNumber);
+    }
+
+    /** Re-queue analyzed PRs whose last attempt failed or produced incomplete
+     *  evidence. The old bundle stays visible until a later fetch replaces it. */
+    public int requeueIncompleteEvidence(String workspaceId, String repo)
+    {
+        return jdbc.update("""
+                UPDATE repo_pr_source
+                SET analysis_state = 'cataloged',
+                    priority_score = NULL,
+                    analyzed_at_ms = NULL,
+                    last_error = NULL
+                WHERE workspace_id = ? AND repo = ? AND analysis_state = 'analyzed'
+                  AND (last_error IS NOT NULL OR EXISTS (
+                          SELECT 1 FROM repo_pr_evidence_bundle evidence
+                          WHERE evidence.workspace_id = repo_pr_source.workspace_id
+                            AND evidence.repo = repo_pr_source.repo
+                            AND evidence.pr_number = repo_pr_source.pr_number
+                            AND evidence.overall_completeness <> 'complete'))
+                """, workspaceId, repo);
     }
 
     public int countCataloged(String workspaceId, String repo)
@@ -407,6 +451,14 @@ public class ProjectLearningStore
         return jdbc.queryForList("""
                 SELECT source_digest FROM repo_project_capsule WHERE workspace_id = ?
                 """, String.class, workspaceId).stream().findFirst();
+    }
+
+    public Optional<String> capsule(String workspaceId, String repo)
+    {
+        return jdbc.queryForList("""
+                SELECT capsule_md FROM repo_project_capsule
+                WHERE workspace_id = ? AND repo = ?
+                """, String.class, workspaceId, repo).stream().findFirst();
     }
 
     private static final ObjectMapper JSON = new ObjectMapper();

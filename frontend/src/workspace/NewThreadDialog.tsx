@@ -17,7 +17,12 @@ import { logoColorFor, monogram } from '../pages/useWorkspaceNav';
 import { Logo } from '../ui/primitives';
 import { WS_DIALOG_OVERLAY, WS_DIALOG_PANEL, dialogStyles } from './dialogStyles';
 import { type AgentChoice, choiceGlyph, choiceText, choicesFrom, normalizeChoice } from './agentChoices';
-import { type WorkspaceRepositoryDto, type WorkspaceSettingsDto, workspaceApi } from './workspaceApi';
+import {
+  type DirectoryScopeOverviewDto,
+  type WorkspaceRepositoryDto,
+  type WorkspaceSettingsDto,
+  workspaceApi,
+} from './workspaceApi';
 
 type Props = {
   /** Close without taking any action — fired on Cancel and the
@@ -74,6 +79,9 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
   const [providers, setProviders] = useState<Record<string, string> | null>(null);
   const [options, setOptions] = useState<WorkModelOptionsDto | null>(null);
   const [localAi, setLocalAi] = useState<Ds4StateDto | null>(null);
+  const [codeAreas, setCodeAreas] = useState<DirectoryScopeOverviewDto | null>(null);
+  const [selectedCodeArea, setSelectedCodeArea] = useState<string | null>(null);
+  const [approvingCodeArea, setApprovingCodeArea] = useState<string | null>(null);
   /** Per-audience pins for this trunk only. An absent key inherits. */
   const [pins, setPins] = useState<Record<string, string>>({});
   const [openKind, setOpenKind] = useState<string | null>(null);
@@ -88,13 +96,16 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
       workspaceApi.settings(workspaceId).catch((): WorkspaceSettingsDto | null => null),
       workspaceApi.workModelOptions(),
       window.bridge.getDs4Status(),
+      workspaceApi.directoryScopeSuggestions(workspaceId)
+        .catch((): DirectoryScopeOverviewDto | null => null),
     ])
-      .then(([repository, settings, modelOptions, ds4]) => {
+      .then(([repository, settings, modelOptions, ds4, scopes]) => {
         if (cancelled) return;
         setRepoName(repository?.fullName ?? null);
         setProviders(settings?.providers ?? {});
         setOptions(modelOptions);
         setLocalAi(ds4.state);
+        setCodeAreas(scopes);
       })
       .catch(reason => {
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
@@ -140,9 +151,36 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
     onClose();
   };
 
+  const selectCodeArea = async (path: string, decisionState: string) => {
+    if (approvingCodeArea !== null) return;
+    if (decisionState === 'approved') {
+      setSelectedCodeArea(path);
+      return;
+    }
+    setApprovingCodeArea(path);
+    setError(null);
+    try {
+      await workspaceApi.decideDirectoryScope(workspaceId, path, 'approved');
+      setCodeAreas(current => current === null ? null : {
+        ...current,
+        suggestions: current.suggestions.map(suggestion =>
+          suggestion.paths[0] === path
+            ? { ...suggestion, decisionState: 'approved' }
+            : suggestion),
+      });
+      setSelectedCodeArea(path);
+    }
+    catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+    finally {
+      setApprovingCodeArea(null);
+    }
+  };
+
   const handleSubmit = async () => {
     const trimmed = prompt.trim();
-    if (submitting || blocked) return;
+    if (submitting || blocked || approvingCodeArea !== null) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -161,6 +199,16 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
         initialGroupIds: initialGroupId !== undefined ? [initialGroupId] : undefined,
         engines: Object.keys(pins).length === 0 ? undefined : pins,
       });
+      if (selectedCodeArea !== null) {
+        // Scope is advisory metadata. A failure must not strand or
+        // duplicate the trunk that was already created successfully.
+        try {
+          await workspaceApi.assignDirectoryScope(workspaceId, created.id, selectedCodeArea);
+        }
+        catch (reason) {
+          console.warn('Could not attach the selected code area', reason);
+        }
+      }
       if (trimmed.length > 0) {
         // Hand the text to the trunk page via sessionStorage — the
         // ThreadTrunkPage reads + clears this key on mount and seeds
@@ -196,7 +244,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
       >
         <header style={dialogStyles.header}>
           <h2 id="new-thread-title" style={dialogStyles.title}>
-            New Trunks Directory
+            New trunk
             <span style={{ ...dialogStyles.workspaceChip, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Logo initials={monogram(wsLabel).toUpperCase()} color={logoColorFor(wsLabel)} size="sm" />
               {wsLabel}
@@ -217,6 +265,66 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
           <span>{repoName ?? '—'}</span>
           <span style={repoLineMutedStyle}>· set by the workspace</span>
         </div>
+
+        {codeAreas !== null && (
+          <section style={codeAreaSectionStyle} aria-labelledby="code-area-label">
+            <div style={codeAreaHeadingStyle}>
+              <span id="code-area-label">CODE AREA <span style={codeAreaOptionalStyle}>(optional)</span></span>
+              {!codeAreas.historyReady && (
+                <span style={codeAreaProgressStyle}>
+                  {codeAreas.requiredAnalyzedPrCount === 0
+                    ? 'Learning project history'
+                    : `Learning · ${codeAreas.analyzedPrCount}/${codeAreas.requiredAnalyzedPrCount} analyzed PRs`}
+                </span>
+              )}
+            </div>
+            <div style={codeAreaChoicesStyle}>
+              <button
+                type="button"
+                aria-pressed={selectedCodeArea === null}
+                disabled={approvingCodeArea !== null}
+                style={codeAreaChoiceStyle(selectedCodeArea === null)}
+                onClick={() => setSelectedCodeArea(null)}
+              >
+                <span style={codeAreaRadioStyle(selectedCodeArea === null)} aria-hidden />
+                <span>
+                  <span style={codeAreaNameStyle}>Entire repository</span>
+                  <span style={codeAreaDetailStyle}>Default · shared changes remain in view</span>
+                </span>
+              </button>
+              {codeAreas.suggestions
+                .filter(suggestion => suggestion.decisionState !== 'rejected')
+                .map(suggestion => {
+                  const path = suggestion.paths[0];
+                  if (path === undefined) return null;
+                  const selected = selectedCodeArea === path;
+                  const approving = approvingCodeArea === path;
+                  return (
+                    <button
+                      key={path}
+                      type="button"
+                      aria-pressed={selected}
+                      disabled={approvingCodeArea !== null}
+                      style={codeAreaChoiceStyle(selected)}
+                      title={suggestion.rationale}
+                      onClick={() => { void selectCodeArea(path, suggestion.decisionState); }}
+                    >
+                      <span style={codeAreaRadioStyle(selected)} aria-hidden />
+                      <span>
+                        <span style={codeAreaNameStyle}>{path}</span>
+                        <span style={codeAreaDetailStyle}>
+                          {suggestion.evidencePrCount} analyzed PRs
+                          {suggestion.decisionState === 'pending'
+                            ? ` · ${approving ? 'Approving…' : 'Approve & use'}`
+                            : ' · Approved'}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+          </section>
+        )}
 
         <textarea
           autoFocus
@@ -304,7 +412,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
             <div>
               <div style={blockedTitleStyle}>No agents in {wsLabel}</div>
               <div style={blockedBodyStyle}>
-                A trunk directory can&apos;t be created without at least one agent — every
+                A trunk can&apos;t be created without at least one agent — every
                 session kind resolves to nothing. Install a CLI agent or add an API key in
                 the workspace&apos;s Agents settings, then check again.
               </div>
@@ -339,8 +447,8 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
               type="button"
               style={dialogStyles.primaryBtn}
               onClick={() => { void handleSubmit(); }}
-              disabled={submitting || loading || blocked}
-              title={blocked ? 'Add an agent in workspace settings first' : 'Create the trunk directory'}
+              disabled={submitting || loading || blocked || approvingCodeArea !== null}
+              title={blocked ? 'Add an agent in workspace settings first' : 'Create the trunk'}
             >
               {submitting ? 'Starting…' : "Let's ride"} <span style={{ marginLeft: 4 }}>⏎</span>
             </button>
@@ -466,6 +574,82 @@ const repoLineStyle: React.CSSProperties = {
 
 const repoLineMutedStyle: React.CSSProperties = {
   color: 'var(--ws-text-4)',
+};
+
+const codeAreaSectionStyle: React.CSSProperties = {
+  marginTop: 12,
+};
+
+const codeAreaHeadingStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  fontSize: 10,
+  letterSpacing: '0.08em',
+  color: 'var(--ws-text-3)',
+};
+
+const codeAreaOptionalStyle: React.CSSProperties = {
+  letterSpacing: 0,
+  color: 'var(--ws-text-4)',
+};
+
+const codeAreaProgressStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  letterSpacing: 0,
+  color: 'var(--ws-text-4)',
+};
+
+const codeAreaChoicesStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 7,
+  marginTop: 6,
+  overflowX: 'auto',
+  paddingBottom: 2,
+};
+
+function codeAreaChoiceStyle(selected: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 7,
+    minWidth: 155,
+    padding: '7px 9px',
+    border: `1px solid ${selected ? 'var(--ws-accent)' : 'var(--ws-card-border)'}`,
+    borderRadius: 8,
+    background: selected ? 'var(--ws-accent-soft)' : 'rgba(255,255,255,0.7)',
+    color: 'var(--ws-text-1)',
+    cursor: 'pointer',
+    textAlign: 'left',
+    fontFamily: 'inherit',
+    flexShrink: 0,
+  };
+}
+
+function codeAreaRadioStyle(selected: boolean): React.CSSProperties {
+  return {
+    width: 9,
+    height: 9,
+    borderRadius: '50%',
+    border: `1px solid ${selected ? 'var(--ws-accent)' : 'var(--ws-text-4)'}`,
+    background: selected ? 'var(--ws-accent)' : 'transparent',
+    boxShadow: selected ? 'inset 0 0 0 2px white' : 'none',
+    flexShrink: 0,
+  };
+}
+
+const codeAreaNameStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: 11,
+  fontWeight: 600,
+};
+
+const codeAreaDetailStyle: React.CSSProperties = {
+  display: 'block',
+  marginTop: 1,
+  fontSize: 9.5,
+  color: 'var(--ws-text-4)',
+  whiteSpace: 'nowrap',
 };
 
 const pickerScrimStyle: React.CSSProperties = {

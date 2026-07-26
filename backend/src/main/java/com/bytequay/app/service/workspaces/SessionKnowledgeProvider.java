@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
@@ -46,6 +47,7 @@ public class SessionKnowledgeProvider
     static final int BRAIN_CHAR_CAP = 4_000;
     static final int RETRIEVED_ITEM_CAP = 8;
     static final int RETRIEVED_CHAR_CAP = 8_000;
+    static final int QUERY_HINT_CHAR_CAP = 4_000;
 
     private static final Set<String> AUDIENCES = Set.of(
             "plan", "dev", "review", "ci-fix");
@@ -80,8 +82,84 @@ public class SessionKnowledgeProvider
                 || audience == null || !AUDIENCES.contains(audience)) {
             return "";
         }
+        return renderProjection(
+                workspaceId, repoOf(workspaceId), audience, queryHint, true);
+    }
+
+    /**
+     * Render context for a concrete trunk/task thread. Its latest request and
+     * explicitly approved code area sharpen retrieval, while the area remains
+     * guidance rather than a working-directory or sandbox boundary.
+     */
+    public String renderForThread(
+            String workspaceId, String threadId, String audience, String queryHint)
+    {
+        if (workspaceId == null || workspaceId.isBlank()
+                || threadId == null || threadId.isBlank()
+                || audience == null || !AUDIENCES.contains(audience)) {
+            return "";
+        }
+        ThreadContext thread = threadContext(workspaceId, threadId)
+                .orElse(new ThreadContext(null, null));
+        String hint = combinedHint(queryHint, thread.latestInput(), thread.scopePath());
+        String rendered = renderProjection(
+                workspaceId, repoOf(workspaceId), audience, hint, true);
+        if (thread.scopePath() == null || thread.scopePath().isBlank()) {
+            return rendered;
+        }
+        String scope = "# Code area\n\nPrimary code area: `" + thread.scopePath()
+                + "` (focus guidance; shared changes outside it may still be required).";
+        return rendered.isBlank() ? scope : scope + "\n\n" + rendered;
+    }
+
+    /** Project-only context for a repository review. Resolves the owning
+     * workspace but deliberately excludes its private brain/memory. */
+    public String renderForRepository(String repo, String queryHint)
+    {
+        if (repo == null || repo.isBlank()) {
+            return "";
+        }
+        return learnedRepository(repo)
+                .map(found -> renderProjection(
+                        found.workspaceId(), found.repo(), "review", queryHint, false))
+                .orElse("");
+    }
+
+    /** Typed ACTIVE review knowledge for the deterministic review planner.
+     * The rendered prompt path remains separate because plan persistence
+     * needs stable ids and applicability, not markdown. */
+    public List<RepositoryKnowledge> reviewKnowledgeForRepository(
+            String repo, String queryHint)
+    {
+        if (repo == null || repo.isBlank()) {
+            return List.of();
+        }
+        return learnedRepository(repo)
+                .map(found -> {
+                    if (!audienceEnabled(found.workspaceId(), "review")) {
+                        return List.<RepositoryKnowledge>of();
+                    }
+                    return retrieval.retrieve(
+                                    found.workspaceId(), found.repo(), queryHint,
+                                    "review", RETRIEVED_ITEM_CAP).stream()
+                            .map(entry -> new RepositoryKnowledge(
+                                    entry.item(),
+                                    retrieval.applicability(entry.item().id()),
+                                    entry.why()))
+                            .toList();
+                })
+                .orElseGet(List::of);
+    }
+
+    private String renderProjection(
+            String workspaceId,
+            String repo,
+            String audience,
+            String queryHint,
+            boolean includeBrain)
+    {
         String capsule = cap(capsuleOf(workspaceId), CAPSULE_CHAR_CAP);
-        String brain = cap(brainOf(workspaceId), BRAIN_CHAR_CAP);
+        String brain = includeBrain ? cap(brainOf(workspaceId), BRAIN_CHAR_CAP) : "";
 
         StringBuilder out = new StringBuilder();
         if (!capsule.isBlank()) {
@@ -97,7 +175,6 @@ public class SessionKnowledgeProvider
         List<String> insertedIds = new ArrayList<>();
         int retrievedChars = 0;
         if (audienceEnabled(workspaceId, audience)) {
-            String repo = repoOf(workspaceId);
             List<KnowledgeRetrievalService.Retrieved> retrieved = retrieval.retrieve(
                     workspaceId, repo, queryHint, audience, RETRIEVED_ITEM_CAP);
             boolean heading = false;
@@ -125,6 +202,52 @@ public class SessionKnowledgeProvider
 
         recordProjection(workspaceId, audience, queryHint, insertedIds,
                 capsule.length(), brain.length(), retrievedChars);
+        return out.toString();
+    }
+
+    private Optional<LearnedRepository> learnedRepository(String repo)
+    {
+        return jdbc.query("""
+                SELECT workspace_id, repo_full_name FROM workspace_repos
+                WHERE lower(repo_full_name) = lower(?)
+                LIMIT 1
+                """, (rs, ignored) -> new LearnedRepository(
+                        rs.getString("workspace_id"), rs.getString("repo_full_name")), repo)
+                .stream().findFirst();
+    }
+
+    private Optional<ThreadContext> threadContext(String workspaceId, String threadId)
+    {
+        return jdbc.query("""
+                SELECT scope.scope_path,
+                       (SELECT turn.input FROM thread_turns turn
+                        WHERE turn.thread_id = t.id
+                        ORDER BY turn.created_at_ms DESC, turn.id DESC
+                        LIMIT 1) AS latest_input
+                FROM threads t
+                LEFT JOIN thread_directory_scope_assignment scope
+                  ON scope.thread_id = t.id AND scope.workspace_id = t.workspace_id
+                WHERE t.id = ? AND t.workspace_id = ?
+                """, (rs, ignored) -> new ThreadContext(
+                        rs.getString("scope_path"), rs.getString("latest_input")),
+                threadId, workspaceId).stream().findFirst();
+    }
+
+    private static String combinedHint(String... parts)
+    {
+        StringBuilder out = new StringBuilder();
+        for (String part : parts) {
+            if (part == null || part.isBlank()) {
+                continue;
+            }
+            if (!out.isEmpty()) {
+                out.append('\n');
+            }
+            out.append(part.strip());
+            if (out.length() >= QUERY_HINT_CHAR_CAP) {
+                return out.substring(0, QUERY_HINT_CHAR_CAP);
+            }
+        }
         return out.toString();
     }
 
@@ -220,4 +343,19 @@ public class SessionKnowledgeProvider
                 ? value
                 : value.substring(0, max) + "\n… (truncated)";
     }
+
+    private record LearnedRepository(String workspaceId, String repo) {}
+
+    public record RepositoryKnowledge(
+            KnowledgeItem item,
+            List<KnowledgeItem.Applicability> applicability,
+            String why)
+    {
+        public RepositoryKnowledge
+        {
+            applicability = applicability == null ? List.of() : List.copyOf(applicability);
+        }
+    }
+
+    private record ThreadContext(String scopePath, String latestInput) {}
 }

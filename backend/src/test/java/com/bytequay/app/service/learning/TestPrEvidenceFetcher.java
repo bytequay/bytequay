@@ -135,10 +135,10 @@ class TestPrEvidenceFetcher
     }
 
     @Test
-    void testResolvedThreadJoinPopulatesChainResolution()
+    void testResolvedThreadDoesNotInventCommitLinkage()
     {
-        // A reviewer thread that was addressed by a later author commit and
-        // marked resolved on GitHub (GraphQL-only) reaches full depth 3.
+        // The explicit GraphQL resolution is retained, but a later author
+        // commit cannot prove it changed the concern's path.
         FakeGitHub github = new FakeGitHub()
                 .withCommits(PullRequestRepository.Paged.complete(List.of(
                         commitAt("c1", Instant.parse("2020-01-02T00:00:00Z")))))
@@ -153,7 +153,8 @@ class TestPrEvidenceFetcher
                 .filter(c -> "comment:301".equals(c.concernRef()))
                 .findFirst().orElseThrow();
         assertThat(chain.resolved()).isTrue();
-        assertThat(chain.depth()).isEqualTo(3);   // addressed + resolved + merged
+        assertThat(chain.addressed()).isFalse();
+        assertThat(chain.depth()).isEqualTo(1);   // explicit resolution only
     }
 
     // ── fake ────────────────────────────────────────────────────────

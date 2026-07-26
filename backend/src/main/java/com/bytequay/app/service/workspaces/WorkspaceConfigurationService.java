@@ -110,11 +110,13 @@ public class WorkspaceConfigurationService
         // Project-learning card state, derived from the durable run so the
         // onboarding surface reflects "Learning merged history" progress
         // without duplicating counts into workspace_onboarding.
-        String learningState = jdbc.query("""
-                SELECT state FROM repo_learning_run
+        record LearningState(String state, String lastError) {}
+        LearningState learning = jdbc.query("""
+                SELECT state, last_error FROM repo_learning_run
                 WHERE workspace_id = ?
                 ORDER BY started_at_ms DESC LIMIT 1
-                """, (rs, ignored) -> rs.getString("state"), workspaceId)
+                """, (rs, ignored) -> new LearningState(
+                        rs.getString("state"), rs.getString("last_error")), workspaceId)
                 .stream().findFirst().orElse(null);
         int learningCataloged = count("""
                 SELECT count(*) FROM repo_pr_source WHERE workspace_id = ?
@@ -145,7 +147,8 @@ public class WorkspaceConfigurationService
                         rs.getBoolean("memory_seed_complete"),
                         rs.getBoolean("first_trunk_complete"),
                         rs.getBoolean("memory_imported"),
-                        learningState,
+                        learning == null ? null : learning.state(),
+                        learning == null ? null : learning.lastError(),
                         learningCataloged,
                         learningAnalyzed,
                         learningLessons,

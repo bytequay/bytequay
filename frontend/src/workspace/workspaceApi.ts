@@ -77,6 +77,8 @@ export type WorkspaceOnboardingDto = {
   firstTrunkComplete: boolean;
   memoryImported: boolean;
   learningState: string | null;
+  /** Present when the latest learning run is paused by a fetch/extraction failure. */
+  learningLastError?: string | null;
   learningCataloged: number;
   learningAnalyzed: number;
   learningLessons: number;
@@ -92,6 +94,32 @@ export type LearningRunDto = {
   countsJson: string;
   lastError: string | null;
   updatedAt: number;
+};
+
+export type DirectoryScopeSuggestionDto = {
+  name: string;
+  paths: string[];
+  evidencePrCount: number;
+  confidence: number;
+  rationale: string;
+  decisionState: 'pending' | 'approved' | 'rejected';
+};
+
+export type DirectoryScopeAssignmentDto = {
+  threadId: string;
+  name: string;
+  paths: string[];
+  decisionState: 'approved';
+  assignedAtMs: number;
+};
+
+export type DirectoryScopeOverviewDto = {
+  catalogedPrCount: number;
+  analyzedPrCount: number;
+  requiredAnalyzedPrCount: number;
+  historyReady: boolean;
+  suggestions: DirectoryScopeSuggestionDto[];
+  assignments: DirectoryScopeAssignmentDto[];
 };
 
 export type LearnedKnowledgeDto = {
@@ -1011,6 +1039,23 @@ export const workspaceApi = {
     window.bridge.workspaceApi<LearningRunDto>({
       path: `/api/workspaces/${enc(workspaceId)}/learning/retry`,
       method: 'POST',
+    }),
+  directoryScopeSuggestions: (workspaceId: string) =>
+    window.bridge.workspaceApi<DirectoryScopeOverviewDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/directory-scopes/suggestions`,
+    }),
+  decideDirectoryScope: (
+    workspaceId: string, path: string, decision: 'approved' | 'rejected',
+  ) => window.bridge.workspaceApi<{ paths: string[]; decisionState: string; decidedAtMs: number }>({
+    path: `/api/workspaces/${enc(workspaceId)}/directory-scopes/decisions`,
+    method: 'POST',
+    body: { path, decision },
+  }),
+  assignDirectoryScope: (workspaceId: string, threadId: string, path: string) =>
+    window.bridge.workspaceApi<DirectoryScopeAssignmentDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/directory-scopes/threads/${enc(threadId)}`,
+      method: 'PUT',
+      body: { path },
     }),
   listLearned: (workspaceId: string, lifecycle?: string) =>
     window.bridge.workspaceApi<LearnedKnowledgeDto[]>({

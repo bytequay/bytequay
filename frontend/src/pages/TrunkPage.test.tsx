@@ -303,8 +303,8 @@ describe('TrunkPage', () => {
     });
     renderTrunk();
 
-    expect(await screen.findByText('NEEDS YOU')).toBeTruthy();
-    expect(screen.getByText('Plan ready — 4 steps')).toBeTruthy();
+    expect(await screen.findByText('Plan ready — 4 steps')).toBeTruthy();
+    expect(screen.getByText('NEEDS YOU')).toBeTruthy();
     expect(screen.getByText('Dev session')).toBeTruthy();
   });
 

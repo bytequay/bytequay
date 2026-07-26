@@ -7190,7 +7190,7 @@ button.workspace-redesign .wu-table-row,
 }
 
 /* Persisted workspace-creation feedback — source frame 6d. */
-.workspace-redesign .wu-creation-toasts {
+.wu-creation-toasts {
   position: fixed;
   z-index: 1400;
   top: 54px;
@@ -7203,7 +7203,7 @@ button.workspace-redesign .wu-table-row,
   pointer-events: none;
 }
 
-.workspace-redesign .wu-creation-toast {
+.wu-creation-toast {
   display: flex;
   align-items: center;
   gap: 11px;
@@ -7215,10 +7215,10 @@ button.workspace-redesign .wu-table-row,
   pointer-events: auto;
 }
 
-.workspace-redesign .wu-creation-toast--ready { border-color: rgba(45, 164, 78, .42); }
-.workspace-redesign .wu-creation-toast--failed { border-color: rgba(207, 34, 46, .38); }
+.wu-creation-toast--ready { border-color: rgba(45, 164, 78, .42); }
+.wu-creation-toast--failed { border-color: rgba(207, 34, 46, .38); }
 
-.workspace-redesign .wu-creation-toast__state {
+.wu-creation-toast__state {
   display: inline-flex;
   width: 8px;
   height: 8px;
@@ -7227,7 +7227,7 @@ button.workspace-redesign .wu-table-row,
   justify-content: center;
 }
 
-.workspace-redesign .wu-creation-toast__state > i {
+.wu-creation-toast__state > i {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -7235,7 +7235,7 @@ button.workspace-redesign .wu-table-row,
   animation: wu-pulse 1.5s ease-in-out infinite;
 }
 
-.workspace-redesign .wu-creation-toast--ready .wu-creation-toast__state {
+.wu-creation-toast--ready .wu-creation-toast__state {
   width: 22px;
   height: 22px;
   flex-basis: 22px;
@@ -7244,13 +7244,13 @@ button.workspace-redesign .wu-table-row,
   color: #1a7f37;
 }
 
-.workspace-redesign .wu-creation-toast--failed .wu-creation-toast__state {
+.wu-creation-toast--failed .wu-creation-toast__state {
   border-radius: 50%;
   background: #ffebe9;
   color: #cf222e;
 }
 
-.workspace-redesign .wu-creation-toast__state svg {
+.wu-creation-toast__state svg {
   width: 12px;
   height: 12px;
   fill: none;
@@ -7260,7 +7260,7 @@ button.workspace-redesign .wu-table-row,
   stroke-linejoin: round;
 }
 
-.workspace-redesign .wu-creation-toast__copy {
+.wu-creation-toast__copy {
   display: flex;
   min-width: 0;
   flex: 1;
@@ -7268,7 +7268,7 @@ button.workspace-redesign .wu-table-row,
   gap: 2px;
 }
 
-.workspace-redesign .wu-creation-toast__copy strong {
+.wu-creation-toast__copy strong {
   overflow: hidden;
   color: #1f2328;
   font-size: 12.5px;
@@ -7277,7 +7277,7 @@ button.workspace-redesign .wu-table-row,
   white-space: nowrap;
 }
 
-.workspace-redesign .wu-creation-toast__copy small {
+.wu-creation-toast__copy small {
   overflow: hidden;
   color: #8c959f;
   font-size: 11px;
@@ -7286,14 +7286,14 @@ button.workspace-redesign .wu-table-row,
   white-space: nowrap;
 }
 
-.workspace-redesign .wu-creation-toast__actions {
+.wu-creation-toast__actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 4px;
 }
 
-.workspace-redesign .wu-creation-toast__actions button {
+.wu-creation-toast__actions button {
   padding: 5.5px 12px;
   border: 1px solid #1f2328;
   border-radius: 7px;
@@ -7306,13 +7306,13 @@ button.workspace-redesign .wu-table-row,
   cursor: pointer;
 }
 
-.workspace-redesign .wu-creation-toast__actions button.primary {
+.wu-creation-toast__actions button.primary {
   border-color: #1f2328;
   background: #1f2328;
   color: #fff;
 }
 
-.workspace-redesign .wu-creation-toast__actions button.quiet {
+.wu-creation-toast__actions button.quiet {
   padding: 0;
   border-color: transparent;
   background: transparent;

@@ -159,7 +159,11 @@ function AddRepoModal({ watchedRepos, onAdded, onClose }: Props) {
         owner={mapTarget.owner}
         repo={mapTarget.repo}
         onClose={() => setMapTarget(null)}
-        onStarted={(operation) => { setMapTarget(null); onAdded(operation); }}
+        onStarted={(operation) => {
+          setMapTarget(null);
+          onAdded(operation);
+          onClose();
+        }}
       />
     )}
     </>

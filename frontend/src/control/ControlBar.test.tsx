@@ -33,8 +33,8 @@ describe('filterCatalog', () => {
     // keyword has "memory") to the top.
     const result = filterCatalog('memory');
     expect(result[0].id).toBe('nav.workspace.memory');
-    // "new thread" matches the create.thread label directly.
-    expect(filterCatalog('new thread')[0].id).toBe('create.thread');
+    // "new trunk" matches the create.thread action's public label directly.
+    expect(filterCatalog('new trunk')[0].id).toBe('create.thread');
     expect(filterCatalog('report bug')[0].id).toBe('create.issue-report');
   });
 

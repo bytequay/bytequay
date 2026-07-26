@@ -142,7 +142,7 @@ export function ThreadsSection({ onNewThread, children }: {
         <span className="nm">Threads</span>
         <span className="actions">
           <span role="button" tabIndex={0} aria-label="Filter threads">⛚</span>
-          <span role="button" tabIndex={0} aria-label="New thread" onClick={onNewThread}>+</span>
+          <span role="button" tabIndex={0} aria-label="New trunk" onClick={onNewThread}>+</span>
         </span>
       </div>
       <div className="session-list">{children}</div>

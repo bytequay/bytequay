@@ -18,16 +18,17 @@ import com.bytequay.app.domain.PrReviewThreadMessage;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.domain.Workspace;
-import com.bytequay.app.repository.AppSettingsStore;
-import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.agents.ToolExecutor;
 import com.bytequay.app.service.agents.TurnHooks;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.agents.TurnSpec;
+import com.bytequay.app.service.review.CliReviewException;
+import com.bytequay.app.service.review.CliReviewRunner;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
 import com.bytequay.app.service.threads.AgentScheduler;
+import com.bytequay.app.service.workmodel.SessionAudience;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -37,6 +38,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -44,16 +46,18 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.Callable;
 
+import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
 /**
  * Ephemeral, provider-neutral extraction call: one bounded model turn per
  * analyzed PR that distills durable lessons from the evidence bundle. Runs
- * through {@link AgentScheduler#invokeAll} so extraction respects the same
- * global API-lane capacity and cost controls as every other in-JVM model
- * call; the provider comes from the workspace work model (API kind) with the
- * app-level LLM provider setting as fallback. No tools, one round, strict
- * JSON out — and {@code {"lessons": []}} is an expected, correct answer.
+ * through {@link AgentScheduler} so extraction respects the same CLI/API
+ * lane capacity and cost controls as other model calls; the provider comes
+ * from the workspace's resolved review engine, so the same default used by
+ * ordinary workspace sessions also applies here.
+ * No tools, one round, strict JSON out — and {@code {"lessons": []}} is an
+ * expected, correct answer.
  */
 @Component
 public class LessonExtractor
@@ -73,23 +77,23 @@ public class LessonExtractor
     private final TurnRunner runner;
     private final AgentScheduler scheduler;
     private final ReviewProviderEndpoints endpoints;
-    private final WorkspaceStore workspaces;
-    private final AppSettingsStore settings;
+    private final WorkModelResolver workModels;
+    private final CliReviewRunner cliRunner;
     private final ObjectMapper mapper;
 
     public LessonExtractor(
             TurnRunner runner,
             AgentScheduler scheduler,
             ReviewProviderEndpoints endpoints,
-            WorkspaceStore workspaces,
-            AppSettingsStore settings,
+            WorkModelResolver workModels,
+            CliReviewRunner cliRunner,
             ObjectMapper mapper)
     {
         this.runner = requireNonNull(runner, "runner is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.endpoints = requireNonNull(endpoints, "endpoints is null");
-        this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.settings = requireNonNull(settings, "settings is null");
+        this.workModels = requireNonNull(workModels, "workModels is null");
+        this.cliRunner = requireNonNull(cliRunner, "cliRunner is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -125,9 +129,18 @@ public class LessonExtractor
             PrEvidenceBundle bundle,
             List<KnowledgeItem> existing)
     {
-        ReviewProviderEndpoints.Endpoint endpoint = resolveEndpoint(workspaceId);
+        WorkModel workModel = resolveWorkModel(workspaceId);
         String system = systemPrompt();
         String prompt = userPrompt(bundle, existing);
+        String finalText = workModel.kind() == WorkModelKind.CLI
+                ? runCli(workModel, system, prompt)
+                : runApi(workModel, system, prompt);
+        return parse(finalText, bundle.refs().size(), existing);
+    }
+
+    private String runApi(WorkModel workModel, String system, String prompt)
+    {
+        ReviewProviderEndpoints.Endpoint endpoint = resolveEndpoint(workModel);
         ArrayNode messages = messages(endpoint.transport(), system, prompt);
         ToolExecutor executor = call ->
                 ToolExecutor.ToolCallResult.error("no tools are available in this turn");
@@ -158,37 +171,75 @@ public class LessonExtractor
             throw new ExtractionFailedException(
                     "extraction turn exceeded its cost cap", null);
         }
-        return parse(result.finalText(), bundle.refs().size(), existing);
+        return result.finalText();
+    }
+
+    private String runCli(WorkModel workModel, String system, String prompt)
+    {
+        CliReviewRunner.Provider provider = cliProvider(workModel.agentOrProvider());
+        CliReviewRunner.Result result;
+        try {
+            result = scheduler.invokeCli(() -> cliRunner.runWithSchedulerCapacity(
+                    provider, system + "\n\n" + prompt, null,
+                    Path.of(System.getProperty("java.io.tmpdir")), null,
+                    toIntExact(COST_CAP_MILLI_USD / 10)));
+        }
+        catch (CliReviewException e) {
+            throw new ExtractionUnavailableException(
+                    "no usable extraction provider: " + e.getMessage(), e);
+        }
+        catch (RuntimeException e) {
+            throw new ExtractionFailedException(
+                    "extraction turn failed: " + e.getMessage(), e);
+        }
+        if ("ABORTED".equals(result.end())) {
+            throw new ExtractionFailedException(
+                    "extraction turn exceeded its cost cap", null);
+        }
+        if (!"COMPLETED".equals(result.end())) {
+            throw new ExtractionFailedException(
+                    "extraction turn failed: " + result.errorMessage(), null);
+        }
+        return result.text();
     }
 
     /**
-     * Workspace API work model wins; otherwise the app-level LLM provider
-     * setting, matching the harness-diagnosis default. A missing key or
-     * unsupported provider parks the run retryable rather than failing it.
+     * Resolve project learning like other workspace review work: the review
+     * row wins, then the workspace default, then the curated global default.
      */
-    private ReviewProviderEndpoints.Endpoint resolveEndpoint(String workspaceId)
+    private WorkModel resolveWorkModel(String workspaceId)
     {
-        WorkModel workModel = workspaces.findWorkspaceById(workspaceId)
-                .map(Workspace::workModel)
-                .orElse(null);
-        String provider;
-        String modelOverride = null;
-        if (workModel != null && workModel.kind() == WorkModelKind.API) {
-            provider = workModel.agentOrProvider();
-            modelOverride = workModel.model();
-        }
-        else {
-            provider = settings.get(AppSettingsStore.Key.LLM_PROVIDER).orElse("openai");
-        }
         try {
-            ReviewProviderEndpoints.Endpoint endpoint = endpoints.resolve(provider);
-            return modelOverride == null ? endpoint : new ReviewProviderEndpoints.Endpoint(
-                    endpoint.transport(), endpoint.url(), endpoint.authToken(), modelOverride);
+            return workModels.resolveForWorkspace(workspaceId, SessionAudience.REVIEW).choice();
         }
         catch (RuntimeException e) {
             throw new ExtractionUnavailableException(
                     "no usable extraction provider: " + e.getMessage(), e);
         }
+    }
+
+    private ReviewProviderEndpoints.Endpoint resolveEndpoint(WorkModel workModel)
+    {
+        try {
+            ReviewProviderEndpoints.Endpoint endpoint =
+                    endpoints.resolve(workModel.agentOrProvider());
+            return workModel.model() == null ? endpoint : new ReviewProviderEndpoints.Endpoint(
+                    endpoint.transport(), endpoint.url(), endpoint.authToken(), workModel.model());
+        }
+        catch (RuntimeException e) {
+            throw new ExtractionUnavailableException(
+                    "no usable extraction provider: " + e.getMessage(), e);
+        }
+    }
+
+    private static CliReviewRunner.Provider cliProvider(String agent)
+    {
+        return switch (agent == null ? "" : agent.toLowerCase(Locale.ROOT)) {
+            case "claude-code", "claude-cli" -> CliReviewRunner.Provider.CLAUDE;
+            case "codex", "codex-cli" -> CliReviewRunner.Provider.CODEX;
+            default -> throw new ExtractionUnavailableException(
+                    "no usable extraction provider: unsupported CLI agent '" + agent + "'", null);
+        };
     }
 
     // ── prompt ──────────────────────────────────────────────────────

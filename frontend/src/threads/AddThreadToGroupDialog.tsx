@@ -104,7 +104,7 @@ export default function AddThreadToGroupDialog({
         <header style={headerStyle}>
           <h2 style={titleStyle}>Add a thread to {group.name}</h2>
           <p style={subtitleStyle}>
-            Start a new thread, or pull an existing one in.
+            Start a new trunk, or pull an existing one in.
           </p>
         </header>
 
@@ -115,8 +115,8 @@ export default function AddThreadToGroupDialog({
         >
           <span style={createGlyphStyle}>＋</span>
           <span style={createLabelStyle}>
-            <span style={createPrimaryStyle}>Create a new thread</span>
-            <span style={createHintStyle}>Opens the new-thread form with this group pre-filled.</span>
+            <span style={createPrimaryStyle}>Create a new trunk</span>
+            <span style={createHintStyle}>Opens the new-trunk form with this group pre-filled.</span>
           </span>
         </button>
 

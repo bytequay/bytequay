@@ -14,6 +14,7 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.domain.Actor;
+import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
@@ -21,17 +22,28 @@ import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskRecoveryRequest;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
+import com.bytequay.app.domain.ValidationClaim;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.localpr.TaskPushSaga;
+import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.service.threads.TaskExternalEffectGate;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskTurnFinishedEvent;
+import com.bytequay.app.service.threads.ThreadRegistry;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -45,7 +57,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -73,13 +87,25 @@ public class PlanStageService
     /** Approve / replan API result shapes. */
     public record ApproveResult(String devStageId, String redirectUrl) {}
 
-    public record ReplanResult(String planStageId) {}
+    public record ReplanResult(String planStageId, boolean preparing)
+    {
+        ReplanResult(String planStageId)
+        {
+            this(planStageId, false);
+        }
+    }
 
     private final StageStore stageStore;
+    private final StageStateMachine stageMachine;
     private final TaskPhaseMachine phaseMachine;
+    private final TaskCommandExecutor commands;
+    private final TaskPushSaga pushSaga;
     private final TaskStore taskStore;
     private final ThreadStore threadStore;
     private final ThreadTurnStore turnStore;
+    private final ValidationPassStore validationStore;
+    private final AgentRunService agentRuns;
+    private final ThreadRegistry registry;
     private final ThreadTurnScheduler scheduler;
     private final PRService prService;
     private final ApplicationEventPublisher events;
@@ -87,20 +113,32 @@ public class PlanStageService
 
     public PlanStageService(
             StageStore stageStore,
+            StageStateMachine stageMachine,
             TaskPhaseMachine phaseMachine,
+            TaskCommandExecutor commands,
+            TaskPushSaga pushSaga,
             TaskStore taskStore,
             ThreadStore threadStore,
             ThreadTurnStore turnStore,
+            ValidationPassStore validationStore,
+            AgentRunService agentRuns,
+            ThreadRegistry registry,
             ThreadTurnScheduler scheduler,
             PRService prService,
             ApplicationEventPublisher events,
             ObjectMapper mapper)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.stageMachine = requireNonNull(stageMachine, "stageMachine is null");
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
+        this.commands = requireNonNull(commands, "commands is null");
+        this.pushSaga = requireNonNull(pushSaga, "pushSaga is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.validationStore = requireNonNull(validationStore, "validationStore is null");
+        this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
+        this.registry = requireNonNull(registry, "registry is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.prService = requireNonNull(prService, "prService is null");
         this.events = requireNonNull(events, "events is null");
@@ -215,23 +253,35 @@ public class PlanStageService
      *
      * @throws IllegalStateException if the Task has no open PlanStage
      */
-    @Transactional
     public StageInstance approve(String taskId, String approvedRevisionId)
     {
-        return approve(taskId, approvedRevisionId, Actor.HUMAN, null);
+        return commands.execute(taskId,
+                () -> approveInCommand(
+                        taskId, approvedRevisionId, Actor.HUMAN, null));
     }
 
-    private StageInstance approve(
+    private StageInstance approveInCommand(
             String taskId,
             String approvedRevisionId,
             Actor actor,
             String approvalSource)
     {
+        TaskCommandExecutor.requireCurrent(taskId);
         StageInstance plan = stageStore.findActiveStage(taskId)
                 .filter(stage -> stage.type() == StageType.PLAN_STAGE)
                 .orElseThrow(() -> new IllegalStateException(
                         "no open PlanStage to approve for task " + taskId));
+        return approvePlanInCommand(plan, approvedRevisionId, actor, approvalSource);
+    }
 
+    private StageInstance approvePlanInCommand(
+            StageInstance plan,
+            String approvedRevisionId,
+            Actor actor,
+            String approvalSource)
+    {
+        String taskId = plan.taskId();
+        TaskCommandExecutor.requireCurrent(taskId);
         Map<String, Object> payload = new LinkedHashMap<>();
         if (approvedRevisionId != null) {
             payload.put("approvedRevisionId", approvedRevisionId);
@@ -241,7 +291,7 @@ public class PlanStageService
         }
         payload.put("approvedAt", Instant.now().toString());
         stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_APPROVED, payload);
-        stageStore.closeStage(plan.id(), "plan_approved");
+        stageMachine.closeInCommand(taskId, plan.id(), "plan_approved");
         // A no-op unless the local PR already exists (e.g. a replan after
         // dev started) — the usual first approval is backfilled onto the
         // timeline once PRServiceImpl.createForTask creates the row instead.
@@ -250,9 +300,11 @@ public class PlanStageService
         // PLANNING ▶ IMPLEMENTING: StageLifecycle's reconcile opens the
         // DevelopmentStage off this transition; the PLAN_APPROVED event we
         // just wrote is what lets it past the plan guard.
-        phaseMachine.transition(taskId, TaskPhase.IMPLEMENTING, "plan_approved", actor);
+        phaseMachine.transitionInCommand(
+                taskId, TaskPhase.IMPLEMENTING, "plan_approved", actor);
 
         StageInstance dev = stageStore.findActiveStage(taskId)
+                .filter(stage -> stage.type() == StageType.DEVELOPMENT_STAGE)
                 .orElseThrow(() -> new IllegalStateException(
                         "DevelopmentStage did not open after approving the plan for task " + taskId));
         log.debug("approved plan for task {}; opened {} stage {}", taskId, dev.type(), dev.id());
@@ -272,7 +324,6 @@ public class PlanStageService
      *   <li>409 — the PlanStage is already closed</li>
      * </ul>
      */
-    @Transactional
     public ApproveResult approveByStage(UUID planStageId)
     {
         return approveByStage(
@@ -287,7 +338,6 @@ public class PlanStageService
      * The scheduler actor keeps the phase audit honest: this is local
      * automation, not a click masquerading as a human action.
      */
-    @Transactional
     public ApproveResult approveByAutomation(UUID planStageId, JsonNode expectedPlan)
     {
         return approveByStage(
@@ -307,13 +357,34 @@ public class PlanStageService
             JsonNode expectedPlan,
             boolean enforceIssueIntakePolicy)
     {
-        StageInstance plan = stageStore.findStageById(planStageId)
+        StageInstance initial = stageStore.findStageById(planStageId)
                 .orElseThrow(() -> status(404, "no such stage: " + planStageId));
+        Approval approval = commands.execute(initial.taskId(), () -> {
+            StageInstance plan = stageStore.findStageById(planStageId)
+                    .orElseThrow(() -> status(404, "no such stage: " + planStageId));
+            Approval approved = approveByStageInCommand(
+                    plan, actor, approvalSource, expectedPlan, enforceIssueIntakePolicy);
+            enqueueDevKickoffInCommand(approved, initiatorSource);
+            return approved;
+        });
+        return new ApproveResult(
+                approval.dev().id().toString(),
+                "/tasks/" + approval.taskId() + "/stages/" + approval.dev().id());
+    }
+
+    private Approval approveByStageInCommand(
+            StageInstance plan,
+            Actor actor,
+            String approvalSource,
+            JsonNode expectedPlan,
+            boolean enforceIssueIntakePolicy)
+    {
+        TaskCommandExecutor.requireCurrent(plan.taskId());
         if (plan.type() != StageType.PLAN_STAGE) {
-            throw status(400, "stage " + planStageId + " is not a PlanStage");
+            throw status(400, "stage " + plan.id() + " is not a PlanStage");
         }
         if (plan.state() == StageState.CLOSED) {
-            throw status(409, "PlanStage " + planStageId + " is already closed");
+            throw status(409, "PlanStage " + plan.id() + " is already closed");
         }
         JsonNode latest = latestPlan(plan.id())
                 .orElseThrow(() -> status(400, "no plan has been recorded on this PlanStage yet"));
@@ -330,15 +401,12 @@ public class PlanStageService
             assertIssueIntakePolicy(plan.taskId(), latest);
         }
 
-        approve(plan.taskId(), latest.path("id").asText(null), actor, approvalSource);
-        StageInstance dev = stageStore.findActiveStage(plan.taskId())
-                .filter(stage -> stage.type() == StageType.DEVELOPMENT_STAGE)
-                .orElseThrow(() -> status(500, "DevelopmentStage did not open on approval"));
-
-        enqueueDevKickoff(plan.taskId(), latest, initiatorSource);
-        return new ApproveResult(
-                dev.id().toString(), "/tasks/" + plan.taskId() + "/stages/" + dev.id());
+        StageInstance dev = approvePlanInCommand(
+                plan, latest.path("id").asText(null), actor, approvalSource);
+        return new Approval(plan.taskId(), latest, dev);
     }
+
+    private record Approval(String taskId, JsonNode plan, StageInstance dev) {}
 
     /** A review marker applies only to the revision that preceded it. Any
      *  later PLAN_RECORDED event resets the checkpoint. */
@@ -388,9 +456,26 @@ public class PlanStageService
      *   <li>409 — a PlanStage is already open</li>
      * </ul>
      */
-    @Transactional
     public ReplanResult replan(String taskId)
     {
+        ReplanResult result = TaskExternalEffectGate.withEffectGate(
+                taskId, () -> commands.execute(taskId, () -> replanInCommand(taskId)));
+        if (result.preparing()) {
+            log.debug("task {} parked while its old runtime stops for replan", taskId);
+            return result;
+        }
+        // Re-run the brain's planning turn; it reads the prior plan + follow-ups
+        // through its own tools, so no seed prompt is needed here.
+        events.publishEvent(new PlanKickoffRequested(taskId, null, null));
+        log.debug("opened replan PlanStage {} for task {}", result.planStageId(), taskId);
+        return result;
+    }
+
+    private ReplanResult replanInCommand(String taskId)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> status(404, "no such task: " + taskId));
         List<StageInstance> stages = stageStore.findStagesByTask(taskId);
         boolean hasClosedPlan = stages.stream()
                 .anyMatch(s -> s.type() == StageType.PLAN_STAGE && s.state() == StageState.CLOSED);
@@ -402,17 +487,98 @@ public class PlanStageService
         if (!hasClosedPlan) {
             throw status(400, "task " + taskId + " has no approved plan to revise yet");
         }
+        assertReplanSource(task);
+        requirePushRevocable(taskId);
+        List<ValidationClaim> openValidation = validationStore.findOpenByTask(taskId);
+        List<AgentRun> liveRuns = agentRuns.liveRunsByTask(taskId);
+        boolean liveTurns = !turnStore.listTurnsByExactTaskIdAndStatus(
+                taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
+                || !turnStore.listTurnsByExactTaskIdAndStatus(
+                        taskId, ThreadTurnStatus.RUNNING, 1).isEmpty();
+        boolean cachedAgent = !registry.findStages(stageKeys(taskId, stages)).isEmpty();
+        if (!openValidation.isEmpty() || liveTurns || !liveRuns.isEmpty() || cachedAgent
+                || task.phase() == TaskPhase.NEEDS_ATTENTION
+                || task.status() == TaskStatus.NEEDS_ATTENTION) {
+            Instant now = Instant.now();
+            for (ValidationClaim claim : openValidation) {
+                if (claim.cancelRequestedAt() == null) {
+                    validationStore.requestCancel(
+                            claim.claimKey(), now, now.plus(Duration.ofMinutes(2)));
+                }
+            }
+            phaseMachine.parkOperationalInCommand(taskId, Actor.HUMAN, "replan_requested");
+            phaseMachine.requestRecoveryInCommand(taskId, TaskRecoveryRequest.KIND_REPLAN);
+            return new ReplanResult(null, true);
+        }
         // PLANNING is a universal escape: this closes the active dev (or later)
         // stage and reopens a PlanStage via StageLifecycle.reconcile.
-        phaseMachine.transition(taskId, TaskPhase.PLANNING, "replan", Actor.HUMAN);
+        phaseMachine.transitionInCommand(taskId, TaskPhase.PLANNING, "replan", Actor.HUMAN);
         StageInstance plan = stageStore.findActiveStage(taskId)
                 .filter(s -> s.type() == StageType.PLAN_STAGE)
                 .orElseThrow(() -> status(500, "PlanStage did not reopen on replan"));
-        // Re-run the brain's planning turn; it reads the prior plan + follow-ups
-        // through its own tools, so no seed prompt is needed here.
-        events.publishEvent(new PlanKickoffRequested(taskId, null, null));
-        log.debug("opened replan PlanStage {} for task {}", plan.id(), taskId);
         return new ReplanResult(plan.id().toString());
+    }
+
+    /** Barrier callback used by the stopped-runtime reconciler. */
+    public ReplanResult completeRequestedReplan(String taskId)
+    {
+        ReplanResult result = TaskExternalEffectGate.withEffectGate(
+                taskId, () -> commands.execute(taskId, () -> {
+                    requirePushRevocable(taskId);
+                    if (!registry.findStages(
+                            stageKeys(taskId, stageStore.findStagesByTask(taskId))).isEmpty()) {
+                        throw status(409, "task " + taskId + " still has a cached replan runtime");
+                    }
+                    for (AgentRun run : agentRuns.liveRunsByTask(taskId)) {
+                        agentRuns.transitionInCommand(
+                                taskId, run.id(), AgentRun.STATUS_CANCELLED,
+                                "replan_runtime_stopped");
+                    }
+                    phaseMachine.completeReplanInCommand(
+                            taskId, Actor.HUMAN, "replan_runtime_stopped");
+                    StageInstance plan = stageStore.findActiveStage(taskId)
+                            .filter(stage -> stage.type() == StageType.PLAN_STAGE)
+                            .orElseThrow(() -> status(
+                                    500, "PlanStage did not reopen on replan"));
+                    return new ReplanResult(plan.id().toString());
+                }));
+        events.publishEvent(new PlanKickoffRequested(taskId, null, null));
+        log.debug("completed guided replan {} for task {}", result.planStageId(), taskId);
+        return result;
+    }
+
+    private void requirePushRevocable(String taskId)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        if (!pushSaga.revokeUnclaimedInCommand(taskId, "replan")) {
+            throw status(409,
+                    "task " + taskId + " has a Push already in progress; "
+                            + "finish or recover that Push before replanning");
+        }
+    }
+
+    private static List<String> stageKeys(String taskId, List<StageInstance> stages)
+    {
+        List<String> keys = new ArrayList<>();
+        keys.add(taskId);
+        stages.stream().map(stage -> stage.id().toString()).forEach(keys::add);
+        return keys;
+    }
+
+    private static void assertReplanSource(Task task)
+    {
+        if (task.status().isDone()
+                || task.status() == TaskStatus.PAUSED
+                || task.status() == TaskStatus.ARCHIVED
+                || task.status() == TaskStatus.ERRORED) {
+            throw status(409, "task " + task.id() + " cannot replan from status " + task.status());
+        }
+        if (task.phase() == TaskPhase.PLANNING || task.phase() == TaskPhase.COMPLETED
+                || task.phase() == TaskPhase.PUSHED_AWAITING_CI
+                || task.phase() == TaskPhase.AWAITING_READY
+                || task.phase() == TaskPhase.AWAITING_REMOTE_REVIEW) {
+            throw status(409, "task " + task.id() + " cannot replan from phase " + task.phase());
+        }
     }
 
     /**
@@ -449,18 +615,30 @@ public class PlanStageService
                 .map(e -> parse(e.payloadJson()));
     }
 
-    private void enqueueDevKickoff(String taskId, JsonNode plan, String initiatorSource)
+    private void enqueueDevKickoffInCommand(Approval approval, String initiatorSource)
     {
+        String taskId = approval.taskId();
+        TaskCommandExecutor.requireCurrent(taskId);
         Task task = taskStore.findTaskById(taskId).orElse(null);
         if (task == null) {
-            return;
+            throw status(409, "task disappeared while approving its plan: " + taskId);
         }
         Thread dev = threadStore.findThreadById(task.threadId()).orElse(null);
         if (dev == null) {
-            return;
+            throw status(409, "task has no development thread: " + taskId);
         }
-        scheduler.enqueueTaskTurn(
-                dev, devKickoffPrompt(plan), task.id(), TurnInitiator.unattended(initiatorSource));
+        String revision = approval.plan().path("id").asText("unknown");
+        String kickKey = "plan-approved:" + approval.plan().path("id").asText(approval.dev().id().toString());
+        scheduler.enqueueTaskTurnOnce(
+                kickKey,
+                dev,
+                devKickoffPrompt(approval.plan()),
+                task.id(),
+                approval.dev().id().toString(),
+                TurnInitiator.unattended(initiatorSource),
+                null,
+                TurnLiveness.CODE);
+        log.debug("durably queued approved plan revision {} for task {}", revision, taskId);
     }
 
     private static String devKickoffPrompt(JsonNode plan)

@@ -96,6 +96,22 @@ public class TaskCommandExecutor
     }
 
     /**
+     * Leave Spring's transaction-completion callback thread before starting
+     * repository work. JPA resources remain bound while AFTER_COMMIT
+     * listeners run, even though the transaction has already completed.
+     */
+    public static void dispatchAfterCommit(Runnable work)
+    {
+        requireNonNull(work, "work is null");
+        if (CURRENT_TASK.get() != null
+                || TransactionSynchronizationManager.isSynchronizationActive()) {
+            Thread.startVirtualThread(work);
+            return;
+        }
+        work.run();
+    }
+
+    /**
      * Assert the calling thread already owns {@code taskId}'s command —
      * its stripe and its transaction. In-command primitives call this
      * instead of starting a nested command.

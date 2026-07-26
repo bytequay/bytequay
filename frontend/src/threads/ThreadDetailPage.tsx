@@ -2609,6 +2609,12 @@ function schedulerEventMeta(event: ThreadTurnEventDto['event']): { label: string
         hint: 'The queued turn was cancelled before it ran.',
         color: '#64748b',
       };
+    case 'SCHEDULER_ALERT':
+      return {
+        label: 'Scheduler alert',
+        hint: 'Durable turn state needs reconciliation.',
+        color: '#dc2626',
+      };
     case 'CODEGRAPH_POLICY':
       return {
         label: 'CodeGraph',

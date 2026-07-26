@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
@@ -27,12 +28,15 @@ import org.mockito.ArgumentCaptor;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,20 +44,32 @@ class TestParkedProposalService
 {
     private final TaskStore tasks = mock(TaskStore.class);
     private final NotificationService notifications = mock(NotificationService.class);
+    private final TaskCommandExecutor commands = mock(TaskCommandExecutor.class);
+    private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
     private final ParkedProposalService service =
-            new ParkedProposalService(tasks, notifications, new ObjectMapper());
+            new ParkedProposalService(
+                    tasks, notifications, new ObjectMapper(), commands, phaseMachine);
+
+    TestParkedProposalService()
+    {
+        when(commands.execute(anyString(), any()))
+                .thenAnswer(invocation -> invocation.<Supplier<?>>getArgument(1).get());
+    }
 
     @Test
     void parkWritesAwaitingReviewTaskAndActionableNotification()
             throws Exception
     {
         Task task = runningTask();
+        when(phaseMachine.parkForLocalReviewInCommand(
+                task.id(), Actor.AGENT, "publish_proposal_parked"))
+                .thenReturn(task.withStatus(TaskStatus.AWAITING_REVIEW));
 
         service.park(task, Map.of("action", "push", "source", "mcp:push"));
 
-        ArgumentCaptor<Task> parked = ArgumentCaptor.forClass(Task.class);
-        verify(tasks).saveTask(parked.capture());
-        assertThat(parked.getValue().status()).isEqualTo(TaskStatus.AWAITING_REVIEW);
+        verify(phaseMachine).parkForLocalReviewInCommand(
+                task.id(), Actor.AGENT, "publish_proposal_parked");
+        verify(tasks, never()).saveTask(any());
         ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
         verify(notifications).notifyAwaitingReview(
                 eq(task.threadId()), eq(task.id()), payload.capture());
@@ -66,6 +82,9 @@ class TestParkedProposalService
     void notificationFailureIsPropagatedToTheCaller()
     {
         Task task = runningTask();
+        when(phaseMachine.parkForLocalReviewInCommand(
+                task.id(), Actor.AGENT, "publish_proposal_parked"))
+                .thenReturn(task.withStatus(TaskStatus.AWAITING_REVIEW));
         when(notifications.notifyAwaitingReview(anyString(), anyString(), anyString()))
                 .thenThrow(new IllegalStateException("notification write failed"));
 
@@ -84,10 +103,8 @@ class TestParkedProposalService
 
         service.finishDiscarded(proposal, true);
 
-        ArgumentCaptor<Task> resumed = ArgumentCaptor.forClass(Task.class);
-        verify(tasks).saveTask(resumed.capture());
-        assertThat(resumed.getValue().status()).isEqualTo(TaskStatus.IDLE);
-        assertThat(resumed.getValue().processPid()).isNull();
+        verify(phaseMachine).resumeFromLocalReviewInCommand(
+                task.id(), Actor.HUMAN, "publish_proposal_discarded");
         verify(notifications).finishResolution(proposal.id());
     }
 
@@ -103,9 +120,8 @@ class TestParkedProposalService
 
         service.finishInterruptedApproval(proposal, "next_task");
 
-        ArgumentCaptor<Task> resumed = ArgumentCaptor.forClass(Task.class);
-        verify(tasks).saveTask(resumed.capture());
-        assertThat(resumed.getValue().status()).isEqualTo(TaskStatus.IDLE);
+        verify(phaseMachine).resumeFromLocalReviewInCommand(
+                task.id(), Actor.HUMAN, "interrupted_next_resumed");
         verify(notifications).finishResolution(proposal.id());
     }
 
@@ -119,9 +135,9 @@ class TestParkedProposalService
 
         service.finishInterruptedApproval(proposal, "push");
 
-        ArgumentCaptor<Task> finished = ArgumentCaptor.forClass(Task.class);
-        verify(tasks).saveTask(finished.capture());
-        assertThat(finished.getValue().status()).isEqualTo(TaskStatus.COMPLETED);
+        verify(phaseMachine).finishTerminalInCommand(
+                task.id(), TaskStatus.COMPLETED,
+                Actor.HUMAN, "interrupted_publish_closed");
         verify(notifications).finishResolution(proposal.id());
     }
 
@@ -135,9 +151,9 @@ class TestParkedProposalService
 
         service.finishInterruptedApproval(proposal, "ship_task");
 
-        ArgumentCaptor<Task> finished = ArgumentCaptor.forClass(Task.class);
-        verify(tasks).saveTask(finished.capture());
-        assertThat(finished.getValue().status()).isEqualTo(TaskStatus.COMPLETED);
+        verify(phaseMachine).finishTerminalInCommand(
+                task.id(), TaskStatus.COMPLETED,
+                Actor.HUMAN, "interrupted_publish_closed");
         verify(notifications).finishResolution(proposal.id());
     }
 
@@ -160,9 +176,8 @@ class TestParkedProposalService
 
         service.finishApproved(proposal, /* taskAlreadyAdvanced */ false);
 
-        ArgumentCaptor<Task> saved = ArgumentCaptor.forClass(Task.class);
-        verify(tasks).saveTask(saved.capture());
-        assertThat(saved.getValue().status()).isEqualTo(TaskStatus.IN_REVIEW);
+        verify(phaseMachine).markRemoteInReviewInCommand(
+                task.id(), Actor.HUMAN, "publish_proposal_approved");
     }
 
     /** A shipped task: AWAITING_REVIEW with a linked PR, so it is in the

@@ -1820,6 +1820,7 @@ export type ThreadTurnEventTypeDto =
   | 'TURN_FINISHED'
   | 'TURN_FAILED'
   | 'TURN_CANCELLED'
+  | 'SCHEDULER_ALERT'
   | 'CODEGRAPH_POLICY';
 
 /** Durable scheduler event for one thread turn. Complements

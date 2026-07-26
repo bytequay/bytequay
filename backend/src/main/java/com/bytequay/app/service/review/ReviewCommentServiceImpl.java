@@ -47,17 +47,20 @@ public class ReviewCommentServiceImpl
 {
     private final StageStore stageStore;
     private final ReviewRoundService reviewRounds;
+    private final RoundGateSaga roundGate;
     private final PRService prService;
     private final TaskStore taskStore;
 
     public ReviewCommentServiceImpl(
             StageStore stageStore,
             ReviewRoundService reviewRounds,
+            RoundGateSaga roundGate,
             PRService prService,
             TaskStore taskStore)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
+        this.roundGate = requireNonNull(roundGate, "roundGate is null");
         this.prService = requireNonNull(prService, "prService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
     }
@@ -146,9 +149,22 @@ public class ReviewCommentServiceImpl
         if (existing.isEmpty()) {
             return false;
         }
-        stageStore.setReviewCommentResolved(commentId, resolved);
-        Optional.ofNullable(existing.get().roundId())
-                .ifPresent(roundId -> reviewRounds.recomputeStats(roundId.toString()));
+        ReviewComment comment = existing.orElseThrow();
+        if (comment.roundId() == null) {
+            stageStore.setReviewCommentResolved(commentId, resolved);
+            return true;
+        }
+        String roundId = comment.roundId().toString();
+        roundGate.editPayload(comment.taskId(), roundId, (Runnable) () -> {
+            ReviewComment current = stageStore.findReviewCommentById(commentId)
+                    .orElseThrow(() -> status(409, "review comment changed while editing round payload"));
+            if (!comment.taskId().equals(current.taskId())
+                    || !comment.roundId().equals(current.roundId())) {
+                throw status(409, "review comment changed while editing round payload");
+            }
+            stageStore.setReviewCommentResolved(commentId, resolved);
+            reviewRounds.recomputeStats(roundId);
+        });
         return true;
     }
 

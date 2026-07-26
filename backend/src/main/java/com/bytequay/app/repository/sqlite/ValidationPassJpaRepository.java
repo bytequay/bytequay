@@ -26,6 +26,22 @@ interface ValidationPassJpaRepository
 {
     Optional<ValidationPassEntity> findByClaimKey(String claimKey);
 
+    Optional<ValidationPassEntity>
+            findFirstByTaskIdAndContextAndEndedAtMsIsNotNullAndPassedTrueAndSupersededAtMsIsNullOrderByEndedAtMsDescIdDesc(
+                    String taskId, String context);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE ValidationPassEntity v SET v.roundId = :roundId "
+            + "WHERE v.claimKey = :claimKey AND v.roundId IS NULL "
+            + "AND v.endedAtMs IS NOT NULL AND v.passed = true "
+            + "AND v.cancelRequestedAtMs IS NULL AND v.supersededAtMs IS NULL")
+    int bindRoundIfUnbound(
+            @Param("claimKey") String claimKey,
+            @Param("roundId") String roundId);
+
+    Optional<ValidationPassEntity> findFirstByRoundIdAndContextOrderByIdDesc(
+            String roundId, String context);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ValidationPassEntity v SET v.ownerId = :ownerId, "
             + "v.executorIdentity = :executorIdentity, v.leaseUntilMs = :leaseUntilMs, "
@@ -43,7 +59,8 @@ interface ValidationPassJpaRepository
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE ValidationPassEntity v SET v.leaseUntilMs = :leaseUntilMs, "
             + "v.heartbeatAtMs = :heartbeatAtMs "
-            + "WHERE v.claimKey = :claimKey AND v.ownerId = :ownerId AND v.endedAtMs IS NULL")
+            + "WHERE v.claimKey = :claimKey AND v.ownerId = :ownerId AND v.endedAtMs IS NULL "
+            + "AND v.cancelRequestedAtMs IS NULL AND v.supersededAtMs IS NULL")
     int renewLease(
             @Param("claimKey") String claimKey,
             @Param("ownerId") String ownerId,
@@ -54,7 +71,8 @@ interface ValidationPassJpaRepository
     @Query("UPDATE ValidationPassEntity v SET v.endedAtMs = :endedAtMs, v.passed = :passed, "
             + "v.failuresJson = :failuresJson "
             + "WHERE v.claimKey = :claimKey AND v.endedAtMs IS NULL "
-            + "AND v.ownerId = :ownerId AND v.codeFingerprint = :codeFingerprint")
+            + "AND v.ownerId = :ownerId AND v.codeFingerprint = :codeFingerprint "
+            + "AND v.cancelRequestedAtMs IS NULL AND v.supersededAtMs IS NULL")
     int completeOwned(
             @Param("claimKey") String claimKey,
             @Param("ownerId") String ownerId,

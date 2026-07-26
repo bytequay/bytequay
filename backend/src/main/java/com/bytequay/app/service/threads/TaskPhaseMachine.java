@@ -20,21 +20,27 @@ import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.ValidationClaim;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.ValidationPassStore;
+import com.bytequay.app.service.checks.CodeFingerprints;
+import com.bytequay.app.service.checks.ValidationExecutorRegistry;
 import com.bytequay.app.service.checks.ValidationPassFinishedEvent;
-import com.bytequay.app.service.localpr.LocalReviewClearedEvent;
+import com.bytequay.app.service.checks.ValidationRecheckRequestedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -67,7 +73,7 @@ public class TaskPhaseMachine
 
     /** Consecutive auto-pushes per task before the lifecycle parks at
      *  NEEDS_ATTENTION. Guards against runaway autonomy. */
-    static final int DEFAULT_AUTO_PUSH_CAP = 5;
+    public static final int DEFAULT_AUTO_PUSH_CAP = 5;
 
     private static final String AUTO_PUSH_CAP_NOTICE =
             "{\"reason\":\"this has been retrying for a while\",\"cause\":\"auto_push_cap\"}";
@@ -77,19 +83,31 @@ public class TaskPhaseMachine
     private final ApplicationEventPublisher events;
     private final LocalCiFixExecutor localCiFix;
     private final ThreadTurnStore turnStore;
+    private final ValidationPassStore validationStore;
+    private final ValidationExecutorRegistry validationExecutors;
+    private final CodeFingerprints fingerprints;
+    private final TaskCommandExecutor commands;
 
     public TaskPhaseMachine(
             TaskStore taskStore,
             NotificationService notifications,
             ApplicationEventPublisher events,
             LocalCiFixExecutor localCiFix,
-            ThreadTurnStore turnStore)
+            ThreadTurnStore turnStore,
+            ValidationPassStore validationStore,
+            ValidationExecutorRegistry validationExecutors,
+            CodeFingerprints fingerprints,
+            TaskCommandExecutor commands)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.events = requireNonNull(events, "events is null");
         this.localCiFix = requireNonNull(localCiFix, "localCiFix is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.validationStore = requireNonNull(validationStore, "validationStore is null");
+        this.validationExecutors = requireNonNull(validationExecutors, "validationExecutors is null");
+        this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
+        this.commands = requireNonNull(commands, "commands is null");
     }
 
     /** Run {@code action} exclusively against one task's lifecycle. Hash
@@ -116,15 +134,189 @@ public class TaskPhaseMachine
      * Enforces the consecutive-auto-push cap: an auto actor pushing past
      * the cap parks at NEEDS_ATTENTION instead of pushing again.
      */
-    @Transactional
     public void transition(String taskId, TaskPhase to, String reason, Actor actor)
     {
         requireNonNull(to, "to is null");
         requireNonNull(actor, "actor is null");
-        withTaskLock(taskId, () -> {
-            transitionLocked(taskId, to, reason, actor);
-            return null;
-        });
+        commands.executeVoid(taskId, () -> transitionInCommand(taskId, to, reason, actor));
+    }
+
+    /** Same-transaction projection for another intent already running in
+     *  this task's command. */
+    public void transitionInCommand(String taskId, TaskPhase to, String reason, Actor actor)
+    {
+        requireNonNull(to, "to is null");
+        requireNonNull(actor, "actor is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        transitionLocked(taskId, to, reason, actor);
+    }
+
+    /** Atomically spend an automatic local-ship authorization before its
+     * first external effect. Retrying the retained token never calls this
+     * again, so both autonomy counters are charged exactly once. */
+    public boolean spendLocalShipAuthorizationInCommand(String taskId, Actor actor)
+    {
+        requireNonNull(actor, "actor is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        if (!actor.isAuto()) {
+            return true;
+        }
+        if (taskStore.consecutiveAutoPushes(taskId) >= DEFAULT_AUTO_PUSH_CAP) {
+            parkOperationalInCommand(taskId, actor, "auto_push_cap_hit");
+            return false;
+        }
+        taskStore.setConsecutiveAutoPushes(
+                taskId, taskStore.consecutiveAutoPushes(taskId) + 1);
+        events.publishEvent(new TaskAutoPushEvent(taskId));
+        return true;
+    }
+
+    /**
+     * Consume an already-authorized first-push result. Authorization has
+     * already spent the automatic-push budget, so this command only moves
+     * both task axes and their audit rows. A successful explicit human push
+     * resets the consecutive automatic-push streak.
+     */
+    public void finalizeLocalShipInCommand(String taskId, Actor actor, String reason)
+    {
+        requireNonNull(actor, "actor is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.phase() == TaskPhase.PUSHED_AWAITING_CI
+                && task.status() == TaskStatus.IN_REVIEW) {
+            return;
+        }
+        if (task.phase() != TaskPhase.AWAITING_PUSH
+                || task.status() != TaskStatus.IDLE
+                        && task.status() != TaskStatus.AWAITING_REVIEW) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not at the Local Review push gate");
+        }
+        Instant now = Instant.now();
+        if (!taskStore.updateStatusIf(taskId, task.status(), TaskStatus.IN_REVIEW)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " changed while finalizing Push");
+        }
+        taskStore.appendStatusEvent(
+                taskId, task.status(), TaskStatus.IN_REVIEW, actor, reason, now);
+        applyTransition(task, task.phase(), TaskPhase.PUSHED_AWAITING_CI, reason, actor);
+        if (actor == Actor.HUMAN) {
+            taskStore.setConsecutiveAutoPushes(taskId, 0);
+        }
+    }
+
+    /** The worktree changed after Brain approved the local PR. Return the
+     * task to fingerprinted validation; its normal green path opens a fresh
+     * Brain round before Push can be authorized again. */
+    public void invalidateLocalShipInCommand(String taskId, Actor actor, String reason)
+    {
+        requireNonNull(actor, "actor is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.phase() == TaskPhase.VALIDATING) {
+            return;
+        }
+        if (task.phase() != TaskPhase.AWAITING_PUSH
+                || task.status() != TaskStatus.IDLE
+                        && task.status() != TaskStatus.AWAITING_REVIEW) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not at an invalidatable local Push gate");
+        }
+        if (task.status() == TaskStatus.AWAITING_REVIEW) {
+            if (!taskStore.updateStatusIf(
+                    taskId, TaskStatus.AWAITING_REVIEW, TaskStatus.IDLE)) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " changed while invalidating Push");
+            }
+            taskStore.appendStatusEvent(
+                    taskId, TaskStatus.AWAITING_REVIEW, TaskStatus.IDLE,
+                    actor, reason, Instant.now());
+        }
+        applyTransition(task, TaskPhase.AWAITING_PUSH, TaskPhase.VALIDATING, reason, actor);
+    }
+
+    /** Park one runnable task at the local publish/review gate. The
+     * notification row is written by the caller in the same task command. */
+    public Task parkForLocalReviewInCommand(String taskId, Actor actor, String reason)
+    {
+        requireNonNull(actor, "actor is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.status() == TaskStatus.AWAITING_REVIEW) {
+            return task;
+        }
+        if (!acceptsForwardResult(task.status())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " cannot enter Local Review from " + task.status());
+        }
+        if (!taskStore.updateStatusIf(taskId, task.status(), TaskStatus.AWAITING_REVIEW)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " changed while entering Local Review");
+        }
+        taskStore.appendStatusEvent(
+                taskId, task.status(), TaskStatus.AWAITING_REVIEW,
+                actor, reason, Instant.now());
+        return task.withStatus(TaskStatus.AWAITING_REVIEW);
+    }
+
+    /** A declined local proposal returns to editable local work. */
+    public Task resumeFromLocalReviewInCommand(String taskId, Actor actor, String reason)
+    {
+        requireNonNull(actor, "actor is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.status() != TaskStatus.AWAITING_REVIEW) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not at Local Review");
+        }
+        if (!taskStore.updateStatusIf(taskId, TaskStatus.AWAITING_REVIEW, TaskStatus.IDLE)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " changed while leaving Local Review");
+        }
+        taskStore.clearProcessPid(taskId);
+        taskStore.updateRuntimeFailure(taskId, null, null);
+        taskStore.appendStatusEvent(
+                taskId, TaskStatus.AWAITING_REVIEW, TaskStatus.IDLE,
+                actor, reason, Instant.now());
+        return task.withStatus(TaskStatus.IDLE)
+                .withProcessPid(null)
+                .withEndedAt(null)
+                .withErrorMessage(null);
+    }
+
+    /** Resolving a local gate on an already-linked task restores the
+     * remote-review liveness state; the remote lifecycle phase holds. */
+    public Task markRemoteInReviewInCommand(String taskId, Actor actor, String reason)
+    {
+        requireNonNull(actor, "actor is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.status() == TaskStatus.IN_REVIEW) {
+            return task;
+        }
+        if (task.status() != TaskStatus.AWAITING_REVIEW
+                || task.linkedPrNumber() == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " has no linked Local Review gate");
+        }
+        if (!taskStore.updateStatusIf(taskId, TaskStatus.AWAITING_REVIEW, TaskStatus.IN_REVIEW)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " changed while restoring remote review");
+        }
+        taskStore.appendStatusEvent(
+                taskId, TaskStatus.AWAITING_REVIEW, TaskStatus.IN_REVIEW,
+                actor, reason, Instant.now());
+        return task.withStatus(TaskStatus.IN_REVIEW);
     }
 
     /**
@@ -135,23 +327,26 @@ public class TaskPhaseMachine
      * checkpoint or events. Runtime teardown follows after commit via
      * the stop reconciler's transition listener.
      */
-    @Transactional
     public void parkOperational(String taskId, Actor actor, String reason)
     {
         requireNonNull(actor, "actor is null");
-        withTaskLock(taskId, () -> {
-            Task task = taskStore.findTaskById(taskId).orElse(null);
-            if (task == null || task.status().isDone() || task.phase() == TaskPhase.COMPLETED) {
-                return null;
-            }
-            if (task.phase() != TaskPhase.NEEDS_ATTENTION) {
-                applyTransition(task, task.phase(), TaskPhase.NEEDS_ATTENTION, reason, actor);
-            }
-            else {
-                parkStatus(task, actor, reason);
-            }
-            return null;
-        });
+        commands.executeVoid(taskId, () -> parkOperationalInCommand(taskId, actor, reason));
+    }
+
+    public void parkOperationalInCommand(String taskId, Actor actor, String reason)
+    {
+        requireNonNull(actor, "actor is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        if (task == null || task.status().isDone() || task.phase() == TaskPhase.COMPLETED) {
+            return;
+        }
+        if (task.phase() != TaskPhase.NEEDS_ATTENTION) {
+            applyTransition(task, task.phase(), TaskPhase.NEEDS_ATTENTION, reason, actor);
+        }
+        else {
+            parkStatus(task, actor, reason);
+        }
     }
 
     /**
@@ -161,38 +356,86 @@ public class TaskPhaseMachine
      * agent, and validation executor is proven gone. Repeating the same
      * kind is idempotent; a different live request is rejected.
      */
-    @Transactional
     public void requestRecovery(String taskId, String kind)
     {
-        // Replan / external-saga / legacy kinds arrive with their owners;
-        // until then only the plain checkpoint restore is a valid request.
-        if (!TaskRecoveryRequest.KIND_NORMAL.equals(kind)
-                && !TaskRecoveryRequest.KIND_CI_RETRY.equals(kind)) {
+        if (!supportedRecoveryKind(kind)) {
             throw new IllegalArgumentException("unsupported recovery kind: " + kind);
         }
-        withTaskLock(taskId, () -> {
-            Task task = taskStore.findTaskById(taskId)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatusCode.valueOf(404), "no task: " + taskId));
-            if (task.status().isDone()
-                    || (task.phase() != TaskPhase.NEEDS_ATTENTION
-                            && task.status() != TaskStatus.NEEDS_ATTENTION)) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " is not parked at NEEDS_ATTENTION");
+        commands.executeVoid(taskId, () -> requestRecoveryInCommand(taskId, kind));
+    }
+
+    public void requestRecoveryInCommand(String taskId, String kind)
+    {
+        requestRecoveryInCommand(taskId, kind, null);
+    }
+
+    /** Payload-bearing sibling for recovery kinds whose exact durable cursor
+     * is part of the human intent. */
+    public void requestRecoveryInCommand(String taskId, String kind, String payloadJson)
+    {
+        if (!supportedRecoveryKind(kind)) {
+            throw new IllegalArgumentException("unsupported recovery kind: " + kind);
+        }
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.status().isDone()
+                || (task.phase() != TaskPhase.NEEDS_ATTENTION
+                        && task.status() != TaskStatus.NEEDS_ATTENTION)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not parked at NEEDS_ATTENTION");
+        }
+        Optional<TaskRecoveryRequest> existing = taskStore.recoveryRequest(taskId);
+        if (existing.isPresent()) {
+            if (existing.get().kind().equals(kind)
+                    && Objects.equals(existing.get().payloadJson(), payloadJson)) {
+                return;
             }
-            Optional<TaskRecoveryRequest> existing = taskStore.recoveryRequest(taskId);
-            if (existing.isPresent()) {
-                if (existing.get().kind().equals(kind)) {
-                    return null;
-                }
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " already has a live "
-                                + existing.get().kind() + " recovery request");
-            }
-            taskStore.recordRecoveryRequest(
-                    taskId, UUID.randomUUID().toString(), kind, null, Instant.now());
-            return null;
-        });
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " already has a live "
+                            + existing.get().kind() + " recovery request");
+        }
+        taskStore.recordRecoveryRequest(
+                taskId, UUID.randomUUID().toString(), kind, payloadJson, Instant.now());
+    }
+
+    /** Reject a request whose immutable recovery evidence no longer
+     * validates. This deliberately keeps both task axes parked and retains
+     * the pre-park phase, while clearing only the exact stale request so the
+     * user can submit a newly valid one. */
+    public void rejectRecoveryRequest(
+            String taskId, String requestId, String reason)
+    {
+        commands.executeVoid(taskId,
+                () -> rejectRecoveryRequestInCommand(taskId, requestId, reason));
+    }
+
+    public void rejectRecoveryRequestInCommand(
+            String taskId, String requestId, String reason)
+    {
+        requireNonNull(requestId, "requestId is null");
+        requireNonNull(reason, "reason is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        if (task == null
+                || task.phase() != TaskPhase.NEEDS_ATTENTION
+                || task.status() != TaskStatus.NEEDS_ATTENTION) {
+            return;
+        }
+        TaskRecoveryRequest request = taskStore.recoveryRequest(taskId)
+                .filter(candidate -> requestId.equals(candidate.id()))
+                .orElse(null);
+        if (request == null) {
+            return;
+        }
+        String context = "{\"reason\":\"" + reason
+                + "\",\"rejectedRequestId\":\"" + request.id()
+                + "\",\"rejectedRequestKind\":\"" + request.kind() + "\"}";
+        if (!taskStore.clearRecoveryRequest(taskId, requestId, context)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " recovery request changed while rejecting it");
+        }
     }
 
     /**
@@ -203,7 +446,6 @@ public class TaskPhaseMachine
      * phase, and clears the checkpoint + request. The durable turn half
      * of the no-old-runtime proof is re-checked here.
      */
-    @Transactional
     public Task completeRecovery(String taskId, Actor actor, String reason, TaskPhase fallbackPhase)
     {
         requireNonNull(actor, "actor is null");
@@ -211,46 +453,148 @@ public class TaskPhaseMachine
         if (fallbackPhase == TaskPhase.NEEDS_ATTENTION || fallbackPhase == TaskPhase.COMPLETED) {
             throw new IllegalArgumentException("invalid recovery phase: " + fallbackPhase);
         }
-        return withTaskLock(taskId, () -> {
-            Task task = taskStore.findTaskById(taskId)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatusCode.valueOf(404), "no task: " + taskId));
-            if (task.status().isDone()
-                    || (task.phase() != TaskPhase.NEEDS_ATTENTION
-                            && task.status() != TaskStatus.NEEDS_ATTENTION)) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " is not parked at NEEDS_ATTENTION");
-            }
-            if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
-                    || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " still has live pre-park turns");
-            }
-            TaskPhase restored = task.phase() != TaskPhase.NEEDS_ATTENTION
-                    ? task.phase()
-                    : taskStore.recoveryPhase(taskId)
-                            .filter(phase -> phase != TaskPhase.NEEDS_ATTENTION
-                                    && phase != TaskPhase.COMPLETED)
-                            .orElse(fallbackPhase);
-            TaskStatus to = resumedStatus(restored);
-            Instant now = Instant.now();
-            taskStore.clearRecoveryState(taskId);
-            taskStore.updateRuntimeFailure(taskId, null, null);
-            if (task.phase() != restored) {
-                // Deliberate legality escape, like the pre-machine recover():
-                // the graph has no generic NEEDS_ATTENTION exit; the barrier
-                // command is the audited way back to the checkpointed phase.
-                taskStore.updatePhase(taskId, restored);
-                taskStore.appendPhaseEvent(taskId, task.phase(), restored, now, reason, actor);
-                events.publishEvent(new TaskPhaseTransitionedEvent(
-                        taskId, task.phase(), restored, reason));
-            }
-            if (task.status() != to) {
-                taskStore.updateStatusIf(taskId, task.status(), to);
-                taskStore.appendStatusEvent(taskId, task.status(), to, actor, reason, now);
-            }
-            return task.withPhase(restored).withStatus(to).withEndedAt(null).withErrorMessage(null);
-        });
+        return commands.execute(taskId,
+                () -> completeRecoveryInCommand(taskId, actor, reason, fallbackPhase));
+    }
+
+    public Task completeRecoveryInCommand(
+            String taskId, Actor actor, String reason, TaskPhase fallbackPhase)
+    {
+        return completeRecoveryInCommand(
+                taskId, actor, reason, fallbackPhase, TaskRecoveryRequest.KIND_NORMAL);
+    }
+
+    /** Intent-specific completion after TaskPushSaga has validated and
+     * re-armed the exact cursor in this same task command. */
+    public Task completeExternalSagaRecoveryInCommand(
+            String taskId, Actor actor, String reason, TaskPhase fallbackPhase)
+    {
+        return completeRecoveryInCommand(
+                taskId, actor, reason, fallbackPhase,
+                TaskRecoveryRequest.KIND_EXTERNAL_SAGA);
+    }
+
+    private Task completeRecoveryInCommand(
+            String taskId,
+            Actor actor,
+            String reason,
+            TaskPhase fallbackPhase,
+            String expectedRecoveryKind)
+    {
+        requireNonNull(actor, "actor is null");
+        requireNonNull(fallbackPhase, "fallbackPhase is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        if (fallbackPhase == TaskPhase.NEEDS_ATTENTION || fallbackPhase == TaskPhase.COMPLETED) {
+            throw new IllegalArgumentException("invalid recovery phase: " + fallbackPhase);
+        }
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.status().isDone()
+                || (task.phase() != TaskPhase.NEEDS_ATTENTION
+                        && task.status() != TaskStatus.NEEDS_ATTENTION)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not parked at NEEDS_ATTENTION");
+        }
+        if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
+                || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " still has live pre-park turns");
+        }
+        assertValidationStopped(taskId);
+        Optional<TaskRecoveryRequest> request = taskStore.recoveryRequest(taskId);
+        if (request.filter(value -> TaskRecoveryRequest.KIND_REPLAN.equals(value.kind()))
+                .isPresent()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " requires replan recovery completion");
+        }
+        if (request.filter(value -> TaskRecoveryRequest.KIND_EXTERNAL_SAGA.equals(value.kind()))
+                .isPresent()
+                && !TaskRecoveryRequest.KIND_EXTERNAL_SAGA.equals(expectedRecoveryKind)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " requires external-saga recovery completion");
+        }
+        if (TaskRecoveryRequest.KIND_EXTERNAL_SAGA.equals(expectedRecoveryKind)
+                && request.filter(value -> expectedRecoveryKind.equals(value.kind())).isEmpty()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " has no external-saga recovery request");
+        }
+        TaskPhase restored = task.phase() != TaskPhase.NEEDS_ATTENTION
+                ? task.phase()
+                : taskStore.recoveryPhase(taskId)
+                        .filter(phase -> phase != TaskPhase.NEEDS_ATTENTION
+                                && phase != TaskPhase.COMPLETED)
+                        .orElse(fallbackPhase);
+        TaskStatus to = resumedStatus(restored);
+        Instant now = Instant.now();
+        clearStoppedLivenessPointer(taskId);
+        taskStore.clearRecoveryState(taskId);
+        taskStore.updateRuntimeFailure(taskId, null, null);
+        // Restore the status before publishing the phase projection.
+        // Stage reopen guards reload this row synchronously and must see
+        // the recovery intent's safe runnable status, not the old park.
+        if (task.status() != to) {
+            taskStore.updateStatusIf(taskId, task.status(), to);
+            taskStore.appendStatusEvent(taskId, task.status(), to, actor, reason, now);
+        }
+        if (task.phase() != restored) {
+            // Deliberate legality escape, like the pre-machine recover():
+            // the graph has no generic NEEDS_ATTENTION exit; the barrier
+            // command is the audited way back to the checkpointed phase.
+            taskStore.updatePhase(taskId, restored);
+            taskStore.appendPhaseEvent(taskId, task.phase(), restored, now, reason, actor);
+            events.publishEvent(new TaskPhaseTransitionedEvent(
+                    taskId, task.phase(), restored, reason));
+        }
+        if (restored == TaskPhase.VALIDATING) {
+            events.publishEvent(new ValidationRecheckRequestedEvent(taskId));
+        }
+        return task.withPhase(restored).withStatus(to).withEndedAt(null).withErrorMessage(null);
+    }
+
+    /** Complete a guided replan after the stop barrier has retired every
+     * old turn and validation owner. Unlike normal recovery, this intent
+     * deliberately opens a fresh Planning epoch instead of restoring the
+     * checkpointed phase. */
+    public Task completeReplanInCommand(String taskId, Actor actor, String reason)
+    {
+        requireNonNull(actor, "actor is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        TaskRecoveryRequest request = taskStore.recoveryRequest(taskId)
+                .filter(value -> TaskRecoveryRequest.KIND_REPLAN.equals(value.kind()))
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(409),
+                        "task " + taskId + " has no pending replan"));
+        if (task.status().isDone()
+                || (task.phase() != TaskPhase.NEEDS_ATTENTION
+                        && task.status() != TaskStatus.NEEDS_ATTENTION)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not parked for replan " + request.id());
+        }
+        assertNoLiveTurns(taskId, "pre-replan");
+        assertValidationStopped(taskId);
+
+        Instant now = Instant.now();
+        clearStoppedLivenessPointer(taskId);
+        taskStore.clearRecoveryState(taskId);
+        taskStore.updateRuntimeFailure(taskId, null, null);
+        if (task.status() != TaskStatus.IDLE) {
+            taskStore.updateStatusIf(taskId, task.status(), TaskStatus.IDLE);
+            taskStore.appendStatusEvent(
+                    taskId, task.status(), TaskStatus.IDLE, actor, reason, now);
+        }
+        if (task.phase() != TaskPhase.PLANNING) {
+            taskStore.updatePhase(taskId, TaskPhase.PLANNING);
+            taskStore.appendPhaseEvent(
+                    taskId, task.phase(), TaskPhase.PLANNING, now, reason, actor);
+            events.publishEvent(new TaskPhaseTransitionedEvent(
+                    taskId, task.phase(), TaskPhase.PLANNING, reason));
+        }
+        return task.withPhase(TaskPhase.PLANNING).withStatus(TaskStatus.IDLE)
+                .withEndedAt(null).withErrorMessage(null);
     }
 
     /**
@@ -262,42 +606,46 @@ public class TaskPhaseMachine
      * keyed replacement + move the pointer in the same command —
      * an insert failure rolls all of it back, leaving ERRORED.
      */
-    @Transactional
     public ThreadTurn retryErrored(String taskId, String failedTurnId)
     {
         requireNonNull(failedTurnId, "failedTurnId is null");
-        return withTaskLock(taskId, () -> {
-            Task task = taskStore.findTaskById(taskId)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatusCode.valueOf(404), "no task: " + taskId));
-            if (task.status() != TaskStatus.ERRORED) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " is not errored");
-            }
-            if (task.phase() == TaskPhase.COMPLETED || task.phase() == TaskPhase.NEEDS_ATTENTION) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " cannot retry from phase " + task.phase());
-            }
-            if (!failedTurnId.equals(taskStore.currentLivenessTurnId(taskId).orElse(null))) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "turn " + failedTurnId + " is no longer task " + taskId
-                                + "'s current failure");
-            }
-            ThreadTurn failed = turnStore.findTurnById(failedTurnId)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatusCode.valueOf(409), "no turn: " + failedTurnId));
-            if (failed.status() != ThreadTurnStatus.FAILED
-                    && failed.status() != ThreadTurnStatus.CANCELLED) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "turn " + failedTurnId + " is not a terminal failure");
-            }
-            taskStore.updateStatusIf(taskId, TaskStatus.ERRORED, TaskStatus.IDLE);
-            taskStore.appendStatusEvent(
-                    taskId, TaskStatus.ERRORED, TaskStatus.IDLE,
-                    Actor.HUMAN, "task_retry", Instant.now());
-            taskStore.updateRuntimeFailure(taskId, null, null);
-            return failed;
-        });
+        return commands.execute(taskId, () -> retryErroredInCommand(taskId, failedTurnId));
+    }
+
+    public ThreadTurn retryErroredInCommand(String taskId, String failedTurnId)
+    {
+        requireNonNull(failedTurnId, "failedTurnId is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.status() != TaskStatus.ERRORED) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not errored");
+        }
+        if (task.phase() == TaskPhase.COMPLETED || task.phase() == TaskPhase.NEEDS_ATTENTION) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " cannot retry from phase " + task.phase());
+        }
+        if (!failedTurnId.equals(taskStore.currentLivenessTurnId(taskId).orElse(null))) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "turn " + failedTurnId + " is no longer task " + taskId
+                            + "'s current failure");
+        }
+        ThreadTurn failed = turnStore.findTurnById(failedTurnId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(409), "no turn: " + failedTurnId));
+        if (failed.status() != ThreadTurnStatus.FAILED
+                && failed.status() != ThreadTurnStatus.CANCELLED) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "turn " + failedTurnId + " is not a terminal failure");
+        }
+        taskStore.updateStatusIf(taskId, TaskStatus.ERRORED, TaskStatus.IDLE);
+        taskStore.appendStatusEvent(
+                taskId, TaskStatus.ERRORED, TaskStatus.IDLE,
+                Actor.HUMAN, "task_retry", Instant.now());
+        taskStore.updateRuntimeFailure(taskId, null, null);
+        return failed;
     }
 
     /**
@@ -307,53 +655,77 @@ public class TaskPhaseMachine
      * request; the archiver owns the idle-threshold and
      * coordinator/validation guards.
      */
-    @Transactional
     public void archiveIdle(String taskId)
     {
-        withTaskLock(taskId, () -> {
-            Task task = taskStore.findTaskById(taskId).orElse(null);
-            if (task == null || task.status() != TaskStatus.IDLE) {
-                return null;
-            }
-            if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
-                    || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()
-                    || taskStore.resumeRequestedAt(taskId).isPresent()
-                    || taskStore.recoveryRequest(taskId).isPresent()) {
-                return null;
-            }
-            taskStore.updateStatusIf(taskId, TaskStatus.IDLE, TaskStatus.ARCHIVED);
-            taskStore.appendStatusEvent(
-                    taskId, TaskStatus.IDLE, TaskStatus.ARCHIVED,
-                    Actor.SCHEDULER, "idle_archived", Instant.now());
-            return null;
-        });
+        commands.executeVoid(taskId, () -> archiveIdleInCommand(taskId));
+    }
+
+    public void archiveIdleInCommand(String taskId)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        if (task == null || task.status() != TaskStatus.IDLE) {
+            return;
+        }
+        if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
+                || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()
+                || taskStore.resumeRequestedAt(taskId).isPresent()
+                || taskStore.recoveryRequest(taskId).isPresent()) {
+            return;
+        }
+        taskStore.updateStatusIf(taskId, TaskStatus.IDLE, TaskStatus.ARCHIVED);
+        taskStore.appendStatusEvent(
+                taskId, TaskStatus.IDLE, TaskStatus.ARCHIVED,
+                Actor.SCHEDULER, "idle_archived", Instant.now());
     }
 
     /** The separate ARCHIVED → IDLE intent. It cannot touch PAUSED, and
      *  an anomalous live turn must finish first. */
-    @Transactional
     public Task reviveArchived(String taskId)
     {
-        return withTaskLock(taskId, () -> {
-            Task task = taskStore.findTaskById(taskId)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatusCode.valueOf(404), "no task: " + taskId));
-            if (task.status() != TaskStatus.ARCHIVED) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " is not archived");
-            }
-            if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
-                    || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " still has live turns");
-            }
-            taskStore.updateStatusIf(taskId, TaskStatus.ARCHIVED, TaskStatus.IDLE);
-            taskStore.appendStatusEvent(
-                    taskId, TaskStatus.ARCHIVED, TaskStatus.IDLE,
-                    Actor.HUMAN, "user_resumed_task", Instant.now());
-            taskStore.updateRuntimeFailure(taskId, null, null);
-            return task.withStatus(TaskStatus.IDLE).withEndedAt(null).withErrorMessage(null);
-        });
+        return commands.execute(taskId, () -> reviveArchivedInCommand(taskId));
+    }
+
+    public Task reviveArchivedInCommand(String taskId)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.status() != TaskStatus.ARCHIVED) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not archived");
+        }
+        if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
+                || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " still has live turns");
+        }
+        taskStore.updateStatusIf(taskId, TaskStatus.ARCHIVED, TaskStatus.IDLE);
+        taskStore.appendStatusEvent(
+                taskId, TaskStatus.ARCHIVED, TaskStatus.IDLE,
+                Actor.HUMAN, "user_resumed_task", Instant.now());
+        taskStore.updateRuntimeFailure(taskId, null, null);
+        return task.withStatus(TaskStatus.IDLE).withEndedAt(null).withErrorMessage(null);
+    }
+
+    /** Re-enter an already-IDLE task's runtime without manufacturing a
+     * status edge. ERRORED work must use {@link #retryErrored}; stopped and
+     * terminal work has its own named intent. */
+    public Task resumeIdleRuntimeInCommand(String taskId)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.status() != TaskStatus.IDLE
+                || task.phase() == TaskPhase.NEEDS_ATTENTION
+                || task.phase() == TaskPhase.COMPLETED) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " has no idle runtime to resume");
+        }
+        taskStore.updateRuntimeFailure(taskId, null, null);
+        return task.withEndedAt(null).withErrorMessage(null);
     }
 
     /** Park the status axis with its audit row; no-op when already
@@ -414,35 +786,74 @@ public class TaskPhaseMachine
      * at NEEDS_ATTENTION. Guarded so a stray event for a task that has since
      * moved on is ignored rather than throwing an illegal-transition error.
      */
-    @EventListener
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onValidationFinished(ValidationPassFinishedEvent event)
     {
+        TaskCommandExecutor.dispatchAfterCommit(() ->
+                commands.executeVoid(event.taskId(), () -> acceptValidationInCommand(event)));
+    }
+
+    private void acceptValidationInCommand(ValidationPassFinishedEvent event)
+    {
         Task task = taskStore.findTaskById(event.taskId()).orElse(null);
-        if (task == null || task.phase() != TaskPhase.VALIDATING) {
+        if (task == null || task.phase() != TaskPhase.VALIDATING
+                || !acceptsForwardResult(task.status())
+                || !matchesCurrentClaim(task, event)) {
             return;
         }
         if (event.passed()) {
-            localCiFix.closeIfGreen(event.taskId());
-            transition(event.taskId(), TaskPhase.INTERNAL_REVIEW, "validation_passed", Actor.AGENT);
+            localCiFix.closeIfGreenInCommand(event.taskId());
+            transitionInCommand(
+                    event.taskId(), TaskPhase.INTERNAL_REVIEW,
+                    "validation_passed", Actor.AGENT);
         }
-        else if (!localCiFix.tryFix(task, event.failures())) {
+        else if (!localCiFix.tryFixInCommand(task, event.failures())) {
             // No fix turn was queued (budget spent or nothing to run on) —
             // hand the failing checks back to the human.
-            transition(event.taskId(), TaskPhase.NEEDS_ATTENTION, "validation_failed", Actor.AGENT);
+            transitionInCommand(
+                    event.taskId(), TaskPhase.NEEDS_ATTENTION,
+                    "validation_failed", Actor.AGENT);
         }
     }
 
-    /** Brain review finished (approved or escalated after its bounded
-     *  budget), so the private PR is now local-open for the human. This is
-     *  the only normal INTERNAL_REVIEW -> AWAITING_PUSH transition. */
-    @EventListener
-    public void onLocalReviewCleared(LocalReviewClearedEvent event)
+    private boolean matchesCurrentClaim(Task task, ValidationPassFinishedEvent event)
     {
-        Task task = taskStore.findTaskById(event.taskId()).orElse(null);
-        if (task == null || task.phase() != TaskPhase.INTERNAL_REVIEW) {
-            return;
+        if (event.claimKey() == null) {
+            return true; // legacy validation, removed when all callers claim
         }
-        transition(event.taskId(), TaskPhase.AWAITING_PUSH, "local_review_opened", Actor.AGENT);
+        Optional<ValidationClaim> stored = validationStore.findByClaimKey(event.claimKey());
+        if (stored.isEmpty()
+                || stored.get().endedAt() == null
+                || stored.get().supersededAt() != null
+                || Boolean.TRUE.equals(stored.get().passed()) != event.passed()
+                || !event.codeFingerprint().equals(stored.get().codeFingerprint())
+                || event.validationEpoch() == null
+                || event.validationEpoch() != currentValidationEpoch(task.id())) {
+            return false;
+        }
+        if (task.worktreePath() == null || task.worktreePath().isBlank()) {
+            return false;
+        }
+        return event.codeFingerprint().equals(
+                fingerprints.fingerprint(Path.of(task.worktreePath())));
+    }
+
+    private long currentValidationEpoch(String taskId)
+    {
+        return taskStore.listPhaseEvents(taskId).stream()
+                .filter(event -> event.toPhase() == TaskPhase.VALIDATING)
+                .mapToLong(event -> event.id())
+                .max()
+                .orElse(0L);
+    }
+
+    private static boolean acceptsForwardResult(TaskStatus status)
+    {
+        return switch (status) {
+            case PENDING, RUNNING, IDLE, AWAITING_REVIEW, IN_REVIEW -> true;
+            case PAUSED, NEEDS_ATTENTION, COMPLETED, REMOTE_CLOSED,
+                    ERRORED, CANCELED, ARCHIVED -> false;
+        };
     }
 
     /**
@@ -456,14 +867,93 @@ public class TaskPhaseMachine
      * and fires the same transition event as a normal step (so e.g. a
      * jump to COMPLETED still advances the queue).
      */
-    @Transactional
     public void observe(String taskId, TaskPhase to, String reason)
     {
         requireNonNull(to, "to is null");
-        withTaskLock(taskId, () -> {
-            observeLocked(taskId, to, reason);
-            return null;
-        });
+        commands.executeVoid(taskId, () -> observeInCommand(taskId, to, reason));
+    }
+
+    /** Record an authoritative exact-repo/head/base remote PR observation.
+     * Local work may move onto the remote spine, but stopped tasks only retain
+     * the fact/checkpoint for their teardown-barrier completion. */
+    public void observeRemoteOpened(String taskId, String reason)
+    {
+        commands.executeVoid(taskId, () -> observeRemoteOpenedInCommand(taskId, reason));
+    }
+
+    public void observeRemoteOpenedInCommand(String taskId, String reason)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        if (task == null || task.status().isDone() || task.phase() == TaskPhase.COMPLETED) {
+            return;
+        }
+        if (task.status() == TaskStatus.PAUSED || task.status() == TaskStatus.ARCHIVED) {
+            return;
+        }
+        if (task.status() == TaskStatus.NEEDS_ATTENTION
+                || task.phase() == TaskPhase.NEEDS_ATTENTION) {
+            taskStore.checkpointRecovery(
+                    taskId, TaskPhase.PUSHED_AWAITING_CI, recoveryContext(reason));
+            return;
+        }
+        if (task.phase() == TaskPhase.PUSHED_AWAITING_CI
+                || task.phase() == TaskPhase.AWAITING_READY
+                || task.phase() == TaskPhase.AWAITING_REMOTE_REVIEW) {
+            return;
+        }
+        if (!isRemoteOpenSource(task.phase())) {
+            return;
+        }
+        moveStatusToRemoteReview(task, reason);
+        applyObservedPhase(task, TaskPhase.PUSHED_AWAITING_CI, reason);
+    }
+
+    /** Consume current green-CI evidence once. Red/pending observations hold
+     * the existing phase; a later stale poll can therefore never rewind the
+     * remote spine. */
+    public void observeRemoteCiGreen(String taskId, boolean draft, String reason)
+    {
+        commands.executeVoid(taskId,
+                () -> observeRemoteCiGreenInCommand(taskId, draft, reason));
+    }
+
+    public void observeRemoteCiGreenInCommand(String taskId, boolean draft, String reason)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        if (task == null || !acceptsForwardResult(task.status())
+                || task.phase() != TaskPhase.PUSHED_AWAITING_CI) {
+            return;
+        }
+        applyTransition(task, task.phase(),
+                draft ? TaskPhase.AWAITING_READY : TaskPhase.AWAITING_REMOTE_REVIEW,
+                reason, Actor.WEBHOOK);
+    }
+
+    /** Consume confirmation that GitHub accepted the draft-to-ready effect. */
+    public void observeReady(String taskId, String reason)
+    {
+        commands.executeVoid(taskId, () -> observeReadyInCommand(taskId, reason));
+    }
+
+    public void observeReadyInCommand(String taskId, String reason)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        if (task == null || !acceptsForwardResult(task.status())
+                || task.phase() != TaskPhase.AWAITING_READY) {
+            return;
+        }
+        applyTransition(task, task.phase(), TaskPhase.AWAITING_REMOTE_REVIEW,
+                reason, Actor.WEBHOOK);
+    }
+
+    public void observeInCommand(String taskId, TaskPhase to, String reason)
+    {
+        requireNonNull(to, "to is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        observeLocked(taskId, to, reason);
     }
 
     private void observeLocked(String taskId, TaskPhase to, String reason)
@@ -500,14 +990,56 @@ public class TaskPhaseMachine
         events.publishEvent(new TaskPhaseTransitionedEvent(taskId, from, to, reason));
     }
 
+    private void moveStatusToRemoteReview(Task task, String reason)
+    {
+        if (task.status() == TaskStatus.IN_REVIEW) {
+            return;
+        }
+        if (task.status() != TaskStatus.PENDING
+                && task.status() != TaskStatus.RUNNING
+                && task.status() != TaskStatus.IDLE
+                && task.status() != TaskStatus.AWAITING_REVIEW
+                && task.status() != TaskStatus.ERRORED) {
+            return;
+        }
+        if (!taskStore.updateStatusIf(task.id(), task.status(), TaskStatus.IN_REVIEW)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + task.id() + " changed while recording its remote PR");
+        }
+        taskStore.appendStatusEvent(
+                task.id(), task.status(), TaskStatus.IN_REVIEW,
+                Actor.WEBHOOK, reason, Instant.now());
+        if (task.status() == TaskStatus.ERRORED) {
+            clearStoppedLivenessPointer(task.id());
+            taskStore.updateRuntimeFailure(task.id(), null, null);
+        }
+    }
+
+    private void applyObservedPhase(Task task, TaskPhase to, String reason)
+    {
+        TaskPhase from = task.phase();
+        taskStore.updatePhase(task.id(), to);
+        taskStore.appendPhaseEvent(task.id(), from, to, Instant.now(), reason, Actor.WEBHOOK);
+        events.publishEvent(new TaskPhaseTransitionedEvent(task.id(), from, to, reason));
+    }
+
+    private static boolean isRemoteOpenSource(TaskPhase phase)
+    {
+        return switch (phase) {
+            case IMPLEMENTING, VALIDATING, INTERNAL_REVIEW,
+                    AWAITING_PUSH, ADDRESSING_LOCAL_COMMENTS -> true;
+            default -> false;
+        };
+    }
+
     /**
      * The one durable terminal command: write the terminal status (with
      * its status-audit row) and drive the phase to COMPLETED in a single
-     * locked step. Runtime teardown — interrupts, agent eviction,
-     * worktree reaping — belongs to the caller and runs only after this
-     * durable intent, each step idempotent and reconciled.
+     * locked step, including every durable child sealer. Runtime teardown —
+     * interrupts, agent eviction, worktree reaping — belongs to the caller
+     * and runs only after this durable intent, each step idempotent and
+     * reconciled.
      */
-    @Transactional
     public void finishTerminal(String taskId, TaskStatus terminalStatus, Actor actor, String reason)
     {
         if (terminalStatus != TaskStatus.COMPLETED
@@ -516,26 +1048,41 @@ public class TaskPhaseMachine
             throw new IllegalArgumentException("not a terminal status: " + terminalStatus);
         }
         requireNonNull(actor, "actor is null");
-        withTaskLock(taskId, () -> {
-            Task task = taskStore.findTaskById(taskId).orElse(null);
-            if (task == null) {
-                return null;
+        commands.executeVoid(taskId,
+                () -> finishTerminalInCommand(taskId, terminalStatus, actor, reason));
+    }
+
+    public void finishTerminalInCommand(
+            String taskId, TaskStatus terminalStatus, Actor actor, String reason)
+    {
+        if (terminalStatus != TaskStatus.COMPLETED
+                && terminalStatus != TaskStatus.REMOTE_CLOSED
+                && terminalStatus != TaskStatus.CANCELED) {
+            throw new IllegalArgumentException("not a terminal status: " + terminalStatus);
+        }
+        requireNonNull(actor, "actor is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        if (task == null) {
+            return;
+        }
+        if (task.status() != terminalStatus) {
+            Instant now = Instant.now();
+            switch (terminalStatus) {
+                case COMPLETED -> taskStore.completeTask(taskId, now);
+                case REMOTE_CLOSED -> taskStore.remoteCloseTask(taskId, now);
+                case CANCELED -> taskStore.cancelTask(taskId, now);
+                default -> throw new IllegalStateException("unreachable");
             }
-            if (task.status() != terminalStatus) {
-                Instant now = Instant.now();
-                switch (terminalStatus) {
-                    case COMPLETED -> taskStore.completeTask(taskId, now);
-                    case REMOTE_CLOSED -> taskStore.remoteCloseTask(taskId, now);
-                    case CANCELED -> taskStore.cancelTask(taskId, now);
-                    default -> throw new IllegalStateException("unreachable");
-                }
-                taskStore.appendStatusEvent(taskId, task.status(), terminalStatus, actor, reason, now);
-            }
-            if (task.phase() != TaskPhase.COMPLETED) {
-                applyTransition(task, task.phase(), TaskPhase.COMPLETED, reason, actor);
-            }
-            return null;
-        });
+            taskStore.appendStatusEvent(taskId, task.status(), terminalStatus, actor, reason, now);
+        }
+        if (task.phase() != TaskPhase.COMPLETED) {
+            applyTransition(task, task.phase(), TaskPhase.COMPLETED, reason, actor);
+        }
+        // Synchronous listener: every durable child is sealed before this
+        // command can commit. Publish on repeats too, so a retry reconciles
+        // a terminal row written by an older/partially-deployed producer.
+        events.publishEvent(new TaskTerminalSealingEvent(taskId, reason));
     }
 
     /**
@@ -545,28 +1092,32 @@ public class TaskPhaseMachine
      * already PAUSED. Runtime teardown belongs to the caller, after
      * commit, behind its identity token.
      */
-    @Transactional
     public Task pause(String taskId, Actor actor, String reason)
     {
         requireNonNull(actor, "actor is null");
-        return withTaskLock(taskId, () -> {
-            Task task = taskStore.findTaskById(taskId)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatusCode.valueOf(404), "no task: " + taskId));
-            if (task.status() == TaskStatus.PAUSED) {
-                return task;
-            }
-            if (!pausable(task.status())) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " cannot be paused from status " + task.status());
-            }
-            taskStore.checkpointPause(taskId, task.status());
-            taskStore.clearProcessPid(taskId);
-            taskStore.updateStatusIf(taskId, task.status(), TaskStatus.PAUSED);
-            taskStore.appendStatusEvent(
-                    taskId, task.status(), TaskStatus.PAUSED, actor, reason, Instant.now());
-            return task.withStatus(TaskStatus.PAUSED).withProcessPid(null);
-        });
+        return commands.execute(taskId, () -> pauseInCommand(taskId, actor, reason));
+    }
+
+    public Task pauseInCommand(String taskId, Actor actor, String reason)
+    {
+        requireNonNull(actor, "actor is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.status() == TaskStatus.PAUSED) {
+            return task;
+        }
+        if (!pausable(task.status())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " cannot be paused from status " + task.status());
+        }
+        taskStore.checkpointPause(taskId, task.status());
+        taskStore.clearProcessPid(taskId);
+        taskStore.updateStatusIf(taskId, task.status(), TaskStatus.PAUSED);
+        taskStore.appendStatusEvent(
+                taskId, task.status(), TaskStatus.PAUSED, actor, reason, Instant.now());
+        return task.withStatus(TaskStatus.PAUSED).withProcessPid(null);
     }
 
     /** A task can be paused only while it's live, non-terminal work — not
@@ -586,20 +1137,22 @@ public class TaskPhaseMachine
      * {@link #completeResume} — invoked once that teardown is proven —
      * leaves PAUSED. Idempotent.
      */
-    @Transactional
     public void requestResume(String taskId)
     {
-        withTaskLock(taskId, () -> {
-            Task task = taskStore.findTaskById(taskId)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatusCode.valueOf(404), "no task: " + taskId));
-            if (task.status() != TaskStatus.PAUSED) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " is not paused");
-            }
-            taskStore.requestResume(taskId, Instant.now());
-            return null;
-        });
+        commands.executeVoid(taskId, () -> requestResumeInCommand(taskId));
+    }
+
+    public void requestResumeInCommand(String taskId)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.status() != TaskStatus.PAUSED) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not paused");
+        }
+        taskStore.requestResume(taskId, Instant.now());
     }
 
     /**
@@ -609,30 +1162,93 @@ public class TaskPhaseMachine
      * The safe post-resume status derives from the phase — never RUNNING,
      * and never a blind restore of the checkpoint.
      */
-    @Transactional
     public Task completeResume(String taskId, Actor actor, String reason)
     {
         requireNonNull(actor, "actor is null");
-        return withTaskLock(taskId, () -> {
-            Task task = taskStore.findTaskById(taskId)
-                    .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatusCode.valueOf(404), "no task: " + taskId));
-            if (task.status() != TaskStatus.PAUSED) {
+        return commands.execute(taskId, () -> completeResumeInCommand(taskId, actor, reason));
+    }
+
+    public Task completeResumeInCommand(String taskId, Actor actor, String reason)
+    {
+        requireNonNull(actor, "actor is null");
+        TaskCommandExecutor.requireCurrent(taskId);
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.status() != TaskStatus.PAUSED) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " is not paused");
+        }
+        if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
+                || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " still has live pre-pause turns");
+        }
+        assertValidationStopped(taskId);
+        TaskStatus to = resumedStatus(task.phase());
+        clearStoppedLivenessPointer(taskId);
+        taskStore.clearPauseCheckpoint(taskId);
+        taskStore.updateRuntimeFailure(taskId, null, null);
+        taskStore.updateStatusIf(taskId, TaskStatus.PAUSED, to);
+        taskStore.appendStatusEvent(taskId, TaskStatus.PAUSED, to, actor, reason, Instant.now());
+        if (task.phase() == TaskPhase.VALIDATING) {
+            events.publishEvent(new ValidationRecheckRequestedEvent(taskId));
+        }
+        return task.withStatus(to).withEndedAt(null).withErrorMessage(null);
+    }
+
+    /** A stopped task's pre-stop turn may remain as the durable authority
+     *  after scheduler cancellation. Recovery must retire that terminal
+     *  pointer before a replacement can claim liveness. */
+    private void clearStoppedLivenessPointer(String taskId)
+    {
+        Optional<String> currentId = taskStore.currentLivenessTurnId(taskId);
+        if (currentId.isEmpty()) {
+            return;
+        }
+        Optional<ThreadTurn> current = turnStore.findTurnById(currentId.orElseThrow());
+        if (current.isPresent()
+                && (current.get().status() == ThreadTurnStatus.QUEUED
+                        || current.get().status() == ThreadTurnStatus.RUNNING)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " still owns live turn " + currentId.orElseThrow());
+        }
+        if (!taskStore.setCurrentLivenessTurnIdIf(taskId, currentId.orElseThrow(), null)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " liveness authority changed during recovery");
+        }
+    }
+
+    private void assertNoLiveTurns(String taskId, String stopKind)
+    {
+        if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
+                || !turnStore.listTurnsByExactTaskIdAndStatus(
+                        taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " still has live " + stopKind + " turns");
+        }
+    }
+
+    /** A cancellation request is not an absence proof. The cancellation
+     * reconciler must first finish the worker or mark the claim
+     * superseded; only then does it leave this open set. */
+    private void assertValidationStopped(String taskId)
+    {
+        for (ValidationClaim claim : validationStore.findOpenByTask(taskId)) {
+            if (validationExecutors.isInFlight(claim.claimKey())
+                    || claim.leaseUntil() != null && claim.leaseUntil().isAfter(Instant.now())) {
                 throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " is not paused");
+                        "task " + taskId + " still has live validation " + claim.claimKey());
             }
-            if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
-                    || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                        "task " + taskId + " still has live pre-pause turns");
-            }
-            TaskStatus to = resumedStatus(task.phase());
-            taskStore.clearPauseCheckpoint(taskId);
-            taskStore.updateRuntimeFailure(taskId, null, null);
-            taskStore.updateStatusIf(taskId, TaskStatus.PAUSED, to);
-            taskStore.appendStatusEvent(taskId, TaskStatus.PAUSED, to, actor, reason, Instant.now());
-            return task.withStatus(to).withEndedAt(null).withErrorMessage(null);
-        });
+        }
+    }
+
+    private static boolean supportedRecoveryKind(String kind)
+    {
+        return TaskRecoveryRequest.KIND_NORMAL.equals(kind)
+                || TaskRecoveryRequest.KIND_CI_RETRY.equals(kind)
+                || TaskRecoveryRequest.KIND_REPLAN.equals(kind)
+                || TaskRecoveryRequest.KIND_EXTERNAL_SAGA.equals(kind);
     }
 
     /** The safe status a resumed task re-enters, derived from its held

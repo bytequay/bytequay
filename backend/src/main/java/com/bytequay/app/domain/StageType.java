@@ -31,8 +31,9 @@ import java.util.Set;
  * {@code REVIEW_ROUND_STAGE} are pure containers with no phases of their
  * own — opened directly by an {@code AgentRun} (or, for {@code
  * REVIEW_STAGE}, the review panel) purely so its turns land in {@code
- * stage_messages} via the same stage-id FK every other turn uses; all
- * three carry a {@code callerStageId}.
+ * stage_messages} via the same stage-id FK every other turn uses. Their
+ * parent-stage placement lives on the owning {@link AgentRun}; the backing
+ * stage itself is a task-owned container, not a callable child.
  */
 public enum StageType
 {

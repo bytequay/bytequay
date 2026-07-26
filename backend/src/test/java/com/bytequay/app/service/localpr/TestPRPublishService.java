@@ -13,12 +13,10 @@
  */
 package com.bytequay.app.service.localpr;
 
-import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PR;
-import com.bytequay.app.domain.PRCheck;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequest;
@@ -28,8 +26,6 @@ import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -38,8 +34,6 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.BrainReviewService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
-import com.bytequay.app.service.threads.NotificationService;
-import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.bytequay.app.service.threads.TaskService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -51,6 +45,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,18 +55,12 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * Orchestration coverage for the user-gated push: it pushes the branch, opens
- * a Draft PR, mirrors the push onto the task, and hands off to
- * {@link PRService#recordPush} (which strips locals + flips status).
- */
+/** Orchestration coverage for saga delegation and explicit remote PR actions. */
 class TestPRPublishService
 {
     private static final Instant NOW = Instant.parse("2026-07-01T00:00:00Z");
@@ -86,15 +75,12 @@ class TestPRPublishService
     private final PullRequestService pullRequestDetails = mock(PullRequestService.class);
     private final ReadyToMergeService readyToMerge = mock(ReadyToMergeService.class);
     private final PullRequestDetail liveDetail = mock(PullRequestDetail.class);
-    private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
-    private final NotificationService notifications = mock(NotificationService.class);
     private final TaskService taskService = mock(TaskService.class);
-    private final LocalReviewSubmissionStore submissions = mock(LocalReviewSubmissionStore.class);
+    private final TaskPushSaga pushSaga = mock(TaskPushSaga.class);
     private final PRPublishService service =
             new PRPublishService(
-                    prService, taskStore, watchedRepos, git, pullRequests, patResolver, brainReview,
-                    pullRequestDetails, readyToMerge, phaseMachine, notifications, taskService,
-                    submissions);
+                    prService, taskStore, pullRequests, patResolver, brainReview,
+                    pullRequestDetails, readyToMerge, taskService, pushSaga, Runnable::run);
 
     {
         when(prService.comments(anyString())).thenReturn(List.of());
@@ -131,118 +117,26 @@ class TestPRPublishService
                 null, phase, null, 0, null, null);
     }
 
-    private static PullRequest opened(int number)
+    @Test
+    void pushDelegatesToTheDurableSaga()
     {
-        return opened("acme/widget", number);
-    }
+        PR pushed = pushedPr(PR.STATUS_REMOTE_DRAFTED);
+        when(pushSaga.push("pr1", false)).thenReturn(pushed);
 
-    private static PullRequest opened(String repo, int number)
-    {
-        return new PullRequest(
-                1L, repo, number, "Add cache", "you",
-                "https://github.com/" + repo + "/pull/" + number,
-                NOW, NOW, PullRequest.Origin.AUTHORED, List.of(), Map.of(), /* draft */ true,
-                null, null, null, List.of(), null, 0, 0, 0, null,
-                "open", null, null, null, null, null, Map.of(), null, null, "feature/x");
+        assertThat(service.push("pr1")).isSameAs(pushed);
+
+        verify(pushSaga).push("pr1", false);
     }
 
     @Test
-    void pushPushesBranchOpensDraftPrAndRecordsThePush()
-            throws Exception
+    void explicitApprovalDelegatesWithTheHumanOverride()
     {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(git.refExists(Path.of("/tmp/wt/feature-x"), "origin/feature/x")).thenReturn(false);
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.createPullRequest(eq("ghp"), eq(new RepoRef("acme", "widget")), any()))
-                .thenReturn(opened(145));
-        PR flipped = pr(PR.STATUS_REMOTE_DRAFTED);
-        when(prService.recordPush("pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145")).thenReturn(flipped);
-        when(prService.updateAuthor("pr1", "@you")).thenReturn(flipped);
+        PR pushed = pushedPr(PR.STATUS_REMOTE_DRAFTED);
+        when(pushSaga.push("pr1", true)).thenReturn(pushed);
 
-        PR result = service.push("pr1");
+        assertThat(service.push("pr1", true)).isSameAs(pushed);
 
-        verify(git).push(Path.of("/tmp/wt/feature-x"));
-        ArgumentCaptor<CreatePullRequestCommand> command = ArgumentCaptor.forClass(CreatePullRequestCommand.class);
-        verify(pullRequests).createPullRequest(eq("ghp"), eq(new RepoRef("acme", "widget")), command.capture());
-        assertThat(command.getValue().head()).isEqualTo("feature/x");
-        assertThat(command.getValue().base()).isEqualTo("main");
-        verify(taskStore).markPushed(eq("task1"), any());
-        verify(taskStore).linkPullRequest("task1", 145, "draft");
-        verify(taskStore).linkTaskToPr("task1", "acme/widget#145");
-        verify(notifications).supersedeAwaitingReviewForTask("thread-1", "task1");
-        ArgumentCaptor<Task> normalized = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore, times(2)).saveTask(normalized.capture());
-        assertThat(normalized.getAllValues())
-                .extracting(Task::status)
-                .containsExactly(TaskStatus.IDLE, TaskStatus.IN_REVIEW);
-        verify(prService).recordPush("pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145");
-        verify(phaseMachine).observe("task1", TaskPhase.PUSHED_AWAITING_CI, "local_pr_pushed");
-        assertThat(result).isSameAs(flipped);
-    }
-
-    @Test
-    void forkPushesToOriginButOpensAgainstUpstreamWithQualifiedHeadAndUpstreamBase()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(watchedRepos.findAll()).thenReturn(List.of(new WatchedRepo(
-                1L, "trinodb", "trino", 0, "/tmp/repo", "upstream", "upstream")));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
-                .thenReturn(Optional.of(new RepoRef("jack", "trino")));
-        when(git.defaultBranch(Path.of("/tmp/repo"), "upstream")).thenReturn(Optional.of("master"));
-        when(patResolver.resolve("trinodb/trino")).thenReturn("ghp-upstream");
-        when(pullRequests.createPullRequest(any(), any(), any()))
-                .thenReturn(opened("trinodb/trino", 145));
-        PR flipped = pr(PR.STATUS_REMOTE_DRAFTED);
-        when(prService.recordPush(
-                "pr1", "trinodb/trino", 145, "https://github.com/trinodb/trino/pull/145"))
-                .thenReturn(flipped);
-        when(prService.updateAuthor("pr1", "@you")).thenReturn(flipped);
-
-        PR result = service.push("pr1");
-
-        verify(git).push(Path.of("/tmp/wt/feature-x"));
-        ArgumentCaptor<CreatePullRequestCommand> command = ArgumentCaptor.forClass(CreatePullRequestCommand.class);
-        verify(pullRequests).createPullRequest(
-                eq("ghp-upstream"), eq(new RepoRef("trinodb", "trino")), command.capture());
-        assertThat(command.getValue().head()).isEqualTo("jack:feature/x");
-        assertThat(command.getValue().base()).isEqualTo("master");
-        verify(taskStore).linkTaskToPr("task1", "trinodb/trino#145");
-        verify(prService).recordPush(
-                "pr1", "trinodb/trino", 145, "https://github.com/trinodb/trino/pull/145");
-        assertThat(result).isSameAs(flipped);
-    }
-
-    @Test
-    void pushUpdatesOriginEvenWhenTheRemoteBranchRefAlreadyExists()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(git.refExists(Path.of("/tmp/wt/feature-x"), "origin/feature/x")).thenReturn(true);
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
-        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
-
-        service.push("pr1");
-
-        verify(git).push(Path.of("/tmp/wt/feature-x"));
-        verify(pullRequests).createPullRequest(any(), any(), any());
-    }
-
-    @Test
-    void pushRejectsAPrThatIsNotLocalOpen()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_DRAFTED)));
-
-        assertThatThrownBy(() -> service.push("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("not ready to push");
-        verify(pullRequests, never()).createPullRequest(any(), any(), any());
+        verify(pushSaga).push("pr1", true);
     }
 
     @Test
@@ -258,6 +152,44 @@ class TestPRPublishService
 
         verify(prService).recordPush("pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145");
         verify(brainReview, never()).reviewBeforeLocalOpen(any(), any());
+    }
+
+    @Test
+    void pushedElsewhereListenerHandsWorkOffTheCommittingThread()
+    {
+        AtomicReference<Runnable> submitted = new AtomicReference<>();
+        PRPublishService asynchronous = new PRPublishService(
+                prService, taskStore, pullRequests, patResolver, brainReview,
+                pullRequestDetails, readyToMerge, taskService, pushSaga, submitted::set);
+        when(prService.findByTask("task1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
+        PrPushedEvent event = new PrPushedEvent(
+                "task1", "acme/widget", 145,
+                "https://github.com/acme/widget/pull/145");
+
+        asynchronous.onPushedElsewhere(event);
+
+        assertThat(submitted.get()).isNotNull();
+        verify(pushSaga, never()).adoptRemotePullRequest(any(), any(), anyInt(), any());
+        submitted.get().run();
+        verify(prService).recordPush(
+                "pr1", "acme/widget", 145,
+                "https://github.com/acme/widget/pull/145");
+    }
+
+    @Test
+    void onPushedElsewhereLetsAnActiveSagaAdoptTheRemoteFact()
+    {
+        when(pushSaga.adoptRemotePullRequest(
+                "task1", "acme/widget", 145,
+                "https://github.com/acme/widget/pull/145"))
+                .thenReturn(true);
+
+        service.onPushedElsewhere(new PrPushedEvent(
+                "task1", "acme/widget", 145,
+                "https://github.com/acme/widget/pull/145"));
+
+        verify(prService, never()).recordPush(any(), any(), anyInt(), any());
+        verify(prService, never()).findByTask(any());
     }
 
     @Test
@@ -285,20 +217,13 @@ class TestPRPublishService
 
     @Test
     void onLocalReviewClearedRecordsTheAutoApprovedPushGateWhenAutoMergeIsOn()
-            throws Exception
     {
         when(taskStore.isAutoMerge("task1")).thenReturn(true);
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(git.refExists(any(), any())).thenReturn(true);
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
-        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
+        when(pushSaga.push("pr1", false)).thenReturn(pushedPr(PR.STATUS_REMOTE_DRAFTED));
 
         service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", true));
 
-        verify(pullRequests).createPullRequest(any(), any(), any());
+        verify(pushSaga).push("pr1", false);
         verify(prService).recordGateApproval("pr1", "push", "auto-merge");
     }
 
@@ -309,8 +234,7 @@ class TestPRPublishService
 
         service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", false));
 
-        verify(prService, never()).findById(any());
-        verify(pullRequests, never()).createPullRequest(any(), any(), any());
+        verify(pushSaga, never()).push(any(), anyBoolean());
     }
 
     @Test
@@ -320,8 +244,7 @@ class TestPRPublishService
 
         service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", true));
 
-        verify(prService, never()).findById(any());
-        verify(pullRequests, never()).createPullRequest(any(), any(), any());
+        verify(pushSaga, never()).push(any(), anyBoolean());
     }
 
     @Test
@@ -331,317 +254,13 @@ class TestPRPublishService
         // check throws; auto-merge just leaves it for the user to push
         // manually rather than propagating the failure.
         when(taskStore.isAutoMerge("task1")).thenReturn(true);
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_DRAFTED)));
+        when(pushSaga.push("pr1", false)).thenThrow(
+                new ResponseStatusException(HttpStatus.CONFLICT, "not ready"));
 
         service.onLocalReviewCleared(new LocalReviewClearedEvent("task1", "pr1", true));
 
-        verify(pullRequests, never()).createPullRequest(any(), any(), any());
-    }
-
-    @Test
-    void pushRejectsAnUnknownPr()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> service.push("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("no local PR");
-    }
-
-    @Test
-    void remoteDraftRecoveryDoesNotReopenAParkedTask()
-    {
-        PR remoteDraft = pushedPr(PR.STATUS_REMOTE_DRAFTED);
-        when(prService.findById("pr1")).thenReturn(Optional.of(remoteDraft));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(
-                taskAt(TaskStatus.NEEDS_ATTENTION, TaskPhase.PUSHED_AWAITING_CI)));
-
-        assertThatThrownBy(() -> service.push("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("NEEDS_ATTENTION");
-
-        verify(taskStore, never()).saveTask(any());
-        verify(taskStore, never()).markPushed(anyString(), any());
-        verify(phaseMachine, never()).observe(anyString(), any(), anyString());
-    }
-
-    @Test
-    void pushRejectsAnOpenCommentThread()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(prService.comments("pr1")).thenReturn(List.of(comment(null, null)));
-        when(brainReview.isBudgetExhaustedEscalation("task1")).thenReturn(true);
-
-        assertThatThrownBy(() -> service.push("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("open comment thread");
-        verify(pullRequests, never()).createPullRequest(any(), any(), any());
-    }
-
-    @Test
-    void humanCanPromoteOnlyBrainCommentsAfterBudgetEscalation()
-            throws Exception
-    {
-        PR localOpen = pr(PR.STATUS_LOCAL_OPEN);
-        when(prService.findById("pr1")).thenReturn(Optional.of(localOpen));
-        when(prService.comments("pr1")).thenReturn(List.of(brainComment()));
-        when(brainReview.isBudgetExhaustedEscalation("task1")).thenReturn(true);
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
-                .thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(145));
-        PR pushed = pr(PR.STATUS_REMOTE_DRAFTED);
-        when(prService.recordPush(any(), any(), eq(145), any())).thenReturn(pushed);
-        when(prService.updateAuthor("pr1", "@you")).thenReturn(pushed);
-
-        PR result = service.push("pr1");
-
-        verify(brainReview, times(2)).isBudgetExhaustedEscalation("task1");
-        verify(git).push(Path.of("/tmp/wt/feature-x"));
-        assertThat(result).isSameAs(pushed);
-    }
-
-    @Test
-    void pushRejectsWhileALegacyGateResolutionIsInFlight()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        doThrow(new ResponseStatusException(HttpStatus.CONFLICT, "resolution is already in progress"))
-                .when(notifications).supersedeAwaitingReviewForTask("thread-1", "task1");
-
-        assertThatThrownBy(() -> service.push("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("resolution is already in progress");
-        verify(git, never()).push(any());
-        verify(pullRequests, never()).createPullRequest(any(), any(), any());
-        verify(taskStore, never()).saveTask(any());
-    }
-
-    @Test
-    void pushRejectsBeforePostCommentValidationReopensLocalReview()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(
-                taskAt(TaskStatus.IN_REVIEW, TaskPhase.ADDRESSING_LOCAL_COMMENTS)));
-
-        assertThatThrownBy(() -> service.push("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("not at the Local Review push gate");
-
-        verify(notifications, never()).supersedeAwaitingReviewForTask(anyString(), anyString());
-        verify(pullRequests, never()).createPullRequest(any(), any(), any());
-    }
-
-    @Test
-    void failedRemoteCreationStillNormalizesTheLegacyRuntimePark()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
-                .thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(git.refExists(any(), any())).thenReturn(true);
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.createPullRequest(any(), any(), any()))
-                .thenThrow(new RuntimeException("GitHub unavailable"));
-
-        assertThatThrownBy(() -> service.push("pr1")).hasMessageContaining("GitHub unavailable");
-
-        ArgumentCaptor<Task> normalized = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore).saveTask(normalized.capture());
-        assertThat(normalized.getValue().status()).isEqualTo(TaskStatus.IDLE);
-    }
-
-    @Test
-    void retryAdoptsAnExistingExactRemotePrWithoutCreatingADuplicate()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(
-                taskAt(TaskStatus.IDLE, TaskPhase.AWAITING_PUSH)));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
-                .thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(git.refExists(any(), any())).thenReturn(true);
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.listPullRequests(any(), any(), any())).thenReturn(List.of(opened(145)));
-        PR flipped = pr(PR.STATUS_REMOTE_DRAFTED);
-        when(prService.recordPush("pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145"))
-                .thenReturn(flipped);
-        when(prService.updateAuthor("pr1", "@you")).thenReturn(flipped);
-
-        PR result = service.push("pr1");
-
-        verify(pullRequests, never()).createPullRequest(any(), any(), any());
-        verify(prService).recordPush(
-                "pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145");
-        assertThat(result).isSameAs(flipped);
-    }
-
-    @Test
-    void createFailureAdoptsThePrThatAppearedAfterThePreflightLookup()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(
-                taskAt(TaskStatus.IDLE, TaskPhase.AWAITING_PUSH)));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin"))
-                .thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(git.refExists(any(), any())).thenReturn(true);
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.listPullRequests(any(), any(), any()))
-                .thenReturn(List.of(), List.of(opened(145)));
-        when(pullRequests.createPullRequest(any(), any(), any()))
-                .thenThrow(new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "already exists"));
-        PR flipped = pr(PR.STATUS_REMOTE_DRAFTED);
-        when(prService.recordPush(any(), any(), eq(145), any())).thenReturn(flipped);
-        when(prService.updateAuthor("pr1", "@you")).thenReturn(flipped);
-
-        PR result = service.push("pr1");
-
-        verify(pullRequests).createPullRequest(any(), any(), any());
-        verify(prService).recordPush(
-                "pr1", "acme/widget", 145, "https://github.com/acme/widget/pull/145");
-        assertThat(result).isSameAs(flipped);
-    }
-
-    @Test
-    void pushAllowsResolvedAndDismissedThreads()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(prService.comments("pr1")).thenReturn(List.of(comment(NOW, null), comment(null, NOW)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(git.refExists(any(), any())).thenReturn(true);
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
-        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
-
-        service.push("pr1");
-
-        verify(pullRequests).createPullRequest(any(), any(), any());
-    }
-
-    @Test
-    void pushRejectsAFailingLocalTestRun()
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(prService.checks("pr1")).thenReturn(List.of(
-                check(Instant.parse("2026-07-01T00:00:00Z"), PRCheck.STATUS_PASSED),
-                check(Instant.parse("2026-07-01T00:05:00Z"), PRCheck.STATUS_FAILED)));
-
-        assertThatThrownBy(() -> service.push("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("failing local test run");
-        verify(pullRequests, never()).createPullRequest(any(), any(), any());
-    }
-
-    @Test
-    void userOverridePushesPastOpenCommentsAndAFailingCheck()
-            throws Exception
-    {
-        // A plain open comment and a failing local check both block the normal
-        // (automation) path; the human's explicit Approve & ship overrides them.
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(prService.comments("pr1")).thenReturn(List.of(comment(null, null)));
-        when(prService.checks("pr1")).thenReturn(List.of(
-                check(Instant.parse("2026-07-01T00:05:00Z"), PRCheck.STATUS_FAILED)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(git.refExists(any(), any())).thenReturn(true);
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
-        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
-
-        service.push("pr1", true);
-
-        verify(pullRequests).createPullRequest(any(), any(), any());
-        verify(git).push(Path.of("/tmp/wt/feature-x"));
-    }
-
-    @Test
-    void pushAllowsAFixedRunEvenAfterAnEarlierFailure()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(prService.checks("pr1")).thenReturn(List.of(
-                check(Instant.parse("2026-07-01T00:00:00Z"), PRCheck.STATUS_FAILED),
-                check(Instant.parse("2026-07-01T00:05:00Z"), PRCheck.STATUS_PASSED)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(git.refExists(any(), any())).thenReturn(true);
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
-        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
-
-        service.push("pr1");
-
-        verify(pullRequests).createPullRequest(any(), any(), any());
-    }
-
-    @Test
-    void pushAllowsAPrWithNoLocalChecksRecordedAtAll()
-            throws Exception
-    {
-        // No recognised test runner for this repo — nothing to gate on.
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(git.refExists(any(), any())).thenReturn(true);
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
-        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
-
-        service.push("pr1");
-
-        verify(pullRequests).createPullRequest(any(), any(), any());
-    }
-
-    @Test
-    void pushAllowsOpenRepliesWhenTheirRootThreadIsClosed()
-            throws Exception
-    {
-        when(prService.findById("pr1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
-        when(prService.comments("pr1")).thenReturn(List.of(
-                comment("root", NOW, null, null),
-                comment("reply", null, null, "root")));
-        when(taskStore.findTaskById("task1")).thenReturn(Optional.of(task()));
-        when(git.remoteSlug(Path.of("/tmp/repo"), "origin")).thenReturn(Optional.of(new RepoRef("acme", "widget")));
-        when(git.refExists(any(), any())).thenReturn(true);
-        when(patResolver.resolve("acme/widget")).thenReturn("ghp");
-        when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(opened(7));
-        when(prService.recordPush(any(), any(), eq(7), any())).thenReturn(pr(PR.STATUS_REMOTE_DRAFTED));
-
-        service.push("pr1");
-
-        verify(pullRequests).createPullRequest(any(), any(), any());
-    }
-
-    private static PRComment comment(Instant resolvedAt, Instant dismissedAt)
-    {
-        return comment("cm1", resolvedAt, dismissedAt, null);
-    }
-
-    private static PRComment comment(String id, Instant resolvedAt, Instant dismissedAt, String parentCommentId)
-    {
-        return new PRComment(id, "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
-                null, null, "you", "note", NOW, resolvedAt, dismissedAt, null, parentCommentId, null,
-                "RIGHT", null, null);
-    }
-
-    private static PRComment brainComment()
-    {
-        return new PRComment("brain-1", "pr1", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
-                null, null, PRTimelineEntry.ACTOR_BRAIN, "needs human judgment", NOW,
-                null, null, null, null, null, "RIGHT", null, null);
-    }
-
-    private static PRCheck check(Instant startedAt, String status)
-    {
-        return new PRCheck("c1", "pr1", PRCheck.KIND_LOCAL, "maven test", status,
-                1000L, startedAt, startedAt, null);
+        verify(pushSaga).push("pr1", false);
+        verify(prService, never()).recordGateApproval(any(), any(), any());
     }
 
     @Test

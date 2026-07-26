@@ -93,6 +93,15 @@ class SqliteLocalReviewSubmissionStore
 
     @Override
     @Transactional
+    public void bindRunThrough(
+            String taskId, long throughSequence, String agentRunId, Instant activatedAt)
+    {
+        rows.bindRunThrough(
+                taskId, throughSequence, agentRunId, activatedAt.toEpochMilli());
+    }
+
+    @Override
+    @Transactional
     public void markCompleted(String id, Instant at)
     {
         rows.markCompleted(id, at.toEpochMilli());

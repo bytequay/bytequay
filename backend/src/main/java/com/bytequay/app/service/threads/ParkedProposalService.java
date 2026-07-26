@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
@@ -21,7 +22,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import static java.util.Objects.requireNonNull;
@@ -68,18 +68,23 @@ public class ParkedProposalService
     private final TaskStore taskStore;
     private final NotificationService notifications;
     private final ObjectMapper mapper;
+    private final TaskCommandExecutor commands;
+    private final TaskPhaseMachine taskPhaseMachine;
 
     public ParkedProposalService(
             TaskStore taskStore,
             NotificationService notifications,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            TaskCommandExecutor commands,
+            TaskPhaseMachine taskPhaseMachine)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.commands = requireNonNull(commands, "commands is null");
+        this.taskPhaseMachine = requireNonNull(taskPhaseMachine, "taskPhaseMachine is null");
     }
 
-    @Transactional
     public Notification park(Task task, Object payload)
     {
         requireNonNull(task, "task is null");
@@ -93,36 +98,45 @@ public class ParkedProposalService
             throw new IllegalStateException("failed to serialise parked proposal", e);
         }
 
-        taskStore.saveTask(task.withStatus(TaskStatus.AWAITING_REVIEW));
-        return notifications.notifyAwaitingReview(task.threadId(), task.id(), payloadJson);
+        return commands.execute(task.id(), () -> {
+            Task parked = taskPhaseMachine.parkForLocalReviewInCommand(
+                    task.id(), Actor.AGENT, "publish_proposal_parked");
+            return notifications.notifyAwaitingReview(
+                    parked.threadId(), parked.id(), payloadJson);
+        });
     }
 
     /** Finalize a successful approved proposal after any remote side
      *  effect has returned. Advance actions already updated their task
      *  rows in {@link TaskService}; other actions close the parked task
      *  here in the same transaction as the notification resolution. */
-    @Transactional
     public void finishApproved(Notification proposal, boolean taskAlreadyAdvanced)
     {
         requireNonNull(proposal, "proposal is null");
-        if (!taskAlreadyAdvanced) {
-            completeTaskIfStillParked(proposal.taskId());
-        }
-        finishClaim(proposal.id());
+        executeResolution(proposal, () -> {
+            if (!taskAlreadyAdvanced) {
+                completeTaskIfStillParked(
+                        proposal.taskId(), "publish_proposal_approved");
+            }
+            finishClaim(proposal.id());
+        });
     }
 
     /** Resolve a user discard without any remote action. */
-    @Transactional
     public void finishDiscarded(Notification proposal, boolean resumeTask)
     {
         requireNonNull(proposal, "proposal is null");
-        if (resumeTask) {
-            resumeTaskIfStillParked(proposal.taskId());
-        }
-        else {
-            completeTaskIfStillParked(proposal.taskId());
-        }
-        finishClaim(proposal.id());
+        executeResolution(proposal, () -> {
+            if (resumeTask) {
+                resumeTaskIfStillParked(
+                        proposal.taskId(), "publish_proposal_discarded");
+            }
+            else {
+                completeTaskIfStillParked(
+                        proposal.taskId(), "publish_proposal_discarded");
+            }
+            finishClaim(proposal.id());
+        });
     }
 
     /**
@@ -133,18 +147,34 @@ public class ParkedProposalService
      * revive); terminal {@code ship_task} closes rather than reopening
      * shipped work.
      */
-    @Transactional
     public void finishInterruptedApproval(Notification proposal, String action)
     {
         requireNonNull(proposal, "proposal is null");
         requireNonNull(action, "action is null");
-        if ("next_task".equals(action)) {
-            resumeTaskIfStillParked(proposal.taskId());
+        executeResolution(proposal, () -> {
+            if ("next_task".equals(action)) {
+                resumeTaskIfStillParked(
+                        proposal.taskId(), "interrupted_next_resumed");
+            }
+            else {
+                completeTaskIfStillParked(
+                        proposal.taskId(), "interrupted_publish_closed");
+            }
+            finishClaim(proposal.id());
+        });
+    }
+
+    private void executeResolution(Notification proposal, Runnable resolution)
+    {
+        String taskId = proposal.taskId();
+        if (taskId == null || taskId.isBlank()) {
+            resolution.run();
+            return;
         }
-        else {
-            completeTaskIfStillParked(proposal.taskId());
-        }
-        finishClaim(proposal.id());
+        commands.execute(taskId, () -> {
+            resolution.run();
+            return null;
+        });
     }
 
     private void finishClaim(String notificationId)
@@ -161,7 +191,7 @@ public class ParkedProposalService
         }
     }
 
-    private void completeTaskIfStillParked(String taskId)
+    private void completeTaskIfStillParked(String taskId, String reason)
     {
         if (taskId == null || taskId.isBlank()) {
             return;
@@ -177,41 +207,26 @@ public class ParkedProposalService
                 // survives (the orphan sweep only reaps terminal tasks) and the
                 // autonomous loop keeps driving it. The lifecycle driver
                 // completes it for real once the PR actually merges or closes.
-                taskStore.saveTask(task.withStatus(TaskStatus.IN_REVIEW));
+                taskPhaseMachine.markRemoteInReviewInCommand(
+                        taskId, Actor.HUMAN, reason);
             }
             else {
-                taskStore.saveTask(task.withStatus(TaskStatus.COMPLETED));
+                taskPhaseMachine.finishTerminalInCommand(
+                        taskId, TaskStatus.COMPLETED, Actor.HUMAN, reason);
             }
         });
     }
 
-    private void resumeTaskIfStillParked(String taskId)
+    private void resumeTaskIfStillParked(String taskId, String reason)
     {
         if (taskId == null || taskId.isBlank()) {
             return;
         }
         taskStore.findTaskById(taskId).ifPresent(task -> {
             if (task.status() == TaskStatus.AWAITING_REVIEW) {
-                taskStore.saveTask(asIdle(task));
+                taskPhaseMachine.resumeFromLocalReviewInCommand(
+                        taskId, Actor.HUMAN, reason);
             }
         });
-    }
-
-    private static Task asIdle(Task task)
-    {
-        // Clear the runtime handles on the prior parked execution.
-        // processPid points at a process that's no longer ours, and
-        // agentSessionId references a CLI session that already issued
-        // its publish proposal — reusing either after the user chose
-        // to keep editing would leave the next agent run thinking the
-        // turn was already finalised. The Task row's remote linkage
-        // (prNumber, prState, ciState, linkedPrNumber / linkedIssueNumber)
-        // stays intact: a successful push during an interrupted advance
-        // is real history, and the next sync pass refreshes the cached
-        // PR / CI state from GitHub.
-        return task
-                .withStatus(TaskStatus.IDLE)
-                .withProcessPid(null)
-                .withAgentSessionId(null);
     }
 }

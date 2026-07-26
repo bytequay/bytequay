@@ -26,6 +26,8 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -190,6 +192,48 @@ class TestSqliteStageStore
         assertThat(stageStore.findEventsByStage(cleanup.id()))
                 .extracting(StageEvent::eventType)
                 .containsExactly(StageEventType.OPENED, StageEventType.CLOSED);
+    }
+
+    @Test
+    void metadataUpdatesPreserveClosedLifecycleColumns()
+    {
+        String taskId = seedTask();
+        StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        Instant closedAt = Instant.parse("2026-06-20T10:30:00Z");
+        assertThat(stageStore.updateStateIf(stage.id(), StageState.OPEN, StageState.CLOSED, closedAt))
+                .isTrue();
+
+        WorkModel workModel = new WorkModel(
+                WorkModelKind.API, "openai", "gpt-5", "team");
+        stageStore.updateMetricsJson(stage.id(), "{\"turns\":7}");
+        stageStore.updateWorkModel(stage.id(), workModel);
+
+        StageInstance reloaded = stageStore.findStageById(stage.id()).orElseThrow();
+        assertThat(reloaded.state()).isEqualTo(StageState.CLOSED);
+        assertThat(reloaded.closedAt()).contains(closedAt);
+        assertThat(reloaded.workModel()).isEqualTo(workModel);
+        assertThat(stageStore.findMetricsJson(stage.id())).contains("{\"turns\":7}");
+    }
+
+    @Test
+    void lifecycleCompareAndSetPreservesMetadataColumns()
+    {
+        String taskId = seedTask();
+        StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        WorkModel workModel = new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-5.6-sol", null);
+        stageStore.updateMetricsJson(stage.id(), "{\"costUsd\":1.25}");
+        stageStore.updateWorkModel(stage.id(), workModel);
+
+        Instant closedAt = Instant.parse("2026-06-20T10:45:00Z");
+        assertThat(stageStore.updateStateIf(stage.id(), StageState.OPEN, StageState.CLOSED, closedAt))
+                .isTrue();
+
+        StageInstance reloaded = stageStore.findStageById(stage.id()).orElseThrow();
+        assertThat(reloaded.state()).isEqualTo(StageState.CLOSED);
+        assertThat(reloaded.closedAt()).contains(closedAt);
+        assertThat(reloaded.workModel()).isEqualTo(workModel);
+        assertThat(stageStore.findMetricsJson(stage.id())).contains("{\"costUsd\":1.25}");
     }
 
     @Test

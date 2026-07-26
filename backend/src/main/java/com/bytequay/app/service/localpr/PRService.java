@@ -199,11 +199,30 @@ public interface PRService
     void recordBrainReview(
             String taskId, String scope, String verdict, int iteration, String roundId);
 
+    /** Attempt-aware result identity for replacement/replayed review turns. */
+    default void recordBrainReview(
+            String taskId,
+            String scope,
+            String verdict,
+            int iteration,
+            String roundId,
+            String attemptId)
+    {
+        recordBrainReview(taskId, scope, verdict, iteration, roundId);
+    }
+
     /** Records the system-owned start of one adversarial code-review pass.
      *  Unlike the verdict tool, this does not depend on the agent remembering
      *  to call anything, so an interrupted review still leaves an honest
      *  timeline trail. */
     void recordBrainReviewStarted(String taskId, String scope, int iteration, String roundId);
+
+    /** Attempt-aware start identity; a resumed turn is a new visible attempt. */
+    default void recordBrainReviewStarted(
+            String taskId, String scope, int iteration, String roundId, String attemptId)
+    {
+        recordBrainReviewStarted(taskId, scope, iteration, roundId);
+    }
 
     /** Records that the dev agent has begun addressing the findings from one
      *  adversarial-review pass. */
@@ -260,6 +279,9 @@ public interface PRService
      * after the git push + draft-PR create succeed.
      */
     PR recordPush(String prId, String repo, int remotePrNumber, String remotePrUrl);
+
+    /** Same transaction projection used by the durable task-push command. */
+    PR recordPushInCommand(String prId, String repo, int remotePrNumber, String remotePrUrl);
 
     /** Flip {@code remote-open → merged} after a user-gated GitHub merge. */
     PR recordMerged(String prId);

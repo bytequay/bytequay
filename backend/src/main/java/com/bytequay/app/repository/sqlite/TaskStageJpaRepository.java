@@ -33,11 +33,18 @@ interface TaskStageJpaRepository
             @Param("to") String to,
             @Param("closedAtMs") Long closedAtMs);
 
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE TaskStageEntity s SET s.metricsJson = :metricsJson WHERE s.id = :id")
+    int updateMetricsJson(@Param("id") String id, @Param("metricsJson") String metricsJson);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE TaskStageEntity s SET s.workModelJson = :workModelJson WHERE s.id = :id")
+    int updateWorkModelJson(@Param("id") String id, @Param("workModelJson") String workModelJson);
+
     /** A task's stages oldest-first. */
     List<TaskStageEntity> findByTaskIdOrderByOpenedAtMsAsc(String taskId);
 
-    /** Latest stage in one of the given states (e.g. the OPEN/ACTIVE pair
-     *  for "the currently active stage"). */
+    /** Latest stage in one of the given states. */
     Optional<TaskStageEntity> findFirstByTaskIdAndStateInOrderByOpenedAtMsDesc(
             String taskId, List<String> states);
 

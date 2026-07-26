@@ -19,6 +19,7 @@ import com.bytequay.app.domain.ReviewParticipant;
 import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.ReviewPassHostKind;
 import com.bytequay.app.domain.ReviewPassKind;
+import com.bytequay.app.domain.ReviewPhase;
 
 import java.time.Instant;
 import java.util.List;
@@ -59,6 +60,13 @@ public interface ReviewStore
     /** Cross-thread lookup by PR — useful for "this PR already has N
      *  reviews" surfaces on the PR detail page. Newest first. */
     List<ReviewPass> listPassesForPr(String repoFullName, int prNumber);
+
+    /** Durable backstop for task-hosted review stages whose terminal event
+     * was committed but whose after-commit close callback was lost. */
+    default List<ReviewPass> listTaskStagePassesByPhases(List<ReviewPhase> phases)
+    {
+        return List.of();
+    }
 
     /** The active (non-PUBLISHED) THREAD-hosted review pass for a PR, if
      *  one is open — drives the dashboard / PR-detail "review in progress"

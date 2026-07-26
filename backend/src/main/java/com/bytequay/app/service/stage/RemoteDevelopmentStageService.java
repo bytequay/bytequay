@@ -14,11 +14,8 @@
 package com.bytequay.app.service.stage;
 
 import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
-import com.bytequay.app.repository.StageStore;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -26,30 +23,23 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class RemoteDevelopmentStageService
 {
-    private final StageStore stageStore;
-    private final StageBudgetService budgetService;
+    private final StageStateMachine stageMachine;
 
-    public RemoteDevelopmentStageService(StageStore stageStore, StageBudgetService budgetService)
+    public RemoteDevelopmentStageService(StageStateMachine stageMachine)
     {
-        this.stageStore = requireNonNull(stageStore, "stageStore is null");
-        this.budgetService = requireNonNull(budgetService, "budgetService is null");
+        this.stageMachine = requireNonNull(stageMachine, "stageMachine is null");
     }
 
-    @Transactional
     public StageInstance ensureOpen(String taskId)
     {
-        StageInstance stage = stageStore.findStageByType(taskId, StageType.REMOTE_DEVELOPMENT_STAGE)
-                .map(found -> found.state() == StageState.CLOSED
-                        ? stageStore.reopenStage(found.id())
-                        : found)
-                .orElseGet(() -> {
-                    StageInstance opened = stageStore.openStage(taskId, StageType.REMOTE_DEVELOPMENT_STAGE, null);
-                    budgetService.onStageOpened(opened);
-                    return opened;
-                });
-        if (stage.state() == StageState.CLOSED) {
-            return stageStore.reopenStage(stage.id());
-        }
-        return stage;
+        return stageMachine.ensurePhaseOpen(
+                taskId, StageType.REMOTE_DEVELOPMENT_STAGE, null);
+    }
+
+    /** Same-transaction form for an enclosing task command. */
+    public StageInstance ensureOpenInCommand(String taskId)
+    {
+        return stageMachine.ensurePhaseOpenInCommand(
+                taskId, StageType.REMOTE_DEVELOPMENT_STAGE, null);
     }
 }

@@ -17,11 +17,14 @@ import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.repository.LocalReviewSubmissionStore;
+import com.bytequay.app.repository.RoundGateStore;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskPushStore;
 import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.stage.StageStateMachine;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 
@@ -40,34 +43,60 @@ import static java.util.Objects.requireNonNull;
 class TaskTerminalSealer
 {
     private final StageStore stageStore;
+    private final StageStateMachine stageMachine;
     private final ReviewRoundService reviewRounds;
     private final AgentRunService agentRuns;
     private final LocalReviewSubmissionStore submissions;
+    private final TaskPushStore pushes;
+    private final RoundGateStore roundGates;
+    private final TaskCommandExecutor commands;
 
     TaskTerminalSealer(
-            StageStore stageStore, ReviewRoundService reviewRounds, AgentRunService agentRuns,
-            LocalReviewSubmissionStore submissions)
+            StageStore stageStore, StageStateMachine stageMachine,
+            ReviewRoundService reviewRounds, AgentRunService agentRuns,
+            LocalReviewSubmissionStore submissions, TaskPushStore pushes,
+            RoundGateStore roundGates,
+            TaskCommandExecutor commands)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.stageMachine = requireNonNull(stageMachine, "stageMachine is null");
         this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
         this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
         this.submissions = requireNonNull(submissions, "submissions is null");
+        this.pushes = requireNonNull(pushes, "pushes is null");
+        this.roundGates = requireNonNull(roundGates, "roundGates is null");
+        this.commands = requireNonNull(commands, "commands is null");
     }
 
-    @Transactional
     void seal(String taskId, String reason)
     {
-        reviewRounds.closeOpenRounds(taskId, reason);
+        commands.executeVoid(taskId, () -> sealInCommand(taskId, reason));
+    }
+
+    void sealInCommand(String taskId, String reason)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        reviewRounds.closeOpenRoundsInCommand(taskId, reason);
         for (AgentRun run : agentRuns.liveRunsByTask(taskId)) {
-            agentRuns.transition(run.id(), AgentRun.STATUS_CANCELLED, reason);
+            agentRuns.transitionInCommand(
+                    taskId, run.id(), AgentRun.STATUS_CANCELLED, reason);
         }
         for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
             if (stage.state() != StageState.CLOSED) {
-                stageStore.closeStage(stage.id(), reason);
+                stageMachine.closeInCommand(taskId, stage.id(), reason);
             }
         }
         // Incomplete review batches are sealed with the task so no sweep
         // can revive superseded feedback.
         submissions.cancelOpenForTask(taskId, reason, Instant.now());
+        pushes.sealActive(taskId, reason, Instant.now());
+        roundGates.sealActive(taskId, reason, Instant.now());
+    }
+
+    /** Runs synchronously in {@link TaskPhaseMachine}'s terminal command. */
+    @EventListener
+    void onTerminalSealing(TaskTerminalSealingEvent event)
+    {
+        sealInCommand(event.taskId(), event.reason());
     }
 }

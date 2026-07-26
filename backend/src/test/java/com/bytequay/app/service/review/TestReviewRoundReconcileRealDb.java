@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.Task;
@@ -22,14 +23,17 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.checks.CodeFingerprints;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestExecutionListeners;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
 import java.time.Duration;
@@ -38,6 +42,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
 
 /**
  * Runs {@link ReviewRoundServiceImpl#reconcile} against the real
@@ -64,6 +70,11 @@ class TestReviewRoundReconcileRealDb
     private TaskStore taskStore;
     @Autowired
     private ThreadStore threadStore;
+    @Autowired
+    private PRStore prStore;
+    @Autowired
+    @MockitoBean
+    private CodeFingerprints fingerprints;
 
     @Test
     void reconcileOpensARoundWithoutViolatingTheCommentRoundIdForeignKey()
@@ -81,9 +92,15 @@ class TestReviewRoundReconcileRealDb
                 null, null, null, null, null, "DEVELOP", 42, null,
                 0L, 0L, 0L, null, now, null, null, null, null, null,
                 null, TaskPhase.AWAITING_REMOTE_REVIEW, null, 0, "acme/widgets#42"));
+        taskStore.updatePhase(taskId, TaskPhase.AWAITING_REMOTE_REVIEW);
         // linkedPrRef is entity-managed (not written by saveTask) — the
         // dedicated method is the only way to actually persist it.
         taskStore.linkTaskToPr(taskId, "acme/widgets#42");
+        prStore.save(PR.create(
+                        UUID.randomUUID().toString(), taskId, "dev/x", "main", "Round reconcile test", "", now)
+                .withRemote("acme/widgets", 42, "https://github.com/acme/widgets/pull/42", now)
+                .withStatus(PR.STATUS_REMOTE_OPEN, now));
+        when(fingerprints.fingerprint(any())).thenReturn("fingerprint-1");
 
         // The service's real bean runs on the system clock (not the fixed
         // clock the mock-based unit tests inject), so the debounce window

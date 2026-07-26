@@ -141,7 +141,6 @@ public class TaskLifecycleDriver
     private final ThreadRegistry registry;
     private final StageStore stageStore;
     private final PRService prService;
-    private final TaskTerminalSealer sealer;
     private final LocalReviewSubmissionStore submissions;
     private final LocalReviewBrainHandoffStore handoffs;
     private final ValidationClaimService claimedValidation;
@@ -164,7 +163,6 @@ public class TaskLifecycleDriver
             ThreadRegistry registry,
             StageStore stageStore,
             PRService prService,
-            TaskTerminalSealer sealer,
             BrainReviewService brainReview,
             LocalReviewSubmissionStore submissions,
             LocalReviewBrainHandoffStore handoffs,
@@ -190,7 +188,6 @@ public class TaskLifecycleDriver
         this.registry = requireNonNull(registry, "registry is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.prService = requireNonNull(prService, "prService is null");
-        this.sealer = requireNonNull(sealer, "sealer is null");
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
         this.events = requireNonNull(events, "events is null");
     }
@@ -230,8 +227,15 @@ public class TaskLifecycleDriver
 
     /** Fast path for explicit submission; the scheduled sweep above remains
      *  the recovery path if the task thread was busy or enqueue failed. */
-    @EventListener
+    @TransactionalEventListener(
+            phase = TransactionPhase.AFTER_COMMIT,
+            fallbackExecution = true)
     public void onLocalReviewSubmitted(LocalReviewSubmittedEvent event)
+    {
+        TaskCommandExecutor.dispatchAfterCommit(() -> handleLocalReviewSubmitted(event));
+    }
+
+    private void handleLocalReviewSubmitted(LocalReviewSubmittedEvent event)
     {
         taskStore.findTaskById(event.taskId()).ifPresent(task -> {
             if (task.phase() == TaskPhase.INTERNAL_REVIEW) {
@@ -257,6 +261,11 @@ public class TaskLifecycleDriver
             phase = TransactionPhase.AFTER_COMMIT,
             fallbackExecution = true)
     public void onInternalReviewCompleted(TaskPhaseTransitionedEvent event)
+    {
+        TaskCommandExecutor.dispatchAfterCommit(() -> handleInternalReviewCompleted(event));
+    }
+
+    private void handleInternalReviewCompleted(TaskPhaseTransitionedEvent event)
     {
         if (event.from() != TaskPhase.INTERNAL_REVIEW || event.to() != TaskPhase.AWAITING_PUSH) {
             return;
@@ -433,20 +442,12 @@ public class TaskLifecycleDriver
             currentLogin = pullRequests.resolveCurrentRepoLogin(repo);
         }
         commentIngestor.ingest(task.id(), repo, number, detail, currentLogin);
-        TaskPhaseMachine.withTaskLock(task.id(), () -> {
-            reconcileObservedTask(task, repo, number, detail);
-            return null;
-        });
+        reconcileObservedTask(task, repo, number, detail);
     }
 
     private void reconcileObservedTask(Task task, String repo, int number, PullRequestDetail detail)
     {
-        Optional<TaskPhase> target = TaskLifecyclePhases.observedPhaseFromDetail(detail);
-        if (target.isEmpty()) {
-            return;
-        }
-        TaskPhase phase = target.get();
-        if (phase == TaskPhase.COMPLETED) {
+        if (detail.merged() || "closed".equalsIgnoreCase(detail.state())) {
             // Clear merge-gate state even when a parked task finishes remotely.
             readyToMerge.evaluate(task, detail);
             // The PR reached a terminal state on the remote (merged or
@@ -469,23 +470,42 @@ public class TaskLifecycleDriver
         if (isParkedOrTerminal(task)) {
             return;
         }
-        if (phase == TaskPhase.AWAITING_READY && detail.draft()) {
+        if (detail.ciStatus() != PullRequestDetail.CiStatus.PASSING
+                && detail.ciStatus() != PullRequestDetail.CiStatus.NONE) {
+            return; // Red/pending/unknown CI records facts but never rewinds the phase.
+        }
+        if (task.phase() == TaskPhase.PUSHED_AWAITING_CI) {
+            phaseMachine.observeRemoteCiGreen(
+                    task.id(), detail.draft(), "remote_ci_green");
+            task = taskStore.findTaskById(task.id()).orElse(task);
+        }
+        if (task.phase() == TaskPhase.AWAITING_READY && detail.draft()) {
             // Local Review already authorised publishing. Green CI is the
             // automatic draft -> ready checkpoint, not a second human gate.
-            notifications.supersedeAwaitingReviewForTask(task.threadId(), task.id());
-            if (task.status() == TaskStatus.AWAITING_REVIEW) {
-                taskStore.saveTask(task.withStatus(TaskStatus.IN_REVIEW));
-            }
-            pullRequests.setPullRequestDraft(repo, number, false);
-            prService.findByTask(task.id())
-                    .filter(pr -> PR.STATUS_REMOTE_DRAFTED.equals(pr.status()))
-                    .ifPresent(pr -> prService.transition(
-                            pr.id(), PR.STATUS_REMOTE_OPEN, PRTimelineEntry.ACTOR_AGENT));
-            phaseMachine.observe(task.id(), TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green_marked_ready");
-            return;
+            Task readyTask = task;
+            TaskExternalEffectGate.withEffectGate(task.id(), () -> {
+                Task current = taskStore.findTaskById(readyTask.id()).orElse(null);
+                if (isParkedOrTerminal(current)
+                        || current.phase() != TaskPhase.AWAITING_READY) {
+                    return null;
+                }
+                notifications.supersedeAwaitingReviewForTask(
+                        current.threadId(), current.id());
+                pullRequests.setPullRequestDraft(repo, number, false);
+                prService.findByTask(current.id())
+                        .filter(pr -> PR.STATUS_REMOTE_DRAFTED.equals(pr.status()))
+                        .ifPresent(pr -> prService.transition(
+                                pr.id(), PR.STATUS_REMOTE_OPEN, PRTimelineEntry.ACTOR_AGENT));
+                phaseMachine.observeReady(current.id(), "ci_green_marked_ready");
+                return null;
+            });
+            task = taskStore.findTaskById(task.id()).orElse(task);
         }
-        phaseMachine.observe(task.id(), phase, "pr_state_observed");
-        if (phase == TaskPhase.AWAITING_REMOTE_REVIEW) {
+        else if (task.phase() == TaskPhase.AWAITING_READY && !detail.draft()) {
+            phaseMachine.observeReady(task.id(), "remote_ready_observed");
+            task = taskStore.findTaskById(task.id()).orElse(task);
+        }
+        if (task.phase() == TaskPhase.AWAITING_REMOTE_REVIEW) {
             // The phase no longer moves for a new batch of reviewer comments
             // — a review_round AgentRun triages and addresses it beside this
             // phase. reviewRounds reads directly from the review_comment
@@ -894,9 +914,8 @@ public class TaskLifecycleDriver
         // so a live subprocess isn't yanked out from under a worktree it's
         // mid-tool-call inside. Best-effort: the orphan sweep retries the reap.
         evictRunningStages(task);
-        // Seal any still-open review round or stage so neither keeps
-        // rendering as live once the task itself is terminal.
-        sealer.seal(task.id(), merged ? "pr_merged" : "pr_closed");
+        // finishTerminal already sealed every durable child in the terminal
+        // transaction; only external runtime cleanup remains here.
         // Clear the task's still-open publish gates and "needs you" prompts
         // (e.g. a budget-cap pause) — this reconciler path runs when the merge
         // event never fired, so unlike TaskService.completeTasksForMergedPr it

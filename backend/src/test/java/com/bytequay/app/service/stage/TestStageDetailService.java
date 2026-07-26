@@ -240,7 +240,7 @@ class TestStageDetailService
                 taskId, TaskPhase.VALIDATING, TaskPhase.INTERNAL_REVIEW,
                 now, "validation_passed", Actor.AGENT);
         taskStore.updatePhase(taskId, TaskPhase.NEEDS_ATTENTION);
-        reviewRoundStore.save(new ReviewRound(
+        reviewRoundStore.insert(new ReviewRound(
                 UUID.randomUUID().toString(), taskId, 1, List.of(),
                 ReviewRound.STATUS_PAUSED, ReviewRound.ReviewRoundStats.empty(), null,
                 now, null, null, ReviewRound.ORIGIN_BRAIN, null, 1,

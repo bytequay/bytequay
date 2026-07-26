@@ -22,6 +22,10 @@ public enum ThreadTurnEventType
     TURN_FAILED,
     TURN_CANCELLED,
 
+    /** Durable reconciliation warning. For a taskless trunk turn this is
+     *  the user-visible fallback because there is no Task to park. */
+    SCHEDULER_ALERT,
+
     /** Per-turn CodeGraph-first effectiveness counters, stored as JSON in
      *  {@link ThreadTurnEvent#message()}. */
     CODEGRAPH_POLICY,

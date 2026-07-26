@@ -44,6 +44,21 @@ public interface AgentRunStore
         throw new UnsupportedOperationException("updateStatusIf");
     }
 
+    /** Compare-and-set the complete lifecycle projection. This is the
+     *  restart/pause/terminal form: all status-derived columns move in the
+     *  same statement, so a crash cannot leave a queued run looking
+     *  completed or a terminal run looking paused. */
+    default boolean transitionIf(
+            String runId,
+            String expected,
+            String to,
+            Instant finishedAt,
+            String pauseReason,
+            String outcome)
+    {
+        throw new UnsupportedOperationException("transitionIf");
+    }
+
     /** Targeted progress write (iterations + usage); never touches
      *  status. */
     default void updateProgress(String runId, int iterations, long costUsdMilli, long tokensIn, long tokensOut)
@@ -61,6 +76,35 @@ public interface AgentRunStore
     default void updateHeadline(String runId, String headline, String outcome)
     {
         throw new UnsupportedOperationException("updateHeadline");
+    }
+
+    /** Targeted ownership/session linkage write; never touches lifecycle. */
+    default void updateOwnership(
+            String runId,
+            String workspaceId,
+            String threadId,
+            String provider,
+            String model,
+            String launchInput)
+    {
+        throw new UnsupportedOperationException("updateOwnership");
+    }
+
+    /** Targeted metrics payload write; never touches lifecycle. */
+    default void updateMetrics(String runId, String metricsJson)
+    {
+        throw new UnsupportedOperationException("updateMetrics");
+    }
+
+    /** Targeted usage/cursor write; never touches lifecycle. */
+    default void updateAccounting(
+            String runId,
+            long costUsdMilli,
+            long tokensIn,
+            long tokensOut,
+            int stepCursor)
+    {
+        throw new UnsupportedOperationException("updateAccounting");
     }
 
     Optional<AgentRun> findById(String id);

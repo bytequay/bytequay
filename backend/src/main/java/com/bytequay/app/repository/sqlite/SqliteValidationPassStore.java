@@ -90,6 +90,32 @@ class SqliteValidationPassStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Optional<ValidationClaim> findLatestGreenByTaskAndContext(
+            String taskId, String context)
+    {
+        return rows.findFirstByTaskIdAndContextAndEndedAtMsIsNotNullAndPassedTrueAndSupersededAtMsIsNullOrderByEndedAtMsDescIdDesc(
+                        taskId, context)
+                .map(SqliteValidationPassStore::toDomain);
+    }
+
+    @Override
+    @Transactional
+    public boolean bindRoundIfUnbound(String claimKey, String roundId)
+    {
+        return rows.bindRoundIfUnbound(claimKey, roundId) == 1;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ValidationClaim> findLatestByRoundAndContext(
+            String roundId, String context)
+    {
+        return rows.findFirstByRoundIdAndContextOrderByIdDesc(roundId, context)
+                .map(SqliteValidationPassStore::toDomain);
+    }
+
+    @Override
     @Transactional
     public boolean acquireOwner(
             String claimKey, String ownerId, String executorIdentity, Instant leaseUntil, Instant now)

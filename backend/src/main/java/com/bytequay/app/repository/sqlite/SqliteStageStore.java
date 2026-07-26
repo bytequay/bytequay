@@ -123,9 +123,11 @@ class SqliteStageStore
                 return;
             }
             Instant now = Instant.now();
-            row.setState(StageState.CLOSED.name());
-            row.setClosedAtMs(now.toEpochMilli());
-            stages.save(row);
+            if (stages.casState(
+                    row.getId(), row.getState(), StageState.CLOSED.name(),
+                    now.toEpochMilli()) != 1) {
+                return;
+            }
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("reason", reason == null ? "" : reason);
             payload.putAll(extraPayload);
@@ -142,11 +144,12 @@ class SqliteStageStore
         if (row == null || !StageState.CLOSED.name().equals(row.getState())) {
             return row == null ? null : toStage(row);
         }
-        row.setState(StageState.OPEN.name());
-        row.setClosedAtMs(null);
-        stages.save(row);
+        if (stages.casState(
+                row.getId(), StageState.CLOSED.name(), StageState.OPEN.name(), null) != 1) {
+            return stages.findById(stageId.toString()).map(this::toStage).orElse(null);
+        }
         writeEvent(row.getId(), row.getTaskId(), StageEventType.REOPENED, Map.of(), Instant.now());
-        return toStage(row);
+        return stages.findById(stageId.toString()).map(this::toStage).orElse(null);
     }
 
     @Override
@@ -165,20 +168,16 @@ class SqliteStageStore
     @Transactional
     public void updateMetricsJson(UUID stageId, String metricsJson)
     {
-        stages.findById(stageId.toString()).ifPresent(row -> {
-            row.setMetricsJson(metricsJson);
-            stages.save(row);
-        });
+        stages.updateMetricsJson(stageId.toString(), metricsJson);
     }
 
     @Override
     @Transactional
     public void updateWorkModel(UUID stageId, WorkModel workModel)
     {
-        stages.findById(stageId.toString()).ifPresent(row -> {
-            row.setWorkModelJson(WorkModelJson.serialise(objectMapper, workModel));
-            stages.save(row);
-        });
+        stages.updateWorkModelJson(
+                stageId.toString(),
+                WorkModelJson.serialise(objectMapper, workModel));
     }
 
     @Override

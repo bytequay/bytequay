@@ -34,4 +34,12 @@ public record TaskRecoveryRequest(
 
     /** Explicitly retry a CI lifecycle after its autonomous attempts were exhausted. */
     public static final String KIND_CI_RETRY = "CI_RETRY";
+
+    /** Reopen planning only after the old task runtime is proven gone. */
+    public static final String KIND_REPLAN = "REPLAN";
+
+    /** Resume one exact durable external-effect cursor after the user fixes
+     * its operational blocker. The payload binds token, cursor, fingerprint,
+     * reason, and any added retry allowance. */
+    public static final String KIND_EXTERNAL_SAGA = "EXTERNAL_SAGA";
 }

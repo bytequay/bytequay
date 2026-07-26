@@ -116,6 +116,21 @@ class TestValidationClaims
                 .doesNotContain(cancelled, superseded);
     }
 
+    @Test
+    void cancellationStopsLeaseRenewal()
+    {
+        String key = claimKey();
+        String taskId = seedTask();
+        store.insertClaim(key, taskId, "dev-round", null, "fp-1", null, null, NOW);
+        assertThat(store.acquireOwner(
+                key, "owner-a", "pid-1", NOW.plusSeconds(120), NOW)).isTrue();
+
+        store.requestCancel(key, NOW.plusSeconds(1), NOW.plusSeconds(30));
+
+        assertThat(store.renewLease(
+                key, "owner-a", NOW.plusSeconds(240), NOW.plusSeconds(2))).isFalse();
+    }
+
     private static String claimKey()
     {
         return "test-claim:" + UUID.randomUUID();

@@ -55,7 +55,8 @@ final class TaskPhaseTransitions
         // here (the local addressing loop's reactive detour); addressed
         // changes are adversarially re-reviewed before returning to the gate.
         m.put(TaskPhase.AWAITING_PUSH,
-                EnumSet.of(TaskPhase.PUSHED_AWAITING_CI, TaskPhase.ADDRESSING_LOCAL_COMMENTS));
+                EnumSet.of(TaskPhase.VALIDATING, TaskPhase.PUSHED_AWAITING_CI,
+                        TaskPhase.ADDRESSING_LOCAL_COMMENTS));
         m.put(TaskPhase.ADDRESSING_LOCAL_COMMENTS, EnumSet.of(TaskPhase.INTERNAL_REVIEW));
         // CI green on a draft passes through automatic mark-ready; a ready
         // PR goes straight to remote review. CI red no longer moves the
@@ -69,8 +70,9 @@ final class TaskPhaseTransitions
         // how a ci_fix run's push never routes through a phase transition
         // of its own either).
         m.put(TaskPhase.AWAITING_REMOTE_REVIEW, EnumSet.of(TaskPhase.PUSHED_AWAITING_CI));
-        // Human-recovered parked task restarts the cycle.
-        m.put(TaskPhase.NEEDS_ATTENTION, EnumSet.of(TaskPhase.IMPLEMENTING));
+        // NEEDS_ATTENTION has no graph exit. Only the audited recovery
+        // barrier may restore its persisted checkpoint.
+        m.put(TaskPhase.NEEDS_ATTENTION, EnumSet.noneOf(TaskPhase.class));
         m.put(TaskPhase.COMPLETED, EnumSet.noneOf(TaskPhase.class));
         return m;
     }

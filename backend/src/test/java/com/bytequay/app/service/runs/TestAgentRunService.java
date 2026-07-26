@@ -18,8 +18,13 @@ import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.repository.AgentRunStore;
-import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.service.stage.StageStateMachine;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -29,11 +34,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -43,19 +51,21 @@ class TestAgentRunService
     private static final UUID BACKING_STAGE_ID = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
 
     private final AgentRunStore store = mock(AgentRunStore.class);
-    private final StageStore stageStore = mock(StageStore.class);
-    private final AgentRunService service =
-            new AgentRunServiceImpl(store, stageStore, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final StageStateMachine stages = mock(StageStateMachine.class);
+    private final PlatformTransactionManager transactionManager = new TestTransactionManager();
+    private final TaskCommandExecutor commands = spy(new TaskCommandExecutor(transactionManager));
+    private final AgentRunService service = new AgentRunServiceImpl(
+            store, stages, commands, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void openStartsAFreshRunWithItsOwnBackingStage()
     {
         when(store.findLiveByTaskAndKind("t1", AgentRun.KIND_CI_FIX)).thenReturn(Optional.empty());
-        when(stageStore.findStageByType("t1", StageType.CI_FIXING_STAGE)).thenReturn(Optional.empty());
-        when(stageStore.openStage(eq("t1"), eq(StageType.CI_FIXING_STAGE), any()))
+        when(stages.ensureRunOpenInCommand(
+                eq("t1"), eq(AgentRun.KIND_CI_FIX), eq(StageType.CI_FIXING_STAGE), isNull()))
                 .thenReturn(new StageInstance(
                         BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.OPEN, NOW, null, null));
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(store.insert(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AgentRun run = service.open(
                 "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, StageType.CI_FIXING_STAGE, 5);
@@ -69,12 +79,13 @@ class TestAgentRunService
         assertThat(run.budget()).isEqualTo(5);
         assertThat(run.startedAt()).isEqualTo(NOW);
         assertThat(run.finishedAt()).isNull();
+        verify(commands).execute(eq("t1"), any());
     }
 
     @Test
     void openDetachedCreatesAnArtifactRunOutsideTaskLifecycle()
     {
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(store.insert(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AgentRun run = service.openDetached(
                 AgentRun.KIND_PANEL_REVIEW, null, "round-1", 50);
@@ -85,12 +96,13 @@ class TestAgentRunService
         assertThat(run.kind()).isEqualTo(AgentRun.KIND_PANEL_REVIEW);
         assertThat(run.status()).isEqualTo(AgentRun.STATUS_RUNNING);
         assertThat(run.budget()).isEqualTo(50);
+        verify(commands, never()).execute(anyString(), any());
     }
 
     @Test
     void openTaskArtifactAttributesTheRunWithoutCreatingAStage()
     {
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(store.insert(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AgentRun run = service.openTaskArtifact(
                 "task-1", AgentRun.KIND_PANEL_REVIEW, null, "round-1", 50);
@@ -102,7 +114,8 @@ class TestAgentRunService
         assertThat(run.kind()).isEqualTo(AgentRun.KIND_PANEL_REVIEW);
         assertThat(run.status()).isEqualTo(AgentRun.STATUS_RUNNING);
         assertThat(run.budget()).isEqualTo(50);
-        verify(stageStore, never()).openStage(any(), any(), any());
+        verify(stages, never()).ensureRunOpenInCommand(any(), any(), any(), any());
+        verify(commands).execute(eq("task-1"), any());
     }
 
     @Test
@@ -113,7 +126,6 @@ class TestAgentRunService
                 null, "round-1", null, AgentRun.STATUS_RUNNING,
                 0, 50, null, null, NOW, null);
         when(store.findById(detached.id())).thenReturn(Optional.of(detached));
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AgentRun owned = service.attachOwnership(
                 detached.id(), "ws-1", "trunk-1",
@@ -125,6 +137,9 @@ class TestAgentRunService
         assertThat(owned.provider()).isEqualTo("anthropic");
         assertThat(owned.model()).isEqualTo("claude-sonnet");
         assertThat(owned.launchInput()).isEqualTo("Review octocat/app#42");
+        verify(store).updateOwnership(
+                detached.id(), "ws-1", "trunk-1", "anthropic", "claude-sonnet",
+                "Review octocat/app#42");
     }
 
     @Test
@@ -135,7 +150,6 @@ class TestAgentRunService
                 null, "round-1", null, AgentRun.STATUS_RUNNING,
                 0, 50, null, null, NOW, null);
         when(store.findById(detached.id())).thenReturn(Optional.of(detached));
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AgentRun owned = service.attachOwnership(
                 detached.id(), "ws-1", null,
@@ -147,6 +161,9 @@ class TestAgentRunService
         assertThat(owned.provider()).isEqualTo("agent-review");
         assertThat(owned.model()).isEqualTo("agent-review");
         assertThat(owned.launchInput()).isEqualTo("Review octocat/app#42");
+        verify(store).updateOwnership(
+                detached.id(), "ws-1", null, "agent-review", "agent-review",
+                "Review octocat/app#42");
     }
 
     @Test
@@ -161,7 +178,7 @@ class TestAgentRunService
                 "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, StageType.CI_FIXING_STAGE, 5);
 
         assertThat(run).isSameAs(existing);
-        verify(stageStore, never()).openStage(any(), any(), any());
+        verify(stages, never()).ensureRunOpenInCommand(any(), any(), any(), any());
     }
 
     @Test
@@ -172,54 +189,35 @@ class TestAgentRunService
         // stage's caller id — every stage opens/reuses with a null caller.
         UUID devStageId = UUID.fromString("00000000-0000-0000-0000-0000000000d1");
         when(store.findLiveByTaskAndKind("t1", AgentRun.KIND_CI_FIX)).thenReturn(Optional.empty());
-        when(stageStore.findStageByType("t1", StageType.CI_FIXING_STAGE)).thenReturn(Optional.empty());
-        when(stageStore.openStage(eq("t1"), eq(StageType.CI_FIXING_STAGE), isNull()))
+        when(stages.ensureRunOpenInCommand(
+                "t1", AgentRun.KIND_CI_FIX, StageType.CI_FIXING_STAGE, null))
                 .thenReturn(new StageInstance(
                         BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.OPEN, NOW, null, null));
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(store.insert(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AgentRun run = service.open(
                 "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_LOCAL, devStageId.toString(),
                 StageType.CI_FIXING_STAGE, null);
 
         assertThat(run.parentStageId()).isEqualTo(devStageId.toString());
-        verify(stageStore).openStage("t1", StageType.CI_FIXING_STAGE, null);
+        verify(stages).ensureRunOpenInCommand(
+                "t1", AgentRun.KIND_CI_FIX, StageType.CI_FIXING_STAGE, null);
     }
 
     @Test
-    void openReopensAClosedStageOfTheSameTypeInsteadOfMintingANewOne()
+    void openUsesTheBackingStageSelectedByTheStageMachine()
     {
-        StageInstance closedStage = new StageInstance(
-                BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.CLOSED, NOW, NOW, null);
         when(store.findLiveByTaskAndKind("t1", AgentRun.KIND_CI_FIX)).thenReturn(Optional.empty());
-        when(stageStore.findStageByType("t1", StageType.CI_FIXING_STAGE)).thenReturn(Optional.of(closedStage));
-        when(stageStore.reopenStage(BACKING_STAGE_ID)).thenReturn(new StageInstance(
-                BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.OPEN, NOW, null, null));
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(stages.ensureRunOpenInCommand(
+                "t1", AgentRun.KIND_CI_FIX, StageType.CI_FIXING_STAGE, null))
+                .thenReturn(new StageInstance(
+                        BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.OPEN, NOW, null, null));
+        when(store.insert(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AgentRun run = service.open(
                 "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, StageType.CI_FIXING_STAGE, 5);
 
         assertThat(run.stageId()).isEqualTo(BACKING_STAGE_ID.toString());
-        verify(stageStore).reopenStage(BACKING_STAGE_ID);
-        verify(stageStore, never()).openStage(any(), any(), any());
-    }
-
-    @Test
-    void openReusesAnAlreadyOpenStageOfTheSameTypeWithoutReopeningOrCreating()
-    {
-        StageInstance openStage = new StageInstance(
-                BACKING_STAGE_ID, "t1", StageType.CI_FIXING_STAGE, StageState.OPEN, NOW, null, null);
-        when(store.findLiveByTaskAndKind("t1", AgentRun.KIND_CI_FIX)).thenReturn(Optional.empty());
-        when(stageStore.findStageByType("t1", StageType.CI_FIXING_STAGE)).thenReturn(Optional.of(openStage));
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-        AgentRun run = service.open(
-                "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, StageType.CI_FIXING_STAGE, 5);
-
-        assertThat(run.stageId()).isEqualTo(BACKING_STAGE_ID.toString());
-        verify(stageStore, never()).reopenStage(any());
-        verify(stageStore, never()).openStage(any(), any(), any());
     }
 
     @Test
@@ -229,12 +227,13 @@ class TestAgentRunService
                 "run1", "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, null,
                 BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 1, 5, "old", null, NOW, null);
         when(store.findById("run1")).thenReturn(Optional.of(run));
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AgentRun updated = service.recordIteration("run1", "iter 2: retrying");
 
         assertThat(updated.iterations()).isEqualTo(2);
         assertThat(updated.headline()).isEqualTo("iter 2: retrying");
+        verify(store).updateProgress("run1", 2, 0L, 0L, 0L);
+        verify(store).updateHeadline("run1", "iter 2: retrying", null);
     }
 
     @Test
@@ -244,12 +243,13 @@ class TestAgentRunService
                 "run1", "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, null,
                 BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 1, 5, "old", null, NOW, null);
         when(store.findById("run1")).thenReturn(Optional.of(run));
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AgentRun updated = service.recordIteration("run1", null);
 
         assertThat(updated.iterations()).isEqualTo(2);
         assertThat(updated.headline()).isEqualTo("old");
+        verify(store).updateProgress("run1", 2, 0L, 0L, 0L);
+        verify(store, never()).updateHeadline(any(), any(), any());
     }
 
     @Test
@@ -259,11 +259,11 @@ class TestAgentRunService
                 "run1", "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, null,
                 BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 0, 0, null, null, NOW, null);
         when(store.findById("run1")).thenReturn(Optional.of(run));
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         AgentRun updated = service.spendBudget("run1");
 
         assertThat(updated.budget()).isZero();
+        verify(store).updateBudget("run1", 0);
     }
 
     @Test
@@ -273,13 +273,17 @@ class TestAgentRunService
                 "run1", "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, null,
                 BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 3, 2, null, null, NOW, null);
         when(store.findById("run1")).thenReturn(Optional.of(run));
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(store.transitionIf(
+                "run1", AgentRun.STATUS_RUNNING, AgentRun.STATUS_SUCCEEDED, NOW,
+                null, "completed"))
+                .thenReturn(true);
 
         AgentRun updated = service.transition("run1", AgentRun.STATUS_SUCCEEDED, "checks_green");
 
         assertThat(updated.status()).isEqualTo(AgentRun.STATUS_SUCCEEDED);
         assertThat(updated.finishedAt()).isEqualTo(NOW);
-        verify(stageStore).closeStage(BACKING_STAGE_ID, "checks_green");
+        verify(stages).closeInCommand("t1", BACKING_STAGE_ID, "checks_green");
+        verify(commands).execute(eq("t1"), any());
     }
 
     @Test
@@ -289,12 +293,39 @@ class TestAgentRunService
                 "run1", "t1", AgentRun.KIND_REVIEW_ROUND, null, null, null,
                 BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 0, null, null, null, NOW, null);
         when(store.findById("run1")).thenReturn(Optional.of(run));
-        when(store.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(store.transitionIf(
+                "run1", AgentRun.STATUS_RUNNING, AgentRun.STATUS_AWAITING_GATE, null,
+                null, null))
+                .thenReturn(true);
 
         AgentRun updated = service.transition("run1", AgentRun.STATUS_AWAITING_GATE, "drafts_ready");
 
         assertThat(updated.finishedAt()).isNull();
-        verify(stageStore, never()).closeStage(any(), any());
+        verify(stages, never()).closeInCommand(any(), any(), any());
+    }
+
+    @Test
+    void lostStatusRaceDoesNotCloseTheBackingStage()
+    {
+        AgentRun run = new AgentRun(
+                "run1", "t1", AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE, null, null,
+                BACKING_STAGE_ID.toString(), AgentRun.STATUS_RUNNING, 3, 2, null, null, NOW, null);
+        when(store.findById("run1")).thenReturn(Optional.of(run));
+
+        AgentRun unchanged = service.transition(
+                "run1", AgentRun.STATUS_SUCCEEDED, "checks_green");
+
+        assertThat(unchanged).isSameAs(run);
+        verify(stages, never()).closeInCommand(any(), any(), any());
+    }
+
+    @Test
+    void inCommandTransitionRejectsCallsOutsideATaskCommand()
+    {
+        assertThatThrownBy(() -> service.transitionInCommand(
+                "t1", "run1", AgentRun.STATUS_CANCELLED, "task_stopped"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no active task command for t1");
     }
 
     @Test
@@ -313,7 +344,7 @@ class TestAgentRunService
         assertThat(unchanged).isSameAs(paused);
         assertThat(unchanged.pauseReason()).isEqualTo(
                 "daily workspace budget cap reached ($10.00)");
-        verify(store, never()).save(any());
+        verify(store, never()).transitionIf(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -351,5 +382,24 @@ class TestAgentRunService
         when(store.findByReviewRound("round-1")).thenReturn(List.of(run));
 
         assertThat(service.findByReviewRound("round-1")).containsExactly(run);
+    }
+
+    private static final class TestTransactionManager
+            extends AbstractPlatformTransactionManager
+    {
+        @Override
+        protected Object doGetTransaction()
+        {
+            return new Object();
+        }
+
+        @Override
+        protected void doBegin(Object transaction, TransactionDefinition definition) {}
+
+        @Override
+        protected void doCommit(DefaultTransactionStatus status) {}
+
+        @Override
+        protected void doRollback(DefaultTransactionStatus status) {}
     }
 }

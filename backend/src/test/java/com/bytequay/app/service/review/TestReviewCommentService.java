@@ -27,6 +27,7 @@ import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -40,8 +41,11 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -54,6 +58,7 @@ class TestReviewCommentService
 
     private StageStore stageStore;
     private ReviewRoundService reviewRounds;
+    private RoundGateSaga roundGate;
     private PRService prService;
     private TaskStore taskStore;
     private ReviewCommentServiceImpl service;
@@ -63,9 +68,15 @@ class TestReviewCommentService
     {
         stageStore = mock(StageStore.class);
         reviewRounds = mock(ReviewRoundService.class);
+        roundGate = mock(RoundGateSaga.class);
         prService = mock(PRService.class);
         taskStore = mock(TaskStore.class);
-        service = new ReviewCommentServiceImpl(stageStore, reviewRounds, prService, taskStore);
+        doAnswer(invocation -> {
+            invocation.<Runnable>getArgument(2).run();
+            return null;
+        }).when(roundGate).editPayload(anyString(), anyString(), any(Runnable.class));
+        service = new ReviewCommentServiceImpl(
+                stageStore, reviewRounds, roundGate, prService, taskStore);
         Task reviewTask = mock(Task.class);
         when(reviewTask.phase()).thenReturn(TaskPhase.AWAITING_PUSH);
         when(reviewTask.status()).thenReturn(TaskStatus.IDLE);
@@ -183,7 +194,48 @@ class TestReviewCommentService
 
         verify(stageStore).setReviewCommentResolved(id, true);
         verify(reviewRounds).recomputeStats(roundId.toString());
+        verify(roundGate).editPayload(eq("task-1"), eq(roundId.toString()), any(Runnable.class));
         verify(prService, never()).resolveComment(anyString());
+    }
+
+    @Test
+    void reopeningARoundCommentUsesTheSameGatePayloadEdit()
+    {
+        UUID id = UUID.randomUUID();
+        UUID roundId = UUID.randomUUID();
+        ReviewComment comment = new ReviewComment(
+                id, "task-1", "src/Foo.java", 12, "nit", NOW, ReviewCommentSource.REMOTE_REVIEWER,
+                "https://github.com/octo/repo/pull/7#discussion_r1", true, 1001L, roundId, null, null,
+                "RIGHT", null, null);
+        when(stageStore.findReviewCommentById(id)).thenReturn(Optional.of(comment));
+
+        service.reopen(id);
+
+        verify(stageStore).setReviewCommentResolved(id, false);
+        verify(reviewRounds).recomputeStats(roundId.toString());
+        verify(roundGate).editPayload(eq("task-1"), eq(roundId.toString()), any(Runnable.class));
+        verify(prService, never()).reopenComment(anyString());
+    }
+
+    @Test
+    void aRejectedRoundPayloadEditDoesNotResolveTheComment()
+    {
+        UUID id = UUID.randomUUID();
+        UUID roundId = UUID.randomUUID();
+        ReviewComment comment = new ReviewComment(
+                id, "task-1", "src/Foo.java", 12, "nit", NOW, ReviewCommentSource.REMOTE_REVIEWER,
+                "https://github.com/octo/repo/pull/7#discussion_r1", false, 1001L, roundId, null, null,
+                "RIGHT", null, null);
+        when(stageStore.findReviewCommentById(id)).thenReturn(Optional.of(comment));
+        doThrow(new ResponseStatusException(HttpStatus.CONFLICT, "round gate posting has started"))
+                .when(roundGate).editPayload(eq("task-1"), eq(roundId.toString()), any(Runnable.class));
+
+        assertThatThrownBy(() -> service.resolve(id))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("posting has started");
+
+        verify(stageStore, never()).setReviewCommentResolved(any(), anyBoolean());
+        verify(reviewRounds, never()).recomputeStats(anyString());
     }
 
     @Test
@@ -199,6 +251,7 @@ class TestReviewCommentService
 
         verify(stageStore).setReviewCommentResolved(id, true);
         verify(reviewRounds, never()).recomputeStats(any());
+        verify(roundGate, never()).editPayload(anyString(), anyString(), any(Runnable.class));
         verify(prService, never()).resolveComment(anyString());
     }
 

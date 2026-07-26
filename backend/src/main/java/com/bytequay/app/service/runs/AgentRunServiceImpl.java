@@ -15,11 +15,11 @@ package com.bytequay.app.service.runs;
 
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.AgentRunStore;
-import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.service.stage.StageStateMachine;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -37,19 +37,28 @@ class AgentRunServiceImpl
         implements AgentRunService
 {
     private final AgentRunStore store;
-    private final StageStore stageStore;
+    private final StageStateMachine stages;
+    private final TaskCommandExecutor commands;
     private final Clock clock;
 
     @Autowired
-    AgentRunServiceImpl(AgentRunStore store, StageStore stageStore)
+    AgentRunServiceImpl(
+            AgentRunStore store,
+            StageStateMachine stages,
+            TaskCommandExecutor commands)
     {
-        this(store, stageStore, Clock.systemUTC());
+        this(store, stages, commands, Clock.systemUTC());
     }
 
-    AgentRunServiceImpl(AgentRunStore store, StageStore stageStore, Clock clock)
+    AgentRunServiceImpl(
+            AgentRunStore store,
+            StageStateMachine stages,
+            TaskCommandExecutor commands,
+            Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
-        this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.stages = requireNonNull(stages, "stages is null");
+        this.commands = requireNonNull(commands, "commands is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -96,26 +105,28 @@ class AgentRunServiceImpl
     {
         requireText(taskId, "taskId");
         requireText(kind, "kind");
+        return commands.execute(taskId, () -> openInCommand(
+                taskId, kind, source, parentStageId, backingStageType, budget));
+    }
+
+    @Override
+    public AgentRun openInCommand(
+            String taskId, String kind, String source, String parentStageId,
+            StageType backingStageType, Integer budget)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
         Optional<AgentRun> existing = store.findLiveByTaskAndKind(taskId, kind);
         if (existing.isPresent()) {
             return existing.get();
         }
-        // A closed stage of this type means the task already ran this kind of
-        // work before (an earlier CI-fix attempt, review round, guard tick) —
-        // wake it back up instead of opening a second one, so whatever agent
-        // session is cached under its id gets reused rather than rebuilt from
-        // scratch.
-        StageInstance backing = stageStore.findStageByType(taskId, backingStageType)
-                .map(found -> found.state() == StageState.CLOSED
-                        ? stageStore.reopenStage(found.id())
-                        : found)
-                .orElseGet(() -> stageStore.openStage(taskId, backingStageType, null));
+        StageInstance backing = stages.ensureRunOpenInCommand(
+                taskId, kind, backingStageType, null);
         AgentRun run = new AgentRun(
                 UUID.randomUUID().toString(), taskId, kind, source, parentStageId,
                 /* reviewRoundId */ null, backing.id().toString(), AgentRun.STATUS_RUNNING,
                 /* iterations */ 0, budget, /* headline */ null, /* metricsJson */ null,
                 now(), /* finishedAt */ null);
-        return store.save(run);
+        return store.insert(run);
     }
 
     @Override
@@ -125,6 +136,15 @@ class AgentRunServiceImpl
         requireText(taskId, "taskId");
         requireText(kind, "kind");
         requireText(stageId, "stageId");
+        return commands.execute(taskId,
+                () -> openInStageInCommand(taskId, kind, source, stageId, budget));
+    }
+
+    @Override
+    public AgentRun openInStageInCommand(
+            String taskId, String kind, String source, String stageId, Integer budget)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
         Optional<AgentRun> existing = store.findLiveByTaskAndKind(taskId, kind);
         if (existing.isPresent()) {
             return existing.get();
@@ -134,7 +154,7 @@ class AgentRunServiceImpl
                 stageId, /* reviewRoundId */ null, stageId, AgentRun.STATUS_RUNNING,
                 /* iterations */ 0, budget, /* headline */ null, /* metricsJson */ null,
                 now(), /* finishedAt */ null);
-        return store.save(run);
+        return store.insert(run);
     }
 
     @Override
@@ -147,7 +167,7 @@ class AgentRunServiceImpl
                 UUID.randomUUID().toString(), null, kind, source,
                 null, reviewRoundId, null, AgentRun.STATUS_RUNNING,
                 0, budget, null, null, now(), null);
-        return store.save(run);
+        return store.insert(run);
     }
 
     @Override
@@ -157,11 +177,18 @@ class AgentRunServiceImpl
         requireText(taskId, "taskId");
         requireText(kind, "kind");
         requireText(reviewRoundId, "reviewRoundId");
+        return commands.execute(taskId,
+                () -> openTaskArtifactInCommand(taskId, kind, source, reviewRoundId, budget));
+    }
+
+    private AgentRun openTaskArtifactInCommand(
+            String taskId, String kind, String source, String reviewRoundId, Integer budget)
+    {
         AgentRun run = new AgentRun(
                 UUID.randomUUID().toString(), taskId, kind, source,
                 null, reviewRoundId, null, AgentRun.STATUS_RUNNING,
                 0, budget, null, null, now(), null);
-        return store.save(run);
+        return store.insert(run);
     }
 
     @Override
@@ -172,17 +199,38 @@ class AgentRunServiceImpl
         requireText(kind, "kind");
         requireText(launchInput, "launchInput");
         if (taskId != null && !taskId.isBlank()) {
+            return commands.execute(taskId,
+                    () -> openSchedulerSessionInCommand(
+                            thread, taskId, stageId, kind, launchInput));
+        }
+        return openSchedulerSessionInCommand(thread, taskId, stageId, kind, launchInput);
+    }
+
+    private AgentRun openSchedulerSessionInCommand(
+            Thread thread, String taskId, String stageId, String kind, String launchInput)
+    {
+        if (taskId != null && !taskId.isBlank()) {
             Optional<AgentRun> existing = store.findByTask(taskId, kind, stageId).stream()
                     .filter(run -> Objects.equals(stageId, run.stageId()))
                     .findFirst();
             if (existing.isPresent()) {
-                AgentRun run = existing.get().isLive()
-                        ? existing.get()
-                        : store.save(existing.get().requeued());
+                AgentRun run = existing.get();
+                if (!run.isLive()) {
+                    AgentRun requeued = run.requeued();
+                    run = store.transitionIf(
+                            run.id(), run.status(), requeued.status(), requeued.finishedAt(),
+                            requeued.pauseReason(), requeued.outcome())
+                            ? requeued
+                            : require(run.id());
+                }
                 if (run.workspaceId() == null || run.threadId() == null) {
-                    run = store.save(run.withOwnership(
+                    AgentRun owned = run.withOwnership(
                             thread.workspaceId(), thread.id(), thread.provider(),
-                            thread.model(), run.launchInput() == null ? launchInput : run.launchInput()));
+                            thread.model(), run.launchInput() == null ? launchInput : run.launchInput());
+                    store.updateOwnership(
+                            owned.id(), owned.workspaceId(), owned.threadId(), owned.provider(),
+                            owned.model(), owned.launchInput());
+                    run = owned;
                 }
                 return run;
             }
@@ -205,7 +253,7 @@ class AgentRunServiceImpl
                 .withOwnership(
                         thread.workspaceId(), thread.id(), thread.provider(),
                         thread.model(), launchInput);
-        return store.save(run);
+        return store.insert(run);
     }
 
     @Override
@@ -216,49 +264,93 @@ class AgentRunServiceImpl
         requireText(runId, "runId");
         requireText(workspaceId, "workspaceId");
         requireText(launchInput, "launchInput");
-        return store.save(require(runId).withOwnership(
-                workspaceId, threadId, provider, model, launchInput));
+        AgentRun updated = require(runId).withOwnership(
+                workspaceId, threadId, provider, model, launchInput);
+        store.updateOwnership(
+                updated.id(), updated.workspaceId(), updated.threadId(), updated.provider(),
+                updated.model(), updated.launchInput());
+        return updated;
     }
 
     @Override
     public AgentRun recordIteration(String runId, String headlineOrNull)
     {
         AgentRun run = require(runId);
-        return store.save(run.withIteration(run.iterations() + 1, headlineOrNull));
+        AgentRun updated = run.withIteration(run.iterations() + 1, headlineOrNull);
+        store.updateProgress(
+                run.id(), updated.iterations(), updated.costUsdMilli(),
+                updated.tokensIn(), updated.tokensOut());
+        if (headlineOrNull != null) {
+            store.updateHeadline(run.id(), updated.headline(), updated.outcome());
+        }
+        return updated;
     }
 
     @Override
     public AgentRun spendBudget(String runId)
     {
         AgentRun run = require(runId);
-        return store.save(run.withBudgetSpent());
+        AgentRun updated = run.withBudgetSpent();
+        store.updateBudget(run.id(), updated.budget());
+        return updated;
     }
 
     @Override
     public AgentRun updateHeadline(String runId, String headline)
     {
         AgentRun run = require(runId);
-        return store.save(run.withIteration(run.iterations(), headline));
+        AgentRun updated = run.withIteration(run.iterations(), headline);
+        store.updateHeadline(run.id(), updated.headline(), updated.outcome());
+        return updated;
     }
 
     @Override
     public AgentRun updateMetrics(String runId, String metricsJson)
     {
-        return store.save(require(runId).withMetrics(metricsJson));
+        AgentRun updated = require(runId).withMetrics(metricsJson);
+        store.updateMetrics(runId, updated.metricsJson());
+        return updated;
     }
 
     @Override
     public AgentRun updateAccounting(
             String runId, long costUsdMilli, long tokensIn, long tokensOut, int stepCursor)
     {
-        return store.save(require(runId).withAccounting(
-                costUsdMilli, tokensIn, tokensOut, stepCursor));
+        AgentRun updated = require(runId).withAccounting(
+                costUsdMilli, tokensIn, tokensOut, stepCursor);
+        store.updateAccounting(
+                runId, updated.costUsdMilli(), updated.tokensIn(), updated.tokensOut(),
+                updated.stepCursor());
+        return updated;
     }
 
     @Override
     public AgentRun pause(String runId, String reason)
     {
         AgentRun run = require(runId);
+        if (run.taskId() != null && !run.taskId().isBlank()) {
+            String taskId = run.taskId();
+            return commands.execute(taskId,
+                    () -> pauseInCommand(taskId, runId, reason));
+        }
+        return pause(run, reason);
+    }
+
+    @Override
+    public AgentRun pauseInCommand(String taskId, String runId, String reason)
+    {
+        requireText(taskId, "taskId");
+        TaskCommandExecutor.requireCurrent(taskId);
+        AgentRun run = require(runId);
+        if (!taskId.equals(run.taskId())) {
+            throw new IllegalArgumentException(
+                    "run " + runId + " does not belong to task " + taskId);
+        }
+        return pause(run, reason);
+    }
+
+    private AgentRun pause(AgentRun run, String reason)
+    {
         if (!run.isLive()) {
             return run;
         }
@@ -268,23 +360,74 @@ class AgentRunServiceImpl
         if (AgentRun.STATUS_PAUSED.equals(run.status())) {
             return run;
         }
-        return store.save(run.paused(reason == null ? "paused by user" : reason));
+        AgentRun paused = run.paused(reason == null ? "paused by user" : reason);
+        return store.transitionIf(
+                run.id(), run.status(), paused.status(), paused.finishedAt(),
+                paused.pauseReason(), paused.outcome())
+                ? paused
+                : require(run.id());
     }
 
     @Override
     public AgentRun resume(String runId)
     {
         AgentRun run = require(runId);
+        if (run.taskId() != null && !run.taskId().isBlank()) {
+            return commands.execute(run.taskId(), () -> resumeInCommand(run.taskId(), runId));
+        }
+        return resume(run);
+    }
+
+    private AgentRun resumeInCommand(String taskId, String runId)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        AgentRun run = require(runId);
+        if (!taskId.equals(run.taskId())) {
+            throw new IllegalArgumentException(
+                    "run " + runId + " does not belong to task " + taskId);
+        }
+        return resume(run);
+    }
+
+    private AgentRun resume(AgentRun run)
+    {
         if (!AgentRun.STATUS_PAUSED.equals(run.status())) {
             return run;
         }
-        return store.save(run.requeued());
+        AgentRun requeued = run.requeued();
+        return store.transitionIf(
+                run.id(), run.status(), requeued.status(), requeued.finishedAt(),
+                requeued.pauseReason(), requeued.outcome())
+                ? requeued
+                : require(run.id());
     }
 
     @Override
     public AgentRun restart(String runId)
     {
         AgentRun prior = require(runId);
+        if (prior.taskId() != null && !prior.taskId().isBlank()) {
+            return commands.execute(prior.taskId(),
+                    () -> restartInCommand(prior.taskId(), runId));
+        }
+        return restart(prior);
+    }
+
+    @Override
+    public AgentRun restartInCommand(String taskId, String runId)
+    {
+        requireText(taskId, "taskId");
+        TaskCommandExecutor.requireCurrent(taskId);
+        AgentRun prior = require(runId);
+        if (!taskId.equals(prior.taskId())) {
+            throw new IllegalArgumentException(
+                    "run " + runId + " does not belong to task " + taskId);
+        }
+        return restart(prior);
+    }
+
+    private AgentRun restart(AgentRun prior)
+    {
         AgentRun restarted = new AgentRun(
                 UUID.randomUUID().toString(),
                 prior.taskId(),
@@ -311,13 +454,43 @@ class AgentRunServiceImpl
                 prior.launchInput(),
                 null,
                 null);
-        return store.save(restarted);
+        return store.insert(restarted);
     }
 
     @Override
-    public synchronized AgentRun transition(String runId, String status, String reason)
+    public AgentRun transition(String runId, String status, String reason)
     {
+        AgentRun snapshot = require(runId);
+        if (snapshot.taskId() != null && !snapshot.taskId().isBlank()) {
+            return commands.execute(snapshot.taskId(),
+                    () -> transitionCurrent(snapshot.taskId(), runId, status, reason));
+        }
+        return transitionCurrent(null, runId, status, reason);
+    }
+
+    @Override
+    public AgentRun transitionInCommand(
+            String taskId, String runId, String status, String reason)
+    {
+        requireText(taskId, "taskId");
+        TaskCommandExecutor.requireCurrent(taskId);
         AgentRun run = require(runId);
+        if (!taskId.equals(run.taskId())) {
+            throw new IllegalArgumentException(
+                    "run " + runId + " does not belong to task " + taskId);
+        }
+        return transitionCurrent(taskId, run, status, reason);
+    }
+
+    private AgentRun transitionCurrent(
+            String taskId, String runId, String status, String reason)
+    {
+        return transitionCurrent(taskId, require(runId), status, reason);
+    }
+
+    private AgentRun transitionCurrent(
+            String taskId, AgentRun run, String status, String reason)
+    {
         if (!run.isLive()) {
             return run;
         }
@@ -326,10 +499,19 @@ class AgentRunServiceImpl
                 && !AgentRun.STATUS_FAILED.equals(status)) {
             return run;
         }
-        AgentRun updated = store.save(run.withStatus(status, now()));
+        AgentRun updated = run.withStatus(status, now());
+        if (!store.transitionIf(
+                run.id(), run.status(), updated.status(), updated.finishedAt(),
+                updated.pauseReason(), updated.outcome())) {
+            return require(run.id());
+        }
         if (updated.finishedAt() != null && updated.stageId() != null
                 && !Objects.equals(updated.parentStageId(), updated.stageId())) {
-            stageStore.closeStage(UUID.fromString(updated.stageId()), reason);
+            if (taskId == null) {
+                throw new IllegalStateException(
+                        "detached run " + run.id() + " cannot own a backing stage");
+            }
+            stages.closeInCommand(taskId, UUID.fromString(updated.stageId()), reason);
         }
         return updated;
     }

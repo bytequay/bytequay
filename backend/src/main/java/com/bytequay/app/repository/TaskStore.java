@@ -173,6 +173,14 @@ public interface TaskStore
         throw new UnsupportedOperationException("recoveryRequest");
     }
 
+    /** Reject only the named live request while retaining the task's
+     * recovery phase and both parked axes. */
+    default boolean clearRecoveryRequest(
+            String taskId, String requestId, String recoveryContextJson)
+    {
+        throw new UnsupportedOperationException("clearRecoveryRequest");
+    }
+
     /** Clear the recovery checkpoint + request together — the
      *  recovery-completion write. */
     default void clearRecoveryState(String taskId)

@@ -18,6 +18,7 @@ import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.service.review.RoundGateSaga;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -27,6 +28,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -36,7 +40,17 @@ class TestReviewRoundToolHandlers
 {
     private final StageStore stageStore = mock(StageStore.class);
     private final ReviewRoundStore roundStore = mock(ReviewRoundStore.class);
-    private final ReviewRoundToolHandlers handlers = new ReviewRoundToolHandlers(stageStore, roundStore);
+    private final RoundGateSaga roundGate = mock(RoundGateSaga.class);
+    private final ReviewRoundToolHandlers handlers;
+
+    TestReviewRoundToolHandlers()
+    {
+        doAnswer(invocation -> {
+            invocation.<Runnable>getArgument(2).run();
+            return null;
+        }).when(roundGate).editPayload(anyString(), anyString(), any(Runnable.class));
+        handlers = new ReviewRoundToolHandlers(stageStore, roundStore, roundGate);
+    }
 
     @Test
     void draftsOnlyForACommentInTheCallingRunsLiveRound()
@@ -53,6 +67,8 @@ class TestReviewRoundToolHandlers
                         "task-1", "stage-1", "run-1"));
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
+        verify(roundGate).editPayload(
+                eq("task-1"), eq(roundId.toString()), any(Runnable.class));
         verify(stageStore).saveReviewComment(any());
     }
 
@@ -69,6 +85,7 @@ class TestReviewRoundToolHandlers
                         "task-1", "stage-1", "run-1"));
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
+        verify(roundGate, never()).editPayload(anyString(), anyString(), any(Runnable.class));
         verify(stageStore, never()).saveReviewComment(any());
     }
 

@@ -245,6 +245,25 @@ public class GitRunner
         return path.toRealPath();
     }
 
+    /** Read one branch head directly from a remote without changing local
+     * refs. Push-saga crash recovery uses this to distinguish "the push
+     * happened but its stamp was lost" from an effect that still needs I/O. */
+    public Optional<String> remoteHeadSha(Path workingDir, String remote, String branch)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(remote, "remote is null");
+        requireNonNull(branch, "branch is null");
+        GitResult result = run(
+                List.of("git", "ls-remote", "--heads", remote, "refs/heads/" + branch),
+                workingDir);
+        result.requireSuccess();
+        String output = result.stdout().strip();
+        if (output.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(output.split("\\s+", 2)[0]);
+    }
+
     /**
      * Resolves the local exclude file for this checkout. Linked
      * worktrees have a {@code .git} file instead of a directory, so

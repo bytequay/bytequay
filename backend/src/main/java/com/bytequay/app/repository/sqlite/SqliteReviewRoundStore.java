@@ -15,6 +15,7 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.ReviewRound.ReviewRoundStats;
+import com.bytequay.app.domain.ReviewRoundState;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -35,9 +36,6 @@ class SqliteReviewRoundStore
         implements ReviewRoundStore
 {
     private static final Logger log = LoggerFactory.getLogger(SqliteReviewRoundStore.class);
-    private static final List<String> LIVE_STATUSES =
-            List.of(ReviewRound.STATUS_TRIAGING, ReviewRound.STATUS_ADDRESSING, ReviewRound.STATUS_AWAITING_GATE);
-
     private final ReviewRoundJpaRepository rounds;
     private final ObjectMapper mapper;
 
@@ -49,14 +47,17 @@ class SqliteReviewRoundStore
 
     @Override
     @Transactional
-    public ReviewRound save(ReviewRound round)
+    public ReviewRound insert(ReviewRound round)
     {
+        if (rounds.existsById(round.id())) {
+            throw new IllegalStateException("review round already exists: " + round.id());
+        }
         ReviewRoundEntity e = new ReviewRoundEntity();
         e.setId(round.id());
         e.setTaskId(round.taskId());
         e.setIdx(round.idx());
         e.setReviewersJson(toJson(round.reviewers()));
-        e.setStatus(round.status());
+        e.setStatus(round.status().dbValue());
         e.setStatsJson(toJson(round.stats()));
         e.setRunId(round.runId());
         e.setOpenedAtMs(round.openedAt().toEpochMilli());
@@ -66,14 +67,140 @@ class SqliteReviewRoundStore
         e.setBrainVerdict(round.brainVerdict());
         e.setIteration(round.iteration());
         e.setBudget(round.budget());
-        return toDomain(rounds.save(e));
+        e.setPausedFrom(dbValueOrNull(round.pausedFrom()));
+        e.setCodeFingerprint(round.codeFingerprint());
+        e.setEnqueueFailures(round.enqueueFailures());
+        e.setKickAttempt(round.kickAttempt());
+        e.setGateRevision(round.gateRevision());
+        e.setActiveGateToken(round.activeGateToken());
+        e.setClosedAtMs(epochOrNull(round.closedAt()));
+        return toDomain(rounds.saveAndFlush(e));
     }
 
     @Override
     @Transactional
-    public boolean updateStatusIf(String id, String expected, String to)
+    public boolean parkIf(String id, ReviewRoundState expected)
     {
-        return rounds.casStatus(id, expected, to) == 1;
+        return rounds.park(id, expected.dbValue()) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean resumeIf(String id, ReviewRoundState pausedFrom)
+    {
+        return rounds.resume(id, pausedFrom.dbValue()) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean sealIf(String id, ReviewRoundState expected, Instant closedAt)
+    {
+        return rounds.seal(id, expected.dbValue(), closedAt.toEpochMilli()) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean concludeIf(
+            String id,
+            ReviewRoundState expected,
+            ReviewRoundState to,
+            AttemptFence attempt,
+            ReviewRound.ReviewRoundStats stats,
+            String verdict,
+            Instant gatedAt,
+            Instant closedAt)
+    {
+        return rounds.conclude(
+                id, expected.dbValue(), to.dbValue(),
+                attempt.iteration(), attempt.gateRevision(), attempt.kickAttempt(),
+                attempt.turnId(), attempt.kickKey(), toJson(stats), verdict,
+                epochOrNull(gatedAt), epochOrNull(closedAt)) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean finishAddressingIf(
+            String id,
+            AttemptFence attempt,
+            String validationClaimKey,
+            String codeFingerprint)
+    {
+        return rounds.finishAddressing(
+                id, attempt.iteration(), attempt.gateRevision(), attempt.kickAttempt(),
+                attempt.turnId(), attempt.kickKey(), validationClaimKey, codeFingerprint) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean authorizeGateIf(
+            String id,
+            int expectedGateRevision,
+            String codeFingerprint,
+            String activeGateToken)
+    {
+        return rounds.authorizeGate(
+                id, expectedGateRevision, codeFingerprint, activeGateToken) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean postIf(String id, String activeGateToken, Instant postedAt)
+    {
+        return rounds.postAuthorized(
+                id, activeGateToken, postedAt.toEpochMilli()) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean requestGateChangesIf(String id, int additionalBudget)
+    {
+        return rounds.requestGateChanges(
+                id, additionalBudget, toJson(ReviewRoundStats.empty())) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean invalidateGateFingerprintIf(
+            String id, String activeToken)
+    {
+        return rounds.invalidateGateFingerprint(
+                id, activeToken, toJson(ReviewRoundStats.empty())) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean acceptGateValidationIf(
+            String id, int expectedKickAttempt, String codeFingerprint)
+    {
+        return rounds.acceptGateValidation(
+                id, expectedKickAttempt, codeFingerprint) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean updateBrainVerdictIf(
+            String id, ReviewRoundState expected, String verdict)
+    {
+        return rounds.updateBrainVerdictIf(
+                id, expected.dbValue(), verdict) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean recordDeliveryFailureIf(
+            String id, ReviewRoundState expected, int expectedKickAttempt)
+    {
+        return rounds.recordDeliveryFailure(
+                id, expected.dbValue(), expectedKickAttempt) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean clearEnqueueFailuresIf(
+            String id, ReviewRoundState expected, int expectedKickAttempt)
+    {
+        return rounds.clearEnqueueFailures(
+                id, expected.dbValue(), expectedKickAttempt) == 1;
     }
 
     @Override
@@ -88,13 +215,6 @@ class SqliteReviewRoundStore
     public void updateRunId(String id, String runId)
     {
         rounds.updateRunId(id, runId);
-    }
-
-    @Override
-    @Transactional
-    public void updateBrainVerdict(String id, String verdict)
-    {
-        rounds.updateBrainVerdict(id, verdict);
     }
 
     @Override
@@ -126,7 +246,7 @@ class SqliteReviewRoundStore
     {
         return rounds.findByTaskIdOrderByOpenedAtMsDesc(taskId).stream()
                 .map(this::toDomain)
-                .filter(r -> LIVE_STATUSES.contains(r.status()))
+                .filter(ReviewRound::isLive)
                 .findFirst();
     }
 
@@ -136,7 +256,7 @@ class SqliteReviewRoundStore
     {
         return rounds.findAll().stream()
                 .map(this::toDomain)
-                .filter(r -> LIVE_STATUSES.contains(r.status()))
+                .filter(ReviewRound::isLive)
                 .toList();
     }
 
@@ -157,7 +277,7 @@ class SqliteReviewRoundStore
                 e.getTaskId(),
                 e.getIdx(),
                 fromJsonReviewers(e.getReviewersJson()),
-                e.getStatus(),
+                ReviewRoundState.fromDbValue(e.getStatus()),
                 fromJsonStats(e.getStatsJson()),
                 e.getRunId(),
                 Instant.ofEpochMilli(e.getOpenedAtMs()),
@@ -166,7 +286,14 @@ class SqliteReviewRoundStore
                 e.getOrigin(),
                 e.getBrainVerdict(),
                 e.getIteration(),
-                e.getBudget());
+                e.getBudget(),
+                stateOrNull(e.getPausedFrom()),
+                e.getCodeFingerprint(),
+                e.getEnqueueFailures(),
+                e.getKickAttempt(),
+                e.getGateRevision(),
+                e.getActiveGateToken(),
+                instantOrNull(e.getClosedAtMs()));
     }
 
     private List<String> fromJsonReviewers(String json)
@@ -215,5 +342,15 @@ class SqliteReviewRoundStore
     private static Instant instantOrNull(Long epochMs)
     {
         return epochMs == null ? null : Instant.ofEpochMilli(epochMs);
+    }
+
+    private static String dbValueOrNull(ReviewRoundState state)
+    {
+        return state == null ? null : state.dbValue();
+    }
+
+    private static ReviewRoundState stateOrNull(String value)
+    {
+        return value == null ? null : ReviewRoundState.fromDbValue(value);
     }
 }

@@ -161,7 +161,7 @@ public class TrunkActivityService
                         "review:" + round.id(), "review",
                         "Review round " + round.idx(),
                         reviewers + reviewSummary(round),
-                        round.status(), trunkPath, task.id(), round.runId(),
+                        round.status().dbValue(), trunkPath, task.id(), round.runId(),
                         round.postedAt() != null ? round.postedAt()
                                 : round.gatedAt() != null ? round.gatedAt() : round.openedAt(),
                         ReviewRound.STATUS_AWAITING_GATE.equals(round.status())));

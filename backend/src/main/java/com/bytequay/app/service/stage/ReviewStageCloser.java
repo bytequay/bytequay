@@ -17,14 +17,19 @@ import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.domain.ReviewParticipant;
 import com.bytequay.app.domain.ReviewParticipantKind;
+import com.bytequay.app.domain.ReviewPass;
+import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.repository.ReviewStore;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.ReviewPassTerminatedEvent;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,18 +49,22 @@ public class ReviewStageCloser
 {
     private static final Logger log = LoggerFactory.getLogger(ReviewStageCloser.class);
 
-    private final StageStore stageStore;
+    private final StageStateMachine stageMachine;
     private final ReviewStore reviewStore;
 
-    public ReviewStageCloser(StageStore stageStore, ReviewStore reviewStore)
+    public ReviewStageCloser(StageStateMachine stageMachine, ReviewStore reviewStore)
     {
-        this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.stageMachine = requireNonNull(stageMachine, "stageMachine is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
     }
 
-    @EventListener
-    @Transactional
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onReviewPassTerminated(ReviewPassTerminatedEvent event)
+    {
+        TaskCommandExecutor.dispatchAfterCommit(() -> closeTerminatedPass(event));
+    }
+
+    private void closeTerminatedPass(ReviewPassTerminatedEvent event)
     {
         UUID stageId;
         try {
@@ -82,8 +91,23 @@ public class ReviewStageCloser
         summary.put("seatNames", seatNames);
         summary.put("findingCount", findings.size());
         summary.put("agreedCount", (int) agreed);
-        stageStore.closeStage(stageId, "review_pass_terminated", summary);
+        stageMachine.close(stageId, "review_pass_terminated", summary);
         log.debug("Closed review stage {} for pass {}: {} seat(s), {}/{} agreed",
                 stageId, event.passId(), seatNames.size(), agreed, findings.size());
+    }
+
+    /** State-driven recovery for a process crash after the pass commit but
+     * before its after-commit listener closed the stage. */
+    @EventListener(ApplicationReadyEvent.class)
+    @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
+    public void reconcileTerminalPassStages()
+    {
+        for (ReviewPass pass : reviewStore.listTaskStagePassesByPhases(
+                List.of(ReviewPhase.TERMINATE, ReviewPhase.PUBLISHED, ReviewPhase.COMPLETED))) {
+            if (pass.taskStageId() == null) {
+                continue;
+            }
+            onReviewPassTerminated(new ReviewPassTerminatedEvent(pass.id(), pass.taskStageId()));
+        }
     }
 }

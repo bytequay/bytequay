@@ -33,31 +33,33 @@ import java.util.UUID;
  * unified review comments. Mirrors {@link TaskStore} in shape; the service
  * layer talks only to this interface.
  *
- * <p>{@link #openStage} and {@link #closeStage} also write the matching
- * {@code OPENED} / {@code CLOSED} row to {@code task_stage_event}, so a
- * caller never has to remember to log the lifecycle separately.
+ * <p>The raw lifecycle methods are persistence primitives for
+ * {@code StageStateMachine}. Production services must use that machine so
+ * task ownership, command serialization, audit, and close notifications are
+ * applied together. The compatibility close/reopen primitives remain for
+ * store-level tests and legacy repair only.
  */
 public interface StageStore
 {
     // ── stages ─────────────────────────────────────────────────────────
 
-    /** Open a fresh stage of {@code type} for {@code taskId} in state
+    /** Machine-only insert of a fresh stage of {@code type} for {@code taskId} in state
      *  {@code OPEN}, writing an {@code OPENED} event. {@code callerStageId}
      *  is set only for a callable sub-stage. */
     StageInstance openStage(String taskId, StageType type, UUID callerStageId);
 
-    /** Close {@code stageId} (state {@code CLOSED}, {@code closedAt} now),
+    /** Legacy/store-level close primitive. Close {@code stageId} (state {@code CLOSED}, {@code closedAt} now),
      *  writing a {@code CLOSED} event carrying {@code reason}. No-op when
      *  the id is unknown or the stage is already closed. */
     void closeStage(UUID stageId, String reason);
 
-    /** Close {@code stageId}, merging {@code extraPayload} into the single
+    /** Legacy/store-level close primitive merging {@code extraPayload} into the single
      *  {@code CLOSED} event alongside {@code reason} — so a caller (e.g. a
      *  finished review panel) can record its summary on the closing event
      *  rather than as a second row. No-op when unknown or already closed. */
     void closeStage(UUID stageId, String reason, Map<String, Object> extraPayload);
 
-    /** Wake a {@code CLOSED} stage back up for a new burst of the same kind
+    /** Legacy/store-level primitive that wakes a {@code CLOSED} stage back up
      *  of work: state → {@code OPEN}, {@code closedAt} cleared, writing a
      *  {@code REOPENED} event. Lets a later CI-fix / review-round / guard
      *  tick reuse the stage id (and whatever agent session is cached under
@@ -91,18 +93,14 @@ public interface StageStore
     /** A task's stages, oldest-first. */
     List<StageInstance> findStagesByTask(String taskId);
 
-    /** The latest stage in state {@code OPEN} or {@code ACTIVE} — the one a
-     *  cross-cutting phase attaches to, and the one the phase-transition
-     *  hook compares against. */
+    /** The latest stage in state {@code OPEN} — the one a cross-cutting phase
+     *  attaches to, and the one the phase-transition hook compares against. */
     Optional<StageInstance> findActiveStage(String taskId);
 
-    /** The task's most-recent non-{@code CLOSED} stage of the given type.
-     *  Unlike {@link #findActiveStage} (OPEN/ACTIVE only) this also matches a
-     *  {@code PAUSED} stage — a CI-fixing or review-monitor stage parked while
-     *  it waits on remote CI is PAUSED but is still the stage an automation
-     *  turn belongs to. Lets the shipped-CI-fix / comment-addressing turns pin
-     *  their stage id explicitly so their messages land in {@code
-     *  stage_messages} rather than leaking to the thread slice. */
+    /** The task's most-recent {@code OPEN} stage of the given type. Lets the
+     *  shipped-CI-fix / comment-addressing turns pin their stage id explicitly
+     *  so their messages land in {@code stage_messages} rather than leaking to
+     *  the thread slice. */
     default Optional<StageInstance> findLiveStageByType(String taskId, StageType type)
     {
         return findStagesByTask(taskId).stream()

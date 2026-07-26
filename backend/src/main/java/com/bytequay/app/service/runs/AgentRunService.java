@@ -48,11 +48,16 @@ public interface AgentRunService
      * Idempotent open: returns the task's existing live run of {@code
      * kind} if one is already open, else starts a fresh one — opening its
      * own backing {@code task_stage} row of {@code backingStageType} (
-     * {@code callerStageId = parentStageId}, mirroring the review-panel
-     * sub-stage pattern) so the run has an isolated message home from
-     * its first turn, independent of any phase-driven stage.
+     * with no caller-stage link) so the run has an isolated message home
+     * from its first turn. {@code parentStageId} is rail placement only,
+     * independent of the backing stage's ownership.
      */
     AgentRun open(
+            String taskId, String kind, String source, String parentStageId,
+            StageType backingStageType, Integer budget);
+
+    /** Same-transaction form for an enclosing task command. */
+    AgentRun openInCommand(
             String taskId, String kind, String source, String parentStageId,
             StageType backingStageType, Integer budget);
 
@@ -63,6 +68,10 @@ public interface AgentRunService
      * stage.
      */
     AgentRun openInStage(
+            String taskId, String kind, String source, String stageId, Integer budget);
+
+    /** Same-transaction form for an enclosing task command. */
+    AgentRun openInStageInCommand(
             String taskId, String kind, String source, String stageId, Integer budget);
 
     /** Open a run for an external review round that has no task/stage container. */
@@ -110,13 +119,22 @@ public interface AgentRunService
 
     AgentRun pause(String runId, String reason);
 
+    /** Same-transaction pause for an enclosing task command. */
+    AgentRun pauseInCommand(String taskId, String runId, String reason);
+
     AgentRun resume(String runId);
 
     /** Creates a new queued Session carrying the prior launch request. */
     AgentRun restart(String runId);
 
+    /** Same-transaction restart for an enclosing task command. */
+    AgentRun restartInCommand(String taskId, String runId);
+
     /** Transition a live run to {@code status}; terminal runs are immutable.
      * A terminal status ({@code succeeded} / {@code failed} / {@code
      * cancelled}) also closes the run's backing stage. */
     AgentRun transition(String runId, String status, String reason);
+
+    /** Same-transaction terminal projection for an enclosing task command. */
+    AgentRun transitionInCommand(String taskId, String runId, String status, String reason);
 }

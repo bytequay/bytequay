@@ -13,15 +13,19 @@
  */
 package com.bytequay.app.service.threads;
 
-import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
+import com.bytequay.app.domain.StageType;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.stage.StageClosedEvent;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.Executor;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -36,34 +40,33 @@ import static org.mockito.Mockito.when;
  */
 class TestStageAgentReaper
 {
-    private static final Instant NOW = Instant.parse("2026-06-17T12:00:00Z");
+    private static final String STAGE_ID = "00000000-0000-0000-0000-000000000101";
 
     private final ThreadRegistry registry = mock(ThreadRegistry.class);
-    private final TaskStore taskStore = mock(TaskStore.class);
-    private final StageAgentReaper reaper = new StageAgentReaper(registry, taskStore);
+    private final StageStore stageStore = mock(StageStore.class);
+    private final Executor direct = Runnable::run;
+    private final StageAgentReaper reaper = new StageAgentReaper(registry, stageStore, direct);
 
     @Test
     void stopsAndEvictsTheClosedStageAgent()
     {
         ThreadAgent agent = mock(ThreadAgent.class);
         when(registry.findStages(List.of("stage-1"))).thenReturn(List.of(agent));
-        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task()));
 
         reaper.onStageClosed(new StageClosedEvent("task-1", "stage-1"));
 
         verify(agent).stop();
-        verify(registry).evictStage("thread-1", "stage-1");
+        verify(registry).evictStage(null, "stage-1");
     }
 
     @Test
     void evictsByStageIdEvenWhenNoLiveAgentExists()
     {
         when(registry.findStages(List.of("stage-1"))).thenReturn(List.of());
-        when(taskStore.findTaskById("task-1")).thenReturn(Optional.of(task()));
 
         reaper.onStageClosed(new StageClosedEvent("task-1", "stage-1"));
 
-        verify(registry).evictStage("thread-1", "stage-1");
+        verify(registry).evictStage(null, "stage-1");
     }
 
     @Test
@@ -74,12 +77,35 @@ class TestStageAgentReaper
         verify(registry, never()).evictStage(any(), any());
     }
 
-    private static Task task()
+    @Test
+    void sweepReapsClosedAndMissingStagesButKeepsOpenStages()
     {
-        return new Task(
-                "task-1", "thread-1", 1L, TaskStatus.RUNNING,
-                "auto/task-1", "/tmp/wt", "main", "/tmp/repo",
-                null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, null, NOW, null, null, null, null, null);
+        String missingId = "00000000-0000-0000-0000-000000000102";
+        String openId = "00000000-0000-0000-0000-000000000103";
+        ThreadAgent closedAgent = mock(ThreadAgent.class);
+        ThreadAgent missingAgent = mock(ThreadAgent.class);
+        when(registry.cachedStageIds()).thenReturn(Set.of(STAGE_ID, missingId, openId));
+        when(stageStore.findStageById(UUID.fromString(STAGE_ID)))
+                .thenReturn(Optional.of(stage(STAGE_ID, StageState.CLOSED)));
+        when(stageStore.findStageById(UUID.fromString(missingId))).thenReturn(Optional.empty());
+        when(stageStore.findStageById(UUID.fromString(openId)))
+                .thenReturn(Optional.of(stage(openId, StageState.OPEN)));
+        when(registry.findStages(List.of(STAGE_ID))).thenReturn(List.of(closedAgent));
+        when(registry.findStages(List.of(missingId))).thenReturn(List.of(missingAgent));
+
+        reaper.reconcileClosedStages();
+
+        verify(closedAgent).stop();
+        verify(missingAgent).stop();
+        verify(registry).evictStage(null, STAGE_ID);
+        verify(registry).evictStage(null, missingId);
+        verify(registry, never()).evictStage(null, openId);
+    }
+
+    private static StageInstance stage(String id, StageState state)
+    {
+        return new StageInstance(
+                UUID.fromString(id), "task-1", StageType.DEVELOPMENT_STAGE,
+                state, Instant.parse("2026-06-17T12:00:00Z"), null, null);
     }
 }

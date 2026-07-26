@@ -34,9 +34,11 @@ import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskPushStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.review.DevReportService;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.TaskExternalEffectGate;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -82,6 +84,8 @@ class PRServiceImpl
     private final TaskStore taskStore;
     private final ThreadTurnStore turnStore;
     private final LocalReviewSubmissionStore submissionStore;
+    private final TaskPushStore pushStore;
+    private final TaskCommandExecutor commands;
     private final ApplicationEventPublisher events;
     private final Clock clock;
 
@@ -89,18 +93,22 @@ class PRServiceImpl
     PRServiceImpl(
             PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore,
             TaskStore taskStore, ThreadTurnStore turnStore,
-            LocalReviewSubmissionStore submissionStore, ApplicationEventPublisher events)
+            LocalReviewSubmissionStore submissionStore, TaskPushStore pushStore,
+            TaskCommandExecutor commands, ApplicationEventPublisher events)
     {
-        this(store, devReports, mapper, stageStore, taskStore, turnStore, submissionStore,
-                events, Clock.systemUTC());
+        this(store, devReports, mapper, stageStore, taskStore, turnStore,
+                submissionStore, pushStore, commands, events, Clock.systemUTC());
     }
 
     PRServiceImpl(
             PRStore store, DevReportService devReports, ObjectMapper mapper, StageStore stageStore,
             TaskStore taskStore, ThreadTurnStore turnStore,
-            LocalReviewSubmissionStore submissionStore, ApplicationEventPublisher events, Clock clock)
+            LocalReviewSubmissionStore submissionStore, TaskPushStore pushStore,
+            TaskCommandExecutor commands, ApplicationEventPublisher events, Clock clock)
     {
         this.submissionStore = requireNonNull(submissionStore, "submissionStore is null");
+        this.pushStore = requireNonNull(pushStore, "pushStore is null");
+        this.commands = requireNonNull(commands, "commands is null");
         this.store = requireNonNull(store, "store is null");
         this.devReports = requireNonNull(devReports, "devReports is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -451,12 +459,26 @@ class PRServiceImpl
     public void recordBrainReview(
             String taskId, String scope, String verdict, int iteration, String roundId)
     {
+        recordBrainReview(taskId, scope, verdict, iteration, roundId, null);
+    }
+
+    @Override
+    public void recordBrainReview(
+            String taskId,
+            String scope,
+            String verdict,
+            int iteration,
+            String roundId,
+            String attemptId)
+    {
         store.findByTaskId(taskId).ifPresent(pr -> {
-            if (hasReviewActivity(pr.id(), "finished", scope, iteration, roundId)) {
+            if (hasReviewActivity(
+                    pr.id(), "finished", scope, iteration, roundId, attemptId)) {
                 return;
             }
             Instant when = now();
-            Instant startedAt = reviewStartedAt(pr.id(), scope, iteration, roundId).orElse(pr.createdAt());
+            Instant startedAt = reviewStartedAt(
+                    pr.id(), scope, iteration, roundId, attemptId).orElse(pr.createdAt());
             List<String> commentIds = store.commentsFor(pr.id()).stream()
                     .filter(c -> PRTimelineEntry.ACTOR_BRAIN.equals(c.author()))
                     .filter(c -> c.parentCommentId() == null)
@@ -467,6 +489,7 @@ class PRServiceImpl
                     /* localOnly */ true, when,
                     payload("reviewEvent", "finished", "scope", scope, "verdict", verdict,
                             "iteration", iteration, "roundId", roundId,
+                            "attemptId", attemptId,
                             "findingCount", commentIds.size(), "commentIds", commentIds));
             notifyUpdated(pr.id());
         });
@@ -475,7 +498,16 @@ class PRServiceImpl
     @Override
     public void recordBrainReviewStarted(String taskId, String scope, int iteration, String roundId)
     {
-        recordBrainReviewActivity(taskId, PRTimelineEntry.ACTOR_BRAIN, "started", scope, iteration, roundId);
+        recordBrainReviewStarted(taskId, scope, iteration, roundId, null);
+    }
+
+    @Override
+    public void recordBrainReviewStarted(
+            String taskId, String scope, int iteration, String roundId, String attemptId)
+    {
+        recordBrainReviewActivity(
+                taskId, PRTimelineEntry.ACTOR_BRAIN, "started",
+                scope, iteration, roundId, attemptId);
     }
 
     @Override
@@ -537,11 +569,13 @@ class PRServiceImpl
         });
     }
 
-    private Optional<Instant> reviewStartedAt(String prId, String scope, int iteration, String roundId)
+    private Optional<Instant> reviewStartedAt(
+            String prId, String scope, int iteration, String roundId, String attemptId)
     {
         return store.timelineFor(prId).stream()
                 .filter(e -> e.eventType().equals(PRTimelineEntry.TYPE_REVIEW))
                 .filter(e -> reviewPayloadMatches(e, "started", scope, iteration, roundId))
+                .filter(e -> attemptId == null || reviewAttemptMatches(e, attemptId))
                 .map(PRTimelineEntry::createdAt)
                 .max(Instant::compareTo);
     }
@@ -920,15 +954,27 @@ class PRServiceImpl
     }
 
     @Override
-    @Transactional
     public PR recordPush(String prId, String repo, int remotePrNumber, String remotePrUrl)
     {
         PR pr = require(prId);
         if (pr.taskId() == null) {
             return recordPush(pr, repo, remotePrNumber, remotePrUrl);
         }
-        return TaskPhaseMachine.withTaskLock(pr.taskId(), () ->
-                recordPush(require(prId), repo, remotePrNumber, remotePrUrl));
+        return commands.execute(pr.taskId(), () ->
+                recordPushInCommand(prId, repo, remotePrNumber, remotePrUrl));
+    }
+
+    @Override
+    @Transactional
+    public PR recordPushInCommand(
+            String prId, String repo, int remotePrNumber, String remotePrUrl)
+    {
+        PR pr = require(prId);
+        if (pr.taskId() == null) {
+            throw conflict("PR " + prId + " is not task-owned");
+        }
+        TaskCommandExecutor.requireCurrent(pr.taskId());
+        return recordPush(pr, repo, remotePrNumber, remotePrUrl);
     }
 
     private PR recordPush(PR pr, String repo, int remotePrNumber, String remotePrUrl)
@@ -1207,11 +1253,46 @@ class PRServiceImpl
         // Effect gate before the task stripe: the durable submission row,
         // its timeline event, and the epoch bump commit as one admission
         // that a concurrent ship/terminal command must serialize against.
-        TaskExternalEffectGate.withEffectGate(pr.taskId(),
-                () -> TaskPhaseMachine.withTaskLock(pr.taskId(), () -> {
-                    recordSubmissionRows(pr, ids, body, verdict, bodyCommentId);
-                    return null;
-                }));
+        TaskExternalEffectGate.withEffectGate(pr.taskId(), () -> {
+            commands.executeVoid(pr.taskId(), () -> {
+                TaskCommandExecutor.requireCurrent(pr.taskId());
+                PR current = require(pr.id());
+                Task task = taskStore.findTaskById(pr.taskId())
+                        .orElseThrow(() -> conflict("no task for local PR " + pr.id()));
+                if (!acceptsLocalSubmission(task)) {
+                    throw conflict("task " + task.id()
+                            + " is not accepting Local Review comments");
+                }
+                var activePush = pushStore.findActiveByTask(task.id());
+                if (activePush.isPresent() && !pushStore.revokeIfUnclaimed(
+                        activePush.orElseThrow().token(),
+                        "review_submission_superseded", now())) {
+                    throw conflict("task " + task.id()
+                            + " has a Push already in progress; finish or recover it first");
+                }
+                recordSubmissionRows(current, ids, body, verdict, bodyCommentId);
+            });
+            return null;
+        });
+    }
+
+    private static boolean acceptsLocalSubmission(Task task)
+    {
+        if (task.status() == TaskStatus.PAUSED
+                || task.status() == TaskStatus.NEEDS_ATTENTION
+                || task.status() == TaskStatus.ERRORED
+                || task.status() == TaskStatus.ARCHIVED
+                || task.status().isDone()) {
+            return false;
+        }
+        return task.phase() == TaskPhase.AWAITING_PUSH
+                || task.phase() == TaskPhase.ADDRESSING_LOCAL_COMMENTS
+                || task.phase() == TaskPhase.INTERNAL_REVIEW;
+    }
+
+    private static ResponseStatusException conflict(String message)
+    {
+        return new ResponseStatusException(HttpStatusCode.valueOf(409), message);
     }
 
     private void recordSubmissionRows(

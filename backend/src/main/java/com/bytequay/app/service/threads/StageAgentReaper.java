@@ -13,16 +13,23 @@
  */
 package com.bytequay.app.service.threads;
 
-import com.bytequay.app.domain.Task;
-import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.config.AsyncConfig;
+import com.bytequay.app.domain.StageState;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.stage.StageClosedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.Executor;
 
 import static java.util.Objects.requireNonNull;
 
@@ -43,12 +50,17 @@ public class StageAgentReaper
     private static final Logger log = LoggerFactory.getLogger(StageAgentReaper.class);
 
     private final ThreadRegistry registry;
-    private final TaskStore taskStore;
+    private final StageStore stageStore;
+    private final Executor executor;
 
-    public StageAgentReaper(ThreadRegistry registry, TaskStore taskStore)
+    public StageAgentReaper(
+            ThreadRegistry registry,
+            StageStore stageStore,
+            @Qualifier(AsyncConfig.APPLICATION_EXECUTOR) Executor executor)
     {
         this.registry = requireNonNull(registry, "registry is null");
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.executor = requireNonNull(executor, "executor is null");
     }
 
     @TransactionalEventListener(
@@ -60,13 +72,44 @@ public class StageAgentReaper
         if (stageId == null || stageId.isBlank()) {
             return;
         }
-        String threadId = taskStore.findTaskById(event.taskId())
-                .map(Task::threadId)
-                .orElse(null);
-        // Stop the subprocess before evicting so a mid-flight CLI exits at
-        // its next tool boundary; evictStage then drops the session and
-        // releases its worktree lease. Best-effort — a close must never
-        // throw back into the phase machine's listeners.
+        try {
+            executor.execute(() -> reapStage(stageId, event.taskId()));
+        }
+        catch (RuntimeException e) {
+            // The scheduled sweep is the durable delivery guarantee.
+            log.warn("submitting stage-agent reap {} (task {}) threw: {}",
+                    stageId, event.taskId(), e.getMessage());
+        }
+    }
+
+    /** Startup and scheduled backstop for a dropped callback or executor
+     *  rejection. A deleted stage is just as terminal for its cached agent
+     *  as a CLOSED row. */
+    @EventListener(ApplicationReadyEvent.class)
+    @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
+    public void reconcileClosedStages()
+    {
+        for (String stageId : registry.cachedStageIds()) {
+            UUID id;
+            try {
+                id = UUID.fromString(stageId);
+            }
+            catch (IllegalArgumentException e) {
+                // A legacy non-UUID active-stage key cannot refer to a
+                // durable task_stage row, so it is stale and must be reaped.
+                reapStage(stageId, null);
+                continue;
+            }
+            var stage = stageStore.findStageById(id);
+            if (stage.isEmpty() || stage.orElseThrow().state() == StageState.CLOSED) {
+                reapStage(stageId, stage.map(s -> s.taskId()).orElse(null));
+            }
+        }
+    }
+
+    /** The one idempotent runtime teardown used by callback and sweep. */
+    private void reapStage(String stageId, String taskId)
+    {
         try {
             registry.findStages(List.of(stageId)).forEach(agent -> {
                 try {
@@ -76,11 +119,11 @@ public class StageAgentReaper
                     log.warn("stop of stage agent {} threw: {}", stageId, e.getMessage());
                 }
             });
-            registry.evictStage(threadId, stageId);
+            registry.evictStage(null, stageId);
         }
         catch (RuntimeException e) {
             log.warn("reaping stage agent {} (task {}) threw: {}",
-                    stageId, event.taskId(), e.getMessage());
+                    stageId, taskId, e.getMessage());
         }
     }
 }

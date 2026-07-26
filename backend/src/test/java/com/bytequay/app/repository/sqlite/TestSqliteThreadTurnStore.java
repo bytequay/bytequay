@@ -194,7 +194,9 @@ class TestSqliteThreadTurnStore
                 null, null, null,
                 TurnInitiator.unattended("brain-review-fix"));
 
-        turns.insertTurn(turn, true, kickKey);
+        ThreadTurnStore.InsertResult inserted = turns.insertTurn(turn, true, kickKey);
+        assertThat(inserted.turnId()).isEqualTo(turn.id());
+        assertThat(inserted.inserted()).isTrue();
         assertThat(turns.findTurnIdByKickKey(kickKey)).contains(turn.id());
         assertThat(turns.turnAffectsTaskLiveness(turn.id())).isTrue();
 
@@ -204,7 +206,9 @@ class TestSqliteThreadTurnStore
                 ThreadResourceLane.CLI, QUEUED, "input", now, now,
                 null, null, null,
                 TurnInitiator.unattended("brain-review-fix"));
-        turns.insertTurn(duplicate, false, kickKey);
+        ThreadTurnStore.InsertResult replay = turns.insertTurn(duplicate, false, kickKey);
+        assertThat(replay.turnId()).isEqualTo(turn.id());
+        assertThat(replay.inserted()).isFalse();
         assertThat(turns.findTurnIdByKickKey(kickKey)).contains(turn.id());
         assertThat(turns.findTurnById(duplicate.id())).isEmpty();
 
@@ -217,6 +221,32 @@ class TestSqliteThreadTurnStore
                 TurnInitiator.unattended("brain-review-fix")));
         assertThat(turns.turnAffectsTaskLiveness(turn.id())).isTrue();
         assertThat(turns.findTurnIdByKickKey(kickKey)).contains(turn.id());
+    }
+
+    @Test
+    void statusCompareAndSetCannotRewriteAChangedOrTerminalTurn()
+    {
+        String threadId = newTask();
+        Instant now = Instant.parse("2026-07-25T12:00:00Z");
+        ThreadTurn turn = turn("turn-cas", threadId, QUEUED, now);
+        turns.saveTurn(turn);
+
+        assertThat(turns.updateStatusIf(
+                turn.id(), QUEUED, ThreadTurnStatus.RUNNING,
+                now.plusSeconds(1), now.plusSeconds(1), null, null)).isTrue();
+        assertThat(turns.updateStatusIf(
+                turn.id(), QUEUED, ThreadTurnStatus.CANCELLED,
+                now.plusSeconds(2), null, now.plusSeconds(2), "stale")).isFalse();
+        assertThat(turns.updateStatusIf(
+                turn.id(), ThreadTurnStatus.RUNNING, ThreadTurnStatus.COMPLETED,
+                now.plusSeconds(3), now.plusSeconds(1), now.plusSeconds(3), null)).isTrue();
+        assertThat(turns.updateStatusIf(
+                turn.id(), ThreadTurnStatus.RUNNING, ThreadTurnStatus.FAILED,
+                now.plusSeconds(4), now.plusSeconds(1), now.plusSeconds(4), "late")).isFalse();
+
+        ThreadTurn completed = turns.findTurnById(turn.id()).orElseThrow();
+        assertThat(completed.status()).isEqualTo(ThreadTurnStatus.COMPLETED);
+        assertThat(completed.errorMessage()).isNull();
     }
 
     private String newTask()

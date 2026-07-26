@@ -24,13 +24,13 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.stage.StageStateMachine;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import org.springframework.stereotype.Service;
@@ -61,7 +61,7 @@ public class WorkspaceCherryPickService
     private final TaskStore tasks;
     private final ThreadStore trunks;
     private final ThreadService threadService;
-    private final StageStore stages;
+    private final StageStateMachine stages;
     private final ThreadTurnScheduler scheduler;
     private final AgentRunService runs;
     private final IdGenerator ids;
@@ -73,7 +73,7 @@ public class WorkspaceCherryPickService
             TaskStore tasks,
             ThreadStore trunks,
             ThreadService threadService,
-            StageStore stages,
+            StageStateMachine stages,
             ThreadTurnScheduler scheduler,
             AgentRunService runs,
             IdGenerator ids)
@@ -331,8 +331,9 @@ public class WorkspaceCherryPickService
                 null,
                 Task.ORIGIN_AUTOMATION);
         tasks.saveTask(task);
-        StageInstance stage = stages.openStage(
-                task.id(), StageType.CI_FIXING_STAGE, null);
+        StageInstance stage = stages.ensureRunOpen(
+                task.id(), AgentRun.KIND_CI_FIX,
+                StageType.CI_FIXING_STAGE, null);
         String prompt = "Resolve the in-progress cherry-pick in this task "
                 + "worktree. Preserve the selected commits, finish the "
                 + "cherry-pick cleanly, run relevant checks, and do not push.";

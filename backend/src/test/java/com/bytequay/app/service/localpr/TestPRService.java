@@ -26,6 +26,7 @@ import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskPushAuthorization;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadTurn;
@@ -34,9 +35,11 @@ import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.PRStore;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskPushStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.review.DevReportService;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -44,6 +47,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
@@ -82,9 +89,12 @@ class TestPRService
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final LocalReviewSubmissionStore submissions = mock(LocalReviewSubmissionStore.class);
+    private final TaskPushStore pushes = mock(TaskPushStore.class);
+    private final PlatformTransactionManager transactions = new TestTransactionManager();
+    private final TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
     private final PRService service = new PRServiceImpl(
             store, devReports, new ObjectMapper(), stageStore, taskStore, turnStore,
-            submissions, events, Clock.fixed(NOW, ZoneOffset.UTC));
+            submissions, pushes, commands, events, Clock.fixed(NOW, ZoneOffset.UTC));
 
     private PR pr(String status)
     {
@@ -99,6 +109,7 @@ class TestPRService
     private void taskAt(TaskPhase phase)
     {
         Task task = mock(Task.class);
+        when(task.id()).thenReturn("task1");
         when(task.phase()).thenReturn(phase);
         when(task.status()).thenReturn(TaskStatus.IDLE);
         when(task.threadId()).thenReturn("thread1");
@@ -1294,6 +1305,43 @@ class TestPRService
     }
 
     @Test
+    void localReviewSubmissionRevokesOnlyAnUnclaimedPushAuthorization()
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+        TaskPushAuthorization authorization = mock(TaskPushAuthorization.class);
+        when(authorization.token()).thenReturn("push-1");
+        when(pushes.findActiveByTask("task1")).thenReturn(Optional.of(authorization));
+        when(pushes.revokeIfUnclaimed(eq("push-1"), eq("review_submission_superseded"), any()))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> service.recordLocalReviewSubmission(
+                "pr1", List.of("c1"), "", "COMMENT", null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Push already in progress");
+
+        verify(store, never()).addEvent(any());
+        verify(submissions, never()).insert(any());
+    }
+
+    @Test
+    void localReviewSubmissionRevokesAnUnstartedPushBeforeAdmission()
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+        TaskPushAuthorization authorization = mock(TaskPushAuthorization.class);
+        when(authorization.token()).thenReturn("push-1");
+        when(pushes.findActiveByTask("task1")).thenReturn(Optional.of(authorization));
+        when(pushes.revokeIfUnclaimed(eq("push-1"), eq("review_submission_superseded"), any()))
+                .thenReturn(true);
+
+        service.recordLocalReviewSubmission(
+                "pr1", List.of("c1"), "", "COMMENT", null);
+
+        verify(pushes).revokeIfUnclaimed(
+                eq("push-1"), eq("review_submission_superseded"), any());
+        verify(store).addEvent(any());
+    }
+
+    @Test
     void localReviewSubmissionsKeepOnlyEachRootsLatestTransitionActive()
     {
         Instant firstAt = NOW.minusSeconds(40);
@@ -1377,5 +1425,30 @@ class TestPRService
         service.recordPlanApproved("task1", "plan-stage-1");
 
         verify(store, never()).addEvent(any());
+    }
+
+    private static final class TestTransactionManager
+            extends AbstractPlatformTransactionManager
+    {
+        @Override
+        protected Object doGetTransaction()
+        {
+            return new Object();
+        }
+
+        @Override
+        protected void doBegin(Object transaction, TransactionDefinition definition)
+        {
+        }
+
+        @Override
+        protected void doCommit(DefaultTransactionStatus status)
+        {
+        }
+
+        @Override
+        protected void doRollback(DefaultTransactionStatus status)
+        {
+        }
     }
 }

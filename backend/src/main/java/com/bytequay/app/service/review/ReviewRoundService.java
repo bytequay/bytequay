@@ -45,13 +45,14 @@ public interface ReviewRoundService
 
     /**
      * Called from a task's terminal teardown (remote merge/close observed,
-     * or an in-app cancel) so a round still {@code triaging}/{@code
-     * addressing}/{@code awaiting_gate} doesn't keep rendering as live on
-     * the rail forever. Cancels the round's backing {@code review_round}
-     * run (which closes its backing stage) and flips the round itself to
-     * {@code closed}. A no-op if the task has no live round.
+     * or an in-app cancel) so no round history remains actionable. Cancels
+     * backing runs and closes every non-closed round, including paused and
+     * posted rows. A no-op if all of the task's rounds are already closed.
      */
     void closeOpenRounds(String taskId, String reason);
+
+    /** Same-transaction terminal projection for an enclosing task command. */
+    void closeOpenRoundsInCommand(String taskId, String reason);
 
     /**
      * The gate: post every drafted reply in the round + push whatever the

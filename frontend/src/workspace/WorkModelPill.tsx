@@ -239,12 +239,7 @@ export function WorkModelPill({
         aria-expanded={open}
       >
         <span style={pillTextStyle}>{label}</span>
-        {workspaceVariant ? (
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8b949e"
-            strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="m6 9 6 6 6-6" />
-          </svg>
-        ) : <span style={pillChevStyle} aria-hidden>⌄</span>}
+        {!workspaceVariant && <span style={pillChevStyle} aria-hidden>⌄</span>}
       </button>
       {open && pos !== null && createPortal(
         <div

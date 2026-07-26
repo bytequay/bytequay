@@ -1504,14 +1504,6 @@
   font-size: 13px;
 }
 
-.task-brain .shell .composer .footer .plus {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  color: #c8c2ba;
-  font-size: 0;
-}
-
 .task-brain .shell .composer .footer .send {
   width: 30px;
   height: 30px;
@@ -1521,7 +1513,6 @@
   font-size: 0;
 }
 
-.task-brain .shell .composer .footer .plus svg,
 .task-brain .shell .composer .footer .send svg {
   display: block;
 }

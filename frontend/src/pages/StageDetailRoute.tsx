@@ -754,7 +754,6 @@ export function StageDetailRoute({
     ?? data?.stage.metrics.wallTimeSec
     ?? (data === null ? 0 : Math.max(0, Math.round((Date.parse(data.stage.closedAt ?? new Date().toISOString())
       - Date.parse(data.stage.openedAt)) / 1000)));
-  const stageContext = data?.context ?? brain.rightRail.context;
   const retryingExhaustedCi = brain.task.paused
     && brain.task.currentPhase === 'NEEDS_ATTENTION'
     && ['ci fix attempts exhausted', 'ci fix no changes'].some(
@@ -835,12 +834,6 @@ export function StageDetailRoute({
         onImagesChange: setImages,
         modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'stage', stageId }}
           agentLockPending={working} />,
-        usage: {
-          contextPercent: stageContext.tokensLimit > 0
-            ? Math.round((stageContext.tokensUsed / stageContext.tokensLimit) * 100)
-            : 0,
-          sessionLabel: `${stageContext.tokensUsed.toLocaleString('en-US')} tokens`,
-        },
         meta: `Stage ${stagePosition} of ${Math.max(1, topLevelStages.length)} · ${formatDuration(stageDurationSec)}`,
       }}
       run={{

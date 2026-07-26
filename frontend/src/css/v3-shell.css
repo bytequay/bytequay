@@ -811,23 +811,6 @@
   align-items: center;
   gap: 8px;
 }
-.shell .composer .footer .plus {
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-3);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 16px;
-  cursor: pointer;
-  border: 0;
-  font-family: inherit;
-}
-.shell .composer .footer .plus:hover {
-  background: var(--bg-hover);
-}
 .shell .composer .footer .grow {
   flex: 1;
 }

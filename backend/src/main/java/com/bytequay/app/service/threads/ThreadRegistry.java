@@ -38,6 +38,7 @@ import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.skills.SkillMaterializer;
 import com.bytequay.app.service.stage.AgentContextDigest;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
+import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.bytequay.app.service.workspaces.WorkspaceService;
@@ -486,6 +487,14 @@ public class ThreadRegistry
     public ThreadAgent getOrCreateTrunk(Thread thread)
     {
         requireNonNull(thread, "thread is null");
+        // A cached trunk outlives picker changes made anywhere in the
+        // cascade — including the workspace default, which has no
+        // per-thread notification. Re-check the resolved choice on every
+        // attach so the next turn runs the agent the user actually picked.
+        ThreadAgent live = trunkSessions.get(thread.id());
+        if (live != null && !runtimeMatches(live, resolveWorkModel(thread))) {
+            trunkSessions.remove(thread.id(), live);
+        }
         return trunkSessions.computeIfAbsent(thread.id(), id -> buildTrunk(thread));
     }
 
@@ -509,17 +518,15 @@ public class ThreadRegistry
     }
 
     /** Apply a picker change to the next trunk turn without interrupting an
-     *  in-flight subprocess. Switching CLI families drops the cached wrapper
-     *  so the next turn rebuilds it with the matching provider adapter. */
+     *  in-flight subprocess. Switching lane or CLI family drops the cached
+     *  wrapper so the next turn rebuilds it with the matching runtime. */
     public void updateTrunkWorkModel(String threadId, WorkModel workModel)
     {
         ThreadAgent current = trunkSessions.get(threadId);
-        if (current == null || workModel == null || workModel.kind() != WorkModelKind.CLI) {
+        if (current == null || workModel == null) {
             return;
         }
-        boolean currentCodex = current instanceof CodexCliThreadAgent;
-        boolean nextCodex = "codex".equals(workModel.agentOrProvider());
-        if (currentCodex != nextCodex) {
+        if (!runtimeMatches(current, workModel)) {
             trunkSessions.remove(threadId, current);
             return;
         }
@@ -780,44 +787,47 @@ public class ThreadRegistry
     {
         // The CLI agent binds to the explicit task the caller resolved for
         // this stage, rather than re-deriving it inside the agent ctor.
-        // Resolved once via the full stage → task → thread → workspace →
-        // global cascade — a stage's session is built once and reused
-        // across every iteration within it (see getOrCreate), so this is a
-        // stage-open-time decision, not re-evaluated per turn.
+        // Resolved once per stage — a stage's session is built once and
+        // reused across every iteration within it (see getOrCreate), so
+        // this is a stage-open-time decision, not re-evaluated per turn.
         // A brain thread points at its parent task, which belongs to the
         // development thread. Its model is therefore resolved from the brain
         // thread itself; asking the task/stage cascade to validate that pair
         // incorrectly reports "task is not on thread".
-        WorkModel resolved = thread.kind() == ThreadKind.BRAIN_AGENT
-                ? null
-                : resolveWorkModelForStage(thread, boundTask, stageId);
-        ThreadAgent agent = switch (thread.kind()) {
-            case CLI_AGENT -> isCodex(thread, resolved)
-                    ? new CodexCliThreadAgent(
-                            thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
-                            workspaceMemorySupplier(thread, stageAudience(thread, stageId)),
-                            resolveTaskRoleSkill(boundTask),
-                            boundTask, cliModelOverride(resolved), cliReasoningEffort(resolved))
-                    : new ClaudeCodeCliThreadAgent(
-                            thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                            workspaceMemorySupplier(thread, stageAudience(thread, stageId)), skillMaterializer,
-                            resolveTaskRoleSkill(boundTask),
-                            boundTask, cliModelOverride(resolved), cliReasoningEffort(resolved));
-            case LOGIC_LOOP -> {
-                String workingDir = boundTask != null
-                        ? boundTask.workingDir()
-                        : trunkCwdResolver.apply(thread);
-                yield new LogicLoopThreadAgent(
+        ThreadAgent agent;
+        if (thread.kind() == ThreadKind.BRAIN_AGENT) {
+            agent = buildBrain(thread);
+        }
+        else {
+            // The resolved choice — not the ThreadKind frozen at creation —
+            // decides which runtime spawns. A thread created before the
+            // workspace pick changed (or created with the frontend's
+            // CLI_AGENT default) must still run whatever the workspace now
+            // says, otherwise every thread silently falls back to Claude Code.
+            String audience = stageAudience(thread, stageId);
+            WorkModel resolved = resolveWorkModelForStage(thread, boundTask, stageId);
+            agent = switch (resolved.kind()) {
+                case API -> new LogicLoopThreadAgent(
                         thread, store, mapper, executor,
-                        credentialService, resolved, workingDir,
+                        credentialService, resolved,
+                        boundTask != null ? boundTask.workingDir() : trunkCwdResolver.apply(thread),
                         roleWithKnowledge(
-                                resolveTaskRoleSkill(boundTask), thread,
-                                stageAudience(thread, stageId)),
+                                resolveTaskRoleSkill(boundTask), thread, audience),
                         toolRegistry,
                         ds4, ds4Instrumentation, gate);
-            }
-            case BRAIN_AGENT -> buildBrain(thread);
-        };
+                case CLI -> isCodex(resolved)
+                        ? new CodexCliThreadAgent(
+                                thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
+                                workspaceMemorySupplier(thread, audience),
+                                resolveTaskRoleSkill(boundTask),
+                                boundTask, cliModelOverride(resolved), cliReasoningEffort(resolved))
+                        : new ClaudeCodeCliThreadAgent(
+                                thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                                workspaceMemorySupplier(thread, audience), skillMaterializer,
+                                resolveTaskRoleSkill(boundTask),
+                                boundTask, cliModelOverride(resolved), cliReasoningEffort(resolved));
+            };
+        }
         if (agent instanceof AbstractCliThreadAgent cli && boundTask != null) {
             Optional<Path> checkout = taskCheckout(boundTask);
             checkout.ifPresent(path -> {
@@ -839,35 +849,30 @@ public class ThreadRegistry
                 .map(Path::of);
     }
 
-    /** The resolved cascade's model id, but only when it's actually a CLI
-     *  choice — a resolution that came out API-kind for a CLI_AGENT thread
-     *  means the override is inconsistent with the thread's own kind, and
-     *  passing an API model id as {@code --model}/{@code -m} would be
-     *  wrong, so this falls back to null (the CLI's own default) instead. */
+    /** The resolved cascade's model id, for a choice already known to be
+     *  CLI-kind (the only branch that spawns a CLI). Empty is an intentional
+     *  "let this CLI use its own default"; null means no cascade override was
+     *  supplied and constructors may fall back to the legacy model stored on
+     *  the Thread row. */
     private static String cliModelOverride(WorkModel resolved)
     {
-        if (resolved.kind() != WorkModelKind.CLI) {
-            return null;
-        }
-        // Empty is an intentional "let this CLI use its own default";
-        // null means no cascade override was supplied and constructors may
-        // fall back to the legacy model stored on the Thread row.
         return resolved.model() == null ? "" : resolved.model();
     }
 
     private static String cliReasoningEffort(WorkModel resolved)
     {
-        return resolved.kind() == WorkModelKind.CLI ? resolved.reasoningEffort() : null;
+        return resolved.reasoningEffort();
     }
 
-    /** Resolves the effective work model for a stage's spawn: stage → task
-     *  → thread → workspace → global default. Falls back to the thread-only
-     *  cascade on the legacy 0-task path (no bound task) or when the
-     *  resolver isn't wired (test paths). */
+    /** Resolves the effective work model for a stage's spawn: the
+     *  workspace's engine for {@code audience}, wearing the nearest scope's
+     *  reasoning effort (stage → task → thread). Falls back to the
+     *  thread-only cascade on the legacy 0-task path (no bound task) or
+     *  when the resolver isn't wired (test paths). */
     private WorkModel resolveWorkModelForStage(Thread thread, Task boundTask, String stageId)
     {
         if (boundTask == null || workModelResolver == null) {
-            return resolveWorkModel(thread.id());
+            return resolveWorkModel(thread);
         }
         if (stageId != null && !stageId.isBlank()) {
             return workModelResolver.resolveForStage(thread.id(), boundTask.id(), stageId).choice();
@@ -877,13 +882,32 @@ public class ThreadRegistry
 
     private ThreadAgent buildTrunk(Thread thread)
     {
-        return switch (thread.kind()) {
-            case CLI_AGENT -> {
-                WorkModel resolved = resolveWorkModel(thread.id());
-                // The resolver applies whatever base movement the background
-                // fetcher brought down; an unmoved base reopens cheaply.
-                String initialCwd = trunkCwdResolver.apply(thread);
-                AbstractCliThreadAgent agent = isCodex(thread, resolved)
+        // Brain turns carry no task id in the turn row, but the thread
+        // kind still builds the task-brain runtime, not a trunk planner.
+        if (thread.kind() == ThreadKind.BRAIN_AGENT) {
+            return buildBrain(thread);
+        }
+        // As in buildStage: the resolved cascade picks the runtime, so a
+        // workspace-level pick reaches the trunk even on a thread whose
+        // row still says CLI_AGENT.
+        WorkModel resolved = resolveWorkModel(thread);
+        // The resolver applies whatever base movement the background
+        // fetcher brought down; an unmoved base reopens cheaply.
+        String initialCwd = trunkCwdResolver.apply(thread);
+        ThreadAgent agent = switch (resolved.kind()) {
+            case API -> {
+                LogicLoopThreadAgent loop = new LogicLoopThreadAgent(
+                        thread, store, mapper, executor,
+                        credentialService, resolved, initialCwd,
+                        roleWithKnowledge(
+                                roleRegistry == null ? null : roleRegistry.trunkTemplate(),
+                                thread, trunkAudience(thread)),
+                        toolRegistry, ds4, ds4Instrumentation, gate);
+                loop.setPreTurnHook(trunkPlanningPreTurnHook(thread));
+                yield loop;
+            }
+            case CLI -> {
+                AbstractCliThreadAgent cli = isCodex(resolved)
                         ? new CodexCliThreadAgent(
                                 thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
                                 workspaceMemorySupplier(thread, trunkAudience(thread)),
@@ -900,25 +924,11 @@ public class ThreadRegistry
                                 ClaudeCodeCliThreadAgent.TrunkMode.ENABLED,
                                 cliModelOverride(resolved),
                                 cliReasoningEffort(resolved));
-                agent.setPreTurnHook(trunkPlanningPreTurnHook(thread));
-                yield withManagedSkillBundle(agent);
+                cli.setPreTurnHook(trunkPlanningPreTurnHook(thread));
+                yield cli;
             }
-            case LOGIC_LOOP -> {
-                WorkModel resolved = resolveWorkModel(thread.id());
-                LogicLoopThreadAgent agent = new LogicLoopThreadAgent(
-                        thread, store, mapper, executor,
-                        credentialService, resolved, trunkCwdResolver.apply(thread),
-                        roleWithKnowledge(
-                                roleRegistry == null ? null : roleRegistry.trunkTemplate(),
-                                thread, trunkAudience(thread)),
-                        toolRegistry, ds4, ds4Instrumentation, gate);
-                agent.setPreTurnHook(trunkPlanningPreTurnHook(thread));
-                yield withManagedSkillBundle(agent);
-            }
-            // Brain turns carry no task id in the turn row, but the thread
-            // kind still builds the task-brain runtime, not a trunk planner.
-            case BRAIN_AGENT -> buildBrain(thread);
         };
+        return withManagedSkillBundle(agent);
     }
 
     /**
@@ -963,7 +973,7 @@ public class ThreadRegistry
      */
     private ThreadAgent buildBrain(Thread thread)
     {
-        WorkModel resolved = resolveWorkModel(thread.id());
+        WorkModel resolved = resolveWorkModel(thread);
         String workingDir = thread.parentTaskId() == null
                 ? null
                 : taskStore.findTaskById(thread.parentTaskId())
@@ -1026,37 +1036,26 @@ public class ThreadRegistry
 
     private String trunkAudience(Thread thread)
     {
-        return thread.flow() == ThreadFlow.REVIEW
-                ? "review"
-                : "plan";
+        return SessionAudience.forThread(thread);
     }
 
     private String stageAudience(Thread thread, String stageId)
     {
         if (thread.flow() == ThreadFlow.REVIEW) {
-            return "review";
+            return SessionAudience.REVIEW;
         }
         if (stageStore == null || stageId == null || stageId.isBlank()) {
-            return "dev";
+            return SessionAudience.forTask(thread);
         }
         try {
-            StageType type = stageStore.findStageById(UUID.fromString(stageId))
+            return SessionAudience.forStage(thread, stageStore.findStageById(UUID.fromString(stageId))
                     .map(stage -> stage.type())
-                    .orElse(null);
-            if (type == StageType.CI_FIXING_STAGE) {
-                return "ci-fix";
-            }
-            if (type == StageType.PLAN_STAGE) {
-                return "plan";
-            }
-            if (type == StageType.REVIEW_STAGE || type == StageType.REVIEW_ROUND_STAGE) {
-                return "review";
-            }
+                    .orElse(null));
         }
         catch (IllegalArgumentException ignored) {
             // A legacy non-UUID stage key is ordinary development work.
+            return SessionAudience.DEV;
         }
-        return "dev";
     }
 
     /**
@@ -1077,32 +1076,48 @@ public class ThreadRegistry
         return role + "\n\n" + digest;
     }
 
-    /** Whether a CLI-agent thread should run the {@code codex} binary
-     *  rather than {@code claude}. Keyed on the provider stored at thread
-     *  creation ({@code "codex"} vs {@code "claude-code"}), so it doesn't
-     *  need the work-model resolver. */
-    private static boolean isCodex(Thread thread)
+    /** Whether the resolved CLI choice runs the {@code codex} binary
+     *  rather than {@code claude}. */
+    private static boolean isCodex(WorkModel resolved)
     {
-        return "codex".equals(thread.provider());
+        return "codex".equals(resolved.agentOrProvider());
     }
 
-    private static boolean isCodex(Thread thread, WorkModel resolved)
+    /** Whether a live session is still the runtime the resolved choice
+     *  asks for. A lane switch (CLI ↔ API) or a CLI family switch means
+     *  the cached wrapper has to be rebuilt, not just re-modelled. */
+    private static boolean runtimeMatches(ThreadAgent agent, WorkModel resolved)
     {
-        if (resolved.kind() == WorkModelKind.CLI) {
-            return "codex".equals(resolved.agentOrProvider());
+        if (resolved.kind() == WorkModelKind.API) {
+            return agent instanceof LogicLoopThreadAgent;
         }
-        return isCodex(thread);
+        return isCodex(resolved)
+                ? agent instanceof CodexCliThreadAgent
+                : agent instanceof ClaudeCodeCliThreadAgent;
     }
 
-    private WorkModel resolveWorkModel(String threadId)
+    /** The work model the thread's next turn will actually run with.
+     *  Public so the scheduler can pick the matching resource lane
+     *  before any session exists. */
+    public WorkModel resolvedWorkModel(Thread thread)
+    {
+        return resolveWorkModel(thread);
+    }
+
+    private WorkModel resolveWorkModel(Thread thread)
     {
         if (workModelResolver != null) {
-            WorkModelResolver.Resolved resolved = workModelResolver.resolveForThread(threadId);
+            WorkModelResolver.Resolved resolved = workModelResolver.resolveForThread(thread.id());
             if (resolved != null) {
                 return resolved.choice();
             }
         }
-        // Fallback for test paths where the resolver isn't wired.
+        // Fallback for test paths where the resolver isn't wired: the kind
+        // frozen on the row is the only signal left for which runtime to run.
+        if (thread.kind() == ThreadKind.CLI_AGENT) {
+            return new WorkModel(WorkModelKind.CLI,
+                    "codex".equals(thread.provider()) ? "codex" : "claude-code", null, null);
+        }
         return new WorkModel(WorkModelKind.API, "anthropic", null, null);
     }
 

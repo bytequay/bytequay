@@ -23,6 +23,7 @@ import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.service.WorkspaceInsightsService;
 import com.bytequay.app.service.WorkspaceInsightsService.Insights;
+import com.bytequay.app.service.learning.ProjectLearningService;
 import com.bytequay.app.service.workspaces.MemoryItemService;
 import com.bytequay.app.service.workspaces.WorkspaceMemoryDistiller;
 import com.bytequay.app.service.workspaces.WorkspaceMemoryProposalService;
@@ -62,6 +63,7 @@ public class WorkspaceController
     private final WorkspaceInsightsService insights;
     private final MemoryItemService memoryItems;
     private final WorkspaceOverviewService overview;
+    private final ProjectLearningService projectLearning;
 
     public WorkspaceController(
             WorkspaceService workspaces,
@@ -69,7 +71,8 @@ public class WorkspaceController
             WorkspaceMemoryProposalService proposals,
             WorkspaceInsightsService insights,
             MemoryItemService memoryItems,
-            WorkspaceOverviewService overview)
+            WorkspaceOverviewService overview,
+            ProjectLearningService projectLearning)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.distiller = requireNonNull(distiller, "distiller is null");
@@ -77,6 +80,7 @@ public class WorkspaceController
         this.insights = requireNonNull(insights, "insights is null");
         this.memoryItems = requireNonNull(memoryItems, "memoryItems is null");
         this.overview = requireNonNull(overview, "overview is null");
+        this.projectLearning = requireNonNull(projectLearning, "projectLearning is null");
     }
 
     /** GET /api/workspaces/{id}/insights?window=7d */
@@ -137,7 +141,9 @@ public class WorkspaceController
     {
         requireNotBlank(owner, "owner is required");
         requireNotBlank(repo, "repo is required");
-        return workspaces.ensureForVerifiedClone(owner, repo);
+        Workspace workspace = workspaces.ensureForVerifiedClone(owner, repo);
+        projectLearning.enqueue(workspace.id(), owner + "/" + repo, "watch");
+        return workspace;
     }
 
     /** PATCH /api/workspaces/{id} — partial update. Today only the

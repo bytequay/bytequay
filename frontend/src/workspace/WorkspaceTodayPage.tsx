@@ -236,9 +236,13 @@ function WorkspaceOnboarding({
   const [seeding, setSeeding] = useState(false);
   const [learningBusy, setLearningBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasLearning = state.learningState !== null;
   const milestones = Number(state.cloneComplete)
+    + Number(state.syncState === 'ready')
     + Number(state.memorySeedComplete)
-    + Number(state.firstTrunkComplete || threadCount > 0);
+    + Number(state.firstTrunkComplete || threadCount > 0)
+    + Number(state.learningState !== null && learningDone(state.learningState));
+  const milestoneTotal = hasLearning ? 5 : 4;
   const progress = state.syncTotal <= 0
     ? 0
     : Math.min(100, Math.round(state.syncCurrent / state.syncTotal * 100));
@@ -253,7 +257,7 @@ function WorkspaceOnboarding({
       <section className="wu-onboarding-card">
       <header>
         <h2>Set up {workspaceName}</h2>
-        <span>{milestones} of 3 done</span>
+        <span>{milestones} of {milestoneTotal} done</span>
         <button type="button" onClick={() => void onDismiss()}>Dismiss</button>
       </header>
       <div className={`wu-onboarding-step ${state.cloneComplete ? 'done' : 'active'}`}>
@@ -335,6 +339,10 @@ function WorkspaceOnboarding({
                 {state.learningPendingLessons === 1 ? '' : 's'} need review
               </button>
             )}
+            {state.learningLastError !== undefined && state.learningLastError !== null
+              && state.learningLastError !== '' && (
+              <small className="wu-onboarding-error">{state.learningLastError}</small>
+            )}
           </div>
           {learningAction(state.learningState) !== null && (
             <button
@@ -395,7 +403,8 @@ function MilestoneIcon({ done = false, active = false }: {
 
 function onboardingComplete(state: WorkspaceOnboardingDto): boolean {
   return state.cloneComplete && state.syncState === 'ready'
-    && state.memorySeedComplete && state.firstTrunkComplete;
+    && state.memorySeedComplete && state.firstTrunkComplete
+    && (state.learningState === null || learningDone(state.learningState));
 }
 
 function learningLive(state: string): boolean {

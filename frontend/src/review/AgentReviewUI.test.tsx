@@ -154,6 +154,7 @@ describe('agent review UI', () => {
 
   it('renders the PR review history in event order with stable finding labels and round-scoped plan data', () => {
     const data = fixture();
+    data.objectives[0] = { ...data.objectives[0], source: 'project-intelligence' };
     const secondRound = { ...data.rounds[0], id: 'round-2', agent_run_id: 'run-2' };
     data.rounds.push(secondRound);
     data.runs.push({ ...data.runs[0], id: 'run-2', reviewRoundId: 'round-2' });
@@ -166,6 +167,7 @@ describe('agent review UI', () => {
     const { container } = render(<AgentReviewTimeline data={data} />);
     const text = container.textContent ?? '';
     expect(text).toContain('2 objectives · cap $0.50');
+    expect(text).toContain('project intelligence');
     expect(text).toContain('2 reviewers');
     expect(text).toContain('Verifier rejected F3 — dropped');
     expect(text).toContain('The cited span contradicts the proposed finding.');

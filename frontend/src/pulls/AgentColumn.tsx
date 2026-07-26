@@ -197,6 +197,12 @@ function PlanningMilestone({ round, model }: { round: ReviewRoundRow; model: Age
           <span style={{ flex: 1, height: 1, background: '#eef0f2' }} />
         </div>
         <div style={{ fontSize: 13.5, color: '#1f2328', lineHeight: 1.65 }}>{prose}</div>
+        {model.learnedObjectives.length > 0 && (
+          <div style={{ marginTop: 7, padding: '7px 10px', borderLeft: `3px solid ${PURPLE}`, background: 'rgba(130,80,223,0.04)', fontSize: 12.5, color: '#454c54', lineHeight: 1.55 }}>
+            <b style={{ color: PURPLE, fontWeight: 600 }}>Project Intelligence focus</b>
+            {' · '}{model.learnedObjectives.join(' · ')}
+          </div>
+        )}
       </div>
     </div>
   );

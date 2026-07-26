@@ -54,6 +54,8 @@ public class ProjectIntelligenceToolHandlers
     private static final int DOCS_LIMIT = 4;
     private static final int EVIDENCE_LIMIT = 4;
     private static final int CONCEPT_LIMIT = 3;
+    private static final int CAPSULE_CHAR_LIMIT = 4_000;
+    private static final String TRUNCATION_MARKER = "\n… (truncated)";
 
     private final KnowledgeRetrievalService retrieval;
     private final KnowledgeItemStore knowledge;
@@ -92,10 +94,11 @@ public class ProjectIntelligenceToolHandlers
 
     @AgentTool(
             name = "explore_project",
-            description = "Ask one question about this project and get typed references: "
-                    + "active project knowledge (with PR/doc provenance), live workspace "
-                    + "memory, indexed documentation sections, related merged-PR evidence, "
-                    + "and glossary terms. Returns references to read, not a prose answer.",
+            description = "Ask one question about this project and get its bounded capsule "
+                    + "plus typed references: active project knowledge (with PR/doc "
+                    + "provenance), live workspace memory, indexed documentation sections, "
+                    + "related merged-PR evidence, and glossary terms. Returns references "
+                    + "to read, not a prose answer.",
             whenToUse = "First stop for what-does-X-mean, how-does-X-work, or "
                     + "were-there-prior-decisions questions before deep file reading. "
                     + "Follow the returned refs with read_file / lookup_memory / "
@@ -126,6 +129,10 @@ public class ProjectIntelligenceToolHandlers
         learningRuns.latestRun(workspaceId, repo)
                 .map(ProjectLearningRun::snapshotSha)
                 .ifPresent(sha -> project.put("snapshot", sha));
+        learningRuns.capsule(workspaceId, repo)
+                .map(ProjectIntelligenceToolHandlers::boundedCapsule)
+                .filter(capsule -> !capsule.isBlank())
+                .ifPresent(capsule -> project.put("capsule", capsule));
 
         ArrayNode knowledgeOut = out.putArray("knowledge");
         for (KnowledgeRetrievalService.Retrieved entry : retrieval.retrieve(
@@ -144,8 +151,14 @@ public class ProjectIntelligenceToolHandlers
                 node.put("possiblyStale", true);
             }
             ArrayNode sources = node.putArray("sources");
-            knowledge.provenance(item.id()).forEach(source ->
-                    sources.add(source.sourceKind() + ":" + source.sourceRef()));
+            knowledge.provenance(item.id()).forEach(source -> {
+                ObjectNode provenance = sources.addObject();
+                provenance.put("ref", source.sourceRef());
+                provenance.put("kind", source.sourceKind());
+                putIfPresent(provenance, "url", source.url());
+                putIfPresent(provenance, "path", source.filePath());
+                putIfPresent(provenance, "commit", source.commitSha());
+            });
         }
 
         ArrayNode memoryOut = out.putArray("memory");
@@ -187,6 +200,22 @@ public class ProjectIntelligenceToolHandlers
         }
 
         return ToolOutcome.Completed.ok(out.toString());
+    }
+
+    private static void putIfPresent(ObjectNode node, String field, String value)
+    {
+        if (value != null && !value.isBlank()) {
+            node.put(field, value);
+        }
+    }
+
+    private static String boundedCapsule(String capsule)
+    {
+        if (capsule.length() <= CAPSULE_CHAR_LIMIT) {
+            return capsule;
+        }
+        return capsule.substring(0, CAPSULE_CHAR_LIMIT - TRUNCATION_MARKER.length())
+                + TRUNCATION_MARKER;
     }
 
     private void addConcept(ArrayNode conceptsOut, ConceptSpec spec)

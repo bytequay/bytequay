@@ -200,6 +200,7 @@ export type AgentConversationModel = {
   finished: boolean;
   scope: string;
   objectives: ConversationObjective[];
+  learnedObjectives: string[];
   doneObjectives: number;
   investigators: ConversationInvestigator[];
   doneInvestigators: number;
@@ -440,6 +441,10 @@ export function buildConversationModel(data: AgentReviewData, round: ReviewRound
       : states[index] ?? 'queued';
     return { id: objective.id, title: objective.statement, resolution: objective.resolution_status, state };
   });
+  const learnedObjectives = objectives
+    .filter(objective => objective.source === 'project-intelligence'
+      && objective.applicability_status === 'applicable')
+    .map(objective => objective.statement);
   const totalFindingCounts = findingCounts(data, roundFindings);
   return {
     roundId: round.id,
@@ -449,6 +454,7 @@ export function buildConversationModel(data: AgentReviewData, round: ReviewRound
     finished,
     scope: round.scope,
     objectives: objectiveRows,
+    learnedObjectives,
     doneObjectives: objectiveRows.filter(objective => objective.state === 'done').length,
     investigators,
     doneInvestigators: investigators.filter(investigator => investigator.state === 'done').length,

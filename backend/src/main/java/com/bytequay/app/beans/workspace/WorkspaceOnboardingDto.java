@@ -23,9 +23,11 @@ public record WorkspaceOnboardingDto(
         boolean firstTrunkComplete,
         boolean memoryImported,
         // Project-learning card state, derived from the durable learning run.
-        // Null until a run exists. The workspace is usable while learning
-        // continues, so these never gate completion.
+        // Null until a run exists. The workspace remains usable while learning
+        // continues, but onboarding stays visible until the initial knowledge
+        // bar is useful or the available history is caught up.
         String learningState,
+        String learningLastError,
         int learningCataloged,
         int learningAnalyzed,
         int learningLessons,
@@ -38,6 +40,9 @@ public record WorkspaceOnboardingDto(
         return cloneComplete
                 && "ready".equals(syncState)
                 && memorySeedComplete
-                && firstTrunkComplete;
+                && firstTrunkComplete
+                && (learningState == null
+                        || "useful".equals(learningState)
+                        || "caught-up".equals(learningState));
     }
 }

@@ -1022,10 +1022,11 @@ public class ThreadRegistry
     private Supplier<String> workspaceMemorySupplier(Thread thread, String audience)
     {
         if (sessionKnowledge != null) {
-            // The thread title is the retrieval hint: a scheduler thread pulls
-            // scheduler knowledge into context, not unrelated conventions.
-            return () -> sessionKnowledge.render(
-                    thread.workspaceId(), audience, thread.title());
+            // Title + latest request + approved code area form the retrieval
+            // hint, so a scoped scheduler thread pulls the relevant project
+            // knowledge without changing its repository-root checkout.
+            return () -> sessionKnowledge.renderForThread(
+                    thread.workspaceId(), thread.id(), audience, thread.title());
         }
         return () -> workspaceMemoryProvider.apply(thread);
     }
@@ -1035,8 +1036,8 @@ public class ThreadRegistry
         if (sessionKnowledge == null) {
             return role;
         }
-        String context = sessionKnowledge.render(
-                thread.workspaceId(), audience, thread.title());
+        String context = sessionKnowledge.renderForThread(
+                thread.workspaceId(), thread.id(), audience, thread.title());
         if (context.isBlank()) {
             return role;
         }

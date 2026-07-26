@@ -149,6 +149,9 @@ public class PonytailBundleService
         skills.put(ManagedSkillPolicy.TASK_EXECUTION, new ManagedSkill(
                 ManagedSkillPolicy.TASK_EXECUTION,
                 readResource("managed-skills/bytequay/task-execution/SKILL.md")));
+        skills.put(ManagedSkillPolicy.I_HAVE_ADHD, new ManagedSkill(
+                ManagedSkillPolicy.I_HAVE_ADHD,
+                readResource("managed-skills/i-have-adhd/16a42a01f7783e29db8557dfc46226baf8015618/SKILL.md")));
         return new ManagedSkillBundle(bundle.version(), bundle.source(), Map.copyOf(skills));
     }
 

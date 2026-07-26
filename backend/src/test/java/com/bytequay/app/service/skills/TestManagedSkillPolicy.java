@@ -47,18 +47,18 @@ class TestManagedSkillPolicy
     }
 
     @Test
-    void brainReviewGetsPonytailReviewCodeGraphAndCaveman()
+    void brainReviewGetsItsReviewAndOutputSkills()
     {
         assertThat(policy.skillNames(ThreadKind.BRAIN_AGENT, turn("brain-review"), null))
-                .containsExactly("ponytail-review", "codegraph-first", CavemanPrompt.NAME);
+                .containsExactly("ponytail-review", "codegraph-first", "i-have-adhd", CavemanPrompt.NAME);
     }
 
     @Test
-    void everyTrunkTurnGetsPlannerAndCodeGraphGuidance()
+    void everyTrunkTurnGetsPlannerAndOutputGuidance()
     {
         assertThat(policy.skillNames(
                 ThreadKind.CLI_AGENT, turn("user", "what did you find?"), null))
-                .containsExactly("trunk-planner", "codegraph-first", CavemanPrompt.NAME);
+                .containsExactly("trunk-planner", "codegraph-first", "i-have-adhd", CavemanPrompt.NAME);
     }
 
     @Test
@@ -66,15 +66,15 @@ class TestManagedSkillPolicy
     {
         assertThat(policy.skillNames(
                 ThreadKind.LOGIC_LOOP, turn("backlog-start", "please review this"), null))
-                .containsExactly("trunk-planner", "codegraph-first", CavemanPrompt.NAME);
+                .containsExactly("trunk-planner", "codegraph-first", "i-have-adhd", CavemanPrompt.NAME);
     }
 
     @Test
     void normalBrainGetsCodeGraphGuidance()
     {
         assertThat(policy.skillNames(
-                ThreadKind.BRAIN_AGENT, turn("user", "go ahead and implement this"), null))
-                .containsExactly("codegraph-first", CavemanPrompt.NAME);
+                ThreadKind.BRAIN_AGENT, turn("user", "go ahead and implement this", "task-1"), null))
+                .containsExactly("codegraph-first", "i-have-adhd", CavemanPrompt.NAME);
     }
 
     @Test

@@ -771,11 +771,13 @@ class TestAgentScheduler
 
         assertThat(harness.registry.lastRouted).isEqualTo("brain");
         assertThat(session.inputs).containsExactly("self-review the plan");
+        assertThat(session.skillNames).containsExactly(List.of(
+                "codegraph-first", "i-have-adhd", CavemanPrompt.NAME));
         assertThat(session.mcpAgentKeys).containsExactly(stageId);
     }
 
     @Test
-    void everyTrunkTurnActivatesTrunkPlannerAndCavemanWithoutChangingUserInput()
+    void everyTrunkTurnActivatesManagedSkillsWithoutChangingUserInput()
     {
         TestHarness harness = new TestHarness(1, 4);
         Thread thread = thread("thread-1", CLI_AGENT);
@@ -785,7 +787,7 @@ class TestAgentScheduler
 
         assertThat(session.inputs).containsExactly("what did you find?");
         assertThat(session.skillNames).containsExactly(List.of(
-                "trunk-planner", "codegraph-first", CavemanPrompt.NAME));
+                "trunk-planner", "codegraph-first", "i-have-adhd", CavemanPrompt.NAME));
         assertThat(session.toolNames.getFirst())
                 .contains("codegraph_explore", "create_task")
                 .doesNotContain("run_checks", "push", "list_skills", "list_tools", "load_skill");

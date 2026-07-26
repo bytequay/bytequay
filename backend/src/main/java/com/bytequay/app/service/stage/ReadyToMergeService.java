@@ -32,7 +32,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Map;
@@ -86,7 +85,6 @@ public class ReadyToMergeService
     /** Re-evaluate the ready-to-merge state for a shipped task against its
      *  freshly-fetched PR detail, firing or auto-resetting the notification —
      *  or, once the user has approved, driving the merge automatically. */
-    @Transactional
     public void evaluate(Task task, PullRequestDetail detail)
     {
         if (detail == null) {

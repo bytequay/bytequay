@@ -61,6 +61,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -90,7 +91,6 @@ class TestTaskLifecycleDriver
     private final ThreadRegistry registry = mock(ThreadRegistry.class);
     private final StageStore stageStore = mock(StageStore.class);
     private final PRService prService = mock(PRService.class);
-    private final TaskTerminalSealer sealer = mock(TaskTerminalSealer.class);
     private final LocalReviewSubmissionStore submissions = mock(LocalReviewSubmissionStore.class);
     private final LocalReviewBrainHandoffStore handoffs = mock(LocalReviewBrainHandoffStore.class);
     private final ValidationClaimService claimedValidation = mock(ValidationClaimService.class);
@@ -99,7 +99,7 @@ class TestTaskLifecycleDriver
     private final TaskLifecycleDriver driver =
             new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees,
                     threadStore, turnStore, scheduler, notifications,
-                    commentIngestor, readyToMerge, reviewRounds, registry, stageStore, prService, sealer,
+                    commentIngestor, readyToMerge, reviewRounds, registry, stageStore, prService,
                     brainReview, submissions, handoffs, claimedValidation, new ObjectMapper(), events);
 
     @TempDir
@@ -139,7 +139,11 @@ class TestTaskLifecycleDriver
     void greenDraftIsMarkedReadyAutomaticallyAndEntersRemoteReview()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
-        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
+        Task awaitingReady = task.withPhase(TaskPhase.AWAITING_READY);
+        Task remoteReview = task.withPhase(TaskPhase.AWAITING_REMOTE_REVIEW);
+        when(taskStore.findTaskById("t1.k2")).thenReturn(
+                Optional.of(task), Optional.of(task), Optional.of(awaitingReady),
+                Optional.of(awaitingReady), Optional.of(remoteReview));
         PullRequestDetail greenDraft = detail(CiStatus.PASSING, true);
         when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenDraft);
         PR remoteDraft = pr("pr1", PR.STATUS_REMOTE_DRAFTED, null);
@@ -150,16 +154,19 @@ class TestTaskLifecycleDriver
         verify(pullRequests).setPullRequestDraft("trinodb/trino", 29897, false);
         verify(notifications).supersedeAwaitingReviewForTask("t1", "t1.k2");
         verify(prService).transition("pr1", PR.STATUS_REMOTE_OPEN, PRTimelineEntry.ACTOR_AGENT);
-        verify(phaseMachine).observe(
-                "t1.k2", TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green_marked_ready");
-        verify(reviewRounds, never()).reconcile(task);
+        verify(phaseMachine).observeRemoteCiGreen("t1.k2", true, "remote_ci_green");
+        verify(phaseMachine).observeReady("t1.k2", "ci_green_marked_ready");
+        verify(reviewRounds).reconcile(remoteReview);
     }
 
     @Test
     void greenDraftDoesNotAdvancePastAnInFlightLegacyGateResolution()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI);
-        when(taskStore.findTaskById("t1.k2")).thenReturn(Optional.of(task));
+        Task awaitingReady = task.withPhase(TaskPhase.AWAITING_READY);
+        when(taskStore.findTaskById("t1.k2")).thenReturn(
+                Optional.of(task), Optional.of(task), Optional.of(awaitingReady),
+                Optional.of(awaitingReady));
         PullRequestDetail greenDraft = detail(CiStatus.PASSING, true);
         when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(greenDraft);
         doThrow(new ResponseStatusException(HttpStatus.CONFLICT, "resolution is already in progress"))
@@ -170,8 +177,8 @@ class TestTaskLifecycleDriver
 
         verify(pullRequests, never()).setPullRequestDraft("trinodb/trino", 29897, false);
         verify(prService, never()).transition(anyString(), anyString(), anyString());
-        verify(phaseMachine, never()).observe(
-                "t1.k2", TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green_marked_ready");
+        verify(phaseMachine, never()).observeReady(
+                "t1.k2", "ci_green_marked_ready");
     }
 
     @Test
@@ -186,11 +193,9 @@ class TestTaskLifecycleDriver
         driver.reconcileTask(task);
 
         verify(pullRequests).setPullRequestDraft("trinodb/trino", 29897, false);
-        ArgumentCaptor<Task> taskCaptor = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore).saveTask(taskCaptor.capture());
-        assertThat(taskCaptor.getValue().status()).isEqualTo(TaskStatus.IN_REVIEW);
-        verify(phaseMachine).observe(
-                "t1.k2", TaskPhase.AWAITING_REMOTE_REVIEW, "ci_green_marked_ready");
+        verify(taskStore, never()).saveTask(any());
+        verify(phaseMachine).observeReady(
+                "t1.k2", "ci_green_marked_ready");
     }
 
     @Test
@@ -205,7 +210,7 @@ class TestTaskLifecycleDriver
 
         // Already ready (not draft) — the un-draft mutation must not re-fire;
         // the phase simply advances onto the remote-review spine.
-        verify(phaseMachine).observe("t1.k2", TaskPhase.AWAITING_REMOTE_REVIEW, "pr_state_observed");
+        verify(phaseMachine).observeReady("t1.k2", "remote_ready_observed");
         verify(pullRequests, never()).setPullRequestDraft(any(), anyInt(), eq(false));
     }
 
@@ -229,7 +234,6 @@ class TestTaskLifecycleDriver
         verify(worktrees).deleteRemoteBranch(task);
         // A still-open review round (e.g. mid-"Addressing") must not keep
         // rendering as live now that the task itself is terminal.
-        verify(sealer).seal("t1.k2", "pr_merged");
         // No merge event fired on this path, so the driver itself must clear
         // the task's open notifications (publish gates, budget-cap "needs you")
         // — otherwise a stale card lingers in the overview panel after merge.
@@ -273,7 +277,6 @@ class TestTaskLifecycleDriver
         verify(worktrees).reap(task);
         // A close is not a merge — leave the remote branch (the PR may reopen).
         verify(worktrees, never()).deleteRemoteBranch(any());
-        verify(sealer).seal("t1.k2", "pr_closed");
     }
 
     @Test
@@ -301,10 +304,10 @@ class TestTaskLifecycleDriver
 
         driver.reconcileTask(task);
 
-        // The phase stays at AWAITING_REMOTE_REVIEW (a no-op observe) and
-        // batching/round-launching is entirely ReviewRoundService's job now
+        // The phase stays at AWAITING_REMOTE_REVIEW and batching/round-launching is entirely ReviewRoundService's job now
         // — the driver no longer inspects review threads itself.
-        verify(phaseMachine).observe("t1.k2", TaskPhase.AWAITING_REMOTE_REVIEW, "pr_state_observed");
+        verify(phaseMachine, never()).observeReady(anyString(), anyString());
+        verify(phaseMachine, never()).observeRemoteCiGreen(anyString(), anyBoolean(), anyString());
         verify(reviewRounds).reconcile(task);
     }
 
@@ -386,7 +389,7 @@ class TestTaskLifecycleDriver
         verify(pullRequests).refreshPullRequestDetail("trinodb/trino", 29897);
         verify(pullRequests, never()).getPullRequestDetail(any(), anyInt());
         verify(taskStore).updateCiState("t1.k2", "PENDING");
-        verify(phaseMachine).observe("t1.k2", TaskPhase.PUSHED_AWAITING_CI, "pr_state_observed");
+        verify(phaseMachine, never()).observeRemoteCiGreen(anyString(), anyBoolean(), anyString());
         verify(reviewRounds, never()).reconcile(any());
     }
 

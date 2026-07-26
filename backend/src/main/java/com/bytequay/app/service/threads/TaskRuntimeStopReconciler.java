@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.ValidationClaim;
@@ -24,6 +25,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.service.checks.ValidationExecutorRegistry;
+import com.bytequay.app.service.stage.PlanStageService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -86,6 +88,7 @@ public class TaskRuntimeStopReconciler
     // completion command's choreography and also calls back into this
     // reconciler from its pause teardown callback.
     private final ObjectProvider<TaskService> taskService;
+    private final ObjectProvider<PlanStageService> planStages;
 
     public TaskRuntimeStopReconciler(
             TaskStore taskStore,
@@ -95,7 +98,8 @@ public class TaskRuntimeStopReconciler
             ThreadTurnScheduler scheduler,
             ValidationPassStore validationStore,
             ValidationExecutorRegistry executorRegistry,
-            ObjectProvider<TaskService> taskService)
+            ObjectProvider<TaskService> taskService,
+            ObjectProvider<PlanStageService> planStages)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
@@ -105,6 +109,7 @@ public class TaskRuntimeStopReconciler
         this.validationStore = requireNonNull(validationStore, "validationStore is null");
         this.executorRegistry = requireNonNull(executorRegistry, "executorRegistry is null");
         this.taskService = requireNonNull(taskService, "taskService is null");
+        this.planStages = requireNonNull(planStages, "planStages is null");
     }
 
     /**
@@ -225,12 +230,17 @@ public class TaskRuntimeStopReconciler
 
     private void completePendingRecovery(Task task)
     {
-        if (task.status() != TaskStatus.NEEDS_ATTENTION
-                || taskStore.recoveryRequest(task.id()).isEmpty()
-                || !runtimeStopped(task.id())) {
+        if (task.status() != TaskStatus.NEEDS_ATTENTION || !runtimeStopped(task.id())) {
             return;
         }
-        taskService.getObject().completeRequestedRecovery(task.id());
+        taskStore.recoveryRequest(task.id()).ifPresent(request -> {
+            if (TaskRecoveryRequest.KIND_REPLAN.equals(request.kind())) {
+                planStages.getObject().completeRequestedReplan(task.id());
+            }
+            else {
+                taskService.getObject().completeRequestedRecovery(task.id());
+            }
+        });
     }
 
     private void requestValidationCancellation(String taskId)

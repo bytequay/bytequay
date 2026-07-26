@@ -215,7 +215,7 @@ class TestReadyToMerge
         String threadId = seedThread();
         String taskId = seedTask(threadId);
         Task task = taskStore.findTaskById(taskId).orElseThrow();
-        reviewRounds.save(new ReviewRound(
+        reviewRounds.insert(new ReviewRound(
                 UUID.randomUUID().toString(), taskId, 1, List.of("@octocat"),
                 ReviewRound.STATUS_ADDRESSING, ReviewRound.ReviewRoundStats.empty(),
                 null, Instant.now(), null, null, ReviewRound.ORIGIN_EXTERNAL,

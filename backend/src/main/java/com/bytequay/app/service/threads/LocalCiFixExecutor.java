@@ -81,6 +81,18 @@ public class LocalCiFixExecutor
      */
     public boolean tryFix(Task task, List<ValidationFailure> failures)
     {
+        return tryFix(task, failures, false);
+    }
+
+    /** Same-transaction form used by validation acceptance. */
+    public boolean tryFixInCommand(Task task, List<ValidationFailure> failures)
+    {
+        TaskCommandExecutor.requireCurrent(task.id());
+        return tryFix(task, failures, true);
+    }
+
+    private boolean tryFix(Task task, List<ValidationFailure> failures, boolean inCommand)
+    {
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return false;
         }
@@ -103,10 +115,23 @@ public class LocalCiFixExecutor
             return false;
         }
         String stageId = stage.get().id().toString();
-        AgentRun run = agentRuns.openInStage(
-                task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_LOCAL, stageId, MAX_ATTEMPTS);
+        AgentRun run = inCommand
+                ? agentRuns.openInStageInCommand(
+                        task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_LOCAL,
+                        stageId, MAX_ATTEMPTS)
+                : agentRuns.openInStage(
+                        task.id(), AgentRun.KIND_CI_FIX, AgentRun.SOURCE_LOCAL,
+                        stageId, MAX_ATTEMPTS);
         if (run.iterations() >= MAX_ATTEMPTS) {
-            agentRuns.transition(run.id(), AgentRun.STATUS_FAILED, "local_ci_attempts_exhausted");
+            if (inCommand) {
+                agentRuns.transitionInCommand(
+                        task.id(), run.id(), AgentRun.STATUS_FAILED,
+                        "local_ci_attempts_exhausted");
+            }
+            else {
+                agentRuns.transition(
+                        run.id(), AgentRun.STATUS_FAILED, "local_ci_attempts_exhausted");
+            }
             log.info("local CI fix exhausted after {} attempts for task {}; parking", MAX_ATTEMPTS, task.id());
             return false;
         }
@@ -128,11 +153,33 @@ public class LocalCiFixExecutor
     /** Local checks passed — close any live local CI-fix run for the task. */
     public void closeIfGreen(String taskId)
     {
+        closeIfGreen(taskId, false);
+    }
+
+    /** Same-transaction form used by validation acceptance. */
+    public void closeIfGreenInCommand(String taskId)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        closeIfGreen(taskId, true);
+    }
+
+    private void closeIfGreen(String taskId, boolean inCommand)
+    {
         agentRuns.findByTask(taskId, AgentRun.KIND_CI_FIX, null).stream()
                 .filter(AgentRun::isLive)
                 .filter(run -> AgentRun.SOURCE_LOCAL.equals(run.source()))
                 .findFirst()
-                .ifPresent(run -> agentRuns.transition(run.id(), AgentRun.STATUS_SUCCEEDED, "local_checks_green"));
+                .ifPresent(run -> {
+                    if (inCommand) {
+                        agentRuns.transitionInCommand(
+                                taskId, run.id(), AgentRun.STATUS_SUCCEEDED,
+                                "local_checks_green");
+                    }
+                    else {
+                        agentRuns.transition(
+                                run.id(), AgentRun.STATUS_SUCCEEDED, "local_checks_green");
+                    }
+                });
     }
 
     private static String buildPrompt(List<ValidationFailure> failures)

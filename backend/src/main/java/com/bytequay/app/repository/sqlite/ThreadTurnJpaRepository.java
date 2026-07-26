@@ -15,6 +15,7 @@ package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -25,6 +26,58 @@ import java.util.Optional;
 interface ThreadTurnJpaRepository
         extends JpaRepository<ThreadTurnEntity, String>
 {
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+            INSERT OR IGNORE INTO thread_turns (
+                id, thread_id, task_id, lane, status, input,
+                created_at_ms, updated_at_ms, started_at_ms, finished_at_ms,
+                error_message, initiator_attended, initiator_source,
+                stage_id, scope, agent_run_id, affects_task_liveness, kick_key)
+            VALUES (
+                :id, :threadId, :taskId, :lane, :status, :input,
+                :createdAtMs, :updatedAtMs, :startedAtMs, :finishedAtMs,
+                :errorMessage, :initiatorAttended, :initiatorSource,
+                :stageId, :scope, :agentRunId, :affectsTaskLiveness, :kickKey)
+            """, nativeQuery = true)
+    int insertIfAbsent(
+            @Param("id") String id,
+            @Param("threadId") String threadId,
+            @Param("taskId") String taskId,
+            @Param("lane") String lane,
+            @Param("status") String status,
+            @Param("input") String input,
+            @Param("createdAtMs") long createdAtMs,
+            @Param("updatedAtMs") long updatedAtMs,
+            @Param("startedAtMs") Long startedAtMs,
+            @Param("finishedAtMs") Long finishedAtMs,
+            @Param("errorMessage") String errorMessage,
+            @Param("initiatorAttended") boolean initiatorAttended,
+            @Param("initiatorSource") String initiatorSource,
+            @Param("stageId") String stageId,
+            @Param("scope") String scope,
+            @Param("agentRunId") String agentRunId,
+            @Param("affectsTaskLiveness") boolean affectsTaskLiveness,
+            @Param("kickKey") String kickKey);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE ThreadTurnEntity turn
+            SET turn.status = :to,
+                turn.updatedAtMs = :updatedAtMs,
+                turn.startedAtMs = :startedAtMs,
+                turn.finishedAtMs = :finishedAtMs,
+                turn.errorMessage = :errorMessage
+            WHERE turn.id = :id AND turn.status = :expected
+            """)
+    int updateStatusIf(
+            @Param("id") String id,
+            @Param("expected") String expected,
+            @Param("to") String to,
+            @Param("updatedAtMs") long updatedAtMs,
+            @Param("startedAtMs") Long startedAtMs,
+            @Param("finishedAtMs") Long finishedAtMs,
+            @Param("errorMessage") String errorMessage);
+
     Optional<ThreadTurnEntity> findByKickKey(String kickKey);
 
     List<ThreadTurnEntity> findByTaskIdAndAffectsTaskLivenessTrueOrderByCreatedAtMsAscIdAsc(

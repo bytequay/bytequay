@@ -66,6 +66,27 @@ class ReviewRoundEntity
     @Column(name = "budget", nullable = false)
     private int budget;
 
+    @Column(name = "paused_from")
+    private String pausedFrom;
+
+    @Column(name = "code_fingerprint")
+    private String codeFingerprint;
+
+    @Column(name = "enqueue_failures", nullable = false)
+    private int enqueueFailures;
+
+    @Column(name = "kick_attempt", nullable = false)
+    private int kickAttempt;
+
+    @Column(name = "gate_revision", nullable = false)
+    private int gateRevision;
+
+    @Column(name = "active_gate_token")
+    private String activeGateToken;
+
+    @Column(name = "closed_at_ms")
+    private Long closedAtMs;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -107,4 +128,25 @@ class ReviewRoundEntity
 
     int getBudget() { return budget; }
     void setBudget(int budget) { this.budget = budget; }
+
+    String getPausedFrom() { return pausedFrom; }
+    void setPausedFrom(String pausedFrom) { this.pausedFrom = pausedFrom; }
+
+    String getCodeFingerprint() { return codeFingerprint; }
+    void setCodeFingerprint(String codeFingerprint) { this.codeFingerprint = codeFingerprint; }
+
+    int getEnqueueFailures() { return enqueueFailures; }
+    void setEnqueueFailures(int enqueueFailures) { this.enqueueFailures = enqueueFailures; }
+
+    int getKickAttempt() { return kickAttempt; }
+    void setKickAttempt(int kickAttempt) { this.kickAttempt = kickAttempt; }
+
+    int getGateRevision() { return gateRevision; }
+    void setGateRevision(int gateRevision) { this.gateRevision = gateRevision; }
+
+    String getActiveGateToken() { return activeGateToken; }
+    void setActiveGateToken(String activeGateToken) { this.activeGateToken = activeGateToken; }
+
+    Long getClosedAtMs() { return closedAtMs; }
+    void setClosedAtMs(Long closedAtMs) { this.closedAtMs = closedAtMs; }
 }

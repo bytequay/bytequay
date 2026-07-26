@@ -137,6 +137,16 @@ class SqliteReviewStore
     }
 
     @Override
+    public List<ReviewPass> listTaskStagePassesByPhases(List<ReviewPhase> phases)
+    {
+        return passes.findByTaskStageIdIsNotNullAndPhaseIn(
+                        phases.stream().map(ReviewPhase::dbValue).toList())
+                .stream()
+                .map(SqliteReviewStore::toPass)
+                .toList();
+    }
+
+    @Override
     public Optional<ReviewPass> findActivePrReview(String repoFullName, int prNumber)
     {
         return passes.findFirstByRepoFullNameAndPrNumberAndHostKindAndPhaseNotOrderByCreatedAtMsDesc(

@@ -63,6 +63,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
@@ -668,6 +669,17 @@ public class ThreadRegistry
                                 .filter(agent -> stageKeys.stream().anyMatch(key -> scopedBy(agent, key))))
                 .distinct()
                 .toList();
+    }
+
+    /** Durable stage ids currently named by cached agents. Task/thread
+     *  fallback keys are deliberately excluded: only an agent's explicit
+     *  activeStageId can be reconciled against task_stage. */
+    public Set<String> cachedStageIds()
+    {
+        return Stream.concat(sessions.values().stream(), trunkSessions.values().stream())
+                .map(ThreadAgent::activeStageId)
+                .filter(id -> id != null && !id.isBlank())
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     /** Evict + release every stage-agent in {@code stageKeys}. A raw stage

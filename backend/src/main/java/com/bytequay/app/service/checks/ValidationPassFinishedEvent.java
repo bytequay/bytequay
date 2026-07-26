@@ -23,6 +23,15 @@ import java.util.List;
 public record ValidationPassFinishedEvent(
         String taskId,
         boolean passed,
-        List<ValidationFailure> failures)
+        List<ValidationFailure> failures,
+        String claimKey,
+        String codeFingerprint,
+        Long validationEpoch)
 {
+    /** Compatibility shape for the legacy, unclaimed validation path. */
+    public ValidationPassFinishedEvent(
+            String taskId, boolean passed, List<ValidationFailure> failures)
+    {
+        this(taskId, passed, failures, null, null, null);
+    }
 }

@@ -40,8 +40,10 @@ import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorktreeLease;
+import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -79,10 +81,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import static com.bytequay.app.domain.ThreadKind.CLI_AGENT;
 import static com.bytequay.app.domain.ThreadKind.LOGIC_LOOP;
 import static com.bytequay.app.domain.ThreadTurnEventType.CODEGRAPH_POLICY;
+import static com.bytequay.app.domain.ThreadTurnEventType.SCHEDULER_ALERT;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_CANCELLED;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_FAILED;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_FINISHED;
@@ -96,6 +100,7 @@ import static com.bytequay.app.domain.ThreadTurnStatus.QUEUED;
 import static com.bytequay.app.domain.ThreadTurnStatus.RUNNING;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -407,6 +412,33 @@ class TestAgentScheduler
     }
 
     @Test
+    void taskCancellationClosesStandaloneRunsButPreservesCoordinatorRunState()
+    {
+        AgentRunService agentRuns = mock(AgentRunService.class);
+        TestHarness harness = new TestHarness(1, 4, agentRuns);
+        Thread thread = thread("thread-run-cancel", CLI_AGENT);
+        harness.register(thread);
+
+        harness.scheduler.enqueueTaskTurn(
+                thread, "running", "task-run-cancel", "stage-run-cancel",
+                TurnInitiator.user(), "run-running");
+        harness.scheduler.enqueueTaskTurn(
+                thread, "queued", "task-run-cancel", "stage-run-cancel",
+                TurnInitiator.user(), "run-queued");
+        harness.scheduler.enqueueTaskTurn(
+                thread, "coordinator", "task-run-cancel", "stage-run-cancel",
+                TurnInitiator.unattended("brain-review"), "run-coordinator");
+
+        assertThat(harness.scheduler.cancelTaskTurns("task-run-cancel")).isEqualTo(3);
+
+        String reason = "cancelled by task lifecycle action";
+        verify(agentRuns).transition("run-running", AgentRun.STATUS_CANCELLED, reason);
+        verify(agentRuns).transition("run-queued", AgentRun.STATUS_CANCELLED, reason);
+        verify(agentRuns, never()).transition(
+                "run-coordinator", AgentRun.STATUS_CANCELLED, reason);
+    }
+
+    @Test
     void budgetPauseSuppressesTheOrdinaryRunSuccessTransition()
     {
         AgentRunService agentRuns = mock(AgentRunService.class);
@@ -591,7 +623,7 @@ class TestAgentScheduler
     }
 
     @Test
-    void coordinatorOwnedTurnsLeaveTheirEpisodeRunsOpen()
+    void coordinatorOwnedTurnsReturnTheirEpisodeRunsToQueued()
     {
         AgentRunService agentRuns = mock(AgentRunService.class);
         TestHarness harness = new TestHarness(1, 4, agentRuns);
@@ -603,8 +635,8 @@ class TestAgentScheduler
                 StageState.OPEN, Instant.parse("2026-07-22T00:00:00Z"), null, null));
 
         for (String source : List.of(
-                "ci-fix-shipped", "review-round", "brain-review", "brain-review-fix",
-                "branch-guard-fix")) {
+                "address-local-comments", "local-ci-fix", "ci-fix-shipped",
+                "review-round", "brain-review", "brain-review-fix", "branch-guard-fix")) {
             String runId = "run-" + source;
             String turnId = harness.scheduler.enqueueTaskTurn(
                     thread, "coordinator step", "task-ci", stageId,
@@ -614,6 +646,8 @@ class TestAgentScheduler
             assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
                     .isEqualTo(COMPLETED);
             verify(agentRuns).transition(runId, AgentRun.STATUS_RUNNING, "scheduler started");
+            verify(agentRuns).transition(
+                    runId, AgentRun.STATUS_QUEUED, "coordinator turn completed");
             verify(agentRuns, never()).transition(
                     eq(runId), eq(AgentRun.STATUS_SUCCEEDED), eq("scheduler turn completed"));
             verify(agentRuns, never()).transition(
@@ -1037,6 +1071,189 @@ class TestAgentScheduler
     }
 
     @Test
+    void turnGraphRejectsTerminalRewrites()
+    {
+        assertThat(AgentScheduler.isLegalTurnTransition(QUEUED, RUNNING)).isTrue();
+        assertThat(AgentScheduler.isLegalTurnTransition(QUEUED, CANCELLED)).isTrue();
+        assertThat(AgentScheduler.isLegalTurnTransition(RUNNING, QUEUED)).isTrue();
+        assertThat(AgentScheduler.isLegalTurnTransition(RUNNING, COMPLETED)).isTrue();
+        assertThat(AgentScheduler.isLegalTurnTransition(COMPLETED, RUNNING)).isFalse();
+        assertThat(AgentScheduler.isLegalTurnTransition(FAILED, QUEUED)).isFalse();
+        assertThat(AgentScheduler.isLegalTurnTransition(CANCELLED, RUNNING)).isFalse();
+    }
+
+    @Test
+    void keyedEnqueueReturnsTheDurableWinnerWithoutDuplicateEvents()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-keyed", CLI_AGENT);
+        harness.register(thread);
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            String first = harness.scheduler.enqueueTaskTurnOnce(
+                    "round:1:attempt:1", thread, "review", null, null,
+                    TurnInitiator.unattended("brain-review"), null,
+                    TurnLiveness.NARRATION);
+            String replay = harness.scheduler.enqueueTaskTurnOnce(
+                    "round:1:attempt:1", thread, "duplicate", null, null,
+                    TurnInitiator.unattended("brain-review"), null,
+                    TurnLiveness.NARRATION);
+
+            assertThat(replay).isEqualTo(first);
+            assertThat(harness.turns.turns).hasSize(1);
+            assertThat(harness.events.listEventsByTaskId(thread.id(), 10))
+                    .filteredOn(event -> event.event() == TURN_QUEUED)
+                    .hasSize(1);
+        }
+        finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void taskDispatchAdmissionRechecksStoppedStateInsideTaskCommand()
+    {
+        AgentRunService agentRuns = mock(AgentRunService.class);
+        TaskCommandExecutor commands = mock(TaskCommandExecutor.class);
+        TestHarness harness = new TestHarness(
+                1, 4, agentRuns, null, null, commands);
+        Thread thread = thread("thread-command-dispatch", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        harness.tasks.setStatus("task-command-dispatch", TaskStatus.IDLE);
+        when(commands.execute(eq("task-command-dispatch"), any())).thenAnswer(invocation -> {
+            harness.tasks.setStatus("task-command-dispatch", TaskStatus.PAUSED);
+            return ((Supplier<?>) invocation.getArgument(1)).get();
+        });
+
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                thread, "must not launch", "task-command-dispatch", "stage-command-dispatch",
+                TurnInitiator.user(), "run-command-dispatch");
+
+        assertThat(session.inputs).isEmpty();
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                .isEqualTo(CANCELLED);
+        verify(commands).execute(eq("task-command-dispatch"), any());
+        verify(agentRuns).transitionInCommand(
+                "task-command-dispatch", "run-command-dispatch",
+                AgentRun.STATUS_CANCELLED, "cancelled because task is paused");
+    }
+
+    @Test
+    void taskDispatchStartsItsTurnAndRunInTheTaskCommand()
+    {
+        AgentRunService agentRuns = mock(AgentRunService.class);
+        AgentRun running = mock(AgentRun.class);
+        when(running.status()).thenReturn(AgentRun.STATUS_RUNNING);
+        when(agentRuns.transitionInCommand(
+                "task-command-start", "run-command-start",
+                AgentRun.STATUS_RUNNING, "scheduler started")).thenReturn(running);
+        TaskCommandExecutor commands = mock(TaskCommandExecutor.class);
+        when(commands.execute(eq("task-command-start"), any())).thenAnswer(invocation ->
+                ((Supplier<?>) invocation.getArgument(1)).get());
+        TestHarness harness = new TestHarness(
+                1, 4, agentRuns, null, null, commands);
+        Thread thread = thread("thread-command-start", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                thread, "launch", "task-command-start", "stage-command-start",
+                TurnInitiator.user(), "run-command-start");
+
+        assertThat(session.inputs).containsExactly("launch");
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        verify(agentRuns).transitionInCommand(
+                "task-command-start", "run-command-start",
+                AgentRun.STATUS_RUNNING, "scheduler started");
+    }
+
+    @Test
+    void startupRecoveryRequeuesOwningRunWithItsTaskTurn()
+    {
+        AgentRunStore runStore = mock(AgentRunStore.class);
+        AgentRun run = mock(AgentRun.class);
+        when(run.id()).thenReturn("run-recovery");
+        when(run.status()).thenReturn(AgentRun.STATUS_RUNNING);
+        when(runStore.findById("run-recovery")).thenReturn(Optional.of(run));
+        when(runStore.updateStatusIf(
+                "run-recovery", AgentRun.STATUS_RUNNING,
+                AgentRun.STATUS_QUEUED, null)).thenReturn(true);
+        TaskCommandExecutor commands = mock(TaskCommandExecutor.class);
+        when(commands.execute(eq("task-recovery"), any())).thenAnswer(invocation ->
+                ((Supplier<?>) invocation.getArgument(1)).get());
+        TestHarness harness = new TestHarness(
+                1, 4, null, null, runStore, commands);
+        harness.tasks.setPhase("task-recovery", TaskPhase.IMPLEMENTING);
+        ThreadTurn interrupted = taskTurn(
+                "turn-recovery", "thread-recovery", "task-recovery",
+                RUNNING, "run-recovery", Instant.parse("2026-07-25T12:00:00Z"));
+        harness.turns.saveTurn(interrupted);
+
+        ThreadTurn recovered = harness.scheduler.recoverInterruptedTurn(interrupted);
+
+        assertThat(recovered.status()).isEqualTo(QUEUED);
+        verify(runStore).updateStatusIf(
+                "run-recovery", AgentRun.STATUS_RUNNING,
+                AgentRun.STATUS_QUEUED, null);
+        assertThat(harness.events.listEventsByTaskId("thread-recovery", 10))
+                .anySatisfy(event -> assertThat(event.event()).isEqualTo(TURN_QUEUED));
+    }
+
+    @Test
+    void tasklessPostHocConflictLeavesVisibleSchedulerAlert()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("trunk-conflict", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        String turnId = harness.scheduler.enqueueTrunkTurn(thread, "work");
+        ThreadTurn running = harness.turns.findTurnById(turnId).orElseThrow();
+        harness.turns.saveTurn(new ThreadTurn(
+                running.id(), running.threadId(), null, running.lane(), CANCELLED,
+                running.input(), running.createdAt(), Instant.now(), running.startedAt(),
+                Instant.now(), "cancelled elsewhere", running.initiator(),
+                running.stageId(), running.scope(), running.agentRunId()));
+
+        session.completeNext();
+
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                .isEqualTo(CANCELLED);
+        assertThat(harness.events.listEventsByTaskId(thread.id(), 20))
+                .anySatisfy(event -> {
+                    assertThat(event.event()).isEqualTo(SCHEDULER_ALERT);
+                    assertThat(event.message()).contains("post-hoc scheduler conflict");
+                });
+    }
+
+    @Test
+    void taskOwnedPostHocConflictRequestsOperationalPark()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
+        harness.scheduler.setApplicationEventPublisher(publisher);
+        Thread thread = thread("task-conflict", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                thread, "work", "task-1", "stage-1",
+                TurnInitiator.user(), "run-1");
+        ThreadTurn running = harness.turns.findTurnById(turnId).orElseThrow();
+        harness.turns.saveTurn(new ThreadTurn(
+                running.id(), running.threadId(), running.taskId(), running.lane(), CANCELLED,
+                running.input(), running.createdAt(), Instant.now(), running.startedAt(),
+                Instant.now(), "cancelled elsewhere", running.initiator(),
+                running.stageId(), running.scope(), running.agentRunId()));
+
+        session.completeNext();
+
+        verify(publisher).publishEvent(argThat((Object event) ->
+                event instanceof TaskSchedulerConflictEvent conflict
+                        && conflict.taskId().equals("task-1")
+                        && conflict.turnId().equals(turnId)
+                        && conflict.reason().contains("post-hoc scheduler conflict")
+                        && conflict.reason().contains("CANCELLED")
+                        && conflict.reason().contains("COMPLETED")));
+    }
+
+    @Test
     void recoveryPagesThroughAllDurableQueuedTurns()
     {
         TestHarness harness = new TestHarness(1, 4);
@@ -1158,10 +1375,27 @@ class TestAgentScheduler
                 AgentRunService agentRuns,
                 SessionBudgetPolicy sessionBudgets)
         {
-            scheduler = new AgentScheduler(
-                    threads, turns, events, registry, stageStore,
-                    tasks, null, null, null, agentRuns, sessionBudgets, null,
-                    maxCliRunning, maxApiRunning);
+            this(maxCliRunning, maxApiRunning, agentRuns, sessionBudgets, null, null);
+        }
+
+        private TestHarness(
+                int maxCliRunning,
+                int maxApiRunning,
+                AgentRunService agentRuns,
+                SessionBudgetPolicy sessionBudgets,
+                AgentRunStore agentRunStore,
+                TaskCommandExecutor commands)
+        {
+            scheduler = agentRunStore == null && commands == null
+                    ? new AgentScheduler(
+                            threads, turns, events, registry, stageStore,
+                            tasks, null, null, null, agentRuns, sessionBudgets, null,
+                            maxCliRunning, maxApiRunning)
+                    : new AgentScheduler(
+                            threads, turns, events, registry, stageStore,
+                            tasks, null, null, null, agentRuns, agentRunStore,
+                            commands, null, sessionBudgets, null,
+                            maxCliRunning, maxApiRunning);
         }
 
         private RecordingSession register(Thread thread)
@@ -1430,11 +1664,54 @@ class TestAgentScheduler
             implements ThreadTurnStore
     {
         private final Map<String, ThreadTurn> turns = new LinkedHashMap<>();
+        private final Map<String, String> kickKeys = new LinkedHashMap<>();
 
         @Override
         public void saveTurn(ThreadTurn turn)
         {
             turns.put(turn.id(), turn);
+        }
+
+        @Override
+        public InsertResult insertTurn(
+                ThreadTurn turn, boolean affectsTaskLiveness, String kickKey)
+        {
+            if (kickKey != null && kickKeys.containsKey(kickKey)) {
+                return new InsertResult(kickKeys.get(kickKey), false);
+            }
+            saveTurn(turn);
+            if (kickKey != null) {
+                kickKeys.put(kickKey, turn.id());
+            }
+            return new InsertResult(turn.id(), true);
+        }
+
+        @Override
+        public Optional<String> findTurnIdByKickKey(String kickKey)
+        {
+            return Optional.ofNullable(kickKeys.get(kickKey));
+        }
+
+        @Override
+        public boolean updateStatusIf(
+                String turnId,
+                ThreadTurnStatus expected,
+                ThreadTurnStatus to,
+                Instant updatedAt,
+                Instant startedAt,
+                Instant finishedAt,
+                String errorMessage)
+        {
+            ThreadTurn current = turns.get(turnId);
+            if (current == null || current.status() != expected) {
+                return false;
+            }
+            turns.put(turnId, new ThreadTurn(
+                    current.id(), current.threadId(), current.taskId(), current.lane(), to,
+                    current.input(), current.createdAt(), updatedAt, startedAt, finishedAt,
+                    errorMessage, current.initiator(), current.stageId(), current.scope(),
+                    current.agentRunId()));
+            return true;
         }
 
         @Override

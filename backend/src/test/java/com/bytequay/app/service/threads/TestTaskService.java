@@ -23,7 +23,9 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.localpr.TaskPushSaga;
 import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.review.RoundGateSaga;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -60,16 +62,20 @@ class TestTaskService
     private final WorkspaceService workspaceService = mock(WorkspaceService.class);
     private final NotificationService notificationService = mock(NotificationService.class);
     private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+    private final TaskCommandExecutor commands = mock(TaskCommandExecutor.class);
     private final TaskPhaseMachine taskPhaseMachine = mock(TaskPhaseMachine.class);
     private final TaskRuntimeStopReconciler stopReconciler = mock(TaskRuntimeStopReconciler.class);
     private final TaskTerminalSealer sealer = mock(TaskTerminalSealer.class);
     private final PRService prService = mock(PRService.class);
+    private final TaskPushSaga pushSaga = mock(TaskPushSaga.class);
+    private final RoundGateSaga roundGateSaga = mock(RoundGateSaga.class);
     private final BrainReviewService brainReview = mock(BrainReviewService.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final TaskService service = new TaskService(
             threadStore, taskStore, stageStore, watchedRepoStore, worktreeService, git,
             pullRequestRepository, patResolver, registry, workspaceService, notificationService,
-            new ObjectMapper(), eventPublisher, taskPhaseMachine, sealer, prService, brainReview,
+            new ObjectMapper(), eventPublisher, commands, taskPhaseMachine, sealer,
+            prService, pushSaga, roundGateSaga, brainReview,
             scheduler, stopReconciler);
 
     private static Task task()

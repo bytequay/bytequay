@@ -76,6 +76,20 @@ class SqliteAgentRunStore
 
     @Override
     @Transactional
+    public boolean transitionIf(
+            String runId,
+            String expected,
+            String to,
+            Instant finishedAt,
+            String pauseReason,
+            String outcome)
+    {
+        return runs.transition(
+                runId, expected, to, epochOrNull(finishedAt), pauseReason, outcome) == 1;
+    }
+
+    @Override
+    @Transactional
     public void updateProgress(String runId, int iterations, long costUsdMilli, long tokensIn, long tokensOut)
     {
         runs.updateProgress(runId, iterations, costUsdMilli, tokensIn, tokensOut);
@@ -93,6 +107,38 @@ class SqliteAgentRunStore
     public void updateHeadline(String runId, String headline, String outcome)
     {
         runs.updateHeadline(runId, headline, outcome);
+    }
+
+    @Override
+    @Transactional
+    public void updateOwnership(
+            String runId,
+            String workspaceId,
+            String threadId,
+            String provider,
+            String model,
+            String launchInput)
+    {
+        runs.updateOwnership(runId, workspaceId, threadId, provider, model, launchInput);
+    }
+
+    @Override
+    @Transactional
+    public void updateMetrics(String runId, String metricsJson)
+    {
+        runs.updateMetrics(runId, metricsJson);
+    }
+
+    @Override
+    @Transactional
+    public void updateAccounting(
+            String runId,
+            long costUsdMilli,
+            long tokensIn,
+            long tokensOut,
+            int stepCursor)
+    {
+        runs.updateAccounting(runId, costUsdMilli, tokensIn, tokensOut, stepCursor);
     }
 
     @Override

@@ -20,11 +20,21 @@ import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.ValidationClaim;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
-import com.bytequay.app.service.localpr.LocalReviewClearedEvent;
+import com.bytequay.app.repository.ValidationPassStore;
+import com.bytequay.app.service.checks.CodeFingerprints;
+import com.bytequay.app.service.checks.ValidationExecutorRegistry;
+import com.bytequay.app.service.checks.ValidationPassFinishedEvent;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -36,6 +46,9 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -52,8 +65,47 @@ class TestTaskPhaseMachine
     // exactly the pre-fix-loop behaviour these tests assert.
     private final LocalCiFixExecutor localCiFix = mock(LocalCiFixExecutor.class);
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
+    private final ValidationPassStore validationStore = mock(ValidationPassStore.class);
+    private final ValidationExecutorRegistry validationExecutors =
+            mock(ValidationExecutorRegistry.class);
+    private final CodeFingerprints fingerprints = mock(CodeFingerprints.class);
+    private final PlatformTransactionManager transactionManager = new TestTransactionManager();
+    private final TaskCommandExecutor commands = new TaskCommandExecutor(transactionManager);
     private final TaskPhaseMachine machine =
-            new TaskPhaseMachine(taskStore, notifications, events, localCiFix, turnStore);
+            new TaskPhaseMachine(
+                    taskStore, notifications, events, localCiFix, turnStore,
+                    validationStore, validationExecutors, fingerprints, commands);
+
+    @Test
+    void everyStoppedStatusKeepsFinishedValidationEvidenceUnconsumed()
+    {
+        for (TaskStatus status : List.of(
+                TaskStatus.PAUSED, TaskStatus.NEEDS_ATTENTION,
+                TaskStatus.ARCHIVED, TaskStatus.ERRORED,
+                TaskStatus.COMPLETED, TaskStatus.REMOTE_CLOSED,
+                TaskStatus.CANCELED)) {
+            when(taskStore.findTaskById("t1")).thenReturn(Optional.of(
+                    taskAt("t1", TaskPhase.VALIDATING).withStatus(status)));
+            machine.onValidationFinished(new ValidationPassFinishedEvent(
+                    "t1", true, List.of()));
+        }
+
+        verify(taskStore, never()).updatePhase(eq("t1"), eq(TaskPhase.INTERNAL_REVIEW));
+        verify(localCiFix, never()).closeIfGreenInCommand("t1");
+    }
+
+    @Test
+    void runnableTaskConsumesValidationInsideItsCommand()
+    {
+        when(taskStore.findTaskById("t1"))
+                .thenReturn(Optional.of(taskAt("t1", TaskPhase.VALIDATING)));
+
+        machine.onValidationFinished(new ValidationPassFinishedEvent(
+                "t1", true, List.of()));
+
+        verify(localCiFix).closeIfGreenInCommand("t1");
+        verify(taskStore).updatePhase("t1", TaskPhase.INTERNAL_REVIEW);
+    }
 
     @Test
     void legalForwardTransitionPersistsAuditsAndPublishes()
@@ -66,6 +118,24 @@ class TestTaskPhaseMachine
         verify(taskStore).appendPhaseEvent(eq("t1"), eq(TaskPhase.IMPLEMENTING),
                 eq(TaskPhase.VALIDATING), any(), eq("ready_for_checks"), eq(Actor.AGENT));
         verify(events).publishEvent(any(TaskPhaseTransitionedEvent.class));
+    }
+
+    @Test
+    void publicTransitionRejectsAnAmbientTransactionAndInCommandRequiresItsOwner()
+    {
+        when(taskStore.findTaskById("t1"))
+                .thenReturn(Optional.of(taskAt("t1", TaskPhase.IMPLEMENTING)));
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(ignored ->
+                assertThatThrownBy(() -> machine.transition(
+                        "t1", TaskPhase.VALIDATING, "nested", Actor.AGENT))
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("ambient transaction"));
+
+        assertThatThrownBy(() -> machine.transitionInCommand(
+                "t1", TaskPhase.VALIDATING, "missing_owner", Actor.AGENT))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no active task command");
     }
 
     @Test
@@ -149,6 +219,64 @@ class TestTaskPhaseMachine
     }
 
     @Test
+    void externalSagaRecoveryKeepsItsExactPayloadAndRequiresItsNamedCompletion()
+    {
+        Task parked = taskAt("t1", TaskPhase.NEEDS_ATTENTION)
+                .withStatus(TaskStatus.NEEDS_ATTENTION);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(parked));
+        when(taskStore.recoveryRequest("t1")).thenReturn(Optional.empty());
+
+        commands.executeVoid("t1", () -> machine.requestRecoveryInCommand(
+                "t1", TaskRecoveryRequest.KIND_EXTERNAL_SAGA, "{\"token\":\"push-1\"}"));
+
+        verify(taskStore).recordRecoveryRequest(
+                eq("t1"), any(), eq(TaskRecoveryRequest.KIND_EXTERNAL_SAGA),
+                eq("{\"token\":\"push-1\"}"), any());
+
+        when(taskStore.recoveryRequest("t1")).thenReturn(Optional.of(new TaskRecoveryRequest(
+                "req-1", TaskRecoveryRequest.KIND_EXTERNAL_SAGA,
+                "{\"token\":\"push-1\"}", Instant.parse("2026-06-15T12:00:00Z"))));
+        when(taskStore.recoveryPhase("t1")).thenReturn(Optional.of(TaskPhase.AWAITING_PUSH));
+
+        assertThatThrownBy(() -> machine.completeRecovery(
+                "t1", Actor.HUMAN, "user_resumed_task", TaskPhase.IMPLEMENTING))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("external-saga recovery completion");
+
+        Task recovered = commands.execute("t1", () ->
+                machine.completeExternalSagaRecoveryInCommand(
+                        "t1", Actor.HUMAN, "external_saga_recovered",
+                        TaskPhase.IMPLEMENTING));
+        assertThat(recovered.phase()).isEqualTo(TaskPhase.AWAITING_PUSH);
+        assertThat(recovered.status()).isEqualTo(TaskStatus.AWAITING_REVIEW);
+    }
+
+    @Test
+    void rejectedRecoveryClearsOnlyTheExactRequestAndKeepsTheTaskParked()
+    {
+        Task parked = taskAt("t1", TaskPhase.NEEDS_ATTENTION)
+                .withStatus(TaskStatus.NEEDS_ATTENTION);
+        TaskRecoveryRequest request = new TaskRecoveryRequest(
+                "req-1", TaskRecoveryRequest.KIND_EXTERNAL_SAGA,
+                "{\"token\":\"push-1\"}", Instant.parse("2026-06-15T12:00:00Z"));
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(parked));
+        when(taskStore.recoveryRequest("t1")).thenReturn(Optional.of(request));
+        when(taskStore.clearRecoveryRequest(eq("t1"), eq("req-1"), any()))
+                .thenReturn(true);
+
+        commands.executeVoid("t1", () -> machine.rejectRecoveryRequestInCommand(
+                "t1", "req-1", "external_saga_authorization_missing"));
+
+        verify(taskStore).clearRecoveryRequest(
+                eq("t1"), eq("req-1"), argThat((String context) ->
+                        context.contains("external_saga_authorization_missing")
+                                && context.contains("req-1")));
+        verify(taskStore, never()).clearRecoveryState(anyString());
+        verify(taskStore, never()).updatePhase(anyString(), any());
+        verify(taskStore, never()).updateStatusIf(anyString(), any(), any());
+    }
+
+    @Test
     void completeRecoveryRestoresTheCheckpointedPhaseAndDerivedStatus()
     {
         Task parked = taskAt("t1", TaskPhase.NEEDS_ATTENTION)
@@ -188,6 +316,24 @@ class TestTaskPhaseMachine
     }
 
     @Test
+    void recoveryClearsTheTerminalPreParkLivenessPointer()
+    {
+        Task parked = taskAt("t1", TaskPhase.NEEDS_ATTENTION)
+                .withStatus(TaskStatus.NEEDS_ATTENTION);
+        ThreadTurn cancelled = mock(ThreadTurn.class);
+        when(cancelled.status()).thenReturn(ThreadTurnStatus.CANCELLED);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(parked));
+        when(taskStore.recoveryPhase("t1")).thenReturn(Optional.of(TaskPhase.IMPLEMENTING));
+        when(taskStore.currentLivenessTurnId("t1")).thenReturn(Optional.of("turn-old"));
+        when(turnStore.findTurnById("turn-old")).thenReturn(Optional.of(cancelled));
+        when(taskStore.setCurrentLivenessTurnIdIf("t1", "turn-old", null)).thenReturn(true);
+
+        machine.completeRecovery("t1", Actor.HUMAN, "user_resumed_task", TaskPhase.IMPLEMENTING);
+
+        verify(taskStore).setCurrentLivenessTurnIdIf("t1", "turn-old", null);
+    }
+
+    @Test
     void completedIsTerminal()
     {
         when(taskStore.findTaskById("t1")).thenReturn(Optional.of(taskAt("t1", TaskPhase.COMPLETED)));
@@ -221,16 +367,23 @@ class TestTaskPhaseMachine
     }
 
     @Test
-    void brainReviewConclusionOpensTheLocalReviewGate()
+    void staleLocalShipReturnsToValidationAndReleasesTheHumanGate()
     {
         when(taskStore.findTaskById("t1"))
-                .thenReturn(Optional.of(taskAt("t1", TaskPhase.INTERNAL_REVIEW)));
+                .thenReturn(Optional.of(taskAt("t1", TaskPhase.AWAITING_PUSH)
+                        .withStatus(TaskStatus.AWAITING_REVIEW)));
+        when(taskStore.updateStatusIf(
+                "t1", TaskStatus.AWAITING_REVIEW, TaskStatus.IDLE)).thenReturn(true);
 
-        machine.onLocalReviewCleared(new LocalReviewClearedEvent("t1", "pr1", true));
+        commands.executeVoid("t1", () -> machine.invalidateLocalShipInCommand(
+                "t1", Actor.AGENT, "local_push_fingerprint_changed"));
 
-        verify(taskStore).updatePhase("t1", TaskPhase.AWAITING_PUSH);
-        verify(taskStore).appendPhaseEvent(eq("t1"), eq(TaskPhase.INTERNAL_REVIEW),
-                eq(TaskPhase.AWAITING_PUSH), any(), eq("local_review_opened"), eq(Actor.AGENT));
+        verify(taskStore).updateStatusIf(
+                "t1", TaskStatus.AWAITING_REVIEW, TaskStatus.IDLE);
+        verify(taskStore).updatePhase("t1", TaskPhase.VALIDATING);
+        verify(taskStore).appendPhaseEvent(eq("t1"), eq(TaskPhase.AWAITING_PUSH),
+                eq(TaskPhase.VALIDATING), any(),
+                eq("local_push_fingerprint_changed"), eq(Actor.AGENT));
     }
 
     @Test
@@ -359,6 +512,9 @@ class TestTaskPhaseMachine
         verify(taskStore).updatePhase("t1", TaskPhase.COMPLETED);
         verify(taskStore).appendPhaseEvent(eq("t1"), eq(TaskPhase.IMPLEMENTING),
                 eq(TaskPhase.COMPLETED), any(), eq("task_cancelled"), eq(Actor.HUMAN));
+        verify(events).publishEvent(argThat((Object event) -> event instanceof TaskTerminalSealingEvent sealing
+                && sealing.taskId().equals("t1")
+                && sealing.reason().equals("task_cancelled")));
     }
 
     @Test
@@ -378,6 +534,8 @@ class TestTaskPhaseMachine
         verify(taskStore, never()).cancelTask(any(), any());
         verify(taskStore, never()).updatePhase(any(), any());
         verify(taskStore, never()).appendStatusEvent(any(), any(), any(), any(), any(), any());
+        verify(events).publishEvent(argThat((Object event) -> event instanceof TaskTerminalSealingEvent sealing
+                && sealing.taskId().equals("t1")));
     }
 
     @Test
@@ -463,6 +621,46 @@ class TestTaskPhaseMachine
     }
 
     @Test
+    void resumeAndRecoveryRefuseLiveValidationOwners()
+    {
+        ValidationClaim live = mock(ValidationClaim.class);
+        when(live.claimKey()).thenReturn("claim-live");
+        when(live.leaseUntil()).thenReturn(Instant.now().plusSeconds(60));
+        when(validationStore.findOpenByTask("t1")).thenReturn(List.of(live));
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(
+                taskAt("t1", TaskPhase.IMPLEMENTING).withStatus(TaskStatus.PAUSED)));
+
+        assertThatThrownBy(() -> machine.completeResume(
+                "t1", Actor.HUMAN, "user_resumed_task"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("live validation");
+
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(
+                taskAt("t1", TaskPhase.NEEDS_ATTENTION)
+                        .withStatus(TaskStatus.NEEDS_ATTENTION)));
+        assertThatThrownBy(() -> machine.completeRecovery(
+                "t1", Actor.HUMAN, "user_resumed_task", TaskPhase.IMPLEMENTING))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("live validation");
+    }
+
+    @Test
+    void resumeClearsTheTerminalPrePauseLivenessPointer()
+    {
+        Task paused = taskAt("t1", TaskPhase.IMPLEMENTING).withStatus(TaskStatus.PAUSED);
+        ThreadTurn cancelled = mock(ThreadTurn.class);
+        when(cancelled.status()).thenReturn(ThreadTurnStatus.CANCELLED);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(paused));
+        when(taskStore.currentLivenessTurnId("t1")).thenReturn(Optional.of("turn-old"));
+        when(turnStore.findTurnById("turn-old")).thenReturn(Optional.of(cancelled));
+        when(taskStore.setCurrentLivenessTurnIdIf("t1", "turn-old", null)).thenReturn(true);
+
+        machine.completeResume("t1", Actor.HUMAN, "user_resumed_task");
+
+        verify(taskStore).setCurrentLivenessTurnIdIf("t1", "turn-old", null);
+    }
+
+    @Test
     void retryErroredRequiresTheExactCurrentFailureAndMovesToIdle()
     {
         Task errored = taskAt("t1", TaskPhase.IMPLEMENTING).withStatus(TaskStatus.ERRORED);
@@ -485,6 +683,80 @@ class TestTaskPhaseMachine
         assertThatThrownBy(() -> machine.retryErrored("t1", "turn-9"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("no longer");
+    }
+
+    @Test
+    void localReviewIntentsUseGuardedStatusCasAndAuditEveryMove()
+    {
+        Task running = taskAt("t1", TaskPhase.IMPLEMENTING);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(running));
+        when(taskStore.updateStatusIf(
+                "t1", TaskStatus.RUNNING, TaskStatus.AWAITING_REVIEW)).thenReturn(true);
+
+        Task parked = commands.execute("t1", () -> machine.parkForLocalReviewInCommand(
+                "t1", Actor.AGENT, "publish_proposal_parked"));
+
+        assertThat(parked.status()).isEqualTo(TaskStatus.AWAITING_REVIEW);
+        verify(taskStore).appendStatusEvent(
+                eq("t1"), eq(TaskStatus.RUNNING), eq(TaskStatus.AWAITING_REVIEW),
+                eq(Actor.AGENT), eq("publish_proposal_parked"), any());
+
+        when(taskStore.findTaskById("t1"))
+                .thenReturn(Optional.of(parked.withProcessPid(123)));
+        when(taskStore.updateStatusIf(
+                "t1", TaskStatus.AWAITING_REVIEW, TaskStatus.IDLE)).thenReturn(true);
+
+        Task resumed = commands.execute("t1", () -> machine.resumeFromLocalReviewInCommand(
+                "t1", Actor.HUMAN, "publish_proposal_discarded"));
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        assertThat(resumed.processPid()).isNull();
+        verify(taskStore).clearProcessPid("t1");
+        verify(taskStore).appendStatusEvent(
+                eq("t1"), eq(TaskStatus.AWAITING_REVIEW), eq(TaskStatus.IDLE),
+                eq(Actor.HUMAN), eq("publish_proposal_discarded"), any());
+    }
+
+    @Test
+    void linkedLocalReviewResolutionRestoresRemoteStatusWithoutMovingPhase()
+    {
+        Task linked = taskAt("t1", TaskPhase.AWAITING_REMOTE_REVIEW)
+                .withStatus(TaskStatus.AWAITING_REVIEW)
+                .withLinkedPrNumber(42);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(linked));
+        when(taskStore.updateStatusIf(
+                "t1", TaskStatus.AWAITING_REVIEW, TaskStatus.IN_REVIEW)).thenReturn(true);
+
+        Task restored = commands.execute("t1", () -> machine.markRemoteInReviewInCommand(
+                "t1", Actor.HUMAN, "publish_proposal_approved"));
+
+        assertThat(restored.status()).isEqualTo(TaskStatus.IN_REVIEW);
+        assertThat(restored.phase()).isEqualTo(TaskPhase.AWAITING_REMOTE_REVIEW);
+        verify(taskStore, never()).updatePhase(anyString(), any());
+        verify(taskStore).appendStatusEvent(
+                eq("t1"), eq(TaskStatus.AWAITING_REVIEW), eq(TaskStatus.IN_REVIEW),
+                eq(Actor.HUMAN), eq("publish_proposal_approved"), any());
+    }
+
+    @Test
+    void idleRuntimeResumeCannotBypassErroredRetryOrStoppedGuards()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(
+                taskAt("t1", TaskPhase.IMPLEMENTING).withStatus(TaskStatus.IDLE)));
+
+        Task idle = commands.execute("t1", () -> machine.resumeIdleRuntimeInCommand("t1"));
+
+        assertThat(idle.status()).isEqualTo(TaskStatus.IDLE);
+        verify(taskStore).updateRuntimeFailure("t1", null, null);
+        verify(taskStore, never()).updateStatusIf(
+                eq("t1"), eq(TaskStatus.ERRORED), eq(TaskStatus.IDLE));
+
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(
+                taskAt("t1", TaskPhase.IMPLEMENTING).withStatus(TaskStatus.ERRORED)));
+        assertThatThrownBy(() -> commands.execute(
+                "t1", () -> machine.resumeIdleRuntimeInCommand("t1")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no idle runtime");
     }
 
     @Test
@@ -528,6 +800,131 @@ class TestTaskPhaseMachine
                 .hasMessageContaining("not archived");
     }
 
+    @Test
+    void automaticLocalShipAuthorizationSpendsItsBudgetBeforeEffects()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(
+                taskAt("t1", TaskPhase.AWAITING_PUSH)
+                        .withStatus(TaskStatus.AWAITING_REVIEW)));
+        when(taskStore.consecutiveAutoPushes("t1")).thenReturn(2);
+
+        boolean authorized = commands.execute(
+                "t1", () -> machine.spendLocalShipAuthorizationInCommand(
+                        "t1", Actor.AGENT));
+
+        assertThat(authorized).isTrue();
+        verify(taskStore).setConsecutiveAutoPushes("t1", 3);
+        verify(events).publishEvent(any(TaskAutoPushEvent.class));
+    }
+
+    @Test
+    void automaticLocalShipAuthorizationParksAtTheCapBeforeEffects()
+    {
+        Task awaitingPush = taskAt("t1", TaskPhase.AWAITING_PUSH)
+                .withStatus(TaskStatus.AWAITING_REVIEW);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(awaitingPush));
+        when(taskStore.consecutiveAutoPushes("t1"))
+                .thenReturn(TaskPhaseMachine.DEFAULT_AUTO_PUSH_CAP);
+
+        boolean authorized = commands.execute(
+                "t1", () -> machine.spendLocalShipAuthorizationInCommand(
+                        "t1", Actor.AGENT));
+
+        assertThat(authorized).isFalse();
+        verify(taskStore).updatePhase("t1", TaskPhase.NEEDS_ATTENTION);
+        verify(taskStore, never()).setConsecutiveAutoPushes(anyString(), anyInt());
+    }
+
+    @Test
+    void authorizedLocalShipMovesBothAxesWithoutChargingTheBudgetAgain()
+    {
+        Task awaitingPush = taskAt("t1", TaskPhase.AWAITING_PUSH)
+                .withStatus(TaskStatus.AWAITING_REVIEW);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(awaitingPush));
+        when(taskStore.updateStatusIf(
+                "t1", TaskStatus.AWAITING_REVIEW, TaskStatus.IN_REVIEW)).thenReturn(true);
+        when(taskStore.consecutiveAutoPushes("t1"))
+                .thenReturn(TaskPhaseMachine.DEFAULT_AUTO_PUSH_CAP);
+
+        commands.executeVoid("t1", () -> machine.finalizeLocalShipInCommand(
+                "t1", Actor.AGENT, "local_pr_pushed"));
+
+        verify(taskStore).appendStatusEvent(
+                eq("t1"), eq(TaskStatus.AWAITING_REVIEW), eq(TaskStatus.IN_REVIEW),
+                eq(Actor.AGENT), eq("local_pr_pushed"), any());
+        verify(taskStore).updatePhase("t1", TaskPhase.PUSHED_AWAITING_CI);
+        verify(taskStore, never()).setConsecutiveAutoPushes(anyString(), anyInt());
+        verify(events, never()).publishEvent(any(TaskAutoPushEvent.class));
+    }
+
+    @Test
+    void authorizedLocalShipRejectsAStatusRaceBeforeWritingEitherAxis()
+    {
+        Task awaitingPush = taskAt("t1", TaskPhase.AWAITING_PUSH)
+                .withStatus(TaskStatus.AWAITING_REVIEW);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(awaitingPush));
+        when(taskStore.updateStatusIf(
+                "t1", TaskStatus.AWAITING_REVIEW, TaskStatus.IN_REVIEW)).thenReturn(false);
+
+        assertThatThrownBy(() -> commands.executeVoid(
+                "t1", () -> machine.finalizeLocalShipInCommand(
+                        "t1", Actor.HUMAN, "local_pr_pushed")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("changed while finalizing");
+
+        verify(taskStore, never()).updatePhase(any(), any());
+    }
+
+    @Test
+    void remoteFactsMoveForwardButNeverRewindTheRemoteSpine()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(
+                taskAt("t1", TaskPhase.PUSHED_AWAITING_CI)
+                        .withStatus(TaskStatus.IN_REVIEW)));
+
+        machine.observeRemoteCiGreen("t1", true, "ci_green");
+
+        verify(taskStore).updatePhase("t1", TaskPhase.AWAITING_READY);
+        Mockito.clearInvocations(taskStore);
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(
+                taskAt("t1", TaskPhase.AWAITING_REMOTE_REVIEW)
+                        .withStatus(TaskStatus.IN_REVIEW)));
+
+        machine.observeRemoteCiGreen("t1", true, "stale_ci_green");
+
+        verify(taskStore, never()).updatePhase(any(), any());
+    }
+
+    @Test
+    void pausedRemoteOpenObservationCannotReviveTheTask()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(
+                taskAt("t1", TaskPhase.AWAITING_PUSH)
+                        .withStatus(TaskStatus.PAUSED)));
+
+        machine.observeRemoteOpened("t1", "remote_opened");
+
+        verify(taskStore, never()).updateStatusIf(any(), any(), any());
+        verify(taskStore, never()).updatePhase(any(), any());
+    }
+
+    @Test
+    void exactRemoteOpenMovesBothRunnableAxesTogether()
+    {
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(
+                taskAt("t1", TaskPhase.AWAITING_PUSH)
+                        .withStatus(TaskStatus.AWAITING_REVIEW)));
+        when(taskStore.updateStatusIf(
+                "t1", TaskStatus.AWAITING_REVIEW, TaskStatus.IN_REVIEW)).thenReturn(true);
+
+        machine.observeRemoteOpened("t1", "remote_opened");
+
+        verify(taskStore).appendStatusEvent(
+                eq("t1"), eq(TaskStatus.AWAITING_REVIEW), eq(TaskStatus.IN_REVIEW),
+                eq(Actor.WEBHOOK), eq("remote_opened"), any());
+        verify(taskStore).updatePhase("t1", TaskPhase.PUSHED_AWAITING_CI);
+    }
+
     private static Task taskAt(String id, TaskPhase phase)
     {
         Instant now = Instant.parse("2026-06-15T12:00:00Z");
@@ -537,5 +934,32 @@ class TestTaskPhaseMachine
                 null, null, null, null, null, "DEVELOP",
                 null, null, 0L, 0L, 0L, null,
                 now, null, null, null, null, null, null, phase, null, 0, null);
+    }
+
+    /** Minimal real Spring transaction boundary so requireCurrent verifies
+     *  both the stripe identity and an active transaction in unit tests. */
+    private static final class TestTransactionManager
+            extends AbstractPlatformTransactionManager
+    {
+        @Override
+        protected Object doGetTransaction()
+        {
+            return new Object();
+        }
+
+        @Override
+        protected void doBegin(Object transaction, TransactionDefinition definition)
+        {
+        }
+
+        @Override
+        protected void doCommit(DefaultTransactionStatus status)
+        {
+        }
+
+        @Override
+        protected void doRollback(DefaultTransactionStatus status)
+        {
+        }
     }
 }

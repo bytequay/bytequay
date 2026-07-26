@@ -43,6 +43,15 @@ public interface LocalReviewSubmissionStore
     /** Bind the admitted Development run + activation time. */
     void bindRun(String id, String agentRunId, Instant activatedAt);
 
+    /** Bind every uncancelled submission covered by the accepted local-
+     *  review watermark. This includes rows already stamped completed by
+     *  the roots-closed acceptance command. */
+    default void bindRunThrough(
+            String taskId, long throughSequence, String agentRunId, Instant activatedAt)
+    {
+        throw new UnsupportedOperationException("bindRunThrough");
+    }
+
     /** Stamp one batch completed (roots-closed validation accepted). */
     void markCompleted(String id, Instant at);
 

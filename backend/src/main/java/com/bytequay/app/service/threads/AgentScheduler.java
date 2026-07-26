@@ -33,6 +33,7 @@ import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WorkModelKind;
+import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -48,6 +49,7 @@ import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.runs.SessionBudgetPolicy;
 import com.bytequay.app.service.skills.ManagedSkillPolicy;
 import com.bytequay.app.service.tools.PermissionResolver;
+import com.bytequay.app.statemachine.StateMachine;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -55,8 +57,10 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -85,6 +89,7 @@ import java.util.stream.Collectors;
 import static com.bytequay.app.domain.ThreadResourceLane.API;
 import static com.bytequay.app.domain.ThreadResourceLane.CLI;
 import static com.bytequay.app.domain.ThreadTurnEventType.CODEGRAPH_POLICY;
+import static com.bytequay.app.domain.ThreadTurnEventType.SCHEDULER_ALERT;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_CANCELLED;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_FAILED;
 import static com.bytequay.app.domain.ThreadTurnEventType.TURN_FINISHED;
@@ -114,6 +119,12 @@ public class AgentScheduler
     // for normal use, but bounded so a pathological thread cannot load
     // every durable queued turn in one SQLite read.
     private static final int TURN_CANCELLATION_PAGE_SIZE = 1_000;
+    private static final StateMachine<ThreadTurnStatus> TURN_GRAPH =
+            StateMachine.<ThreadTurnStatus>builder("thread turn")
+                    .edge(QUEUED, RUNNING, FAILED, CANCELLED)
+                    .edge(RUNNING, COMPLETED, FAILED, CANCELLED, QUEUED)
+                    .terminal(COMPLETED, FAILED, CANCELLED)
+                    .build();
 
     private final ThreadStore threads;
     private final ThreadTurnStore turns;
@@ -125,6 +136,9 @@ public class AgentScheduler
     private final AgentContextCompiler contextCompiler;
     private final ActiveAgentContextRegistry activeContexts;
     private final AgentRunService agentRuns;
+    private final AgentRunStore agentRunStore;
+    private final TaskCommandExecutor taskCommands;
+    private final TransactionTemplate detachedTransactions;
     private final SessionBudgetPolicy sessionBudgets;
     private final GitRunner git;
     /** Agent metrics are cumulative; snapshot each turn's starting point so
@@ -171,14 +185,41 @@ public class AgentScheduler
             AgentContextCompiler contextCompiler,
             ActiveAgentContextRegistry activeContexts,
             AgentRunService agentRuns,
+            AgentRunStore agentRunStore,
+            TaskCommandExecutor taskCommands,
+            PlatformTransactionManager transactionManager,
             SessionBudgetPolicy sessionBudgets,
             GitRunner git,
             @Value("${bytequay.threads.scheduler.max-cli-running:4}") int maxCliRunning,
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
         this(threads, turns, events, sessions, stages, tasks,
-                managedSkillPolicy, contextCompiler, activeContexts, agentRuns, sessionBudgets,
+                managedSkillPolicy, contextCompiler, activeContexts, agentRuns,
+                agentRunStore, taskCommands, transactionManager, sessionBudgets,
                 git, maxCliRunning, maxApiRunning, true);
+    }
+
+    /** Dependency-light constructor retained for focused scheduler tests. */
+    public AgentScheduler(
+            ThreadStore threads,
+            ThreadTurnStore turns,
+            ThreadTurnEventStore events,
+            ThreadRegistry sessions,
+            StageStore stages,
+            TaskStore tasks,
+            ManagedSkillPolicy managedSkillPolicy,
+            AgentContextCompiler contextCompiler,
+            ActiveAgentContextRegistry activeContexts,
+            AgentRunService agentRuns,
+            SessionBudgetPolicy sessionBudgets,
+            GitRunner git,
+            int maxCliRunning,
+            int maxApiRunning)
+    {
+        this(threads, turns, events, sessions, stages, tasks,
+                managedSkillPolicy, contextCompiler, activeContexts, agentRuns,
+                null, null, null, sessionBudgets, git,
+                maxCliRunning, maxApiRunning, true);
     }
 
     public AgentScheduler(
@@ -192,7 +233,8 @@ public class AgentScheduler
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
         this(threads, turns, events, sessions, stages, tasks,
-                null, null, null, null, null, null, maxCliRunning, maxApiRunning, true);
+                null, null, null, null, null, null, null, null, null,
+                maxCliRunning, maxApiRunning, true);
     }
 
     private AgentScheduler(
@@ -206,6 +248,9 @@ public class AgentScheduler
             AgentContextCompiler contextCompiler,
             ActiveAgentContextRegistry activeContexts,
             AgentRunService agentRuns,
+            AgentRunStore agentRunStore,
+            TaskCommandExecutor taskCommands,
+            PlatformTransactionManager transactionManager,
             SessionBudgetPolicy sessionBudgets,
             GitRunner git,
             int maxCliRunning,
@@ -224,6 +269,11 @@ public class AgentScheduler
                 : contextCompiler;
         this.activeContexts = activeContexts == null ? new ActiveAgentContextRegistry() : activeContexts;
         this.agentRuns = agentRuns;
+        this.agentRunStore = agentRunStore;
+        this.taskCommands = taskCommands;
+        this.detachedTransactions = transactionManager == null
+                ? null
+                : new TransactionTemplate(transactionManager);
         this.sessionBudgets = sessionBudgets;
         // Nullable: the minimal test constructor omits it, disabling per-round
         // HEAD-delta detection (codeChanged stays false).
@@ -416,14 +466,23 @@ public class AgentScheduler
                 ThreadScope.of(taskId, stageId),
                 correlatedRunId);
         boolean affectsLiveness = taskId != null && liveness.affectsTask();
-        turns.insertTurn(turn, affectsLiveness, kickKey);
+        ThreadTurnStore.InsertResult insert = turns.insertTurn(
+                turn, affectsLiveness, kickKey);
+        if (!insert.inserted()) {
+            return insert.turnId();
+        }
         if (affectsLiveness) {
-            engageLivenessPointer(taskId, turn.id());
+            engageLivenessPointer(taskId, insert.turnId());
         }
         appendEvent(turn, TURN_QUEUED, null);
         publishTurnStatus(turn);
         enqueueAfterCommit(turn);
-        return turn.id();
+        return insert.turnId();
+    }
+
+    static boolean isLegalTurnTransition(ThreadTurnStatus from, ThreadTurnStatus to)
+    {
+        return TURN_GRAPH.isLegal(from, to);
     }
 
     /**
@@ -468,9 +527,7 @@ public class AgentScheduler
      *  row dispatches without waiting for the next natural drain. */
     public void kickDrain()
     {
-        synchronized (lock) {
-            drainLocked();
-        }
+        drain();
     }
 
     /** Never launch provider work for rows that can still roll back. */
@@ -613,9 +670,9 @@ public class AgentScheduler
         synchronized (lock) {
             LaneState lane = lane(resourceLane);
             lane.running = Math.max(0, lane.running - 1);
-            drainLocked();
             lock.notifyAll();
         }
+        drain();
     }
 
     /**
@@ -642,25 +699,23 @@ public class AgentScheduler
                     removeQueuedTurns(lane, queuedTurnIds);
                 }
 
-                Instant now = Instant.now();
                 for (ThreadTurn turn : queuedTurns) {
-                    turns.saveTurn(updateTurn(
-                            turn,
-                            CANCELLED,
-                            turn.startedAt(),
-                            now,
-                            "cancelled by thread lifecycle action"));
-                    appendEvent(turn, TURN_CANCELLED, "cancelled by thread lifecycle action");
+                    String reason = "cancelled by thread lifecycle action";
+                    TurnTransition stopped = transitionTurn(
+                            turn, CANCELLED, turn.startedAt(), Instant.now(),
+                            reason, false);
+                    if (stopped.applied()) {
+                        appendEvent(stopped.turn(), TURN_CANCELLED, reason);
+                        cancelled++;
+                    }
                 }
-                cancelled += queuedTurns.size();
             }
             // Each read returns at most TURN_CANCELLATION_PAGE_SIZE rows.
             // A full page means there may be more queued rows after this
             // page was marked CANCELLED, so fetch the next page.
             while (queuedTurns.size() == TURN_CANCELLATION_PAGE_SIZE);
-
-            drainLocked();
         }
+        drain();
         return cancelled;
     }
 
@@ -688,17 +743,17 @@ public class AgentScheduler
             for (LaneState lane : lanes.values()) {
                 removeQueuedTurns(lane, queuedIds);
             }
-            Instant now = Instant.now();
             for (ThreadTurn turn : sessionTurns) {
                 if (turn.status() != QUEUED) {
                     continue;
                 }
-                ThreadTurn stopped = updateTurn(
-                        turn, CANCELLED, turn.startedAt(), now,
-                        "cancelled by session control");
-                turns.saveTurn(stopped);
-                appendEvent(stopped, TURN_CANCELLED, "cancelled by session control");
-                cancelled++;
+                String reason = "cancelled by session control";
+                TurnTransition stopped = transitionTurn(
+                        turn, CANCELLED, turn.startedAt(), Instant.now(), reason, false);
+                if (stopped.applied()) {
+                    appendEvent(stopped.turn(), TURN_CANCELLED, reason);
+                    cancelled++;
+                }
             }
             for (ThreadTurn turn : sessionTurns) {
                 if (turn.status() != RUNNING || cancelReasonsByTurnId.containsKey(turn.id())) {
@@ -706,16 +761,17 @@ public class AgentScheduler
                 }
                 Optional<ThreadAgent> session = findRunningSession(turn);
                 if (session.isEmpty()) {
-                    cancelOrphanedRunningTurnLocked(turn, "cancelled by session control");
-                    cancelled++;
+                    if (cancelOrphanedRunningTurnLocked(turn, "cancelled by session control")) {
+                        cancelled++;
+                    }
                     continue;
                 }
                 cancelReasonsByTurnId.put(turn.id(), "cancelled by session control");
                 runningSessions.add(session.orElseThrow());
                 cancelled++;
             }
-            drainLocked();
         }
+        drain();
         // interrupt() may synchronously complete an API-backed future; keep
         // it outside the scheduler lock so completeTurn can release its lane.
         runningSessions.forEach(ThreadAgent::interrupt);
@@ -734,8 +790,10 @@ public class AgentScheduler
 
     private int cancelTaskTurnsNow(String taskId)
     {
+        String reason = "cancelled by task lifecycle action";
         int cancelled = 0;
         List<ThreadAgent> runningSessions = new ArrayList<>();
+        Set<String> schedulerOwnedRuns = new HashSet<>();
         synchronized (lock) {
             List<ThreadTurn> queuedTurns;
             do {
@@ -750,15 +808,15 @@ public class AgentScheduler
                 for (LaneState lane : lanes.values()) {
                     removeQueuedTurns(lane, queuedIds);
                 }
-                Instant now = Instant.now();
                 for (ThreadTurn turn : queuedTurns) {
-                    ThreadTurn stopped = updateTurn(
-                            turn, CANCELLED, turn.startedAt(), now,
-                            "cancelled by task lifecycle action");
-                    turns.saveTurn(stopped);
-                    appendEvent(stopped, TURN_CANCELLED, "cancelled by task lifecycle action");
+                    TurnTransition stopped = transitionTurn(
+                            turn, CANCELLED, turn.startedAt(), Instant.now(), reason, false);
+                    if (stopped.applied()) {
+                        appendEvent(stopped.turn(), TURN_CANCELLED, reason);
+                        collectSchedulerOwnedRun(stopped.turn(), schedulerOwnedRuns);
+                        cancelled++;
+                    }
                 }
-                cancelled += queuedTurns.size();
             }
             while (queuedTurns.size() == TURN_CANCELLATION_PAGE_SIZE);
 
@@ -769,19 +827,36 @@ public class AgentScheduler
                 }
                 Optional<ThreadAgent> session = findRunningSession(turn);
                 if (session.isEmpty()) {
-                    cancelOrphanedRunningTurnLocked(
-                            turn, "cancelled by task lifecycle action");
-                    cancelled++;
+                    if (cancelOrphanedRunningTurnLocked(turn, reason)) {
+                        collectSchedulerOwnedRun(turn, schedulerOwnedRuns);
+                        cancelled++;
+                    }
                     continue;
                 }
-                cancelReasonsByTurnId.put(turn.id(), "cancelled by task lifecycle action");
+                cancelReasonsByTurnId.put(turn.id(), reason);
+                collectSchedulerOwnedRun(turn, schedulerOwnedRuns);
                 runningSessions.add(session.orElseThrow());
                 cancelled++;
             }
-            drainLocked();
         }
+        // Run status is outside the scheduler monitor: AgentRunService enters
+        // the task command for task-owned runs. Coordinator commands retain
+        // their PAUSED/gated/terminal status; only standalone session runs are
+        // scheduler-owned here.
+        schedulerOwnedRuns.forEach(runId ->
+                transitionRun(runId, AgentRun.STATUS_CANCELLED, reason));
+        drain();
         runningSessions.stream().distinct().forEach(ThreadAgent::interrupt);
         return cancelled;
+    }
+
+    private static void collectSchedulerOwnedRun(ThreadTurn turn, Set<String> runIds)
+    {
+        if (!coordinatorOwnsRunCompletion(turn)
+                && turn.agentRunId() != null
+                && !turn.agentRunId().isBlank()) {
+            runIds.add(turn.agentRunId());
+        }
     }
 
     private Optional<ThreadAgent> findRunningSession(ThreadTurn turn)
@@ -792,12 +867,13 @@ public class AgentScheduler
     /** A durable RUNNING row can survive a process/session teardown even
      *  though no provider remains to invoke completeTurn. Close it here so
      *  cancellation cannot leave an immortal RUNNING row. */
-    private void cancelOrphanedRunningTurnLocked(ThreadTurn turn, String reason)
+    private boolean cancelOrphanedRunningTurnLocked(ThreadTurn turn, String reason)
     {
-        Instant now = Instant.now();
-        ThreadTurn stopped = updateTurn(turn, CANCELLED, turn.startedAt(), now, reason);
-        turns.saveTurn(stopped);
-        appendEvent(stopped, TURN_CANCELLED, reason);
+        TurnTransition stopped = transitionTurn(
+                turn, CANCELLED, turn.startedAt(), Instant.now(), reason, false);
+        if (stopped.applied()) {
+            appendEvent(stopped.turn(), TURN_CANCELLED, reason);
+        }
         cancelReasonsByTurnId.remove(turn.id());
         runningTurnSessions.remove(turn.id());
         usageBaselines.remove(turn.id());
@@ -809,6 +885,7 @@ public class AgentScheduler
         // Every locally dispatched turn is present in runningTurnSessions
         // until completion. No entry means this durable orphan owns no local
         // lane slot or agent-key gate to release.
+        return stopped.applied();
     }
 
     /**
@@ -826,16 +903,97 @@ public class AgentScheduler
     private void recoverInterruptedRunningTurns()
     {
         recoverTurns(RUNNING, turn -> {
-            ThreadTurn queued = updateTurn(
-                    turn,
-                    QUEUED,
-                    /* startedAt */ null,
-                    /* finishedAt */ null,
-                    "interrupted by app restart");
-            turns.saveTurn(queued);
-            appendEvent(queued, TURN_QUEUED, "interrupted by app restart");
-            enqueuePersistedTurn(queued);
+            ThreadTurn recovered = recoverInterruptedTurn(turn);
+            if (recovered != null && recovered.status() == QUEUED) {
+                publishTurnStatus(recovered);
+                enqueuePersistedTurn(recovered);
+            }
         });
+    }
+
+    /** Recover a startup orphan atomically with its owning AgentRun. A
+     *  paused/gated/terminal owner wins and only the stale turn is closed. */
+    ThreadTurn recoverInterruptedTurn(ThreadTurn snapshot)
+    {
+        try {
+            if (snapshot.taskId() != null && taskCommands != null) {
+                return taskCommands.execute(
+                        snapshot.taskId(), () -> recoverInterruptedTurnInTransaction(snapshot.id()));
+            }
+            if (snapshot.taskId() == null && detachedTransactions != null) {
+                return detachedTransactions.execute(
+                        ignored -> recoverInterruptedTurnInTransaction(snapshot.id()));
+            }
+            // Dependency-light unit tests still exercise legality/CAS; the
+            // production constructor always supplies both transaction paths.
+            TurnTransition recovered = transitionTurn(
+                    snapshot, QUEUED, null, null,
+                    "interrupted by app restart", false);
+            if (recovered.applied()) {
+                appendEvent(recovered.turn(), TURN_QUEUED, "interrupted by app restart");
+            }
+            return recovered.turn();
+        }
+        catch (RuntimeException e) {
+            ThreadTurn current = turns.findTurnById(snapshot.id()).orElse(snapshot);
+            recordSchedulerAlert(current,
+                    "startup recovery failed: " + safeMessage(e));
+            return current;
+        }
+    }
+
+    private ThreadTurn recoverInterruptedTurnInTransaction(String turnId)
+    {
+        ThreadTurn turn = turns.findTurnById(turnId).orElse(null);
+        if (turn == null || turn.status() != RUNNING) {
+            return turn;
+        }
+        String stopped = stoppedTaskReason(turn);
+        if (stopped != null) {
+            return transitionRecoveredTurn(turn, CANCELLED, stopped);
+        }
+        if (turn.agentRunId() != null && agentRunStore != null) {
+            AgentRun run = agentRunStore.findById(turn.agentRunId()).orElse(null);
+            if (run == null) {
+                String reason = "startup recovery found no owning AgentRun";
+                recordSchedulerAlert(turn, reason);
+                return transitionRecoveredTurn(turn, CANCELLED, reason);
+            }
+            if (AgentRun.STATUS_RUNNING.equals(run.status())) {
+                if (!agentRunStore.updateStatusIf(
+                        run.id(), AgentRun.STATUS_RUNNING, AgentRun.STATUS_QUEUED, null)) {
+                    throw new IllegalStateException(
+                            "owning AgentRun changed while turn recovery was requeueing it");
+                }
+            }
+            else if (!AgentRun.STATUS_QUEUED.equals(run.status())) {
+                String reason = "startup recovery left stale turn behind "
+                        + run.status() + " AgentRun";
+                recordSchedulerAlert(turn, reason);
+                return transitionRecoveredTurn(turn, CANCELLED, reason);
+            }
+        }
+        return transitionRecoveredTurn(
+                turn, QUEUED, "interrupted by app restart");
+    }
+
+    private ThreadTurn transitionRecoveredTurn(
+            ThreadTurn turn, ThreadTurnStatus to, String reason)
+    {
+        TURN_GRAPH.checkTransition(turn.id(), turn.status(), to);
+        Instant now = Instant.now();
+        Instant finishedAt = TURN_GRAPH.isTerminal(to) ? now : null;
+        if (!turns.updateStatusIf(
+                turn.id(), turn.status(), to, now,
+                to == QUEUED ? null : turn.startedAt(), finishedAt, reason)) {
+            throw new IllegalStateException(
+                    "turn changed while startup recovery was moving it to " + to);
+        }
+        ThreadTurn changed = updateTurn(
+                turn, to, now,
+                to == QUEUED ? null : turn.startedAt(), finishedAt, reason);
+        appendEvent(changed, to == QUEUED ? TURN_QUEUED : TURN_CANCELLED, reason);
+        return changed;
     }
 
     private void recoverQueuedTurnsFromStore()
@@ -865,34 +1023,41 @@ public class AgentScheduler
     private void enqueuePersistedTurn(ThreadTurn turn)
     {
         requireNonNull(turn, "turn is null");
+        // afterCommit/recovery callbacks carry a snapshot. A lifecycle action
+        // may have cancelled that row before this callback runs, so reload the
+        // durable authority before queueing. Stopped-task cancellation may
+        // enter a task command for the run projection and must stay outside
+        // the scheduler monitor.
+        ThreadTurn persisted = turns.findTurnById(turn.id()).orElse(null);
+        if (persisted == null || persisted.status() != QUEUED
+                || cancelIfTaskStopped(persisted)) {
+            return;
+        }
+        boolean enqueued;
         synchronized (lock) {
-            // afterCommit/recovery callbacks carry a snapshot. A lifecycle
-            // action may have cancelled that row before this callback won the
-            // scheduler lock, so reload the durable authority before queueing.
-            ThreadTurn persisted = turns.findTurnById(turn.id()).orElse(null);
-            if (persisted == null || persisted.status() != QUEUED) {
-                return;
-            }
-            if (cancelIfTaskStoppedLocked(persisted)) {
-                return;
-            }
             LaneState lane = lane(persisted.lane());
-            boolean enqueued = lane.knownTurnIds.add(persisted.id());
+            enqueued = lane.knownTurnIds.add(persisted.id());
             if (enqueued) {
                 lane.queue.addLast(persisted);
             }
-            drainLocked();
+        }
+        drain();
+        synchronized (lock) {
+            LaneState lane = lane(persisted.lane());
             if (enqueued && lane.knownTurnIds.contains(persisted.id())) {
                 appendEvent(persisted, WAITING_FOR_CAPACITY, waitingReason(persisted, lane));
             }
         }
     }
 
-    private void drainLocked()
+    /** Reserve eligible lane slots under the monitor, then perform durable
+     * task-command admission and provider launch after releasing it. This
+     * keeps scheduler-lock -> task-command inversion impossible while
+     * preserving synchronous enqueue semantics for callers. */
+    private void drain()
     {
-        boolean madeProgress;
-        do {
-            madeProgress = false;
+        List<ThreadTurn> ready = new ArrayList<>();
+        synchronized (lock) {
             for (LaneState lane : lanes.values()) {
                 while (lane.running < lane.maxRunning) {
                     Optional<ThreadTurn> maybeTurn = pollNextEligible(lane);
@@ -902,12 +1067,11 @@ public class AgentScheduler
                     ThreadTurn turn = maybeTurn.get();
                     lane.running++;
                     runningAgentKeys.add(agentKeyOf(turn));
-                    dispatch(turn);
-                    madeProgress = true;
+                    ready.add(turn);
                 }
             }
         }
-        while (madeProgress);
+        ready.forEach(this::dispatch);
     }
 
     private Optional<ThreadTurn> pollNextEligible(LaneState lane)
@@ -932,29 +1096,29 @@ public class AgentScheduler
             if (persisted == null || persisted.status() != QUEUED) {
                 continue;
             }
-            // A turn can wait in memory after the task is parked. Re-read the
-            // task immediately before dispatch so a delayed/failed lifecycle
-            // cancellation cannot launch provider work for stopped state.
-            if (cancelIfTaskStoppedLocked(persisted)) {
-                continue;
-            }
             return Optional.of(persisted);
         }
         return Optional.empty();
     }
 
-    private boolean cancelIfTaskStoppedLocked(ThreadTurn turn)
+    private boolean cancelIfTaskStopped(ThreadTurn turn)
     {
         String reason = stoppedTaskReason(turn);
         if (reason == null) {
             return false;
         }
-        ThreadTurn cancelled = updateTurn(
-                turn, CANCELLED, turn.startedAt(), Instant.now(), reason);
-        turns.saveTurn(cancelled);
-        appendEvent(cancelled, TURN_CANCELLED, reason);
-        transitionRun(
-                cancelled.agentRunId(), AgentRun.STATUS_CANCELLED, reason);
+        TurnTransition cancelled = transitionTurn(
+                turn, CANCELLED, turn.startedAt(), Instant.now(), reason, false);
+        if (!cancelled.applied()) {
+            return cancelled.turn().status() == CANCELLED;
+        }
+        appendEvent(cancelled.turn(), TURN_CANCELLED, reason);
+        // Coordinator commands own their AgentRun state. The scheduler only
+        // terminalizes the queued turn when a task stop wins the race.
+        if (!coordinatorOwnsRunCompletion(cancelled.turn())) {
+            transitionRun(
+                    cancelled.turn().agentRunId(), AgentRun.STATUS_CANCELLED, reason);
+        }
         return true;
     }
 
@@ -1002,16 +1166,24 @@ public class AgentScheduler
 
     private void dispatch(ThreadTurn queuedTurn)
     {
-        ThreadTurn runningTurn = updateTurn(
-                queuedTurn,
-                RUNNING,
-                Instant.now(),
-                /* finishedAt */ null,
-                /* errorMessage */ null);
-        turns.saveTurn(runningTurn);
-        appendEvent(runningTurn, TURN_STARTED, null);
+        ThreadTurn runningTurn;
+        try {
+            runningTurn = admitDispatch(queuedTurn);
+        }
+        catch (RuntimeException e) {
+            recordSchedulerAlert(queuedTurn,
+                    "dispatch admission failed: " + safeMessage(e));
+            publishTaskSchedulerConflict(
+                    queuedTurn, "dispatch admission failed: " + safeMessage(e));
+            releaseDispatchReservation(queuedTurn, false);
+            return;
+        }
+        if (runningTurn == null || runningTurn.status() != RUNNING) {
+            releaseDispatchReservation(
+                    queuedTurn, runningTurn != null && runningTurn.status() == QUEUED);
+            return;
+        }
         publishTurnStatus(runningTurn);
-        transitionRun(runningTurn.agentRunId(), AgentRun.STATUS_RUNNING, "scheduler started");
 
         Thread thread = threads.findThreadById(runningTurn.threadId()).orElse(null);
         if (thread == null) {
@@ -1083,6 +1255,91 @@ public class AgentScheduler
         completion.whenComplete((ignored, failure) -> completeTurn(runningTurn, session, failure));
     }
 
+    /** The QUEUED -> RUNNING edge for a task-owned turn is one task command:
+     * it rechecks stopped state and liveness authority, starts the turn, and
+     * starts its AgentRun in the same transaction. Taskless trunk turns keep
+     * their detached scheduler path. */
+    private ThreadTurn admitDispatch(ThreadTurn snapshot)
+    {
+        if (snapshot.taskId() != null && taskCommands != null) {
+            return taskCommands.execute(
+                    snapshot.taskId(), () -> admitTaskDispatchInCommand(snapshot.id()));
+        }
+        if (cancelIfTaskStopped(snapshot)) {
+            return turns.findTurnById(snapshot.id()).orElse(snapshot);
+        }
+        TurnTransition started = transitionTurn(
+                snapshot, RUNNING, Instant.now(),
+                /* finishedAt */ null, /* errorMessage */ null, false);
+        if (started.applied()) {
+            appendEvent(started.turn(), TURN_STARTED, null);
+            transitionRun(
+                    started.turn().agentRunId(), AgentRun.STATUS_RUNNING, "scheduler started");
+        }
+        return started.turn();
+    }
+
+    private ThreadTurn admitTaskDispatchInCommand(String turnId)
+    {
+        ThreadTurn turn = turns.findTurnById(turnId).orElse(null);
+        if (turn == null || turn.status() != QUEUED) {
+            return turn;
+        }
+        String stoppedReason = stoppedTaskReason(turn);
+        if (stoppedReason != null) {
+            TurnTransition cancelled = transitionTurn(
+                    turn, CANCELLED, turn.startedAt(), Instant.now(), stoppedReason, false);
+            if (cancelled.applied()) {
+                appendEvent(cancelled.turn(), TURN_CANCELLED, stoppedReason);
+                if (!coordinatorOwnsRunCompletion(cancelled.turn())
+                        && agentRuns != null
+                        && cancelled.turn().agentRunId() != null) {
+                    agentRuns.transitionInCommand(
+                            turn.taskId(), cancelled.turn().agentRunId(),
+                            AgentRun.STATUS_CANCELLED, stoppedReason);
+                }
+            }
+            return cancelled.turn();
+        }
+        if (turns.turnAffectsTaskLiveness(turn.id())
+                && !turn.id().equals(tasks.currentLivenessTurnId(turn.taskId()).orElse(null))) {
+            return turn;
+        }
+        TurnTransition started = transitionTurn(
+                turn, RUNNING, Instant.now(),
+                /* finishedAt */ null, /* errorMessage */ null, false);
+        if (!started.applied()) {
+            return started.turn();
+        }
+        appendEvent(started.turn(), TURN_STARTED, null);
+        if (agentRuns != null && started.turn().agentRunId() != null) {
+            AgentRun run = agentRuns.transitionInCommand(
+                    turn.taskId(), started.turn().agentRunId(),
+                    AgentRun.STATUS_RUNNING, "scheduler started");
+            if (run == null || !AgentRun.STATUS_RUNNING.equals(run.status())) {
+                throw new IllegalStateException(
+                        "AgentRun did not enter running with turn " + turn.id());
+            }
+        }
+        return started.turn();
+    }
+
+    private void releaseDispatchReservation(ThreadTurn turn, boolean requeue)
+    {
+        synchronized (lock) {
+            LaneState lane = lane(turn.lane());
+            lane.running = Math.max(0, lane.running - 1);
+            runningAgentKeys.remove(agentKeyOf(turn));
+            lock.notifyAll();
+        }
+        if (requeue) {
+            enqueuePersistedTurn(turn);
+        }
+        else {
+            drain();
+        }
+    }
+
     private void completeTurn(ThreadTurn runningTurn, ThreadAgent session, Throwable failure)
     {
         Throwable unwrapped = unwrap(failure);
@@ -1102,6 +1359,7 @@ public class AgentScheduler
         boolean codeChanged;
         String cancelReason;
         ThreadTurn finished;
+        TurnTransition completion;
         synchronized (lock) {
             // Keep the dispatched-session marker until the durable terminal
             // write. A concurrent cancel can therefore only (a) mark this
@@ -1112,23 +1370,32 @@ public class AgentScheduler
             cancelled = cancelReason != null;
             failed = !cancelled && providerFailed;
             codeChanged = !cancelled && detectedCodeChanged;
-            finished = updateTurn(
+            completion = transitionTurn(
                     runningTurn,
                     cancelled ? CANCELLED : failed ? FAILED : COMPLETED,
-                    runningTurn.startedAt(),
-                    now,
-                    cancelled ? cancelReason : errorMessage);
-            turns.saveTurn(finished);
+                    runningTurn.startedAt(), now,
+                    cancelled ? cancelReason : errorMessage,
+                    true);
+            finished = completion.turn();
             runningTurnSessions.remove(runningTurn.id());
         }
+        if (completion.conflictReason() != null) {
+            publishTaskSchedulerConflict(finished, completion.conflictReason());
+        }
+        cancelled = finished.status() == CANCELLED;
+        failed = finished.status() == FAILED;
+        codeChanged = completion.applied() && !completion.reconciled()
+                && !cancelled && detectedCodeChanged;
         activeContexts.remove(
                 runningTurn.threadId(),
                 PermissionResolver.agentKeyFor(runningTurn.taskId(), runningTurn.stageId()));
-        appendEvent(
-                finished,
-                cancelled ? TURN_CANCELLED : failed ? TURN_FAILED : TURN_FINISHED,
-                finished.errorMessage());
-        publishTurnStatus(finished);
+        if (completion.applied()) {
+            appendEvent(
+                    finished,
+                    cancelled ? TURN_CANCELLED : failed ? TURN_FAILED : TURN_FINISHED,
+                    finished.errorMessage());
+            publishTurnStatus(finished);
+        }
         CodeGraphFirstRuntime.Metrics codeGraphMetrics = CodeGraphFirstRuntime.finishTurn(
                 runningTurn.threadId(), agentKeyOf(runningTurn));
         if (!codeGraphMetrics.isEmpty()) {
@@ -1137,35 +1404,43 @@ public class AgentScheduler
         // Persist the turn's usage before deciding whether the run may close.
         // A newly exhausted budget parks the run and suppresses the normal
         // success transition; cancelled turns still retain their usage.
-        boolean budgetPaused = accountRun(finished, session);
+        boolean budgetPaused = completion.applied() && accountRun(finished, session);
         // Some turns are one step inside a coordinator-owned, multi-turn run.
         // Their coordinator alone decides when live CI is green, review drafts
         // need a gate, or the whole review episode has concluded.
-        if (!cancelled
-                && (failed || !budgetPaused)
-                && !coordinatorOwnsRunCompletion(finished)) {
-            transitionRun(
-                    finished.agentRunId(),
-                    failed ? AgentRun.STATUS_FAILED : AgentRun.STATUS_SUCCEEDED,
-                    failed ? finished.errorMessage() : "scheduler turn completed");
+        if (completion.applied() && !cancelled && !budgetPaused) {
+            if (coordinatorOwnsRunCompletion(finished)) {
+                // Multi-turn owners consume the terminal turn after this
+                // checkpoint. QUEUED means the run owes its next domain step
+                // (retry, validation, or gate); it is not complete yet.
+                transitionRun(
+                        finished.agentRunId(), AgentRun.STATUS_QUEUED,
+                        "coordinator turn completed");
+            }
+            else {
+                transitionRun(
+                        finished.agentRunId(),
+                        failed ? AgentRun.STATUS_FAILED : AgentRun.STATUS_SUCCEEDED,
+                        failed ? finished.errorMessage() : "scheduler turn completed");
+            }
         }
 
         synchronized (lock) {
             LaneState lane = lane(runningTurn.lane());
             lane.running = Math.max(0, lane.running - 1);
             runningAgentKeys.remove(agentKeyOf(runningTurn));
-            drainLocked();
             // Wake blocked invokeAll slot acquisitions — they share
             // the lane capacity with turns.
             lock.notifyAll();
         }
+        drain();
 
         // Outside the lock: let listeners react to a finished turn. Task
         // turns carry their taskId directly; a brain turn carries none, so
         // resolve its parent task so plan-stage listeners (the record_plan
         // nudge + failure surfacing) can react. Pure trunk turns stay
         // unlinked.
-        if (!cancelled && eventPublisher != null) {
+        if (completion.applied() && !cancelled && eventPublisher != null) {
             String taskId = finished.taskId();
             if (taskId == null) {
                 taskId = threads.findThreadById(finished.threadId())
@@ -1290,7 +1565,8 @@ public class AgentScheduler
             return false;
         }
         return switch (source) {
-            case "ci-fix-shipped", "review-round", "brain-review", "brain-review-fix",
+            case "address-local-comments", "local-ci-fix", "ci-fix-shipped",
+                    "review-round", "brain-review", "brain-review-fix",
                     "branch-guard-fix" -> true;
             default -> false;
         };
@@ -1383,14 +1659,105 @@ public class AgentScheduler
                 message));
     }
 
+    /** Apply one legal turn edge through an expected-state compare-and-set.
+     *  When provider work has already happened, a stale/illegal write is
+     *  converted to a durable failure (when still live) and always leaves a
+     *  visible scheduler alert. */
+    private TurnTransition transitionTurn(
+            ThreadTurn snapshot,
+            ThreadTurnStatus to,
+            Instant startedAt,
+            Instant finishedAt,
+            String errorMessage,
+            boolean postHoc)
+    {
+        requireNonNull(snapshot, "snapshot is null");
+        requireNonNull(to, "to is null");
+        try {
+            if (!TURN_GRAPH.checkTransition(snapshot.id(), snapshot.status(), to)) {
+                return new TurnTransition(snapshot, false, false, null);
+            }
+        }
+        catch (RuntimeException e) {
+            if (!postHoc) {
+                recordSchedulerAlert(snapshot,
+                        "illegal turn transition " + snapshot.status() + " -> " + to);
+                return new TurnTransition(snapshot, false, false, null);
+            }
+            return reconcilePostHocTransition(snapshot, to, e.getMessage());
+        }
+
+        Instant updatedAt = Instant.now();
+        if (turns.updateStatusIf(
+                snapshot.id(), snapshot.status(), to, updatedAt,
+                startedAt, finishedAt, errorMessage)) {
+            return new TurnTransition(updateTurn(
+                    snapshot, to, updatedAt, startedAt, finishedAt, errorMessage), true, false, null);
+        }
+
+        ThreadTurn current = turns.findTurnById(snapshot.id()).orElse(snapshot);
+        if (current.status() == to) {
+            return new TurnTransition(current, false, false, null);
+        }
+        if (postHoc) {
+            return reconcilePostHocTransition(
+                    current, to,
+                    "turn changed from " + snapshot.status() + " to " + current.status());
+        }
+        recordSchedulerAlert(current,
+                "turn changed before " + snapshot.status() + " -> " + to);
+        return new TurnTransition(current, false, false, null);
+    }
+
+    private TurnTransition reconcilePostHocTransition(
+            ThreadTurn current, ThreadTurnStatus intended, String detail)
+    {
+        String reason = "post-hoc scheduler conflict while recording "
+                + intended + ": " + detail;
+        recordSchedulerAlert(current, reason);
+        if (TURN_GRAPH.isTerminal(current.status())) {
+            return new TurnTransition(current, false, true, reason);
+        }
+        Instant now = Instant.now();
+        if (TURN_GRAPH.isLegal(current.status(), FAILED)
+                && turns.updateStatusIf(
+                        current.id(), current.status(), FAILED, now,
+                        current.startedAt(), now, reason)) {
+            ThreadTurn failed = updateTurn(
+                    current, FAILED, now, current.startedAt(), now, reason);
+            return new TurnTransition(failed, true, true, reason);
+        }
+        ThreadTurn reloaded = turns.findTurnById(current.id()).orElse(current);
+        recordSchedulerAlert(reloaded,
+                reason + "; controlled failure CAS also lost");
+        return new TurnTransition(reloaded, false, true, reason);
+    }
+
+    private void recordSchedulerAlert(ThreadTurn turn, String message)
+    {
+        appendEvent(turn, SCHEDULER_ALERT, message);
+    }
+
+    private void publishTaskSchedulerConflict(ThreadTurn turn, String reason)
+    {
+        if (eventPublisher == null || turn.taskId() == null) {
+            return;
+        }
+        TaskSchedulerConflictEvent conflict =
+                new TaskSchedulerConflictEvent(turn.taskId(), turn.id(), reason);
+        if (!deferUntilAfterCommit(() -> eventPublisher.publishEvent(conflict))) {
+            eventPublisher.publishEvent(conflict);
+        }
+    }
+
     private static ThreadTurn updateTurn(
             ThreadTurn turn,
             ThreadTurnStatus status,
+            Instant updatedAt,
             Instant startedAt,
             Instant finishedAt,
             String errorMessage)
     {
-        Instant now = Instant.now();
         return new ThreadTurn(
                 turn.id(),
                 turn.threadId(),
@@ -1399,7 +1766,7 @@ public class AgentScheduler
                 status,
                 turn.input(),
                 turn.createdAt(),
-                now,
+                updatedAt,
                 startedAt,
                 finishedAt,
                 errorMessage,
@@ -1413,12 +1780,23 @@ public class AgentScheduler
                 turn.agentRunId());
     }
 
+    private record TurnTransition(
+            ThreadTurn turn, boolean applied, boolean reconciled, String conflictReason) {}
+
     private static Throwable unwrap(Throwable failure)
     {
         if (failure instanceof CompletionException && failure.getCause() != null) {
             return failure.getCause();
         }
         return failure;
+    }
+
+    private static String safeMessage(Throwable failure)
+    {
+        String message = failure == null ? null : failure.getMessage();
+        return message == null || message.isBlank()
+                ? failure == null ? "unknown failure" : failure.getClass().getSimpleName()
+                : message;
     }
 
     private static int checkedLimit(int value, String name)

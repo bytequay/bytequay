@@ -27,11 +27,13 @@ import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
+import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.StageStore;
@@ -45,7 +47,9 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.localpr.PrPushedEvent;
+import com.bytequay.app.service.localpr.TaskPushSaga;
 import com.bytequay.app.service.review.BrainReviewService;
+import com.bytequay.app.service.review.RoundGateSaga;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,8 +60,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
@@ -71,13 +73,13 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -119,9 +121,12 @@ class TestTaskServiceShipAndContinue
     private final WorkspaceService workspaces = mock(WorkspaceService.class);
     private final NotificationService notifications = mock(NotificationService.class);
     private final ObjectMapper mapper = new ObjectMapper();
+    private final TaskCommandExecutor commands = mock(TaskCommandExecutor.class);
     private final TaskPhaseMachine taskPhaseMachine = mock(TaskPhaseMachine.class);
     private final TaskTerminalSealer sealer = mock(TaskTerminalSealer.class);
     private final PRService prService = mock(PRService.class);
+    private final TaskPushSaga pushSaga = mock(TaskPushSaga.class);
+    private final RoundGateSaga roundGateSaga = mock(RoundGateSaga.class);
     private final BrainReviewService brainReview = mock(BrainReviewService.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     // Real reconciler over the same mocks: the pause/resume tests assert
@@ -132,14 +137,16 @@ class TestTaskServiceShipAndContinue
     private final TaskRuntimeStopReconciler stopReconciler = new TaskRuntimeStopReconciler(
             taskStore, stageStore, mock(ThreadTurnStore.class), registry, scheduler,
             mock(ValidationPassStore.class), mock(ValidationExecutorRegistry.class),
-            new ObjectProvider<>() {});
+            new ObjectProvider<>() {}, new ObjectProvider<>() {});
 
     private final TaskService service = new TaskService(
             threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
             git, pullRequests, patResolver,
             registry, workspaces, notifications, mapper,
             NOOP_PUBLISHER,
-            taskPhaseMachine, sealer, prService, brainReview, scheduler, stopReconciler);
+            commands, taskPhaseMachine, sealer, prService, pushSaga, roundGateSaga,
+            brainReview, scheduler, stopReconciler,
+            Runnable::run);
 
     /** The machine mock emulates the real pause/resume intents against
      *  the mocked store: guard, write through saveTask (so state-backed
@@ -148,7 +155,13 @@ class TestTaskServiceShipAndContinue
     @BeforeEach
     void stubPauseResumeIntents()
     {
-        when(taskPhaseMachine.pause(anyString(), any(), anyString())).thenAnswer(invocation -> {
+        when(taskStore.updateStatusIf(anyString(), any(), any())).thenReturn(true);
+        when(commands.execute(anyString(), any())).thenAnswer(invocation -> {
+            String taskId = invocation.getArgument(0);
+            Supplier<?> work = invocation.getArgument(1);
+            return TaskPhaseMachine.withTaskLock(taskId, work::get);
+        });
+        when(taskPhaseMachine.pauseInCommand(anyString(), any(), anyString())).thenAnswer(invocation -> {
             String id = invocation.getArgument(0);
             Task current = taskStore.findTaskById(id).orElseThrow();
             if (current.status() == TaskStatus.PAUSED) {
@@ -165,7 +178,7 @@ class TestTaskServiceShipAndContinue
             taskStore.saveTask(paused);
             return paused;
         });
-        when(taskPhaseMachine.completeResume(anyString(), any(), anyString())).thenAnswer(invocation -> {
+        when(taskPhaseMachine.completeResumeInCommand(anyString(), any(), anyString())).thenAnswer(invocation -> {
             String id = invocation.getArgument(0);
             Task current = taskStore.findTaskById(id).orElseThrow();
             Task resumed = current
@@ -175,7 +188,7 @@ class TestTaskServiceShipAndContinue
             taskStore.saveTask(resumed);
             return resumed;
         });
-        when(taskPhaseMachine.completeRecovery(anyString(), any(), anyString(), any()))
+        when(taskPhaseMachine.completeRecoveryInCommand(anyString(), any(), anyString(), any()))
                 .thenAnswer(invocation -> {
                     String id = invocation.getArgument(0);
                     TaskPhase fallback = invocation.getArgument(3);
@@ -191,6 +204,15 @@ class TestTaskServiceShipAndContinue
                     taskStore.saveTask(recovered);
                     return recovered;
                 });
+        when(taskPhaseMachine.resumeIdleRuntimeInCommand(anyString())).thenAnswer(invocation -> {
+            String id = invocation.getArgument(0);
+            Task current = taskStore.findTaskById(id).orElseThrow();
+            if (current.status() != TaskStatus.IDLE) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + id + " has no idle runtime to resume");
+            }
+            return current.withEndedAt(null).withErrorMessage(null);
+        });
     }
 
     @Test
@@ -232,33 +254,26 @@ class TestTaskServiceShipAndContinue
         verify(worktreeService, never()).remove(any(Path.class), anyString(), anyString());
         verify(worktreeService, never()).reap(any());
 
-        ArgumentCaptor<Task> saved = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore, atLeastOnce()).saveTask(saved.capture());
-        Task shippedAfter = saved.getAllValues().stream()
-                .filter(t -> t.id().equals("task-1"))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("shipped task was never persisted"));
         // Shipped, not yet done: the branch is pushed and a draft PR is open,
         // so the task parks at IN_REVIEW and only reaches COMPLETED once its
         // PR merges. Its worktree pointer survives — no stale-path clearing.
-        assertThat(shippedAfter.status()).isEqualTo(TaskStatus.IN_REVIEW);
-        assertThat(shippedAfter.worktreePath()).isEqualTo(shippedWorktreePath);
-        assertThat(shippedAfter.branchName()).isEqualTo(shippedBranchName);
-        assertThat(shippedAfter.prNumber()).isEqualTo(42);
-        assertThat(shippedAfter.linkedPrNumber()).isEqualTo(42);
+        assertThat(result.status()).isEqualTo(TaskStatus.IN_REVIEW);
+        assertThat(result.worktreePath()).isEqualTo(shippedWorktreePath);
+        assertThat(result.branchName()).isEqualTo(shippedBranchName);
+        assertThat(result.prNumber()).isEqualTo(42);
+        assertThat(result.linkedPrNumber()).isEqualTo(42);
 
         // 3. No successor is cut — shipping enters the loop on this task; the
         //    trunk cuts the next task itself. The caller gets the shipped row.
         verify(worktreeService, never()).create(any(Path.class), anyString(), anyString());
-        assertThat(saved.getAllValues()).noneMatch(t -> t.status() == TaskStatus.PENDING);
         assertThat(result.id()).isEqualTo("task-1");
         assertThat(result.status()).isEqualTo(TaskStatus.IN_REVIEW);
 
         // 4. The PR is linked so the reconciler can poll it by owner/repo#n,
         //    and the phase fast-forwards onto the CI-monitor spine.
         verify(taskStore).linkTaskToPr("task-1", "acme/widget#42");
-        verify(taskPhaseMachine).observe(
-                eq("task-1"), eq(TaskPhase.PUSHED_AWAITING_CI), anyString());
+        verify(taskPhaseMachine).observeRemoteOpenedInCommand(
+                eq("task-1"), eq("shipped_draft_pr_open"));
     }
 
     @Test
@@ -301,7 +316,9 @@ class TestTaskServiceShipAndContinue
                 git, pullRequests, patResolver,
                 registry, workspaces, notifications, mapper,
                 eventPublisher,
-                taskPhaseMachine, sealer, prService, brainReview, scheduler, stopReconciler);
+                commands, taskPhaseMachine, sealer, prService, pushSaga, roundGateSaga,
+                brainReview, scheduler, stopReconciler,
+                Runnable::run);
 
         when(threadStore.findThreadById("thread-1")).thenReturn(Optional.of(thread("thread-1")));
         Task shipped = task("task-1", "thread-1", 1L, "dev/task-1-fix-the-thing",
@@ -415,12 +432,7 @@ class TestTaskServiceShipAndContinue
                 "thread-parked", "task-parked",
                 new TaskService.ShipRequest("Next task", TaskService.BaseMode.MAIN));
 
-        ArgumentCaptor<Task> saved = ArgumentCaptor.forClass(Task.class);
-        verify(taskStore, atLeastOnce()).saveTask(saved.capture());
-        assertThat(saved.getAllValues().stream()
-                .filter(t -> t.id().equals("task-parked"))
-                .map(Task::status))
-                .containsExactly(TaskStatus.AWAITING_REVIEW);
+        verify(taskStore, never()).saveTask(any());
         // No successor is cut — Next parks the current task and returns it; the
         // trunk's create_task is the only way to start more work.
         verify(worktreeService, never()).create(any(Path.class), anyString(), anyString());
@@ -440,9 +452,9 @@ class TestTaskServiceShipAndContinue
 
         service.completeTasksForMergedPr("acme/widget", 42);
 
-        verify(taskPhaseMachine).finishTerminal(
+        verify(taskPhaseMachine).finishTerminalInCommand(
                 eq("task-1"), eq(TaskStatus.COMPLETED), eq(Actor.WEBHOOK), eq("pr_merged"));
-        verify(sealer).seal("task-1", "pr_merged");
+        verify(sealer, never()).seal("task-1", "pr_merged");
     }
 
     @Test
@@ -479,15 +491,15 @@ class TestTaskServiceShipAndContinue
         CompletableFuture<Void> completion = CompletableFuture.runAsync(() ->
                 service.completeTasksForMergedPr("acme/widget", 42));
         assertThat(completionStarted.await(5, TimeUnit.SECONDS)).isTrue();
-        verify(taskPhaseMachine, never()).finishTerminal(
+        verify(taskPhaseMachine, never()).finishTerminalInCommand(
                 anyString(), eq(TaskStatus.COMPLETED), any(), any());
 
         releaseLock.countDown();
         push.get(5, TimeUnit.SECONDS);
         completion.get(5, TimeUnit.SECONDS);
-        verify(taskPhaseMachine).finishTerminal(
+        verify(taskPhaseMachine).finishTerminalInCommand(
                 eq("task-1"), eq(TaskStatus.COMPLETED), eq(Actor.WEBHOOK), eq("pr_merged"));
-        verify(sealer).seal("task-1", "pr_merged");
+        verify(sealer, never()).seal("task-1", "pr_merged");
     }
 
     @Test
@@ -503,7 +515,7 @@ class TestTaskServiceShipAndContinue
 
         service.completeTasksForMergedPr("other/repo", 42);
 
-        verify(taskPhaseMachine, never()).finishTerminal(
+        verify(taskPhaseMachine, never()).finishTerminalInCommand(
                 anyString(), eq(TaskStatus.COMPLETED), any(), any());
         verify(taskPhaseMachine, never()).transition(anyString(), any(), anyString(), any());
     }
@@ -520,10 +532,10 @@ class TestTaskServiceShipAndContinue
 
         service.closeTasksForRemotePr("acme/widget", 42);
 
-        verify(taskPhaseMachine).finishTerminal(
+        verify(taskPhaseMachine).finishTerminalInCommand(
                 eq("task-1"), eq(TaskStatus.REMOTE_CLOSED), eq(Actor.WEBHOOK), eq("pr_closed"));
         verify(taskStore).linkPullRequest("task-1", 42, "closed");
-        verify(sealer).seal("task-1", "pr_closed");
+        verify(sealer, never()).seal("task-1", "pr_closed");
     }
 
     @Test
@@ -552,27 +564,23 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
-    void rolledBackPauseDoesNotCancelOrEvictItsRuntime()
+    void failedPauseCommandDoesNotCancelOrEvictItsRuntime()
     {
         Task active = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);
         when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(active));
+        doAnswer(invocation -> {
+            Supplier<?> work = invocation.getArgument(1);
+            assertThat(work.get()).isNotNull();
+            throw new IllegalStateException("commit failed");
+        }).when(commands).execute(anyString(), any());
 
-        TransactionSynchronizationManager.initSynchronization();
-        try {
-            service.pauseTask("t1", "t1.k1");
+        assertThatThrownBy(() -> service.pauseTask("t1", "t1.k1"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("commit failed");
 
-            verify(scheduler, never()).cancelTaskTurns(anyString());
-            verify(registry, never()).findStages(any());
-            verify(registry, never()).evictStages(anyString(), any());
-
-            TransactionSynchronizationManager.getSynchronizations()
-                    .forEach(synchronization -> synchronization.afterCompletion(
-                            TransactionSynchronization.STATUS_ROLLED_BACK));
-        }
-        finally {
-            // No afterCommit callback: model a transaction rollback.
-            TransactionSynchronizationManager.clearSynchronization();
-        }
+        verify(scheduler, never()).cancelTaskTurns(anyString());
+        verify(registry, never()).findStages(any());
+        verify(registry, never()).evictStages(anyString(), any());
     }
 
     @Test
@@ -634,33 +642,24 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
-    void rollbackRemovesThePauseTeardownToken()
+    void failedPauseCommandDoesNotQueueATeardownCallback()
     {
         String taskId = "t1.k1";
         Task active = task(taskId, "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);
-        AtomicReference<Task> state = taskState(active);
+        taskState(active);
         AtomicReference<Runnable> pendingTeardown = new AtomicReference<>();
         TaskService controlled = serviceWithPauseDispatcher(pendingTeardown::set);
+        doAnswer(invocation -> {
+            Supplier<?> work = invocation.getArgument(1);
+            assertThat(work.get()).isNotNull();
+            throw new IllegalStateException("commit failed");
+        }).when(commands).execute(anyString(), any());
 
-        TransactionSynchronizationManager.initSynchronization();
-        List<TransactionSynchronization> callbacks;
-        try {
-            controlled.pauseTask("t1", taskId);
-            callbacks = List.copyOf(TransactionSynchronizationManager.getSynchronizations());
-            callbacks.forEach(synchronization -> synchronization.afterCompletion(
-                    TransactionSynchronization.STATUS_ROLLED_BACK));
-            // Model the repository rollback; the Mockito save above is not a
-            // transactional store, so restore its prior durable row manually.
-            state.set(active);
-            // Even if a buggy caller delivered the old afterCommit late, its
-            // action must no longer own a teardown generation.
-            callbacks.forEach(TransactionSynchronization::afterCommit);
-        }
-        finally {
-            TransactionSynchronizationManager.clearSynchronization();
-        }
+        assertThatThrownBy(() -> controlled.pauseTask("t1", taskId))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("commit failed");
 
-        pendingTeardown.get().run();
+        assertThat(pendingTeardown).hasNullValue();
         verify(scheduler, never()).cancelTaskTurns(taskId);
         verify(registry, never()).evictStages(anyString(), any());
     }
@@ -734,6 +733,61 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
+    void resumeOfAPausedLocalShipRedrivesItsTokenWithoutStartingAnAgent()
+    {
+        Task base = task(
+                "t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
+        Task paused = taskAtPhase(base, TaskPhase.AWAITING_PUSH);
+        taskState(paused);
+        when(threadStore.findThreadById(paused.threadId()))
+                .thenReturn(Optional.of(thread(paused.threadId())));
+        when(stageStore.findActiveStage(paused.id())).thenReturn(Optional.empty());
+        when(pushSaga.activeToken(paused.id())).thenReturn(Optional.of("push-1"));
+
+        Task resumed = service.resumeTask(paused.id());
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.AWAITING_REVIEW);
+        assertThat(resumed.phase()).isEqualTo(TaskPhase.AWAITING_PUSH);
+        InOrder order = inOrder(taskPhaseMachine, pushSaga);
+        order.verify(taskPhaseMachine).completeResumeInCommand(
+                paused.id(), Actor.HUMAN, "user_resumed_task");
+        order.verify(pushSaga).activeToken(paused.id());
+        order.verify(pushSaga).drive("push-1");
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskBrainAgent(any());
+    }
+
+    @Test
+    void resumeOfAPausedRoundGateRedrivesItsTokenWithoutStartingAnAgent()
+    {
+        Task base = task(
+                "t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
+        Task paused = taskAtPhase(base, TaskPhase.AWAITING_REMOTE_REVIEW);
+        taskState(paused);
+        when(threadStore.findThreadById(paused.threadId()))
+                .thenReturn(Optional.of(thread(paused.threadId())));
+        StageInstance activeStage = new StageInstance(
+                UUID.fromString("44444444-4444-4444-4444-444444444444"),
+                paused.id(), StageType.REMOTE_DEVELOPMENT_STAGE, StageState.OPEN,
+                paused.createdAt(), null, null);
+        when(stageStore.findActiveStage(paused.id())).thenReturn(Optional.of(activeStage));
+        when(roundGateSaga.activeToken(paused.id()))
+                .thenReturn(Optional.of("round-gate-1"));
+
+        Task resumed = service.resumeTask(paused.id());
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IN_REVIEW);
+        assertThat(resumed.phase()).isEqualTo(TaskPhase.AWAITING_REMOTE_REVIEW);
+        InOrder order = inOrder(taskPhaseMachine, roundGateSaga);
+        order.verify(taskPhaseMachine).completeResumeInCommand(
+                paused.id(), Actor.HUMAN, "user_resumed_task");
+        order.verify(roundGateSaga).activeToken(paused.id());
+        order.verify(roundGateSaga).drive("round-gate-1");
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskBrainAgent(any());
+    }
+
+    @Test
     void resumeOfAPausedBrainRoundUsesTheCoordinatorInsteadOfTheStageAgent()
     {
         Task base = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
@@ -796,7 +850,7 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
-    void resumeRevivesAnErroredExactTaskAndThread()
+    void resumeRetriesAnErroredExactTaskAndThread()
     {
         Instant ended = Instant.parse("2026-05-15T12:00:00Z");
         Task errored = new Task(
@@ -813,10 +867,15 @@ class TestTaskServiceShipAndContinue
                 ended.minusSeconds(60), ended, ended, "limit hit",
                 ThreadFlow.BUILD, "ws-default", null, null);
         when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(errored));
+        when(taskStore.currentLivenessTurnId("t1.k1"))
+                .thenReturn(Optional.of("turn-failed"));
+        ThreadTurn failed = mock(ThreadTurn.class);
+        when(taskPhaseMachine.retryErroredInCommand("t1.k1", "turn-failed"))
+                .thenReturn(failed);
+        when(scheduler.enqueueTaskTurnOnce(
+                anyString(), any(), any(), anyString(), any(), any(), any(), any()))
+                .thenReturn("turn-retry");
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
-        when(stageStore.findActiveStage("t1.k1")).thenReturn(Optional.empty());
-        StageAgent agent = mock(StageAgent.class);
-        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(agent);
 
         Task resumed = service.resumeTask("t1.k1");
 
@@ -828,8 +887,29 @@ class TestTaskServiceShipAndContinue
         assertThat(savedThread.getValue().status()).isEqualTo(ThreadStatus.IDLE);
         assertThat(savedThread.getValue().endedAt()).isNull();
         assertThat(savedThread.getValue().errorMessage()).isNull();
-        verify(registry).getOrCreateStageAgent(any(), any(), any());
-        verify(registry, never()).getOrCreateTrunkAgent(any());
+        verify(taskPhaseMachine).retryErroredInCommand("t1.k1", "turn-failed");
+        verify(taskStore).setCurrentLivenessTurnIdIf(
+                "t1.k1", "turn-failed", "turn-retry");
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+    }
+
+    @Test
+    void resumeIdleTaskUsesTheNamedMachineGuardWithoutSavingAWholeTaskRow()
+    {
+        Task idle = task(
+                "t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.IDLE);
+        when(taskStore.findTaskById(idle.id())).thenReturn(Optional.of(idle));
+        when(threadStore.findThreadById(idle.threadId()))
+                .thenReturn(Optional.of(thread(idle.threadId())));
+        when(stageStore.findActiveStage(idle.id())).thenReturn(Optional.empty());
+        StageAgent agent = mock(StageAgent.class);
+        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(agent);
+
+        Task resumed = service.resumeTask(idle.id());
+
+        assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
+        verify(taskPhaseMachine).resumeIdleRuntimeInCommand(idle.id());
+        verify(taskStore, never()).saveTask(any());
         verify(agent).resume();
     }
 
@@ -887,7 +967,7 @@ class TestTaskServiceShipAndContinue
 
         assertThat(resumed.status()).isEqualTo(TaskStatus.IN_REVIEW);
         assertThat(resumed.phase()).isEqualTo(TaskPhase.PUSHED_AWAITING_CI);
-        verify(taskPhaseMachine).completeRecovery(
+        verify(taskPhaseMachine).completeRecoveryInCommand(
                 parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.PUSHED_AWAITING_CI);
         verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
         verify(notifications).markRead("notice-1");
@@ -910,7 +990,7 @@ class TestTaskServiceShipAndContinue
         assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
         verify(sealer).seal(parked.id(), "legacy_local_restarted");
         verify(taskStore).setCurrentLivenessTurnIdIf(parked.id(), "turn-9", null);
-        verify(taskPhaseMachine).completeRecovery(
+        verify(taskPhaseMachine).completeRecoveryInCommand(
                 parked.id(), Actor.HUMAN, "legacy_local_restarted", TaskPhase.PLANNING);
     }
 
@@ -932,8 +1012,116 @@ class TestTaskServiceShipAndContinue
         service.resumeTask(parked.id());
 
         verify(sealer, never()).seal(anyString(), anyString());
-        verify(taskPhaseMachine).completeRecovery(
+        verify(taskPhaseMachine).completeRecoveryInCommand(
                 eq(parked.id()), eq(Actor.HUMAN), eq("user_resumed_task"), any());
+    }
+
+    @Test
+    void externalSagaRecoveryRearmsBeforeLeavingTheParkAndRedrivesAfterCommit()
+    {
+        Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
+        Task recovered = parked
+                .withPhase(TaskPhase.AWAITING_PUSH)
+                .withStatus(TaskStatus.AWAITING_REVIEW);
+        TaskPushSaga.RecoveryPlan plan = new TaskPushSaga.RecoveryPlan(
+                "push-token", "ensure_pull_request", "EFFECT_FAILED", 1,
+                "head-1", "fingerprint-1");
+        String payload = "{\"token\":\"push-token\"}";
+        TaskRecoveryRequest request = new TaskRecoveryRequest(
+                "recovery-1", TaskRecoveryRequest.KIND_EXTERNAL_SAGA,
+                payload, parked.createdAt());
+        when(taskStore.findTaskById(parked.id()))
+                .thenReturn(Optional.of(parked), Optional.of(recovered));
+        when(taskStore.recoveryRequest(parked.id())).thenReturn(Optional.of(request));
+        when(taskStore.recoveryPhase(parked.id()))
+                .thenReturn(Optional.of(TaskPhase.AWAITING_PUSH));
+        when(prService.findByTask(parked.id())).thenReturn(Optional.empty());
+        when(threadStore.findThreadById(parked.threadId()))
+                .thenReturn(Optional.of(thread(parked.threadId())));
+        when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.empty());
+        when(pushSaga.activeToken(parked.id()))
+                .thenReturn(Optional.of("push-token"));
+        when(pushSaga.verifyRecoveryRequest(parked.id())).thenReturn(Optional.of(plan));
+        when(taskPhaseMachine.completeExternalSagaRecoveryInCommand(
+                parked.id(), Actor.HUMAN, "external_saga_recovered",
+                TaskPhase.IMPLEMENTING)).thenReturn(recovered);
+
+        Task result = service.completeRequestedRecovery(parked.id());
+
+        InOrder order = inOrder(pushSaga, taskPhaseMachine);
+        order.verify(pushSaga).resumeExternalSagaInCommand(plan);
+        order.verify(taskPhaseMachine).completeExternalSagaRecoveryInCommand(
+                parked.id(), Actor.HUMAN, "external_saga_recovered",
+                TaskPhase.IMPLEMENTING);
+        order.verify(pushSaga).drive("push-token");
+        assertThat(result).isEqualTo(recovered);
+    }
+
+    @Test
+    void roundGateRecoveryRestoresItsGateBeforeLeavingTheParkAndRedrivesAfterCommit()
+    {
+        Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
+        Task recovered = parked
+                .withPhase(TaskPhase.AWAITING_REMOTE_REVIEW)
+                .withStatus(TaskStatus.IN_REVIEW);
+        RoundGateSaga.RecoveryPlan plan = new RoundGateSaga.RecoveryPlan(
+                parked.id(), "round-1", "run-1", "round-token", "reply:1",
+                "EFFECT_FAILED", 1, "head-1", "fingerprint-1");
+        TaskRecoveryRequest request = new TaskRecoveryRequest(
+                "recovery-2", TaskRecoveryRequest.KIND_EXTERNAL_SAGA,
+                "{\"roundId\":\"round-1\"}", parked.createdAt());
+        when(taskStore.findTaskById(parked.id()))
+                .thenReturn(Optional.of(parked), Optional.of(recovered));
+        when(taskStore.recoveryRequest(parked.id())).thenReturn(Optional.of(request));
+        when(taskStore.recoveryPhase(parked.id()))
+                .thenReturn(Optional.of(TaskPhase.AWAITING_REMOTE_REVIEW));
+        when(prService.findByTask(parked.id())).thenReturn(Optional.empty());
+        when(threadStore.findThreadById(parked.threadId()))
+                .thenReturn(Optional.of(thread(parked.threadId())));
+        StageInstance activeStage = new StageInstance(
+                UUID.fromString("55555555-5555-5555-5555-555555555555"),
+                parked.id(), StageType.REMOTE_DEVELOPMENT_STAGE, StageState.OPEN,
+                parked.createdAt(), null, null);
+        when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.of(activeStage));
+        when(roundGateSaga.activeToken(parked.id()))
+                .thenReturn(Optional.of("round-token"));
+        when(roundGateSaga.verifyRecoveryRequest(parked.id()))
+                .thenReturn(Optional.of(plan));
+        when(taskPhaseMachine.completeExternalSagaRecoveryInCommand(
+                parked.id(), Actor.HUMAN, "external_saga_recovered",
+                TaskPhase.IMPLEMENTING)).thenReturn(recovered);
+
+        Task result = service.completeRequestedRecovery(parked.id());
+
+        InOrder order = inOrder(roundGateSaga, taskPhaseMachine);
+        order.verify(roundGateSaga).resumeExternalSagaInCommand(plan);
+        order.verify(taskPhaseMachine).completeExternalSagaRecoveryInCommand(
+                parked.id(), Actor.HUMAN, "external_saga_recovered",
+                TaskPhase.IMPLEMENTING);
+        order.verify(roundGateSaga).drive("round-token");
+        verify(pushSaga, never()).resumeExternalSagaInCommand(any());
+        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        assertThat(result).isEqualTo(recovered);
+    }
+
+    @Test
+    void staleExternalSagaRecoveryIsRejectedWithoutUnparkingTheTask()
+    {
+        Task parked = parkedTask(TaskPhase.NEEDS_ATTENTION);
+        TaskRecoveryRequest request = new TaskRecoveryRequest(
+                "recovery-stale", TaskRecoveryRequest.KIND_EXTERNAL_SAGA,
+                "{\"token\":\"gone\"}", parked.createdAt());
+        when(taskStore.findTaskById(parked.id())).thenReturn(Optional.of(parked));
+        when(taskStore.recoveryRequest(parked.id())).thenReturn(Optional.of(request));
+
+        Task result = service.completeRequestedRecovery(parked.id());
+
+        verify(taskPhaseMachine).rejectRecoveryRequestInCommand(
+                parked.id(), request.id(), "external_saga_authorization_missing");
+        verify(taskPhaseMachine, never()).completeExternalSagaRecoveryInCommand(
+                anyString(), any(), anyString(), any());
+        assertThat(result.phase()).isEqualTo(TaskPhase.NEEDS_ATTENTION);
+        assertThat(result.status()).isEqualTo(TaskStatus.NEEDS_ATTENTION);
     }
 
     @Test
@@ -951,7 +1139,7 @@ class TestTaskServiceShipAndContinue
         Task resumed = service.resumeTask(parked.id());
 
         assertThat(resumed.phase()).isEqualTo(TaskPhase.VALIDATING);
-        verify(taskPhaseMachine).completeRecovery(
+        verify(taskPhaseMachine).completeRecoveryInCommand(
                 parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.VALIDATING);
         verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
     }
@@ -973,7 +1161,7 @@ class TestTaskServiceShipAndContinue
         Task resumed = service.resumeTask(parked.id());
 
         assertThat(resumed.phase()).isEqualTo(TaskPhase.INTERNAL_REVIEW);
-        verify(taskPhaseMachine).completeRecovery(
+        verify(taskPhaseMachine).completeRecoveryInCommand(
                 parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.INTERNAL_REVIEW);
         verify(brainReview).ownsParkedResume(parked.id());
         verify(brainReview).resumeParkedReview(parked.id());
@@ -997,7 +1185,7 @@ class TestTaskServiceShipAndContinue
         Task resumed = service.resumeTask(parked.id());
 
         assertThat(resumed.phase()).isEqualTo(TaskPhase.AWAITING_REMOTE_REVIEW);
-        verify(taskPhaseMachine).completeRecovery(
+        verify(taskPhaseMachine).completeRecoveryInCommand(
                 parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.AWAITING_REMOTE_REVIEW);
         verify(brainReview).resumeParkedReview(parked.id());
         verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
@@ -1020,7 +1208,7 @@ class TestTaskServiceShipAndContinue
         Task resumed = service.resumeTask(parked.id());
 
         assertThat(resumed.phase()).isEqualTo(TaskPhase.PLANNING);
-        verify(taskPhaseMachine).completeRecovery(
+        verify(taskPhaseMachine).completeRecoveryInCommand(
                 parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.PLANNING);
         verify(brainReview).resumeParkedReview(parked.id());
         verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
@@ -1048,7 +1236,7 @@ class TestTaskServiceShipAndContinue
         Task resumed = service.retryFailedCi(parked.threadId(), parked.id());
 
         assertThat(resumed.phase()).isEqualTo(TaskPhase.PUSHED_AWAITING_CI);
-        verify(taskPhaseMachine).completeRecovery(
+        verify(taskPhaseMachine).completeRecoveryInCommand(
                 parked.id(), Actor.HUMAN, "user_retried_ci", TaskPhase.PUSHED_AWAITING_CI);
     }
 
@@ -1064,7 +1252,7 @@ class TestTaskServiceShipAndContinue
         assertThatThrownBy(() -> service.resumeTask(parked.id()))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("explicit Retry CI");
-        verify(taskPhaseMachine, never()).requestRecovery(anyString(), anyString());
+        verify(taskPhaseMachine, never()).requestRecoveryInCommand(anyString(), anyString());
     }
 
     private static Thread thread(String id)
@@ -1090,7 +1278,7 @@ class TestTaskServiceShipAndContinue
 
         verify(scheduler).cancelTaskTurns("t1.k1");
         verify(session).interrupt();
-        verify(taskPhaseMachine).finishTerminal(
+        verify(taskPhaseMachine).finishTerminalInCommand(
                 eq("t1.k1"), eq(TaskStatus.CANCELED), eq(Actor.HUMAN), eq("task_cancelled"));
         // Worktree + branch reaped.
         verify(worktreeService).reap(t);
@@ -1107,13 +1295,13 @@ class TestTaskServiceShipAndContinue
 
         // No session to interrupt, but the task is still sealed + reaped.
         verify(scheduler).cancelTaskTurns("t1.k1");
-        verify(taskPhaseMachine).finishTerminal(
+        verify(taskPhaseMachine).finishTerminalInCommand(
                 eq("t1.k1"), eq(TaskStatus.CANCELED), eq(Actor.HUMAN), eq("task_cancelled"));
         verify(worktreeService).reap(t);
     }
 
     @Test
-    void cancelSerializesAgainstResumeAndInvalidatesPendingPauseTeardown()
+    void cancelCommitsBeforeTeardownAndInvalidatesPendingPauseTeardown()
             throws Exception
     {
         String taskId = "t1.k1";
@@ -1133,7 +1321,7 @@ class TestTaskServiceShipAndContinue
         doAnswer(invocation -> {
             state.updateAndGet(task -> task.withStatus(TaskStatus.CANCELED));
             return null;
-        }).when(taskPhaseMachine).finishTerminal(
+        }).when(taskPhaseMachine).finishTerminalInCommand(
                 eq(taskId), eq(TaskStatus.CANCELED), any(), any());
 
         CompletableFuture<Task> cancel = CompletableFuture.supplyAsync(
@@ -1147,6 +1335,7 @@ class TestTaskServiceShipAndContinue
         });
         assertThat(resumeAttempted.await(5, TimeUnit.SECONDS)).isTrue();
         assertThat(resume.isDone()).isFalse();
+        assertThat(cancel.isDone()).isFalse();
 
         releaseCancel.countDown();
         assertThat(cancel.get(5, TimeUnit.SECONDS).status()).isEqualTo(TaskStatus.CANCELED);
@@ -1176,24 +1365,14 @@ class TestTaskServiceShipAndContinue
         return new TaskService(
                 threadStore, taskStore, stageStore, watchedRepoStore, worktreeService,
                 git, pullRequests, patResolver, registry, workspaces, notifications, mapper,
-                NOOP_PUBLISHER, taskPhaseMachine, sealer, prService, brainReview, scheduler,
+                NOOP_PUBLISHER, commands, taskPhaseMachine, sealer, prService, pushSaga, roundGateSaga,
+                brainReview, scheduler,
                 stopReconciler, dispatcher);
     }
 
     private static void commitPause(TaskService service, String threadId, String taskId)
     {
-        TransactionSynchronizationManager.initSynchronization();
-        try {
-            service.pauseTask(threadId, taskId);
-            List<TransactionSynchronization> callbacks =
-                    List.copyOf(TransactionSynchronizationManager.getSynchronizations());
-            callbacks.forEach(TransactionSynchronization::afterCommit);
-            callbacks.forEach(synchronization -> synchronization.afterCompletion(
-                    TransactionSynchronization.STATUS_COMMITTED));
-        }
-        finally {
-            TransactionSynchronizationManager.clearSynchronization();
-        }
+        service.pauseTask(threadId, taskId);
     }
 
     private static Task task(

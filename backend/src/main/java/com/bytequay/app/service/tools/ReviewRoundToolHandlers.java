@@ -17,7 +17,10 @@ import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.service.review.RoundGateSaga;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -36,11 +39,16 @@ public class ReviewRoundToolHandlers
 {
     private final StageStore stageStore;
     private final ReviewRoundStore roundStore;
+    private final RoundGateSaga roundGate;
 
-    public ReviewRoundToolHandlers(StageStore stageStore, ReviewRoundStore roundStore)
+    public ReviewRoundToolHandlers(
+            StageStore stageStore,
+            ReviewRoundStore roundStore,
+            RoundGateSaga roundGate)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.roundStore = requireNonNull(roundStore, "roundStore is null");
+        this.roundGate = requireNonNull(roundGate, "roundGate is null");
     }
 
     /** Args record for {@code record_round_reply}. */
@@ -80,12 +88,30 @@ public class ReviewRoundToolHandlers
             return ToolOutcome.Completed.error(
                     "comment does not belong to this task's active review round");
         }
-        stageStore.saveReviewComment(new ReviewComment(
-                comment.id(), comment.taskId(), comment.file(), comment.line(), comment.body(),
-                comment.createdAt(), comment.source(), comment.remoteLink(), comment.resolved(),
-                comment.remoteCommentId(), comment.roundId(), body, Instant.now(),
-                comment.side(), comment.startLine(), comment.startSide()));
+        try {
+            roundGate.editPayload(comment.taskId(), comment.roundId().toString(), (Runnable) () -> {
+                ReviewComment current = stageStore.findReviewCommentById(commentId)
+                        .orElseThrow(() -> conflict("review comment changed while drafting its reply"));
+                if (!belongsToActiveRound(call, current)
+                        || !comment.roundId().equals(current.roundId())) {
+                    throw conflict("review comment changed while drafting its reply");
+                }
+                stageStore.saveReviewComment(new ReviewComment(
+                        current.id(), current.taskId(), current.file(), current.line(), current.body(),
+                        current.createdAt(), current.source(), current.remoteLink(), current.resolved(),
+                        current.remoteCommentId(), current.roundId(), body, Instant.now(),
+                        current.side(), current.startLine(), current.startSide()));
+            });
+        }
+        catch (ResponseStatusException e) {
+            return ToolOutcome.Completed.error(e.getReason() == null ? e.getMessage() : e.getReason());
+        }
         return ToolOutcome.Completed.ok("Drafted reply on comment " + commentId);
+    }
+
+    private static ResponseStatusException conflict(String reason)
+    {
+        return new ResponseStatusException(HttpStatus.CONFLICT, reason);
     }
 
     private boolean belongsToActiveRound(ToolCall call, ReviewComment comment)

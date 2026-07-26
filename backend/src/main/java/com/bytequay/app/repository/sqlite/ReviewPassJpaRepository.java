@@ -40,6 +40,8 @@ interface ReviewPassJpaRepository
     List<ReviewPassEntity> findByRepoFullNameAndPrNumberOrderByCreatedAtMsDesc(
             String repoFullName, int prNumber);
 
+    List<ReviewPassEntity> findByTaskStageIdIsNotNullAndPhaseIn(List<String> phases);
+
     /** Newest non-terminal THREAD-hosted pass for a PR — the dashboard's
      *  "is a standalone review open on this PR right now?" lookup. ({@code
      *  phase} stores the lowercase dbValue; terminal = {@code published}.) */

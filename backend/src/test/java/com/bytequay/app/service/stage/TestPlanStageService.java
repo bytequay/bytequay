@@ -34,6 +34,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.service.brain.BrainServiceImpl;
 import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
@@ -46,6 +47,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -53,12 +55,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -79,6 +83,8 @@ class TestPlanStageService
     private ThreadStore threadStore;
     @Autowired
     private ThreadTurnStore turnStore;
+    @Autowired
+    private ValidationPassStore validationStore;
     @Autowired
     private BrainServiceImpl brainService;
     /** Mocked so the approval / replan kickoff enqueues a turn without the
@@ -110,6 +116,47 @@ class TestPlanStageService
                 });
         assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
                 .isEqualTo(TaskPhase.IMPLEMENTING);
+    }
+
+    @Test
+    void devKickoffIsDurablyEnqueuedInsideTheApprovalCommand()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        recordPlan(plan, taskId, "finalized", "rev-1");
+        AtomicBoolean kickedOff = new AtomicBoolean();
+        doAnswer(ignored -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
+                    .isEqualTo(TaskPhase.IMPLEMENTING);
+            assertThat(stageStore.findStageById(plan.id()).orElseThrow().state())
+                    .isEqualTo(StageState.CLOSED);
+            kickedOff.set(true);
+            return "turn-1";
+        }).when(scheduler).enqueueTaskTurnOnce(
+                any(), any(), any(), eq(taskId), any(), any(), any(), any());
+
+        planStageService.approveByStage(plan.id());
+
+        assertThat(kickedOff).isTrue();
+    }
+
+    @Test
+    void failedPhaseTransitionRollsBackTheWholeApproval()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        recordPlan(plan, taskId, "finalized", "rev-1");
+        taskStore.updatePhase(taskId, TaskPhase.COMPLETED);
+
+        assertThatThrownBy(() -> planStageService.approveByStage(plan.id()))
+                .isInstanceOf(ResponseStatusException.class);
+
+        assertThat(stageStore.findStageById(plan.id()).orElseThrow().state())
+                .isEqualTo(StageState.OPEN);
+        assertThat(stageStore.findEventsByStage(plan.id()))
+                .noneMatch(event -> event.eventType() == StageEventType.PLAN_APPROVED);
+        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any());
     }
 
     @Test
@@ -213,11 +260,48 @@ class TestPlanStageService
         planStageService.approveByStage(plan.id());
 
         PlanStageService.ReplanResult result = planStageService.replan(taskId);
+        if (result.preparing()) {
+            result = planStageService.completeRequestedReplan(taskId);
+        }
 
         assertThat(result.planStageId()).isNotBlank();
         StageInstance reopened = stageStore.findActiveStage(taskId).orElseThrow();
         assertThat(reopened.type()).isEqualTo(StageType.PLAN_STAGE);
         assertThat(reopened.id().toString()).isEqualTo(result.planStageId());
+        assertThat(reopened.id()).isNotEqualTo(plan.id());
+    }
+
+    @Test
+    void replanWaitsForLiveValidationBeforeOpeningPlanning()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        recordPlan(plan, taskId, "finalized", "rev-1");
+        planStageService.approveByStage(plan.id());
+        String claimKey = "replan:" + UUID.randomUUID();
+        validationStore.insertClaim(
+                claimKey, taskId, "dev-round", null, "fp-1", null, null, Instant.now());
+        validationStore.acquireOwner(
+                claimKey, "owner-1", "executor-1",
+                Instant.now().plusSeconds(120), Instant.now());
+
+        PlanStageService.ReplanResult pending = planStageService.replan(taskId);
+
+        assertThat(pending.preparing()).isTrue();
+        assertThat(pending.planStageId()).isNull();
+        assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
+                .isEqualTo(TaskPhase.NEEDS_ATTENTION);
+        assertThat(validationStore.findByClaimKey(claimKey).orElseThrow().cancelRequestedAt())
+                .isNotNull();
+
+        validationStore.markSuperseded(claimKey, Instant.now());
+        PlanStageService.ReplanResult completed = planStageService.completeRequestedReplan(taskId);
+
+        assertThat(completed.preparing()).isFalse();
+        assertThat(completed.planStageId()).isNotBlank();
+        assertThat(completed.planStageId()).isNotEqualTo(plan.id().toString());
+        assertThat(taskStore.findTaskById(taskId).orElseThrow().phase())
+                .isEqualTo(TaskPhase.PLANNING);
     }
 
     @Test
@@ -342,7 +426,8 @@ class TestPlanStageService
         planStageService.approveByStage(plan.id());
 
         ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(scheduler).enqueueTaskTurn(any(), prompt.capture(), any(), any());
+        verify(scheduler).enqueueTaskTurnOnce(
+                any(), any(), prompt.capture(), any(), any(), any(), any(), any());
         assertThat(prompt.getValue())
                 .contains("1. Add the migration and stores")
                 .contains("2. Wire the reader")

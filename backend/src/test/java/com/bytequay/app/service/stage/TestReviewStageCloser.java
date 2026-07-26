@@ -19,7 +19,6 @@ import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.domain.ReviewParticipant;
 import com.bytequay.app.domain.ReviewParticipantKind;
 import com.bytequay.app.repository.ReviewStore;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.ReviewPassTerminatedEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,16 +46,16 @@ class TestReviewStageCloser
 {
     private static final Instant NOW = Instant.parse("2026-06-21T09:00:00Z");
 
-    private StageStore stageStore;
+    private StageStateMachine stageMachine;
     private ReviewStore reviewStore;
     private ReviewStageCloser closer;
 
     @BeforeEach
     void setUp()
     {
-        stageStore = mock(StageStore.class);
+        stageMachine = mock(StageStateMachine.class);
         reviewStore = mock(ReviewStore.class);
-        closer = new ReviewStageCloser(stageStore, reviewStore);
+        closer = new ReviewStageCloser(stageMachine, reviewStore);
     }
 
     @Test
@@ -75,7 +74,7 @@ class TestReviewStageCloser
         closer.onReviewPassTerminated(new ReviewPassTerminatedEvent("pass-9", stageId.toString()));
 
         ArgumentCaptor<Map<String, Object>> payload = captor();
-        verify(stageStore).closeStage(eq(stageId), eq("review_pass_terminated"), payload.capture());
+        verify(stageMachine).close(eq(stageId), eq("review_pass_terminated"), payload.capture());
         assertThat(payload.getValue())
                 .containsEntry("seatNames", List.of("Claude", "GPT-5"))
                 .containsEntry("findingCount", 3)
@@ -86,7 +85,7 @@ class TestReviewStageCloser
     void ignoresAnUnparseableStageId()
     {
         closer.onReviewPassTerminated(new ReviewPassTerminatedEvent("pass-9", "not-a-uuid"));
-        verify(stageStore, never()).closeStage(any(), any(), any());
+        verify(stageMachine, never()).close(any(), any(), any());
     }
 
     @SuppressWarnings("unchecked")

@@ -497,11 +497,11 @@ public class PRSyncService
 
     /** Self-heals a row stuck at {@code local-drafted}/{@code local-open}
      *  when the task's PR is already open remotely — the same recovery
-     *  {@link PRPublishService#onPushedElsewhere} performs for a push
+     *  {@link PRPublishService#reconcilePushedElsewhere} performs for a push
      *  resolved via a gate, applied here too since a task pushed before that
      *  sync existed (or through a path that missed it) would otherwise never
      *  catch up. Runs on every PR-bundle fetch, so it's a one-time fix per
-     *  task — once flipped, the status guard in {@code onPushedElsewhere}
+     *  task — once flipped, the reconciliation status guard
      *  makes every later call a no-op. */
     private PR healIfAlreadyPushedRemotely(PR pr, Task task)
     {
@@ -512,7 +512,7 @@ public class PRSyncService
         if (ref.isEmpty()) {
             return pr;
         }
-        prPublish.onPushedElsewhere(PrPushedEvent.of(task.id(), ref.get()));
+        prPublish.reconcilePushedElsewhere(PrPushedEvent.of(task.id(), ref.get()));
         return prService.findById(pr.id()).orElse(pr);
     }
 

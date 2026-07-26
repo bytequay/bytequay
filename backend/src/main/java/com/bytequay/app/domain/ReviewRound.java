@@ -16,6 +16,8 @@ package com.bytequay.app.domain;
 import java.time.Instant;
 import java.util.List;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * One reviewer batch + the agent's entire response to it — triage, fix
  * commits, drafted replies, and any nested {@code ci_fix} run — gated
@@ -46,7 +48,7 @@ public record ReviewRound(
         String taskId,
         int idx,
         List<String> reviewers,
-        String status,
+        ReviewRoundState status,
         ReviewRoundStats stats,
         String runId,
         Instant openedAt,
@@ -55,15 +57,22 @@ public record ReviewRound(
         String origin,
         String brainVerdict,
         int iteration,
-        int budget)
+        int budget,
+        ReviewRoundState pausedFrom,
+        String codeFingerprint,
+        int enqueueFailures,
+        int kickAttempt,
+        int gateRevision,
+        String activeGateToken,
+        Instant closedAt)
 {
-    public static final String STATUS_TRIAGING = "triaging";
-    public static final String STATUS_ADDRESSING = "addressing";
-    public static final String STATUS_AWAITING_GATE = "awaiting_gate";
-    public static final String STATUS_POSTED = "posted";
-    public static final String STATUS_CLOSED = "closed";
+    public static final ReviewRoundState STATUS_TRIAGING = ReviewRoundState.TRIAGING;
+    public static final ReviewRoundState STATUS_ADDRESSING = ReviewRoundState.ADDRESSING;
+    public static final ReviewRoundState STATUS_AWAITING_GATE = ReviewRoundState.AWAITING_GATE;
+    public static final ReviewRoundState STATUS_POSTED = ReviewRoundState.POSTED;
+    public static final ReviewRoundState STATUS_CLOSED = ReviewRoundState.CLOSED;
     /** Operational failure parked for an explicit task-scoped Resume. */
-    public static final String STATUS_PAUSED = "paused";
+    public static final ReviewRoundState STATUS_PAUSED = ReviewRoundState.PAUSED;
 
     public static final String ORIGIN_EXTERNAL = "external";
     public static final String ORIGIN_BRAIN = "brain";
@@ -76,6 +85,34 @@ public record ReviewRound(
      *  arguing style or philosophy, and the human is the tiebreaker. */
     public static final int DEFAULT_BRAIN_BUDGET = 5;
 
+    public ReviewRound
+    {
+        requireNonNull(status, "status is null");
+    }
+
+    /** Compatibility constructor for rows created before the P3b
+     *  coordination checkpoints were added. */
+    public ReviewRound(
+            String id,
+            String taskId,
+            int idx,
+            List<String> reviewers,
+            ReviewRoundState status,
+            ReviewRoundStats stats,
+            String runId,
+            Instant openedAt,
+            Instant gatedAt,
+            Instant postedAt,
+            String origin,
+            String brainVerdict,
+            int iteration,
+            int budget)
+    {
+        this(id, taskId, idx, reviewers, status, stats, runId, openedAt,
+                gatedAt, postedAt, origin, brainVerdict, iteration, budget,
+                null, null, 0, 0, 0, null, null);
+    }
+
     public record ReviewRoundStats(int fixed, int replied, int pushedBack, int open)
     {
         public static ReviewRoundStats empty()
@@ -84,12 +121,11 @@ public record ReviewRound(
         }
     }
 
-    /** True while the round hasn't posted its drafts yet — the rail's
-     *  "round N · M open" meta only ever names one of these. */
+    /** True while the round is actively coordinating work. A PAUSED row
+     * remains a durable checkpoint, but is not live or driveable. */
     public boolean isLive()
     {
-        return STATUS_TRIAGING.equals(status) || STATUS_ADDRESSING.equals(status)
-                || STATUS_AWAITING_GATE.equals(status);
+        return status.isLive();
     }
 
     /** True once the brain's iteration budget is spent — the loop stops and
@@ -102,31 +138,36 @@ public record ReviewRound(
     public ReviewRound withRunId(String runId)
     {
         return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
-                origin, brainVerdict, iteration, budget);
+                origin, brainVerdict, iteration, budget, pausedFrom, codeFingerprint,
+                enqueueFailures, kickAttempt, gateRevision, activeGateToken, closedAt);
     }
 
-    public ReviewRound withStatus(String status)
+    public ReviewRound withStatus(ReviewRoundState status)
     {
         return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
-                origin, brainVerdict, iteration, budget);
+                origin, brainVerdict, iteration, budget, pausedFrom, codeFingerprint,
+                enqueueFailures, kickAttempt, gateRevision, activeGateToken, closedAt);
     }
 
     public ReviewRound withStats(ReviewRoundStats stats)
     {
         return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
-                origin, brainVerdict, iteration, budget);
+                origin, brainVerdict, iteration, budget, pausedFrom, codeFingerprint,
+                enqueueFailures, kickAttempt, gateRevision, activeGateToken, closedAt);
     }
 
     public ReviewRound withGatedAt(Instant gatedAt)
     {
         return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
-                origin, brainVerdict, iteration, budget);
+                origin, brainVerdict, iteration, budget, pausedFrom, codeFingerprint,
+                enqueueFailures, kickAttempt, gateRevision, activeGateToken, closedAt);
     }
 
     public ReviewRound withPostedAt(Instant postedAt)
     {
         return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
-                origin, brainVerdict, iteration, budget);
+                origin, brainVerdict, iteration, budget, pausedFrom, codeFingerprint,
+                enqueueFailures, kickAttempt, gateRevision, activeGateToken, closedAt);
     }
 
     /** Copy with the brain's latest verdict recorded. Does not touch {@code
@@ -135,7 +176,8 @@ public record ReviewRound(
     public ReviewRound withBrainVerdict(String verdict)
     {
         return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
-                origin, verdict, iteration, budget);
+                origin, verdict, iteration, budget, pausedFrom, codeFingerprint,
+                enqueueFailures, kickAttempt, gateRevision, activeGateToken, closedAt);
     }
 
     /** Copy for a freshly scheduled review iteration. The prior verdict is
@@ -144,6 +186,7 @@ public record ReviewRound(
     public ReviewRound withIterationBumped()
     {
         return new ReviewRound(id, taskId, idx, reviewers, status, stats, runId, openedAt, gatedAt, postedAt,
-                origin, null, iteration + 1, budget);
+                origin, null, iteration + 1, budget, pausedFrom, codeFingerprint,
+                enqueueFailures, kickAttempt, gateRevision, activeGateToken, closedAt);
     }
 }

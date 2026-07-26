@@ -33,6 +33,18 @@ interface AgentRunJpaRepository
             @Param("finishedAtMs") Long finishedAtMs);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE AgentRunEntity r SET r.status = :to, r.finishedAtMs = :finishedAtMs, "
+            + "r.pauseReason = :pauseReason, r.outcome = :outcome "
+            + "WHERE r.id = :id AND r.status = :expected")
+    int transition(
+            @Param("id") String id,
+            @Param("expected") String expected,
+            @Param("to") String to,
+            @Param("finishedAtMs") Long finishedAtMs,
+            @Param("pauseReason") String pauseReason,
+            @Param("outcome") String outcome);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE AgentRunEntity r SET r.iterations = :iterations, r.costUsdMilli = :costUsdMilli, "
             + "r.tokensIn = :tokensIn, r.tokensOut = :tokensOut WHERE r.id = :id")
     int updateProgress(
@@ -52,6 +64,33 @@ interface AgentRunJpaRepository
             @Param("id") String id,
             @Param("headline") String headline,
             @Param("outcome") String outcome);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE AgentRunEntity r SET r.workspaceId = :workspaceId, r.threadId = :threadId, "
+            + "r.provider = :provider, r.model = :model, r.launchInput = :launchInput "
+            + "WHERE r.id = :id")
+    int updateOwnership(
+            @Param("id") String id,
+            @Param("workspaceId") String workspaceId,
+            @Param("threadId") String threadId,
+            @Param("provider") String provider,
+            @Param("model") String model,
+            @Param("launchInput") String launchInput);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE AgentRunEntity r SET r.metricsJson = :metricsJson WHERE r.id = :id")
+    int updateMetrics(@Param("id") String id, @Param("metricsJson") String metricsJson);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE AgentRunEntity r SET r.costUsdMilli = :costUsdMilli, "
+            + "r.tokensIn = :tokensIn, r.tokensOut = :tokensOut, r.stepCursor = :stepCursor "
+            + "WHERE r.id = :id")
+    int updateAccounting(
+            @Param("id") String id,
+            @Param("costUsdMilli") long costUsdMilli,
+            @Param("tokensIn") long tokensIn,
+            @Param("tokensOut") long tokensOut,
+            @Param("stepCursor") int stepCursor);
 
     List<AgentRunEntity> findByWorkspaceIdOrderByStartedAtMsDesc(String workspaceId);
 

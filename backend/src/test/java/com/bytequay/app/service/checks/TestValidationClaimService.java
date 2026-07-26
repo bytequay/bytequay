@@ -13,13 +13,16 @@
  */
 package com.bytequay.app.service.checks;
 
+import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ValidationClaim;
+import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ValidationPassStore;
@@ -35,12 +38,17 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -82,12 +90,13 @@ class TestValidationClaimService
         ApplicationEventPublisher events = published::add;
 
         ValidationClaimService service = new ValidationClaimService(
-                store, taskStore, checks, fingerprints,
+                store, taskStore, mock(ReviewRoundStore.class),
+                checks, fingerprints,
                 new ValidationExecutorRegistry(), commands, events, mapper);
 
         service.claimAndRunDevRound(taskId);
 
-        String claimKey = "dev-round:" + taskId + ":fp-" + taskId;
+        String claimKey = "dev-round:" + taskId + ":0:fp-" + taskId;
         ValidationClaim claim = awaitTerminal(claimKey);
         assertThat(claim.isTerminalGreen()).isTrue();
         assertThat(published)
@@ -101,6 +110,96 @@ class TestValidationClaimService
                 .filteredOn(ValidationPassFinishedEvent.class::isInstance)
                 .hasSize(2);
         assertThat(((ValidationPassFinishedEvent) published.get(1)).passed()).isTrue();
+    }
+
+    @Test
+    void stoppedTaskCannotAdmitValidation()
+    {
+        String taskId = seedTask("/tmp/stopped-validation-worktree");
+        taskStore.updateStatusIf(taskId, TaskStatus.RUNNING, TaskStatus.PAUSED);
+        ValidationPassService checks = mock(ValidationPassService.class);
+        CodeFingerprints fingerprints = mock(CodeFingerprints.class);
+        ValidationClaimService service = new ValidationClaimService(
+                store, taskStore, mock(ReviewRoundStore.class),
+                checks, fingerprints,
+                new ValidationExecutorRegistry(), commands, ignored -> {}, mapper);
+
+        service.claimAndRunDevRound(taskId);
+
+        verify(fingerprints, never()).fingerprint(any(Path.class));
+        verify(checks, never()).runChecks(taskId);
+    }
+
+    @Test
+    void stoppedTaskFreezesOwedGateValidationWithoutSubmittingExecutor()
+    {
+        String taskId = seedTask("/tmp/stopped-gate-validation-worktree");
+        taskStore.updatePhase(taskId, TaskPhase.AWAITING_REMOTE_REVIEW);
+        taskStore.updateStatusIf(taskId, TaskStatus.RUNNING, TaskStatus.PAUSED);
+        String roundId = UUID.randomUUID().toString();
+        String fingerprint = "gate-fingerprint";
+        String claimKey = ValidationClaimService.gateRevalidationClaimKey(
+                taskId, roundId, 2, 3, fingerprint);
+        store.insertClaim(
+                claimKey, taskId, ValidationClaimService.CONTEXT_GATE_REVALIDATION,
+                roundId, fingerprint, null, null, NOW);
+        ReviewRound round = mock(ReviewRound.class);
+        when(round.id()).thenReturn(roundId);
+        when(round.taskId()).thenReturn(taskId);
+        when(round.status()).thenReturn(ReviewRound.STATUS_TRIAGING);
+        when(round.origin()).thenReturn(ReviewRound.ORIGIN_EXTERNAL);
+        when(round.gateRevision()).thenReturn(2);
+        when(round.kickAttempt()).thenReturn(3);
+        when(round.codeFingerprint()).thenReturn("prior-fingerprint");
+        ReviewRoundStore rounds = mock(ReviewRoundStore.class);
+        when(rounds.findById(roundId)).thenReturn(Optional.of(round));
+        ValidationPassService checks = mock(ValidationPassService.class);
+        CodeFingerprints fingerprints = mock(CodeFingerprints.class);
+        ValidationExecutorRegistry registry = mock(ValidationExecutorRegistry.class);
+        ValidationClaimService service = new ValidationClaimService(
+                store, taskStore, rounds, checks, fingerprints,
+                registry, commands, ignored -> {}, mapper);
+
+        assertThat(service.claimAndRunGateRevalidation(roundId)).isTrue();
+
+        verify(registry, never()).submitIfAbsent(any(), any());
+        verify(fingerprints, never()).fingerprint(any(Path.class));
+        verify(checks, never()).runChecks(taskId);
+    }
+
+    @Test
+    void stoppingTaskDuringChecksPersistsResultWithoutPublishingAdvance()
+            throws Exception
+    {
+        String taskId = seedTask("/tmp/stopped-during-validation-worktree");
+        CountDownLatch checksStarted = new CountDownLatch(1);
+        CountDownLatch releaseChecks = new CountDownLatch(1);
+        ValidationPassService checks = mock(ValidationPassService.class);
+        when(checks.runChecks(taskId)).thenAnswer(ignored -> {
+            checksStarted.countDown();
+            assertThat(releaseChecks.await(2, TimeUnit.SECONDS)).isTrue();
+            return List.of();
+        });
+        CodeFingerprints fingerprints = mock(CodeFingerprints.class);
+        when(fingerprints.fingerprint(any(Path.class))).thenReturn("fp-" + taskId);
+        List<Object> published = new CopyOnWriteArrayList<>();
+        ValidationClaimService service = new ValidationClaimService(
+                store, taskStore, mock(ReviewRoundStore.class),
+                checks, fingerprints, new ValidationExecutorRegistry(), commands,
+                published::add, mapper);
+
+        service.claimAndRunDevRound(taskId);
+        assertThat(checksStarted.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(taskStore.updateStatusIf(
+                taskId, TaskStatus.RUNNING, TaskStatus.PAUSED)).isTrue();
+        releaseChecks.countDown();
+
+        ValidationClaim claim = awaitTerminal(
+                "dev-round:" + taskId + ":0:fp-" + taskId);
+        assertThat(claim.isTerminalGreen()).isTrue();
+        assertThat(published)
+                .filteredOn(ValidationPassFinishedEvent.class::isInstance)
+                .isEmpty();
     }
 
     private ValidationClaim awaitTerminal(String claimKey)
@@ -128,6 +227,7 @@ class TestValidationClaimService
                 taskId, thread.id(), 1L, TaskStatus.RUNNING, "feature", worktree, "main", "/tmp",
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, null, NOW, null, null, null, null, null));
+        taskStore.updatePhase(taskId, TaskPhase.VALIDATING);
         return taskId;
     }
 }

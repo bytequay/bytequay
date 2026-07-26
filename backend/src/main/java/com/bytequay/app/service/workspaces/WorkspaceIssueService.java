@@ -21,6 +21,8 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.service.workmodel.SessionAudience;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,21 +40,21 @@ public class WorkspaceIssueService
     private final WorkspaceRepositoryResolver resolver;
     private final RepoService repos;
     private final ThreadService threads;
-    private final WorkspaceService workspaces;
     private final JdbcTemplate jdbc;
+    private final WorkModelResolver workModels;
 
     public WorkspaceIssueService(
             WorkspaceRepositoryResolver resolver,
             RepoService repos,
             ThreadService threads,
-            WorkspaceService workspaces,
-            JdbcTemplate jdbc)
+            JdbcTemplate jdbc,
+            WorkModelResolver workModels)
     {
         this.resolver = requireNonNull(resolver, "resolver is null");
         this.repos = requireNonNull(repos, "repos is null");
         this.threads = requireNonNull(threads, "threads is null");
-        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
+        this.workModels = requireNonNull(workModels, "workModels is null");
     }
 
     public IssueDetail readFresh(String workspaceId, int number)
@@ -130,14 +132,16 @@ public class WorkspaceIssueService
     private Thread createTrunk(String workspaceId, int number)
     {
         IssueDetail issue = readFresh(workspaceId, number);
-        WorkModel workModel = workspaces.require(workspaceId).workModel();
-        ThreadKind kind = workModel != null && workModel.kind() == WorkModelKind.API
-                ? ThreadKind.LOGIC_LOOP
-                : ThreadKind.CLI_AGENT;
+        // Stamp the row from the workspace's planning engine — the same
+        // thing the registry will spawn for this trunk's turns.
+        WorkModel workModel = workModels
+                .resolveForWorkspace(workspaceId, SessionAudience.PLAN).choice();
         return threads.create(new ThreadService.NewTaskRequest(
-                kind,
-                workModel == null ? "claude-code" : workModel.agentOrProvider(),
-                workModel == null ? null : workModel.model(),
+                workModel.kind() == WorkModelKind.API
+                        ? ThreadKind.LOGIC_LOOP
+                        : ThreadKind.CLI_AGENT,
+                workModel.agentOrProvider(),
+                workModel.model(),
                 issue.title(),
                 null,
                 null,
@@ -148,7 +152,9 @@ public class WorkspaceIssueService
                 number,
                 ThreadFlow.BUILD,
                 workspaceId,
-                workModel));
+                // No scope override: the workspace owns the engine, and this
+                // trunk has no reason to dial its own reasoning effort.
+                null));
     }
 
     public record StartIssueResult(

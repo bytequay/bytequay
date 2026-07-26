@@ -28,7 +28,7 @@ import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailService;
 import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
-import com.bytequay.app.service.workmodel.WorkModelAgentLock;
+import com.bytequay.app.service.workmodel.ScopeWorkModel;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -167,10 +167,11 @@ public class StageController
     public record WorkModelBody(WorkModel workModel) {}
 
     /** PUT /api/stages/{stageId}/work-model — set (or clear) the stage's
-     *  override. A stage's agent session is built once and reused across
-     *  every iteration within it, so this is a stage-open-time choice: it
-     *  has no effect on a session already running under this stage, only
-     *  on the next one built for it. */
+     *  reasoning-effort override. The engine is the workspace's call, so
+     *  engine fields in the body are ignored. A stage's agent session is
+     *  built once and reused across every iteration within it, so this is
+     *  a stage-open-time choice: it has no effect on a session already
+     *  running under this stage, only on the next one built for it. */
     @PutMapping("/api/stages/{stageId}/work-model")
     public ResolvedWorkModelResponse setWorkModel(
             @PathVariable String stageId,
@@ -179,17 +180,15 @@ public class StageController
         UUID id = parseStageId(stageId);
         StageInstance stage = requireStage(id);
         Task task = requireTaskForStage(stage);
-        WorkModel requested = body == null ? null : body.workModel();
-        boolean agentLocked = !threadStore.listStageMessages(stageId).isEmpty();
-        WorkModelAgentLock.requireSameAgent(
-                agentLocked,
+        WorkModel stored = ScopeWorkModel.effortOnly(
                 workModelResolver.resolveForStage(task.threadId(), task.id(), stageId).choice(),
-                requested);
-        stageStore.updateWorkModel(id, requested);
+                body == null ? null : body.workModel());
+        stageStore.updateWorkModel(id, stored);
         WorkModelResolver.Resolved resolved =
                 workModelResolver.resolveForStage(task.threadId(), task.id(), stageId);
         return new ResolvedWorkModelResponse(
-                requested, resolved.choice(), resolved.provenance(), agentLocked);
+                stored, resolved.choice(), resolved.provenance(),
+                !threadStore.listStageMessages(stageId).isEmpty());
     }
 
     private StageInstance requireStage(UUID stageId)

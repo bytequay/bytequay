@@ -210,9 +210,18 @@ describe('WorkspaceSettingsPage', () => {
     installBridge();
     render(<WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="agents" />);
 
-    expect(await screen.findAllByRole('option', { name: /Codex CLI · available/ })).toHaveLength(4);
+    // Five engine pickers: the workspace default plus the four session kinds.
+    expect(await screen.findAllByRole('option', { name: /Codex CLI · available/ })).toHaveLength(5);
     const pickers = screen.getAllByRole('combobox') as HTMLSelectElement[];
+    expect(pickers).toHaveLength(5);
+    // No providers.default stored, so the workspace default seeds from the
+    // account-level dev engine — which is signed out here, so the row is
+    // repaired to the first engine that is actually available.
     expect(pickers[0].value).toBe('cli:codex');
+    expect(pickers[1].value).toBe('cli:codex');
+    expect(pickers[2].value).toBe('cli:codex');
+    expect(pickers[3].value).toBe('');
+    expect(pickers[4].value).toBe('');
     expect(document.body.textContent).not.toContain('sonnet');
     expect((screen.getAllByRole('option', { name: /Claude CLI/ })[0] as HTMLOptionElement).disabled).toBe(true);
     expect(screen.getAllByRole('option', { name: /API · OpenAI · work-key/ })[0]).toBeTruthy();
@@ -224,7 +233,7 @@ describe('WorkspaceSettingsPage', () => {
     render(<WorkspaceSettingsPage workspace={workspace} workspaceId="w1" section="agents" />);
 
     const local = await screen.findAllByRole('option', { name: 'Local · available' });
-    expect(local).toHaveLength(4);
+    expect(local).toHaveLength(5);
     expect((local[0] as HTMLOptionElement).disabled).toBe(false);
   });
 
@@ -252,10 +261,13 @@ describe('WorkspaceSettingsPage', () => {
         dailyCapUsd: 15,
         pauseAtCap: false,
         providers: expect.objectContaining({
-          plan: 'api:openai:work-key',
+          // The edited row is the workspace default; the session kinds keep
+          // their stored pick, or stay empty to inherit it.
+          default: 'api:openai:work-key',
+          plan: 'cli:codex',
           dev: 'cli:codex',
-          review: 'cli:codex',
-          'ci-fix': 'cli:codex',
+          review: '',
+          'ci-fix': '',
         }),
       }),
     }));

@@ -2350,8 +2350,16 @@ export type ThreadSettingsDto = {
 
 export type NewTaskRequestDto = {
   kind: ThreadKindDto;
+  /** Per-session-kind engine pins from the create dialog, keyed by
+   *  audience ('plan' | 'dev' | 'review' | 'ci-fix') and valued with
+   *  the workspace settings picker ids. Absent kinds inherit the
+   *  workspace. Honoured on thread create only. */
+  engines?: Record<string, string>;
+  /** Optional and advisory — the backend stamps the thread with the
+   *  workspace's engine, which is the only thing that decides what
+   *  actually runs. */
   provider?: string;
-  model: string;
+  model?: string;
   /** Owning workspace's id — required. The backend rejects the
    *  create when null/blank so the thread always lands in the right
    *  workspace's slice. */

@@ -11,12 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
-import type { WatchedRepoDto, WorkModelDto } from '../types';
+import { useEffect, useMemo, useState } from 'react';
+import type { Ds4StateDto, WorkModelOptionsDto } from '../types';
 import { logoColorFor, monogram } from '../pages/useWorkspaceNav';
 import { Logo } from '../ui/primitives';
 import { WS_DIALOG_OVERLAY, WS_DIALOG_PANEL, dialogStyles } from './dialogStyles';
-import { WorkModelPicker } from './WorkModelPicker';
+import { type AgentChoice, choiceGlyph, choiceText, choicesFrom, normalizeChoice } from './agentChoices';
+import { type WorkspaceRepositoryDto, type WorkspaceSettingsDto, workspaceApi } from './workspaceApi';
 
 type Props = {
   /** Close without taking any action — fired on Cancel and the
@@ -28,69 +29,120 @@ type Props = {
   /** Pre-pin the new thread into a group when the dialog is opened
    *  from a group's `+ Add` button. Defaults to no group. */
   initialGroupId?: string;
-  /** Active workspace's id. The repo picker is filtered to repos
-   *  pinned to this workspace — picking a repo that belongs to
-   *  another workspace would land the thread in the wrong scope. */
+  /** Active workspace's id — the trunk lands here, and both the repo
+   *  and the inherited agent config are read off it. */
   workspaceId: string;
   /** Active workspace's display name — surfaces on the dialog chip
-   *  + the "inherits X defaults" hints so a thread created from
+   *  + the "inheriting X defaults" hint so a trunk created from
    *  workspace X doesn't show "ByteQuay" everywhere. */
   workspaceName: string;
 };
 
+/** The four session kinds a trunk spawns, in the order the workspace
+ *  Agents tab lists them. `audience` is the wire key shared with the
+ *  backend's SessionAudience and the workspace `providers` map. */
+const KINDS = [
+  { audience: 'plan', chip: 'plan', desc: 'Deep reasoning for specs & plans', fg: '#8250df', bg: 'rgba(130,80,223,0.10)' },
+  { audience: 'dev', chip: 'dev', desc: 'Code writing & tests', fg: '#0969da', bg: 'rgba(9,105,218,0.10)' },
+  { audience: 'review', chip: 'review', desc: 'PR review rounds', fg: '#1a7f37', bg: 'rgba(45,164,78,0.14)' },
+  { audience: 'ci-fix', chip: 'ci fix', desc: 'Cheap loops on red builds', fg: '#cf222e', bg: 'rgba(207,34,46,0.10)' },
+] as const;
+
+/** What the backend falls back to when the workspace configured no
+ *  engine at all (WorkModelCatalog's first CLI agent). Kept in sync by
+ *  hand — a mismatch only mislabels the row, it can't change what runs. */
+const CURATED_DEFAULT = 'cli:claude-code';
+
 /**
- * Workspace-scoped new-thread modal per
- * docs/mockups/design/tasks/create-thread.png — a free-form prompt
- * at the top, a chip row for Add files / Reference a PR / Skills, a
- * "Plan here, steer your wild horse" trunk hint, and an
- * ADVANCED · INHERITS BYTEQUAY DEFAULTS section that exposes the
- * repo + agent picks as inline chips with the workspace defaults
- * pre-filled. The Discussion / Start-a-task picker is removed — the
- * trunk *is* the discussion altitude, and tasks materialise from the
- * first branch-worthy turn rather than an up-front choice.
+ * Workspace-scoped new-trunk modal: a free-form prompt at the top, a
+ * chip row for Add files / Reference a PR / Skills, the "Plan here,
+ * steer your wild horse" hint, and an AGENTS table showing which
+ * engine each session kind will run on.
+ *
+ * <p>The repo is fixed by the workspace (one workspace, one repo), so
+ * it reads as a caption rather than a picker. The agent rows inherit
+ * the workspace Agents config and can be pinned per session kind for
+ * this trunk only — the pins ride along on the create call and the
+ * resolver honours them for every session under the trunk. With no
+ * agent available at all, creation is blocked up front rather than
+ * failing after submit.
  */
 function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, workspaceName }: Props) {
   const wsLabel = workspaceName.length > 0 ? workspaceName : 'Workspace';
   const [prompt, setPrompt] = useState('');
-  const [repos, setRepos] = useState<WatchedRepoDto[] | null>(null);
-  const [selectedRepo, setSelectedRepo] = useState<WatchedRepoDto | null>(null);
-  const [selectedModel, setSelectedModel] = useState<WorkModelDto | null>(null);
+  const [repoName, setRepoName] = useState<string | null>(null);
+  const [providers, setProviders] = useState<Record<string, string> | null>(null);
+  const [options, setOptions] = useState<WorkModelOptionsDto | null>(null);
+  const [localAi, setLocalAi] = useState<Ds4StateDto | null>(null);
+  /** Per-audience pins for this trunk only. An absent key inherits. */
+  const [pins, setPins] = useState<Record<string, string>>({});
+  const [openKind, setOpenKind] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [openMenu, setOpenMenu] = useState<'repo' | 'agent' | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      try {
-        // Pull the global watched-repo set (carries localClonePath
-        // and the other rich fields) and the per-workspace pin set,
-        // then intersect by repoFullName so the picker only shows
-        // repos pinned to the active workspace.
-        const [all, pinned] = await Promise.all([
-          window.bridge.getWatchedRepos(),
-          window.bridge.listWorkspaceRepos(workspaceId),
-        ]);
+    void Promise.all([
+      workspaceApi.repository(workspaceId).catch((): WorkspaceRepositoryDto | null => null),
+      workspaceApi.settings(workspaceId).catch((): WorkspaceSettingsDto | null => null),
+      workspaceApi.workModelOptions(),
+      window.bridge.getDs4Status(),
+    ])
+      .then(([repository, settings, modelOptions, ds4]) => {
         if (cancelled) return;
-        const pinnedSet = new Set(pinned.map(p => p.repoFullName));
-        const scoped = all.filter(r => pinnedSet.has(`${r.owner}/${r.repo}`));
-        setRepos(scoped);
-        // Pre-select the first scoped repo with a local clone path.
-        // If none qualifies, the create button stays disabled and the
-        // chip surfaces an inline hint.
-        const withClone = scoped.find(r => r.localClonePath != null && r.localClonePath.trim() !== '');
-        setSelectedRepo(withClone ?? scoped[0] ?? null);
-      }
-      catch {
-        if (!cancelled) setRepos([]);
-      }
-    })();
+        setRepoName(repository?.fullName ?? null);
+        setProviders(settings?.providers ?? {});
+        setOptions(modelOptions);
+        setLocalAi(ds4.state);
+      })
+      .catch(reason => {
+        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
+      });
     return () => { cancelled = true; };
   }, [workspaceId]);
 
+  const choices = useMemo(() => choicesFrom(options, localAi), [localAi, options]);
+  const loading = options === null || providers === null;
+  // Nothing installed, authed, or keyed: every kind would resolve to an
+  // agent that can't run, so the create is refused up front.
+  const blocked = !loading && choices.every(choice => choice.disabled);
+
+  /** The engine the workspace says this kind runs on: the kind's own
+   *  pick, else the workspace default, else the curated fallback. */
+  const workspacePick = (audience: string): string => {
+    const own = providers?.[audience];
+    const fallback = providers?.default;
+    const raw = own !== undefined && own.trim() !== '' ? own : fallback;
+    return raw === undefined || raw.trim() === '' ? CURATED_DEFAULT : normalizeChoice(raw);
+  };
+
+  const recheck = async () => {
+    setChecking(true);
+    try {
+      const [nextOptions, ds4] = await Promise.all([
+        workspaceApi.refreshWorkModelOptions(),
+        window.bridge.getDs4Status(),
+      ]);
+      setOptions(nextOptions);
+      setLocalAi(ds4.state);
+    }
+    catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
+    finally {
+      setChecking(false);
+    }
+  };
+
+  const openAgentSettings = () => {
+    window.location.hash = `#/workspace/${encodeURIComponent(workspaceId)}/settings/agents`;
+    onClose();
+  };
+
   const handleSubmit = async () => {
     const trimmed = prompt.trim();
-    if (submitting) return;
+    if (submitting || blocked) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -99,14 +151,15 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
       // as a turn — the text is context the user prepared in the
       // dialog, staged below into the trunk composer so they review
       // and press Send when ready.
+      // No engine on the request beyond the pins: the backend stamps
+      // the thread from the workspace's plan engine otherwise. Sending
+      // one here would only put a second, drifting answer on the row.
       const created = await window.bridge.createTask({
-        kind: selectedModel?.kind === 'API' ? 'LOGIC_LOOP' : 'CLI_AGENT',
-        provider: selectedModel?.agentOrProvider ?? 'claude-code',
-        model: selectedModel?.model ?? '',
+        kind: 'CLI_AGENT',
         workspaceId,
         initialPrompt: trimmed === '' ? undefined : trimmed,
         initialGroupIds: initialGroupId !== undefined ? [initialGroupId] : undefined,
-        workModel: selectedModel,
+        engines: Object.keys(pins).length === 0 ? undefined : pins,
       });
       if (trimmed.length > 0) {
         // Hand the text to the trunk page via sessionStorage — the
@@ -126,7 +179,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
     }
   };
 
-  const submitDisabled = submitting || repos === null;
+  const pinCount = Object.keys(pins).length;
 
   return (
     <div
@@ -143,7 +196,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
       >
         <header style={dialogStyles.header}>
           <h2 id="new-thread-title" style={dialogStyles.title}>
-            New Trunk Threads
+            New Trunks Directory
             <span style={{ ...dialogStyles.workspaceChip, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Logo initials={monogram(wsLabel).toUpperCase()} color={logoColorFor(wsLabel)} size="sm" />
               {wsLabel}
@@ -159,12 +212,18 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
           </button>
         </header>
 
+        <div style={repoLineStyle}>
+          <span aria-hidden>📕</span>
+          <span>{repoName ?? '—'}</span>
+          <span style={repoLineMutedStyle}>· set by the workspace</span>
+        </div>
+
         <textarea
           autoFocus
           value={prompt}
           onChange={e => setPrompt(e.target.value)}
           placeholder="What do you want to work on or think through?"
-          style={dialogStyles.textarea}
+          style={{ ...dialogStyles.textarea, marginTop: 10 }}
         />
 
         <div style={dialogStyles.chipRow}>
@@ -180,86 +239,97 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
           </span>
         </div>
 
-        <div style={advancedHeaderStyle}>
-          ADVANCED <span style={advancedMutedStyle}>· INHERITS {wsLabel.toUpperCase()} DEFAULTS</span>
-          <span style={advancedOverrideHintStyle}>— override if needed</span>
-        </div>
-        <div style={advancedRowStyle}>
-          <div style={pickerWrapStyle}>
+        <div style={agentsHeaderStyle}>
+          <span style={agentsLabelStyle}>AGENTS</span>
+          <span style={{ ...agentsNoteStyle, color: blocked ? '#cf222e' : pinCount > 0 ? '#9a6700' : 'var(--ws-text-4)' }}>
+            {blocked
+              ? 'nothing to inherit — workspace has none configured'
+              : loading
+                ? 'reading workspace defaults…'
+                : pinCount === 0
+                  ? `inheriting ${wsLabel} defaults`
+                  : `${pinCount} overridden for this trunk`}
+          </span>
+          <span style={{ flex: 1 }} />
+          {pinCount > 0 && !blocked && (
             <button
               type="button"
-              style={advancedChipStyle}
-              onClick={() => setOpenMenu(openMenu === 'repo' ? null : 'repo')}
-              aria-haspopup="listbox"
-              aria-expanded={openMenu === 'repo'}
+              style={agentsActionStyle}
+              title="Drop this trunk's overrides"
+              onClick={() => { setPins({}); setOpenKind(null); }}
             >
-              <span style={advChipGlyphStyle('repo')} aria-hidden>●</span>
-              <span style={advChipLabelStyle}>
-                {selectedRepo === null
-                  ? (repos === null ? 'loading repos…' : 'no watched repo')
-                  : selectedRepo.repo}
-              </span>
-              {selectedRepo !== null && selectedRepo.owner !== '' && (
-                <span style={advChipMetaStyle}>· {selectedRepo.owner}</span>
-              )}
-              <span style={advChipCaretStyle}>▾</span>
+              ↺ Reset
             </button>
-            {openMenu === 'repo' && (
-              <>
-                <div style={pickerScrimStyle} onClick={() => setOpenMenu(null)} />
-                <ul style={pickerMenuStyle} role="listbox">
-                  {repos !== null && repos.length === 0 && (
-                    <li style={pickerEmptyStyle}>
-                      No repos pinned to this workspace. Pin one in Workspace
-                      Settings → Repositories before creating a thread.
-                    </li>
-                  )}
-                  {repos !== null && repos.map(r => {
-                    const hasClone = r.localClonePath != null
-                        && r.localClonePath.trim() !== '';
-                    const isActive = selectedRepo?.id === r.id;
-                    return (
-                      <li key={r.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!hasClone) return;
-                            setSelectedRepo(r);
-                            setOpenMenu(null);
-                          }}
-                          style={pickerItemStyle(isActive, !hasClone)}
-                          disabled={!hasClone}
-                          title={hasClone
-                            ? `${r.owner}/${r.repo}`
-                            : `${r.owner}/${r.repo} — clone it locally before using it as a thread cwd`}
-                        >
-                          <span style={pickerItemDotStyle('repo')} aria-hidden />
-                          <span style={pickerItemTitleStyle}>{r.repo}</span>
-                          <span style={pickerItemMetaStyle}>{r.owner}</span>
-                          {!hasClone && (
-                            <span style={pickerItemBadgeStyle}>no local clone</span>
-                          )}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </>
-            )}
-          </div>
+          )}
+          <button
+            type="button"
+            style={agentsActionStyle}
+            title="Re-check availability"
+            disabled={checking}
+            onClick={() => { void recheck(); }}
+          >
+            ↻ {checking ? 'Checking…' : 'Check'}
+          </button>
         </div>
 
-        <div style={workModelSectionStyle}>
-          <WorkModelPicker value={selectedModel} onChange={setSelectedModel} />
+        <div style={{ ...agentsTableStyle, background: blocked ? 'rgba(0,0,0,0.015)' : 'transparent' }}>
+          {KINDS.map((kind, index) => (
+            <AgentRow
+              key={kind.audience}
+              kind={kind}
+              first={index === 0}
+              blocked={blocked}
+              choices={choices}
+              defaultChoice={workspacePick(kind.audience)}
+              pinned={pins[kind.audience]}
+              menuOpen={openKind === kind.audience}
+              onToggleMenu={() => setOpenKind(openKind === kind.audience ? null : kind.audience)}
+              onPick={value => {
+                setPins(current => {
+                  const next = { ...current };
+                  if (value === null || value === workspacePick(kind.audience)) delete next[kind.audience];
+                  else next[kind.audience] = value;
+                  return next;
+                });
+                setOpenKind(null);
+              }}
+              onManage={openAgentSettings}
+            />
+          ))}
         </div>
+
+        {blocked && (
+          <div style={blockedBannerStyle}>
+            <span style={{ color: '#cf222e' }} aria-hidden>⚠</span>
+            <div>
+              <div style={blockedTitleStyle}>No agents in {wsLabel}</div>
+              <div style={blockedBodyStyle}>
+                A trunk directory can&apos;t be created without at least one agent — every
+                session kind resolves to nothing. Install a CLI agent or add an API key in
+                the workspace&apos;s Agents settings, then check again.
+              </div>
+              <div style={blockedActionsStyle}>
+                <button type="button" style={dialogStyles.secondaryBtn} onClick={openAgentSettings}>
+                  Open Agents settings
+                </button>
+                <button type="button" style={dialogStyles.secondaryBtn} disabled={checking}
+                  onClick={() => { void recheck(); }}>
+                  {checking ? 'Checking…' : 'Check again'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {error !== null && (
           <div style={errorBannerStyle}>{error}</div>
         )}
 
         <footer style={dialogStyles.footer}>
-          <div style={dialogStyles.footerNote}>
-            Lands on the trunk · inherits {wsLabel}'s memory &amp; skills
+          <div style={{ ...dialogStyles.footerNote, color: blocked ? '#cf222e' : undefined }}>
+            {blocked
+              ? "Can't create — no agent to run the first session."
+              : <>Lands on the trunk · inherits {wsLabel}&apos;s memory &amp; skills</>}
           </div>
           <div style={dialogStyles.footerButtons}>
             <button type="button" style={dialogStyles.secondaryBtn} onClick={onClose}>
@@ -269,7 +339,8 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
               type="button"
               style={dialogStyles.primaryBtn}
               onClick={() => { void handleSubmit(); }}
-              disabled={submitDisabled}
+              disabled={submitting || loading || blocked}
+              title={blocked ? 'Add an agent in workspace settings first' : 'Create the trunk directory'}
             >
               {submitting ? 'Starting…' : "Let's ride"} <span style={{ marginLeft: 4 }}>⏎</span>
             </button>
@@ -280,9 +351,121 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
   );
 }
 
-const pickerWrapStyle: React.CSSProperties = {
-  position: 'relative',
-  display: 'inline-block',
+/** One session kind: what it is, which engine it lands on, and the
+ *  picker that pins a different one for this trunk. */
+function AgentRow({
+  kind, first, blocked, choices, defaultChoice, pinned, menuOpen, onToggleMenu, onPick, onManage,
+}: {
+  kind: (typeof KINDS)[number];
+  first: boolean;
+  blocked: boolean;
+  choices: AgentChoice[];
+  defaultChoice: string;
+  pinned: string | undefined;
+  menuOpen: boolean;
+  onToggleMenu: () => void;
+  onPick: (value: string | null) => void;
+  onManage: () => void;
+}) {
+  const effective = pinned ?? defaultChoice;
+  const choice = choices.find(row => row.value === effective);
+  const label = choice === undefined ? effective : choice.label;
+  const defaultLabel = choices.find(row => row.value === defaultChoice)?.label ?? defaultChoice;
+
+  return (
+    <div style={{
+      ...agentRowStyle,
+      borderTop: first ? 'none' : '1px solid var(--ws-card-border)',
+      zIndex: menuOpen ? 2 : 1,
+    }}
+    >
+      <span style={{ ...kindChipStyle, color: kind.fg, background: kind.bg }}>{kind.chip}</span>
+      <span style={agentRowTextStyle}>
+        <span style={{ color: blocked ? 'var(--ws-text-4)' : 'var(--ws-text-1)' }}>{kind.desc}</span>
+        <span style={{ fontSize: 10, color: blocked ? '#cf222e' : pinned !== undefined ? '#9a6700' : 'var(--ws-text-4)' }}>
+          {blocked
+            ? 'no agent can serve this kind'
+            : pinned !== undefined
+              ? `this trunk only — workspace default is ${defaultLabel}`
+              : 'from workspace defaults'}
+        </span>
+      </span>
+      {pinned !== undefined && !blocked && (
+        <span style={overrideChipStyle}>
+          override
+          <button
+            type="button"
+            style={overrideChipClearStyle}
+            title="Back to workspace default"
+            aria-label={`Clear ${kind.chip} override`}
+            onClick={() => onPick(null)}
+          >
+            ✕
+          </button>
+        </span>
+      )}
+      <span style={{ position: 'relative', flexShrink: 0 }}>
+        <button
+          type="button"
+          style={{ ...agentPillStyle, borderStyle: blocked ? 'dashed' : 'solid', cursor: blocked ? 'not-allowed' : 'pointer' }}
+          disabled={blocked}
+          aria-haspopup="listbox"
+          aria-expanded={menuOpen}
+          title={blocked
+            ? 'No agent installed for this workspace'
+            : 'Override the workspace agent for this trunk'}
+          onClick={onToggleMenu}
+        >
+          <span style={{ ...agentGlyphStyle, opacity: blocked ? 0.4 : 1 }}>
+            {blocked ? '·' : choiceGlyph(effective)}
+          </span>
+          <span style={agentPillNameStyle}>{blocked ? 'none available' : label}</span>
+          <span style={{ color: 'var(--ws-text-4)', fontSize: 9 }}>▾</span>
+        </button>
+        {menuOpen && (
+          <>
+            <div style={pickerScrimStyle} onClick={onToggleMenu} />
+            <ul style={pickerMenuStyle} role="listbox">
+              {choices.map(row => (
+                <li key={row.value}>
+                  <button
+                    type="button"
+                    style={pickerItemStyle(row.value === effective, row.disabled === true)}
+                    disabled={row.disabled}
+                    onClick={() => onPick(row.value)}
+                  >
+                    <span style={agentGlyphStyle}>{choiceGlyph(row.value)}</span>
+                    <span style={pickerItemTitleStyle}>{choiceText(row)}</span>
+                    {row.value === defaultChoice && (
+                      <span style={pickerItemBadgeStyle}>default</span>
+                    )}
+                    {row.value === effective && <span style={{ color: 'var(--ws-accent)' }}>✓</span>}
+                  </button>
+                </li>
+              ))}
+              <li>
+                <button type="button" style={pickerItemStyle(false, false)} onClick={onManage}>
+                  <span style={pickerItemTitleStyle}>⚙ Manage workspace agents</span>
+                </button>
+              </li>
+            </ul>
+          </>
+        )}
+      </span>
+    </div>
+  );
+}
+
+const repoLineStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  fontSize: 11,
+  color: 'var(--ws-text-3)',
+};
+
+const repoLineMutedStyle: React.CSSProperties = {
+  color: 'var(--ws-text-4)',
 };
 
 const pickerScrimStyle: React.CSSProperties = {
@@ -296,8 +479,8 @@ const pickerMenuStyle: React.CSSProperties = {
   position: 'absolute',
   zIndex: 2,
   top: 'calc(100% + 6px)',
-  left: 0,
-  minWidth: 260,
+  right: 0,
+  minWidth: 250,
   margin: 0,
   padding: 6,
   listStyle: 'none',
@@ -315,11 +498,11 @@ function pickerItemStyle(active: boolean, disabled: boolean): React.CSSPropertie
     alignItems: 'center',
     gap: 8,
     width: '100%',
-    padding: '8px 10px',
+    padding: '6px 8px',
     border: 'none',
     background: active ? 'var(--ws-accent-soft)' : 'transparent',
     color: disabled ? 'var(--ws-text-4)' : 'var(--ws-text-1)',
-    fontSize: 12,
+    fontSize: 11,
     borderRadius: 6,
     cursor: disabled ? 'not-allowed' : 'pointer',
     textAlign: 'left',
@@ -327,51 +510,11 @@ function pickerItemStyle(active: boolean, disabled: boolean): React.CSSPropertie
   };
 }
 
-const pickerEmptyStyle: React.CSSProperties = {
-  padding: '10px 12px',
-  fontSize: 11,
-  color: 'var(--ws-text-3)',
-  fontStyle: 'italic',
-};
-
-function pickerItemDotStyle(_kind: 'repo'): React.CSSProperties {
-  return {
-    width: 7,
-    height: 7,
-    borderRadius: 999,
-    background: 'var(--ws-accent)',
-    flexShrink: 0,
-  };
-}
-
-function pickerItemAgentGlyphStyle(enabled: boolean): React.CSSProperties {
-  return {
-    width: 18,
-    height: 18,
-    borderRadius: 999,
-    background: enabled ? '#ea580c' : 'rgba(0,0,0,0.10)',
-    color: enabled ? '#fff' : 'var(--ws-text-4)',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: 10,
-    fontWeight: 700,
-    flexShrink: 0,
-  };
-}
-
 const pickerItemTitleStyle: React.CSSProperties = {
   flex: 1,
-  fontWeight: 600,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
-};
-
-const pickerItemMetaStyle: React.CSSProperties = {
-  color: 'var(--ws-text-3)',
-  fontSize: 11,
-  flexShrink: 0,
 };
 
 const pickerItemBadgeStyle: React.CSSProperties = {
@@ -381,7 +524,6 @@ const pickerItemBadgeStyle: React.CSSProperties = {
   background: 'rgba(0,0,0,0.06)',
   borderRadius: 999,
   color: 'var(--ws-text-4)',
-  fontWeight: 600,
   flexShrink: 0,
 };
 
@@ -416,93 +558,153 @@ const trunkHintTextStyle: React.CSSProperties = {
   flex: 1,
 };
 
-const advancedHeaderStyle: React.CSSProperties = {
-  marginTop: 14,
-  fontSize: 10,
-  fontWeight: 700,
-  letterSpacing: '0.06em',
-  color: 'var(--ws-text-2)',
+const agentsHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  marginTop: 16,
 };
 
-const advancedMutedStyle: React.CSSProperties = {
-  fontWeight: 500,
+const agentsLabelStyle: React.CSSProperties = {
+  fontSize: 10,
+  letterSpacing: '0.09em',
   color: 'var(--ws-text-3)',
 };
 
-const advancedOverrideHintStyle: React.CSSProperties = {
-  marginLeft: 8,
-  fontWeight: 500,
-  color: 'var(--ws-text-4)',
-  letterSpacing: '0.02em',
-  textTransform: 'none',
-  fontStyle: 'italic',
+const agentsNoteStyle: React.CSSProperties = {
+  fontSize: 10,
 };
 
-const advancedRowStyle: React.CSSProperties = {
-  display: 'flex',
-  gap: 8,
+const agentsActionStyle: React.CSSProperties = {
+  padding: '2px 8px',
+  fontSize: 10,
+  border: '1px solid var(--ws-card-border)',
+  borderRadius: 7,
+  background: 'rgba(255,255,255,0.86)',
+  color: 'var(--ws-text-3)',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+};
+
+const agentsTableStyle: React.CSSProperties = {
   marginTop: 8,
-  flexWrap: 'wrap',
+  border: '1px solid var(--ws-card-border)',
+  borderRadius: 10,
 };
 
-// WorkModelPicker renders its own header row, current-pick card, and
-// full agent list — a block-level panel, not a small chip like the
-// repo picker above. It needs the dialog's full width, so it gets its
-// own row instead of squeezing into advancedRowStyle's inline-block
-// flex slot (where it rendered squashed to content width).
-const workModelSectionStyle: React.CSSProperties = {
-  marginTop: 14,
+const agentRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '8px 10px',
+  position: 'relative',
 };
 
-const advancedChipStyle: React.CSSProperties = {
+const kindChipStyle: React.CSSProperties = {
+  width: 52,
+  textAlign: 'center',
+  padding: '2px 0',
+  borderRadius: 999,
+  fontSize: 9.5,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  flexShrink: 0,
+};
+
+const agentRowTextStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+  fontSize: 12,
+  overflow: 'hidden',
+};
+
+const overrideChipStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 3,
+  fontSize: 9,
+  color: '#9a6700',
+  background: '#fff8c5',
+  border: '1px solid rgba(212,167,44,0.4)',
+  borderRadius: 999,
+  padding: '1px 3px 1px 7px',
+  flexShrink: 0,
+};
+
+const overrideChipClearStyle: React.CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  color: '#9a6700',
+  cursor: 'pointer',
+  fontSize: 9,
+  padding: '0 2px',
+  fontFamily: 'inherit',
+};
+
+const agentPillStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 6,
-  padding: '6px 12px',
+  width: 170,
+  padding: '4px 7px',
   border: '1px solid var(--ws-card-border)',
+  borderRadius: 8,
   background: 'rgba(255,255,255,0.86)',
+  color: 'var(--ws-text-1)',
+  fontSize: 11,
+  fontFamily: 'inherit',
+};
+
+const agentGlyphStyle: React.CSSProperties = {
+  width: 16,
+  height: 16,
+  borderRadius: 5,
+  background: 'var(--ws-accent-soft)',
+  color: 'var(--ws-accent-deep)',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 9,
+  flexShrink: 0,
+};
+
+const agentPillNameStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  textAlign: 'left',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const blockedBannerStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 10,
+  marginTop: 10,
+  padding: '10px 12px',
+  border: '1px solid rgba(207,34,46,0.28)',
+  background: '#fff8f7',
   borderRadius: 10,
+};
+
+const blockedTitleStyle: React.CSSProperties = {
   fontSize: 12,
   color: 'var(--ws-text-1)',
-  cursor: 'pointer',
 };
 
-function advChipGlyphStyle(kind: 'repo' | 'agent'): React.CSSProperties {
-  if (kind === 'agent') {
-    return {
-      width: 18,
-      height: 18,
-      borderRadius: 999,
-      background: '#ea580c',
-      color: '#fff',
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: 11,
-      fontWeight: 700,
-      flexShrink: 0,
-    };
-  }
-  return {
-    color: 'var(--ws-accent)',
-    fontSize: 10,
-    flexShrink: 0,
-  };
-}
-
-const advChipLabelStyle: React.CSSProperties = {
-  fontWeight: 600,
-};
-
-const advChipMetaStyle: React.CSSProperties = {
-  color: 'var(--ws-text-3)',
+const blockedBodyStyle: React.CSSProperties = {
+  marginTop: 6,
   fontSize: 11,
+  color: 'var(--ws-text-3)',
+  lineHeight: 1.5,
 };
 
-const advChipCaretStyle: React.CSSProperties = {
-  color: 'var(--ws-text-4)',
-  fontSize: 10,
-  marginLeft: 4,
+const blockedActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 7,
+  marginTop: 8,
 };
 
 export default NewThreadDialog;

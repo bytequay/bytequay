@@ -235,6 +235,70 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
+    void anInheritedApiPickBeatsTheThreadsFrozenCliKind()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        // The row still says CLI_AGENT / claude-code (the create dialog's
+        // default), but the workspace now points at an API provider.
+        WorkModel workspacePick = new WorkModel(WorkModelKind.API, "anthropic", "claude-opus-4-8", null);
+        when(workModelResolver.resolveForThread(THREAD_ID))
+                .thenReturn(new WorkModelResolver.Resolved(workspacePick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.WORKSPACE, "ws-default", "workspace ByteQuay")));
+        ThreadRegistry registry = newRegistry();
+
+        assertThat(registry.getOrCreateTrunk(cliThread("claude-code", "claude-opus-4-8", null)))
+                .isInstanceOf(LogicLoopThreadAgent.class);
+        assertThat(registry.getOrCreate(cliThread("claude-code", "claude-opus-4-8", null), null, null))
+                .isInstanceOf(LogicLoopThreadAgent.class);
+    }
+
+    @Test
+    void anInheritedCodexPickBeatsTheThreadsFrozenClaudeProvider()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        WorkModel workspacePick = new WorkModel(WorkModelKind.CLI, "codex", "gpt-5.6-sol", null);
+        when(workModelResolver.resolveForThread(THREAD_ID))
+                .thenReturn(new WorkModelResolver.Resolved(workspacePick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.WORKSPACE, "ws-default", "workspace ByteQuay")));
+        ThreadRegistry registry = newRegistry();
+
+        assertThat(registry.getOrCreateTrunk(cliThread("claude-code", "claude-opus-4-8", null)))
+                .isInstanceOf(CodexCliThreadAgent.class);
+    }
+
+    @Test
+    void aCachedTrunkIsRebuiltWhenTheResolvedRuntimeChanges()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        WorkModel cliPick = new WorkModel(WorkModelKind.CLI, "claude-code", "claude-opus-4-8", null);
+        when(workModelResolver.resolveForThread(THREAD_ID))
+                .thenReturn(new WorkModelResolver.Resolved(cliPick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.WORKSPACE, "ws-default", "workspace ByteQuay")));
+        ThreadRegistry registry = newRegistry();
+        Thread trunk = cliThread("claude-code", "claude-opus-4-8", null);
+        ThreadAgent first = registry.getOrCreateTrunk(trunk);
+
+        // The workspace picker moves to an API provider while the session
+        // is cached — no thread-scope event fires, so the next attach has
+        // to notice on its own.
+        WorkModel apiPick = new WorkModel(WorkModelKind.API, "anthropic", "claude-opus-4-8", null);
+        when(workModelResolver.resolveForThread(THREAD_ID))
+                .thenReturn(new WorkModelResolver.Resolved(apiPick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.WORKSPACE, "ws-default", "workspace ByteQuay")));
+
+        ThreadAgent second = registry.getOrCreateTrunk(trunk);
+
+        assertThat(first).isInstanceOf(ClaudeCodeCliThreadAgent.class);
+        assertThat(second).isInstanceOf(LogicLoopThreadAgent.class);
+        // An unchanged pick still reuses the cached session.
+        assertThat(registry.getOrCreateTrunk(trunk)).isSameAs(second);
+    }
+
+    @Test
     void typedTrunkEntrypointReturnsATrunkAgent()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());

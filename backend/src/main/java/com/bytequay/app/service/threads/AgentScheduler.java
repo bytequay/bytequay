@@ -1244,17 +1244,13 @@ public class AgentScheduler
         return turn.taskId();
     }
 
-    static ThreadResourceLane laneFor(Thread thread)
+    /** The lane a turn belongs on. Every thread follows its resolved work
+     *  model — the same cascade the registry builds the runtime from — so a
+     *  CLI subprocess always counts against the small CLI cap even when the
+     *  thread row was stamped LOGIC_LOOP at creation, and vice versa. */
+    ThreadResourceLane laneFor(Thread thread)
     {
-        return switch (thread.kind()) {
-            case CLI_AGENT -> CLI;
-            case LOGIC_LOOP -> API;
-            // A brain agent follows its resolved work model: a CLI install
-            // runs the selected CLI subprocess (CLI lane), an API install
-            // runs it in-JVM (API lane). Default to API when unset.
-            case BRAIN_AGENT -> thread.workModel() != null
-                    && thread.workModel().kind() == WorkModelKind.CLI ? CLI : API;
-        };
+        return sessions.resolvedWorkModel(thread).kind() == WorkModelKind.CLI ? CLI : API;
     }
 
     private String waitingReason(ThreadTurn turn, LaneState lane)

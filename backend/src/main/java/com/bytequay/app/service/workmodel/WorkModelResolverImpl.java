@@ -40,26 +40,37 @@ class WorkModelResolverImpl
     private final TaskStore taskStore;
     private final WorkspaceStore workspaceStore;
     private final StageStore stageStore;
+    private final WorkspaceEngineSettings engineSettings;
+    private final ThreadEngineOverrides threadEngines;
 
     WorkModelResolverImpl(
             ThreadStore threadStore,
             TaskStore taskStore,
             WorkspaceStore workspaceStore,
-            StageStore stageStore)
+            StageStore stageStore,
+            WorkspaceEngineSettings engineSettings,
+            ThreadEngineOverrides threadEngines)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.workspaceStore = requireNonNull(workspaceStore, "workspaceStore is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.engineSettings = requireNonNull(engineSettings, "engineSettings is null");
+        this.threadEngines = requireNonNull(threadEngines, "threadEngines is null");
+    }
+
+    @Override
+    public Resolved resolveForWorkspace(String workspaceId, String audience)
+    {
+        return workspaceEngine(workspaceId, audience);
     }
 
     @Override
     public Resolved resolveForThread(String threadId)
     {
         requireNonNull(threadId, "threadId is null");
-        Thread thread = threadStore.findThreadById(threadId)
-                .orElseThrow(() -> notFound("thread", threadId));
-        return resolveFromThread(thread);
+        Thread thread = thread(threadId);
+        return compose(thread, SessionAudience.forThread(thread), effortOf(thread.workModel()));
     }
 
     @Override
@@ -73,13 +84,10 @@ class WorkModelResolverImpl
             throw new ResponseStatusException(HttpStatusCode.valueOf(404),
                     "task " + taskId + " is not on thread " + threadId);
         }
-        if (task.workModel() != null) {
-            return new Resolved(task.workModel(),
-                    new Provenance(Source.TASK, taskId, "task " + taskId));
-        }
-        Thread thread = threadStore.findThreadById(threadId)
-                .orElseThrow(() -> notFound("thread", threadId));
-        return resolveFromThread(thread);
+        Thread thread = thread(threadId);
+        return compose(thread, SessionAudience.forTask(thread), firstEffort(
+                effortOf(task.workModel()),
+                effortOf(thread.workModel())));
     }
 
     @Override
@@ -94,41 +102,100 @@ class WorkModelResolverImpl
             throw new ResponseStatusException(HttpStatusCode.valueOf(404),
                     "stage " + stageId + " is not on task " + taskId);
         }
-        if (stage.workModel() != null) {
-            return new Resolved(stage.workModel(),
-                    new Provenance(Source.STAGE, stageId, "stage " + stageId));
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> notFound("task", taskId));
+        if (!task.threadId().equals(threadId)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(404),
+                    "task " + taskId + " is not on thread " + threadId);
         }
-        return resolveForTask(threadId, taskId);
+        Thread thread = thread(threadId);
+        return compose(thread,
+                SessionAudience.forStage(thread, stage.type()),
+                firstEffort(
+                        effortOf(stage.workModel()),
+                        effortOf(task.workModel()),
+                        effortOf(thread.workModel())));
     }
 
-    private Resolved resolveFromThread(Thread thread)
+    /**
+     * The engine for this audience — the trunk's own pin when its creator
+     * swapped this session kind, else the workspace's — wearing the nearest
+     * scope's reasoning effort. Beyond that pin the scopes contribute effort
+     * only: an engine stored on a thread / task / stage {@code work_model}
+     * row is deliberately ignored so a task can't quietly switch providers
+     * mid-flight.
+     */
+    private Resolved compose(Thread thread, String audience, String effort)
     {
-        if (thread.workModel() != null) {
-            return new Resolved(thread.workModel(),
-                    new Provenance(Source.THREAD, thread.id(), "thread " + thread.id()));
+        Resolved engine = threadEngines.forAudience(thread.id(), audience)
+                .map(model -> new Resolved(model, new Provenance(
+                        Source.THREAD, thread.id(), "this trunk · " + audience)))
+                .orElseGet(() -> workspaceEngine(thread.workspaceId(), audience));
+        if (effort == null || effort.equals(engine.choice().reasoningEffort())) {
+            return engine;
         }
-        return resolveFromWorkspace(thread.workspaceId());
+        WorkModel choice = engine.choice();
+        return new Resolved(
+                new WorkModel(choice.kind(), choice.agentOrProvider(),
+                        choice.model(), choice.account(), effort),
+                engine.provenance());
     }
 
-    private Resolved resolveFromWorkspace(String workspaceId)
+    private Resolved workspaceEngine(String workspaceId, String audience)
     {
-        if (workspaceId != null && !workspaceId.isBlank()) {
-            Optional<Workspace> ws = workspaceStore.findWorkspaceById(workspaceId);
-            if (ws.isPresent() && ws.get().workModel() != null) {
-                return new Resolved(ws.get().workModel(),
-                        new Provenance(Source.WORKSPACE, workspaceId,
-                                "workspace " + ws.get().name()));
-            }
+        if (workspaceId == null || workspaceId.isBlank()) {
+            return globalDefault();
+        }
+        Optional<Workspace> workspace = workspaceStore.findWorkspaceById(workspaceId);
+        String name = workspace.map(Workspace::name).orElse(workspaceId);
+        Optional<WorkspaceEngineSettings.Engine> configured =
+                engineSettings.forAudience(workspaceId, audience);
+        if (configured.isPresent()) {
+            String label = "workspace " + name
+                    + (configured.get().fromRole() ? " · " + audience : "");
+            return new Resolved(configured.get().model(),
+                    new Provenance(Source.WORKSPACE, workspaceId, label));
+        }
+        // The scope-override column predates the settings page's engine rows
+        // and is still what the workspace REST endpoint writes.
+        if (workspace.isPresent() && workspace.get().workModel() != null) {
+            return new Resolved(workspace.get().workModel(),
+                    new Provenance(Source.WORKSPACE, workspaceId, "workspace " + name));
         }
         return globalDefault();
     }
 
+    private Thread thread(String threadId)
+    {
+        return threadStore.findThreadById(threadId)
+                .orElseThrow(() -> notFound("thread", threadId));
+    }
+
+    private static String effortOf(WorkModel scoped)
+    {
+        if (scoped == null) {
+            return null;
+        }
+        String effort = scoped.reasoningEffort();
+        return effort == null || effort.isBlank() ? null : effort;
+    }
+
+    private static String firstEffort(String... candidates)
+    {
+        for (String candidate : candidates) {
+            if (candidate != null) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
     /**
-     * The fallback when every override is empty: the first CLI agent
-     * in the curated catalog with its catalog-default model. Chosen
+     * The fallback when the workspace configured nothing: the first CLI
+     * agent in the curated catalog with its catalog-default model. Chosen
      * because v1's expected install is Claude Code on the user's Mac;
-     * keeping the catalog as the source of truth means a future
-     * catalog reorder shifts the default without code churn here.
+     * keeping the catalog as the source of truth means a future catalog
+     * reorder shifts the default without code churn here.
      */
     private static Resolved globalDefault()
     {

@@ -19,7 +19,6 @@ import type {
   ThreadGroupDto,
   WorkModelDto,
 } from '../types';
-import { WorkModelPicker } from '../workspace/WorkModelPicker';
 
 /**
  * Full-page create surface for one new thread. Lives at
@@ -62,7 +61,6 @@ export default function ThreadCreatePage({
   // null = inherit from the workspace default; non-null = explicit
   // pin at create time. The picker on this form drives the cascade's
   // thread-scope override; the resolver picks it up on turn 1.
-  const [workModel, setWorkModel] = useState<WorkModelDto | null>(null);
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
   const [groupId, setGroupId] = useState<string>(initialGroupId ?? '');
@@ -399,23 +397,11 @@ export default function ThreadCreatePage({
     setSubmitting(true);
     try {
       const workingDir = selectedRepo.localClonePath;
-      // ThreadKind reflects the lane the resolved work model puts
-      // the new thread on. CLI-kind picks a CLI agent (claude-code /
-      // codex), API-kind picks a provider + key. Null/inherit defaults
-      // to CLI_AGENT because v1's expected workspace pick is Claude
-      // Code on the user's Mac — the resolver still has the final say
-      // on the first turn.
-      const kind = workModel !== null && workModel.kind === 'API'
-        ? 'LOGIC_LOOP'
-        : 'CLI_AGENT';
-      const provider = workModel?.agentOrProvider ?? 'claude-code';
+      // No engine on the request: the backend stamps the thread with the
+      // workspace's engine. The kind below is advisory — the workspace
+      // pick decides which lane actually runs.
       const created = await window.bridge.createTask({
-        kind,
-        provider,
-        // Claude Code picks its own model and reports it back through
-        // the stream — the detail page surfaces the real value once
-        // the session emits its first event.
-        model: workModel?.model ?? '',
+        kind: 'CLI_AGENT',
         workspaceId,
         title: trimmedTitle,
         workingDir,
@@ -424,7 +410,6 @@ export default function ThreadCreatePage({
         taskType,
         linkedPrNumber: linkedPrNumber ?? undefined,
         linkedIssueNumber: linkedIssueNumber ?? undefined,
-        workModel,
       });
       onCreated(created.id);
     }
@@ -434,7 +419,7 @@ export default function ThreadCreatePage({
     }
   }, [
     submitting, title, prompt, selectedRepo, linkedPrNumber, linkedIssueNumber,
-    workModel, taskType, groupId, workspaceId, onCreated,
+    taskType, groupId, workspaceId, onCreated,
   ]);
 
   // Esc cancels (unless mid-submit), ⌘/Ctrl+Enter submits.
@@ -596,10 +581,6 @@ export default function ThreadCreatePage({
                 )}
               </div>
             )}
-          </Field>
-
-          <Field label="Work model" hint="optional · inherits workspace default">
-            <WorkModelPicker value={workModel} onChange={setWorkModel} />
           </Field>
 
           <Field label="Group" hint="optional">

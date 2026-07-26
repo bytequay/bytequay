@@ -16,69 +16,79 @@ package com.bytequay.app.service.workmodel;
 import com.bytequay.app.domain.WorkModel;
 
 /**
- * Resolves the effective {@link WorkModel} for a thread or task by
- * walking the override cascade most-specific-first. The persisted
- * overrides on tasks, threads, and workspaces are nullable; the
- * resolver picks the first non-null one it encounters and falls back
- * to a curated global default when every scope is empty.
+ * Resolves the effective {@link WorkModel} for a thread, task, or stage.
  *
- * <p>Cascade order:
- * <ol>
- *   <li>stage — {@code resolveForStage} only</li>
- *   <li>task — {@code resolveForStage} and {@code resolveForTask}</li>
- *   <li>thread</li>
- *   <li>workspace (the thread's owning workspace)</li>
- *   <li>global default (the first CLI agent in {@link WorkModelCatalog}
- *       with its catalog-default model)</li>
- * </ol>
+ * <p>Two axes resolve separately:
  *
- * <p>The {@link Provenance} returned alongside the resolved choice
- * names the winning scope so the inspector and the work-model pill
- * can render "Inherited from workspace ByteQuay" without a follow-up
+ * <ul>
+ *   <li><b>Engine</b> (CLI agent / API provider + model + account) — owned
+ *       by the <em>workspace</em>, except where the trunk pinned its own
+ *       at creation. It reads the trunk's pin for the audience, then the
+ *       audience's own pick from the workspace settings ({@code plan} /
+ *       {@code dev} / {@code review} / {@code ci-fix}), then the workspace
+ *       {@code default} pick, then the workspace-scope override column,
+ *       then the curated global default. Tasks and stages never choose an
+ *       engine, and the trunk's pin is fixed at creation, so a task can't
+ *       quietly switch providers mid-flight.</li>
+ *   <li><b>Reasoning effort</b> — owned by the <em>session</em>. The
+ *       nearest scope wins: stage → task → thread → the workspace pick's
+ *       own effort. This is the only part of the axis the trunk / task /
+ *       stage pickers still write.</li>
+ * </ul>
+ *
+ * <p>The {@link Provenance} returned alongside the resolved choice names
+ * where the <em>engine</em> came from, so the work-model pill can render
+ * "Inherited from workspace ByteQuay · dev" without a follow-up
  * round-trip.
  */
 public interface WorkModelResolver
 {
-    /** Resolve the effective work model for a trunk-scope turn on the
-     *  given thread. Walks thread → workspace → global default; the
-     *  task scope is skipped because the trunk runs above any task. */
+    /** The engine a workspace runs {@code audience} sessions on, with no
+     *  scope in play yet. Used when creating a thread, before there is a
+     *  row to resolve against. */
+    Resolved resolveForWorkspace(String workspaceId, String audience);
+
+    /** Resolve for a trunk-scope turn — the {@code plan} engine row, or
+     *  {@code review} on a review-flow thread. Effort cascade: thread →
+     *  workspace. */
     Resolved resolveForThread(String threadId);
 
-    /** Resolve the effective work model for a task-scope turn. Walks
-     *  task → thread → workspace → global default. The task must
-     *  belong to the named thread; a mismatch is a 404. */
+    /** Resolve for a task-scope turn — the {@code dev} engine row. Effort
+     *  cascade: task → thread → workspace. The task must belong to the
+     *  named thread; a mismatch is a 404. */
     Resolved resolveForTask(String threadId, String taskId);
 
-    /** Resolve the effective work model for a stage-scope turn. Walks
-     *  stage → task → thread → workspace → global default. The stage
-     *  must belong to the named task; a mismatch is a 404. */
+    /** Resolve for a stage-scope turn — the engine row matching the
+     *  stage's type. Effort cascade: stage → task → thread → workspace.
+     *  The stage must belong to the named task; a mismatch is a 404. */
     Resolved resolveForStage(String threadId, String taskId, String stageId);
 
     /** Resolved cascade outcome: which {@link WorkModel} won and where
-     *  it came from. */
+     *  its engine came from. */
     record Resolved(WorkModel choice, Provenance provenance) {}
 
-    /** Audit anchor for the resolved choice. {@code scopeId} is the
-     *  task / thread / workspace id, or {@code null} for
-     *  {@link Source#GLOBAL_DEFAULT}. {@code scopeLabel} is a
-     *  human-readable name suitable for chips in the inspector and the
-     *  work-model pill (e.g. {@code "workspace ByteQuay"},
-     *  {@code "ByteQuay default"}). */
+    /** Audit anchor for the resolved engine. {@code scopeId} is the
+     *  workspace id, or {@code null} for {@link Source#GLOBAL_DEFAULT}.
+     *  {@code scopeLabel} is human-readable and suitable for chips
+     *  (e.g. {@code "workspace ByteQuay · dev"}). */
     record Provenance(Source source, String scopeId, String scopeLabel) {}
 
-    /** Tag identifying which scope the resolver picked. */
+    /** Tag identifying which scope supplied the engine. */
     enum Source
     {
-        /** The stage carried an override. */
+        /** Retained for wire compatibility; no longer emitted — a stage
+         *  can only override reasoning effort, not the engine. */
         STAGE,
-        /** The stage (if any) had no override; the task did. */
+        /** Retained for wire compatibility; no longer emitted. */
         TASK,
-        /** Neither stage nor task had an override; the thread did. */
+        /** The trunk pinned this engine for the session's audience when it
+         *  was created, overriding the workspace's pick. */
         THREAD,
-        /** Neither task nor thread had an override; the workspace did. */
+        /** The workspace configured the engine — a per-audience row, the
+         *  workspace default, or its scope override column. */
         WORKSPACE,
-        /** No scope carried an override — the catalog's first CLI agent
-         *  + its default model is the fallback. */
+        /** The workspace configured nothing — the catalog's first CLI
+         *  agent + its default model is the fallback. */
         GLOBAL_DEFAULT,
     }
 }

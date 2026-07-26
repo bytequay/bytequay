@@ -20,9 +20,10 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.service.workmodel.SessionAudience;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -46,10 +47,9 @@ class TestWorkspaceIssueService
                 mock(WorkspaceRepositoryResolver.class);
         RepoService repos = mock(RepoService.class);
         ThreadService threads = mock(ThreadService.class);
-        WorkspaceService workspaces = mock(WorkspaceService.class);
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         WorkspaceIssueService service = new WorkspaceIssueService(
-                resolver, repos, threads, workspaces, jdbc);
+                resolver, repos, threads, jdbc, mock(WorkModelResolver.class));
         Thread trunk = trunk();
         when(threads.find(trunk.id())).thenReturn(Optional.of(trunk));
         when(threads.sendTrunk(trunk.id(), "Work on issue #482"))
@@ -69,10 +69,10 @@ class TestWorkspaceIssueService
         WorkspaceRepositoryResolver resolver = mock(WorkspaceRepositoryResolver.class);
         RepoService repos = mock(RepoService.class);
         ThreadService threads = mock(ThreadService.class);
-        WorkspaceService workspaces = mock(WorkspaceService.class);
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        WorkModelResolver workModels = mock(WorkModelResolver.class);
         WorkspaceIssueService service = new WorkspaceIssueService(
-                resolver, repos, threads, workspaces, jdbc);
+                resolver, repos, threads, jdbc, workModels);
         when(resolver.resolve("ws-1")).thenReturn(
                 new WorkspaceRepositoryResolver.RepositoryIdentity(
                         "acme", "widget", "acme/widget", "main"));
@@ -81,8 +81,10 @@ class TestWorkspaceIssueService
         when(repos.getIssueDetail("acme", "widget", 12)).thenReturn(detail);
         WorkModel api = new WorkModel(WorkModelKind.API, "openai", "gpt-5", "work");
         Instant now = Instant.now();
-        when(workspaces.require("ws-1")).thenReturn(
-                new Workspace("ws-1", "Widget", "", false, api, now, now));
+        when(workModels.resolveForWorkspace("ws-1", SessionAudience.PLAN))
+                .thenReturn(new WorkModelResolver.Resolved(api,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.WORKSPACE, "ws-1", "workspace Widget")));
         Thread apiTrunk = new Thread(
                 "api-trunk", ThreadKind.LOGIC_LOOP, "openai", null,
                 "Fix query fan-out", ThreadStatus.IDLE, "gpt-5",
@@ -97,7 +99,9 @@ class TestWorkspaceIssueService
         verify(threads).create(request.capture());
         assertThat(request.getValue().kind()).isEqualTo(ThreadKind.LOGIC_LOOP);
         assertThat(request.getValue().provider()).isEqualTo("openai");
-        assertThat(request.getValue().workModel()).isEqualTo(api);
+        // The engine lives on the workspace — the thread row carries no
+        // override of its own.
+        assertThat(request.getValue().workModel()).isNull();
         verify(jdbc).update(any(String.class), eq("ws-1"), eq(12), eq("api-trunk"), any());
     }
 

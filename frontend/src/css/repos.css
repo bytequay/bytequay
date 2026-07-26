@@ -492,6 +492,19 @@
   padding: 0 4px;
   border-radius: 3px;
 }
+.add-repo-modal__write-warning {
+  padding: var(--space-2) var(--space-3);
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-border);
+  border-radius: var(--radius-md);
+  color: var(--text-2);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+}
+.add-repo-modal__write-warning strong { color: var(--text-1); }
+.add-repo-modal__write-warning code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
 
 .add-repo-modal__form {
   display: flex;

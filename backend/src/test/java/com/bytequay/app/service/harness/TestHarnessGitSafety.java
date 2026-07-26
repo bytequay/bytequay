@@ -52,7 +52,7 @@ class TestHarnessGitSafety
     {
         remote = tempDir.resolve("remote.git");
         repo = tempDir.resolve("repo");
-        git(null, "init", "--bare", remote.toString());
+        git(null, "init", "--bare", "-b", "main", remote.toString());
         git(null, "init", "-b", "main", repo.toString());
         git(repo, "config", "user.name", "Harness Test");
         git(repo, "config", "user.email", "harness@example.com");

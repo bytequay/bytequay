@@ -51,7 +51,7 @@ class TestNormalizeDeadLifecycleStates
                     "UPDATE threads SET status = 'AWAITING' WHERE id = 'thread-1'");
         }
 
-        migrateTo199(url);
+        migrateTo204(url);
 
         try (Connection connection = DriverManager.getConnection(url)) {
             assertThat(scalar(connection,
@@ -79,7 +79,7 @@ class TestNormalizeDeadLifecycleStates
                     """);
         }
 
-        assertThatThrownBy(() -> migrateTo199(url))
+        assertThatThrownBy(() -> migrateTo204(url))
                 .isInstanceOf(FlywayException.class)
                 .hasStackTraceContaining("stage-active");
     }
@@ -108,12 +108,12 @@ class TestNormalizeDeadLifecycleStates
         return url;
     }
 
-    private static void migrateTo199(String url)
+    private static void migrateTo204(String url)
     {
         Flyway.configure()
                 .dataSource(url, "", "")
                 .javaMigrations(new NormalizeDeadLifecycleStates())
-                .target("199")
+                .target("204")
                 .load()
                 .migrate();
     }

@@ -562,9 +562,8 @@ class TestCiFixRunExecutor
                 "run-no-change", "No code changes; retry CI manually");
         verify(agentRuns, timeout(2000)).transition(
                 "run-no-change", AgentRun.STATUS_FAILED, "no_code_changes");
-        verify(phaseMachine, timeout(2000)).transition(
-                "ship-no-change", TaskPhase.NEEDS_ATTENTION,
-                "ci_fix_no_changes", Actor.AGENT);
+        verify(phaseMachine, timeout(2000)).parkOperational(
+                "ship-no-change", Actor.AGENT, "ci_fix_no_changes");
     }
 
     @Test

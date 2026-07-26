@@ -91,27 +91,19 @@ export default function WorkspaceTodayPage({
         <span className="wu-today__header-spacer" />
         <button type="button" className="wu-primary-button" onClick={onNewThread}>
           <PlusIcon />
-          New thread
+          New trunk
         </button>
       </header>
 
       <div className="wu-today__scroll">
         <div className="wu-today__body">
           {onboarding !== null
-            && onboarding.dismissedAt === null
             && !onboardingComplete(onboarding)
             && (
               <WorkspaceOnboarding
                 workspaceName={workspace.name}
                 state={onboarding}
                 threadCount={publicThreads.length}
-                onDismiss={async () => {
-                  setOnboarding(await workspaceApi.dismissOnboarding(workspace.id));
-                }}
-                onSeed={async () => {
-                  await workspaceApi.seedMemory(workspace.id);
-                  onOpenMemory();
-                }}
                 onNewThread={onNewThread}
                 onOpenMemory={onOpenMemory}
                 onLearningAction={async action => {
@@ -218,8 +210,6 @@ function WorkspaceOnboarding({
   workspaceName,
   state,
   threadCount,
-  onDismiss,
-  onSeed,
   onNewThread,
   onOpenMemory,
   onLearningAction,
@@ -227,19 +217,16 @@ function WorkspaceOnboarding({
   workspaceName: string;
   state: WorkspaceOnboardingDto;
   threadCount: number;
-  onDismiss: () => Promise<void>;
-  onSeed: () => Promise<void>;
   onNewThread: () => void;
   onOpenMemory: () => void;
   onLearningAction: (action: 'pause' | 'resume' | 'retry') => Promise<void>;
 }) {
-  const [seeding, setSeeding] = useState(false);
   const [learningBusy, setLearningBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasLearning = state.learningState !== null;
   const milestones = Number(state.cloneComplete)
     + Number(state.syncState === 'ready')
-    + Number(state.memorySeedComplete)
+    + 1
     + Number(state.firstTrunkComplete || threadCount > 0)
     + Number(state.learningState !== null && learningDone(state.learningState));
   const milestoneTotal = hasLearning ? 5 : 4;
@@ -258,7 +245,6 @@ function WorkspaceOnboarding({
       <header>
         <h2>Set up {workspaceName}</h2>
         <span>{milestones} of {milestoneTotal} done</span>
-        <button type="button" onClick={() => void onDismiss()}>Dismiss</button>
       </header>
       <div className={`wu-onboarding-step ${state.cloneComplete ? 'done' : 'active'}`}>
         <MilestoneIcon done={state.cloneComplete} active={!state.cloneComplete} />
@@ -284,37 +270,23 @@ function WorkspaceOnboarding({
           </span>
         </div>
       </div>
-      <div className={`wu-onboarding-step ${state.memorySeedComplete ? 'done' : ''}`}>
-        <MilestoneIcon done={state.memorySeedComplete} />
+      <div className="wu-onboarding-step skipped">
+        <MilestoneIcon skipped />
         <div>
-          <strong>Seed memory</strong>
-          <small>Distill README, CONTRIBUTING and module layout into the brain — ~$0.05</small>
+          <strong className="struck">Seed memory</strong>
+          <small>Workspace memory is still in progress — skipped for now</small>
         </div>
-        {!state.memorySeedComplete && (
-          <button
-            type="button"
-            disabled={seeding}
-            onClick={() => {
-              setSeeding(true);
-              setError(null);
-              void onSeed()
-                .catch(cause => setError(cause instanceof Error ? cause.message : 'Memory seed failed'))
-                .finally(() => setSeeding(false));
-            }}
-          >
-            {seeding ? 'Preparing…' : 'Seed now'}
-          </button>
-        )}
+        <span className="wu-onboarding-step__status">Skipped</span>
       </div>
       <div className={`wu-onboarding-step ${
         state.firstTrunkComplete || threadCount > 0 ? 'done' : ''}`}>
         <MilestoneIcon done={state.firstTrunkComplete || threadCount > 0} />
         <div>
-          <strong>Start your first thread</strong>
+          <strong>Start your first trunk</strong>
           <small>Plan a change, generate a backlog, or just ask around the codebase</small>
         </div>
         {!state.firstTrunkComplete && threadCount === 0 && (
-          <button type="button" className="primary" onClick={onNewThread}>New thread</button>
+          <button type="button" className="primary" onClick={onNewThread}>New trunk</button>
         )}
       </div>
       {state.learningState !== null && (
@@ -391,10 +363,14 @@ function PullRequestIcon() {
   );
 }
 
-function MilestoneIcon({ done = false, active = false }: {
+function MilestoneIcon({ done = false, active = false, skipped = false }: {
   done?: boolean;
   active?: boolean;
+  skipped?: boolean;
 }) {
+  if (skipped) {
+    return <span className="wu-milestone skipped"><svg viewBox="0 0 24 24"><path d="M7 12h10" /></svg></span>;
+  }
   if (done) {
     return <span className="wu-milestone done"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg></span>;
   }
@@ -403,7 +379,7 @@ function MilestoneIcon({ done = false, active = false }: {
 
 function onboardingComplete(state: WorkspaceOnboardingDto): boolean {
   return state.cloneComplete && state.syncState === 'ready'
-    && state.memorySeedComplete && state.firstTrunkComplete
+    && state.firstTrunkComplete
     && (state.learningState === null || learningDone(state.learningState));
 }
 

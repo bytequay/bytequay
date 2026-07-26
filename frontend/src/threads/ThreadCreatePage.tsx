@@ -443,7 +443,7 @@ export default function ThreadCreatePage({
     <section style={shellStyle}>
       <div style={cardStyle}>
         <header style={headerStyle}>
-          <h1 style={titleH1Style}>New thread</h1>
+          <h1 style={titleH1Style}>New trunk</h1>
           <p style={subtitleStyle}>Spawned in a fresh worktree</p>
         </header>
 

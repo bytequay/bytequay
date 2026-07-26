@@ -147,7 +147,7 @@ function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewT
             onClick={onNewThread}
             disabled={!onNewThread}
           >
-            + New thread
+            + New trunk
             <span className="workspace-pageheader__action-kbd" aria-hidden>⌘N</span>
           </button>
         </div>

@@ -638,7 +638,7 @@ function App() {
    *  routes a typed payload back here into setNav. Keeps the bar
    *  free of nav state knowledge. */
   const [controlBarOpen, setControlBarOpen] = useState(false);
-  // Left-rail "+ New thread" — opens the same modal as the workspace
+  // Left-rail "+ New trunk" — opens the same modal as the workspace
   // top bar's button instead of routing to the standalone create page.
   const [newThreadDialogOpen, setNewThreadDialogOpen] = useState(false);
   // ⌘F / Ctrl+F opens the in-page find bar (Electron ships no browser find).
@@ -654,7 +654,7 @@ function App() {
   // its own faster poll while it's the visible view.
   const [unreadNotificationCount, setUnreadNotificationCount] = useState<number>(0);
   // Global keybindings: ⌘K opens the control bar, ⌘N starts a new
-  // thread. Both ignore the press when an input/textarea/contentEditable
+  // trunk. Both ignore the press when an input/textarea/contentEditable
   // has focus and the key isn't meta-modified — the user typing K in a
   // text field shouldn't summon the bar.
   useEffect(() => {
@@ -674,12 +674,9 @@ function App() {
         return;
       }
       if (e.key === 'n' || e.key === 'N') {
-        // ⌘N = new thread. Routes through the existing thread-create
-        // page; the workspace shell's NewThreadDialog can also open
-        // it via its onContinueFullForm hand-off, so behaviour stays
-        // consistent across surfaces.
+        // Every creation entry point uses the same explanatory dialog.
         e.preventDefault();
-        setNav({ view: 'thread-create' });
+        setNewThreadDialogOpen(true);
         return;
       }
       if (e.key === '[' || e.key === ']') {
@@ -733,7 +730,7 @@ function App() {
       case 'nav.email':           setNav({ view: 'email' }); break;
       case 'nav.notifications':   setNav({ view: 'notifications' }); break;
       case 'nav.settings':        setNav({ view: 'settings', section: d.section }); break;
-      case 'create.thread':       setNav({ view: 'thread-create' }); break;
+      case 'create.thread':       setNewThreadDialogOpen(true); break;
     }
   };
 

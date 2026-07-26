@@ -260,6 +260,20 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
           </button>
         </header>
 
+        <section style={trunkDefinitionStyle} aria-labelledby="trunk-definition-title">
+          <h3 id="trunk-definition-title" style={trunkDefinitionTitleStyle}>
+            What&apos;s a trunk?
+          </h3>
+          <p style={trunkDefinitionBodyStyle}>
+            A trunk is a focused, long-lived workspace for developing one component or system.
+            Keep it scoped instead of mixing unrelated development.
+          </p>
+          <p style={trunkDefinitionFutureStyle}>
+            Map it to a stable area—such as Core engine or Iceberg connector. Each trunk will
+            have its own memory and decision markers in the future.
+          </p>
+        </section>
+
         <div style={repoLineStyle}>
           <span aria-hidden>📕</span>
           <span>{repoName ?? '—'}</span>
@@ -327,7 +341,6 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
         )}
 
         <textarea
-          autoFocus
           value={prompt}
           onChange={e => setPrompt(e.target.value)}
           placeholder="What do you want to work on or think through?"
@@ -450,7 +463,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
               disabled={submitting || loading || blocked || approvingCodeArea !== null}
               title={blocked ? 'Add an agent in workspace settings first' : 'Create the trunk'}
             >
-              {submitting ? 'Starting…' : "Let's ride"} <span style={{ marginLeft: 4 }}>⏎</span>
+              {submitting ? 'Creating…' : 'Create trunk'} <span style={{ marginLeft: 4 }}>⏎</span>
             </button>
           </div>
         </footer>
@@ -570,6 +583,35 @@ const repoLineStyle: React.CSSProperties = {
   gap: 6,
   fontSize: 11,
   color: 'var(--ws-text-3)',
+};
+
+const trunkDefinitionStyle: React.CSSProperties = {
+  marginBottom: 12,
+  padding: '10px 12px',
+  border: '1px solid var(--ws-card-border)',
+  borderRadius: 10,
+  background: 'var(--ws-accent-soft)',
+};
+
+const trunkDefinitionTitleStyle: React.CSSProperties = {
+  margin: 0,
+  color: 'var(--ws-text-1)',
+  fontSize: 12,
+  fontWeight: 700,
+};
+
+const trunkDefinitionBodyStyle: React.CSSProperties = {
+  margin: '5px 0 0',
+  color: 'var(--ws-text-2)',
+  fontSize: 11,
+  lineHeight: 1.45,
+};
+
+const trunkDefinitionFutureStyle: React.CSSProperties = {
+  margin: '4px 0 0',
+  color: 'var(--ws-text-3)',
+  fontSize: 10.5,
+  lineHeight: 1.45,
 };
 
 const repoLineMutedStyle: React.CSSProperties = {

@@ -254,7 +254,7 @@ function BacklogRow({
         {item.status === 'open' && (
           <TrunkPicker
             trunks={trunks}
-            label="Start work under a thread"
+            label="Start work under a trunk"
             onSelect={onStart}
             onNewTrunk={onNewTrunk}
           />
@@ -695,7 +695,7 @@ export function BacklogEditor({
               ? (
                 <TrunkPicker
                   trunks={trunks}
-                  label="Start work under a thread"
+                  label="Start work under a trunk"
                   disabled={busy || title.trim().length === 0 || persistedSummary.length === 0}
                   onSelect={selected => void start(selected)}
                   onNewTrunk={item === null ? undefined : () => onRequestNewTrunk?.(item.key)}
@@ -780,7 +780,7 @@ function TrunkPicker({
     <div className="wu-backlog-trunk-picker">
       <button type="button" disabled={disabled || trunks.length === 0} onClick={() => setOpen(value => !value)}>
         {label}
-        {label === 'Start work under a thread' && <ChevronIcon />}
+        {label === 'Start work under a trunk' && <ChevronIcon />}
       </button>
       {open && (
         <div className="wu-backlog-trunk-picker__menu">
@@ -804,7 +804,7 @@ function TrunkPicker({
               setOpen(false);
               onNewTrunk();
             }}>
-              <PlusIcon /> New thread
+              <PlusIcon /> New trunk
             </button>
           )}
         </div>

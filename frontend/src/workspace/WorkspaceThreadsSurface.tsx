@@ -85,7 +85,7 @@ export function WorkspaceThreadsSurface({
         )}
         <button type="button" className="wu-primary-button" onClick={onNewThread}>
           <PlusIcon />
-          New thread
+          New trunk
         </button>
       </header>
 

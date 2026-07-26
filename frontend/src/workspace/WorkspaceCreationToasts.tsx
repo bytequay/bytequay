@@ -21,6 +21,7 @@ type Props = {
 const LIVE = new Set<WorkspaceCreationDto['state']>([
   'queued', 'forking', 'cloning', 'syncing',
 ]);
+const READY_VISIBLE_MS = 5_000;
 
 /** Global persisted clone/sync progress from source frame 6d. */
 export default function WorkspaceCreationToasts({ onOpenWorkspace }: Props) {
@@ -63,6 +64,7 @@ export default function WorkspaceCreationToasts({ onOpenWorkspace }: Props) {
         ...current.filter(row => row.id !== operation.id),
       ]);
       setHiddenIds(current => {
+        if (!current.has(operation.id)) return current;
         const next = new Set(current);
         next.delete(operation.id);
         return next;
@@ -77,20 +79,32 @@ export default function WorkspaceCreationToasts({ onOpenWorkspace }: Props) {
     };
   }, [refresh]);
 
-  const visible = operations
-    .filter(operation => visibleIds.has(operation.id) && !hiddenIds.has(operation.id))
-    .slice(0, 3);
-
-  if (visible.length === 0) return null;
-
-  const hide = (id: string) => {
+  const hide = useCallback((id: string) => {
     setHiddenIds(current => new Set(current).add(id));
     setVisibleIds(current => {
       const next = new Set(current);
       next.delete(id);
       return next;
     });
-  };
+  }, []);
+
+  const visible = operations
+    .filter(operation => visibleIds.has(operation.id) && !hiddenIds.has(operation.id))
+    .slice(0, 3);
+  const readyIds = visible
+    .filter(operation => operation.state === 'ready')
+    .map(operation => operation.id)
+    .sort()
+    .join(',');
+
+  useEffect(() => {
+    if (readyIds.length === 0) return;
+    const timers = readyIds.split(',').map(id =>
+      window.setTimeout(() => hide(id), READY_VISIBLE_MS));
+    return () => timers.forEach(timer => window.clearTimeout(timer));
+  }, [hide, readyIds]);
+
+  if (visible.length === 0) return null;
 
   return (
     <aside className="wu-creation-toasts" aria-live="polite" aria-label="Workspace setup progress">
@@ -129,7 +143,10 @@ export default function WorkspaceCreationToasts({ onOpenWorkspace }: Props) {
               <button
                 type="button"
                 className={operation.state === 'ready' ? 'primary' : ''}
-                onClick={() => onOpenWorkspace(operation.workspaceId as string)}
+                onClick={() => {
+                  onOpenWorkspace(operation.workspaceId as string);
+                  hide(operation.id);
+                }}
               >
                 Open
               </button>

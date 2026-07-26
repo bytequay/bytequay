@@ -137,6 +137,36 @@ class TestKnowledgeIngestor
     }
 
     @Test
+    void testPartialEvidenceNeitherActivatesNorCountsAsConfirmation()
+    {
+        ingestor.ingest("ws-1", bundle(7, verifiedChain(), "partial:reviews"), List.of(lesson(
+                "recurring-concern", "Retry scheduling must be idempotent.",
+                List.of("core/spi/Connector.java"), false)), clone);
+        assertThat(store.listByLifecycle("ws-1", "active")).isEmpty();
+
+        ingestor.ingest("ws-1", bundle(9, List.of(), "complete"), List.of(lesson(
+                "recurring-concern", "Retry scheduling must be idempotent.",
+                List.of("core/spi/Connector.java"), false)), clone);
+
+        assertThat(store.listByLifecycle("ws-1", "active")).isEmpty();
+        assertThat(store.listByLifecycle("ws-1", "pending")).hasSize(1);
+    }
+
+    @Test
+    void testUnknownCurrentnessCannotActivateOnIndependentConfirmation()
+    {
+        ingestor.ingest("ws-1", bundle(7, List.of()), List.of(lesson(
+                "recurring-concern", "Retry scheduling must be idempotent.",
+                List.of(), false)), clone);
+        ingestor.ingest("ws-1", bundle(9, List.of()), List.of(lesson(
+                "recurring-concern", "Retry scheduling must be idempotent.",
+                List.of(), false)), clone);
+
+        assertThat(store.listByLifecycle("ws-1", "active")).isEmpty();
+        assertThat(store.listByLifecycle("ws-1", "pending")).hasSize(1);
+    }
+
+    @Test
     void testEquivalentLessonMergesProvenanceAndSecondPrActivates()
     {
         // First sighting from PR 7: pending (no verified chain).
@@ -280,10 +310,16 @@ class TestKnowledgeIngestor
 
     private static PrEvidenceBundle bundle(int prNumber, List<OutcomeChain> chains)
     {
+        return bundle(prNumber, chains, "complete");
+    }
+
+    private static PrEvidenceBundle bundle(
+            int prNumber, List<OutcomeChain> chains, String completeness)
+    {
         return new PrEvidenceBundle("ws-1", "acme/widget", prNumber, "alice",
                 "Title", "Body", "base", "head", "merge", "repoSha",
                 List.of(), List.of(), List.of(), List.of(), List.of(),
-                Map.of("reviews", "complete"), "complete",
+                Map.of("reviews", completeness), completeness,
                 List.of(new PrEvidenceBundle.EvidenceRef(
                         "thread", "9001", "https://github.com/acme/widget/pull/"
                                 + prNumber + "#discussion_r9001",

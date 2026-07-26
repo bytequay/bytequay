@@ -228,9 +228,16 @@ public class WorkspaceKnowledgeService
                 ? UUID.randomUUID().toString()
                 : entryId;
         long now = Instant.now().toEpochMilli();
-        KnowledgeItem existing = knowledgeStore.findById(id)
+        KnowledgeItem found = knowledgeStore.findById(id)
                 .filter(item -> workspaceId.equals(item.workspaceId()))
                 .orElse(null);
+        if (found != null && !KnowledgeItemStore.isManagedCreator(found.createdBy())) {
+            // Learned rows have their own lifecycle/editor surface. Letting the
+            // generic KB PUT mutate one and then trying to read it through the
+            // managed-only list used to return a 404 after the mutation.
+            throw status(409, "learned knowledge must be edited from its learned-item surface");
+        }
+        KnowledgeItem existing = found;
         if (existing != null) {
             // Edit keeps learned evidence links; only the curation provenance
             // (distill-operation / imported / user) is replaced.

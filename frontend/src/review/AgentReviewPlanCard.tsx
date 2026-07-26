@@ -20,6 +20,12 @@ function kindLabel(kind: string): string {
   return 'CONVENTION';
 }
 
+function sourceLabel(source: string): string {
+  if (source === 'project-intelligence') return 'project intelligence';
+  if (source === 'planner-suggested') return '✨ planner';
+  return 'rule table';
+}
+
 export function AgentReviewPlanCard({ data, roundId }: { data: AgentReviewData; roundId?: string }) {
   const round = data.rounds.find(row => row.id === roundId) ?? data.rounds[0];
   const objectives = roundPlanObjectives(data, round.id);
@@ -38,7 +44,7 @@ export function AgentReviewPlanCard({ data, roundId }: { data: AgentReviewData; 
                 {kindLabel(criterion?.kind ?? 'hard-invariant')}
               </span>
               <span>{objective.statement}</span>
-              <span className="agent-plan-source">{objective.source === 'planner-suggested' ? '✨ planner' : 'rule table'}</span>
+              <span className="agent-plan-source">{sourceLabel(objective.source)}</span>
             </div>
           );
         })}

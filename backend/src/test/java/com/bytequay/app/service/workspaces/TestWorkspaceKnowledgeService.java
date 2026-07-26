@@ -16,6 +16,8 @@ package com.bytequay.app.service.workspaces;
 import com.bytequay.app.beans.workspace.BrainBlockDto;
 import com.bytequay.app.beans.workspace.DistillOperationDto;
 import com.bytequay.app.beans.workspace.DistillRunDto;
+import com.bytequay.app.domain.KnowledgeItem;
+import com.bytequay.app.repository.sqlite.KnowledgeItemStore;
 import org.assertj.core.groups.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -39,6 +41,8 @@ class TestWorkspaceKnowledgeService
     private WorkspaceKnowledgeService service;
     @Autowired
     private JdbcTemplate jdbc;
+    @Autowired
+    private KnowledgeItemStore knowledge;
 
     private final List<String> workspaceIds = new ArrayList<>();
 
@@ -213,6 +217,26 @@ class TestWorkspaceKnowledgeService
                 """, Integer.class, workspaceId))
                 .as("an accepted seed run completes the milestone")
                 .isEqualTo(1);
+    }
+
+    @Test
+    void genericKnowledgeEditorCannotPartiallyMutateALearnedItem()
+    {
+        String workspaceId = workspace("");
+        long now = Instant.now().toEpochMilli();
+        KnowledgeItem learned = new KnowledgeItem(
+                "learned-" + UUID.randomUUID(), workspaceId, "acme/widget",
+                "convention", "Original", "Keep the original statement.", null,
+                List.of("review"), "medium", KnowledgeItem.LIFECYCLE_PENDING,
+                null, now, "pr-learning", "digest", "{}", now, now);
+        knowledge.insert(learned, List.of(), List.of());
+
+        assertThatThrownBy(() -> service.saveKnowledge(
+                workspaceId, learned.id(), "Changed", "Mutated", List.of("review"), null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("learned knowledge");
+        assertThat(knowledge.findById(learned.id()).orElseThrow().statement())
+                .isEqualTo("Keep the original statement.");
     }
 
     private String workspace(String memory)

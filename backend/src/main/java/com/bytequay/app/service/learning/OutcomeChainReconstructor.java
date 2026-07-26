@@ -15,10 +15,8 @@ package com.bytequay.app.service.learning;
 
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrReviewThreadMessage;
-import com.bytequay.app.domain.PullRequestCommit;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -33,10 +31,11 @@ import java.util.Set;
  *   <li>each {@code CHANGES_REQUESTED} review (a review-level concern).</li>
  * </ul>
  *
- * <p>A concern is "addressed" when the PR author pushed a follow-up commit
- * <em>after</em> the concern was raised. Depth counts the real linkage —
- * addressed, resolved, merged-after-change — never the raw comment volume, so
- * a long naming debate that changed nothing stays at depth 0.
+ * <p>The current commit evidence has no per-commit changed paths, so a later
+ * author commit cannot prove that it addressed a particular concern. Explicit
+ * thread resolution and a later approval by the same reviewer are retained,
+ * while addressed-by-commit stays unknown until the bundle can substantiate
+ * that linkage.
  */
 @Component
 public class OutcomeChainReconstructor
@@ -66,14 +65,12 @@ public class OutcomeChainReconstructor
             if (isAuthor(message.author(), author)) {
                 continue;                       // the author's own note is not a concern
             }
-            String commit = laterAuthorCommit(bundle.commits(), author, message.createdAt());
             boolean resolved = Boolean.TRUE.equals(message.resolved())
                     || resolvedRootIds.contains(message.githubId());
             chains.add(chain(
                     message.author(),
                     message.filePath(),
                     "comment:" + message.githubId(),
-                    commit,
                     resolved,
                     merged));
         }
@@ -86,16 +83,11 @@ public class OutcomeChainReconstructor
             if (isAuthor(review.login(), author)) {
                 continue;
             }
-            String commit = laterAuthorCommit(bundle.commits(), author, review.submittedAt());
-            // A dismissed/re-reviewed CHANGES_REQUESTED that later approved is
-            // treated as resolved when a follow-up commit exists and the PR
-            // merged; the linkage (not the toggle) is what matters here.
-            boolean resolved = commit != null && merged;
+            boolean resolved = laterApproved(bundle.reviews(), review);
             chains.add(chain(
                     review.login(),
                     null,
                     "review:" + review.login(),
-                    commit,
                     resolved,
                     merged));
         }
@@ -106,44 +98,29 @@ public class OutcomeChainReconstructor
             String concernAuthor,
             String concernPath,
             String concernRef,
-            String addressedByCommit,
             boolean resolved,
             boolean merged)
     {
-        boolean addressed = addressedByCommit != null;
-        int depth = (addressed ? 1 : 0)
-                + (resolved ? 1 : 0)
-                + (merged && addressed ? 1 : 0);
+        // ponytail: commits do not carry changed paths; keep addressed unknown
+        // until the evidence bundle can prove concern-to-change linkage.
+        int depth = resolved ? 1 : 0;
         String digest = MergedPrCatalog.sha256(
                 concernAuthor + "|" + concernPath + "|" + concernRef + "|"
-                        + addressedByCommit + "|" + resolved + "|" + merged);
+                        + resolved + "|" + merged);
         return new OutcomeChain(concernAuthor, concernPath, concernRef,
-                addressedByCommit, resolved, merged, depth, digest);
+                null, resolved, merged, depth, digest);
     }
 
-    /** SHA of the earliest author commit authored after {@code raisedAt}. */
-    private static String laterAuthorCommit(
-            List<PullRequestCommit> commits, String author, Instant raisedAt)
+    private static boolean laterApproved(List<PrReviewState> reviews, PrReviewState concern)
     {
-        if (commits == null || raisedAt == null) {
-            return null;
+        if (concern.submittedAt() == null) {
+            return false;
         }
-        String match = null;
-        Instant earliest = null;
-        for (PullRequestCommit commit : commits) {
-            Instant authored = commit.authoredAt();
-            if (authored == null || !authored.isAfter(raisedAt)) {
-                continue;
-            }
-            if (!isAuthor(commit.authorLogin(), author) && !isAuthor(commit.authorName(), author)) {
-                continue;
-            }
-            if (earliest == null || authored.isBefore(earliest)) {
-                earliest = authored;
-                match = commit.sha();
-            }
-        }
-        return match;
+        return safe(reviews).stream()
+                .anyMatch(review -> "APPROVED".equalsIgnoreCase(review.state())
+                        && isAuthor(review.login(), concern.login())
+                        && review.submittedAt() != null
+                        && review.submittedAt().isAfter(concern.submittedAt()));
     }
 
     private static boolean isAuthor(String login, String author)

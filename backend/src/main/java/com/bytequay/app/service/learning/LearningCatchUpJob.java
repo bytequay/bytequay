@@ -110,6 +110,7 @@ public class LearningCatchUpJob
         switch (run.state()) {
             case "partial" -> learning.retry(run.id());
             case "useful" -> learning.backfill(workspaceId, repo, DAILY_BACKFILL_CAP);
+            case "caught-up" -> learning.refreshCompleted(run.id());
             default -> {}
         }
         revalidate(workspaceId, repo, clonePath(identity));

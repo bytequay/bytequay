@@ -40,9 +40,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Daily maintenance: partial runs resume, useful runs backfill, and active
- * knowledge revalidates against the clone — present anchors re-confirm,
- * absent anchors decay.
+ * Daily maintenance: partial runs resume, useful runs backfill, caught-up
+ * runs refresh their merge catalog, and active knowledge revalidates against
+ * the clone — present anchors re-confirm, absent anchors decay.
  */
 class TestLearningCatchUpJob
 {
@@ -100,6 +100,16 @@ class TestLearningCatchUpJob
         runs.updateRun("run-1", "useful", null, null, "{}", null, null, 2);
         job.catchUp("ws-1");
         verify(learning).backfill("ws-1", "acme/widget", 25);
+    }
+
+    @Test
+    void testCaughtUpRunRefreshesMergeCatalog()
+    {
+        runs.insertRun(run("run-1", "caught-up"));
+
+        job.catchUp("ws-1");
+
+        verify(learning).refreshCompleted("run-1");
     }
 
     @Test

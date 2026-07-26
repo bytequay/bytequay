@@ -100,8 +100,8 @@ describe('buildConversationModel', () => {
       criteria: [{ id: 'c1', kind: 'hard-invariant', statement: 's', source_type: 'planner' }],
       objectives: [
         { id: 'o1', round_id: 'round-1', criterion_id: 'c1', statement: 'Re-verify fixes', source: 'planner', applicability_status: 'applicable', resolution_status: 'pending' },
-        { id: 'o2', round_id: 'round-1', criterion_id: 'c1', statement: 'Check config surface', source: 'planner', applicability_status: 'applicable', resolution_status: 'pending' },
-        { id: 'o3', round_id: 'round-1', criterion_id: 'c1', statement: 'Check enumeration bounds', source: 'planner', applicability_status: 'applicable', resolution_status: 'pending' },
+        { id: 'o2', round_id: 'round-1', criterion_id: 'c1', statement: 'Check config surface', source: 'project-intelligence', applicability_status: 'applicable', resolution_status: 'pending' },
+        { id: 'o3', round_id: 'round-1', criterion_id: 'c1', statement: 'Check enumeration bounds', source: 'project-intelligence', applicability_status: 'not-applicable', resolution_status: 'pending' },
       ],
       assignments: [
         { id: 'a1', round_id: 'round-1', reviewer_def_id: 'general-api', runner: 'api', status: 'completed', understanding_summary: 'Both fixes verified.', assumptions_json: [], unknowns_json: [], budget_json: {} },
@@ -137,6 +137,7 @@ describe('buildConversationModel', () => {
     expect(model.running).toBe(true);
     expect(model.finished).toBe(false);
     expect(model.objectives.map(objective => objective.state)).toEqual(['done', 'running', 'queued']);
+    expect(model.learnedObjectives).toEqual(['Check config surface']);
     expect(model.doneObjectives).toBe(1);
     expect(model.investigators.map(investigator => [
       investigator.objectiveTitle, investigator.state, investigator.scope,

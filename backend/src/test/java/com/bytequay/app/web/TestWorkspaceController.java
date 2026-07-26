@@ -15,19 +15,26 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.service.learning.ProjectLearningService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
 
 /**
  * End-to-end coverage of the auto-fix opt-in endpoint. The endpoint
@@ -41,6 +48,9 @@ class TestWorkspaceController
     private static final String WORKSPACE_ID = "ws-default";
     private static final String REPO = "octocat/auto-fix-fixture";
 
+    @TempDir
+    private Path tempDir;
+
     @Autowired
     private WorkspaceController controller;
     @Autowired
@@ -51,6 +61,24 @@ class TestWorkspaceController
     private WorkspaceStore workspaceStore;
     @Autowired
     private JdbcTemplate jdbc;
+    @MockitoBean
+    private ProjectLearningService projectLearning;
+
+    @Test
+    void verifiedWatchStartsProjectLearning()
+            throws IOException
+    {
+        Path clone = Files.createDirectory(tempDir.resolve("learn-repo"));
+        jdbc.update("""
+                INSERT INTO watched_repos (owner, repo, local_clone_path)
+                VALUES ('learn-owner', 'learn-repo', ?)
+                """, clone.toString());
+
+        var workspace = controller.ensureForRepo("learn-owner", "learn-repo");
+
+        verify(projectLearning).enqueue(
+                workspace.id(), "learn-owner/learn-repo", "watch");
+    }
 
     @Test
     void setAutoFixEnabledFlipsTheFlagAndPersists()

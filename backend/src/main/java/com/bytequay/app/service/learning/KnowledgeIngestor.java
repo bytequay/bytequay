@@ -192,7 +192,7 @@ public class KnowledgeIngestor
                 lesson.audiences(), lesson.confidence(), lifecycle,
                 currentness == Currentness.OK ? bundle.repoSha() : null,
                 now, "pr-learning", digest,
-                counters(lesson, currentness), now, now);
+                counters(lesson, currentness, completeEvidence(bundle)), now, now);
         store.insert(item, provenance(bundle, lesson), applicability(lesson));
         if (conflicted) {
             markExistingConflicts(lesson.conflictsWith(), id, now);
@@ -213,17 +213,27 @@ public class KnowledgeIngestor
             KnowledgeItem existing, PrEvidenceBundle bundle, ExtractedLesson lesson,
             Path clone, long now)
     {
+        String prRef = bundle.repo() + "#" + bundle.prNumber();
+        boolean independentSource = store.provenance(existing.id()).stream()
+                .noneMatch(source -> "pr".equals(source.sourceKind())
+                        && prRef.equals(source.sourceRef()));
         store.addProvenance(existing.id(), provenance(bundle, lesson));
+        int completeConfirmations = completeConfirmations(existing);
+        if (independentSource && completeEvidence(bundle)) {
+            completeConfirmations++;
+            store.setCounters(existing.id(),
+                    withCompleteConfirmations(existing.countersJson(), completeConfirmations), now);
+        }
         boolean conflicted = hasConflicts(existing) || !lesson.conflictsWith().isEmpty();
         if (conflicted) {
             return;
         }
-        boolean current = checkCurrentness(clone, lesson) != Currentness.FAILED;
+        boolean current = checkCurrentness(clone, lesson) == Currentness.OK;
         boolean pendingConfirmed = KnowledgeItem.LIFECYCLE_PENDING.equals(existing.lifecycle())
-                && store.distinctPrSources(existing.id()) >= INDEPENDENT_CONFIRMATIONS;
+                && completeConfirmations >= INDEPENDENT_CONFIRMATIONS;
         boolean decayedReconfirmed =
                 KnowledgeItem.LIFECYCLE_DECAYED.equals(existing.lifecycle())
-                        && checkCurrentness(clone, lesson) == Currentness.OK;
+                        && completeEvidence(bundle);
         if (current && (pendingConfirmed || decayedReconfirmed)) {
             store.setLifecycle(existing.id(), KnowledgeItem.LIFECYCLE_ACTIVE,
                     bundle.repoSha(), now);
@@ -254,7 +264,7 @@ public class KnowledgeIngestor
             PrEvidenceBundle bundle, ExtractedLesson lesson,
             Currentness currentness, boolean conflicted)
     {
-        if (conflicted || currentness != Currentness.OK) {
+        if (!completeEvidence(bundle) || conflicted || currentness != Currentness.OK) {
             return false;
         }
         boolean verifiedChain = bundle.chains().stream().anyMatch(
@@ -402,10 +412,12 @@ public class KnowledgeIngestor
         }
     }
 
-    private String counters(ExtractedLesson lesson, Currentness currentness)
+    private String counters(
+            ExtractedLesson lesson, Currentness currentness, boolean completeEvidence)
     {
         ObjectNode counters = mapper.createObjectNode();
         counters.put("confirmations", 1);
+        counters.put("completeConfirmations", completeEvidence ? 1 : 0);
         if (!lesson.conflictsWith().isEmpty()) {
             ArrayNode conflicts = counters.putArray("conflictsWith");
             lesson.conflictsWith().forEach(conflicts::add);
@@ -414,6 +426,35 @@ public class KnowledgeIngestor
             counters.put("possiblyStale", true);
         }
         return counters.toString();
+    }
+
+    private int completeConfirmations(KnowledgeItem item)
+    {
+        try {
+            return mapper.readTree(item.countersJson() == null ? "{}" : item.countersJson())
+                    .path("completeConfirmations").asInt(0);
+        }
+        catch (IOException e) {
+            return 0;
+        }
+    }
+
+    private String withCompleteConfirmations(String countersJson, int confirmations)
+    {
+        try {
+            ObjectNode counters = (ObjectNode) mapper.readTree(
+                    countersJson == null || countersJson.isBlank() ? "{}" : countersJson);
+            counters.put("completeConfirmations", confirmations);
+            return counters.toString();
+        }
+        catch (IOException e) {
+            return countersJson;
+        }
+    }
+
+    private static boolean completeEvidence(PrEvidenceBundle bundle)
+    {
+        return "complete".equals(bundle.overallCompleteness());
     }
 
     private String withConflict(String countersJson, String conflictId)

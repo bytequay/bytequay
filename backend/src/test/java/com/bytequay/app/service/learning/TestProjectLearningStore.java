@@ -98,6 +98,41 @@ class TestProjectLearningStore
     }
 
     @Test
+    void testChangedSourceDigestRequeuesAnalyzedPr()
+    {
+        store.upsertPrSource(source(42, "digest-a"));
+        store.markSelected("ws-1", "acme/widget", 42, 3.5);
+        store.markAnalyzed("ws-1", "acme/widget", 42, 9.0, "merge-sha", 100L);
+
+        store.upsertPrSource(source(42, "digest-a"));
+        assertThat(store.findPrSource("ws-1", "acme/widget", 42))
+                .get().extracting(RepoPrSource::analysisState).isEqualTo("analyzed");
+
+        store.upsertPrSource(source(42, "digest-b"));
+        assertThat(store.findPrSource("ws-1", "acme/widget", 42))
+                .get()
+                .satisfies(source -> {
+                    assertThat(source.analysisState()).isEqualTo("cataloged");
+                    assertThat(source.analyzedAtMs()).isNull();
+                    assertThat(source.priorityScore()).isNull();
+                    assertThat(source.mergeSha()).isEqualTo("merge-sha");
+                });
+    }
+
+    @Test
+    void testIncompleteEvidenceCanBeRequeuedForAnotherFetch()
+    {
+        store.upsertPrSource(source(7, "digest-a"));
+        store.markSelected("ws-1", "acme/widget", 7, 3.5);
+        store.persistEvidence(bundle(List.of(), "partial:reviews"), 5.0, 100L);
+        store.markAnalyzed("ws-1", "acme/widget", 7, 9.0, "merge", 100L);
+
+        assertThat(store.requeueIncompleteEvidence("ws-1", "acme/widget")).isOne();
+        assertThat(store.findPrSource("ws-1", "acme/widget", 7))
+                .get().extracting(RepoPrSource::analysisState).isEqualTo("cataloged");
+    }
+
+    @Test
     void testCursorPersistenceRoundTrips()
     {
         store.insertRun(run("run-1", "cataloging", null));
@@ -157,12 +192,18 @@ class TestProjectLearningStore
 
     private static PrEvidenceBundle bundle(List<PrEvidenceBundle.EvidenceRef> refs)
     {
+        return bundle(refs, "complete");
+    }
+
+    private static PrEvidenceBundle bundle(
+            List<PrEvidenceBundle.EvidenceRef> refs, String completeness)
+    {
         return new PrEvidenceBundle("ws-1", "acme/widget", 7, "alice",
                 "Title", "Body", "base", "head", "merge", "repoSha",
                 List.of(), List.of(), List.of(new PullRequestCommit("c1", "alice", "alice",
                         Instant.parse("2020-01-01T00:00:00Z"), "msg")),
                 List.of(), List.of(),
-                Map.of("reviews", "complete"), "complete", refs, List.of());
+                Map.of("reviews", completeness), completeness, refs, List.of());
     }
 
     private static PrEvidenceBundle.EvidenceRef ref(

@@ -36,6 +36,7 @@ import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewedCommitRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewerDefRow;
 import com.bytequay.app.domain.InvestigationReviewData.RoundBudget;
+import com.bytequay.app.domain.KnowledgeItem.Applicability;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRCommit;
@@ -49,6 +50,7 @@ import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.DeterministicReviewCoverage.CoverageReport;
 import com.bytequay.app.service.review.DeterministicReviewCoverage.FailureClassResult;
 import com.bytequay.app.service.review.DeterministicReviewCoverage.SweepResult;
+import com.bytequay.app.service.review.InvestigationReviewModel.ReviewKnowledge;
 import com.bytequay.app.service.review.InvestigationReviewRunner.ProviderChoice;
 import com.bytequay.app.service.review.InvestigationReviewRunner.RunOutcome;
 import com.bytequay.app.service.runs.AgentRunService;
@@ -98,8 +100,16 @@ public class InvestigationReviewService
 {
     private static final Logger log = LoggerFactory.getLogger(InvestigationReviewService.class);
     private static final Duration PREFLIGHT_TTL = Duration.ofHours(24);
+    private static final int MAX_LEARNED_OBJECTIVES = 3;
     private static final Set<String> CRITERION_KINDS = Set.of(
             "hard-invariant", "engineering-principle", "repo-convention");
+    private static final Set<String> HARD_LEARNED_KINDS = Set.of(
+            "domain-invariant", "invariant", "compatibility-contract", "build-test-rule");
+    private static final Set<String> PRINCIPLE_LEARNED_KINDS = Set.of(
+            "architecture-principle", "principle", "recurring-concern", "concern",
+            "investigation-recipe", "recipe", "performance-assumption");
+    private static final Set<String> CONVENTION_LEARNED_KINDS = Set.of(
+            "doc-note", "convention");
     private static final Pattern HUNK_HEADER = Pattern.compile(
             "^@@ -\\d+(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@.*$");
 
@@ -2409,7 +2419,9 @@ public class InvestigationReviewService
                 .sum();
     }
 
-    private PlanDraft plan(InvestigationReviewContext.Snapshot snapshot)
+    private PlanDraft plan(
+            InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewKnowledge> learnedKnowledge)
     {
         String diff = snapshot.diff();
         CoverageReport coverage = DeterministicReviewCoverage.analyze(diff, contexts, snapshot);
@@ -2457,6 +2469,11 @@ public class InvestigationReviewService
                     "engineering-principle", "Confirm deleted behavior has no required callers, tests, or compatibility role.",
                     "shipped-rule", "deletion", true));
         }
+        Set<String> existingStatements = objectives.stream()
+                .map(PlanObjective::statement)
+                .map(InvestigationReviewService::normalised)
+                .collect(Collectors.toSet());
+        objectives.addAll(learnedObjectives(snapshot, learnedKnowledge, existingStatements));
         for (FailureClassResult failureClass : coverage.failureClasses()) {
             objectives.add(new PlanObjective(
                     "hard-invariant", failureClassStatement(failureClass.id()),
@@ -2465,9 +2482,92 @@ public class InvestigationReviewService
         return new PlanDraft(reviewClass, budget, List.copyOf(objectives), null);
     }
 
+    private static List<PlanObjective> learnedObjectives(
+            InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewKnowledge> learnedKnowledge,
+            Set<String> existingStatements)
+    {
+        List<PlanObjective> objectives = new ArrayList<>();
+        for (ReviewKnowledge knowledge : learnedKnowledge) {
+            if (objectives.size() >= MAX_LEARNED_OBJECTIVES) {
+                break;
+            }
+            String kind = learnedCriterionKind(knowledge.kind());
+            if (kind == null || knowledge.statement() == null || knowledge.statement().isBlank()) {
+                continue;
+            }
+            if (!existingStatements.add(normalised(knowledge.statement()))) {
+                continue;
+            }
+            objectives.add(new PlanObjective(
+                    kind,
+                    scopedLearnedStatement(snapshot, knowledge),
+                    "project-intelligence",
+                    knowledge.id(),
+                    true));
+        }
+        return List.copyOf(objectives);
+    }
+
+    private static String learnedCriterionKind(String kind)
+    {
+        if (HARD_LEARNED_KINDS.contains(kind)) {
+            return "hard-invariant";
+        }
+        if (PRINCIPLE_LEARNED_KINDS.contains(kind)) {
+            return "engineering-principle";
+        }
+        if (CONVENTION_LEARNED_KINDS.contains(kind)) {
+            return "repo-convention";
+        }
+        return null;
+    }
+
+    private static String scopedLearnedStatement(
+            InvestigationReviewContext.Snapshot snapshot,
+            ReviewKnowledge knowledge)
+    {
+        List<String> changedPaths = InvestigationReviewRunner.changedFilenames(snapshot);
+        List<String> areas = knowledge.applicability().stream()
+                .filter(tag -> Set.of("module", "path").contains(tag.kind()))
+                .map(Applicability::value)
+                .filter(area -> changedPaths.stream().anyMatch(path -> pathsIntersect(area, path)))
+                .distinct()
+                .limit(2)
+                .toList();
+        String statement = knowledge.statement().strip();
+        return areas.isEmpty() ? statement : "[" + String.join(", ", areas) + "] " + statement;
+    }
+
+    private static boolean pathsIntersect(String left, String right)
+    {
+        String first = normalisedPath(left);
+        String second = normalisedPath(right);
+        return !first.isBlank() && !second.isBlank()
+                && (first.equals(second)
+                || first.startsWith(second + "/")
+                || second.startsWith(first + "/"));
+    }
+
+    private static String normalisedPath(String value)
+    {
+        if (value == null) {
+            return "";
+        }
+        String path = value.strip().replace('\\', '/').toLowerCase(Locale.ROOT);
+        while (path.startsWith("./")) {
+            path = path.substring(2);
+        }
+        while (path.endsWith("/") && !path.isEmpty()) {
+            path = path.substring(0, path.length() - 1);
+        }
+        return path;
+    }
+
     private PlanDraft cachedPlan(InvestigationReviewContext.Snapshot snapshot)
     {
-        String key = preflightKey(snapshot);
+        List<ReviewKnowledge> learnedKnowledge = learnedReviewKnowledge(snapshot);
+        String key = preflightKey(snapshot, learnedKnowledge);
         Instant now = Instant.now();
         Set<String> expired = preflightPlans.entrySet().stream()
                 .filter(entry -> !entry.getValue().expiresAt().isAfter(now))
@@ -2481,14 +2581,38 @@ public class InvestigationReviewService
         if (cached != null) {
             return cached.plan();
         }
-        PlanDraft draft = plan(snapshot);
+        PlanDraft draft = plan(snapshot, learnedKnowledge);
         preflightPlans.put(key, new CachedPlan(draft, now.plus(PREFLIGHT_TTL)));
         return draft;
     }
 
-    private static String preflightKey(InvestigationReviewContext.Snapshot snapshot)
+    private List<ReviewKnowledge> learnedReviewKnowledge(
+            InvestigationReviewContext.Snapshot snapshot)
     {
-        return snapshot.pr().id() + "@" + snapshot.headCommit();
+        try {
+            List<ReviewKnowledge> learned = runner.reviewKnowledge(snapshot);
+            return learned == null ? List.of() : List.copyOf(learned);
+        }
+        catch (RuntimeException e) {
+            // Project Intelligence is an advisory head start; a retrieval
+            // problem must never prevent the evidence-first review from running.
+            log.warn("Could not load Project Intelligence for review plan {}: {}",
+                    snapshot.pr().id(), e.getMessage());
+            return List.of();
+        }
+    }
+
+    private static String preflightKey(
+            InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewKnowledge> learnedKnowledge)
+    {
+        String knowledgeVersion = learnedKnowledge.stream()
+                .map(item -> item.id() + ":" + item.updatedAtMs() + ":" + item.applicability())
+                .collect(Collectors.joining("\n"));
+        String inputs = Objects.toString(snapshot.pr().title(), "") + "\n"
+                + Objects.toString(snapshot.pr().description(), "") + "\n"
+                + knowledgeVersion;
+        return snapshot.pr().id() + "@" + snapshot.headCommit() + "@" + digest(inputs);
     }
 
     private static String failureClassStatement(String failureClass)

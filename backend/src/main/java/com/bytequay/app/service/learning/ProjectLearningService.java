@@ -170,8 +170,10 @@ public class ProjectLearningService
         if (current.isEmpty()) {
             return current;
         }
-        store.updateRun(id, "cataloging", null, current.get().catalogCursor(),
-                current.get().countsJson(), null, null, Instant.now().toEpochMilli());
+        ProjectLearningRun run = current.get();
+        store.requeueIncompleteEvidence(run.workspaceId(), run.repo());
+        store.updateRun(id, "cataloging", null, run.catalogCursor(),
+                run.countsJson(), null, null, Instant.now().toEpochMilli());
         launchAfterCommit(id);
         return store.findRun(id);
     }
@@ -201,6 +203,28 @@ public class ProjectLearningService
                 null, current.catalogCursor(), current.countsJson(), null, null,
                 Instant.now().toEpochMilli()));
         return store.latestRun(workspaceId, repo);
+    }
+
+    /**
+     * Re-open a completed catalog from its last covered day through today.
+     * The overlap is intentional: merge-date windows are day-granular, so
+     * querying the checkpoint day again catches merges that landed after the
+     * previous pass while the source upsert keeps the operation idempotent.
+     */
+    @Transactional
+    public Optional<ProjectLearningRun> refreshCompleted(String id)
+    {
+        Optional<ProjectLearningRun> found = store.findRun(id);
+        if (found.isEmpty() || !"caught-up".equals(found.get().state())) {
+            return found;
+        }
+        ProjectLearningRun run = found.get();
+        store.requeueIncompleteEvidence(run.workspaceId(), run.repo());
+        store.updateRun(run.id(), "cataloging", run.snapshotSha(),
+                writeCursor(incrementalCursor(run)), run.countsJson(), null, null,
+                Instant.now().toEpochMilli());
+        launchAfterCommit(run.id());
+        return store.findRun(run.id());
     }
 
     // ── incremental learning (Phase 5) ──────────────────────────────
@@ -304,6 +328,7 @@ public class ProjectLearningService
         String head = clone == null ? null : headSha(clone);
         String pat = patResolver.resolve(repo);
         int analyzed = 0;
+        store.requeueIncompleteEvidence(workspaceId, repo);
         if (selectBatch(run) == 0) {
             long now = Instant.now().toEpochMilli();
             store.updateRun(run.id(), "caught-up", head, run.catalogCursor(),
@@ -814,6 +839,24 @@ public class ProjectLearningService
         catch (IOException e) {
             throw new IllegalStateException("corrupt catalog cursor", e);
         }
+    }
+
+    private CatalogCursor incrementalCursor(ProjectLearningRun run)
+    {
+        LocalDate today = LocalDate.now();
+        if (run.catalogCursor() == null) {
+            return MergedPrCatalog.initialCursor(today);
+        }
+        LocalDate lastCovered = readCursor(run.catalogCursor()).partitions().stream()
+                .map(CatalogCursor.Partition::to)
+                .map(LocalDate::parse)
+                .max(LocalDate::compareTo)
+                .orElse(today);
+        if (lastCovered.isAfter(today)) {
+            lastCovered = today;
+        }
+        return new CatalogCursor(List.of(new CatalogCursor.Partition(
+                lastCovered.toString(), today.toString(), 1, false)));
     }
 
     private String writeCursor(CatalogCursor cursor)

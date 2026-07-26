@@ -64,6 +64,11 @@ class TestSessionKnowledgeProvider
                     workspace_id, repo, capsule_md, source_digest, generated_at_ms)
                 VALUES ('ws-1', 'acme/widget', '# Project capsule\n\nWidget maker.', 'd', 1)
                 """);
+        jdbc.update("""
+                INSERT INTO workspace_repos (
+                    workspace_id, repo_full_name, default_base_branch, added_at_ms)
+                VALUES ('ws-1', 'acme/widget', 'main', 1)
+                """);
         ObjectMapper mapper = new ObjectMapper();
         store = new KnowledgeItemStore(jdbc, mapper);
         KnowledgeSearchIndex index = new KnowledgeSearchIndex(jdbc);
@@ -121,12 +126,119 @@ class TestSessionKnowledgeProvider
         assertThat(provider.render(null, "dev", null)).isEmpty();
     }
 
+    @Test
+    void testRepositoryReviewRetrievesByPathWithoutLeakingWorkspaceMemory()
+    {
+        String changedPath = "backend/src/main/java/acme/Scheduler.java";
+        insert("k-path", "active", "Release scheduler slots in a finally block.",
+                List.of("review"),
+                List.of(new KnowledgeItem.Applicability("path", changedPath)));
+        insert("k-pending", "pending", "Pending scheduler advice must stay hidden.",
+                List.of("review"),
+                List.of(new KnowledgeItem.Applicability("path", changedPath)));
+        insert("k-ui", "active", "UI buttons use sentence case.",
+                List.of("review"),
+                List.of(new KnowledgeItem.Applicability(
+                        "path", "frontend/src/components/Button.tsx")));
+        insert("k-dev", "active", "Developer-only scheduler implementation note.",
+                List.of("dev"),
+                List.of(new KnowledgeItem.Applicability("path", changedPath)));
+
+        String rendered = provider.renderForRepository("ACME/WIDGET", changedPath);
+
+        assertThat(rendered)
+                .contains("# Project capsule")
+                .contains("Release scheduler slots in a finally block.")
+                .doesNotContain("Ship weekly.")
+                .doesNotContain("Pending scheduler advice")
+                .doesNotContain("UI buttons use sentence case")
+                .doesNotContain("Developer-only scheduler implementation note");
+    }
+
+    @Test
+    void testRepositoryReviewKnowledgeKeepsStableIdentityAndApplicability()
+    {
+        KnowledgeItem.Applicability module = new KnowledgeItem.Applicability(
+                "module", "plugin/trino-iceberg");
+        insert("k-module", "active", "Preserve connector metadata compatibility.",
+                List.of("review"), List.of(module));
+
+        List<SessionKnowledgeProvider.RepositoryKnowledge> knowledge =
+                provider.reviewKnowledgeForRepository(
+                        "ACME/WIDGET", "plugin/trino-iceberg/src/main/java/Metadata.java");
+
+        assertThat(knowledge).hasSize(1);
+        assertThat(knowledge.getFirst().item().id()).isEqualTo("k-module");
+        assertThat(knowledge.getFirst().applicability()).containsExactly(module);
+    }
+
+    @Test
+    void testApprovedThreadCodeAreaSharpensRetrievalWithoutRestrictingTheCheckout()
+    {
+        jdbc.update("""
+                INSERT INTO threads (
+                    id, kind, provider, title, status, model,
+                    created_at_ms, updated_at_ms, workspace_id)
+                VALUES ('thread-1', 'LOGIC_LOOP', 'local', 'Plan scheduler work',
+                        'IDLE', 'local', 1, 1, 'ws-1')
+                """);
+        jdbc.update("""
+                INSERT INTO repo_directory_scope_decision (
+                    workspace_id, repo, scope_path, decision_state, decided_at_ms)
+                VALUES ('ws-1', 'acme/widget', 'modules/core', 'approved', 1)
+                """);
+        jdbc.update("""
+                INSERT INTO thread_directory_scope_assignment (
+                    thread_id, workspace_id, repo, scope_path, assigned_at_ms)
+                VALUES ('thread-1', 'ws-1', 'acme/widget', 'modules/core', 1)
+                """);
+        jdbc.update("""
+                INSERT INTO thread_turns (
+                    id, thread_id, lane, status, input, created_at_ms, updated_at_ms)
+                VALUES ('turn-1', 'thread-1', 'CLI', 'COMPLETED',
+                        'Investigate the scheduler race', 2, 2)
+                """);
+        insert("k-core", "active", "The core scheduler race needs a bounded retry.",
+                List.of("dev"),
+                List.of(new KnowledgeItem.Applicability("path", "modules/core")));
+        insert("k-ui", "active", "Frontend buttons use sentence case.",
+                List.of("dev"),
+                List.of(new KnowledgeItem.Applicability("path", "frontend")));
+
+        String rendered = provider.renderForThread(
+                "ws-1", "thread-1", "dev", "Plan scheduler work");
+
+        assertThat(rendered)
+                .contains("# Code area")
+                .contains("Primary code area: `modules/core`")
+                .contains("shared changes outside it may still be required")
+                .contains("The core scheduler race needs a bounded retry.")
+                .doesNotContain("Frontend buttons use sentence case.");
+        assertThat(jdbc.queryForObject("""
+                SELECT query_hint FROM session_context_projection
+                WHERE workspace_id = 'ws-1' AND audience = 'dev'
+                """, String.class))
+                .contains("Plan scheduler work")
+                .contains("Investigate the scheduler race")
+                .contains("modules/core");
+    }
+
     private void insert(String id, String lifecycle, String statement)
+    {
+        insert(id, lifecycle, statement, List.of("dev"), List.of());
+    }
+
+    private void insert(
+            String id,
+            String lifecycle,
+            String statement,
+            List<String> audiences,
+            List<KnowledgeItem.Applicability> applicability)
     {
         store.insert(new KnowledgeItem(
                 id, "ws-1", "acme/widget", "recurring-concern", null, statement,
-                null, List.of("dev"), "medium", lifecycle, null, null,
+                null, audiences, "medium", lifecycle, null, null,
                 "pr-learning", KnowledgeItemStore.statementDigest(statement),
-                "{}", 1, 1), List.of(), List.of());
+                "{}", 1, 1), List.of(), applicability);
     }
 }

@@ -96,8 +96,9 @@ describe('TaskBrainRoute', () => {
     expect(screen.getByText('STAGES')).toBeTruthy();
     expect(document.querySelector('.workspace-task-header__badge')?.textContent).toBe('BRAIN');
 
-    fireEvent.click(screen.getByTitle('Usage'));
-    expect(screen.getByText(/tokens$/)).toBeTruthy();
+    expect(screen.queryByTitle('Usage')).toBeNull();
+    expect(screen.queryByTitle('Voice input')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add context' })).toBeNull();
 
     const box = screen.getByRole('textbox');
     fireEvent.change(box, { target: { value: 'what next?' } });

@@ -17,7 +17,6 @@
 export { Shell } from './Shell';
 export { Main } from './Main';
 export { Composer } from './Composer';
-export type { ComposerUsage } from './Composer';
 export { RunMenu } from './RunMenu';
 export {
   Sidebar, TrafficLights, SidebarNav, ThreadsSection, ClosedFolder, SidebarFooter, SidebarToggleBar,

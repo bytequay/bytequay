@@ -791,12 +791,6 @@ export function TaskBrainRoute({
           : undefined,
         modePill: <WorkModelPill variant="workspace-v2" scope={{ kind: 'task', threadId, taskId }}
           agentLockPending={working} />,
-        usage: {
-          contextPercent: data.rightRail.context.tokensLimit > 0
-            ? Math.round((data.rightRail.context.tokensUsed / data.rightRail.context.tokensLimit) * 100)
-            : 0,
-          sessionLabel: `${data.rightRail.context.tokensUsed.toLocaleString('en-US')} tokens`,
-        },
         meta: `Task #${task.taskNumber} · ${formatDuration(data.aggregate.activeTimeSec)} · ${formatCost(data.aggregate.costCents)}`,
       }}
       run={{

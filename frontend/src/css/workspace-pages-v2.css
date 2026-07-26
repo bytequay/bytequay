@@ -185,64 +185,8 @@
   padding: 6px 10px 10px;
 }
 .task-brain .shell .composer--workspace-v2 .footer { gap: 2px; padding: 6px 10px 10px; }
-.shell .composer--workspace-v2 .plus,
-.shell .workspace-composer-mic,
-.shell .workspace-composer-usage > button {
-  width: 26px;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: #6e7781;
-  cursor: pointer;
-}
-.shell .composer--workspace-v2 .plus:hover,
-.shell .workspace-composer-mic:hover,
-.shell .workspace-composer-usage > button:hover { background: #f6f8fa; }
 .workspace-work-model-pill { background: transparent; }
 .workspace-work-model-pill:hover { background: #f6f8fa; }
-.shell .workspace-composer-usage { position: relative; display: inline-flex; }
-.shell .workspace-composer-usage > button { border-radius: 50%; }
-.shell .workspace-composer-usage__popover {
-  position: absolute;
-  bottom: 34px;
-  right: -40px;
-  width: 240px;
-  box-sizing: border-box;
-  padding: 4px 0;
-  z-index: 5;
-  background: #fff;
-  border: 1px solid #e1e5e9;
-  border-radius: 11px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
-}
-.shell .workspace-composer-usage__popover > div { display: flex; align-items: center; gap: 10px; padding: 9px 14px; }
-.shell .workspace-composer-usage__popover span { font-size: 12.5px; color: #57606a; }
-.shell .workspace-composer-usage__popover strong {
-  margin-left: auto;
-  color: #17191c;
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.shell .workspace-composer-usage__popover > div > i {
-  flex: 1;
-  height: 5px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #eceef0;
-}
-.shell .workspace-composer-usage__popover > div > i > i {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: #2da44e;
-}
-.shell .workspace-composer-usage__popover hr { height: 1px; margin: 0; border: 0; background: #f0f2f4; }
 .shell .composer--workspace-v2 .send {
   width: 30px;
   height: 30px;
@@ -250,12 +194,6 @@
   border-radius: 50%;
   background: #24292f;
   color: #fff;
-}
-.task-brain .shell .composer--workspace-v2 .footer .plus {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-  color: #6e7781;
 }
 .task-brain .shell .composer--workspace-v2 .footer .send {
   width: 30px;

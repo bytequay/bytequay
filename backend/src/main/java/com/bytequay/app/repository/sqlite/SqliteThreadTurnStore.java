@@ -69,19 +69,50 @@ class SqliteThreadTurnStore
 
     @Override
     @Transactional
-    public void insertTurn(ThreadTurn turn, boolean affectsTaskLiveness, String kickKey)
+    public InsertResult insertTurn(ThreadTurn turn, boolean affectsTaskLiveness, String kickKey)
     {
-        // Same-key inserts are serialized by the task command stripe (kick
-        // keys embed their task scope); the unique index is the backstop.
-        if (kickKey != null && turns.findByKickKey(kickKey).isPresent()) {
-            return;
+        TurnInitiator initiator = turn.initiator() == null
+                ? TurnInitiator.user()
+                : turn.initiator();
+        int inserted = turns.insertIfAbsent(
+                turn.id(), turn.threadId(), turn.taskId(), turn.lane().name(),
+                turn.status().name(), turn.input(), turn.createdAt().toEpochMilli(),
+                turn.updatedAt().toEpochMilli(), Timestamps.epochMilli(turn.startedAt()),
+                Timestamps.epochMilli(turn.finishedAt()), turn.errorMessage(),
+                initiator.attended(), initiator.source(), turn.stageId(),
+                turn.scope() == null ? null : turn.scope().name(), turn.agentRunId(),
+                affectsTaskLiveness, kickKey);
+        if (inserted == 1) {
+            return new InsertResult(turn.id(), true);
         }
-        saveTurn(turn);
-        turns.findById(turn.id()).ifPresent(entity -> {
-            entity.setAffectsTaskLiveness(affectsTaskLiveness);
-            entity.setKickKey(kickKey);
-            turns.save(entity);
-        });
+        String durableId = kickKey == null
+                ? turns.findById(turn.id()).map(ThreadTurnEntity::getId).orElse(null)
+                : turns.findByKickKey(kickKey).map(ThreadTurnEntity::getId).orElse(null);
+        if (durableId == null) {
+            throw new IllegalStateException("turn insert was ignored without a durable winner: " + turn.id());
+        }
+        return new InsertResult(durableId, false);
+    }
+
+    @Override
+    @Transactional
+    public boolean updateStatusIf(
+            String turnId,
+            ThreadTurnStatus expected,
+            ThreadTurnStatus to,
+            Instant updatedAt,
+            Instant startedAt,
+            Instant finishedAt,
+            String errorMessage)
+    {
+        requireNonNull(turnId, "turnId is null");
+        requireNonNull(expected, "expected is null");
+        requireNonNull(to, "to is null");
+        requireNonNull(updatedAt, "updatedAt is null");
+        return turns.updateStatusIf(
+                turnId, expected.name(), to.name(), updatedAt.toEpochMilli(),
+                Timestamps.epochMilli(startedAt), Timestamps.epochMilli(finishedAt),
+                errorMessage) == 1;
     }
 
     @Override

@@ -235,7 +235,7 @@ class TestStageLifecycle
     }
 
     @Test
-    void needsAttentionRecoveryReopensTheOriginalDevelopmentStageInsteadOfDuplicatingIt()
+    void needsAttentionRecoveryRestoresTheCheckpointInsteadOfAllowingAnImplementingShortcut()
     {
         String taskId = seedTask();
         events.publishEvent(new TaskCreatedEvent(taskId));
@@ -250,23 +250,25 @@ class TestStageLifecycle
         assertThat(only(taskId, StageType.DEVELOPMENT_STAGE).state()).isEqualTo(StageState.CLOSED);
 
         // Parked (a universal escape, cross-cutting — RemoteDevelopment stays
-        // active through it), then a human recovers it straight back to
-        // IMPLEMENTING — a legal edge that re-enters DevelopmentStage's
-        // phase set from a LATER stage's active window.
+        // active through it). The phase picker must not let a human bypass
+        // the recovery barrier and jump back to IMPLEMENTING.
         machine.transition(taskId, TaskPhase.NEEDS_ATTENTION, "stuck", Actor.HUMAN);
         assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
 
-        machine.transition(taskId, TaskPhase.IMPLEMENTING, "recovered", Actor.HUMAN);
+        assertThatThrownBy(() -> machine.transition(
+                taskId, TaskPhase.IMPLEMENTING, "recovered", Actor.HUMAN))
+                .hasMessageContaining("illegal task phase transition NEEDS_ATTENTION -> IMPLEMENTING");
 
-        assertActive(taskId, StageType.DEVELOPMENT_STAGE);
-        // The SAME row wakes back up — not a second DevelopmentStage.
-        StageInstance reopenedDev = only(taskId, StageType.DEVELOPMENT_STAGE);
-        assertThat(reopenedDev.id()).isEqualTo(originalDev.id());
-        assertThat(reopenedDev.state()).isEqualTo(StageState.OPEN);
-        assertThat(reopenedDev.closedAt()).isEmpty();
-        assertThat(stageStore.findEventsByStage(reopenedDev.id()))
+        machine.completeRecovery(
+                taskId, Actor.HUMAN, "recovered", TaskPhase.AWAITING_REMOTE_REVIEW);
+
+        assertActive(taskId, StageType.REMOTE_DEVELOPMENT_STAGE);
+        StageInstance closedDev = only(taskId, StageType.DEVELOPMENT_STAGE);
+        assertThat(closedDev.id()).isEqualTo(originalDev.id());
+        assertThat(closedDev.state()).isEqualTo(StageState.CLOSED);
+        assertThat(stageStore.findEventsByStage(closedDev.id()))
                 .extracting(StageEvent::eventType)
-                .containsExactly(StageEventType.OPENED, StageEventType.CLOSED, StageEventType.REOPENED);
+                .containsExactly(StageEventType.OPENED, StageEventType.CLOSED);
     }
 
     private void assertActive(String taskId, StageType type)

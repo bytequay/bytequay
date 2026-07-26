@@ -236,6 +236,15 @@ class SqliteTaskStore
 
     @Override
     @Transactional
+    public boolean clearRecoveryRequest(
+            String taskId, String requestId, String recoveryContextJson)
+    {
+        return tasks.clearRecoveryRequest(
+                taskId, requestId, recoveryContextJson) == 1;
+    }
+
+    @Override
+    @Transactional
     public void clearRecoveryState(String taskId)
     {
         mutate(taskId, entity -> {

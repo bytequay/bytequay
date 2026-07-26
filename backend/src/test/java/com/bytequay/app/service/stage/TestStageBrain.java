@@ -652,7 +652,7 @@ class TestStageBrain
         AgentRun run = agentRuns.openInStage(
                 taskId, AgentRun.KIND_REVIEW_ROUND, AgentRun.SOURCE_REMOTE,
                 remote.id().toString(), null);
-        reviewRounds.save(new ReviewRound(
+        reviewRounds.insert(new ReviewRound(
                 UUID.randomUUID().toString(), taskId, 1, List.of("@reviewer"),
                 ReviewRound.STATUS_TRIAGING, ReviewRound.ReviewRoundStats.empty(),
                 run.id(), Instant.parse("2026-06-20T09:30:00Z"), null, null,

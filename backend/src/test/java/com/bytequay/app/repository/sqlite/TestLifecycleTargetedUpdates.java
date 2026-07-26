@@ -26,16 +26,24 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.ValidationPassStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataAccessException;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
@@ -44,6 +52,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The P1b insert-vs-targeted-update contract on the four lifecycle
@@ -62,6 +71,10 @@ class TestLifecycleTargetedUpdates
     private TaskStore taskStore;
     @Autowired
     private ThreadStore threadStore;
+    @Autowired
+    private ThreadTurnStore turnStore;
+    @Autowired
+    private ValidationPassStore validationStore;
     @Autowired
     private ReviewRoundStore roundStore;
     @Autowired
@@ -160,32 +173,167 @@ class TestLifecycleTargetedUpdates
     }
 
     @Test
-    void roundStatusCasAndMetadataUpdatesAreIndependent()
+    void roundMetadataUpdatesCannotClobberLifecycleColumns()
     {
         ReviewRound round = seedRound(seedTask());
 
-        assertThat(roundStore.updateStatusIf(
-                round.id(), ReviewRound.STATUS_ADDRESSING, ReviewRound.STATUS_CLOSED)).isFalse();
-        assertThat(roundStore.findById(round.id()).orElseThrow().status())
-                .isEqualTo(ReviewRound.STATUS_TRIAGING);
-
         roundStore.updateStats(round.id(), new ReviewRound.ReviewRoundStats(1, 2, 3, 4));
         roundStore.updateRunId(round.id(), "run-77");
-        roundStore.updateBrainVerdict(round.id(), ReviewRound.VERDICT_CHANGES_REQUESTED);
         roundStore.updateGateTimes(round.id(), NOW, null);
 
         ReviewRound reloaded = roundStore.findById(round.id()).orElseThrow();
         assertThat(reloaded.status()).isEqualTo(ReviewRound.STATUS_TRIAGING);
         assertThat(reloaded.stats().open()).isEqualTo(4);
         assertThat(reloaded.runId()).isEqualTo("run-77");
-        assertThat(reloaded.brainVerdict()).isEqualTo(ReviewRound.VERDICT_CHANGES_REQUESTED);
+        assertThat(reloaded.brainVerdict()).isNull();
         assertThat(reloaded.gatedAt()).isEqualTo(NOW);
         assertThat(reloaded.postedAt()).isNull();
 
-        assertThat(roundStore.updateStatusIf(
-                round.id(), ReviewRound.STATUS_TRIAGING, ReviewRound.STATUS_ADDRESSING)).isTrue();
+        assertThat(roundStore.parkIf(round.id(), ReviewRound.STATUS_TRIAGING)).isTrue();
+        roundStore.updateStats(round.id(), new ReviewRound.ReviewRoundStats(2, 3, 4, 5));
+        ReviewRound paused = roundStore.findById(round.id()).orElseThrow();
+        assertThat(paused.status()).isEqualTo(ReviewRound.STATUS_PAUSED);
+        assertThat(paused.pausedFrom()).isEqualTo(ReviewRound.STATUS_TRIAGING);
+        assertThat(paused.stats().open()).isEqualTo(5);
+    }
+
+    @Test
+    void roundParkResumeAndSealUpdateTheirCheckpointsAtomically()
+    {
+        ReviewRound round = seedRound(seedTask());
+        assertThat(roundStore.updateBrainVerdictIf(
+                round.id(), ReviewRound.STATUS_TRIAGING,
+                ReviewRound.VERDICT_APPROVED)).isTrue();
+
+        assertThat(roundStore.parkIf(round.id(), ReviewRound.STATUS_ADDRESSING)).isFalse();
+        assertThat(roundStore.parkIf(round.id(), ReviewRound.STATUS_TRIAGING)).isTrue();
+        ReviewRound paused = roundStore.findById(round.id()).orElseThrow();
+        assertThat(paused.status()).isEqualTo(ReviewRound.STATUS_PAUSED);
+        assertThat(paused.pausedFrom()).isEqualTo(ReviewRound.STATUS_TRIAGING);
+        assertThat(paused.brainVerdict()).isEqualTo(ReviewRound.VERDICT_APPROVED);
+        assertThat(roundStore.findLiveByTask(round.taskId())).isEmpty();
+        assertThat(roundStore.findAllLive()).doesNotContain(paused);
+
+        assertThat(roundStore.resumeIf(round.id(), ReviewRound.STATUS_ADDRESSING)).isFalse();
+        assertThat(roundStore.resumeIf(round.id(), ReviewRound.STATUS_TRIAGING)).isTrue();
+        ReviewRound resumed = roundStore.findById(round.id()).orElseThrow();
+        assertThat(resumed.status()).isEqualTo(ReviewRound.STATUS_TRIAGING);
+        assertThat(resumed.pausedFrom()).isNull();
+        assertThat(resumed.kickAttempt()).isEqualTo(1);
+        assertThat(resumed.brainVerdict()).isNull();
+
+        assertThat(roundStore.sealIf(
+                round.id(), ReviewRound.STATUS_ADDRESSING, NOW)).isFalse();
+        assertThat(roundStore.sealIf(
+                round.id(), ReviewRound.STATUS_TRIAGING, NOW)).isTrue();
+        ReviewRound closed = roundStore.findById(round.id()).orElseThrow();
+        assertThat(closed.status()).isEqualTo(ReviewRound.STATUS_CLOSED);
+        assertThat(closed.closedAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void oneTaskCannotOwnTwoCoordinatorRounds()
+    {
+        String taskId = seedTask();
+        seedRound(taskId);
+
+        assertThatThrownBy(() -> seedRound(taskId))
+                .isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
+    void roundInsertCannotBecomeAFullRowLifecycleUpdate()
+    {
+        ReviewRound round = seedRound(seedTask());
+
+        assertThatThrownBy(() -> roundStore.insert(
+                round.withStatus(ReviewRound.STATUS_CLOSED)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("already exists");
         assertThat(roundStore.findById(round.id()).orElseThrow().status())
-                .isEqualTo(ReviewRound.STATUS_ADDRESSING);
+                .isEqualTo(ReviewRound.STATUS_TRIAGING);
+    }
+
+    @Test
+    void finishAddressingIsFencedByTheExactTurnKickAndGreenClaim()
+    {
+        String taskId = seedTask();
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+        String roundId = UUID.randomUUID().toString();
+        String runId = UUID.randomUUID().toString();
+        roundStore.insert(new ReviewRound(
+                roundId, taskId, 1, List.of(), ReviewRound.STATUS_ADDRESSING,
+                ReviewRound.ReviewRoundStats.empty(), runId, NOW, null, null,
+                ReviewRound.ORIGIN_BRAIN, ReviewRound.VERDICT_CHANGES_REQUESTED,
+                1, 5, null, "sha256:before", 0, 0, 0, null, null));
+        String turnId = UUID.randomUUID().toString();
+        String kickKey = roundId + ":addressing:brain-review-fix:1:0:0";
+        turnStore.insertTurn(new ThreadTurn(
+                turnId, task.threadId(), taskId, ThreadResourceLane.CLI,
+                ThreadTurnStatus.COMPLETED, "fix", NOW, NOW, NOW, NOW,
+                null, TurnInitiator.unattended("brain-review-fix"), "stage-1",
+                ThreadScope.STAGE, runId), true, kickKey);
+        String claimKey = "review-round:" + taskId + ':' + roundId
+                + ':' + turnId + ":sha256:after";
+        long claimId = validationStore.insertClaim(
+                        claimKey, taskId, "review-round", roundId,
+                        "sha256:after", null, null, NOW)
+                .orElseThrow();
+        validationStore.finishPass(claimId, NOW, true, 0, "[]");
+
+        assertThat(roundStore.finishAddressingIf(
+                roundId,
+                new ReviewRoundStore.AttemptFence(
+                        1, 0, 0, "stale-turn", kickKey),
+                claimKey, "sha256:after"))
+                .isFalse();
+        assertThat(roundStore.finishAddressingIf(
+                roundId,
+                new ReviewRoundStore.AttemptFence(
+                        1, 0, 0, turnId, kickKey),
+                claimKey, "sha256:after"))
+                .isTrue();
+        ReviewRound updated = roundStore.findById(roundId).orElseThrow();
+        assertThat(updated.status()).isEqualTo(ReviewRound.STATUS_TRIAGING);
+        assertThat(updated.codeFingerprint()).isEqualTo("sha256:after");
+        assertThat(updated.iteration()).isEqualTo(2);
+    }
+
+    @Test
+    void conclusionIsFencedByTheExactTerminalTurnAndKick()
+    {
+        String taskId = seedTask();
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+        String roundId = UUID.randomUUID().toString();
+        String runId = UUID.randomUUID().toString();
+        roundStore.insert(new ReviewRound(
+                roundId, taskId, 1, List.of(), ReviewRound.STATUS_TRIAGING,
+                ReviewRound.ReviewRoundStats.empty(), runId, NOW, null, null,
+                ReviewRound.ORIGIN_BRAIN, ReviewRound.VERDICT_APPROVED,
+                2, 5, null, "sha256:reviewed", 0, 3, 1, null, null));
+        String turnId = UUID.randomUUID().toString();
+        String kickKey = roundId + ":triaging:brain-review:2:1:3";
+        turnStore.insertTurn(new ThreadTurn(
+                turnId, task.threadId(), taskId, ThreadResourceLane.CLI,
+                ThreadTurnStatus.COMPLETED, "review", NOW, NOW, NOW, NOW,
+                null, TurnInitiator.unattended("brain-review"), "stage-1",
+                ThreadScope.STAGE, runId), true, kickKey);
+        ReviewRound.ReviewRoundStats stats = new ReviewRound.ReviewRoundStats(1, 2, 0, 0);
+
+        assertThat(roundStore.concludeIf(
+                roundId, ReviewRound.STATUS_TRIAGING, ReviewRound.STATUS_CLOSED,
+                new ReviewRoundStore.AttemptFence(2, 1, 3, turnId, "stale-kick"),
+                stats, ReviewRound.VERDICT_APPROVED, null, NOW))
+                .isFalse();
+        assertThat(roundStore.concludeIf(
+                roundId, ReviewRound.STATUS_TRIAGING, ReviewRound.STATUS_CLOSED,
+                new ReviewRoundStore.AttemptFence(2, 1, 3, turnId, kickKey),
+                stats, ReviewRound.VERDICT_APPROVED, null, NOW))
+                .isTrue();
+        ReviewRound updated = roundStore.findById(roundId).orElseThrow();
+        assertThat(updated.status()).isEqualTo(ReviewRound.STATUS_CLOSED);
+        assertThat(updated.closedAt()).isEqualTo(NOW);
+        assertThat(updated.stats()).isEqualTo(stats);
     }
 
     @Test
@@ -252,7 +400,7 @@ class TestLifecycleTargetedUpdates
 
     private ReviewRound seedRound(String taskId)
     {
-        return roundStore.save(new ReviewRound(
+        return roundStore.insert(new ReviewRound(
                 UUID.randomUUID().toString(), taskId, 1, List.of(),
                 ReviewRound.STATUS_TRIAGING, ReviewRound.ReviewRoundStats.empty(),
                 null, NOW, null, null,

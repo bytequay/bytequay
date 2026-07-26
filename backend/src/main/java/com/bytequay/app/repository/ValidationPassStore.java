@@ -42,6 +42,30 @@ public interface ValidationPassStore
         throw new UnsupportedOperationException("findByClaimKey");
     }
 
+    /** Newest accepted green claim for a task/context. Used only to bind a
+     *  round opening to the validation evidence that admitted its phase. */
+    default Optional<ValidationClaim> findLatestGreenByTaskAndContext(
+            String taskId, String context)
+    {
+        return Optional.empty();
+    }
+
+    /** Bind the validation evidence that opened a Brain round. The claim is
+     * immutable after first binding, so retries can prove exact source
+     * identity instead of treating an equal code fingerprint as the same
+     * handoff. */
+    default boolean bindRoundIfUnbound(String claimKey, String roundId)
+    {
+        throw new UnsupportedOperationException("bindRoundIfUnbound");
+    }
+
+    /** Latest validation evidence for one round-owned context. */
+    default Optional<ValidationClaim> findLatestByRoundAndContext(
+            String roundId, String context)
+    {
+        return Optional.empty();
+    }
+
     /** CAS ownership: succeeds only while the claim is live (not ended /
      *  cancelled / superseded) and unowned or lease-expired. */
     default boolean acquireOwner(

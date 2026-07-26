@@ -24,13 +24,13 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.runs.AgentRunService;
+import com.bytequay.app.service.stage.StageStateMachine;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import org.junit.jupiter.api.Test;
@@ -69,7 +69,7 @@ class TestWorkspaceCherryPickService
     private final TaskStore tasks = mock(TaskStore.class);
     private final ThreadStore trunks = mock(ThreadStore.class);
     private final ThreadService threadService = mock(ThreadService.class);
-    private final StageStore stages = mock(StageStore.class);
+    private final StageStateMachine stages = mock(StageStateMachine.class);
     private final ThreadTurnScheduler scheduler =
             mock(ThreadTurnScheduler.class);
     private final AgentRunService runs = mock(AgentRunService.class);
@@ -194,8 +194,9 @@ class TestWorkspaceCherryPickService
                 Instant.parse("2026-07-17T00:00:00Z"),
                 null,
                 null);
-        when(stages.openStage(
-                "task-conflict", StageType.CI_FIXING_STAGE, null))
+        when(stages.ensureRunOpen(
+                "task-conflict", AgentRun.KIND_CI_FIX,
+                StageType.CI_FIXING_STAGE, null))
                 .thenReturn(stage);
         AgentRun run = run(trunk.id(), stage.id().toString());
         when(runs.openSchedulerSession(

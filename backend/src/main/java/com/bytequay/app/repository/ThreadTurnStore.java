@@ -32,12 +32,44 @@ public interface ThreadTurnStore
     void saveTurn(ThreadTurn turn);
 
     /** Insert a freshly enqueued turn with its explicit liveness flag
-     *  and optional idempotency kick key. Same-key inserts are
-     *  serialized by the task command stripe; the unique index is the
-     *  backstop. */
-    default void insertTurn(ThreadTurn turn, boolean affectsTaskLiveness, String kickKey)
+     *  and optional idempotency kick key. A duplicate kick returns the
+     *  already-durable turn id, so callers never publish or point at the
+     *  losing candidate. */
+    default InsertResult insertTurn(ThreadTurn turn, boolean affectsTaskLiveness, String kickKey)
     {
+        if (kickKey != null) {
+            Optional<String> existing = findTurnIdByKickKey(kickKey);
+            if (existing.isPresent()) {
+                return new InsertResult(existing.orElseThrow(), false);
+            }
+        }
         saveTurn(turn);
+        return new InsertResult(turn.id(), true);
+    }
+
+    /** Guarded lifecycle write. Implementations must update only the
+     *  lifecycle columns and only while the persisted status still equals
+     *  {@code expected}. */
+    default boolean updateStatusIf(
+            String turnId,
+            ThreadTurnStatus expected,
+            ThreadTurnStatus to,
+            Instant updatedAt,
+            Instant startedAt,
+            Instant finishedAt,
+            String errorMessage)
+    {
+        Optional<ThreadTurn> found = findTurnById(turnId);
+        if (found.isEmpty() || found.orElseThrow().status() != expected) {
+            return false;
+        }
+        ThreadTurn turn = found.orElseThrow();
+        saveTurn(new ThreadTurn(
+                turn.id(), turn.threadId(), turn.taskId(), turn.lane(), to,
+                turn.input(), turn.createdAt(), updatedAt, startedAt, finishedAt,
+                errorMessage, turn.initiator(), turn.stageId(), turn.scope(),
+                turn.agentRunId()));
+        return true;
     }
 
     /** The turn already holding {@code kickKey}, if any — the
@@ -96,4 +128,6 @@ public interface ThreadTurnStore
     {
         return List.of();
     }
+
+    record InsertResult(String turnId, boolean inserted) {}
 }

@@ -402,7 +402,7 @@ class TestPRSyncService
 
         service.syncFromTask("task1");
 
-        verify(prPublish).onPushedElsewhere(
+        verify(prPublish).reconcilePushedElsewhere(
                 new PrPushedEvent("task1", "acme/widget", 32, "https://github.com/acme/widget/pull/32"));
     }
 
@@ -419,7 +419,7 @@ class TestPRSyncService
 
         service.syncFromTask("task1");
 
-        verify(prPublish, never()).onPushedElsewhere(any());
+        verify(prPublish, never()).reconcilePushedElsewhere(any());
     }
 
     @Test

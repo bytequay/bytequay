@@ -149,5 +149,16 @@ interface TaskJpaRepository
             + "WHERE t.id = :taskId AND t.currentLivenessTurnId IS NULL")
     int setLivenessPointerIfUnset(@Param("taskId") String taskId, @Param("next") String next);
 
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE TaskEntity t SET t.recoveryRequestId = null, "
+            + "t.recoveryRequestedKind = null, t.recoveryRequestPayloadJson = null, "
+            + "t.recoveryRequestedAtMs = null, t.recoveryContextJson = :context "
+            + "WHERE t.id = :taskId AND t.recoveryRequestId = :requestId "
+            + "AND t.phase = 'NEEDS_ATTENTION' AND t.status = 'NEEDS_ATTENTION'")
+    int clearRecoveryRequest(
+            @Param("taskId") String taskId,
+            @Param("requestId") String requestId,
+            @Param("context") String context);
+
     List<TaskEntity> findByStatusInOrderByCreatedAtMsAsc(List<String> statuses, Pageable pageable);
 }

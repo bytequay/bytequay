@@ -47,11 +47,11 @@ class TestStageLifecyclePlanningReconcile
     private static final Instant NOW = Instant.parse("2026-07-25T09:00:00Z");
 
     private final StageStore stageStore = mock(StageStore.class);
+    private final StageStateMachine stageMachine = mock(StageStateMachine.class);
     private final TaskStore taskStore = mock(TaskStore.class);
-    private final StageBudgetService budgetService = mock(StageBudgetService.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final StageLifecycle lifecycle =
-            new StageLifecycle(stageStore, taskStore, budgetService, events);
+            new StageLifecycle(stageStore, stageMachine, taskStore, events);
 
     @Test
     void stagelessLivePlanningTaskGetsOnePlanStageAndOneKick()
@@ -59,12 +59,12 @@ class TestStageLifecyclePlanningReconcile
         Task task = planningTask("task-1", TaskStatus.IDLE);
         when(taskStore.listByPhases(anyList(), anyInt())).thenReturn(List.of(task));
         when(stageStore.findStagesByTask("task-1")).thenReturn(List.of());
-        when(stageStore.openStage("task-1", StageType.PLAN_STAGE, null))
+        when(stageMachine.ensurePhaseOpen("task-1", StageType.PLAN_STAGE, null))
                 .thenReturn(stage("task-1"));
 
         lifecycle.reconcilePlanningTasksOnStartup();
 
-        verify(stageStore).openStage("task-1", StageType.PLAN_STAGE, null);
+        verify(stageMachine).ensurePhaseOpen("task-1", StageType.PLAN_STAGE, null);
         verify(events).publishEvent(new PlanKickoffRequested("task-1", "do the thing", null));
     }
 
@@ -77,7 +77,7 @@ class TestStageLifecyclePlanningReconcile
 
         lifecycle.reconcilePlanningTasksOnStartup();
 
-        verify(stageStore, never()).openStage(any(), any(), any());
+        verify(stageMachine, never()).ensurePhaseOpen(any(), any(), any());
         verify(events, never()).publishEvent(any(PlanKickoffRequested.class));
     }
 
@@ -89,7 +89,7 @@ class TestStageLifecyclePlanningReconcile
 
         lifecycle.reconcilePlanningTasksOnStartup();
 
-        verify(stageStore, never()).openStage(any(), any(), any());
+        verify(stageMachine, never()).ensurePhaseOpen(any(), any(), any());
         verify(events, never()).publishEvent(any(PlanKickoffRequested.class));
     }
 

@@ -38,6 +38,17 @@ interface LocalReviewSubmissionJpaRepository
     int bindRun(@Param("id") String id, @Param("runId") String runId, @Param("atMs") long atMs);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("UPDATE LocalReviewSubmissionEntity s SET s.agentRunId = :runId, "
+            + "s.activatedAtMs = COALESCE(s.activatedAtMs, :atMs) "
+            + "WHERE s.taskId = :taskId AND s.submissionSeq <= :throughSequence "
+            + "AND s.canceledAtMs IS NULL AND s.agentRunId IS NULL")
+    int bindRunThrough(
+            @Param("taskId") String taskId,
+            @Param("throughSequence") long throughSequence,
+            @Param("runId") String runId,
+            @Param("atMs") long atMs);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE LocalReviewSubmissionEntity s SET s.completedAtMs = :atMs "
             + "WHERE s.id = :id AND s.completedAtMs IS NULL AND s.canceledAtMs IS NULL")
     int markCompleted(@Param("id") String id, @Param("atMs") long atMs);

@@ -15,7 +15,6 @@ package com.bytequay.app.service.stage;
 
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
-import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -23,6 +22,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.TaskCreatedEvent;
 import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
 import org.slf4j.Logger;
@@ -31,7 +31,8 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.util.List;
 import java.util.Optional;
@@ -54,7 +55,7 @@ import static java.util.Objects.requireNonNull;
  * transition before its creation event is seen, the first transition opens
  * the stage just the same. Because the listener runs inside the
  * transition's transaction, it must never throw on an ordinary phase — an
- * unmapped or cross-cutting phase ({@code QUEUED}, {@code NEEDS_ATTENTION},
+ * unmapped or cross-cutting phase ({@code NEEDS_ATTENTION},
  * the post-push idle waits) is a deliberate no-op that leaves the current
  * stage in place. The one intentional throw is the plan guard: opening the
  * DevelopmentStage without an approved plan is illegal, not a no-op.
@@ -65,27 +66,26 @@ public class StageLifecycle
     private static final Logger log = LoggerFactory.getLogger(StageLifecycle.class);
 
     private final StageStore stageStore;
+    private final StageStateMachine stageMachine;
     private final TaskStore taskStore;
-    private final StageBudgetService budgetService;
     private final ApplicationEventPublisher events;
 
     public StageLifecycle(
             StageStore stageStore,
+            StageStateMachine stageMachine,
             TaskStore taskStore,
-            StageBudgetService budgetService,
             ApplicationEventPublisher events)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
+        this.stageMachine = requireNonNull(stageMachine, "stageMachine is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.budgetService = requireNonNull(budgetService, "budgetService is null");
         this.events = requireNonNull(events, "events is null");
     }
 
-    @EventListener
-    @Transactional
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onTaskCreated(TaskCreatedEvent event)
     {
-        ensurePlanStageOpen(event.taskId());
+        TaskCommandExecutor.dispatchAfterCommit(() -> ensurePlanStageOpen(event.taskId()));
     }
 
     /**
@@ -96,7 +96,6 @@ public class StageLifecycle
      * and stopped tasks are never re-armed.
      */
     @EventListener(ApplicationReadyEvent.class)
-    @Transactional
     public void reconcilePlanningTasksOnStartup()
     {
         for (Task task : taskStore.listByPhases(List.of(TaskPhase.PLANNING), 1_000)) {
@@ -117,10 +116,9 @@ public class StageLifecycle
     }
 
     @EventListener
-    @Transactional
     public void onPhaseTransition(TaskPhaseTransitionedEvent event)
     {
-        reconcile(event.taskId(), event.to());
+        reconcile(event.taskId(), event.to(), event.reason());
     }
 
     /**
@@ -134,7 +132,7 @@ public class StageLifecycle
         if (!stageStore.findStagesByTask(taskId).isEmpty()) {
             return;
         }
-        StageInstance opened = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        StageInstance opened = stageMachine.ensurePhaseOpen(taskId, StageType.PLAN_STAGE, null);
         log.debug("opened {} stage {} at creation of task {}",
                 StageType.PLAN_STAGE, opened.id(), taskId);
     }
@@ -146,9 +144,14 @@ public class StageLifecycle
      */
     void reconcile(String taskId, TaskPhase toPhase)
     {
+        reconcile(taskId, toPhase, null);
+    }
+
+    private void reconcile(String taskId, TaskPhase toPhase, String reason)
+    {
         Optional<StageType> target = StageType.forPhase(toPhase);
         if (target.isEmpty()) {
-            // Cross-cutting (QUEUED / NEEDS_ATTENTION) or an unmapped idle
+            // Cross-cutting (NEEDS_ATTENTION) or an unmapped idle
             // wait — attach to the current stage, don't churn the timeline.
             return;
         }
@@ -161,12 +164,8 @@ public class StageLifecycle
             if (activeType == target.get() || activeType.allowedPhases().contains(toPhase)) {
                 return;
             }
-            stageStore.closeStage(active.get().id(), "phase_transition_to_" + toPhase.name());
-            // Let the runtime reap the closed stage's per-stage CLI agent
-            // (its subprocess + worktree lease) — the next stage spawns a
-            // fresh one. Fires only for a real stage transition; the
-            // synthetic CleanupStage below never had an agent.
-            events.publishEvent(new StageClosedEvent(taskId, active.get().id().toString()));
+            stageMachine.closeInCommand(
+                    taskId, active.get().id(), "phase_transition_to_" + toPhase.name());
         }
         // The DevelopmentStage is gated on an approved plan: it may only open
         // once the user has approved the PlanStage (a PLAN_APPROVED event).
@@ -183,22 +182,19 @@ public class StageLifecycle
         // that already closed its DevelopmentStage) — wake it back up rather
         // than opening a second one, reusing whatever agent session is
         // cached under its id.
-        StageInstance opened = stageStore.findStageByType(taskId, target.get())
-                .map(found -> found.state() == StageState.CLOSED
-                        ? stageStore.reopenStage(found.id())
-                        : found)
-                .orElseGet(() -> stageStore.openStage(taskId, target.get(), null));
+        StageInstance opened = target.get() == StageType.PLAN_STAGE
+                && reason != null && reason.startsWith("replan")
+                ? stageMachine.openFreshPhaseInCommand(taskId, target.get(), null)
+                : stageMachine.ensurePhaseOpenInCommand(taskId, target.get(), null);
         // The CleanupStage is a terminal marker, not live work — the worktree
         // reap happens in the completion path, not in an agent turn. Open and
         // immediately close it so a finished task shows "done", never a stage
         // stuck "running".
         if (target.get() == StageType.CLEANUP_STAGE) {
-            stageStore.closeStage(opened.id(), "task_completed");
+            stageMachine.closeInCommand(taskId, opened.id(), "task_completed");
             log.debug("opened + closed CleanupStage {} for completed task {}", opened.id(), taskId);
             return;
         }
-        // Seed a monitor stage's budget / review config at open time.
-        budgetService.onStageOpened(opened);
         log.debug("opened {} stage {} for task {} on phase {}",
                 target.get(), opened.id(), taskId, toPhase);
     }

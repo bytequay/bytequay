@@ -25,6 +25,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.service.checks.ValidationExecutorRegistry;
+import com.bytequay.app.service.stage.PlanStageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -53,6 +54,7 @@ class TestTaskRuntimeStopReconciler
     private final ValidationPassStore validationStore = mock(ValidationPassStore.class);
     private final ValidationExecutorRegistry executorRegistry = mock(ValidationExecutorRegistry.class);
     private final TaskService taskService = mock(TaskService.class);
+    private final PlanStageService planStages = mock(PlanStageService.class);
     private final ObjectProvider<TaskService> provider = new ObjectProvider<>()
     {
         @Override
@@ -63,7 +65,7 @@ class TestTaskRuntimeStopReconciler
     };
     private final TaskRuntimeStopReconciler reconciler = new TaskRuntimeStopReconciler(
             taskStore, stageStore, turnStore, registry, scheduler,
-            validationStore, executorRegistry, provider);
+            validationStore, executorRegistry, provider, provider(planStages));
 
     @Test
     void teardownCancelsTurnsEvictsAgentsAndRequestsValidationCancel()
@@ -160,6 +162,21 @@ class TestTaskRuntimeStopReconciler
     }
 
     @Test
+    void sweepCompletesGuidedReplanThroughItsNamedOwner()
+    {
+        Task parked = task("t1", TaskStatus.NEEDS_ATTENTION);
+        when(taskStore.listByStatuses(any(), eq(200))).thenReturn(List.of(parked));
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(parked));
+        when(taskStore.recoveryRequest("t1")).thenReturn(Optional.of(new TaskRecoveryRequest(
+                "req-1", TaskRecoveryRequest.KIND_REPLAN, null, NOW)));
+
+        reconciler.sweep();
+
+        verify(planStages).completeRequestedReplan("t1");
+        verify(taskService, never()).completeRequestedRecovery("t1");
+    }
+
+    @Test
     void parkAndTerminalTransitionsTriggerTeardown()
     {
         when(taskStore.findTaskById("t1")).thenReturn(
@@ -206,5 +223,17 @@ class TestTaskRuntimeStopReconciler
                 1L, key, "t1", "dev_round", "round-1", "fp-1",
                 null, null, NOW, null, null, null,
                 cancelRequestedAt, null, "owner-1", leaseUntil);
+    }
+
+    private static <T> ObjectProvider<T> provider(T value)
+    {
+        return new ObjectProvider<>()
+        {
+            @Override
+            public T getObject()
+            {
+                return value;
+            }
+        };
     }
 }

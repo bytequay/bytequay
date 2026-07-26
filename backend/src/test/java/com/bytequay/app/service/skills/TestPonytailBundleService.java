@@ -45,6 +45,11 @@ class TestPonytailBundleService
         assertThat(bundle.select(List.of(CavemanPrompt.NAME)))
                 .singleElement()
                 .satisfies(skill -> assertThat(skill.body()).contains("Respond terse like smart caveman"));
+        assertThat(bundle.select(List.of("i-have-adhd")))
+                .singleElement()
+                .satisfies(skill -> assertThat(skill.body())
+                        .contains("The reader has ADHD")
+                        .contains("Lead with the next action"));
         assertThat(bundle.select(List.of("trunk-planner")))
                 .singleElement()
                 .satisfies(skill -> assertThat(skill.body())
@@ -102,6 +107,9 @@ class TestPonytailBundleService
         assertThat(after.select(List.of(CavemanPrompt.NAME)))
                 .singleElement()
                 .satisfies(skill -> assertThat(skill.body()).contains("Respond terse like smart caveman"));
+        assertThat(after.select(List.of("i-have-adhd")))
+                .singleElement()
+                .satisfies(skill -> assertThat(skill.body()).contains("The reader has ADHD"));
         assertThat(after.select(List.of("trunk-planner")))
                 .singleElement()
                 .satisfies(skill -> assertThat(skill.body()).contains("Trunk Planner"));

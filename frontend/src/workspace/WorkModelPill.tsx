@@ -14,7 +14,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ResolvedWorkModelDto, WorkModelDto, WorkModelOptionsDto } from '../types';
-import { ComposerModelPicker } from './ComposerModelPicker';
 
 /** Fixed popover width — used both for the box and for clamping it
  *  inside the viewport when the pill sits near the right edge (the
@@ -54,9 +53,9 @@ type Props = {
  * <p>Reads {@code ResolvedWorkModelDto} from the matching bridge
  * method (thread or task) and renders both the effective label and a
  * subtle inheritance hint (e.g. "Inherited from workspace ByteQuay").
- * Opening the popover surfaces the existing {@link WorkModelPicker};
- * picking a model commits it through the matching {@code set*}
- * method and closes the popover.
+ * The engine itself belongs to the workspace, so the popover shows it
+ * read-only and offers only the reasoning-effort levels the model
+ * supports; picking one commits through the matching {@code set*} method.
  *
  * <p>Esc + outside-click dismiss; focus returns to the pill. The
  * picker writes go through the same bridge as the workspace settings
@@ -247,27 +246,6 @@ export function WorkModelPill({
           </svg>
         ) : <span style={pillChevStyle} aria-hidden>⌄</span>}
       </button>
-      {resolved !== null && efforts.length > 0 && (
-        <select
-          aria-label="Reasoning effort"
-          value={selectedEffort}
-          onChange={(event) => {
-            void commit({
-              ...resolved.effective,
-              reasoningEffort: event.target.value,
-            });
-          }}
-          style={effortSelectStyle(workspaceVariant)}
-          title={efforts.find(e => e.id === selectedEffort)?.description
-            ?? `Reasoning effort: ${selectedEffort}`}
-        >
-          {efforts.map(effort => (
-            <option key={effort.id} value={effort.id} title={effort.description ?? undefined}>
-              {displayEffort(effort.id)}
-            </option>
-          ))}
-        </select>
-      )}
       {open && pos !== null && createPortal(
         <div
           ref={popoverRef}
@@ -278,13 +256,33 @@ export function WorkModelPill({
           {options === null || resolved === null
             ? <div style={loadingStyle}>Loading models…</div>
             : (
-              <ComposerModelPicker
-                options={options}
-                override={resolved.override}
-                effective={resolved.effective}
-                agentLocked={resolved.agentLocked || agentLockPending}
-                onChange={(next) => { void commit(next); }}
-              />
+              <>
+                <div style={engineRowStyle}>
+                  <span style={engineNameStyle}>{label}</span>
+                  <span style={engineNoteStyle}>
+                    Engine is set for the whole workspace — change it in
+                    Workspace settings → Agents.
+                  </span>
+                </div>
+                {efforts.length === 0
+                  ? <div style={loadingStyle}>This model has one reasoning level.</div>
+                  : efforts.map(effort => (
+                    <button
+                      key={effort.id}
+                      type="button"
+                      style={effortRowStyle(effort.id === selectedEffort)}
+                      title={effort.description ?? undefined}
+                      onClick={() => {
+                        void commit({ ...resolved.effective, reasoningEffort: effort.id });
+                      }}
+                    >
+                      <span aria-hidden style={inheritanceGlyphStyle}>
+                        {effort.id === selectedEffort ? '●' : '○'}
+                      </span>
+                      {displayEffort(effort.id)}
+                    </button>
+                  ))}
+              </>
             )}
           {hint !== null && (
             <div style={inheritanceHintStyle}>
@@ -345,11 +343,9 @@ function formatHint(resolved: ResolvedWorkModelDto | null): string | null {
   if (resolved === null) return null;
   switch (resolved.provenance.source) {
     case 'STAGE':
-      return 'Override pinned on this stage';
     case 'TASK':
-      return 'Override pinned on this task';
     case 'THREAD':
-      return 'Override pinned on this thread';
+      return 'Engine set for this workspace';
     case 'WORKSPACE':
       return `Inherited from ${resolved.provenance.scopeLabel}`;
     case 'GLOBAL_DEFAULT':
@@ -368,17 +364,39 @@ const wrapperStyle: React.CSSProperties = {
   gap: 2,
 };
 
-function effortSelectStyle(workspaceVariant: boolean): React.CSSProperties {
+const engineRowStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 3,
+  padding: '8px 10px 10px',
+  borderBottom: '1px solid rgba(0,0,0,0.08)',
+};
+
+const engineNameStyle: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 600,
+};
+
+const engineNoteStyle: React.CSSProperties = {
+  fontSize: 11,
+  opacity: 0.7,
+  lineHeight: 1.4,
+};
+
+function effortRowStyle(active: boolean): React.CSSProperties {
   return {
-    height: 26,
-    padding: workspaceVariant ? '4px 7px' : '4px 6px',
-    border: '1px solid transparent',
-    background: 'transparent',
-    color: workspaceVariant ? '#454c54' : 'var(--text-2, #4b5563)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    padding: '7px 10px',
+    border: 'none',
+    background: active ? 'rgba(0,0,0,0.06)' : 'transparent',
     borderRadius: 7,
     cursor: 'pointer',
-    fontFamily: 'inherit',
-    fontSize: workspaceVariant ? 12.5 : 12,
+    font: 'inherit',
+    fontSize: 12.5,
+    textAlign: 'left',
   };
 }
 

@@ -38,9 +38,16 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+/**
+ * The engine (CLI agent / API provider) is the workspace's call; a thread,
+ * task, or stage can only dial reasoning effort. These tests pin both
+ * halves and the audience each scope resolves under.
+ */
 class TestWorkModelResolver
 {
     private static final Instant NOW = Instant.parse("2026-06-08T12:00:00Z");
@@ -48,73 +55,129 @@ class TestWorkModelResolver
     private static final String THREAD_ID = "t-1";
     private static final String TASK_ID = "task-1";
     private static final UUID STAGE_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final WorkModel CODEX = new WorkModel(WorkModelKind.CLI, "codex", null, null);
 
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final TaskStore taskStore = mock(TaskStore.class);
     private final WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
     private final StageStore stageStore = mock(StageStore.class);
+    private final WorkspaceEngineSettings engineSettings = mock(WorkspaceEngineSettings.class);
+    private final ThreadEngineOverrides threadEngines = mock(ThreadEngineOverrides.class);
 
-    private final WorkModelResolver resolver =
-            new WorkModelResolverImpl(threadStore, taskStore, workspaceStore, stageStore);
-
-    @Test
-    void resolveForTaskPicksTheTaskOverrideWhenSet()
-    {
-        WorkModel taskPick = new WorkModel(WorkModelKind.API, "anthropic", "claude-opus-4-7", null);
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(taskPick)));
-        // The thread + workspace lookups should be skipped — task wins.
-
-        WorkModelResolver.Resolved got = resolver.resolveForTask(THREAD_ID, TASK_ID);
-
-        assertThat(got.choice()).isEqualTo(taskPick);
-        assertThat(got.provenance().source()).isEqualTo(WorkModelResolver.Source.TASK);
-        assertThat(got.provenance().scopeId()).isEqualTo(TASK_ID);
-    }
+    private final WorkModelResolver resolver = new WorkModelResolverImpl(
+            threadStore, taskStore, workspaceStore, stageStore, engineSettings, threadEngines);
 
     @Test
-    void resolveForTaskFallsThroughToThreadWhenTaskOverrideIsNull()
+    void theEngineComesFromTheWorkspaceRowForTheSessionsAudience()
     {
-        WorkModel threadPick = new WorkModel(WorkModelKind.CLI, "codex", null, null);
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(null)));
-        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread(threadPick)));
-
-        WorkModelResolver.Resolved got = resolver.resolveForTask(THREAD_ID, TASK_ID);
-
-        assertThat(got.choice()).isEqualTo(threadPick);
-        assertThat(got.provenance().source()).isEqualTo(WorkModelResolver.Source.THREAD);
-        assertThat(got.provenance().scopeId()).isEqualTo(THREAD_ID);
-    }
-
-    @Test
-    void resolveForTaskFallsThroughToWorkspaceWhenThreadAndTaskAreEmpty()
-    {
-        WorkModel workspacePick = new WorkModel(WorkModelKind.API, "openai", "gpt-5", "team");
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(null)));
         when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread(null)));
-        when(workspaceStore.findWorkspaceById(WS_ID)).thenReturn(Optional.of(workspace(workspacePick)));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(null)));
+        when(workspaceStore.findWorkspaceById(WS_ID)).thenReturn(Optional.of(workspace(null)));
+        // A task turn is development work, so the "dev" row applies.
+        when(engineSettings.forAudience(WS_ID, "dev"))
+                .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(CODEX, true)));
 
         WorkModelResolver.Resolved got = resolver.resolveForTask(THREAD_ID, TASK_ID);
 
-        assertThat(got.choice()).isEqualTo(workspacePick);
+        assertThat(got.choice()).isEqualTo(CODEX);
         assertThat(got.provenance().source()).isEqualTo(WorkModelResolver.Source.WORKSPACE);
         assertThat(got.provenance().scopeId()).isEqualTo(WS_ID);
-        assertThat(got.provenance().scopeLabel()).contains("ByteQuay");
+        assertThat(got.provenance().scopeLabel()).isEqualTo("workspace ByteQuay · dev");
     }
 
     @Test
-    void resolveForTaskFallsThroughToGlobalDefaultWhenEveryScopeIsEmpty()
+    void aTrunkTurnResolvesUnderThePlanningRow()
     {
+        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread(null)));
+        when(workspaceStore.findWorkspaceById(WS_ID)).thenReturn(Optional.of(workspace(null)));
+        when(engineSettings.forAudience(WS_ID, "plan"))
+                .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(CODEX, true)));
+
+        assertThat(resolver.resolveForThread(THREAD_ID).choice()).isEqualTo(CODEX);
+    }
+
+    @Test
+    void aCiFixingStageResolvesUnderTheCiFixRow()
+    {
+        when(stageStore.findStageById(STAGE_ID))
+                .thenReturn(Optional.of(stage(StageType.CI_FIXING_STAGE, null)));
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(null)));
         when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread(null)));
         when(workspaceStore.findWorkspaceById(WS_ID)).thenReturn(Optional.of(workspace(null)));
+        when(engineSettings.forAudience(WS_ID, "ci-fix"))
+                .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(CODEX, true)));
 
-        WorkModelResolver.Resolved got = resolver.resolveForTask(THREAD_ID, TASK_ID);
+        assertThat(resolver.resolveForStage(THREAD_ID, TASK_ID, STAGE_ID.toString()).choice())
+                .isEqualTo(CODEX);
+    }
+
+    @Test
+    void aTrunksOwnPinBeatsTheWorkspaceRowForThatAudienceOnly()
+    {
+        WorkModel pinned = new WorkModel(WorkModelKind.API, "deepseek", null, "work");
+        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread(effort("high"))));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(null)));
+        when(workspaceStore.findWorkspaceById(WS_ID)).thenReturn(Optional.of(workspace(null)));
+        when(engineSettings.forAudience(eq(WS_ID), any()))
+                .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(CODEX, true)));
+        when(threadEngines.forAudience(THREAD_ID, "review")).thenReturn(Optional.of(pinned));
+
+        // Only the review row was pinned, so a dev turn still runs the
+        // workspace's agent...
+        assertThat(resolver.resolveForTask(THREAD_ID, TASK_ID).choice().agentOrProvider())
+                .isEqualTo("codex");
+
+        // ...while a review-round stage under the same trunk takes the pin,
+        // still wearing the nearest scope's effort.
+        when(stageStore.findStageById(STAGE_ID))
+                .thenReturn(Optional.of(stage(StageType.REVIEW_ROUND_STAGE, null)));
+        WorkModelResolver.Resolved got =
+                resolver.resolveForStage(THREAD_ID, TASK_ID, STAGE_ID.toString());
+
+        assertThat(got.choice().agentOrProvider()).isEqualTo("deepseek");
+        assertThat(got.choice().reasoningEffort()).isEqualTo("high");
+        assertThat(got.provenance().source()).isEqualTo(WorkModelResolver.Source.THREAD);
+        assertThat(got.provenance().scopeLabel()).isEqualTo("this trunk · review");
+    }
+
+    @Test
+    void aRoleRowInheritingTheWorkspaceDefaultIsNotLabelledWithTheRole()
+    {
+        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread(null)));
+        when(workspaceStore.findWorkspaceById(WS_ID)).thenReturn(Optional.of(workspace(null)));
+        when(engineSettings.forAudience(eq(WS_ID), any()))
+                .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(CODEX, false)));
+
+        assertThat(resolver.resolveForThread(THREAD_ID).provenance().scopeLabel())
+                .isEqualTo("workspace ByteQuay");
+    }
+
+    @Test
+    void theWorkspaceOverrideColumnStillAppliesWhenSettingsCarryNoEngine()
+    {
+        WorkModel column = new WorkModel(WorkModelKind.API, "openai", "gpt-5", "team");
+        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread(null)));
+        when(workspaceStore.findWorkspaceById(WS_ID)).thenReturn(Optional.of(workspace(column)));
+        when(engineSettings.forAudience(eq(WS_ID), any())).thenReturn(Optional.empty());
+
+        WorkModelResolver.Resolved got = resolver.resolveForThread(THREAD_ID);
+
+        assertThat(got.choice()).isEqualTo(column);
+        assertThat(got.provenance().source()).isEqualTo(WorkModelResolver.Source.WORKSPACE);
+    }
+
+    @Test
+    void theCuratedDefaultAppliesWhenTheWorkspaceConfiguredNothing()
+    {
+        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread(null)));
+        when(workspaceStore.findWorkspaceById(WS_ID)).thenReturn(Optional.of(workspace(null)));
+        when(engineSettings.forAudience(eq(WS_ID), any())).thenReturn(Optional.empty());
+
+        WorkModelResolver.Resolved got = resolver.resolveForThread(THREAD_ID);
 
         assertThat(got.provenance().source()).isEqualTo(WorkModelResolver.Source.GLOBAL_DEFAULT);
-        // The catalog's first CLI agent is the v1 fallback. The exact
-        // agent id is asserted via the catalog so reordering the
-        // catalog flips the test rather than burying a hard-coded
-        // "claude-code" here.
+        // Asserted via the catalog so reordering it flips the test rather
+        // than burying a hard-coded "claude-code" here.
         WorkModelCatalog.CatalogAgent expected = WorkModelCatalog.CLI_AGENTS.get(0);
         assertThat(got.choice().kind()).isEqualTo(WorkModelKind.CLI);
         assertThat(got.choice().agentOrProvider()).isEqualTo(expected.id());
@@ -124,37 +187,71 @@ class TestWorkModelResolver
     }
 
     @Test
-    void resolveForThreadSkipsTheTaskScope()
+    void aScopeOverrideChangesReasoningEffortAndNothingElse()
     {
-        // Even though a task with an override exists on this thread,
-        // resolveForThread (trunk turn) must not pick it up — only
-        // resolveForTask reads the task layer.
-        WorkModel threadPick = new WorkModel(WorkModelKind.CLI, "claude-code", null, null);
-        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread(threadPick)));
+        // An engine stored on the stage row by an older build must not move
+        // the session off the workspace's agent — only its effort survives.
+        WorkModel staleStagePick = new WorkModel(
+                WorkModelKind.API, "anthropic", "claude-opus-4-8", null, "xhigh");
+        when(stageStore.findStageById(STAGE_ID))
+                .thenReturn(Optional.of(stage(StageType.DEVELOPMENT_STAGE, staleStagePick)));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(null)));
+        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread(null)));
+        when(workspaceStore.findWorkspaceById(WS_ID)).thenReturn(Optional.of(workspace(null)));
+        when(engineSettings.forAudience(eq(WS_ID), any()))
+                .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(CODEX, true)));
 
-        WorkModelResolver.Resolved got = resolver.resolveForThread(THREAD_ID);
+        WorkModel got = resolver.resolveForStage(THREAD_ID, TASK_ID, STAGE_ID.toString()).choice();
 
-        assertThat(got.choice()).isEqualTo(threadPick);
-        assertThat(got.provenance().source()).isEqualTo(WorkModelResolver.Source.THREAD);
+        assertThat(got.kind()).isEqualTo(WorkModelKind.CLI);
+        assertThat(got.agentOrProvider()).isEqualTo("codex");
+        assertThat(got.model()).isNull();
+        assertThat(got.reasoningEffort()).isEqualTo("xhigh");
+    }
+
+    @Test
+    void theNearestScopesEffortWins()
+    {
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(effort("high"))));
+        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread(effort("low"))));
+        when(workspaceStore.findWorkspaceById(WS_ID)).thenReturn(Optional.of(workspace(null)));
+        when(engineSettings.forAudience(eq(WS_ID), any()))
+                .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(CODEX, true)));
+
+        assertThat(resolver.resolveForTask(THREAD_ID, TASK_ID).choice().reasoningEffort())
+                .isEqualTo("high");
+        assertThat(resolver.resolveForThread(THREAD_ID).choice().reasoningEffort())
+                .isEqualTo("low");
+    }
+
+    @Test
+    void theWorkspacesOwnEffortAppliesWhenNoScopeOverrides()
+    {
+        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread(null)));
+        when(workspaceStore.findWorkspaceById(WS_ID)).thenReturn(Optional.of(workspace(null)));
+        when(engineSettings.forAudience(eq(WS_ID), any()))
+                .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(
+                        new WorkModel(WorkModelKind.CLI, "codex", null, null, "medium"), true)));
+
+        assertThat(resolver.resolveForThread(THREAD_ID).choice().reasoningEffort())
+                .isEqualTo("medium");
     }
 
     @Test
     void resolveForTaskRejectsTaskThatBelongsToAnotherThread()
     {
-        Task otherThreadsTask = task(null);
+        Task template = task(null);
         Task crossThread = new Task(
-                otherThreadsTask.id(), "different-thread", otherThreadsTask.seq(),
-                otherThreadsTask.status(),
-                otherThreadsTask.branchName(), otherThreadsTask.worktreePath(),
-                otherThreadsTask.baseBranch(), otherThreadsTask.workingDir(),
-                otherThreadsTask.processPid(), otherThreadsTask.logPath(),
-                otherThreadsTask.prNumber(), otherThreadsTask.prState(), otherThreadsTask.ciState(),
-                otherThreadsTask.taskType(), otherThreadsTask.linkedPrNumber(),
-                otherThreadsTask.linkedIssueNumber(),
-                otherThreadsTask.costUsdMilli(), otherThreadsTask.tokensIn(), otherThreadsTask.tokensOut(),
-                otherThreadsTask.agentSessionId(),
-                otherThreadsTask.createdAt(), otherThreadsTask.endedAt(), otherThreadsTask.errorMessage(),
-                otherThreadsTask.name(), otherThreadsTask.roleSkill(), otherThreadsTask.workModel());
+                template.id(), "different-thread", template.seq(), template.status(),
+                template.branchName(), template.worktreePath(),
+                template.baseBranch(), template.workingDir(),
+                template.processPid(), template.logPath(),
+                template.prNumber(), template.prState(), template.ciState(),
+                template.taskType(), template.linkedPrNumber(), template.linkedIssueNumber(),
+                template.costUsdMilli(), template.tokensIn(), template.tokensOut(),
+                template.agentSessionId(),
+                template.createdAt(), template.endedAt(), template.errorMessage(),
+                template.name(), template.roleSkill(), template.workModel());
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(crossThread));
 
         assertThatThrownBy(() -> resolver.resolveForTask(THREAD_ID, TASK_ID))
@@ -170,33 +267,6 @@ class TestWorkModelResolver
         assertThatThrownBy(() -> resolver.resolveForThread(THREAD_ID))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("no thread");
-    }
-
-    @Test
-    void resolveForStagePicksTheStageOverrideWhenSet()
-    {
-        WorkModel stagePick = new WorkModel(WorkModelKind.API, "anthropic", "claude-opus-4-7", null);
-        when(stageStore.findStageById(STAGE_ID)).thenReturn(Optional.of(stage(stagePick)));
-        // The task + thread + workspace lookups should be skipped — stage wins.
-
-        WorkModelResolver.Resolved got = resolver.resolveForStage(THREAD_ID, TASK_ID, STAGE_ID.toString());
-
-        assertThat(got.choice()).isEqualTo(stagePick);
-        assertThat(got.provenance().source()).isEqualTo(WorkModelResolver.Source.STAGE);
-        assertThat(got.provenance().scopeId()).isEqualTo(STAGE_ID.toString());
-    }
-
-    @Test
-    void resolveForStageFallsThroughToTaskWhenStageOverrideIsNull()
-    {
-        WorkModel taskPick = new WorkModel(WorkModelKind.API, "anthropic", "claude-opus-4-7", null);
-        when(stageStore.findStageById(STAGE_ID)).thenReturn(Optional.of(stage(null)));
-        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(taskPick)));
-
-        WorkModelResolver.Resolved got = resolver.resolveForStage(THREAD_ID, TASK_ID, STAGE_ID.toString());
-
-        assertThat(got.choice()).isEqualTo(taskPick);
-        assertThat(got.provenance().source()).isEqualTo(WorkModelResolver.Source.TASK);
     }
 
     @Test
@@ -222,11 +292,15 @@ class TestWorkModelResolver
                 .hasMessageContaining("no stage");
     }
 
-    private static StageInstance stage(WorkModel workModel)
+    private static WorkModel effort(String reasoningEffort)
+    {
+        return new WorkModel(WorkModelKind.CLI, "claude-code", null, null, reasoningEffort);
+    }
+
+    private static StageInstance stage(StageType type, WorkModel workModel)
     {
         return new StageInstance(
-                STAGE_ID, TASK_ID, StageType.DEVELOPMENT_STAGE, StageState.OPEN,
-                NOW, null, null, workModel);
+                STAGE_ID, TASK_ID, type, StageState.OPEN, NOW, null, null, workModel);
     }
 
     private static Thread thread(WorkModel workModel)

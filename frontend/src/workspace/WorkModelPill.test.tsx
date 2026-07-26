@@ -162,25 +162,7 @@ describe('WorkModelPill', () => {
     });
   });
 
-  it('picking Auto clears the override through the thread bridge', async () => {
-    const setThreadWorkModel = vi.fn(async () => INHERITED);
-    installBridge({
-      getThreadWorkModel: vi.fn(async () => PINNED),
-      setThreadWorkModel,
-    });
-
-    render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
-    await waitForLoadedPill();
-    await act(async () => { fireEvent.click(screen.getByRole('button')); });
-
-    const auto = await waitFor(() => screen.getByRole('option', { name: /Auto/i }));
-    // The list uses mousedown (keeps the composer caret), not click.
-    await act(async () => { fireEvent.mouseDown(auto); });
-
-    expect(setThreadWorkModel).toHaveBeenCalledWith('thread-1', null);
-  });
-
-  it('picking a model row commits that model through the thread bridge', async () => {
+  it('offers no model rows — the engine is the workspace\'s call', async () => {
     const setThreadWorkModel = vi.fn(async () => INHERITED);
     installBridge({
       getThreadWorkModel: vi.fn(async () => INHERITED),
@@ -191,108 +173,78 @@ describe('WorkModelPill', () => {
     await waitForLoadedPill();
     await act(async () => { fireEvent.click(screen.getByRole('button')); });
 
-    const opus47 = await waitFor(() => screen.getByRole('option', { name: /Claude Opus 4\.7/i }));
-    await act(async () => { fireEvent.mouseDown(opus47); });
-
-    // Opus 4.7 lives under the Anthropic (API) provider and is not that
-    // provider's default, so the explicit id is committed.
-    expect(setThreadWorkModel).toHaveBeenCalledWith('thread-1', {
-      kind: 'API', agentOrProvider: 'anthropic', model: 'claude-opus-4-7', account: null,
-    });
+    const dialog = await waitFor(() => screen.getByRole('dialog'));
+    expect(dialog.textContent).toContain('Workspace settings');
+    expect(screen.queryByRole('option', { name: /Auto/i })).toBeNull();
+    expect(screen.queryByRole('option', { name: /Claude Opus 4\.7/i })).toBeNull();
+    expect(setThreadWorkModel).not.toHaveBeenCalled();
   });
 
-  it('reads the resolved model for a task and writes through the task bridge', async () => {
-    const getTaskWorkModel = vi.fn(async () => PINNED);
-    const setTaskWorkModel = vi.fn(async () => INHERITED);
+  it('reads the resolved model for a task and writes effort through the task bridge', async () => {
+    const getTaskWorkModel = vi.fn(async () => CODEX);
+    const setTaskWorkModel = vi.fn(async () => CODEX);
     installBridge({ getTaskWorkModel, setTaskWorkModel });
 
     render(<WorkModelPill scope={{ kind: 'task', threadId: 'thread-1', taskId: 'task-1' }} />);
 
     await waitFor(() => {
-      expect(screen.getByRole('button').textContent).toContain('Claude Opus 4.7');
+      expect(screen.getByRole('button').textContent).toContain('GPT-5.6 Sol');
     });
     expect(getTaskWorkModel).toHaveBeenCalledWith('thread-1', 'task-1');
 
     await act(async () => { fireEvent.click(screen.getByRole('button')); });
-    const auto = await waitFor(() => screen.getByRole('option', { name: /Auto/i }));
-    await act(async () => { fireEvent.mouseDown(auto); });
+    const max = await waitFor(() => screen.getByRole('button', { name: /Max/ }));
+    await act(async () => { fireEvent.click(max); });
 
-    expect(setTaskWorkModel).toHaveBeenCalledWith('thread-1', 'task-1', null);
-  });
-
-  it('reads the resolved model for a stage, writes through the stage bridge, and shows the mid-stage hint', async () => {
-    const getStageWorkModel = vi.fn(async () => PINNED);
-    const setStageWorkModel = vi.fn(async () => INHERITED);
-    installBridge({ getStageWorkModel, setStageWorkModel });
-
-    render(<WorkModelPill scope={{ kind: 'stage', stageId: 'stage-1' }} />);
-
-    await waitFor(() => {
-      expect(screen.getByRole('button').textContent).toContain('Claude Opus 4.7');
-    });
-    expect(getStageWorkModel).toHaveBeenCalledWith('stage-1');
-
-    await act(async () => { fireEvent.click(screen.getByRole('button')); });
-    await waitFor(() => screen.getByRole('dialog'));
-
-    // A stage's session runs for the stage's whole lifetime, so the
-    // popover must warn that a change doesn't retroactively affect it.
-    expect(screen.getByRole('dialog').textContent).toContain('applies next time this stage starts a new one');
-
-    const auto = screen.getByRole('option', { name: /Auto/i });
-    await act(async () => { fireEvent.mouseDown(auto); });
-
-    expect(setStageWorkModel).toHaveBeenCalledWith('stage-1', null);
-  });
-
-  it('shows Codex-reported effort choices and persists the selected effort', async () => {
-    const updated: ResolvedWorkModelDto = {
-      ...CODEX,
-      override: { ...CODEX.effective, reasoningEffort: 'max' },
-      effective: { ...CODEX.effective, reasoningEffort: 'max' },
-    };
-    const setThreadWorkModel = vi.fn(async () => updated);
-    installBridge({
-      getThreadWorkModel: vi.fn(async () => CODEX),
-      setThreadWorkModel,
-    });
-
-    render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
-
-    const effort = await waitFor(() => screen.getByLabelText('Reasoning effort')) as HTMLSelectElement;
-    expect(effort.value).toBe('low');
-    await act(async () => { fireEvent.change(effort, { target: { value: 'max' } }); });
-
-    expect(setThreadWorkModel).toHaveBeenCalledWith('thread-1', {
+    expect(setTaskWorkModel).toHaveBeenCalledWith('thread-1', 'task-1', {
       ...CODEX.effective,
       reasoningEffort: 'max',
     });
   });
 
-  it('locks the agent after the first message but keeps its models selectable', async () => {
-    const locked = { ...INHERITED, agentLocked: true };
-    const setThreadWorkModel = vi.fn(async () => locked);
+  it('reads the resolved model for a stage, writes through the stage bridge, and shows the mid-stage hint', async () => {
+    const getStageWorkModel = vi.fn(async () => CODEX);
+    const setStageWorkModel = vi.fn(async () => CODEX);
+    installBridge({ getStageWorkModel, setStageWorkModel });
+
+    render(<WorkModelPill scope={{ kind: 'stage', stageId: 'stage-1' }} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button').textContent).toContain('GPT-5.6 Sol');
+    });
+    expect(getStageWorkModel).toHaveBeenCalledWith('stage-1');
+
+    await act(async () => { fireEvent.click(screen.getByRole('button')); });
+    const dialog = await waitFor(() => screen.getByRole('dialog'));
+
+    // A stage's session runs for the stage's whole lifetime, so the
+    // popover must warn that a change doesn't retroactively affect it.
+    expect(dialog.textContent).toContain('applies next time this stage starts a new one');
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Max/ })); });
+
+    expect(setStageWorkModel).toHaveBeenCalledWith('stage-1', {
+      ...CODEX.effective,
+      reasoningEffort: 'max',
+    });
+  });
+
+  it('marks the effort the session currently runs at', async () => {
     installBridge({
-      getThreadWorkModel: vi.fn(async () => locked),
-      setThreadWorkModel,
+      getThreadWorkModel: vi.fn(async () => ({
+        ...CODEX,
+        effective: { ...CODEX.effective, reasoningEffort: 'max' },
+      })),
     });
 
     render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
     await waitForLoadedPill();
     await act(async () => { fireEvent.click(screen.getByRole('button')); });
 
-    await waitFor(() => {
-      expect(screen.getByRole('dialog').textContent).toContain('Agent locked after the first message');
-    });
-    expect(screen.queryByRole('option', { name: /Auto/i })).toBeNull();
-    expect(screen.queryByRole('option', { name: /GPT-5\.6 Sol/i })).toBeNull();
-    expect(screen.queryByRole('option', { name: /Claude Opus 4\.7/i })).toBeNull();
-
-    const opus48 = screen.getByRole('option', { name: /Claude Opus 4\.8/i });
-    await act(async () => { fireEvent.mouseDown(opus48); });
-    expect(setThreadWorkModel).toHaveBeenCalledWith('thread-1', {
-      kind: 'CLI', agentOrProvider: 'claude-code', model: 'claude-opus-4-8', account: null,
-    });
+    // ● marks the active row, ○ the rest.
+    const max = await waitFor(() => screen.getByRole('button', { name: /Max/ }));
+    expect(max.textContent).toContain('●');
+    expect(screen.getByRole('button', { name: /Low/ }).textContent).toContain('○');
   });
 });
 

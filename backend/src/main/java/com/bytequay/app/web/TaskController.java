@@ -21,7 +21,7 @@ import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.inspector.AssembledContext;
 import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.threads.TaskService;
-import com.bytequay.app.service.workmodel.WorkModelAgentLock;
+import com.bytequay.app.service.workmodel.ScopeWorkModel;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -283,10 +283,11 @@ public class TaskController
 
     /**
      * PUT /api/threads/{threadId}/tasks/{taskId}/work-model — set (or
-     * clear) the task's override on the work-model cascade. A null body
-     * or a body whose {@code workModel} field is null clears the
-     * override; the resolver then falls back to the thread pick. Returns
-     * the resolved outcome so the caller does not need a follow-up GET.
+     * clear) the task's reasoning-effort override. The engine is the
+     * workspace's call, so engine fields in the body are ignored; a body
+     * with no effort clears the override and the thread's (then the
+     * workspace's) effort applies. Returns the resolved outcome so the
+     * caller does not need a follow-up GET.
      */
     @PutMapping("/{taskId}/work-model")
     public ResolvedWorkModelResponse setWorkModel(
@@ -295,13 +296,12 @@ public class TaskController
             @RequestBody(required = false) WorkModelBody body)
     {
         WorkModel requested = body == null ? null : body.workModel();
-        boolean agentLocked = taskService.isWorkModelAgentLocked(threadId, taskId);
-        WorkModelAgentLock.requireSameAgent(
-                agentLocked, workModelResolver.resolveForTask(threadId, taskId).choice(), requested);
-        Task updated = taskService.setWorkModel(threadId, taskId, requested);
+        Task updated = taskService.setWorkModel(threadId, taskId, ScopeWorkModel.effortOnly(
+                workModelResolver.resolveForTask(threadId, taskId).choice(), requested));
         WorkModelResolver.Resolved resolved = workModelResolver.resolveForTask(threadId, taskId);
         return new ResolvedWorkModelResponse(
-                updated.workModel(), resolved.choice(), resolved.provenance(), agentLocked);
+                updated.workModel(), resolved.choice(), resolved.provenance(),
+                taskService.isWorkModelAgentLocked(threadId, taskId));
     }
 
     /** Body for {@link #setWorkModel} — wraps the optional

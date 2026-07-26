@@ -37,6 +37,8 @@ import com.bytequay.app.service.threads.ParkedProposalService;
 import com.bytequay.app.service.threads.TaskService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.tools.ParkedProposal;
+import com.bytequay.app.service.workmodel.SessionAudience;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.bytequay.app.service.workspaces.WorkspaceConfigurationService;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.bytequay.app.service.workspaces.WorkspaceService;
@@ -105,6 +107,7 @@ public class WorkspaceQualityScanCoordinator
     private final WorkspaceAutomationStateStore states;
     private final ObjectMapper mapper;
     private final Executor executor;
+    private final WorkModelResolver workModels;
     private final Set<String> running = ConcurrentHashMap.newKeySet();
 
     public WorkspaceQualityScanCoordinator(
@@ -120,7 +123,8 @@ public class WorkspaceQualityScanCoordinator
             ParkedProposalService parkedProposals,
             WorkspaceAutomationStateStore states,
             ObjectMapper mapper,
-            @Qualifier(APPLICATION_EXECUTOR) Executor executor)
+            @Qualifier(APPLICATION_EXECUTOR) Executor executor,
+            WorkModelResolver workModels)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.configuration = requireNonNull(configuration, "configuration is null");
@@ -135,6 +139,7 @@ public class WorkspaceQualityScanCoordinator
         this.states = requireNonNull(states, "states is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.executor = requireNonNull(executor, "executor is null");
+        this.workModels = requireNonNull(workModels, "workModels is null");
     }
 
     @Scheduled(initialDelay = 5 * 60_000, fixedDelay = 60_000)
@@ -286,16 +291,17 @@ public class WorkspaceQualityScanCoordinator
 
     private void enqueueScan(Context context)
     {
-        WorkModel workModel = workspaces.require(context.workspaceId()).workModel();
-        ThreadKind kind = workModel != null && workModel.kind() == WorkModelKind.API
-                ? ThreadKind.LOGIC_LOOP
-                : ThreadKind.CLI_AGENT;
-        String provider = workModel == null ? "claude-code" : workModel.agentOrProvider();
+        // Stamp the row from the workspace's planning engine — the same
+        // thing the registry will spawn for this trunk's turns.
+        WorkModel workModel = workModels
+                .resolveForWorkspace(context.workspaceId(), SessionAudience.PLAN).choice();
         Thread thread = findQualityThread(context.workspaceId()).orElseGet(() ->
                 threads.create(new ThreadService.NewTaskRequest(
-                        kind,
-                        provider,
-                        workModel == null ? null : workModel.model(),
+                        workModel.kind() == WorkModelKind.API
+                                ? ThreadKind.LOGIC_LOOP
+                                : ThreadKind.CLI_AGENT,
+                        workModel.agentOrProvider(),
+                        workModel.model(),
                         "Automated code quality",
                         null,
                         null,
@@ -306,7 +312,8 @@ public class WorkspaceQualityScanCoordinator
                         null,
                         ThreadFlow.BUILD,
                         context.workspaceId(),
-                        workModel)));
+                        // No scope override: the workspace owns the engine.
+                        null)));
         String prompt = """
                 Audit this local workspace for one concrete, actionable code-quality finding.
                 Focus only on clean-code defects that materially hurt maintainability or on

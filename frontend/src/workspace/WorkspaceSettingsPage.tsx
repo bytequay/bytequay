@@ -37,7 +37,15 @@ const AUTOMATION_REFRESH_MS = 30_000;
 export type WorkspaceSettingsSection =
   | 'general' | 'relations' | 'agents' | 'notifications' | 'sync' | 'automation' | 'memory' | 'danger';
 
+/** A session-kind row left empty runs on the workspace default. */
+const INHERIT = '';
+
 type StoredSettings = {
+  /** The engine every session in this workspace runs on unless the
+   *  session kind below overrides it. Threads, tasks, and stages cannot
+   *  change it — they only dial reasoning effort. */
+  defaultModel: string;
+  /** Per-session-kind overrides. Empty string = inherit defaultModel. */
   planModel: string;
   devModel: string;
   reviewModel: string;
@@ -57,10 +65,11 @@ type StoredSettings = {
 };
 
 const defaults: StoredSettings = {
-  planModel: 'cli:claude-code',
-  devModel: 'cli:claude-code',
-  reviewModel: 'cli:claude-code',
-  ciFixModel: 'cli:codex',
+  defaultModel: 'cli:claude-code',
+  planModel: INHERIT,
+  devModel: INHERIT,
+  reviewModel: INHERIT,
+  ciFixModel: INHERIT,
   perSessionCap: 1,
   dailyCap: 500,
   pauseAtCap: true,
@@ -294,26 +303,40 @@ export default function WorkspaceSettingsPage({
           )}
           {section === 'agents' && (
             <>
-              <SettingsCard title="Defaults per session kind" subtitle="threads can override per run">
+              <SettingsCard title="Engine" subtitle="every session in this workspace runs on this">
+                <ModelRow label="Workspace default" tone="default" value={settings.defaultModel}
+                  choices={agentChoices}
+                  onRefresh={() => { void refreshModelOptions(); }}
+                  refreshing={refreshingModels}
+                  onChange={value => update('defaultModel', value)} />
+              </SettingsCard>
+              <SettingsCard
+                title="Overrides per session kind"
+                subtitle="leave on Workspace default unless a kind needs its own engine"
+              >
                 <ModelRow label="Deep reasoning for specs & plans" tone="plan" value={settings.planModel}
+                  allowInherit
                   inherited={accountDefaults?.plan}
                   choices={agentChoices}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('planModel', value)} />
                 <ModelRow label="Code writing & tests" tone="dev" value={settings.devModel}
+                  allowInherit
                   inherited={accountDefaults?.dev}
                   choices={agentChoices}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('devModel', value)} />
                 <ModelRow label="PR review rounds" tone="review" value={settings.reviewModel}
+                  allowInherit
                   inherited={accountDefaults?.review}
                   choices={agentChoices}
                   onRefresh={() => { void refreshModelOptions(); }}
                   refreshing={refreshingModels}
                   onChange={value => update('reviewModel', value)} />
                 <ModelRow label="Cheap loops on red builds" tone="ci-fix" value={settings.ciFixModel}
+                  allowInherit
                   inherited={accountDefaults?.ciFix}
                   choices={agentChoices}
                   onRefresh={() => { void refreshModelOptions(); }}
@@ -494,7 +517,9 @@ function SettingRow({ label, detail, children }: {
   );
 }
 
-function ModelRow({ label, tone, value, inherited, choices, refreshing, onRefresh, onChange }: {
+function ModelRow({
+  label, tone, value, inherited, choices, refreshing, allowInherit = false, onRefresh, onChange,
+}: {
   label: string;
   tone: string;
   value: string;
@@ -502,12 +527,16 @@ function ModelRow({ label, tone, value, inherited, choices, refreshing, onRefres
   inherited?: string;
   choices: AgentChoice[];
   refreshing: boolean;
+  /** Offer "Workspace default" as the first option, and keep an empty
+   *  stored value meaning exactly that. */
+  allowInherit?: boolean;
   onRefresh: () => void;
   onChange: (value: string) => void;
 }) {
-  const selected = selectableChoice(value, choices);
+  const inheriting = allowInherit && value === INHERIT;
+  const selected = inheriting ? INHERIT : selectableChoice(value, choices);
   const selectedChoice = choices.find(choice => choice.value === selected);
-  const overridden = inherited !== undefined && normalizeChoice(inherited) !== selected;
+  const overridden = !inheriting && inherited !== undefined && normalizeChoice(inherited) !== selected;
   return (
     <div className="wu-setting-row wu-model-row">
       <span className={`wu-kind-chip ${tone}`}>{tone === 'ci-fix' ? 'ci fix' : tone}</span>
@@ -517,8 +546,13 @@ function ModelRow({ label, tone, value, inherited, choices, refreshing, onRefres
       </span>
       <label className="wu-model-picker">
         <span className={`wu-model-picker__glyph ${choiceClass(selected)}`}>{choiceGlyph(selected)}</span>
-        <span className="wu-model-picker__value">{selectedChoice === undefined ? selected : choiceText(selectedChoice)}</span>
+        <span className="wu-model-picker__value">
+          {inheriting
+            ? 'Workspace default'
+            : selectedChoice === undefined ? selected : choiceText(selectedChoice)}
+        </span>
         <select aria-label={`${label} model`} value={selected} onChange={event => onChange(event.target.value)}>
+          {allowInherit && <option value={INHERIT}>Workspace default</option>}
           {choices.map(choice => (
             <option key={choice.value} value={choice.value} disabled={choice.disabled}>
               {choiceText(choice)}
@@ -535,12 +569,17 @@ function ModelRow({ label, tone, value, inherited, choices, refreshing, onRefres
 }
 
 function coerceSettingsChoices(value: StoredSettings, choices: AgentChoice[]): StoredSettings {
+  // An inheriting row stays inheriting — only a real pick gets repaired
+  // when the engine it names has been uninstalled or signed out.
+  const keepInherit = (stored: string) =>
+    stored === INHERIT ? INHERIT : selectableChoice(stored, choices);
   return {
     ...value,
-    planModel: selectableChoice(value.planModel, choices),
-    devModel: selectableChoice(value.devModel, choices),
-    reviewModel: selectableChoice(value.reviewModel, choices),
-    ciFixModel: selectableChoice(value.ciFixModel, choices),
+    defaultModel: selectableChoice(value.defaultModel, choices),
+    planModel: keepInherit(value.planModel),
+    devModel: keepInherit(value.devModel),
+    reviewModel: keepInherit(value.reviewModel),
+    ciFixModel: keepInherit(value.ciFixModel),
   };
 }
 
@@ -664,10 +703,15 @@ function DangerRow({ title, detail, action, destructive = false, disabled = fals
  *  never chosen falls back to it before the hardcoded baseline. */
 function fromDto(value: WorkspaceSettingsDto, inherited: AiDefaultsDto | null): StoredSettings {
   return {
-    planModel: normalizeChoice(value.providers.plan ?? inherited?.plan ?? defaults.planModel),
-    devModel: normalizeChoice(value.providers.dev ?? inherited?.dev ?? defaults.devModel),
-    reviewModel: normalizeChoice(value.providers.review ?? inherited?.review ?? defaults.reviewModel),
-    ciFixModel: normalizeChoice(value.providers['ci-fix'] ?? inherited?.ciFix ?? defaults.ciFixModel),
+    // The workspace default seeds from the account-level dev engine the
+    // first time, so a fresh workspace doesn't start on a pick the user
+    // never made in Settings → AI.
+    defaultModel: choiceOrInherit(value.providers.default)
+      || normalizeChoice(inherited?.dev ?? defaults.defaultModel),
+    planModel: choiceOrInherit(value.providers.plan),
+    devModel: choiceOrInherit(value.providers.dev),
+    reviewModel: choiceOrInherit(value.providers.review),
+    ciFixModel: choiceOrInherit(value.providers['ci-fix']),
     perSessionCap: value.sessionCapUsd,
     dailyCap: value.dailyCapUsd,
     pauseAtCap: value.pauseAtCap,
@@ -683,6 +727,11 @@ function fromDto(value: WorkspaceSettingsDto, inherited: AiDefaultsDto | null): 
   };
 }
 
+/** A stored provider value, or {@link INHERIT} when it is absent/blank. */
+function choiceOrInherit(value: string | undefined): string {
+  return value === undefined || value.trim() === '' ? INHERIT : normalizeChoice(value);
+}
+
 function toDto(value: StoredSettings): WorkspaceSettingsDto {
   return {
     sessionCapUsd: value.perSessionCap,
@@ -693,6 +742,7 @@ function toDto(value: StoredSettings): WorkspaceSettingsDto {
     distillMinutes: value.distillMinutes,
     kbAudiences: ['plan', 'dev', 'review', 'ci-fix'],
     providers: {
+      default: value.defaultModel,
       plan: value.planModel,
       dev: value.devModel,
       review: value.reviewModel,

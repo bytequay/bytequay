@@ -27,6 +27,8 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceAutomationState;
 import com.bytequay.app.repository.StageStore;
@@ -37,6 +39,8 @@ import com.bytequay.app.repository.WorkspaceAutomationStateStore;
 import com.bytequay.app.service.threads.ParkedProposalService;
 import com.bytequay.app.service.threads.TaskService;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.service.workmodel.SessionAudience;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.bytequay.app.service.workspaces.WorkspaceConfigurationService;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.bytequay.app.service.workspaces.WorkspaceService;
@@ -205,10 +209,16 @@ class TestWorkspaceQualityScanCoordinator
         when(threads.create(any())).thenReturn(thread);
         when(states.find("w1", WorkspaceQualityScanCoordinator.KIND))
                 .thenReturn(Optional.empty());
+        WorkModelResolver workModels = mock(WorkModelResolver.class);
+        when(workModels.resolveForWorkspace("w1", SessionAudience.PLAN))
+                .thenReturn(new WorkModelResolver.Resolved(
+                        new WorkModel(WorkModelKind.CLI, "claude-code", null, null),
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.WORKSPACE, "w1", "workspace Widget")));
         WorkspaceQualityScanCoordinator coordinator = new WorkspaceQualityScanCoordinator(
                 workspaces, configuration, resolver, watchedRepos, threadStore,
                 taskStore, threads, stages, taskService, parked, states,
-                new ObjectMapper(), Runnable::run);
+                new ObjectMapper(), Runnable::run, workModels);
         return new Fixture(
                 coordinator, threads, states, taskStore, threadStore, stages,
                 taskService, thread);

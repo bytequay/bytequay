@@ -300,10 +300,6 @@ export default function WorkspaceHarnessPage({
                 }}
                 placeholder="Give the next diagnosis cycle optional guidance…"
                 meta={money(snapshot.budget.spentMilliUsd)}
-                usage={snapshot.budget.limitMilliUsd <= 0 ? undefined : {
-                  contextPercent: Math.round((snapshot.budget.spentMilliUsd / snapshot.budget.limitMilliUsd) * 100),
-                  sessionLabel: `${money(snapshot.budget.spentMilliUsd)} of ${money(snapshot.budget.limitMilliUsd)}`,
-                }}
               />}
             </div>
             {showPr && (

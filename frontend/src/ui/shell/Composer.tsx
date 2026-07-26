@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { ClipboardEvent, KeyboardEvent, ReactNode } from 'react';
 import { CloseIcon, PlusIcon, SendUpIcon } from '../TaskBrainDesignIcons';
 import { Kbd } from '../primitives';
@@ -22,10 +22,6 @@ import { pasteClipboardImages } from './pasteClipboardImages';
 /** Grow the textarea to fit its content, up to this many px (then scroll). */
 const MAX_INPUT_HEIGHT = 160;
 
-export type ComposerUsage =
-  | { contextPercent: number; sessionLabel: string }
-  | { tokensIn: number; tokensOut: number };
-
 /**
  * The composer pinned to the bottom of every conversation column. One
  * mode pill (the model selector, passed in as `modePill`) and a send
@@ -34,8 +30,8 @@ export type ComposerUsage =
  */
 export function Composer({
   value, onChange, onSubmit, placeholder, modePill, busy = false, disabled = false,
-  queueWhenBusy = false, onAddContext, images = [], onImagesChange, closedNote,
-  variant = 'default', toolbar, meta, usage, suggestedReply, onStop,
+  queueWhenBusy = false, images = [], onImagesChange, closedNote,
+  variant = 'default', toolbar, meta, suggestedReply, onStop,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -48,7 +44,6 @@ export function Composer({
   /** Allow submitting while the agent is busy — the host queues the message
    *  (it sends when the agent goes idle) instead of blocking the send. */
   queueWhenBusy?: boolean;
-  onAddContext?: () => void;
   /** Pending pasted-screenshot data URLs (e.g. `data:image/png;base64,...`),
    *  shown as removable thumbnail chips above the input — controlled, like
    *  `value`. Omit (with `onImagesChange`) to disable image paste on this
@@ -65,8 +60,6 @@ export function Composer({
   toolbar?: ReactNode;
   /** Right-aligned task/thread metrics above the input. */
   meta?: ReactNode;
-  /** Provider-reported token usage, or context-window usage when available. */
-  usage?: ComposerUsage;
   /** Ghost reply for a simple affirmative agent question. Tab inserts it;
    *  Enter or the send button submits it without mutating the textarea. */
   suggestedReply?: string;
@@ -75,7 +68,6 @@ export function Composer({
   onStop?: () => void;
 }) {
   const workspaceVariant = variant === 'workspace-v2';
-  const [usageOpen, setUsageOpen] = useState(false);
   const showSuggestedReply = workspaceVariant
     && suggestedReply !== undefined
     && value.length === 0
@@ -91,9 +83,6 @@ export function Composer({
   // interrupts the running turn.
   const spinning = busy && !canSend && onStop === undefined;
   const showStop = busy && !canSend && onStop !== undefined;
-  const contextPercent = usage !== undefined && 'contextPercent' in usage
-    ? Math.max(0, Math.min(100, usage.contextPercent))
-    : null;
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-grow to fit the text (up to MAX_INPUT_HEIGHT, then scroll) so a
@@ -206,57 +195,8 @@ export function Composer({
           onPaste={onPaste}
         />
         <div className="footer">
-          <button type="button" className="plus" aria-label="Add context" onClick={onAddContext}>
-            {workspaceVariant ? <PlusIcon size={15} strokeWidth={2} /> : <PlusIcon />}
-          </button>
           {modePill}
           <span className="grow" />
-          {workspaceVariant && usage !== undefined && (
-            <span className="workspace-composer-usage">
-              <button type="button" aria-label="Usage" title="Usage"
-                aria-expanded={usageOpen} onClick={() => setUsageOpen(open => !open)}>
-                {contextPercent === null ? <TokenUsageIcon /> : (
-                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden>
-                    <circle cx="10" cy="10" r="7.5" stroke="#e1e5e9" strokeWidth="2.5" />
-                    <circle cx="10" cy="10" r="7.5" stroke="#2da44e" strokeWidth="2.5"
-                      strokeLinecap="round" strokeDasharray={`${contextPercent * 0.471} ${47.1 - contextPercent * 0.471}`}
-                      transform="rotate(-90 10 10)" />
-                  </svg>
-                )}
-              </button>
-              {usageOpen && (
-                <div className="workspace-composer-usage__popover" role="dialog" aria-label="Usage details">
-                  {'tokensIn' in usage ? (
-                    <>
-                      <div><span>Input</span><strong>{formatTokens(usage.tokensIn)}</strong></div>
-                      <hr />
-                      <div><span>Output</span><strong>{formatTokens(usage.tokensOut)}</strong></div>
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <span>Context</span>
-                        <i><i style={{ width: `${contextPercent}%` }} /></i>
-                        <strong>{contextPercent}% used</strong>
-                      </div>
-                      <hr />
-                      <div><span>Session</span><strong>{usage.sessionLabel}</strong></div>
-                    </>
-                  )}
-                </div>
-              )}
-            </span>
-          )}
-          {workspaceVariant && (
-            <button type="button" className="workspace-composer-mic" aria-label="Voice input" title="Voice input">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <rect x="9" y="2" width="6" height="12" rx="3" />
-                <path d="M5 10v1a7 7 0 0 0 14 0v-1" />
-                <path d="M12 18v4" />
-              </svg>
-            </button>
-          )}
           {showStop ? (
             <button
               type="button"
@@ -285,17 +225,4 @@ export function Composer({
       </div>
     </div>
   );
-}
-
-function TokenUsageIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor"
-      strokeWidth="1.7" strokeLinecap="round" aria-hidden>
-      <path d="M5 14V9M10 14V5M15 14v-7" />
-    </svg>
-  );
-}
-
-function formatTokens(tokens: number): string {
-  return `${tokens.toLocaleString('en-US')} tokens`;
 }

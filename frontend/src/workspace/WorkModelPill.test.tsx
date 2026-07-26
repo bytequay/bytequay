@@ -122,7 +122,9 @@ describe('WorkModelPill', () => {
     const getThreadWorkModel = vi.fn(async () => INHERITED);
     installBridge({ getThreadWorkModel });
 
-    render(<WorkModelPill scope={{ kind: 'thread', threadId: 'thread-1' }} />);
+    const { container } = render(
+      <WorkModelPill variant="workspace-v2" scope={{ kind: 'thread', threadId: 'thread-1' }} />,
+    );
 
     // The pill shows the human model name alone — no agent id, no "· CLI".
     await waitFor(() => {
@@ -130,6 +132,7 @@ describe('WorkModelPill', () => {
     });
     expect(getThreadWorkModel).toHaveBeenCalledWith('thread-1');
     expect(screen.getByRole('button').textContent).not.toContain('claude-code');
+    expect(container.querySelector('.workspace-work-model-pill svg')).toBeNull();
   });
 
   it('opens the picker popover on click and shows the inheritance hint', async () => {

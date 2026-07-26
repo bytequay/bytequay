@@ -242,7 +242,7 @@ describe('workspace unified interaction flows', () => {
     )).toBeTruthy();
   });
 
-  it('requires every distill operation to be decided before applying', async () => {
+  it('selects proposed distill changes with a checkbox before applying', async () => {
     const operation: DistillOperationDto = {
       id: 'op-1',
       target: 'brain',
@@ -251,7 +251,7 @@ describe('workspace unified interaction flows', () => {
       kbEntryId: null,
       category: 'Decisions',
       title: null,
-      body: 'Keep one repository per workspace.',
+      body: '## Repository rules\n\n- Keep **one repository** per workspace.',
       audience: [],
       decision: 'pending',
       originalBody: null,
@@ -289,11 +289,15 @@ describe('workspace unified interaction flows', () => {
     render(<WorkspaceMemoryPage workspaceId="w1" />);
 
     await screen.findByText('Distill from threads');
-    expect((screen.getByRole('button', {
-      name: 'Apply 0 changes',
-    }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'Accept' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Apply 1 changes' }));
+    expect(screen.getByRole('heading', { name: 'Repository rules', level: 2 })).toBeTruthy();
+    expect(screen.getByText('one repository').tagName).toBe('STRONG');
+    const include = screen.getByRole('checkbox', { name: 'Include Decisions change' });
+    expect((include as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('button', { name: 'Apply 1 change' }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(include);
+    expect(screen.getByRole('button', { name: 'Discard proposal' })).toBeTruthy();
+    fireEvent.click(include);
+    fireEvent.click(screen.getByRole('button', { name: 'Apply 1 change' }));
     await waitFor(() => expect(workspaceApi).toHaveBeenCalledWith({
       path: '/api/workspaces/w1/memory/distill-runs/distill-1/decisions',
       method: 'PUT',

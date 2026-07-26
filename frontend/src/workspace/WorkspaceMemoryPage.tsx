@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { MarkdownProse } from '../threads/MarkdownProse';
 import {
   workspaceApi,
   type DistillOperationDto,
@@ -366,11 +367,10 @@ function DistillPreview({ run, disabled, onClose, onChange, onApply }: {
         operation.id === id ? { ...operation, ...patch } : operation),
     });
   };
-  const accepted = run.operations.filter(operation =>
-    operation.decision === 'accepted' || operation.decision === 'edited').length;
-  const settled = run.operations.every(operation => operation.decision !== 'pending');
+  const total = run.operations.length;
+  const selected = run.operations.filter(operation => operation.decision !== 'skipped').length;
   return (
-    <div className="wu-modal-backdrop">
+    <div className="wu-modal-backdrop wu-modal-backdrop--centered">
       <section className="wu-distill-modal" role="dialog" aria-modal="true">
         <header><BrainIcon /><h2>Distill from threads</h2>
           <button type="button" onClick={onClose} aria-label="Close"><CloseIcon /></button></header>
@@ -386,11 +386,20 @@ function DistillPreview({ run, disabled, onClose, onChange, onApply }: {
             ))}
           </div>
           {run.sources.length === 0 && <p className="wu-muted">No new source content.</p>}
-          <h3>Proposed changes</h3>
+          <h3>Proposed changes <span>{total}</span></h3>
           <div className="wu-distill-operations">
             {run.operations.map(operation => (
               <article key={operation.id} className={`${operation.decision} ${operation.action}`}>
-                <span>{operation.action === 'add' ? '+' : '~'}</span>
+                <label className="wu-distill-operation-check">
+                  <input
+                    type="checkbox"
+                    checked={operation.decision !== 'skipped'}
+                    onChange={event => update(operation.id, {
+                      decision: event.target.checked ? 'accepted' : 'skipped',
+                    })}
+                    aria-label={`Include ${operation.category ?? operation.title ?? 'knowledge'} change`}
+                  />
+                </label>
                 <div
                   title={operation.decision === 'edited' ? undefined : 'Double-click to edit'}
                   onDoubleClick={() => update(operation.id, { decision: 'edited' })}
@@ -399,25 +408,34 @@ function DistillPreview({ run, disabled, onClose, onChange, onApply }: {
                   {operation.decision === 'edited' ? (
                     <textarea value={operation.body ?? ''}
                       onChange={event => update(operation.id, { body: event.target.value })} />
-                  ) : ` ${operation.body ?? ''}`}
+                  ) : (
+                    <div className="wu-distill-markdown">
+                      <MarkdownProse text={operation.body ?? ''} />
+                    </div>
+                  )}
                 </div>
-                <footer>
-                  <button type="button" onClick={() => update(operation.id, { decision: 'accepted' })}>Accept</button>
-                  <button type="button" onClick={() => update(operation.id, { decision: 'skipped' })}>Skip</button>
-                </footer>
               </article>
             ))}
             {run.operations.length === 0 && <div className="wu-distill-nochanges">Nothing new to fold.</div>}
           </div>
         </main>
         <footer>
-          <span>{accepted} of {run.operations.length} accepted
+          <span>{selected} of {total} selected
             {run.characterDelta === undefined ? '' : ` · +${run.characterDelta} chars`}</span>
           <button type="button" className="wu-icon-button" onClick={onClose}>Cancel</button>
           <button type="button" className="wu-primary-button"
-            disabled={disabled || (!settled && run.operations.length > 0)}
-            onClick={() => { void onApply(run.operations); }}>
-            {run.operations.length === 0 ? 'Record no changes' : `Apply ${accepted} changes`}
+            disabled={disabled}
+            onClick={() => { void onApply(run.operations.map(operation =>
+              operation.decision === 'pending'
+                ? { ...operation, decision: 'accepted' }
+                : operation)); }}>
+            {total === 0
+              ? 'Record no changes'
+              : selected === 0
+                ? 'Discard proposal'
+                : selected === total && total > 1
+                  ? `Apply all ${total} changes`
+                  : `Apply ${selected} ${selected === 1 ? 'change' : 'changes'}`}
           </button>
         </footer>
       </section>
@@ -467,7 +485,7 @@ function EditorModal({ title, children, onClose, onSave, disabled }: {
   disabled: boolean;
 }) {
   return (
-    <div className="wu-modal-backdrop">
+    <div className="wu-modal-backdrop wu-modal-backdrop--centered">
       <section className="wu-editor-modal" role="dialog" aria-modal="true">
         <header><h2>{title}</h2><button type="button" onClick={onClose}>×</button></header>
         <main>{children}</main>

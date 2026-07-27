@@ -131,6 +131,16 @@ public interface Agent
 
     void stop();
 
+    /**
+     * Tear down one stage-scoped session without completing the shared
+     * owning thread. A task can open another stage after this one closes,
+     * so stage reaping must not make that later agent inherit COMPLETED.
+     */
+    default void retireStage()
+    {
+        stop();
+    }
+
     void notifyPermissionRequested(String callId, String toolName, String summary);
 
     boolean decide(String callId, PermissionDecision decision);

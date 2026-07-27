@@ -365,6 +365,13 @@ public class AutomationCoordinator
         if (detail.ciStatus() != PullRequestDetail.CiStatus.FAILING) {
             return false;
         }
+        // A single failed job makes the PR aggregate FAILING even while sibling
+        // jobs are still running. GitHub cannot re-run failed jobs until their
+        // workflow has completed, so wait for the whole check set to settle.
+        if (detail.checkRuns() != null && detail.checkRuns().stream()
+                .anyMatch(run -> !"completed".equals(run.status()))) {
+            return false;
+        }
         CiAggregate ci = aggregateChecks(toCheckRunStates(detail.checkRuns()));
         return ciFixRunExecutor.driveShippedCiFix(task, repoFullName, ci);
     }

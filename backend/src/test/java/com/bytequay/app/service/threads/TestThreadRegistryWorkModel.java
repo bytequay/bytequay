@@ -330,6 +330,46 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
+    void completedSharedThreadBuildsARunnableCliStageAgent()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        WorkModel stagePick = new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-5.6-sol", null);
+        when(workModelResolver.resolveForStage(THREAD_ID, TASK_ID, "stage-cli"))
+                .thenReturn(new WorkModelResolver.Resolved(stagePick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.STAGE, "stage-cli", "stage-cli")));
+        ThreadRegistry registry = newRegistry();
+
+        ThreadAgent agent = registry.getOrCreate(
+                withStatus(cliThread("codex", "gpt-5.6-sol", null), ThreadStatus.COMPLETED),
+                task(TASK_ID), "stage-cli");
+
+        assertThat(agent).isInstanceOf(CodexCliThreadAgent.class);
+        assertThat(agent.status()).isEqualTo(ThreadStatus.IDLE);
+    }
+
+    @Test
+    void completedSharedThreadBuildsARunnableApiStageAgent()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        WorkModel stagePick = new WorkModel(
+                WorkModelKind.API, "anthropic", "claude-opus-4-7", null);
+        when(workModelResolver.resolveForStage(THREAD_ID, TASK_ID, "stage-api"))
+                .thenReturn(new WorkModelResolver.Resolved(stagePick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.STAGE, "stage-api", "stage-api")));
+        ThreadRegistry registry = newRegistry();
+
+        ThreadAgent agent = registry.getOrCreate(
+                withStatus(logicLoopThread(), ThreadStatus.COMPLETED),
+                task(TASK_ID), "stage-api");
+
+        assertThat(agent).isInstanceOf(LogicLoopThreadAgent.class);
+        assertThat(agent.status()).isEqualTo(ThreadStatus.IDLE);
+    }
+
+    @Test
     void typedTaskBrainEntrypointReturnsATaskBrainAgent()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
@@ -536,6 +576,19 @@ class TestThreadRegistryWorkModel
                 "Work-model wiring test", ThreadStatus.IDLE, model,
                 0L, 0L, 0L, NOW, NOW, null, null,
                 ThreadFlow.BUILD, "ws-default", null, null);
+    }
+
+    private static Thread withStatus(Thread thread, ThreadStatus status)
+    {
+        Instant endedAt = status == ThreadStatus.IDLE ? null : NOW;
+        String error = status == ThreadStatus.ERRORED ? "failed" : null;
+        return new Thread(
+                thread.id(), thread.kind(), thread.provider(), thread.agentSessionId(),
+                thread.title(), status, thread.model(), thread.costUsdMilli(),
+                thread.tokensIn(), thread.tokensOut(), thread.createdAt(), NOW,
+                endedAt, error, thread.flow(), thread.workspaceId(), thread.workModel(),
+                thread.parentReviewPassId(), thread.parallelSlots(), thread.parentTaskId(),
+                thread.prRef(), thread.description());
     }
 
     private static Thread brainThread()

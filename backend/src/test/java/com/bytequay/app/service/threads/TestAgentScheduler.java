@@ -67,6 +67,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -528,6 +529,86 @@ class TestAgentScheduler
         verify(agentRuns).transition(
                 "run-stopped", AgentRun.STATUS_CANCELLED,
                 "cancelled because task is paused");
+    }
+
+    @Test
+    void attendedStageSteeringReplacesAFailedOrCancelledLivenessHolder()
+    {
+        for (ThreadTurnStatus holderStatus : List.of(FAILED, CANCELLED)) {
+            TestHarness harness = new TestHarness(1, 4);
+            String suffix = holderStatus.name().toLowerCase(Locale.ROOT);
+            Thread thread = thread("thread-steering-" + suffix, CLI_AGENT);
+            RecordingSession session = harness.register(thread);
+            String taskId = "task-steering-" + suffix;
+            harness.tasks.setStatus(taskId, TaskStatus.IN_REVIEW);
+            ThreadTurn holder = steeringTaskTurn(
+                    suffix + "-holder", thread.id(), taskId, holderStatus,
+                    Instant.parse("2026-07-24T10:00:00Z"));
+            harness.turns.saveTurn(holder);
+            assertThat(harness.tasks.setCurrentLivenessTurnIdIf(
+                    taskId, null, holder.id())).isTrue();
+
+            String steered = harness.scheduler.enqueueTaskTurn(
+                    thread, "please continue", taskId, "stage-1",
+                    TurnInitiator.attended("steering"));
+
+            assertThat(harness.tasks.currentLivenessTurnId(taskId)).contains(steered);
+            assertThat(harness.turns.findTurnById(steered).orElseThrow().status())
+                    .isEqualTo(RUNNING);
+            assertThat(session.inputs).containsExactly("please continue");
+        }
+    }
+
+    @Test
+    void attendedSteeringDoesNotBypassAnErroredTasksRetryGate()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-errored-steering", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        String taskId = "task-errored-steering";
+        harness.tasks.setStatus(taskId, TaskStatus.ERRORED);
+        ThreadTurn failed = steeringTaskTurn(
+                "errored-holder", thread.id(), taskId, FAILED,
+                Instant.parse("2026-07-24T10:00:00Z"));
+        harness.turns.saveTurn(failed);
+        assertThat(harness.tasks.setCurrentLivenessTurnIdIf(
+                taskId, null, failed.id())).isTrue();
+
+        String steered = harness.scheduler.enqueueTaskTurn(
+                thread, "try anyway", taskId, "stage-1",
+                TurnInitiator.attended("steering"));
+
+        assertThat(harness.tasks.currentLivenessTurnId(taskId)).contains(failed.id());
+        assertThat(harness.turns.findTurnById(steered).orElseThrow().status())
+                .isEqualTo(CANCELLED);
+        assertThat(session.inputs).isEmpty();
+    }
+
+    @Test
+    void startupRecoveryPromotesAQueuedSteerPastItsFailedHolder()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-recovered-steering", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        String taskId = "task-recovered-steering";
+        harness.tasks.setStatus(taskId, TaskStatus.IN_REVIEW);
+        Instant now = Instant.parse("2026-07-24T10:00:00Z");
+        ThreadTurn failed = steeringTaskTurn(
+                "recovered-failed-holder", thread.id(), taskId, FAILED, now);
+        ThreadTurn queued = steeringTaskTurn(
+                "recovered-queued-steer", thread.id(), taskId, QUEUED, now.plusSeconds(1));
+        harness.turns.saveTurn(failed);
+        harness.turns.saveTurn(queued);
+        harness.turns.markLiveness(queued.id());
+        assertThat(harness.tasks.setCurrentLivenessTurnIdIf(
+                taskId, null, failed.id())).isTrue();
+
+        harness.scheduler.recoverQueuedTurns();
+
+        assertThat(harness.tasks.currentLivenessTurnId(taskId)).contains(queued.id());
+        assertThat(harness.turns.findTurnById(queued.id()).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(session.inputs).containsExactly("input");
     }
 
     @Test
@@ -1716,6 +1797,12 @@ class TestAgentScheduler
     {
         private final Map<String, ThreadTurn> turns = new LinkedHashMap<>();
         private final Map<String, String> kickKeys = new LinkedHashMap<>();
+        private final Set<String> livenessTurnIds = new HashSet<>();
+
+        private void markLiveness(String turnId)
+        {
+            livenessTurnIds.add(turnId);
+        }
 
         @Override
         public void saveTurn(ThreadTurn turn)
@@ -1741,6 +1828,12 @@ class TestAgentScheduler
         public Optional<String> findTurnIdByKickKey(String kickKey)
         {
             return Optional.ofNullable(kickKeys.get(kickKey));
+        }
+
+        @Override
+        public boolean turnAffectsTaskLiveness(String turnId)
+        {
+            return livenessTurnIds.contains(turnId);
         }
 
         @Override
@@ -1935,6 +2028,32 @@ class TestAgentScheduler
                 "stage-1",
                 ThreadScope.STAGE,
                 agentRunId);
+    }
+
+    private static ThreadTurn steeringTaskTurn(
+            String id,
+            String threadId,
+            String taskId,
+            ThreadTurnStatus status,
+            Instant createdAt)
+    {
+        boolean terminal = status == FAILED || status == CANCELLED || status == COMPLETED;
+        return new ThreadTurn(
+                id,
+                threadId,
+                taskId,
+                ThreadResourceLane.CLI,
+                status,
+                "input",
+                createdAt,
+                createdAt,
+                status == QUEUED ? null : createdAt,
+                terminal ? createdAt : null,
+                status == FAILED ? "failed" : null,
+                TurnInitiator.attended("steering"),
+                "stage-1",
+                ThreadScope.STAGE,
+                null);
     }
 
     private static final class RecordingSession

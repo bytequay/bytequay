@@ -113,10 +113,10 @@ public class StageAgentReaper
         try {
             registry.findStages(List.of(stageId)).forEach(agent -> {
                 try {
-                    agent.stop();
+                    agent.retireStage();
                 }
                 catch (RuntimeException e) {
-                    log.warn("stop of stage agent {} threw: {}", stageId, e.getMessage());
+                    log.warn("retirement of stage agent {} threw: {}", stageId, e.getMessage());
                 }
             });
             registry.evictStage(null, stageId);

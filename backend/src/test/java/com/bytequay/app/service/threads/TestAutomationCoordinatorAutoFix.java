@@ -233,6 +233,21 @@ class TestAutomationCoordinatorAutoFix
     }
 
     @Test
+    void shippedTaskWaitsForRemainingChecksAfterTheFirstFailure()
+    {
+        Task task = newShippedTask("ship-mixed", "thread-mixed");
+        when(taskStore.listWithLinkedPr(200)).thenReturn(List.of(task));
+        when(pullRequests.refreshPullRequestDetail(REPO, PR_NUMBER))
+                .thenReturn(liveDetailFailingWithPendingCheck());
+        AutomationCoordinator coordinator = newCoordinator();
+
+        coordinator.scanForFailingCi();
+
+        verify(ciFixRunExecutor, never()).driveShippedCiFix(any(), anyString(), any());
+        verify(ciFixRunExecutor, never()).closeIfGreen(any());
+    }
+
+    @Test
     void shippedTaskDoesNotCrashWhenTheLiveFetchFails()
     {
         Task task = newShippedTask("ship-3", "thread-3");
@@ -330,6 +345,23 @@ class TestAutomationCoordinatorAutoFix
                 PullRequestDetail.CiStatus.PENDING, List.of(), List.of(),
                 List.of(new PullRequestDetail.CheckRun(
                         null, "backend-tests", "in_progress", null, null, null, null)),
+                List.of(), List.of(), false,
+                null, null, null, null, null, "open", false, false);
+    }
+
+    private static PullRequestDetail liveDetailFailingWithPendingCheck()
+    {
+        return new PullRequestDetail(
+                REPO, PR_NUMBER, null, List.of(), false,
+                null, null, 0, 0, 0, 0, 0, 0, 0, List.of(),
+                PullRequestDetail.CiStatus.FAILING, List.of(), List.of(),
+                List.of(
+                        new PullRequestDetail.CheckRun(
+                                null, "frontend-checks", "completed", "failure",
+                                null, null, null),
+                        new PullRequestDetail.CheckRun(
+                                null, "commit-check", "in_progress", null,
+                                null, null, null)),
                 List.of(), List.of(), false,
                 null, null, null, null, null, "open", false, false);
     }

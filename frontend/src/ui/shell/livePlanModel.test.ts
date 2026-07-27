@@ -231,6 +231,17 @@ describe('buildLivePlan', () => {
     expect(phase(paused, 'remote-development', 'comments').meta).toBe('paused');
   });
 
+  it('renders a truthful meta for a persisted zero-workflow rerun', () => {
+    const nodes = buildLivePlan({
+      stages: [stage('REMOTE_DEVELOPMENT_STAGE', 'OPEN')], subStages: [],
+      liveRuns: [run('ci_fix', { headline: 'Re-ran 0 failed CI workflows' })],
+      task: { prNumber: 145, currentPhase: 'PUSHED_AWAITING_CI' as TaskPhase, terminal: false, paused: false },
+    });
+
+    expect(phase(nodes, 'remote-development', 'ci-validation').meta)
+      .toBe('No CI workflow rerun started');
+  });
+
   it('shows the round gate from the authoritative round when its run projection lags', () => {
     const nodes = buildLivePlan({
       stages: [stage('REMOTE_DEVELOPMENT_STAGE', 'OPEN')], subStages: [],

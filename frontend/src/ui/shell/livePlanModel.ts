@@ -337,6 +337,7 @@ function runMeta(run: AgentRunDto): string | undefined {
   if (run.status === 'awaiting_gate') return 'awaiting you';
   if (run.status === 'paused') return 'paused';
   if (run.status === 'queued') return 'queued';
+  if (run.headline === 'Re-ran 0 failed CI workflows') return 'No CI workflow rerun started';
   if (run.headline !== null && run.headline !== '') return run.headline;
   return run.iterations > 0 ? `iter ${run.iterations}` : undefined;
 }

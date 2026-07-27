@@ -81,6 +81,7 @@ final class AgentViews
         @Override public void interrupt() { delegate.interrupt(); }
         @Override public void resume() { delegate.resume(); }
         @Override public void stop() { delegate.stop(); }
+        @Override public void retireStage() { delegate.retireStage(); }
         @Override public void notifyPermissionRequested(String callId, String toolName, String summary)
         {
             delegate.notifyPermissionRequested(callId, toolName, summary);

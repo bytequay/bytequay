@@ -391,8 +391,7 @@ public class CiFixRunExecutor
         if (run.iterations() >= attemptLimit(run)) {
             return escalateShippedCiFix(run, task, repoFullName, ci);
         }
-        if (run.iterations() == 0) {
-            rerunShippedCi(run, task, repoFullName, now);
+        if (run.iterations() == 0 && rerunShippedCi(run, task, repoFullName, now)) {
             return false;
         }
         enqueueShippedCiFixTurn(run, task, repoFullName, ci.failingNames(), ci.failingRuns(), now);
@@ -420,14 +419,23 @@ public class CiFixRunExecutor
      *  guard, iteration 0). Resolves the head SHA from the PR itself via the
      *  number overload, NOT the local worktree — a reaped or missing worktree
      *  must not dead-end the loop (it used to skip every sweep on "could not
-     *  resolve HEAD"). Bumps the iteration count and arms the cooldown. */
-    private void rerunShippedCi(AgentRun run, Task task, String repoFullName, Instant now)
+     *  resolve HEAD"). Returns false only when GitHub reports that it started
+     *  no workflow, allowing this sweep to fall through to an agent fix. A
+     *  real re-run bumps the iteration count and arms the cooldown; an API
+     *  failure stays retryable and does neither. */
+    private boolean rerunShippedCi(AgentRun run, Task task, String repoFullName, Instant now)
     {
         if (task.linkedPrNumber() == null) {
-            return;
+            return true;
         }
         try {
             int n = pullRequests.rerunFailedChecks(repoFullName, task.linkedPrNumber());
+            if (n == 0) {
+                log.info("No failed GitHub Actions workflow was ready to re-run for shipped "
+                                + "task {} on {} PR #{}; falling through to agent fix",
+                        task.id(), repoFullName, task.linkedPrNumber());
+                return false;
+            }
             recordRerun(task, n);
             agentRuns.recordIteration(run.id(), n == 1
                     ? "Re-ran 1 failed CI workflow"
@@ -435,9 +443,11 @@ public class CiFixRunExecutor
             ciFixCooldown.put(task.id(), now.plus(CI_FIX_COOLDOWN));
             log.info("CI re-run requested for shipped task {} on {} PR #{}: {} run(s)",
                     task.id(), repoFullName, task.linkedPrNumber(), n);
+            return true;
         }
         catch (RuntimeException e) {
             log.warn("CI re-run failed for task {}: {}", task.id(), e.getMessage());
+            return true;
         }
     }
 
@@ -487,11 +497,6 @@ public class CiFixRunExecutor
             return;
         }
         Thread thread = threadOpt.get();
-        if (thread.status() != ThreadStatus.IDLE) {
-            log.info("shipped CI-fix deferred: thread {} is {} (task {}, PR #{})",
-                    thread.id(), thread.status(), task.id(), task.linkedPrNumber());
-            return;
-        }
         String prompt = buildShippedCiFixPrompt(
                 task, repoFullName, failingChecks, priorStageContext(task, repoFullName));
         try {

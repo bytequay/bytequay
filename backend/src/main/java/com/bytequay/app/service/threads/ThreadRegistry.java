@@ -806,34 +806,38 @@ public class ThreadRegistry
         // development thread. Its model is therefore resolved from the brain
         // thread itself; asking the task/stage cascade to validate that pair
         // incorrectly reports "task is not on thread".
+        // The Thread row is shared by every stage. A prior stage can have
+        // been reaped without making this newly-created stage session done,
+        // so never seed a fresh stage agent with that stale COMPLETED status.
+        Thread runtimeThread = runnableStageThread(thread);
         ThreadAgent agent;
-        if (thread.kind() == ThreadKind.BRAIN_AGENT) {
-            agent = buildBrain(thread);
+        if (runtimeThread.kind() == ThreadKind.BRAIN_AGENT) {
+            agent = buildBrain(runtimeThread);
         }
         else {
             // The audience-specific snapshot — not the trunk ThreadKind —
             // decides which runtime spawns. Legacy threads without a complete
             // snapshot retain the resolver's workspace fallback.
-            String audience = stageAudience(thread, stageId);
-            WorkModel resolved = resolvedWorkModelForTurn(thread, boundTask, stageId);
+            String audience = stageAudience(runtimeThread, stageId);
+            WorkModel resolved = resolvedWorkModelForTurn(runtimeThread, boundTask, stageId);
             agent = switch (resolved.kind()) {
                 case API -> new LogicLoopThreadAgent(
-                        thread, store, mapper, executor,
+                        runtimeThread, store, mapper, executor,
                         credentialService, resolved,
-                        boundTask != null ? boundTask.workingDir() : trunkCwdResolver.apply(thread),
+                        boundTask != null ? boundTask.workingDir() : trunkCwdResolver.apply(runtimeThread),
                         roleWithKnowledge(
-                                resolveTaskRoleSkill(boundTask), thread, audience),
+                                resolveTaskRoleSkill(boundTask), runtimeThread, audience),
                         toolRegistry,
                         ds4, ds4Instrumentation, gate);
                 case CLI -> isCodex(resolved)
                         ? new CodexCliThreadAgent(
-                                thread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
-                                workspaceMemorySupplier(thread, audience),
+                                runtimeThread, store, taskStore, codexParser, mapper, gate, executor, checkpointTrigger,
+                                workspaceMemorySupplier(runtimeThread, audience),
                                 resolveTaskRoleSkill(boundTask),
                                 boundTask, cliModelOverride(resolved), cliReasoningEffort(resolved))
                         : new ClaudeCodeCliThreadAgent(
-                                thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                                workspaceMemorySupplier(thread, audience), skillMaterializer,
+                                runtimeThread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                                workspaceMemorySupplier(runtimeThread, audience), skillMaterializer,
                                 resolveTaskRoleSkill(boundTask),
                                 boundTask, cliModelOverride(resolved), cliReasoningEffort(resolved));
             };
@@ -849,6 +853,21 @@ public class ThreadRegistry
             });
         }
         return withManagedSkillBundle(agent);
+    }
+
+    private static Thread runnableStageThread(Thread thread)
+    {
+        if (thread.status() != ThreadStatus.COMPLETED) {
+            return thread;
+        }
+        return new Thread(
+                thread.id(), thread.kind(), thread.provider(), thread.agentSessionId(),
+                thread.title(), ThreadStatus.IDLE, thread.model(),
+                thread.costUsdMilli(), thread.tokensIn(), thread.tokensOut(),
+                thread.createdAt(), thread.updatedAt(), null, null,
+                thread.flow(), thread.workspaceId(), thread.workModel(),
+                thread.parentReviewPassId(), thread.parallelSlots(), thread.parentTaskId(),
+                thread.prRef(), thread.description());
     }
 
     private static Optional<Path> taskCheckout(Task task)

@@ -485,8 +485,9 @@ export function StageDetailRoute({
   const transcriptSegments = useMemo(() => {
     if (data === null) return undefined;
     const firstAgent = data.conversation.findIndex(row => row.kind === 'agent');
-    const firstFollowUp = firstAgent < 0 ? -1 : data.conversation.findIndex(
-      (row, index) => index > firstAgent && row.kind === 'user');
+    const firstFollowUp = data.conversation.findIndex((row, index) =>
+      (row.kind === 'iteration_marker' && row.text === 'user_steering')
+      || (firstAgent >= 0 && index > firstAgent && row.kind === 'user'));
     const splitAt = firstFollowUp < 0 ? data.conversation.length : firstFollowUp;
     return [
       stageFeed(data.conversation.slice(0, splitAt), onDecide, conversationThreadId, false, true),

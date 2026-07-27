@@ -616,6 +616,56 @@ describe('StageDetailRoute', () => {
     expect(card?.compareDocumentPosition(followUp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('keeps the changed-files card before remote-stage steering starts', async () => {
+    const now = '2026-07-21T00:00:00Z';
+    const detail: StageDetailData = {
+      task: {
+        id: 'task-1', taskNumber: 1, title: 'Remote development task', branch: 'dev/task-1',
+        repoFullName: 'bytequay/app', prNumber: 46, prDraft: false,
+        currentPhase: 'REMOTE_DEVELOPMENT', agentRuntime: 'CLI', agentModel: 'codex',
+      },
+      stage: {
+        id: 'stage-remote', type: 'REMOTE_DEVELOPMENT_STAGE', state: 'OPEN', openedAt: now,
+        closedAt: null, callerStageId: null, iterationCount: 1, currentIterationNumber: 1,
+        config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
+      },
+      allStages: [], subStages: [], conversationThreadId: 'stage-thread', iterations: [],
+      conversation: [
+        {
+          id: 'iteration-1', messageSeq: null, kind: 'iteration_marker', text: 'user_steering', ts: now,
+          toolTag: null, toolLabel: null, toolDetail: null, toolResult: null, toolError: null,
+          toolDiff: null, iterationNumber: 1, callId: null, images: [], managedSkills: [],
+        },
+        {
+          id: 'user-1', messageSeq: 1, kind: 'user', text: 'Why is the stage still working?',
+          ts: '2026-07-21T00:00:01Z',
+          toolTag: null, toolLabel: null, toolDetail: null, toolResult: null, toolError: null,
+          toolDiff: null, iterationNumber: null, callId: null, images: [], managedSkills: [],
+        },
+      ],
+      realtimeCi: null, ciFixHistory: [], pr: null,
+      context: { tokensUsed: 0, tokensLimit: 200_000, safeBand: 'safe' },
+      scrubber: { userMessages: [] }, liveRuns: [], guard: null, liveRound: null, devPhases: [],
+    };
+    (window as unknown as { bridge: unknown }).bridge = {
+      getStageDetail: vi.fn().mockResolvedValue(detail),
+      getTaskCumulativeDiff: vi.fn().mockResolvedValue([{
+        filename: 'frontend/src/App.tsx', status: 'modified', additions: 3, deletions: 1, patch: null,
+      }]),
+      listTaskCommits: vi.fn().mockResolvedValue([]),
+      getTaskRuns: vi.fn().mockResolvedValue([]),
+      getTaskRounds: vi.fn().mockResolvedValue([]),
+    };
+
+    render(<StageDetailRoute threadId="t1" taskId="task-1" stageId="stage-remote" />);
+
+    const card = (await screen.findByText('Changed 1 file')).closest('.workspace-task-files-card');
+    const marker = screen.getByText('Steered by you');
+    const steeringMessage = screen.getByText('Why is the stage still working?');
+    expect(card?.compareDocumentPosition(marker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(card?.compareDocumentPosition(steeringMessage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('surfaces supporting run and round poll failures', async () => {
     (window as unknown as { bridge: unknown }).bridge = {
       getStageDetail: vi.fn(() => new Promise(() => {})),

@@ -21,15 +21,16 @@ import com.bytequay.app.domain.WorkModel;
  * <p>Two axes resolve separately:
  *
  * <ul>
- *   <li><b>Engine</b> (CLI agent / API provider + model + account) — owned
- *       by the <em>workspace</em>, except where the trunk pinned its own
- *       at creation. It reads the trunk's pin for the audience, then the
- *       audience's own pick from the workspace settings ({@code plan} /
- *       {@code dev} / {@code review} / {@code ci-fix}), then the workspace
- *       {@code default} pick, then the workspace-scope override column,
- *       then the curated global default. Tasks and stages never choose an
- *       engine, and the trunk's pin is fixed at creation, so a task can't
- *       quietly switch providers mid-flight.</li>
+ *   <li><b>Engine</b> (CLI agent / API provider + model + account) — copied
+ *       onto a new trunk for all four audiences at creation. Explicit
+ *       create-dialog choices override the workspace's effective picks;
+ *       untouched roles copy them. Legacy sparse trunks still fall through
+ *       to the workspace settings ({@code plan} / {@code dev} /
+ *       {@code review} / {@code ci-fix}), workspace default, workspace-scope
+ *       override, then curated global default. Tasks and stages never choose
+ *       an engine, so later workspace changes cannot switch a trunk's new
+ *       sessions mid-flight. Task-brain child threads copy the parent
+ *       trunk's frozen plan engine when they are created.</li>
  *   <li><b>Reasoning effort</b> — owned by the <em>session</em>. The
  *       nearest scope wins: stage → task → thread → the workspace pick's
  *       own effort. This is the only part of the axis the trunk / task /
@@ -68,7 +69,7 @@ public interface WorkModelResolver
     record Resolved(WorkModel choice, Provenance provenance) {}
 
     /** Audit anchor for the resolved engine. {@code scopeId} is the
-     *  workspace id, or {@code null} for {@link Source#GLOBAL_DEFAULT}.
+     *  thread or workspace id, or {@code null} for {@link Source#GLOBAL_DEFAULT}.
      *  {@code scopeLabel} is human-readable and suitable for chips
      *  (e.g. {@code "workspace ByteQuay · dev"}). */
     record Provenance(Source source, String scopeId, String scopeLabel) {}
@@ -81,8 +82,8 @@ public interface WorkModelResolver
         STAGE,
         /** Retained for wire compatibility; no longer emitted. */
         TASK,
-        /** The trunk pinned this engine for the session's audience when it
-         *  was created, overriding the workspace's pick. */
+        /** The trunk froze this engine for the session's audience when it
+         *  was created, either from its explicit override or the workspace. */
         THREAD,
         /** The workspace configured the engine — a per-audience row, the
          *  workspace default, or its scope override column. */

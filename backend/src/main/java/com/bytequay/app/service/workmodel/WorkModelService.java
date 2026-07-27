@@ -15,6 +15,8 @@ package com.bytequay.app.service.workmodel;
 
 import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
+import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.WorkModelOptions;
 import com.bytequay.app.domain.WorkModelOptions.WorkModelAccount;
 import com.bytequay.app.domain.WorkModelOptions.WorkModelAgentOption;
@@ -27,6 +29,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -75,6 +78,33 @@ public class WorkModelService
         return options(true);
     }
 
+    /**
+     * Turn a picker id into the complete engine identity a new trunk freezes.
+     * Picker ids deliberately omit default models and may omit the API account;
+     * those moving defaults are resolved once here so later workspace,
+     * credential, or catalog changes cannot move an existing trunk.
+     */
+    public Optional<WorkModel> freezeChoice(String pickerChoice)
+    {
+        return WorkspaceEngineSettings.parseChoice(pickerChoice).map(this::freeze);
+    }
+
+    /** Complete a resolved workspace engine for durable per-trunk storage. */
+    public WorkModel freeze(WorkModel choice)
+    {
+        requireNonNull(choice, "choice is null");
+        WorkModelKind kind = requireNonNull(choice.kind(), "kind is null");
+        String engine = requireValue(choice.agentOrProvider(), "agent/provider");
+        String model = choice.model() == null || choice.model().isBlank()
+                ? defaultModel(kind, engine)
+                : choice.model().strip();
+        String account = null;
+        if (kind == WorkModelKind.API && !isLocalModel(engine, model)) {
+            account = freezeAccount(engine, choice.account());
+        }
+        return new WorkModel(kind, engine, model, account, choice.reasoningEffort());
+    }
+
     private WorkModelOptions options(boolean refresh)
     {
         return new WorkModelOptions(cliAgentOptions(refresh), apiProviderOptions());
@@ -113,6 +143,65 @@ public class WorkModelService
                     toEntries(agent.models())));
         }
         return out.build();
+    }
+
+    private String defaultModel(WorkModelKind kind, String engine)
+    {
+        if (kind == WorkModelKind.CLI) {
+            if ("codex".equals(engine)) {
+                var discovered = codexModels.models(false);
+                if (discovered.isPresent() && !discovered.orElseThrow().isEmpty()) {
+                    List<CodexModelCatalogProbe.Model> models = discovered.orElseThrow();
+                    return models.stream()
+                            .filter(CodexModelCatalogProbe.Model::isDefault)
+                            .findFirst()
+                            .orElse(models.getFirst())
+                            .id();
+                }
+            }
+            WorkModelCatalog.CatalogAgent agent = WorkModelCatalog.agent(engine);
+            if (agent != null) {
+                return agent.defaultModel().id();
+            }
+        }
+        else {
+            WorkModelCatalog.CatalogProvider provider = WorkModelCatalog.provider(engine);
+            if (provider != null) {
+                return provider.defaultModel().id();
+            }
+        }
+        throw new IllegalArgumentException("No default model for " + kind + " engine " + engine);
+    }
+
+    private String freezeAccount(String provider, String requested)
+    {
+        if (requested != null && !requested.isBlank()) {
+            String account = requested.strip();
+            return credentials.get(CredentialType.AI, provider, account)
+                    .map(Credential::instanceName)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "No " + provider + " API account named " + account));
+        }
+        return credentials.getDefault(CredentialType.AI, provider)
+                .or(() -> credentials.get(CredentialType.AI, provider))
+                .map(Credential::instanceName)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No " + provider + " API account is configured"));
+    }
+
+    private static boolean isLocalModel(String providerId, String modelId)
+    {
+        WorkModelCatalog.CatalogProvider provider = WorkModelCatalog.provider(providerId);
+        return provider != null && provider.models().stream()
+                .anyMatch(model -> model.id().equals(modelId) && model.localServed());
+    }
+
+    private static String requireValue(String value, String label)
+    {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(label + " is required");
+        }
+        return value.strip();
     }
 
     private static boolean cliAvailable(String agentId)

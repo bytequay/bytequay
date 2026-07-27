@@ -232,9 +232,9 @@ public class BrainServiceImpl
                     HttpStatusCode.valueOf(409),
                     "parent thread " + parent.id() + " has no workspace");
         }
-        // The brain follows the parent thread's resolved work model. Store
-        // that choice on the brain thread so the registry (which agent to
-        // build) and scheduler (which lane) both read the same configuration.
+        // The parent resolver now returns its creation-time plan snapshot.
+        // Copy it onto the child brain so the registry and scheduler keep the
+        // same provider even if workspace defaults change before a later turn.
         WorkModel resolved = resolveBrainWorkModel(task.threadId());
         Instant now = Instant.now();
         Thread brain = new Thread(
@@ -281,8 +281,8 @@ public class BrainServiceImpl
         }
     }
 
-    /** Resolve the brain's work model through the parent thread's normal
-     *  thread → workspace → global-default cascade. */
+    /** Resolve the brain's work model from the parent trunk's plan snapshot,
+     *  with the legacy workspace/global fallback handled by the resolver. */
     private WorkModel resolveBrainWorkModel(String devThreadId)
     {
         return requireNonNull(

@@ -33,6 +33,7 @@ import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadGroupStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -44,6 +45,10 @@ import com.bytequay.app.service.local.UncheckedGitException;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.skills.RoleRegistry;
+import com.bytequay.app.service.workmodel.SessionAudience;
+import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
+import com.bytequay.app.service.workmodel.WorkModelService;
 import com.bytequay.app.service.workspaces.WorkspaceDataPurger;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
@@ -65,8 +70,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -130,6 +137,13 @@ public class ThreadService
     /** Set by Spring; POJO unit tests construct this service directly and do
      * not persist AgentReview-owned threads. */
     private InvestigationReviewService investigationReviews;
+    /** Set by Spring so direct POJO tests that use the legacy create overload
+     *  do not need to construct persistence infrastructure they never touch. */
+    private ThreadEngineOverrides threadEngines;
+    /** Creation-time resolver pair. Spring supplies it; direct POJO tests use
+     *  the legacy no-snapshot path unless they exercise this integration. */
+    private WorkModelResolver workModelResolver;
+    private WorkModelService workModels;
     /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
      *  null in POJO unit tests that construct this service directly, where
      *  task-creation side effects (stage init) aren't under test. */
@@ -175,6 +189,19 @@ public class ThreadService
     void setInvestigationReviews(@Lazy InvestigationReviewService investigationReviews)
     {
         this.investigationReviews = requireNonNull(investigationReviews, "investigationReviews is null");
+    }
+
+    @Autowired
+    void setThreadEngines(ThreadEngineOverrides threadEngines)
+    {
+        this.threadEngines = requireNonNull(threadEngines, "threadEngines is null");
+    }
+
+    @Autowired
+    void setWorkModelResolution(WorkModelResolver workModelResolver, WorkModelService workModels)
+    {
+        this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
+        this.workModels = requireNonNull(workModels, "workModels is null");
     }
 
     @Override
@@ -446,10 +473,37 @@ public class ThreadService
     @Transactional
     public Thread create(NewTaskRequest request)
     {
-        requireNonNull(request, "request is null");
-        if (request.workspaceId() == null || request.workspaceId().isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "workspaceId is required — every thread belongs to a workspace");
+        validateCreateRequest(request);
+        Map<String, WorkModel> snapshot = workModelResolver == null || workModels == null
+                ? Map.of()
+                : freezeEngines(request.workspaceId(), Map.of());
+        return createWithSnapshot(request, snapshot);
+    }
+
+    /**
+     * Create from the dialog's sparse picker overrides. All four effective
+     * engines are resolved before persistence, then share the transaction with
+     * the thread and group memberships.
+     */
+    @Transactional
+    public Thread createWithEngineOverrides(
+            NewTaskRequest request,
+            Map<String, String> engineOverrides)
+    {
+        validateCreateRequest(request);
+        requireNonNull(workModelResolver, "workModelResolver is null");
+        requireNonNull(workModels, "workModels is null");
+        return createWithSnapshot(
+                request, freezeEngines(request.workspaceId(), engineOverrides));
+    }
+
+    private Thread createWithSnapshot(
+            NewTaskRequest request,
+            Map<String, WorkModel> engineSnapshot)
+    {
+        if (!engineSnapshot.isEmpty()) {
+            request = request.withEngine(requireNonNull(
+                    engineSnapshot.get(SessionAudience.PLAN), "plan engine is null"));
         }
         List<String> initialGroupIds = request.initialGroupIds() == null
                 ? List.of()
@@ -498,6 +552,10 @@ public class ThreadService
         for (String groupId : initialGroupIds) {
             groupStore.addMember(thread.id(), groupId);
         }
+        if (engineSnapshot != null && !engineSnapshot.isEmpty()) {
+            requireNonNull(threadEngines, "threadEngines is null")
+                    .replace(thread.id(), engineSnapshot);
+        }
         // initialPrompt — if present — feeds the title derivation
         // above but is NOT enqueued as a trunk turn. Treat it as
         // setup context the user prepared in the create dialog; the
@@ -505,6 +563,43 @@ public class ThreadService
         // before pressing Send. Nothing reaches the planning agent
         // until they do.
         return store.findThreadById(thread.id()).orElse(thread);
+    }
+
+    private Map<String, WorkModel> freezeEngines(
+            String workspaceId,
+            Map<String, String> requested)
+    {
+        Map<String, String> overrides = requested == null ? Map.of() : requested;
+        for (String audience : overrides.keySet()) {
+            if (audience == null || !SessionAudience.ALL.contains(audience)) {
+                throw new IllegalArgumentException("unknown session audience: " + audience);
+            }
+        }
+
+        Map<String, WorkModel> frozen = new LinkedHashMap<>();
+        for (String audience : SessionAudience.ALL) {
+            WorkModel choice;
+            if (overrides.containsKey(audience)) {
+                choice = workModels.freezeChoice(overrides.get(audience))
+                        .orElseThrow(() -> new IllegalArgumentException(
+                                "invalid engine choice for " + audience));
+            }
+            else {
+                choice = workModels.freeze(workModelResolver
+                        .resolveForWorkspace(workspaceId, audience).choice());
+            }
+            frozen.put(audience, choice);
+        }
+        return Map.copyOf(frozen);
+    }
+
+    private static void validateCreateRequest(NewTaskRequest request)
+    {
+        requireNonNull(request, "request is null");
+        if (request.workspaceId() == null || request.workspaceId().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "workspaceId is required — every thread belongs to a workspace");
+        }
     }
 
     /**
@@ -1569,9 +1664,9 @@ public class ThreadService
             /** Owning workspace's id — required. The thread row lands
              *  here and the workspace-scoped lists filter by it. */
             String workspaceId,
-            /** Optional per-thread work-model override. Null inherits
-             *  from the workspace default. The resolver picks it up on
-             *  the next turn. */
+            /** Optional per-thread reasoning-effort override. The creation
+             *  path normalises its engine fields to the frozen plan engine;
+             *  null inherits the engine's own effort. */
             WorkModel workModel,
             /** Optional trunk-supplied {@code PlanResult} (raw JSON). When
              *  present it seeds the new PlanStage's first {@code PLAN_RECORDED}
@@ -1665,6 +1760,24 @@ public class ThreadService
                     kind, provider, model, title, workingDir, branchName, initialPrompt,
                     initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
                     workspaceId, workModel, trunkPlan, deferPlanKickoff, origin, description);
+        }
+
+        public NewTaskRequest withEngine(WorkModel engine)
+        {
+            requireNonNull(engine, "engine is null");
+            ThreadKind engineKind = engine.kind() == WorkModelKind.API
+                    ? ThreadKind.LOGIC_LOOP
+                    : ThreadKind.CLI_AGENT;
+            WorkModel scopedWorkModel = workModel == null
+                    ? null
+                    : new WorkModel(
+                            engine.kind(), engine.agentOrProvider(), engine.model(),
+                            engine.account(), workModel.reasoningEffort());
+            return new NewTaskRequest(
+                    engineKind, engine.agentOrProvider(), engine.model(), title,
+                    workingDir, branchName, initialPrompt, initialGroupIds, taskType,
+                    linkedPrNumber, linkedIssueNumber, flow, workspaceId, scopedWorkModel,
+                    trunkPlan, deferPlanKickoff, origin, description);
         }
     }
 

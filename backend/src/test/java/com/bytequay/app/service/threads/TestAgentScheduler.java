@@ -42,6 +42,7 @@ import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.StageStore;
@@ -852,6 +853,42 @@ class TestAgentScheduler
     }
 
     @Test
+    void taskTurnUsesItsScopedRuntimeLaneInsteadOfTheTrunkLane()
+    {
+        TestHarness harness = new TestHarness(1, 1);
+        Thread cliTrunk = thread("thread-1", CLI_AGENT);
+        harness.register(cliTrunk);
+        harness.registry.scopedWorkModel = new WorkModel(
+                WorkModelKind.API, "anthropic", "claude-opus-4-8", "work");
+
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                cliTrunk, "develop", "task-1");
+
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().lane())
+                .isEqualTo(ThreadResourceLane.API);
+        assertThat(harness.registry.resolvedTaskId).isEqualTo("task-1");
+        assertThat(harness.registry.resolvedStageId).isNull();
+    }
+
+    @Test
+    void stageTurnUsesItsScopedRuntimeLaneInsteadOfTheTrunkLane()
+    {
+        TestHarness harness = new TestHarness(1, 1);
+        Thread apiTrunk = thread("thread-1", LOGIC_LOOP);
+        harness.register(apiTrunk);
+        harness.registry.scopedWorkModel = new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-5", null);
+
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                apiTrunk, "fix CI", "task-1", "stage-1", TurnInitiator.user());
+
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().lane())
+                .isEqualTo(ThreadResourceLane.CLI);
+        assertThat(harness.registry.resolvedTaskId).isEqualTo("task-1");
+        assertThat(harness.registry.resolvedStageId).isEqualTo("stage-1");
+    }
+
+    @Test
     void sameTaskTurnsDoNotRunConcurrently()
     {
         TestHarness harness = new TestHarness(2, 4);
@@ -1413,6 +1450,9 @@ class TestAgentScheduler
         private final Map<String, ThreadAgent> sessions = new LinkedHashMap<>();
         /** Which factory the scheduler routed the last turn through. */
         private String lastRouted;
+        private WorkModel scopedWorkModel;
+        private String resolvedTaskId;
+        private String resolvedStageId;
 
         private RecordingRegistry()
         {
@@ -1453,6 +1493,16 @@ class TestAgentScheduler
             // The scheduler tests don't distinguish trunk vs task agents.
             // Both return the recorded session for the thread.
             return getOrCreate(thread);
+        }
+
+        @Override
+        public WorkModel resolvedWorkModelForTurn(Thread thread, Task task, String stageId)
+        {
+            resolvedTaskId = task == null ? null : task.id();
+            resolvedStageId = stageId;
+            return scopedWorkModel == null
+                    ? super.resolvedWorkModelForTurn(thread, task, stageId)
+                    : scopedWorkModel;
         }
 
         @Override
@@ -1559,6 +1609,7 @@ class TestAgentScheduler
         @Override public void saveTask(Task task) { statuses.put(task.id(), task.status()); }
         @Override public Optional<Task> findTaskById(String id) {
             Task task = mock(Task.class);
+            when(task.id()).thenReturn(id);
             when(task.status()).thenReturn(statuses.getOrDefault(id, TaskStatus.IDLE));
             when(task.phase()).thenReturn(phases.get(id));
             return Optional.of(task);

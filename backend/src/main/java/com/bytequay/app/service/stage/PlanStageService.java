@@ -392,7 +392,8 @@ public class PlanStageService
             throw status(400, "the latest plan is not finalized — the brain must finalize it first");
         }
         if (!latestPlanWasSelfReviewed(plan.id())) {
-            throw status(409, "the mandatory Brain plan self-review has not finished yet");
+            throw status(409,
+                    "the mandatory Brain plan self-review has not approved the latest revision");
         }
         if (expectedPlan != null && !latest.equals(expectedPlan)) {
             throw status(409, "the plan changed after workspace issue intake classified it");
@@ -413,12 +414,18 @@ public class PlanStageService
     private boolean latestPlanWasSelfReviewed(UUID planStageId)
     {
         boolean reviewed = false;
+        String revisionId = null;
         for (StageEvent event : stageStore.findEventsByStage(planStageId)) {
             if (event.eventType() == StageEventType.PLAN_RECORDED) {
+                revisionId = parse(event.payloadJson()).path("id").asText(null);
                 reviewed = false;
             }
             else if (event.eventType() == StageEventType.PLAN_SELF_REVIEWED) {
-                reviewed = true;
+                JsonNode payload = parse(event.payloadJson());
+                String reviewedRevisionId = payload.path("reviewedRevisionId").asText(null);
+                reviewed = revisionId != null
+                        && "approved".equals(payload.path("verdict").asText(null))
+                        && revisionId.equals(reviewedRevisionId);
             }
         }
         return reviewed;
@@ -629,14 +636,17 @@ public class PlanStageService
         }
         String revision = approval.plan().path("id").asText("unknown");
         String kickKey = "plan-approved:" + approval.plan().path("id").asText(approval.dev().id().toString());
+        String prompt = devKickoffPrompt(approval.plan());
+        AgentRun run = agentRuns.openSchedulerSessionInCommand(
+                dev, task.id(), approval.dev().id().toString(), AgentRun.KIND_DEV, prompt);
         scheduler.enqueueTaskTurnOnce(
                 kickKey,
                 dev,
-                devKickoffPrompt(approval.plan()),
+                prompt,
                 task.id(),
                 approval.dev().id().toString(),
                 TurnInitiator.unattended(initiatorSource),
-                null,
+                run.id(),
                 TurnLiveness.CODE);
         log.debug("durably queued approved plan revision {} for task {}", revision, taskId);
     }

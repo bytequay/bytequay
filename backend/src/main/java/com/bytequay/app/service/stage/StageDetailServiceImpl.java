@@ -555,11 +555,25 @@ public class StageDetailServiceImpl
             List<TaskStageIteration> iters,
             List<StageEvent> events)
     {
-        List<ThreadMessage> source = stage.type() == StageType.PLAN_STAGE
-                ? threadStore.findBrainThreadByTask(task.id())
-                        .map(t -> threadStore.listMessages(t.id()))
-                        .orElseGet(List::of)
-                : stageMessages(stage, devMessages);
+        List<ThreadMessage> source;
+        if (stage.type() == StageType.PLAN_STAGE) {
+            // Planning chatter remains on the brain thread, while plan
+            // self-review runs write to the decoupled stage transcript.
+            // Merge both stores for this detail view only. The id key keeps
+            // a backfilled legacy row from rendering twice.
+            Map<String, ThreadMessage> byId = new LinkedHashMap<>();
+            threadStore.findBrainThreadByTask(task.id())
+                    .map(t -> threadStore.listMessages(t.id()))
+                    .orElseGet(List::of)
+                    .forEach(m -> byId.put(m.id(), m));
+            stageMessages(stage, devMessages).forEach(m -> byId.put(m.id(), m));
+            source = byId.values().stream()
+                    .sorted(Comparator.comparing(ThreadMessage::ts))
+                    .toList();
+        }
+        else {
+            source = stageMessages(stage, devMessages);
+        }
 
         // Pair each tool call with its result row (same callId) so the
         // transcript can show command + outcome on a single card.

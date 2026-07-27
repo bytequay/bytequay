@@ -203,10 +203,22 @@ class AgentRunServiceImpl
                     () -> openSchedulerSessionInCommand(
                             thread, taskId, stageId, kind, launchInput));
         }
-        return openSchedulerSessionInCommand(thread, taskId, stageId, kind, launchInput);
+        return openSchedulerSessionRecord(thread, taskId, stageId, kind, launchInput);
     }
 
-    private AgentRun openSchedulerSessionInCommand(
+    @Override
+    public AgentRun openSchedulerSessionInCommand(
+            Thread thread, String taskId, String stageId, String kind, String launchInput)
+    {
+        requireNonNull(thread, "thread is null");
+        requireText(taskId, "taskId");
+        requireText(kind, "kind");
+        requireText(launchInput, "launchInput");
+        TaskCommandExecutor.requireCurrent(taskId);
+        return openSchedulerSessionRecord(thread, taskId, stageId, kind, launchInput);
+    }
+
+    private AgentRun openSchedulerSessionRecord(
             Thread thread, String taskId, String stageId, String kind, String launchInput)
     {
         if (taskId != null && !taskId.isBlank()) {

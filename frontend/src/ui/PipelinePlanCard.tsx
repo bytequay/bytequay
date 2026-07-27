@@ -41,7 +41,7 @@ export interface Plan {
   /** 'draft' — still being written/revised, not yet finalized; Approve stays
    *  disabled (the card explains why). 'ready' — finalized, awaiting the
    *  user's approval. */
-  status: 'draft' | 'ready' | 'running' | 'approved';
+  status: 'draft' | 'revision_required' | 'ready' | 'running' | 'approved';
   /** ONE concise sentence: what + why. Backtick-wrapped spans render as
    *  inline mono chips (e.g. "…new param `maxSize`."). */
   goal: string;
@@ -80,6 +80,7 @@ export interface PipelinePlanCardProps {
 
 const STATUS_LABEL: Record<Plan['status'], string> = {
   draft: 'Plan drafting',
+  revision_required: 'Plan needs revision',
   ready: 'Plan ready',
   running: 'Brain reviewing plan',
   approved: 'Plan approved',
@@ -87,6 +88,7 @@ const STATUS_LABEL: Record<Plan['status'], string> = {
 
 const STATUS_DOT_COLOR: Record<Plan['status'], string> = {
   draft: '#9a6700',
+  revision_required: '#cf5c00',
   ready: '#2da44e',
   running: '#2da44e',
   approved: '#2da44e',
@@ -418,6 +420,14 @@ export function PipelinePlanCard({ plan, approvedAt, onPolicyChange, onApprove, 
                 borderRadius: 7, padding: '7px 10px',
               }}>
                 Plan finalized — Brain self-review is in progress. Approval unlocks when self-review finishes.
+              </div>
+            )}
+            {plan.status === 'revision_required' && onApprove === undefined && (
+              <div style={{
+                fontSize: 12, color: '#9a3412', background: '#fff1e8', border: '1px solid #f1b896',
+                borderRadius: 7, padding: '7px 10px',
+              }}>
+                Brain requested changes to this plan. Request a revision before approval.
               </div>
             )}
             <div style={{ display: 'flex', gap: 9 }}>

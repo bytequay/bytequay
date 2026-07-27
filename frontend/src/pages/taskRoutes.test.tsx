@@ -16,7 +16,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { TaskBrainRoute } from './TaskBrainRoute';
 import { StageDetailRoute } from './StageDetailRoute';
 import { buildMockBrainView } from '../threads/brain/brainViewFixture';
-import type { PlanCardDto, StageDetailData, TaskBrainViewData } from '../types/brainView';
+import type { AgentRunDto, PlanCardDto, StageDetailData, TaskBrainViewData } from '../types/brainView';
 import type { DiffFileDto, ThreadCommitDto } from '../types';
 import type { LocalPRBundle, LocalPRCommit } from '../types/localPr';
 
@@ -312,6 +312,30 @@ describe('TaskBrainRoute', () => {
     await waitFor(() => expect(onOpenStage).toHaveBeenCalledWith('dev-9'));
   });
 
+  it('surfaces plan approval failures instead of making the button look inert', async () => {
+    const approvePlan = vi.fn().mockRejectedValue(new Error('backend approve returned 500'));
+    const base = buildMockBrainView(0);
+    const plan: PlanCardDto = {
+      planStageId: 'plan-1', state: 'awaiting', status: 'finalized', source: 'brain',
+      understandingSummary: 'Add a cost meter to the rail', intentSummary: 'wire it',
+      steps: [{ ordinal: 1, action: 'Build the meter' }], validationStrategy: 'tests',
+      pushStrategy: 'await_approval',
+      signals: { riskLevel: 'low', estimatedComplexity: 'small', componentsCount: 2, expectedGain: 'x' },
+      revisionCount: 0, followups: [],
+    };
+    const view = { ...base, rightRail: { ...base.rightRail, plan } };
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      sendBrainMessage: vi.fn().mockResolvedValue({}),
+      approvePlan,
+    };
+
+    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onClosed={() => {}} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Approve & start dev/ }));
+    expect((await screen.findByRole('alert')).textContent).toContain('backend approve returned 500');
+  });
+
   it('labels an unfinished root-node plan as drafting', async () => {
     const base = buildMockBrainView(0);
     const plan: PlanCardDto = {
@@ -345,19 +369,65 @@ describe('TaskBrainRoute', () => {
       signals: { riskLevel: 'low', estimatedComplexity: 'small', componentsCount: 2, expectedGain: 'x' },
       revisionCount: 0, followups: [],
     };
-    const view = { ...base, rightRail: { ...base.rightRail, plan } };
+    const view: TaskBrainViewData = {
+      ...base,
+      liveRuns: [{
+        id: 'plan-review-1', taskId: 'task-1', kind: 'plan' as const, source: 'scheduled' as const,
+        parentStageId: 'plan-1', reviewRoundId: null, stageId: 'plan-1', status: 'running' as const,
+        iterations: 0, budget: null, headline: null,
+        startedAt: '2026-07-27T03:06:12Z', finishedAt: null,
+      }],
+      rightRail: { ...base.rightRail, plan },
+    };
     (window as unknown as { bridge: unknown }).bridge = {
       getBrainView: vi.fn().mockResolvedValue(view),
       sendBrainMessage: vi.fn().mockResolvedValue({}),
     };
 
-    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={() => {}} onClosed={() => {}} />);
+    const onOpenRun = vi.fn();
+    render(<TaskBrainRoute
+      threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenRun={onOpenRun} onClosed={() => {}}
+    />);
 
     await screen.findByText('Build the meter');
     expect(document.querySelector('.plan-feed-event__copy strong')?.textContent)
       .toBe('Brain reviewing plan');
     const approveButton = screen.getByRole('button', { name: /Approve & start dev/ }) as HTMLButtonElement;
     expect(approveButton.disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'View review log' }));
+    expect(onOpenRun).toHaveBeenCalledWith('plan-review-1');
+  });
+
+  it('keeps the completed plan review log available', async () => {
+    const base = buildMockBrainView(0);
+    const plan: PlanCardDto = {
+      planStageId: 'plan-1', state: 'awaiting', status: 'finalized', source: 'brain',
+      understandingSummary: 'Add a cost meter to the rail', intentSummary: 'wire it',
+      steps: [{ ordinal: 1, action: 'Build the meter' }], validationStrategy: 'tests',
+      pushStrategy: 'await_approval',
+      signals: { riskLevel: 'low', estimatedComplexity: 'small', componentsCount: 2, expectedGain: 'x' },
+      revisionCount: 0, followups: [],
+    };
+    const view: TaskBrainViewData = { ...base, liveRuns: [], rightRail: { ...base.rightRail, plan } };
+    const completedRun: AgentRunDto = {
+      id: 'plan-review-done', taskId: 'task-1', kind: 'plan' as const, source: 'scheduled' as const,
+      parentStageId: 'plan-1', reviewRoundId: null, stageId: 'plan-1', status: 'succeeded' as const,
+      iterations: 0, budget: null, headline: null,
+      startedAt: '2026-07-27T03:06:12Z', finishedAt: '2026-07-27T03:09:14Z',
+    };
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      getTaskRuns: vi.fn().mockResolvedValue([completedRun]),
+      sendBrainMessage: vi.fn().mockResolvedValue({}),
+    };
+    const onOpenRun = vi.fn();
+
+    render(<TaskBrainRoute
+      threadId="t1" taskId="task-1" onOpenStage={() => {}} onOpenRun={onOpenRun} onClosed={() => {}}
+    />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View review log' }));
+    expect(onOpenRun).toHaveBeenCalledWith('plan-review-done');
   });
 
   it('renders the auto-approve toggle only in the plan card, not as a top-bar button', async () => {

@@ -104,7 +104,8 @@ public class TaskCommandExecutor
     {
         requireNonNull(work, "work is null");
         if (CURRENT_TASK.get() != null
-                || TransactionSynchronizationManager.isSynchronizationActive()) {
+                || TransactionSynchronizationManager.isSynchronizationActive()
+                || TransactionSynchronizationManager.isActualTransactionActive()) {
             Thread.startVirtualThread(work);
             return;
         }

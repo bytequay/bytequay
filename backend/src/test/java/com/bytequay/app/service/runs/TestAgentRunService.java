@@ -17,6 +17,10 @@ import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.service.stage.StageStateMachine;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
@@ -119,6 +123,33 @@ class TestAgentRunService
     }
 
     @Test
+    void schedulerSessionCanJoinAnEnclosingTaskCommand()
+    {
+        Thread thread = thread();
+        when(store.findByTask("t1", AgentRun.KIND_DEV, BACKING_STAGE_ID.toString()))
+                .thenReturn(List.of());
+        when(store.insert(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AgentRun run = commands.execute("t1", () -> service.openSchedulerSessionInCommand(
+                thread, "t1", BACKING_STAGE_ID.toString(), AgentRun.KIND_DEV, "Implement"));
+
+        assertThat(run.taskId()).isEqualTo("t1");
+        assertThat(run.stageId()).isEqualTo(BACKING_STAGE_ID.toString());
+        assertThat(run.kind()).isEqualTo(AgentRun.KIND_DEV);
+        assertThat(run.status()).isEqualTo(AgentRun.STATUS_QUEUED);
+        assertThat(run.threadId()).isEqualTo(thread.id());
+    }
+
+    @Test
+    void inCommandSchedulerSessionRejectsCallsOutsideATaskCommand()
+    {
+        assertThatThrownBy(() -> service.openSchedulerSessionInCommand(
+                thread(), "t1", BACKING_STAGE_ID.toString(), AgentRun.KIND_DEV, "Implement"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no active task command for t1");
+    }
+
+    @Test
     void attachOwnershipPromotesTheSameArtifactRun()
     {
         AgentRun detached = new AgentRun(
@@ -140,6 +171,14 @@ class TestAgentRunService
         verify(store).updateOwnership(
                 detached.id(), "ws-1", "trunk-1", "anthropic", "claude-sonnet",
                 "Review octocat/app#42");
+    }
+
+    private static Thread thread()
+    {
+        return new Thread(
+                "thread-1", ThreadKind.CLI_AGENT, "claude-code", null, "Dev",
+                ThreadStatus.RUNNING, "claude-sonnet-4.6", 0L, 0L, 0L, NOW, NOW,
+                null, null, ThreadFlow.BUILD, "ws-1", null, null);
     }
 
     @Test

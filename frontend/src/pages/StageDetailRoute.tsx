@@ -147,6 +147,7 @@ export function StageDetailRoute({
   const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [approvingPlan, setApprovingPlan] = useState(false);
   const [prZoomed, setPrZoomed] = useState(false);
   const {
     bundle: localPrBundle,
@@ -340,11 +341,16 @@ export function StageDetailRoute({
   }, [threadId, taskId, diffCacheKey, hasDiff]);
 
   const approvePlan = () => {
-    if (plan === null) return;
+    if (plan === null || approvingPlan) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    bridge?.approvePlan(plan.planStageId)
+    if (bridge === undefined) return;
+    setActionError(null);
+    setApprovingPlan(true);
+    bridge.approvePlan(plan.planStageId)
       .then(result => { pollFast(); onOpenStage?.(result.devStageId); })
-      .catch(() => { /* poll reconciles */ });
+      .catch((reason: unknown) => setActionError(
+        reason instanceof Error ? reason.message : 'Could not approve the plan'))
+      .finally(() => setApprovingPlan(false));
   };
   // The plan reminder pill (above the composer) opens the zoomed plan card in
   // an overlay — same affordance as the brain view, on every stage.
@@ -355,7 +361,7 @@ export function StageDetailRoute({
     <PlanCard
       plan={plan}
       approvedAt={approvedAt}
-      onApprove={plan.state === 'awaiting' ? approvePlan : undefined}
+      onApprove={plan.state === 'awaiting' && !approvingPlan ? approvePlan : undefined}
       onCommentStep={ord => { setText(`Re: step ${ord} — `); setPlanOpen(false); }}
       stepComments={planStepComments(brain.brainFeed)}
     />

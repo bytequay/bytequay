@@ -124,6 +124,23 @@ describe('PlanCard (pipeline adapter)', () => {
     expect(approveButton.disabled).toBe(true);
   });
 
+  it('keeps a changes-requested plan blocked with revision available', () => {
+    const onRequestRevision = vi.fn();
+    render(<PlanCard
+      plan={plan({ state: 'revision_required', status: 'finalized' })}
+      onRequestRevision={onRequestRevision}
+    />);
+    expect(screen.getByText('Plan needs revision')).toBeTruthy();
+    expect(screen.getByText(/Brain requested changes to this plan/)).toBeTruthy();
+    const approveButton = screen.getByText('Approve & start dev').closest('button') as HTMLButtonElement;
+    expect(approveButton.disabled).toBe(true);
+
+    fireEvent.click(screen.getByText('Request revision'));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Address the review concerns' } });
+    fireEvent.click(screen.getByText('Send revision request'));
+    expect(onRequestRevision).toHaveBeenCalledWith('Address the review concerns');
+  });
+
   it('does not surface per-step comment affordances (dropped in the pipeline design)', () => {
     const feed: BrainFeedRow[] = [{
       id: 'comment-1', messageSeq: 4, type: 'USER_MESSAGE', stageId: null, stageType: null,

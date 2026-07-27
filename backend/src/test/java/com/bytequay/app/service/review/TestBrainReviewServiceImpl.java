@@ -142,7 +142,12 @@ class TestBrainReviewServiceImpl
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
 
         verify(scheduler).enqueueTaskTurn(
-                eq(brainThread), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
+                eq(brainThread), argThat(prompt -> prompt.contains("task `" + TASK_ID + "`")
+                        && prompt.contains("revision `plan-rev-1`")
+                        && prompt.contains("\"goal\" : \"Fix the bug\"")
+                        && prompt.contains("task_id=`" + TASK_ID + "`")
+                        && !prompt.contains("task_id=`current`")),
+                eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
                 argThat(i -> "brain-plan-self-review".equals(i.source())), isNull(), any());
         verify(stageStore).recordEvent(
                 PLAN_STAGE_ID, TASK_ID, StageEventType.PLAN_SELF_REVIEW_STARTED,
@@ -188,13 +193,13 @@ class TestBrainReviewServiceImpl
     void neverTriggersASecondSelfReviewOnceOneHasHappened()
     {
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
-        StageEvent reviewed = new StageEvent(
-                UUID.randomUUID(), PLAN_STAGE_ID, TASK_ID, StageEventType.PLAN_SELF_REVIEWED, NOW, "{}");
         when(turnStore.findTurnById("turn-2"))
                 .thenReturn(Optional.of(turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("user"))));
         when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
-                .thenReturn(List.of(planRecordedEvent("finalized"), reviewed));
+                .thenReturn(List.of(
+                        planRecordedEvent("finalized"),
+                        planReviewedEvent(ReviewRound.VERDICT_APPROVED, "plan-rev-1")));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-2", false));
 
@@ -202,37 +207,81 @@ class TestBrainReviewServiceImpl
     }
 
     @Test
-    void theSelfReviewTurnFinishingTurnsAutoApproveOnForALowRiskLowEffortPlan()
+    void approvedSelfReviewTurnsAutoApproveOnForALowRiskLowEffortPlan()
     {
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
         when(turnStore.findTurnById("turn-3")).thenReturn(Optional.of(
                 turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("brain-plan-self-review"))));
         when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
-                .thenReturn(List.of(planRecordedEvent("finalized", "low", "trivial")));
+                .thenReturn(List.of(
+                        planRecordedEvent("finalized", "low", "trivial"),
+                        planReviewedEvent(ReviewRound.VERDICT_APPROVED, "plan-rev-1")));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-3", false));
 
-        verify(stageStore).recordEvent(
-                eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED),
-                eq(Map.of("verdict", "completed_without_verdict")));
+        verify(stageStore, never()).recordEvent(
+                eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED), any());
         verify(taskStore).setAutoApprove(TASK_ID, true);
         // The self-review turn's own completion must not re-enqueue itself.
         verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
-    void theSelfReviewTurnFinishingLeavesAutoApproveOffForAHighRiskPlan()
+    void approvedSelfReviewLeavesAutoApproveOffForAHighRiskPlan()
     {
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
         when(turnStore.findTurnById("turn-4")).thenReturn(Optional.of(
                 turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("brain-plan-self-review"))));
         when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
-                .thenReturn(List.of(planRecordedEvent("finalized", "high", "large")));
+                .thenReturn(List.of(
+                        planRecordedEvent("finalized", "high", "large"),
+                        planReviewedEvent(ReviewRound.VERDICT_APPROVED, "plan-rev-1")));
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-4", false));
 
+        verify(taskStore, never()).setAutoApprove(anyString(), any(Boolean.class));
+    }
+
+    @Test
+    void changesRequestedCompletesTheReviewWithoutApprovingOrRetryingTheSameRevision()
+    {
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
+        when(turnStore.findTurnById("changes-requested-review")).thenReturn(Optional.of(
+                turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("brain-plan-self-review"))));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
+        when(stageStore.findEventsByStage(PLAN_STAGE_ID))
+                .thenReturn(List.of(
+                        planRecordedEvent("finalized"),
+                        planReviewedEvent(ReviewRound.VERDICT_CHANGES_REQUESTED, "plan-rev-1")));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "changes-requested-review", false));
+
+        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(taskStore, never()).setAutoApprove(anyString(), any(Boolean.class));
+    }
+
+    @Test
+    void completedSelfReviewWithoutAVerdictRetriesInsteadOfUnlockingApproval()
+    {
+        ThreadTurn completed = turn(
+                PLAN_STAGE_ID.toString(), TurnInitiator.unattended("brain-plan-self-review"));
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
+        when(turnStore.findTurnById("unverdicted-review")).thenReturn(Optional.of(completed));
+        when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
+        when(stageStore.findEventsByStage(PLAN_STAGE_ID))
+                .thenReturn(List.of(planRecordedEvent("finalized")));
+        when(turnStore.listTurnsByTaskId(completed.threadId(), 50)).thenReturn(List.of(completed));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+
+        service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "unverdicted-review", false));
+
+        verify(scheduler).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
+                argThat(initiator -> "brain-plan-self-review".equals(initiator.source())), isNull(), any());
+        verify(stageStore, never()).recordEvent(
+                eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED), any());
         verify(taskStore, never()).setAutoApprove(anyString(), any(Boolean.class));
     }
 
@@ -244,6 +293,8 @@ class TestBrainReviewServiceImpl
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(taskAt(TaskPhase.PLANNING)));
         when(turnStore.findTurnById("failed-review")).thenReturn(Optional.of(failed));
         when(stageStore.findStageById(PLAN_STAGE_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
+        when(stageStore.findEventsByStage(PLAN_STAGE_ID))
+                .thenReturn(List.of(planRecordedEvent("finalized")));
         when(turnStore.listTurnsByTaskId("thread-1", 50)).thenReturn(List.of(failed));
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
 
@@ -371,24 +422,27 @@ class TestBrainReviewServiceImpl
     }
 
     @Test
-    void reconcilerRecordsTheCheckpointWhenACompletionEventWasMissed()
+    void reconcilerReReviewsAnUnboundLegacyCheckpoint()
     {
         Task planning = taskAt(TaskPhase.PLANNING);
         when(taskStore.listByPhases(List.of(TaskPhase.PLANNING), 100)).thenReturn(List.of(planning));
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(planning));
         when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
         when(stageStore.findEventsByStage(PLAN_STAGE_ID))
-                .thenReturn(List.of(planRecordedEvent("finalized")));
+                .thenReturn(List.of(
+                        planRecordedEvent("finalized"),
+                        planReviewedEvent(ReviewRound.VERDICT_APPROVED, null)));
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
         when(turnStore.listTurnsByTaskId("brain-1", 50)).thenReturn(List.of(
                 turn(PLAN_STAGE_ID.toString(), TurnInitiator.unattended("brain-plan-self-review"))));
 
         service.reconcilePlanSelfReviews();
 
-        verify(stageStore).recordEvent(
-                eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED),
-                eq(Map.of("verdict", "completed_without_verdict")));
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(scheduler).enqueueTaskTurn(
+                any(), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
+                argThat(initiator -> "brain-plan-self-review".equals(initiator.source())), isNull(), any());
+        verify(stageStore, never()).recordEvent(
+                eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED), any());
     }
 
     @Test
@@ -427,11 +481,18 @@ class TestBrainReviewServiceImpl
     @Test
     void recordVerdictForPlanScopeWritesTheSelfReviewedMarkerAndTheTimelineEvent()
     {
+        when(stageStore.findStageById(PLAN_STAGE_ID))
+                .thenReturn(Optional.of(planStage(StageState.OPEN)));
+        when(stageStore.findEventsByStage(PLAN_STAGE_ID))
+                .thenReturn(List.of(planRecordedEvent("finalized")));
+
         service.recordVerdict(TASK_ID, PLAN_STAGE_ID.toString(), "plan", ReviewRound.VERDICT_APPROVED);
 
         verify(stageStore).recordEvent(
                 eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED),
-                eq(Map.of("verdict", ReviewRound.VERDICT_APPROVED)));
+                eq(Map.of(
+                        "verdict", ReviewRound.VERDICT_APPROVED,
+                        "reviewedRevisionId", "plan-rev-1")));
         // Exactly one pass (R20), so iteration is always 1. A no-op when the
         // plan predates the local PR (the usual case) — PRServiceImpl backs
         // that with its own backfill, verified separately in PRServiceImpl's
@@ -1993,12 +2054,26 @@ class TestBrainReviewServiceImpl
     private static StageEvent planRecordedEvent(String status, String riskLevel, String estimatedComplexity)
     {
         ObjectNode payload = new ObjectMapper().createObjectNode();
+        payload.put("id", "plan-rev-1");
+        payload.put("goal", "Fix the bug");
         payload.put("status", status);
         payload.set("signals", new ObjectMapper().createObjectNode()
                 .put("riskLevel", riskLevel)
                 .put("estimatedComplexity", estimatedComplexity));
         return new StageEvent(UUID.randomUUID(), PLAN_STAGE_ID, TASK_ID, StageEventType.PLAN_RECORDED, NOW,
                 payload.toString());
+    }
+
+    private static StageEvent planReviewedEvent(String verdict, String reviewedRevisionId)
+    {
+        ObjectNode payload = new ObjectMapper().createObjectNode();
+        payload.put("verdict", verdict);
+        if (reviewedRevisionId != null) {
+            payload.put("reviewedRevisionId", reviewedRevisionId);
+        }
+        return new StageEvent(
+                UUID.randomUUID(), PLAN_STAGE_ID, TASK_ID, StageEventType.PLAN_SELF_REVIEWED,
+                NOW.plusSeconds(1), payload.toString());
     }
 
     private static Thread brainThread()

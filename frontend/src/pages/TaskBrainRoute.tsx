@@ -46,6 +46,7 @@ import type { WsNavKey } from '../ui/workspace';
 import PublishGatePane from '../PublishGatePane';
 import { deriveLocalReviewApproval, deriveLocalReviewGate } from '../pr/localpr/localReviewGate';
 import { activelySubmittedCommentIds } from '../pr/localpr/localReviewSubmission';
+import { useTaskRuns } from '../threads/brain/useTaskRuns';
 
 /**
  * Data adapter that mounts the V3 {@link TaskBrainPage} on the live brain
@@ -88,6 +89,7 @@ export function TaskBrainRoute({
   onOpenAgentReview?: (target: AgentReviewNavTarget) => void;
 }) {
   const { data, error: viewError, pollFast } = useBrainViewData(taskId);
+  const { runs: taskRuns, error: runsError } = useTaskRuns(taskId);
   const { task, brainFeed, stages, subStages } = data;
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const { proposal: shipProposal, refresh: refreshShipProposal } = usePendingShipProposal(threadId, taskId);
@@ -95,6 +97,7 @@ export function TaskBrainRoute({
   const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [approvingPlan, setApprovingPlan] = useState(false);
   const [prZoomed, setPrZoomed] = useState(false);
   // Force-opens the PR tab's own Checks sub-tab — the Remote CI row's
   // click target. Declared ahead of the <PRView> construction below, which
@@ -385,11 +388,16 @@ export function TaskBrainRoute({
   const plan = data.rightRail.plan;
   const planSelfReviewing = plan !== null && isPlanSelfReviewing(plan);
   const approvePlan = () => {
-    if (plan === null) return;
+    if (plan === null || approvingPlan) return;
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    bridge?.approvePlan(plan.planStageId)
+    if (bridge === undefined) return;
+    setActionError(null);
+    setApprovingPlan(true);
+    bridge.approvePlan(plan.planStageId)
       .then(result => onOpenStage(result.devStageId))
-      .catch(() => { /* poll reconciles */ });
+      .catch((reason: unknown) => setActionError(
+        reason instanceof Error ? reason.message : 'Could not approve the plan'))
+      .finally(() => setApprovingPlan(false));
   };
   // Ask the brain to revise. Bare feedback is indistinguishable from a composer
   // chat, so the brain may just answer it (e.g. a question) and never re-record
@@ -409,7 +417,8 @@ export function TaskBrainRoute({
   // bar render at the BOTTOM of the feed — where the eye lands when the view
   // scrolls to the latest message — rather than pinned above the feed. Once
   // locked the plan moves to the right-pane reference tab, so it never dupes.
-  const showRoot = plan !== null && (plan.state === 'draft' || plan.state === 'awaiting');
+  const showRoot = plan !== null && (plan.state === 'draft'
+    || plan.state === 'revision_required' || plan.state === 'awaiting');
   // The seed is the prose that opened the PlanStage (the trunk handoff) — the
   // brain view carries no dedicated seed field (DISCOVERY-FINDINGS #8).
   const seed = brainFeed.find(r => r.type === 'STAGE_OPENED' && r.stageType === 'PLAN_STAGE')?.body;
@@ -425,6 +434,8 @@ export function TaskBrainRoute({
   // than "still thinking".
   const planHasContent = plan !== null
     && (plan.steps.length > 0 || plan.understandingSummary.trim().length > 0);
+  const planReviewRun = plan === null ? undefined : [...data.liveRuns, ...taskRuns]
+    .find(run => run.kind === 'plan' && run.parentStageId === plan.planStageId);
   const planCard = planHasContent && plan !== null ? (
     <PlanCard
       plan={plan}
@@ -432,7 +443,7 @@ export function TaskBrainRoute({
       autoMerge={autoMerge}
       autoConfidenceHigh={planConfidenceHigh}
       approvedAt={approvedAt}
-      onApprove={plan.state === 'awaiting' ? approvePlan : undefined}
+      onApprove={plan.state === 'awaiting' && !approvingPlan ? approvePlan : undefined}
       onRequestRevision={requestRevision}
       onCommentStep={ord => { setText(`Re: step ${ord} — `); setPlanOpen(false); }}
       onHoldAuto={toggleAutoApprove}
@@ -453,6 +464,7 @@ export function TaskBrainRoute({
             <strong>{plan.state === 'locked'
               ? 'Plan finalized'
               : plan.state === 'awaiting' ? 'Plan ready'
+                : plan.state === 'revision_required' ? 'Plan needs revision'
                 : planSelfReviewing ? 'Brain reviewing plan' : 'Plan drafting'}</strong>
             <span>
               rev {plan.revisionCount}
@@ -467,13 +479,24 @@ export function TaskBrainRoute({
               <span className="plan-feed-event__time"><EventTimestamp iso={approvedAt} /></span>
             )}
           </div>
-          <button
-            type="button"
-            className="plan-feed-event__toggle"
-            onClick={() => setPlanInlineOpenOverride(!inlinePlanOpen)}
-          >
-            {inlinePlanOpen ? 'Hide plan' : 'View plan'}
-          </button>
+          <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+            {planReviewRun !== undefined && onOpenRun !== undefined && (
+              <button
+                type="button"
+                className="plan-feed-event__toggle"
+                onClick={() => onOpenRun(planReviewRun.id)}
+              >
+                View review log
+              </button>
+            )}
+            <button
+              type="button"
+              className="plan-feed-event__toggle"
+              onClick={() => setPlanInlineOpenOverride(!inlinePlanOpen)}
+            >
+              {inlinePlanOpen ? 'Hide plan' : 'View plan'}
+            </button>
+          </div>
         </div>
         {inlinePlanOpen && <div className="plan-feed-event__card">{planCard}</div>}
       </div>
@@ -811,7 +834,7 @@ export function TaskBrainRoute({
         } : undefined,
         onClose: closeTask,
       }}
-      error={actionError ?? prError ?? viewError}
+      error={actionError ?? prError ?? runsError ?? viewError}
       planReminder={plan === null ? undefined
         : plan.state === 'awaiting' ? 'awaiting'
         : plan.state === 'locked' ? 'locked'

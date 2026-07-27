@@ -488,7 +488,12 @@ public class ThreadService
                 /* errorMessage */ null,
                 request.flow() == null ? ThreadFlow.BUILD : request.flow(),
                 request.workspaceId().trim(),
-                request.workModel());
+                request.workModel(),
+                /* parentReviewPassId */ null,
+                /* parallelSlots */ 1,
+                /* parentTaskId */ null,
+                /* prRef */ null,
+                request.description());
         store.saveThread(thread);
         for (String groupId : initialGroupIds) {
             groupStore.addMember(thread.id(), groupId);
@@ -1579,11 +1584,28 @@ public class ThreadService
              *  current creation leaves it false and plans immediately. */
             boolean deferPlanKickoff,
             /** Immutable creator provenance copied to the Task row. */
-            String origin)
+            String origin,
+            /** Optional user remark attached to the trunk itself. */
+            String description)
     {
         public NewTaskRequest
         {
             origin = origin == null || origin.isBlank() ? Task.ORIGIN_USER : origin.strip();
+            description = description == null || description.isBlank() ? null : description.strip();
+        }
+
+        /** Backwards-compatible full constructor predating descriptions. */
+        public NewTaskRequest(
+                ThreadKind kind, String provider, String model, String title,
+                String workingDir, String branchName, String initialPrompt,
+                List<String> initialGroupIds, String taskType, Integer linkedPrNumber,
+                Integer linkedIssueNumber, ThreadFlow flow, String workspaceId,
+                WorkModel workModel, JsonNode trunkPlan, boolean deferPlanKickoff,
+                String origin)
+        {
+            this(kind, provider, model, title, workingDir, branchName, initialPrompt,
+                    initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
+                    workspaceId, workModel, trunkPlan, deferPlanKickoff, origin, null);
         }
 
         /** Backwards-compatible constructor for the common no-trunk-plan
@@ -1598,7 +1620,7 @@ public class ThreadService
         {
             this(kind, provider, model, title, workingDir, branchName, initialPrompt,
                     initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
-                    workspaceId, workModel, null, false, Task.ORIGIN_USER);
+                    workspaceId, workModel, null, false, Task.ORIGIN_USER, null);
         }
 
         /** Constructor for callers that supply a trunk plan but plan
@@ -1613,7 +1635,7 @@ public class ThreadService
         {
             this(kind, provider, model, title, workingDir, branchName, initialPrompt,
                     initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
-                    workspaceId, workModel, trunkPlan, false, Task.ORIGIN_USER);
+                    workspaceId, workModel, trunkPlan, false, Task.ORIGIN_USER, null);
         }
 
         /** Backwards-compatible full constructor predating provenance. */
@@ -1626,7 +1648,7 @@ public class ThreadService
         {
             this(kind, provider, model, title, workingDir, branchName, initialPrompt,
                     initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
-                    workspaceId, workModel, trunkPlan, deferPlanKickoff, Task.ORIGIN_USER);
+                    workspaceId, workModel, trunkPlan, deferPlanKickoff, Task.ORIGIN_USER, null);
         }
 
         public NewTaskRequest withOrigin(String origin)
@@ -1634,7 +1656,15 @@ public class ThreadService
             return new NewTaskRequest(
                     kind, provider, model, title, workingDir, branchName, initialPrompt,
                     initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
-                    workspaceId, workModel, trunkPlan, deferPlanKickoff, origin);
+                    workspaceId, workModel, trunkPlan, deferPlanKickoff, origin, description);
+        }
+
+        public NewTaskRequest withDescription(String description)
+        {
+            return new NewTaskRequest(
+                    kind, provider, model, title, workingDir, branchName, initialPrompt,
+                    initialGroupIds, taskType, linkedPrNumber, linkedIssueNumber, flow,
+                    workspaceId, workModel, trunkPlan, deferPlanKickoff, origin, description);
         }
     }
 

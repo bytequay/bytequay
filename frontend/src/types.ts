@@ -1710,6 +1710,8 @@ export type ThreadDto = {
   provider: string;
   agentSessionId: string | null;
   title: string;
+  /** Optional user remark shown when the trunk name is hovered. */
+  description?: string | null;
   status: ThreadStatusDto;
   /** Structural discriminator; see {@link ThreadFlowDto}. Defaults to
    *  {@code 'build'} on legacy rows. */
@@ -2361,9 +2363,10 @@ export type NewTaskRequestDto = {
    *  create when null/blank so the thread always lands in the right
    *  workspace's slice. */
   workspaceId: string;
-  /** Optional — when omitted, the backend auto-titles from the first
-   *  trunk message. Threads are never named by the user up front. */
+  /** User-authored trunk name. */
   title?: string;
+  /** Optional remark displayed when the trunk name is hovered. */
+  description?: string;
   /** Optional — a 0-Task thread has no working directory because it
    *  has no worktree. Only the materialise-task path needs this. */
   workingDir?: string;

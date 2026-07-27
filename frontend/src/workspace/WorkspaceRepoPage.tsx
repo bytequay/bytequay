@@ -897,7 +897,9 @@ function TrunkPicker({
                 }}
               >
                 <i className={trunkStatusClass(trunk.status)} />
-                <span className="wu-trunk-picker__title">{trunk.title}</span>
+                <span className="wu-trunk-picker__title" title={trunk.description ?? undefined}>
+                  {trunk.title}
+                </span>
                 <span className="wu-trunk-picker__status">{trunkPickerStatus(trunk)}</span>
                 {selectedId === trunk.id && <span className="wu-trunk-picker__select">Select</span>}
               </div>

@@ -117,6 +117,10 @@ function renderDialog() {
     />);
 }
 
+function enterName(value = 'Core engine') {
+  fireEvent.change(screen.getByLabelText('Trunk name'), { target: { value } });
+}
+
 it('inherits the workspace agents and pins only the kind the user swaps', async () => {
   const { createTask } = installBridge(options(true, true));
   renderDialog();
@@ -135,9 +139,34 @@ it('inherits the workspace agents and pins only the kind the user swaps', async 
   fireEvent.click(screen.getByText(/Codex CLI · available/));
   await waitFor(() => expect(screen.getByText('1 overridden for this trunk')).toBeTruthy());
 
+  enterName();
+  fireEvent.change(screen.getByLabelText(/Description/), {
+    target: { value: 'Owns shared parsing and execution behavior.' },
+  });
   fireEvent.click(screen.getByText(/Create trunk/));
   await waitFor(() => expect(createTask).toHaveBeenCalled());
-  expect(createTask.mock.calls[0][0]).toMatchObject({ engines: { plan: 'cli:codex' } });
+  expect(createTask.mock.calls[0][0]).toMatchObject({
+    title: 'Core engine',
+    description: 'Owns shared parsing and execution behavior.',
+    engines: { plan: 'cli:codex' },
+  });
+  expect(createTask.mock.calls[0][0]).not.toHaveProperty('initialPrompt');
+});
+
+it('requires a trunk name of at most seven words', async () => {
+  installBridge(options(true, true));
+  renderDialog();
+
+  await screen.findByText('chenjian2664/ByteQuay');
+  const create = screen.getByRole('button', { name: /Create trunk/ });
+  expect((create as HTMLButtonElement).disabled).toBe(true);
+
+  enterName('one two three four five six seven eight');
+  expect(screen.getByText('Use 7 words or fewer.')).toBeTruthy();
+  expect((create as HTMLButtonElement).disabled).toBe(true);
+
+  enterName('one two three four five six seven');
+  expect((create as HTMLButtonElement).disabled).toBe(false);
 });
 
 it('blocks creation when the workspace has no usable agent', async () => {
@@ -159,6 +188,7 @@ it('defaults to the entire repository without assigning a code area', async () =
   expect(screen.getByText('modules/core')).toBeTruthy();
   expect(document.body.textContent).not.toMatch(/trunk directory/i);
 
+  enterName();
   fireEvent.click(screen.getByText(/Create trunk/));
   await waitFor(() => expect(createTask).toHaveBeenCalledOnce());
   expect(workspaceRequest.mock.calls.some(([request]) =>
@@ -180,6 +210,7 @@ it('requires approval before using a learned code area and attaches it to the tr
   })));
   expect(moduleButton.getAttribute('aria-pressed')).toBe('true');
 
+  enterName();
   fireEvent.click(screen.getByText(/Create trunk/));
   await waitFor(() => expect(workspaceRequest).toHaveBeenCalledWith(expect.objectContaining({
     path: '/api/workspaces/w1/directory-scopes/threads/t-new',
@@ -194,6 +225,7 @@ it('keeps trunk creation available when code-area suggestions fail to load', asy
 
   await screen.findByText('chenjian2664/ByteQuay');
   expect(screen.queryByText('CODE AREA')).toBeNull();
+  enterName();
   fireEvent.click(screen.getByText(/Create trunk/));
   await waitFor(() => expect(createTask).toHaveBeenCalledOnce());
 });

@@ -425,6 +425,7 @@ export function TrunkRoute({ threadId, onOpenTask, onReviewTask, onWorkspaceReso
       threadId={threadId}
       thread={{
         title: thread?.title ?? 'Thread',
+        description: thread?.description,
         status: thread?.status,
         errorMessage: thread?.errorMessage,
         branch: tasks.find(task => !TERMINAL_TASK_STATUSES.has(task.status))?.branchName ?? null,

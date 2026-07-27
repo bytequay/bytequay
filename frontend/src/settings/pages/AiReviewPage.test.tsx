@@ -35,6 +35,7 @@ const DEFAULTS: AiDefaultsDto = {
   plan: 'cli:claude-code',
   dev: 'cli:codex',
   review: 'cli:claude-code',
+  globalReview: 'cli:codex',
   ciFix: 'cli:codex',
   triage: 'cli:claude-code',
   perf: 'cli:claude-code',
@@ -92,11 +93,18 @@ describe('AiReviewPage', () => {
   });
 
   it('offers the account-wide roles that have no workspace equivalent', async () => {
-    installEngineBridge();
+    const setAiDefaults = installEngineBridge();
 
     render(<AiReviewPage />);
 
-    expect(await screen.findByText('Issue triage')).toBeTruthy();
+    expect(await screen.findByText('Global PR review')).toBeTruthy();
+    expect(screen.getByText('Issue triage')).toBeTruthy();
     expect(screen.getByText('Performance investigator')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Global PR review engine'), {
+      target: { value: 'cli:claude-code' },
+    });
+    await waitFor(() => expect(setAiDefaults)
+      .toHaveBeenCalledWith({ ...DEFAULTS, globalReview: 'cli:claude-code' }));
   });
 });

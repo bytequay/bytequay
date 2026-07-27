@@ -1433,6 +1433,7 @@ export type AiDefaultsDto = {
   plan: string;
   dev: string;
   review: string;
+  globalReview: string;
   ciFix: string;
   triage: string;
   perf: string;

@@ -46,6 +46,7 @@ const SESSION_KINDS: { key: keyof AiDefaultsDto; kind: string; bg: string; fg: s
 /** Account-wide roles. These have no workspace equivalent, so the value
  *  stored here is the one that actually runs. */
 const GLOBAL_ROLES: typeof SESSION_KINDS = [
+  { key: 'globalReview', kind: 'review', bg: '#dafbe1', fg: '#1a7f37', title: 'Global PR review', sub: 'Quick reviews for PRs whose repositories do not have a workspace yet' },
   { key: 'triage', kind: 'triage', bg: '#fff8c5', fg: '#9a6700', title: 'Issue triage', sub: 'Reads new issues and proposes labels and an owner — never comments without your click' },
   { key: 'perf', kind: 'perf', bg: '#f0f2f4', fg: '#454c54', title: 'Performance investigator', sub: 'Digs through slow paths and profiles before proposing a fix' },
 ];
@@ -63,7 +64,7 @@ function AiReviewPage({ initialTab = 'defaults' }: { initialTab?: AiTab }) {
     <SettingsPage
       title="AI"
       width={1000}
-      subtitle="Which engine runs each kind of agent work. Every workspace inherits these values and can override them locally."
+      subtitle="Which engine runs each kind of agent work. Workspace session kinds inherit these values; global roles run without a workspace."
       tabs={TABS}
       activeTab={tab}
       onSelectTab={next => setTab(next)}
@@ -148,9 +149,9 @@ function DefaultsTab() {
       <div className="sv2-note sv2-note--info">
         <span className="sv2-note__icon"><InfoIcon size={15} /></span>
         <span>
-          These are account-level defaults. A workspace’s <strong>Agents</strong> tab starts
-          from every row below; anything changed there is marked as an override and never
-          written back here.
+          These are account-level defaults. Workspace session kinds seed the
+          <strong> Agents</strong> tab; global roles are used directly when work has no workspace.
+          Workspace overrides are never written back here.
         </span>
       </div>
 

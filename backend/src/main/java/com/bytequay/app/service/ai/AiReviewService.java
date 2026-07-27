@@ -62,6 +62,7 @@ public class AiReviewService
     private final PRService prs;
     private final PullRequestRepository gitHub;
     private final LlmReviewerRegistry registry;
+    private final GlobalReviewRunner globalReview;
     private final AiReviewDraftStore draftStore;
     private final SkillService skillService;
     private final PullRequestDetailInvalidator detailInvalidator;
@@ -72,6 +73,7 @@ public class AiReviewService
             PRService prs,
             PullRequestRepository gitHub,
             LlmReviewerRegistry registry,
+            GlobalReviewRunner globalReview,
             AiReviewDraftStore draftStore,
             SkillService skillService,
             PullRequestDetailInvalidator detailInvalidator,
@@ -81,6 +83,7 @@ public class AiReviewService
         this.prs = requireNonNull(prs, "prs is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.registry = requireNonNull(registry, "registry is null");
+        this.globalReview = requireNonNull(globalReview, "globalReview is null");
         this.draftStore = requireNonNull(draftStore, "draftStore is null");
         this.skillService = requireNonNull(skillService, "skillService is null");
         this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
@@ -109,14 +112,6 @@ public class AiReviewService
 
         String repo = pr.repo();
         int number = pr.remotePrNumber();
-        LlmReviewer reviewer = registry.active();
-        if (!reviewer.isConfigured()) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(412),
-                    "The active LLM provider (" + reviewer.displayName() + ") has no API key configured. "
-                            + "Add it in Settings → Credentials.");
-        }
-
         String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
@@ -138,7 +133,7 @@ public class AiReviewService
                 .orElse(QUICK_REVIEW_SCOPE);
         ReviewRequest request = new ReviewRequest(
                 repo, number, pr.title(), raw.body(), raw.headSha(), diff, skillContext);
-        ReviewOutput output = reviewer.review(request);
+        ReviewOutput output = globalReview.review(request);
         AiReviewDraft saved = draftStore.saveForUnifiedPr(prId, repo, number, raw.headSha(), output);
         if (prs.findById(prId).isPresent()) {
             return saved;

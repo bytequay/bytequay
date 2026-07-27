@@ -183,6 +183,7 @@ function installBridge(
       plan: 'cli:claude-code',
       dev: 'cli:claude-code',
       review: 'cli:claude-code',
+      globalReview: 'cli:claude-code',
       ciFix: 'cli:codex',
       triage: 'cli:claude-code',
       perf: 'cli:claude-code',

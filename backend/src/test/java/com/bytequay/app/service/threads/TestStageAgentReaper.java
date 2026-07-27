@@ -34,7 +34,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The reaper stops and evicts only the closed stage's per-stage agent,
+ * The reaper retires and evicts only the closed stage's per-stage agent,
  * keying eviction by stage id and resolving the owning thread from the
  * task. A close with no live agent for the stage is a no-op.
  */
@@ -48,14 +48,14 @@ class TestStageAgentReaper
     private final StageAgentReaper reaper = new StageAgentReaper(registry, stageStore, direct);
 
     @Test
-    void stopsAndEvictsTheClosedStageAgent()
+    void retiresAndEvictsTheClosedStageAgent()
     {
         ThreadAgent agent = mock(ThreadAgent.class);
         when(registry.findStages(List.of("stage-1"))).thenReturn(List.of(agent));
 
         reaper.onStageClosed(new StageClosedEvent("task-1", "stage-1"));
 
-        verify(agent).stop();
+        verify(agent).retireStage();
         verify(registry).evictStage(null, "stage-1");
     }
 
@@ -95,8 +95,8 @@ class TestStageAgentReaper
 
         reaper.reconcileClosedStages();
 
-        verify(closedAgent).stop();
-        verify(missingAgent).stop();
+        verify(closedAgent).retireStage();
+        verify(missingAgent).retireStage();
         verify(registry).evictStage(null, STAGE_ID);
         verify(registry).evictStage(null, missingId);
         verify(registry, never()).evictStage(null, openId);

@@ -287,15 +287,18 @@ export default function PullTimeline({
             const passed = item.status === 'passed';
             const failed = item.status === 'failed';
             const rerunRequested = item.status === 'rerun_requested';
+            const rerunSkipped = rerunRequested && item.checkCount === 0;
             const rerun = passed && item.previousStatus === 'failed';
-            const label = rerunRequested
-              ? 'ByteQuay requested a GitHub Actions rerun'
-              : item.name !== null
-              ? `${item.name} ${item.status}`
-              : rerun ? 'CI passed after rerun'
-                : item.status === 'running' && item.previousStatus === 'failed'
-                  ? 'CI rerun in progress'
-                  : `CI ${item.status}`;
+            const label = rerunSkipped
+              ? 'No GitHub Actions workflow was ready to rerun'
+              : rerunRequested
+                ? 'ByteQuay requested a GitHub Actions rerun'
+                : item.name !== null
+                  ? `${item.name} ${item.status}`
+                  : rerun ? 'CI passed after rerun'
+                    : item.status === 'running' && item.previousStatus === 'failed'
+                      ? 'CI rerun in progress'
+                      : `CI ${item.status}`;
             return (
               <div key={item.id} style={iconRowStyle}>
                 <span style={{ width: 26, height: 26, borderRadius: '50%', background: passed ? '#dafbe1' : failed ? '#ffebe9' : '#fff8c5', border: '2px solid #fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: passed ? '#1a7f37' : failed ? '#cf222e' : '#9a6700', flexShrink: 0 }}>
@@ -311,7 +314,7 @@ export default function PullTimeline({
                       {item.headSha.slice(0, 7)}
                     </button>
                   )}</>}
-                  {item.checkCount !== null && item.name === null && <> · {item.checkCount} {rerunRequested ? (item.checkCount === 1 ? 'workflow' : 'workflows') : (item.checkCount === 1 ? 'check' : 'checks')}</>}
+                  {item.checkCount !== null && item.name === null && !rerunSkipped && <> · {item.checkCount} {rerunRequested ? (item.checkCount === 1 ? 'workflow' : 'workflows') : (item.checkCount === 1 ? 'check' : 'checks')}</>}
                   {item.trigger !== null && <> · Triggered by {item.trigger === 'user' ? 'you' : item.trigger}</>}
                   {' · '}{item.time}
                 </span>

@@ -477,7 +477,7 @@ public class AgentScheduler
             return insert.turnId();
         }
         if (affectsLiveness) {
-            engageLivenessPointer(taskId, insert.turnId());
+            engageLivenessPointer(turn);
         }
         appendEvent(turn, TURN_QUEUED, null);
         publishTurnStatus(turn);
@@ -495,11 +495,15 @@ public class AgentScheduler
      * nothing live holds it: unset, or held by a successfully COMPLETED
      * turn (the natural promotion point). A live QUEUED/RUNNING holder
      * keeps it — the new turn waits behind — and a FAILED/CANCELLED
-     * holder keeps it too, because {@code retryErrored} owns that
-     * replacement and sets the pointer itself.
+     * holder normally keeps it too, because {@code retryErrored} owns that
+     * replacement and sets the pointer itself. The one exception is a new
+     * attended stage steer on a task whose lifecycle still permits that
+     * turn: the steer is itself the user's explicit recovery intent.
      */
-    private void engageLivenessPointer(String taskId, String turnId)
+    private void engageLivenessPointer(ThreadTurn turn)
     {
+        String taskId = requireNonNull(turn.taskId(), "turn taskId is null");
+        String turnId = turn.id();
         if (tasks.setCurrentLivenessTurnIdIf(taskId, null, turnId)) {
             return;
         }
@@ -508,9 +512,25 @@ public class AgentScheduler
             return;
         }
         ThreadTurn holder = turns.findTurnById(current).orElse(null);
-        if (holder == null || holder.status() == COMPLETED) {
+        boolean attendedSteeringRecovery = holder != null
+                && (holder.status() == FAILED || holder.status() == CANCELLED)
+                && isAttendedStageSteering(turn)
+                && stoppedTaskReason(turn) == null;
+        if (holder == null || holder.status() == COMPLETED || attendedSteeringRecovery) {
             tasks.setCurrentLivenessTurnIdIf(taskId, current, turnId);
         }
+    }
+
+    private static boolean isAttendedStageSteering(ThreadTurn turn)
+    {
+        TurnInitiator initiator = turn.initiator();
+        return turn.scope() == ThreadScope.STAGE
+                && turn.stageId() != null
+                && !turn.stageId().isBlank()
+                && initiator != null
+                && initiator.attended()
+                && ("steering".equals(initiator.source())
+                || TurnInitiator.SOURCE_PARKED_STEERING.equals(initiator.source()));
     }
 
     /** Task-scoped turn-status wake signal for the runtime projection —
@@ -1037,6 +1057,13 @@ public class AgentScheduler
         if (persisted == null || persisted.status() != QUEUED
                 || cancelIfTaskStopped(persisted)) {
             return;
+        }
+        // Startup recovery can rediscover a durable attended steer whose
+        // predecessor failed before this process began. Repair the same
+        // liveness pointer that a fresh enqueue would repair before asking
+        // the lane to dispatch it.
+        if (persisted.taskId() != null && turns.turnAffectsTaskLiveness(persisted.id())) {
+            engageLivenessPointer(persisted);
         }
         boolean enqueued;
         synchronized (lock) {

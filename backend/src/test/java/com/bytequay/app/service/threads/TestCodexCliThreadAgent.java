@@ -32,8 +32,11 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -117,6 +120,17 @@ class TestCodexCliThreadAgent
 
         assertThat(cmd).doesNotContain("resume");
         assertThat(cmd.get(cmd.size() - 1)).isEqualTo("go");
+    }
+
+    @Test
+    void retiringAStageDoesNotCompleteTheSharedThread()
+    {
+        CodexCliThreadAgent agent = agent("gpt-5", null, "");
+        agent.setActiveStage("stage-1");
+
+        agent.retireStage();
+
+        verify(threadStore, never()).saveThread(any(Thread.class));
     }
 
     @Test

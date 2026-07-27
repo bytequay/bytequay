@@ -703,9 +703,22 @@ public abstract class AbstractCliThreadAgent
     @Override
     public final void stop()
     {
+        terminate(/* completeThread */ true);
+    }
+
+    @Override
+    public final void retireStage()
+    {
+        terminate(/* completeThread */ false);
+    }
+
+    private void terminate(boolean completeThread)
+    {
         interrupt();
         if (status.getAndSet(ThreadStatus.COMPLETED) != ThreadStatus.COMPLETED) {
-            persistThreadSnapshot(Instant.now());
+            if (completeThread) {
+                persistThreadSnapshot(Instant.now());
+            }
             handle(new StreamEvent.SessionEnded(Instant.now(), 0, null));
         }
         cleanupProviderResources();

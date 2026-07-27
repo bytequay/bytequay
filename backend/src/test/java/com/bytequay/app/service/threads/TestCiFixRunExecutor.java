@@ -501,7 +501,9 @@ class TestCiFixRunExecutor
         Task task = newShippedTask("ship-push", "thread-1");
         when(taskStore.findTaskById("ship-push")).thenReturn(Optional.of(task));
         when(agentRuns.findById("run-push"))
-                .thenReturn(Optional.of(runningCiFixRun("run-push", "ship-push")));
+                // completeTurn queues coordinator-owned runs before publishing
+                // the event handled by autoPushAfterCiFix.
+                .thenReturn(Optional.of(queuedCiFixRun("run-push", "ship-push")));
         when(turnStore.findTurnById("turn-x")).thenReturn(Optional.of(new ThreadTurn(
                 "turn-x", "thread-1", "ship-push", ThreadResourceLane.CLI,
                 ThreadTurnStatus.COMPLETED, "fix", NOW, NOW, NOW, NOW, null,
@@ -729,6 +731,14 @@ class TestCiFixRunExecutor
         return new AgentRun(
                 runId, taskId, AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
                 REMOTE_STAGE_ID, null, REMOTE_STAGE_ID, AgentRun.STATUS_RUNNING,
+                1, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS, null, null, NOW, null);
+    }
+
+    private static AgentRun queuedCiFixRun(String runId, String taskId)
+    {
+        return new AgentRun(
+                runId, taskId, AgentRun.KIND_CI_FIX, AgentRun.SOURCE_REMOTE,
+                REMOTE_STAGE_ID, null, REMOTE_STAGE_ID, AgentRun.STATUS_QUEUED,
                 1, CiFixRunExecutor.MAX_CI_FIX_ATTEMPTS, null, null, NOW, null);
     }
 

@@ -239,6 +239,33 @@ class TestPlanStageService
     }
 
     @Test
+    void approveRejectsAChangesRequestedOrStaleSelfReview()
+    {
+        String changesTask = seedTask();
+        StageInstance changesPlan = stageStore.openStage(
+                changesTask, StageType.PLAN_STAGE, null);
+        recordUnreviewedPlan(changesPlan, changesTask, "finalized", "rev-changes");
+        stageStore.recordEvent(
+                changesPlan.id(), changesTask, StageEventType.PLAN_SELF_REVIEWED,
+                Map.of("verdict", "changes_requested", "reviewedRevisionId", "rev-changes"));
+
+        assertThatThrownBy(() -> planStageService.approveByStage(changesPlan.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("has not approved the latest revision");
+
+        String staleTask = seedTask();
+        StageInstance stalePlan = stageStore.openStage(staleTask, StageType.PLAN_STAGE, null);
+        recordUnreviewedPlan(stalePlan, staleTask, "finalized", "rev-current");
+        stageStore.recordEvent(
+                stalePlan.id(), staleTask, StageEventType.PLAN_SELF_REVIEWED,
+                Map.of("verdict", "approved", "reviewedRevisionId", "rev-old"));
+
+        assertThatThrownBy(() -> planStageService.approveByStage(stalePlan.id()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("has not approved the latest revision");
+    }
+
+    @Test
     void approveRejectsAClosedStage()
     {
         String taskId = seedTask();
@@ -421,7 +448,7 @@ class TestPlanStageService
                 "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small")));
         stageStore.recordEvent(
                 plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
-                Map.of("verdict", "approved"));
+                Map.of("verdict", "approved", "reviewedRevisionId", "rev-1"));
 
         planStageService.approveByStage(plan.id());
 
@@ -519,7 +546,7 @@ class TestPlanStageService
         JsonNode recorded = recordUnreviewedPlan(plan, taskId, status, revId);
         stageStore.recordEvent(
                 plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
-                Map.of("verdict", "approved"));
+                Map.of("verdict", "approved", "reviewedRevisionId", revId));
         return recorded;
     }
 

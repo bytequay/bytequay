@@ -95,6 +95,10 @@ public interface AgentRunService
     AgentRun openSchedulerSession(
             Thread thread, String taskId, String stageId, String kind, String launchInput);
 
+    /** Same-transaction form for a scheduler enqueue inside an enclosing task command. */
+    AgentRun openSchedulerSessionInCommand(
+            Thread thread, String taskId, String stageId, String kind, String launchInput);
+
     /**
      * Attach an artifact run (notably a review round) to its public
      * workspace owner, and optionally its trunk, without creating a second

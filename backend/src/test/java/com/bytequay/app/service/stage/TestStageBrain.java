@@ -460,7 +460,7 @@ class TestStageBrain
         assertThat(stageService.getBrain(taskId).rightRail().plan().state()).isEqualTo("draft");
         stageStore.recordEvent(
                 plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
-                Map.of("verdict", "approved"));
+                Map.of("verdict", "approved", "reviewedRevisionId", "rev-1"));
 
         TaskBrainViewData.PlanCard card = stageService.getBrain(taskId).rightRail().plan();
 
@@ -505,7 +505,7 @@ class TestStageBrain
                 "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small")));
         stageStore.recordEvent(
                 plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
-                Map.of("verdict", "approved"));
+                Map.of("verdict", "approved", "reviewedRevisionId", "rev-2"));
 
         TaskBrainViewData.PlanCard updated = stageService.getBrain(taskId).rightRail().plan();
         assertThat(updated.state()).isEqualTo("awaiting");
@@ -560,13 +560,42 @@ class TestStageBrain
                 "signals", Map.of("riskLevel", "low", "estimatedComplexity", "small")));
         stageStore.recordEvent(
                 plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
-                Map.of("verdict", "approved"));
+                Map.of("verdict", "approved", "reviewedRevisionId", "rev-1"));
 
         TaskBrainViewData.PlanCard card = stageService.getBrain(taskId).rightRail().plan();
 
         assertThat(card.state()).isEqualTo("awaiting");
         assertThat(card.steps()).singleElement()
                 .satisfies(s -> assertThat(s.action()).isEqualTo("edit RetryConfig"));
+    }
+
+    @Test
+    void rightRailPlanCardRequiresAnApprovedReviewBoundToTheLatestRevision()
+    {
+        String taskId = seedTask();
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_RECORDED, Map.of(
+                "id", "rev-1", "status", "finalized",
+                "understanding", Map.of("summary", "fix the boundary"),
+                "intent", Map.of("summary", "fix it", "steps", List.of("Change it"))));
+
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
+                Map.of("verdict", "approved"));
+        assertThat(stageService.getBrain(taskId).rightRail().plan().state()).isEqualTo("draft");
+
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
+                Map.of("verdict", "approved", "reviewedRevisionId", "rev-old"));
+        assertThat(stageService.getBrain(taskId).rightRail().plan().state()).isEqualTo("draft");
+
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
+                Map.of("verdict", "changes_requested", "reviewedRevisionId", "rev-1"));
+        assertThat(stageService.getBrain(taskId).rightRail().plan().state())
+                .isEqualTo("revision_required");
+
+        stageStore.recordEvent(plan.id(), taskId, StageEventType.PLAN_SELF_REVIEWED,
+                Map.of("verdict", "approved", "reviewedRevisionId", "rev-1"));
+        assertThat(stageService.getBrain(taskId).rightRail().plan().state())
+                .isEqualTo("awaiting");
     }
 
     @Test

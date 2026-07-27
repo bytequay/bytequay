@@ -620,9 +620,25 @@ public class BrainReviewServiceImpl
     {
         if ("plan".equals(scope)) {
             commands.executeVoid(taskId, () -> {
+                if (!ReviewRound.VERDICT_APPROVED.equals(verdict)
+                        && !ReviewRound.VERDICT_CHANGES_REQUESTED.equals(verdict)) {
+                    throw new IllegalArgumentException("invalid plan review verdict: " + verdict);
+                }
+                UUID planStageId = UUID.fromString(stageId);
+                StageInstance planStage = stageStore.findStageById(planStageId)
+                        .filter(stage -> taskId.equals(stage.taskId()))
+                        .filter(stage -> stage.type() == StageType.PLAN_STAGE)
+                        .filter(stage -> stage.state() != StageState.CLOSED)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "no open PlanStage " + stageId + " for task " + taskId));
+                StageEvent latestPlan = latestPlanEvent(stageStore.findEventsByStage(planStage.id()))
+                        .filter(this::isFinalized)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "no finalized plan to review for task " + taskId));
+                String revisionId = requiredRevisionId(latestPlan);
                 stageStore.recordEvent(
-                        UUID.fromString(stageId), taskId, StageEventType.PLAN_SELF_REVIEWED,
-                        Map.of("verdict", verdict));
+                        planStageId, taskId, StageEventType.PLAN_SELF_REVIEWED,
+                        Map.of("verdict", verdict, "reviewedRevisionId", revisionId));
                 // Exactly one pass (R20), so iteration is always 1.
                 prService.recordBrainReview(
                         taskId, scope, verdict, /* iteration */ 1, /* roundId */ null);
@@ -1237,19 +1253,20 @@ public class BrainReviewServiceImpl
     private boolean enqueuePlanSelfReviewRuntime(String taskId, UUID stageId, String agentRunId)
     {
         Optional<Thread> brain = threadStore.findBrainThreadByTask(taskId);
-        if (brain.isEmpty()) {
+        Optional<String> prompt = planSelfReviewPrompt(taskId, stageId);
+        if (brain.isEmpty() || prompt.isEmpty()) {
             return false;
         }
         try {
             TurnInitiator initiator = TurnInitiator.unattended(SOURCE_PLAN_SELF_REVIEW);
             if (agentRunId == null) {
                 scheduler.enqueueTaskTurn(
-                        brain.get(), PLAN_SELF_REVIEW_PROMPT, taskId, stageId.toString(),
+                        brain.get(), prompt.orElseThrow(), taskId, stageId.toString(),
                         initiator, null, TurnLiveness.NARRATION);
             }
             else {
                 scheduler.enqueueTaskTurn(
-                        brain.get(), PLAN_SELF_REVIEW_PROMPT, taskId, stageId.toString(),
+                        brain.get(), prompt.orElseThrow(), taskId, stageId.toString(),
                         initiator, agentRunId, TurnLiveness.NARRATION);
             }
         }
@@ -1258,6 +1275,18 @@ public class BrainReviewServiceImpl
             return false;
         }
         return true;
+    }
+
+    private Optional<String> planSelfReviewPrompt(String taskId, UUID stageId)
+    {
+        return latestPlanEvent(stageStore.findEventsByStage(stageId))
+                .filter(this::isFinalized)
+                .map(event -> {
+                    JsonNode plan = planJson(event);
+                    String revisionId = requiredRevisionId(event);
+                    return PLAN_SELF_REVIEW_PROMPT.formatted(
+                            taskId, revisionId, plan.toPrettyString());
+                });
     }
 
     private static boolean isPlanSelfReviewTurn(ThreadTurn turn)
@@ -1281,7 +1310,7 @@ public class BrainReviewServiceImpl
     }
 
     /** Recover a self-review whose completion event was missed, retry one
-     *  failed/cancelled turn, and otherwise preserve the mandatory checkpoint. */
+     *  failed/cancelled/unverdicted turn, and otherwise preserve the mandatory checkpoint. */
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
     public void reconcilePlanSelfReviews()
     {
@@ -1330,18 +1359,11 @@ public class BrainReviewServiceImpl
                         || candidate.status() == ThreadTurnStatus.RUNNING)) {
             return null;
         }
-        if (attempts.stream().anyMatch(candidate ->
-                candidate.status() == ThreadTurnStatus.COMPLETED)) {
-            stageStore.recordEvent(
-                    plan.id(), task.id(), StageEventType.PLAN_SELF_REVIEWED,
-                    Map.of("verdict", "completed_without_verdict"));
-            runAutoApproveCheck(task.id(), stageEvents);
-            return null;
-        }
-        long failures = attempts.stream().filter(candidate ->
-                candidate.status() == ThreadTurnStatus.FAILED
+        long failedAttempts = attempts.stream().filter(candidate ->
+                candidate.status() == ThreadTurnStatus.COMPLETED
+                        || candidate.status() == ThreadTurnStatus.FAILED
                         || candidate.status() == ThreadTurnStatus.CANCELLED).count();
-        if (failures >= MAX_OPERATIONAL_TURN_FAILURES) {
+        if (failedAttempts >= MAX_OPERATIONAL_TURN_FAILURES) {
             parkFailedPlanReviewInCommand(task.id(), plan.id());
             return null;
         }
@@ -1372,16 +1394,12 @@ public class BrainReviewServiceImpl
         boolean alreadyReviewed = latestPlanWasSelfReviewed(events);
         boolean isSelfReviewTurn = SOURCE_PLAN_SELF_REVIEW.equals(turn.initiator().source());
         if (isSelfReviewTurn) {
-            // The self-review turn itself just finished — proceed to the
-            // review bar / auto-approve regardless of whether it recorded a
-            // verdict (a forgotten record_review_verdict call must not wedge
-            // planning open forever).
             if (!alreadyReviewed) {
-                stageStore.recordEvent(
-                        stageId, taskId, StageEventType.PLAN_SELF_REVIEWED,
-                        Map.of("verdict", "completed_without_verdict"));
+                return handleFailedPlanSelfReviewInCommand(taskId, turn);
             }
-            runAutoApproveCheck(taskId, events);
+            if (latestPlanWasApproved(events)) {
+                runAutoApproveCheck(taskId, events);
+            }
             return null;
         }
         if (alreadyReviewed) {
@@ -1419,18 +1437,40 @@ public class BrainReviewServiceImpl
         return "finalized".equals(planJson(planEvent).path("status").asText(""));
     }
 
-    private static boolean latestPlanWasSelfReviewed(List<StageEvent> events)
+    private boolean latestPlanWasSelfReviewed(List<StageEvent> events)
     {
-        boolean reviewed = false;
+        return latestPlanReviewVerdict(events).isPresent();
+    }
+
+    private boolean latestPlanWasApproved(List<StageEvent> events)
+    {
+        return latestPlanReviewVerdict(events)
+                .filter(ReviewRound.VERDICT_APPROVED::equals)
+                .isPresent();
+    }
+
+    private Optional<String> latestPlanReviewVerdict(List<StageEvent> events)
+    {
+        String revisionId = null;
+        String verdict = null;
         for (StageEvent event : events) {
             if (event.eventType() == StageEventType.PLAN_RECORDED) {
-                reviewed = false;
+                revisionId = planJson(event).path("id").asText(null);
+                verdict = null;
             }
-            else if (event.eventType() == StageEventType.PLAN_SELF_REVIEWED) {
-                reviewed = true;
+            else if (event.eventType() == StageEventType.PLAN_SELF_REVIEWED
+                    && revisionId != null) {
+                JsonNode review = planJson(event);
+                String candidate = review.path("verdict").asText(null);
+                verdict = null;
+                if (revisionId.equals(review.path("reviewedRevisionId").asText(null))
+                        && (ReviewRound.VERDICT_APPROVED.equals(candidate)
+                                || ReviewRound.VERDICT_CHANGES_REQUESTED.equals(candidate))) {
+                    verdict = candidate;
+                }
             }
         }
-        return reviewed;
+        return Optional.ofNullable(verdict);
     }
 
     private static Optional<StageEvent> latestPlanEvent(List<StageEvent> events)
@@ -1463,6 +1503,16 @@ public class BrainReviewServiceImpl
                     planEvent.id(), e.getMessage());
             return MissingNode.getInstance();
         }
+    }
+
+    private String requiredRevisionId(StageEvent planEvent)
+    {
+        String revisionId = planJson(planEvent).path("id").asText(null);
+        if (revisionId == null || revisionId.isBlank()) {
+            throw new IllegalStateException(
+                    "plan event " + planEvent.id() + " has no revision id");
+        }
+        return revisionId;
     }
 
     /** Backstop for missed transition notifications. Each candidate enters
@@ -1705,12 +1755,20 @@ public class BrainReviewServiceImpl
         return verdict;
     }
 
-    private static final String PLAN_SELF_REVIEW_PROMPT =
-            "Critique your own plan adversarially — wrong decomposition, a missing constraint, a "
-            + "simpler alternative, understated risk. If you find something worth fixing, call "
-            + "record_plan again with the revision (finalized). Either way, when you're done, call "
-            + "record_review_verdict(scope='plan', verdict='approved'|'changes_requested'). Exactly "
-            + "one pass — do not loop.";
+    private static final String PLAN_SELF_REVIEW_PROMPT = """
+            Adversarially review the exact finalized plan below for task `%s`, revision `%s`.
+            The embedded PlanResult is authoritative; do not use a placeholder task id such as `current`.
+
+            <plan_json>
+            %s
+            </plan_json>
+
+            Check for wrong decomposition, a missing constraint, a simpler alternative, and understated risk.
+            If the plan needs correction, call record_plan with task_id=`%1$s` and a finalized revision, then
+            evaluate that revision. Call record_review_verdict(scope='plan', verdict='approved') only when the
+            resulting latest plan has no remaining concern; otherwise use verdict='changes_requested'. You must
+            record a verdict. Exactly one pass — do not loop.
+            """;
 
     private static final String BRAIN_REVIEW_PROMPT = """
             Adversarially review the current diff before it goes to the user (or before this round's gate arms).

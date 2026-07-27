@@ -27,6 +27,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
@@ -38,6 +40,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -95,6 +98,39 @@ class TestTaskCommandExecutor
             assertThatThrownBy(() -> TaskCommandExecutor.requireCurrent("other-task"))
                     .isInstanceOf(IllegalStateException.class);
         });
+    }
+
+    @Test
+    void afterCommitDispatchLeavesSpringCompletionThread()
+            throws Exception
+    {
+        String taskId = seedTask();
+        CountDownLatch completed = new CountDownLatch(1);
+        AtomicReference<RuntimeException> failure = new AtomicReference<>();
+
+        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                TransactionSynchronizationManager.registerSynchronization(
+                        new TransactionSynchronization()
+                        {
+                            @Override
+                            public void afterCompletion(int completionStatus)
+                            {
+                                TaskCommandExecutor.dispatchAfterCommit(() -> {
+                                    try {
+                                        executor.executeVoid(taskId, () -> {});
+                                    }
+                                    catch (RuntimeException e) {
+                                        failure.set(e);
+                                    }
+                                    finally {
+                                        completed.countDown();
+                                    }
+                                });
+                            }
+                        }));
+
+        assertThat(completed.await(10, TimeUnit.SECONDS)).isTrue();
+        assertThat(failure.get()).isNull();
     }
 
     @Test

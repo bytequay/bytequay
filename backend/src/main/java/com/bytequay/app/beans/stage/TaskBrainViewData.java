@@ -128,9 +128,10 @@ public record TaskBrainViewData(
 
     /**
      * The structured plan card. {@code state} is {@code draft} while the brain
-     * is still recording it, {@code awaiting} once a finalized plan is pending
-     * the user, {@code locked} after approval (the PlanStage is closed). Null
-     * on the rail when the task has no PlanStage data.
+     * is still recording/reviewing it, {@code revision_required} when Brain's
+     * completed self-review requested changes, {@code awaiting} once a finalized
+     * plan is pending the user, {@code locked} after approval (the PlanStage is
+     * closed). Null on the rail when the task has no PlanStage data.
      */
     public record PlanCard(
             String planStageId,

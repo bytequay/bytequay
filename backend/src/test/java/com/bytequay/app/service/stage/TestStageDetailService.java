@@ -393,6 +393,45 @@ class TestStageDetailService
     }
 
     @Test
+    void planStageConversationMergesItsSelfReviewTranscriptChronologicallyWithoutDuplicates()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance plan = stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
+        String brainId = "ws-default.brain-" + UUID.randomUUID();
+        threadStore.saveThread(new Thread(
+                brainId, ThreadKind.BRAIN_AGENT, "anthropic", null, "Brain", ThreadStatus.IDLE,
+                "claude-haiku-4-5-20251001", 0L, 0L, 0L, plan.openedAt(), plan.openedAt(), null, null,
+                ThreadFlow.BUILD, "ws-default", null, null, 1, taskId));
+        appendMessage(brainId, null, 1, "assistant", "text",
+                "{\"text\":\"Planning complete.\"}", plan.openedAt().plusSeconds(2));
+
+        ThreadMessage selfReview = new ThreadMessage(
+                UUID.randomUUID().toString(), brainId, taskId, 0L,
+                "assistant", "text", "{\"text\":\"Checking the finalized plan.\"}",
+                null, 100L, 50L, 5L, plan.openedAt().plusSeconds(1),
+                plan.id().toString(), ThreadScope.STAGE);
+        threadStore.appendStageMessage(selfReview);
+        // Simulate a transition/backfill overlap: the same durable message
+        // may still exist on the brain thread while also in stage_messages.
+        threadStore.appendMessage(selfReview);
+
+        StageInstance other = stageStore.openStage(taskId, StageType.REVIEW_STAGE, null);
+        threadStore.appendStageMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), brainId, taskId, 0L,
+                "assistant", "text", "{\"text\":\"Other stage log.\"}",
+                null, 100L, 50L, 5L, plan.openedAt(),
+                other.id().toString(), ThreadScope.STAGE));
+
+        StageDetailData detail = detailService.getDetail(plan.id());
+
+        assertThat(detail.conversation().stream()
+                .filter(row -> row.text() != null)
+                .map(StageDetailData.ConversationRow::text))
+                .containsExactly("Checking the finalized plan.", "Planning complete.");
+    }
+
+    @Test
     void conversationIncludesOnlyRowsStampedWithThisStagesId()
     {
         String threadId = seedThread();

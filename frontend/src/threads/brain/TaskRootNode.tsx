@@ -188,6 +188,7 @@ function toPipelinePlan(dto: PlanCardDto, policy: PlanPolicy): Plan {
     rev: dto.revisionCount,
     status: dto.state === 'locked' ? 'approved'
       : dto.state === 'awaiting' ? 'ready'
+        : dto.state === 'revision_required' ? 'revision_required'
         : isPlanSelfReviewing(dto) ? 'running' : 'draft',
     goal,
     risk: dto.signals.riskLevel,

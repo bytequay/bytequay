@@ -165,6 +165,50 @@
 .shell .pr-created-event--progress .pr-created-event__icon {
   background: var(--blue);
 }
+.shell .pr-created-event--failed {
+  display: block;
+  border-color: var(--red-border);
+  background: var(--red-soft);
+}
+.shell .pr-created-event--failed > summary {
+  cursor: pointer;
+  color: var(--red);
+}
+.shell .pr-created-event--failed > summary::marker {
+  color: var(--red);
+}
+.shell .pr-created-event__summary-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: calc(100% - 18px);
+  vertical-align: middle;
+}
+.shell .pr-created-event--failed .pr-created-event__icon {
+  background: var(--red);
+}
+.shell .pr-created-event--failed .pr-created-event__title {
+  color: var(--red);
+}
+.shell .pr-created-event__reason {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 9px 0 0 18px;
+  padding: 9px 0 1px 38px;
+  border-top: 1px solid var(--red-border);
+  color: var(--text-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.shell .pr-created-event__reason strong {
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+}
 .shell .pr-created-event__body {
   display: flex;
   flex: 1 1 auto;

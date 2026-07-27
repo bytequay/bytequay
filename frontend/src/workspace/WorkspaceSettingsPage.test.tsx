@@ -115,7 +115,7 @@ function installBridge(
     }
     if (request.path === '/api/workspaces/w1/settings' && request.method === undefined) {
       return {
-        sessionCapUsd: 1,
+        sessionCapUsd: 100,
         dailyCapUsd: 10,
         pauseAtCap: true,
         syncSeconds: 60,
@@ -249,6 +249,7 @@ describe('WorkspaceSettingsPage', () => {
     fireEvent.change(pickers[0], { target: { value: 'api:openai:work-key' } });
 
     const numbers = screen.getAllByRole('textbox') as HTMLInputElement[];
+    expect(numbers[0].value).toBe('100.00');
     fireEvent.change(numbers[0], { target: { value: '2.50' } });
     fireEvent.change(numbers[1], { target: { value: '15.00' } });
     fireEvent.click(screen.getByRole('switch', { name: 'Pause at cap' }));

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { LocalPRBundle, LocalPRCheck, LocalPRComment, LocalPRStatus } from '../types/localPr';
+import type { PullRequestCreatedData } from '../types/brainView';
 import type { PullRow } from './model';
 import { agoLabel, displayName } from '../pr/localpr/prViewMeta';
 import { activelySubmittedCommentIds } from '../pr/localpr/localReviewSubmission';
@@ -138,6 +139,7 @@ export type TimelineItem =
   | { kind: 'review'; id: string; at: number; time: string; author: string; bot: boolean;
       verdict: TimelineReviewVerdict; body: string | null; remoteId: number | null;
       scope?: TimelineReviewScope; iteration?: number | null; roundId?: string | null }
+  | { kind: 'pull-request'; id: string; at: number; time: string; pullRequest: PullRequestCreatedData }
   | { kind: 'local-thread'; id: string; at: number; comments: LocalPRComment[]; submitted: boolean }
   | { kind: 'comment'; id: string; at: number; time: string; author: string; bot: boolean;
       body: string; replies: TimelineReply[]; remoteId: number | null }
@@ -219,6 +221,27 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
   const submittedCommentIds = activelySubmittedCommentIds(bundle.timeline);
   const duplicateReviews = duplicateLocalReviewIds(bundle);
   for (const event of bundle.timeline) {
+    if (event.eventType === 'pull-request-progress' || event.eventType === 'pull-request-created') {
+      const phase = str(event.payload, 'phase')
+        ?? (event.eventType === 'pull-request-created' ? 'created' : null);
+      if (phase === 'created' || phase === 'failed') {
+        items.push({
+          kind: 'pull-request', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt),
+          pullRequest: {
+            phase,
+            branch: str(event.payload, 'branch'),
+            baseBranch: str(event.payload, 'baseBranch'),
+            failedStep: str(event.payload, 'failedStep'),
+            reason: str(event.payload, 'reason'),
+            number: num(event.payload, 'number'),
+            url: str(event.payload, 'url'),
+            additions: num(event.payload, 'additions'),
+            deletions: num(event.payload, 'deletions'),
+          },
+        });
+      }
+      continue;
+    }
     if (event.eventType === 'comment') {
       const commentId = str(event.payload, 'commentId');
       if (commentId !== null && typeof event.remoteEventId === 'number') {

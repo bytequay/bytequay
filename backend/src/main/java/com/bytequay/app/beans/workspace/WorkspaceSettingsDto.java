@@ -34,7 +34,7 @@ public record WorkspaceSettingsDto(
     public static WorkspaceSettingsDto defaults()
     {
         return new WorkspaceSettingsDto(
-                1.0,
+                100.0,
                 500.0,
                 true,
                 60,

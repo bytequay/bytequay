@@ -30,7 +30,9 @@ public record PullRequestCreatedData(
         int number,
         String url,
         int additions,
-        int deletions)
+        int deletions,
+        String failedStep,
+        String reason)
 {
     /**
      * Decodes the versioned stage-event payload. A malformed historical
@@ -51,7 +53,9 @@ public record PullRequestCreatedData(
                     node.path("number").asInt(0),
                     text(node, "url"),
                     node.path("additions").asInt(0),
-                    node.path("deletions").asInt(0));
+                    node.path("deletions").asInt(0),
+                    text(node, "failedStep"),
+                    text(node, "reason"));
         }
         catch (JsonProcessingException e) {
             return null;

@@ -74,6 +74,7 @@ class PRServiceImpl
             Set.of(PRCheck.STATUS_PASSED, PRCheck.STATUS_FAILED, PRCheck.STATUS_NEUTRAL);
     private static final Set<String> PR_PROGRESS_PHASES =
             Set.of(PRTimelineEntry.PHASE_STARTING, PRTimelineEntry.PHASE_CREATING_DRAFT);
+    private static final int PUSH_FAILURE_REASON_LIMIT = 2_000;
     private static final String SOURCE_BRAIN_REVIEW_FIX = "brain-review-fix";
     private static final int TURN_SCAN_LIMIT = 100;
 
@@ -704,6 +705,41 @@ class PRServiceImpl
         catch (JsonProcessingException | RuntimeException e) {
             return Optional.empty();
         }
+    }
+
+    @Override
+    @Transactional
+    public void recordPushFailureInCommand(String prId, String failedStep, String reason)
+    {
+        PR pr = require(prId);
+        if (pr.taskId() == null) {
+            throw conflict("PR " + prId + " is not task-owned");
+        }
+        TaskCommandExecutor.requireCurrent(pr.taskId());
+        requireNonNull(failedStep, "failedStep is null");
+        requireNonNull(reason, "reason is null");
+        String boundedReason = reason.length() <= PUSH_FAILURE_REASON_LIMIT
+                ? reason
+                : reason.substring(0, PUSH_FAILURE_REASON_LIMIT);
+
+        Instant when = now();
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("phase", PRTimelineEntry.PHASE_FAILED);
+        data.put("branch", pr.branchName());
+        data.put("baseBranch", pr.baseBranch());
+        data.put("failedStep", failedStep);
+        data.put("reason", boundedReason);
+        appendEvent(prId, PRTimelineEntry.TYPE_PULL_REQUEST_PROGRESS, PRTimelineEntry.ACTOR_AGENT,
+                /* localOnly */ true, when, payload(
+                        "phase", PRTimelineEntry.PHASE_FAILED,
+                        "branch", pr.branchName(),
+                        "baseBranch", pr.baseBranch(),
+                        "failedStep", failedStep,
+                        "reason", boundedReason));
+        stageStore.findStageByType(pr.taskId(), StageType.DEVELOPMENT_STAGE)
+                .ifPresent(stage -> stageStore.recordEvent(
+                        stage.id(), pr.taskId(), StageEventType.PULL_REQUEST_PROGRESS, data));
+        notifyUpdated(prId);
     }
 
     @Override

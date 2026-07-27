@@ -20,6 +20,7 @@ import { ReviewThreadCard as LocalReviewThreadCard } from '../pr/localpr/ReviewT
 import type { ReactionContent } from '../pr/utils';
 import type { ReviewThreadDto } from '../types';
 import type { LocalPR, LocalPRComment } from '../types/localPr';
+import { PullRequestCreatedEvent } from '../ui/conv/PullRequestCreatedEvent';
 import { Av } from './atoms';
 import type { TimelineItem } from './detailModel';
 
@@ -250,6 +251,15 @@ export default function PullTimeline({
     <>
       {items.map(item => {
         switch (item.kind) {
+          case 'pull-request':
+            return (
+              <PullRequestCreatedEvent
+                key={item.id}
+                pullRequest={item.pullRequest}
+                timestamp={item.time}
+                timeline
+              />
+            );
           case 'commit':
             return (
               <div key={item.id} style={iconRowStyle}>

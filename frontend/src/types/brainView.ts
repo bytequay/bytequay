@@ -182,6 +182,8 @@ export type PullRequestCreatedData = {
   phase?: string | null;
   branch?: string | null;
   baseBranch?: string | null;
+  failedStep?: string | null;
+  reason?: string | null;
   number?: number | null;
   url?: string | null;
   additions?: number | null;

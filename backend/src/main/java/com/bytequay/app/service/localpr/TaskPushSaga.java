@@ -920,12 +920,14 @@ public class TaskPushSaga
                     : TaskPushEffect.Status.RETRYABLE_FAILED;
             Instant retryAt = permanent ? null
                     : Instant.now().plus(retryDelay(claimed.attempts()));
+            String reason = safeMessage(failure);
             if (!pushes.failEffect(
                     authorization.token(), effectKey, owner, status,
-                    failure.getClass().getName(), safeMessage(failure), retryAt)) {
+                    failure.getClass().getName(), reason, retryAt)) {
                 return;
             }
             if (permanent) {
+                prs.recordPushFailureInCommand(authorization.prId(), effectKey, reason);
                 taskMachine.parkOperationalInCommand(
                         authorization.taskId(), Actor.AGENT, "local_push_failed");
             }

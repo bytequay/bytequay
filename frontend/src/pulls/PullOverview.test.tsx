@@ -66,6 +66,31 @@ const bundle = {
 } as LocalPRBundle;
 
 describe('PullOverview', () => {
+  it('renders terminal pull request publish results in the timeline', () => {
+    const items: TimelineItem[] = [
+      { kind: 'pull-request', id: 'failed', at: 1, time: '2m ago', pullRequest: {
+        phase: 'failed', branch: 'feature/publish', baseBranch: 'main',
+        failedStep: 'ensure_pull_request', reason: 'GitHub returned 403 Forbidden',
+      } },
+      { kind: 'pull-request', id: 'created', at: 2, time: 'now', pullRequest: {
+        phase: 'created', branch: 'feature/publish', baseBranch: 'main', number: 42,
+      } },
+    ];
+
+    const { container } = render(<PullTimeline items={items} repo="acme/widget" />);
+
+    const failure = container.querySelector<HTMLDetailsElement>('.pr-created-event--failed');
+    expect(failure?.open).toBe(false);
+    expect(screen.getByText('PR push failed')).toBeTruthy();
+    expect(screen.getByText('GitHub returned 403 Forbidden')).toBeTruthy();
+    expect(screen.getByText('PR pushed successfully')).toBeTruthy();
+    expect(screen.getByText('#42')).toBeTruthy();
+    expect(container.querySelectorAll('.pr-created-event--timeline')).toHaveLength(2);
+
+    fireEvent.click(screen.getByText('PR push failed'));
+    expect(failure?.open).toBe(true);
+  });
+
   it('opens a timeline commit diff from its sha', () => {
     const onOpenCommit = vi.fn();
     const items: TimelineItem[] = [{

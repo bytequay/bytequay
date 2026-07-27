@@ -98,6 +98,39 @@ describe('buildChecks', () => {
 });
 
 describe('buildTimeline', () => {
+  it('keeps only final pull request publish results', () => {
+    const items = buildTimeline(bundle({
+      timeline: [
+        event({ id: 'starting', eventType: 'pull-request-progress', payload: {
+          phase: 'starting', branch: 'feature/publish', baseBranch: 'main',
+        } }),
+        event({ id: 'drafting', eventType: 'pull-request-progress', createdAt: 1100, payload: {
+          phase: 'creating-draft', branch: 'feature/publish', baseBranch: 'main',
+        } }),
+        event({ id: 'failed', eventType: 'pull-request-progress', createdAt: 1200, payload: {
+          phase: 'failed', branch: 'feature/publish', baseBranch: 'main',
+          failedStep: 'ensure_pull_request', reason: 'GitHub returned 403 Forbidden',
+        } }),
+        event({ id: 'created', eventType: 'pull-request-created', createdAt: 1300, payload: {
+          branch: 'feature/publish', baseBranch: 'main', number: 42,
+          url: 'https://github.com/acme/widget/pull/42', additions: 5, deletions: 2,
+        } }),
+      ],
+    }));
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({
+      kind: 'pull-request', id: 'failed', pullRequest: {
+        phase: 'failed', failedStep: 'ensure_pull_request', reason: 'GitHub returned 403 Forbidden',
+      },
+    });
+    expect(items[1]).toMatchObject({
+      kind: 'pull-request', id: 'created', pullRequest: {
+        phase: 'created', number: 42, additions: 5, deletions: 2,
+      },
+    });
+  });
+
   it('maps aggregate CI and de-duplicates short/full forms of one commit sha', () => {
     const items = buildTimeline(bundle({
       commits: [{

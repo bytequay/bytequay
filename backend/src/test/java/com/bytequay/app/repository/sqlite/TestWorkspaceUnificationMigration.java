@@ -228,7 +228,7 @@ class TestWorkspaceUnificationMigration
         assertThat(singleString(connection, """
                 SELECT json_extract(settings_json, '$.sessionCapUsd')
                 FROM workspace_settings WHERE workspace_id = 'ws-widget'
-                """)).isEqualTo("1.0");
+                """)).isEqualTo("100.0");
         assertThat(singleString(connection, """
                 SELECT json_extract(settings_json, '$.dailyCapUsd')
                 FROM workspace_settings WHERE workspace_id = 'ws-widget'

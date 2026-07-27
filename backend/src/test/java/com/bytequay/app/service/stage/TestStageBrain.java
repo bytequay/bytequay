@@ -143,6 +143,7 @@ class TestStageBrain
                 .findFirst().orElseThrow();
 
         assertThat(created.stageId()).isEqualTo(development.id().toString());
+        assertThat(created.body()).isEqualTo("PR pushed successfully");
         assertThat(created.pullRequest()).isNotNull();
         assertThat(created.pullRequest().phase()).isEqualTo("created");
         assertThat(created.pullRequest().branch()).isEqualTo("feature/timeline");
@@ -168,6 +169,28 @@ class TestStageBrain
         assertThat(progress.pullRequest().phase()).isEqualTo("creating-draft");
         assertThat(progress.pullRequest().branch()).isEqualTo("feature/timeline");
         assertThat(progress.pullRequest().baseBranch()).isEqualTo("main");
+    }
+
+    @Test
+    void brainFeedProjectsTerminalPullRequestPublishFailureFromDevelopment()
+    {
+        String taskId = seedTask();
+        StageInstance development = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        stageStore.recordEvent(development.id(), taskId, StageEventType.PULL_REQUEST_PROGRESS, Map.of(
+                "phase", "failed",
+                "branch", "feature/timeline",
+                "baseBranch", "main",
+                "failedStep", "ensure_pull_request",
+                "reason", "GitHub returned 403"));
+
+        BrainFeedRow failure = stageService.getBrain(taskId).brainFeed().stream()
+                .filter(row -> row.type().equals("PULL_REQUEST_PROGRESS"))
+                .findFirst().orElseThrow();
+
+        assertThat(failure.body()).isEqualTo("PR push failed");
+        assertThat(failure.pullRequest().phase()).isEqualTo("failed");
+        assertThat(failure.pullRequest().failedStep()).isEqualTo("ensure_pull_request");
+        assertThat(failure.pullRequest().reason()).isEqualTo("GitHub returned 403");
     }
 
     @Test

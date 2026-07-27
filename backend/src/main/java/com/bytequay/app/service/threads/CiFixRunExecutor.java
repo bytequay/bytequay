@@ -197,12 +197,14 @@ public class CiFixRunExecutor
                 || run == null
                 || !AgentRun.KIND_CI_FIX.equals(run.kind())
                 || !taskId.equals(run.taskId())
-                // Shipped CI episodes stay RUNNING until live CI turns green;
-                // dashboard fixes complete with their one scheduler turn.
+                // The scheduler queues coordinator-owned shipped episodes
+                // before publishing turn completion; dashboard fixes complete
+                // with their one scheduler turn.
                 // This also rejects delayed shipped completion events after
                 // green has already terminalised the episode.
                 || !(shippedEpisode
-                ? AgentRun.STATUS_RUNNING.equals(run.status())
+                ? (AgentRun.STATUS_QUEUED.equals(run.status())
+                        || AgentRun.STATUS_RUNNING.equals(run.status()))
                 : AgentRun.STATUS_SUCCEEDED.equals(run.status()))) {
             return;
         }

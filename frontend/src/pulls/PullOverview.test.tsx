@@ -284,6 +284,31 @@ describe('PullOverview', () => {
     expect(screen.getByPlaceholderText('Reply…').hasAttribute('disabled')).toBe(true);
   });
 
+  it('renders a quick-review finding as a Markdown pending-review thread', () => {
+    const local = {
+      ...bundle,
+      comments: [{
+        id: 'quick-1', localPrId: 'pr-1', origin: 'local', scope: 'file-line',
+        filePath: 'src/Retry.java', lineNumber: 17, side: 'RIGHT', startLine: null, startSide: null,
+        author: 'ai-reviewer', body: '**Critical:** this can loop forever.', createdAt: 1000,
+        resolvedAt: null, dismissedAt: null, strippedOnPushAt: null,
+        parentCommentId: null, publishedAt: null,
+      }],
+    } as LocalPRBundle;
+
+    render(
+      <PullTimeline
+        items={buildTimeline(local)}
+        repo="trinodb/trino"
+        localPr={local.pr}
+      />,
+    );
+
+    expect(screen.getByText('PENDING REVIEW')).toBeTruthy();
+    expect(screen.getByText('src/Retry.java:17')).toBeTruthy();
+    expect(screen.getByText('Critical:').tagName).toBe('STRONG');
+  });
+
   it('shows submitted user findings and open brain findings as waiting workflow roles', () => {
     const local = {
       ...bundle,

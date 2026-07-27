@@ -21,7 +21,7 @@ import type { ReviewCommentDto, UserProfileDto } from '../types';
 import type { LocalPRComment } from '../types/localPr';
 import { AgentFindingContent, presentFinding, type AgentFindingPresentation } from '../review/AgentEvidence';
 import type { AgentReviewData } from '../review/agentReviewTypes';
-import { workflowActorRole } from '../pr/localpr/prViewMeta';
+import { QUICK_REVIEW_AUTHOR, workflowActorRole } from '../pr/localpr/prViewMeta';
 
 export function initials(author: string): string {
   const cleaned = author.replace(/^@/, '');
@@ -104,11 +104,12 @@ export function isPendingLocalComment(c: LocalPRComment): boolean {
     && c.strippedOnPushAt === null && c.resolvedAt === null && c.dismissedAt === null;
 }
 
-/** A human-authored draft the backend can include in the next review batch.
- * The owning surface decides whether that batch goes to Development (task
- * Local Review) or GitHub (an external PR). */
+/** A user-owned or quick-review draft the backend can include in the next
+ * review batch. The owning surface decides whether that batch goes to
+ * Development (task Local Review) or GitHub (an external PR). */
 export function isPublishableReviewDraft(c: LocalPRComment): boolean {
-  return isPendingLocalComment(c) && c.author.trim().toLowerCase() === 'you';
+  const author = c.author.trim().toLowerCase();
+  return isPendingLocalComment(c) && (author === 'you' || author === QUICK_REVIEW_AUTHOR);
 }
 
 export function diffInlineCommentFromLocalPr(c: LocalPRComment, reviewOrIndex?: AgentReviewData | number): DiffInlineComment {

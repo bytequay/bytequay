@@ -17,6 +17,7 @@ import com.bytequay.app.domain.AiReviewDraft;
 import com.bytequay.app.domain.AttentionReason;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
@@ -56,6 +57,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -106,16 +108,46 @@ class TestAiReviewService
         PullRequestDetailInvalidator invalidator = mock(PullRequestDetailInvalidator.class);
         PR pr = externalPr("unified-pr");
         PrRawDetail raw = rawDetail();
-        ReviewOutput output = new ReviewOutput("summary", List.of(), "claude", "model");
+        String existingBody = "**Crash:** this path can loop forever.";
+        String newBody = "**Data loss:** return before mutating the shared state.";
+        ReviewOutput output = new ReviewOutput("Warnings worth considering: rename a helper.", List.of(
+                new ReviewOutput.LineComment("src/Existing.java", 9, existingBody, "critical"),
+                new ReviewOutput.LineComment("src/New.java", 14, newBody, "REQUEST CHANGES"),
+                new ReviewOutput.LineComment("src/Error.java", 15, "Null input crashes.", "ERROR"),
+                new ReviewOutput.LineComment("src/Warning.java", 3, "Optional cleanup.", "warning"),
+                new ReviewOutput.LineComment("src/Suggestion.java", 4, "Consider renaming this.", "suggestion"),
+                new ReviewOutput.LineComment("src/Info.java", 4, "Context only.", "info"),
+                new ReviewOutput.LineComment("src/NotInDiff.java", 99, "Hallucinated anchor.", "critical"),
+                new ReviewOutput.LineComment("", 5, "Missing anchor.", "error"),
+                new ReviewOutput.LineComment("src/BadLine.java", 0, "Bad line.", "blocker")),
+                "claude", "model");
+        String diff = diffAt("src/Existing.java", 9)
+                + diffAt("src/New.java", 14)
+                + diffAt("src/Error.java", 15)
+                + diffAt("src/Warning.java", 3)
+                + diffAt("src/Suggestion.java", 4)
+                + diffAt("src/Info.java", 4);
         AiReviewDraft expected = draft("COMPLETE");
+        PRComment existing = new PRComment(
+                "comment-1", "unified-pr", PRComment.ORIGIN_LOCAL,
+                PRComment.SCOPE_FILE_LINE, "src/Existing.java", 9, "you", existingBody,
+                Instant.parse("2026-05-08T00:00:00Z"), null, null, null, null, null,
+                "RIGHT", null, null);
+        PRComment staleQuickReview = new PRComment(
+                "comment-stale", "unified-pr", PRComment.ORIGIN_LOCAL,
+                PRComment.SCOPE_FILE_LINE, "src/Stale.java", 2, "ai-reviewer", "Stale finding.",
+                Instant.parse("2026-05-08T00:00:00Z"), null, null, null, null, null,
+                "RIGHT", null, null);
 
         when(prs.findById("unified-pr")).thenReturn(Optional.of(pr));
+        when(prs.comments("unified-pr")).thenReturn(List.of(existing, staleQuickReview));
         when(pats.resolve("owner/repo")).thenReturn("pat");
         when(gitHub.fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(raw);
-        when(gitHub.fetchPrDiff("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn("complete diff");
+        when(gitHub.fetchPrDiff("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(diff);
         when(skills.forRepo("owner/repo")).thenReturn(Optional.empty());
         when(globalReview.review(any(ReviewRequest.class))).thenReturn(output);
-        when(draftStore.saveForUnifiedPr("unified-pr", "owner/repo", 7, "abc123", output))
+        when(draftStore.saveForUnifiedPr(
+                eq("unified-pr"), eq("owner/repo"), eq(7), eq("abc123"), any(ReviewOutput.class)))
                 .thenReturn(expected);
 
         AiReviewService service = new AiReviewService(
@@ -125,11 +157,41 @@ class TestAiReviewService
         assertThat(service.runQuickReview("unified-pr")).isSameAs(expected);
         ArgumentCaptor<ReviewRequest> request = ArgumentCaptor.forClass(ReviewRequest.class);
         verify(globalReview).review(request.capture());
-        assertThat(request.getValue().diff()).isEqualTo("complete diff");
+        assertThat(request.getValue().diff()).isEqualTo(diff);
         assertThat(request.getValue().skillContext())
                 .contains("Review only the pull-request description and complete unified diff")
-                .contains("no repository exploration");
-        verify(draftStore).saveForUnifiedPr("unified-pr", "owner/repo", 7, "abc123", output);
+                .contains("no repository exploration")
+                .contains("Never emit info, suggestion, warning")
+                .contains("precise and ADHD-friendly");
+        ArgumentCaptor<ReviewOutput> savedOutput = ArgumentCaptor.forClass(ReviewOutput.class);
+        verify(draftStore).saveForUnifiedPr(
+                eq("unified-pr"), eq("owner/repo"), eq(7), eq("abc123"), savedOutput.capture());
+        assertThat(savedOutput.getValue().comments())
+                .extracting(ReviewOutput.LineComment::file)
+                .containsExactly("src/Existing.java", "src/New.java", "src/Error.java");
+        assertThat(savedOutput.getValue().comments())
+                .extracting(ReviewOutput.LineComment::severity)
+                .containsOnly("blocker");
+        assertThat(savedOutput.getValue().summary()).isEqualTo(
+                "Quick review found 3 merge-blocking findings in the supplied diff.");
+        verify(prs).deleteDraftComment("comment-stale");
+        verify(prs).addComment(
+                "unified-pr", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/New.java", 14, "RIGHT", null, null, "ai-reviewer", newBody, null);
+        verify(prs).addComment(
+                "unified-pr", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Error.java", 15, "RIGHT", null, null, "ai-reviewer",
+                "Null input crashes.", null);
+        var completion = inOrder(prs, draftStore);
+        completion.verify(prs).addComment(
+                "unified-pr", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/New.java", 14, "RIGHT", null, null, "ai-reviewer", newBody, null);
+        completion.verify(prs).addComment(
+                "unified-pr", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Error.java", 15, "RIGHT", null, null, "ai-reviewer",
+                "Null input crashes.", null);
+        completion.verify(draftStore).saveForUnifiedPr(
+                eq("unified-pr"), eq("owner/repo"), eq(7), eq("abc123"), any(ReviewOutput.class));
     }
 
     @Test
@@ -163,7 +225,7 @@ class TestAiReviewService
     }
 
     @Test
-    void testQuickReviewReparentsResultWhenExternalPrWasFoldedDuringReview()
+    void testQuickReviewRetriesTaskPrWhenExternalPrFoldsDuringMaterialisation()
     {
         PRService prs = mock(PRService.class);
         PullRequestRepository gitHub = mock(PullRequestRepository.class);
@@ -178,30 +240,73 @@ class TestAiReviewService
                         Instant.parse("2026-05-08T00:00:00Z"))
                 .withRemote("owner/repo", 7, "https://github.com/owner/repo/pull/7",
                         Instant.parse("2026-05-08T00:00:00Z"));
-        ReviewOutput output = new ReviewOutput("summary", List.of(), "claude", "model");
-        AiReviewDraft saved = draft("COMPLETE");
+        ReviewOutput output = new ReviewOutput("summary", List.of(
+                new ReviewOutput.LineComment(
+                        "src/Folded.java", 12, "**Crash:** guard the null input.", "blocker")),
+                "claude", "model");
         AiReviewDraft reparented = draft("COMPLETE");
 
         when(prs.findById("external-pr"))
-                .thenReturn(Optional.of(external), Optional.empty());
+                .thenReturn(Optional.of(external), Optional.of(external), Optional.empty());
         when(prs.findTaskByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(survivor));
+        when(prs.comments("external-pr"))
+                .thenThrow(new IllegalArgumentException("external PR was folded"));
         when(pats.resolve("owner/repo")).thenReturn("pat");
         when(gitHub.fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7)))
                 .thenReturn(rawDetail());
         when(gitHub.fetchPrDiff("pat", PullRequestRef.of("owner", "repo", 7)))
-                .thenReturn("complete diff");
+                .thenReturn(diffAt("src/Folded.java", 12));
         when(skills.forRepo("owner/repo")).thenReturn(Optional.empty());
         when(globalReview.review(any(ReviewRequest.class))).thenReturn(output);
-        when(draftStore.saveForUnifiedPr("external-pr", "owner/repo", 7, "abc123", output))
-                .thenReturn(saved);
-        when(draftStore.latestForUnifiedPr("task-pr")).thenReturn(Optional.of(reparented));
+        when(draftStore.saveForUnifiedPr(
+                eq("task-pr"), eq("owner/repo"), eq(7), eq("abc123"), any(ReviewOutput.class)))
+                .thenReturn(reparented);
 
         AiReviewService service = new AiReviewService(
                 mock(PullRequestStore.class), prs, gitHub, registry, globalReview, draftStore,
                 skills, mock(PullRequestDetailInvalidator.class), pats);
 
         assertThat(service.runQuickReview("external-pr")).isSameAs(reparented);
-        verify(draftStore).reparentUnifiedPr("external-pr", "task-pr");
+        verify(prs).addComment(
+                "task-pr", PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Folded.java", 12, "RIGHT", null, null, "ai-reviewer",
+                "**Crash:** guard the null input.", null);
+    }
+
+    @Test
+    void testLatestQuickReviewFiltersLegacyBlockersWithoutWriting()
+    {
+        PRService prs = mock(PRService.class);
+        AiReviewDraftStore draftStore = mock(AiReviewDraftStore.class);
+        AiReviewDraft legacy = new AiReviewDraft(
+                9L, 0L, "owner/repo", 7, "legacy summary", "provider", "model", "abc123",
+                "COMPLETE", Instant.parse("2026-05-08T00:00:00Z"),
+                Instant.parse("2026-05-08T00:00:00Z"), List.of(
+                        new AiReviewDraft.DraftComment(
+                                1, "src/Critical.java", 8, "**Crash:** guard null.", null,
+                                "blocker", false, "AI", "RIGHT", null, null),
+                        new AiReviewDraft.DraftComment(
+                                2, "src/Warning.java", 9, "Optional cleanup.", null,
+                                "warning", false, "AI", "RIGHT", null, null),
+                        new AiReviewDraft.DraftComment(
+                                3, "src/Human.java", 10, "Human draft.", null,
+                                "blocker", false, "HUMAN", "RIGHT", null, null)));
+        when(draftStore.latestForUnifiedPr("unified-pr")).thenReturn(Optional.of(legacy));
+
+        AiReviewService service = new AiReviewService(
+                mock(PullRequestStore.class), prs, mock(PullRequestRepository.class),
+                mock(LlmReviewerRegistry.class), mock(GlobalReviewRunner.class), draftStore,
+                mock(SkillService.class), mock(PullRequestDetailInvalidator.class),
+                mock(PatResolver.class));
+
+        AiReviewDraft result = service.latestQuickReview("unified-pr").orElseThrow();
+
+        assertThat(result.comments())
+                .extracting(AiReviewDraft.DraftComment::filePath)
+                .containsExactly("src/Critical.java");
+        assertThat(result.summary()).isEqualTo(
+                "Quick review found 1 merge-blocking finding in the supplied diff.");
+        verifyNoInteractions(prs);
     }
 
     @Test
@@ -238,6 +343,18 @@ class TestAiReviewService
         return new PrRawDetail(
                 "body", List.of(), false, true, "clean", 1, 1, 1, 0, List.of(),
                 "abc123", "head", "owner/repo", "main", "owner/repo");
+    }
+
+    private static String diffAt(String path, int line)
+    {
+        return """
+                diff --git a/%1$s b/%1$s
+                --- a/%1$s
+                +++ b/%1$s
+                @@ -%2$d +%2$d @@
+                -old
+                +new
+                """.formatted(path, line);
     }
 
     private static AiReviewDraft draft(String status)

@@ -13,6 +13,7 @@
  */
 import type { ReactNode } from 'react';
 import Avatar from '../Avatar';
+import { MarkdownProse } from '../threads/MarkdownProse';
 import {
   avatarKind,
   commentLocationLabel,
@@ -64,7 +65,7 @@ export function PendingCommentsList({
               </button>
             )}
           </div>
-          <span className="pending-comments__text">{c.body}</span>
+          <div className="pending-comments__text"><MarkdownProse text={c.body} /></div>
         </div>
       ))}
     </div>
@@ -137,7 +138,7 @@ export function ReviewTabPendingList({
                     </button>
                   )}
                 </div>
-                <span className="review-pending__text">{c.body}</span>
+                <div className="review-pending__text"><MarkdownProse text={c.body} /></div>
                 <div className="review-pending__footer">
                   <span className="review-pending__loc">{commentLocationLabel(c)}</span>
                 </div>

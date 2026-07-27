@@ -62,6 +62,7 @@ public class InvestigationReviewTools
     // self-refutation audit written by InvestigationReviewService.
     private static final int MAX_REVIEWER_STEPS = 11;
     private static final int MAX_FINDINGS = 5;
+    private static final int MIN_PUBLISHABLE_SEVERITY = 4;
     private static final int MAX_TOOL_TEXT = 32_000;
 
     private final InvestigationReviewStore store;
@@ -244,8 +245,8 @@ public class InvestigationReviewTools
             return error("invalid criterion_kind");
         }
         int severity = input.path("severity").asInt(0);
-        if (severity < 1 || severity > 5) {
-            return error("severity must be 1..5");
+        if (severity < MIN_PUBLISHABLE_SEVERITY || severity > 5) {
+            return error("severity must be 4..5; lower-severity concerns must not be reported");
         }
         AgentReviewRow review = requireReview(reviewId);
         String hypothesisId = required(input, "hypothesis_id");
@@ -335,7 +336,7 @@ public class InvestigationReviewTools
         boolean userJudgement = "partially".equals(status)
                 && !"hard-invariant".equals(finding.criterionKind())
                 && evidenceAccurate && scopeAccurate;
-        String lifecycle = "rejected".equals(status) ? "dropped"
+        String lifecycle = "rejected".equals(status) || severity < MIN_PUBLISHABLE_SEVERITY ? "dropped"
                 : "unknown".equals(status) ? "NEEDS_AUTHOR_INPUT"
                 : userJudgement ? "NEEDS_USER_JUDGEMENT" : "ready";
         if (!store.mutateWhileAssignmentRoundRunning(assignmentId, () -> {
@@ -576,9 +577,9 @@ public class InvestigationReviewTools
                         """
                         {"type":"object","properties":{"step_id":{"type":"string"},"query":{"type":"string"}},"required":["step_id","query"]}
                         """),
-                schema("record_finding", "Record an actionable candidate finding at an exact changed-file range. Evidence is attached separately.",
+                schema("record_finding", "Record only a severity 4-5 merge-blocking candidate at an exact changed-file range. Evidence is attached separately.",
                         """
-                        {"type":"object","properties":{"objective_id":{"type":"string"},"hypothesis_id":{"type":"string"},"criterion_kind":{"type":"string","enum":["hard-invariant","engineering-principle","repo-convention"]},"path":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1},"claim":{"type":"string"},"severity":{"type":"integer","minimum":1,"maximum":5},"requested_action":{"type":"string"}},"required":["objective_id","hypothesis_id","criterion_kind","path","start_line","end_line","claim","severity","requested_action"]}
+                        {"type":"object","properties":{"objective_id":{"type":"string"},"hypothesis_id":{"type":"string"},"criterion_kind":{"type":"string","enum":["hard-invariant","engineering-principle","repo-convention"]},"path":{"type":"string"},"start_line":{"type":"integer","minimum":1},"end_line":{"type":"integer","minimum":1},"claim":{"type":"string"},"severity":{"type":"integer","minimum":4,"maximum":5},"requested_action":{"type":"string"}},"required":["objective_id","hypothesis_id","criterion_kind","path","start_line","end_line","claim","severity","requested_action"]}
                         """),
                 schema("record_evidence", "Link reproducible observation output to a finding. Strength is assigned by code.",
                         """

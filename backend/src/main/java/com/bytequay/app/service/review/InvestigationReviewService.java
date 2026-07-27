@@ -101,6 +101,7 @@ public class InvestigationReviewService
     private static final Logger log = LoggerFactory.getLogger(InvestigationReviewService.class);
     private static final Duration PREFLIGHT_TTL = Duration.ofHours(24);
     private static final int MAX_LEARNED_OBJECTIVES = 3;
+    private static final int MIN_PUBLISHABLE_SEVERITY = 4;
     private static final Set<String> CRITERION_KINDS = Set.of(
             "hard-invariant", "engineering-principle", "repo-convention");
     private static final Set<String> HARD_LEARNED_KINDS = Set.of(
@@ -1349,7 +1350,8 @@ public class InvestigationReviewService
             appendAnswerReply(work, investigations);
             boolean coverageGaps = resolveObjectives(work, finished);
             boolean questions = coverageGaps || finished.stream()
-                    .anyMatch(f -> "unknown".equals(f.verificationStatus()));
+                    .anyMatch(f -> !"dropped".equals(f.lifecycleStatus())
+                            && "unknown".equals(f.verificationStatus()));
             String status = questions ? "COMPLETED_WITH_QUESTIONS" : "COMPLETED";
             if (!store.finishRunningRoundAndAdvanceReview(
                     work.round().id(), status, work.snapshot().headCommit(), cost)) {
@@ -1941,7 +1943,7 @@ public class InvestigationReviewService
                     continue;
                 }
                 String blind = null;
-                if (finding.severity() >= 4) {
+                if (finding.severity() >= MIN_PUBLISHABLE_SEVERITY) {
                     int reconstructionCap = reserveProviderTurn(
                             work, priorCost + cost,
                             Math.max(1, Math.min(
@@ -2280,7 +2282,7 @@ public class InvestigationReviewService
                         node -> node.put("findingId", finding.id()));
                 continue;
             }
-            if ("TENTATIVE".equals(finding.confidenceClass())) {
+            if (!isPublishableComment(finding)) {
                 continue;
             }
             if (!materialisedFindingIds.add(finding.id())) {
@@ -2299,6 +2301,13 @@ public class InvestigationReviewService
                     range ? "RIGHT" : null, "agent", body, null);
             prs.attachFinding(comment.id(), finding.id());
         }
+    }
+
+    static boolean isPublishableComment(FindingRow finding)
+    {
+        return finding.severity() >= MIN_PUBLISHABLE_SEVERITY
+                && "verified".equals(finding.verificationStatus())
+                && !"TENTATIVE".equals(finding.confidenceClass());
     }
 
     private Optional<InvestigationStepRow> answerStep(RoundWork work)

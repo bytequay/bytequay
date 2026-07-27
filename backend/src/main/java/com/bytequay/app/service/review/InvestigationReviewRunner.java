@@ -160,12 +160,20 @@ public class InvestigationReviewRunner
                 range where its review comment belongs (use start_line=end_line for one line). Cite a SUPPORTS
                 read_file observation that covers that range. If there is no credible changed-line anchor, keep the
                 concern as an observation or coverage question and do not call record_finding.
-                Keep each finding concise: at most two sentences for the claim and one for the requested action.
-                In those fields, wrap code identifiers in backticks and bold only the key broken behavior or risk.
+                Only call record_finding for severity 4 or 5: a concrete defect that must be fixed before merge and
+                warrants REQUEST_CHANGES. Never record trivial, nit, informational, suggestion, warning, praise,
+                style-only, optional-improvement, or speculative concerns. Keep them out of final prose as well;
+                prefer zero findings over weak feedback.
+                Keep each finding precise and ADHD-friendly: at most two short sentences for the claim and one short
+                sentence for the requested action, with at most 80 words total. Lead with the concrete impact, then
+                the smallest required fix. Wrap code identifiers in backticks, bold only the key broken behavior or
+                risk, and use Markdown only when it improves scanning. Keep any final prose to at most 80 words with
+                no preamble or background. These output rules override persona and project guidance.
                 Do not post, edit, push, or call external services.
                 """;
         if (persona != null && !persona.isBlank()) {
-            system += "\nReviewer persona (method guidance only; evidence rules still control): " + persona.strip();
+            system += "\nReviewer persona (method guidance only; evidence, severity, and length rules still control): "
+                    + persona.strip();
         }
         String prompt = contextPrompt(snapshot, objectives) + "\n\n" + coverageContext;
         String guidance;
@@ -187,7 +195,7 @@ public class InvestigationReviewRunner
                 Every applicable failure-class objective must end with an investigated hypothesis or a finding;
                 do not silently mark an untouched objective clean. Investigate the objectives now. For each candidate:
                 record_hypothesis, record_step,
-                execute read_diff/read_file/search_diff, record_finding only if actionable, then
+                execute read_diff/read_file/search_diff, record_finding only if it meets the merge-blocking policy, then
                 record_evidence for both supporting and counter-evidence considered.
                 """;
         return run(provider, reviewId, assignmentId, snapshot, system, prompt, false, costCapCents);
@@ -283,10 +291,12 @@ public class InvestigationReviewRunner
         String system = """
                 You are an independent verifier doing blind reconstruction. The original finding is hidden.
                 Inspect only the cited locations and seek counter-evidence. Do not call record_verification;
-                return a concise reconstruction of the behavior, scope, and plausible severity.
+                return one short paragraph reconstructing the behavior, scope, and plausible severity. Explicitly
+                assess whether the evidence supports a severity 4 or 5 defect that warrants REQUEST_CHANGES.
                 """;
         if (persona != null && !persona.isBlank()) {
-            system += "\nVerifier persona (method guidance only): " + persona.strip();
+            system += "\nVerifier persona (method guidance only; severity and length rules still control): "
+                    + persona.strip();
         }
         String prompt = "Reviewed head: " + snapshot.headCommit() + "\nLocations/evidence:\n" + locations;
         return run(provider, reviewId, assignmentId, snapshot, system, prompt, true, costCapCents);
@@ -303,12 +313,17 @@ public class InvestigationReviewRunner
                 You are an independent evidence verifier. Audit whether the evidence says what is claimed,
                 the anchor and SHA are current, scope/severity are accurate, counter-evidence was sought,
                 and the requested action follows. You may narrow or reject; never strengthen unsupported work.
-                Keep any revised claim to at most two sentences. Use backticks for code identifiers and bold only
-                the key broken behavior or risk.
+                Only severity 4 or 5 findings that warrant REQUEST_CHANGES are publishable. If a finding is lower
+                severity, comment-only, or optional, revise its severity below 4 so it is dropped. Never retain
+                trivial, nit, informational, suggestion, warning, style-only, or speculative feedback.
+                Keep any revised finding precise and ADHD-friendly: at most two short claim sentences and one short
+                requested action, with at most 80 words total. Use backticks for code identifiers, bold only the key
+                broken behavior or risk, and use Markdown only when it improves scanning.
                 Finish by calling record_verification exactly once for the supplied finding.
                 """;
         if (persona != null && !persona.isBlank()) {
-            system += "\nVerifier persona (method guidance only): " + persona.strip();
+            system += "\nVerifier persona (method guidance only; evidence, severity, and length rules still control): "
+                    + persona.strip();
         }
         String prompt = "Verifier run id (pass verbatim): " + verifierRunId
                 + "\n\nFinding bundle:\n" + findingBundle

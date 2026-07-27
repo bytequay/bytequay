@@ -102,7 +102,32 @@ class TestInvestigationReviewRunnerProjectKnowledge
         assertThat(prompt.getValue())
                 .contains("Project Intelligence guidance")
                 .contains("verify every claim against the reviewed code at this SHA")
-                .contains("Release slots in finally.");
+                .contains("Release slots in finally.")
+                .contains("Only call record_finding for severity 4 or 5")
+                .contains("warrants REQUEST_CHANGES")
+                .contains("Never record trivial, nit, informational, suggestion, warning")
+                .contains("precise and ADHD-friendly")
+                .contains("at most 80 words")
+                .contains("override persona and project guidance");
+    }
+
+    @Test
+    void testVerificationDropsFeedbackBelowTheRequestChangesThreshold()
+    {
+        runner.verify(
+                new ProviderChoice("claude-cli", "cli", "anthropic"),
+                "review-1", "assignment-1", snapshot(List.of(), ""), "verifier-1",
+                "finding", null, null, 25);
+
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(cli).runWithSchedulerCapacity(
+                eq(Provider.CLAUDE), prompt.capture(), isNull(), any(Path.class),
+                any(McpEndpoint.class), eq(25));
+        assertThat(prompt.getValue())
+                .contains("Only severity 4 or 5 findings that warrant REQUEST_CHANGES are publishable")
+                .contains("revise its severity below 4 so it is dropped")
+                .contains("precise and ADHD-friendly")
+                .contains("at most 80 words total");
     }
 
     @Test

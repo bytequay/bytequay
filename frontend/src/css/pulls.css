@@ -46,6 +46,14 @@
 .pl-review-action:hover:not(:disabled) { background: #000; border-color: #000; }
 .pl-review-action:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
 .pl-review-action:disabled { opacity: 0.45; cursor: default; }
+.pl-review-action--running:disabled { opacity: 0.78; }
+.pl-quick-review__running-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pl-pulse 1.1s ease-in-out infinite;
+}
 .pl-review-inline-error {
   margin: 0 0 14px;
   padding: 9px 11px;
@@ -95,13 +103,16 @@
   text-transform: uppercase;
 }
 .pl-quick-review__finding-meta > code { color: #0969da; font-size: 11px; }
-.pl-quick-review__finding > p {
+.pl-quick-review__finding-body {
   margin: 0;
   color: #30363d;
   font-size: 12.5px;
   line-height: 1.5;
-  white-space: pre-wrap;
 }
+.pl-quick-review__summary > :first-child,
+.pl-quick-review__finding-body > :first-child { margin-top: 0; }
+.pl-quick-review__summary > :last-child,
+.pl-quick-review__finding-body > :last-child { margin-bottom: 0; }
 .pl-hov-send:hover { background: #000 !important; }
 .pl-hov-load:hover { background: #f4f5f7; color: #17191c; }
 .pl-hov-green:hover:not(:disabled) { background: #1a7f37 !important; }

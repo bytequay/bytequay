@@ -17,6 +17,7 @@ import { diffInlineCommentFromLocalPr, isPublishableReviewDraft } from '../diff/
 import { SubmitReviewDrawer, type ReviewVerdict } from '../pages/SubmitReviewDrawer';
 import { usePR } from '../pr/usePR';
 import { derivePRCapabilities } from '../pr/prCapabilities';
+import { MarkdownProse } from '../threads/MarkdownProse';
 import type { AiReviewDraftDto, DiffFileDto, UserProfileDto } from '../types';
 import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
 import { getCached, setCached } from '../dataCache';
@@ -117,6 +118,13 @@ function AgentButtons({ det, actions }: { det: ReturnType<typeof buildHeader>; a
 
   if (actions.noWorkspace === true) {
     const quick = actions.quickReview;
+    const quickLabel = quick?.state === 'running'
+      ? 'Quick review • running'
+      : quick?.state === 'done'
+        ? 'Quick review ✓'
+        : quick?.state === 'failed'
+          ? 'Retry quick review'
+          : 'Run quick review';
     const quickTitle = quick?.state === 'running'
       ? 'Quick review is running'
       : quick?.state === 'done'
@@ -140,13 +148,15 @@ function AgentButtons({ det, actions }: { det: ReturnType<typeof buildHeader>; a
       <span style={{ position: 'relative', display: 'inline-flex', marginBottom: 4, flexShrink: 0 }}>
         <button
           type="button"
-          className="pl-review-action"
           onClick={quickAction}
           disabled={quickAction === undefined}
           title={quickTitle}
+          aria-busy={quick?.state === 'running'}
+          className={`pl-review-action${quick?.state === 'running' ? ' pl-review-action--running' : ''}`}
           style={{ margin: 0, borderRadius: '8px 0 0 8px' }}
         >
-          Run quick review
+          {quick?.state === 'running' && <span className="pl-quick-review__running-dot" aria-hidden="true" />}
+          {quickLabel}
         </button>
         <button
           type="button"
@@ -208,7 +218,11 @@ function QuickReviewInline({
   const quickError = quickReview?.state === 'failed' ? quickReview.error : null;
   const watchError = fullReviewPreparation?.state === 'failed' ? fullReviewPreparation.error : null;
   const result = quickReview?.state === 'done' ? quickReview.result : null;
-
+  const findings = result?.comments.filter(finding => {
+    const severity = finding.severity.trim().toLowerCase().replaceAll('-', '_').replaceAll(' ', '_');
+    return severity === 'blocker' || severity === 'critical'
+      || severity === 'error' || severity === 'request_changes';
+  }) ?? [];
   return (
     <>
       {(quickError !== null || watchError !== null) && (
@@ -223,19 +237,23 @@ function QuickReviewInline({
             <small>Diff only · no repository exploration</small>
           </header>
           {result.summary !== null && result.summary.trim() !== '' && (
-            <p className="pl-quick-review__summary">{result.summary}</p>
+            <div className="pl-quick-review__summary">
+              <MarkdownProse text={result.summary} />
+            </div>
           )}
-          {result.comments.length === 0 ? (
+          {findings.length === 0 ? (
             <p className="pl-quick-review__empty">No actionable findings in the supplied diff.</p>
           ) : (
             <div className="pl-quick-review__findings">
-              {result.comments.map(finding => (
+              {findings.map(finding => (
                 <article key={finding.id} className="pl-quick-review__finding">
                   <div className="pl-quick-review__finding-meta">
                     <span>{finding.severity}</span>
                     <code>{finding.filePath}{finding.lineNumber > 0 ? `:${finding.lineNumber}` : ''}</code>
                   </div>
-                  <p>{finding.editedBody ?? finding.body}</p>
+                  <div className="pl-quick-review__finding-body">
+                    <MarkdownProse text={finding.editedBody ?? finding.body} />
+                  </div>
                 </article>
               ))}
             </div>
@@ -286,6 +304,12 @@ export function PullDetailBody({
   useEffect(() => {
     if (openOverviewToken !== undefined) setSubTab('overview');
   }, [openOverviewToken]);
+  const completedQuickReview = actions.quickReview?.state === 'done'
+    ? actions.quickReview.result?.updatedAt ?? null
+    : null;
+  useEffect(() => {
+    if (completedQuickReview !== null) refresh();
+  }, [completedQuickReview, refresh]);
   const pending = (bundle?.comments ?? []).filter(isPublishableReviewDraft);
   const detailCapabilities = bundle === null || bundle === undefined
     ? null

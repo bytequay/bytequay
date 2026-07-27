@@ -23,11 +23,13 @@ export type ActorRole = 'agent' | 'author' | 'you' | 'other';
 
 export type WorkflowActorRole = 'dev' | 'brain';
 
+export const QUICK_REVIEW_AUTHOR = 'ai-reviewer';
+
 const DEV_ACTORS = new Set(['claude-code', 'agent']);
 const BRAIN_ACTORS = new Set([
   'brain',
   'ai reviewer',
-  'ai-reviewer',
+  QUICK_REVIEW_AUTHOR,
   'agent-reviewer',
   'review-planner',
   'independent-verifier',

@@ -13,7 +13,7 @@
  */
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ReviewTabPendingList } from './PendingCommentsList';
+import { PendingCommentsList, ReviewTabPendingList } from './PendingCommentsList';
 import {
   diffInlineCommentFromLocalPr, diffInlineCommentFromReviewDto, isPublishableReviewDraft, type DiffInlineComment,
 } from './DiffInlineComments';
@@ -43,7 +43,7 @@ function pending(over: Partial<DiffInlineComment> = {}): DiffInlineComment {
 }
 
 describe('ReviewTabPendingList', () => {
-  it('counts only user-authored local roots as publishable review drafts', () => {
+  it('counts user and quick-review local roots as publishable review drafts', () => {
     const comment = (author: string, over: Partial<LocalPRComment> = {}): LocalPRComment => ({
       id: author, localPrId: 'pr-1', origin: 'local', scope: 'pr', filePath: null,
       lineNumber: null, side: 'RIGHT', startLine: null, startSide: null, author,
@@ -52,6 +52,7 @@ describe('ReviewTabPendingList', () => {
     });
 
     expect(isPublishableReviewDraft(comment('you'))).toBe(true);
+    expect(isPublishableReviewDraft(comment('ai-reviewer'))).toBe(true);
     expect(isPublishableReviewDraft(comment('brain'))).toBe(false);
     expect(isPublishableReviewDraft(comment('claude-code'))).toBe(false);
     expect(isPublishableReviewDraft(comment('you', { parentCommentId: 'root' }))).toBe(false);
@@ -62,7 +63,7 @@ describe('ReviewTabPendingList', () => {
     const { container } = render(
       <ReviewTabPendingList
         comments={[
-          pending(),
+          pending({ body: '**Critical:** guard `close()`.' }),
           pending({
             id: 'c0',
             author: 'chenjian2664',
@@ -87,6 +88,17 @@ describe('ReviewTabPendingList', () => {
     expect(screen.getByText('BRAIN')).toBeTruthy();
     expect(container.querySelector('.review-pending__card--bot')).not.toBeNull();
     expect(container.querySelector('.review-pending__card--you')).not.toBeNull();
+    expect(container.querySelector('.review-pending__text strong')?.textContent).toBe('Critical:');
+    expect(container.querySelector('.review-pending__text code')?.textContent).toBe('close()');
+  });
+
+  it('renders Markdown in the submit-review pending cards', () => {
+    const { container } = render(
+      <PendingCommentsList comments={[pending({ body: '**Critical:** guard `close()`.' })]} />,
+    );
+
+    expect(container.querySelector('.pending-comments__text strong')?.textContent).toBe('Critical:');
+    expect(container.querySelector('.pending-comments__text code')?.textContent).toBe('close()');
   });
 
   it('maps review DTO authors into GitHub-avatar-ready logins', () => {

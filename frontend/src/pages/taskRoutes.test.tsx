@@ -717,7 +717,10 @@ describe('StageDetailRoute', () => {
   });
 
   it('mounts the V3 stage page and steers the stage agent', async () => {
-    const steerStage = vi.fn().mockResolvedValue({ turnId: 'x' });
+    let acceptSteer!: (result: { turnId: string }) => void;
+    const steerStage = vi.fn(() => new Promise<{ turnId: string }>(resolve => {
+      acceptSteer = resolve;
+    }));
     // getStageDetail never resolves → renders the loading defaults.
     (window as unknown as { bridge: unknown }).bridge = {
       getStageDetail: vi.fn(() => new Promise(() => {})),
@@ -735,6 +738,30 @@ describe('StageDetailRoute', () => {
     fireEvent.change(box, { target: { value: 'fix the import' } });
     fireEvent.keyDown(box, { key: 'Enter' });
     await waitFor(() => expect(steerStage).toHaveBeenCalledWith('stage-1', 'fix the import', []));
+    expect(screen.getByText('fix the import')).toBeTruthy();
+    expect(screen.getByText('You · sending')).toBeTruthy();
+
+    acceptSteer({ turnId: 'x' });
+    await waitFor(() => expect(screen.getByText('You · queued')).toBeTruthy());
+  });
+
+  it('restores a stage steer and shows the backend error when submission fails', async () => {
+    const steerStage = vi.fn().mockRejectedValue(new Error(
+      'task command cannot start inside an ambient transaction'));
+    (window as unknown as { bridge: unknown }).bridge = {
+      getStageDetail: vi.fn(() => new Promise(() => {})),
+      steerStage,
+    };
+    render(<StageDetailRoute threadId="t1" taskId="task-1" stageId="stage-1" />);
+
+    const box = screen.getByRole('textbox');
+    fireEvent.change(box, { target: { value: 'check the failing CI job' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+
+    await waitFor(() => expect(box).toHaveProperty('value', 'check the failing CI job'));
+    expect((await screen.findByRole('alert')).textContent)
+      .toContain('task command cannot start inside an ambient transaction');
+    expect(screen.queryByText('You · sending')).toBeNull();
   });
 
   it('removes the stage-specific sidebar when the shared app rail is collapsed', () => {

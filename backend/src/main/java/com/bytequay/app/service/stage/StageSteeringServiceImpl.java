@@ -13,25 +13,30 @@
  */
 package com.bytequay.app.service.stage;
 
+import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.MessageAttachments;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -57,6 +62,8 @@ public class StageSteeringServiceImpl
     private final TaskStore taskStore;
     private final ThreadStore threadStore;
     private final ThreadTurnScheduler scheduler;
+    private final AgentRunService agentRuns;
+    private final TaskCommandExecutor commands;
     private final IterationService iterationService;
     private final ChatAttachmentStore attachmentStore;
     private final ObjectMapper mapper;
@@ -66,6 +73,8 @@ public class StageSteeringServiceImpl
             TaskStore taskStore,
             ThreadStore threadStore,
             ThreadTurnScheduler scheduler,
+            AgentRunService agentRuns,
+            TaskCommandExecutor commands,
             IterationService iterationService,
             ChatAttachmentStore attachmentStore,
             ObjectMapper mapper)
@@ -74,21 +83,37 @@ public class StageSteeringServiceImpl
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
+        this.commands = requireNonNull(commands, "commands is null");
         this.iterationService = requireNonNull(iterationService, "iterationService is null");
         this.attachmentStore = requireNonNull(attachmentStore, "attachmentStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     @Override
-    @Transactional
     public SteerResult steer(UUID stageId, String text, List<String> images)
     {
         String trimmed = text == null ? "" : text.strip();
         if (trimmed.isEmpty() && (images == null || images.isEmpty())) {
             throw status(400, "steering message is empty");
         }
+        String taskId = stageStore.findStageById(stageId)
+                .map(StageInstance::taskId)
+                .orElseThrow(() -> status(404, "no stage: " + stageId));
+        SteerResult result = commands.execute(
+                taskId, () -> steerInCommand(stageId, taskId, trimmed, images));
+        log.debug("Steered stage {} (task {}) via turn {}", stageId, taskId, result.turnId());
+        return result;
+    }
+
+    private SteerResult steerInCommand(
+            UUID stageId, String commandTaskId, String text, List<String> images)
+    {
         StageInstance stage = stageStore.findStageById(stageId)
                 .orElseThrow(() -> status(404, "no stage: " + stageId));
+        if (!stage.taskId().equals(commandTaskId)) {
+            throw status(409, "stage changed tasks while steering: " + stageId);
+        }
         if (stage.state() != StageState.OPEN) {
             throw status(422, "can't steer a " + stage.state() + " stage");
         }
@@ -102,7 +127,7 @@ public class StageSteeringServiceImpl
         // keyed on the dev thread's id (the same id space the attachment
         // GET endpoint already serves from).
         List<String> paths = attachmentStore.save(devThread.id(), images);
-        String input = MessageAttachments.encode(mapper, trimmed, paths);
+        String input = MessageAttachments.encode(mapper, text, paths);
 
         // Bind the turn to the task explicitly. A task parked at
         // AWAITING_REVIEW (the review gate) is no longer in the thread's
@@ -113,16 +138,36 @@ public class StageSteeringServiceImpl
                 && task.status() == TaskStatus.NEEDS_ATTENTION;
         TurnInitiator initiator = TurnInitiator.attended(
                 parked ? SOURCE_PARKED_STEERING : "steering");
+        AgentRun run = agentRuns.openSchedulerSessionInCommand(
+                devThread, task.id(), stage.id().toString(),
+                sessionKind(devThread, stage.type()), input);
         String turnId = scheduler.enqueueTaskTurn(
-                devThread, input, task.id(), stage.id().toString(), initiator);
+                devThread, input, task.id(), stage.id().toString(), initiator, run.id());
         // 1 turn = 1 iteration: open a user_steering iteration so the steer
         // shows up as its own band on the stage detail page. A no-op unless
         // the stage is a monitor stage (the only loop stages with iterations).
         if (!parked) {
             iterationService.begin(task.id(), turnId, IterationService.TRIGGER_USER_STEERING);
         }
-        log.debug("Steered stage {} (task {}) via turn {}", stageId, task.id(), turnId);
         return new SteerResult(turnId);
+    }
+
+    /** Keep scheduler-session classification aligned with AgentScheduler. */
+    private static String sessionKind(Thread thread, StageType type)
+    {
+        if (thread.flow() == ThreadFlow.REVIEW) {
+            return AgentRun.KIND_REVIEW;
+        }
+        if (type == StageType.CI_FIXING_STAGE) {
+            return AgentRun.KIND_CI_FIX;
+        }
+        if (type == StageType.PLAN_STAGE || thread.kind() == ThreadKind.BRAIN_AGENT) {
+            return AgentRun.KIND_PLAN;
+        }
+        if (type == StageType.REVIEW_STAGE || type == StageType.REVIEW_ROUND_STAGE) {
+            return AgentRun.KIND_REVIEW;
+        }
+        return AgentRun.KIND_DEV;
     }
 
     private static ResponseStatusException status(int code, String message)

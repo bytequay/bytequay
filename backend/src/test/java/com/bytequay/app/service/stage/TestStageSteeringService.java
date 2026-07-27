@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.stage;
 
+import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
 import com.bytequay.app.domain.StageType;
@@ -27,18 +28,20 @@ import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.threads.ChatAttachmentStore;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,6 +49,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -59,9 +63,12 @@ class TestStageSteeringService
     private TaskStore taskStore;
     private ThreadStore threadStore;
     private ThreadTurnScheduler scheduler;
+    private AgentRunService agentRuns;
+    private TaskCommandExecutor commands;
     private IterationService iterationService;
     private ChatAttachmentStore attachmentStore;
     private StageSteeringServiceImpl service;
+    private boolean commandActive;
 
     @BeforeEach
     void setUp()
@@ -70,21 +77,70 @@ class TestStageSteeringService
         taskStore = mock(TaskStore.class);
         threadStore = mock(ThreadStore.class);
         scheduler = mock(ThreadTurnScheduler.class);
+        agentRuns = mock(AgentRunService.class);
+        commands = mock(TaskCommandExecutor.class);
         iterationService = mock(IterationService.class);
         attachmentStore = mock(ChatAttachmentStore.class);
         when(attachmentStore.save(any(), any())).thenReturn(List.of());
+        when(commands.execute(anyString(), any())).thenAnswer(invocation -> {
+            commandActive = true;
+            try {
+                return ((Supplier<?>) invocation.getArgument(1)).get();
+            }
+            finally {
+                commandActive = false;
+            }
+        });
         service = new StageSteeringServiceImpl(
-                stageStore, taskStore, threadStore, scheduler, iterationService, attachmentStore, new ObjectMapper());
+                stageStore, taskStore, threadStore, scheduler, agentRuns, commands,
+                iterationService, attachmentStore, new ObjectMapper());
     }
 
     @Test
-    void steeringPersistsItsIterationBeforeSchedulerDispatchCanRun()
-            throws NoSuchMethodException
+    void steeringOpensItsSessionTurnAndIterationInsideOneTaskCommand()
     {
-        assertThat(StageSteeringServiceImpl.class
-                .getMethod("steer", UUID.class, String.class, List.class)
-                .isAnnotationPresent(Transactional.class))
-                .isTrue();
+        UUID stageId = UUID.randomUUID();
+        AgentRun run = mock(AgentRun.class);
+        when(run.id()).thenReturn("run-3");
+        when(stageStore.findStageById(stageId)).thenReturn(Optional.of(
+                stage(stageId, "task-7", StageState.OPEN)));
+        when(taskStore.findTaskById("task-7")).thenReturn(Optional.of(task("task-7", "thread-9")));
+        when(threadStore.findThreadById("thread-9")).thenReturn(Optional.of(thread("thread-9")));
+        when(agentRuns.openSchedulerSessionInCommand(
+                any(), eq("task-7"), eq(stageId.toString()), eq(AgentRun.KIND_CI_FIX),
+                eq("Fix the retry default")))
+                .thenAnswer(invocation -> {
+                    assertThat(commandActive).isTrue();
+                    return run;
+                });
+        when(scheduler.enqueueTaskTurn(
+                any(), any(), eq("task-7"), eq(stageId.toString()), any(), eq("run-3")))
+                .thenAnswer(invocation -> {
+                    assertThat(commandActive).isTrue();
+                    return "turn-3";
+                });
+        doAnswer(invocation -> {
+            assertThat(commandActive).isTrue();
+            return null;
+        }).when(iterationService).begin(
+                "task-7", "turn-3", IterationService.TRIGGER_USER_STEERING);
+
+        StageSteeringService.SteerResult result = service.steer(
+                stageId, "Fix the retry default", null);
+
+        assertThat(result.turnId()).isEqualTo("turn-3");
+        assertThat(commandActive).isFalse();
+        verify(commands).execute(eq("task-7"), any());
+        verify(agentRuns).openSchedulerSessionInCommand(
+                any(), eq("task-7"), eq(stageId.toString()), eq(AgentRun.KIND_CI_FIX),
+                eq("Fix the retry default"));
+        verify(scheduler).enqueueTaskTurn(
+                any(), eq("Fix the retry default"), eq("task-7"), eq(stageId.toString()),
+                any(TurnInitiator.class), eq("run-3"));
+        verify(scheduler, never()).enqueueTaskTurn(
+                any(), any(), any(), any(), any());
+        verify(iterationService).begin(
+                "task-7", "turn-3", IterationService.TRIGGER_USER_STEERING);
     }
 
     @Test
@@ -97,15 +153,19 @@ class TestStageSteeringService
         when(threadStore.findThreadById("thread-9")).thenReturn(Optional.of(thread("thread-9")));
         // Bound to the explicit task id (not the active-task projection) so a
         // task parked at AWAITING_REVIEW still routes to the dev agent.
-        when(scheduler.enqueueTaskTurn(any(), eq("Fix the retry default"), eq("task-7"), anyString(), any()))
+        schedulerSession("run-3");
+        when(scheduler.enqueueTaskTurn(
+                any(), eq("Fix the retry default"), eq("task-7"), anyString(), any(), eq("run-3")))
                 .thenReturn("turn-3");
 
         StageSteeringService.SteerResult result = service.steer(stageId, "  Fix the retry default  ", null);
 
         assertThat(result.turnId()).isEqualTo("turn-3");
-        verify(scheduler).enqueueTaskTurn(any(), eq("Fix the retry default"), eq("task-7"),
-                eq(stageId.toString()), any(TurnInitiator.class));
-        verify(scheduler, never()).enqueueTurn(any(), any(), any());
+        verify(scheduler).enqueueTaskTurn(
+                any(), eq("Fix the retry default"), eq("task-7"), eq(stageId.toString()),
+                any(TurnInitiator.class), eq("run-3"));
+        verify(scheduler, never()).enqueueTrunkTurn(
+                any(), any(), any(TurnInitiator.class));
         verify(iterationService).begin("task-7", "turn-3", IterationService.TRIGGER_USER_STEERING);
     }
 
@@ -119,13 +179,16 @@ class TestStageSteeringService
         when(threadStore.findThreadById("thread-9")).thenReturn(Optional.of(thread("thread-9")));
         when(attachmentStore.save(eq("thread-9"), eq(List.of("data:image/png;base64,abc"))))
                 .thenReturn(List.of("/tmp/attachments/thread-9/img.png"));
-        when(scheduler.enqueueTaskTurn(any(), any(), eq("task-7"), anyString(), any())).thenReturn("turn-4");
+        schedulerSession("run-4");
+        when(scheduler.enqueueTaskTurn(
+                any(), any(), eq("task-7"), anyString(), any(), eq("run-4")))
+                .thenReturn("turn-4");
 
         service.steer(stageId, "see this", List.of("data:image/png;base64,abc"));
 
         verify(scheduler).enqueueTaskTurn(
                 any(), argThat(input -> input.contains("/tmp/attachments/thread-9/img.png")),
-                eq("task-7"), eq(stageId.toString()), any(TurnInitiator.class));
+                eq("task-7"), eq(stageId.toString()), any(TurnInitiator.class), eq("run-4"));
     }
 
     @Test
@@ -141,7 +204,8 @@ class TestStageSteeringService
                 stage(stageId, "task-7", StageState.OPEN)));
         when(taskStore.findTaskById("task-7")).thenReturn(Optional.of(parked));
         when(threadStore.findThreadById("thread-9")).thenReturn(Optional.of(thread("thread-9")));
-        when(scheduler.enqueueTaskTurn(any(), any(), any(), anyString(), any()))
+        schedulerSession("question-run");
+        when(scheduler.enqueueTaskTurn(any(), any(), any(), anyString(), any(), eq("question-run")))
                 .thenReturn("question-turn");
 
         service.steer(stageId, "Why did CI pass later?", null);
@@ -149,7 +213,8 @@ class TestStageSteeringService
         verify(scheduler).enqueueTaskTurn(
                 any(), eq("Why did CI pass later?"), eq("task-7"), eq(stageId.toString()),
                 argThat(initiator -> initiator.attended()
-                        && TurnInitiator.SOURCE_PARKED_STEERING.equals(initiator.source())));
+                        && TurnInitiator.SOURCE_PARKED_STEERING.equals(initiator.source())),
+                eq("question-run"));
         verify(iterationService, never()).begin(anyString(), anyString(), anyString());
     }
 
@@ -164,7 +229,24 @@ class TestStageSteeringService
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
                         .isEqualTo(422));
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void rechecksTheStageAfterTakingTheTaskCommand()
+    {
+        UUID stageId = UUID.randomUUID();
+        when(stageStore.findStageById(stageId)).thenReturn(
+                Optional.of(stage(stageId, "task-7", StageState.OPEN)),
+                Optional.of(stage(stageId, "task-7", StageState.CLOSED)));
+
+        assertThatThrownBy(() -> service.steer(stageId, "go", null))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
+                        .isEqualTo(422));
+        verify(commands).execute(eq("task-7"), any());
+        verify(agentRuns, never()).openSchedulerSessionInCommand(
+                any(), any(), any(), any(), any());
     }
 
     @Test
@@ -176,12 +258,20 @@ class TestStageSteeringService
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
                         .isEqualTo(400));
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any());
+        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any());
     }
 
     private static StageInstance stage(UUID id, String taskId, StageState state)
     {
         return new StageInstance(id, taskId, StageType.CI_FIXING_STAGE, state, NOW, null, null);
+    }
+
+    private void schedulerSession(String id)
+    {
+        AgentRun run = mock(AgentRun.class);
+        when(run.id()).thenReturn(id);
+        when(agentRuns.openSchedulerSessionInCommand(any(), any(), any(), any(), any()))
+                .thenReturn(run);
     }
 
     private static Task task(String id, String threadId)

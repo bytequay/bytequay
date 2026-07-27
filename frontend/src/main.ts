@@ -1045,7 +1045,7 @@ function registerIpc(): void {
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`backend PR publish-review returned ${res.status}: ${body}`);
+      throw new Error(extractMessage(body) || `Could not publish review (${res.status})`);
     }
     return res.json();
   });

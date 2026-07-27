@@ -84,6 +84,23 @@ Push strategy: await_approval`;
     expect(container.querySelector('.runtime-kickoff-card__prompt')?.textContent).toBe(text);
   });
 
+  it('renders the planning-agent kickoff as a compact runtime card, not a user message', () => {
+    const text = `You are the planning agent for a new development task. The conversation above is
+the trunk discussion that led to this task — your planning seed. The user's request:
+
+Adjust the task-sidebar row typography.
+
+Investigate the project as needed, then call record_plan with a structured plan.`;
+    const { container } = render(<>{stageRow(row({ kind: 'user', text }))}</>);
+
+    const card = container.querySelector('.runtime-kickoff-card') as HTMLDetailsElement;
+    expect(card).toBeTruthy();
+    expect(card.open).toBe(false);
+    expect(container.querySelector('.ev--user')).toBeNull();
+    expect(screen.getByText('Planning started')).toBeTruthy();
+    expect(screen.getByText('Task context and planning instructions sent automatically')).toBeTruthy();
+  });
+
   it.each([
     `## Context from prior stages
 You are a fresh agent for the CI-fixing stage — you did NOT do the development work.

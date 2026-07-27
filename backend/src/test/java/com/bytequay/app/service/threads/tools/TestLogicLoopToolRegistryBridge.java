@@ -130,7 +130,8 @@ class TestLogicLoopToolRegistryBridge
                 AgentRole.TASK, ThreadKind.BRAIN_AGENT);
 
         List<String> names = anthropicNames(brainTools);
-        assertThat(names).contains("record_plan", "record_pr_comment", "record_review_verdict");
+        assertThat(names).contains(
+                "codegraph_explore", "record_plan", "record_pr_comment", "record_review_verdict");
         assertThat(names).doesNotContain(
                 "create_task", "record_round_reply", "resolve_pr_comment", "push", "merge_pr");
     }

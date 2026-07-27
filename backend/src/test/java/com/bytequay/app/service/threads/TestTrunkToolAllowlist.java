@@ -66,7 +66,7 @@ class TestTrunkToolAllowlist
     void brainCanUseOnlyItsLocalReviewWriters()
     {
         assertThat(LogicLoopThreadAgent.BRAIN_TOOL_ALLOWLIST)
-                .contains("record_plan", "record_pr_comment", "record_review_verdict")
+                .contains("codegraph_explore", "record_plan", "record_pr_comment", "record_review_verdict")
                 .doesNotContain("push", "merge_pr", "post_comment");
         assertThat(LogicLoopThreadAgent.BRAIN_SYSTEM_PROMPT)
                 .contains("record_pr_comment")

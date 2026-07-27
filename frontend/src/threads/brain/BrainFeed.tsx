@@ -16,7 +16,8 @@ import type { ReactNode } from 'react';
 import type { BrainFeedRow, StageDto } from '../../types/brainView';
 import { MarkdownProse } from '../MarkdownProse';
 import {
-  EventTimestamp, Headline, PullRequestCreatedEvent, Round, Spine, StageBoundaryNode, UserTurn, WorkFold,
+  EventTimestamp, Headline, PullRequestCreatedEvent, Round, RuntimeKickoffCard, Spine, StageBoundaryNode,
+  UserTurn, WorkFold, runtimeKickoff,
 } from '../../ui/conv';
 import { ClockIcon } from '../../ui/TaskBrainDesignIcons';
 import type { Density } from '../../ui/conv/spine/DensityToggle';
@@ -152,9 +153,19 @@ function RoundView({ round, tag, full, collapsedStage, segmentStageType, threadI
   const ciFailure = headline !== null && isRemoteCiFailure(headline);
   const pullRequestMilestone = headline?.type === 'PULL_REQUEST_PROGRESS'
     || headline?.type === 'PUSHED_PR_CREATED' ? headline : null;
+  const kickoff = runtimeKickoff(round.userTurn?.body ?? null);
   return (
     <Round tag={tag}>
-      {round.userTurn !== null && (
+      {round.userTurn !== null && kickoff !== null && (
+        <RuntimeKickoffCard
+          text={round.userTurn.body}
+          kickoff={kickoff}
+          timestamp={<EventTimestamp iso={round.userTurn.ts} />}
+          messageSeq={round.userTurn.messageSeq}
+          managedSkills={round.userTurn.managedSkills}
+        />
+      )}
+      {round.userTurn !== null && kickoff === null && (
         <UserTurn
           text={round.userTurn.body}
           timestamp={<EventTimestamp iso={round.userTurn.ts} />}

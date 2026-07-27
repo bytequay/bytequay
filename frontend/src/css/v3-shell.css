@@ -652,6 +652,8 @@
   color: var(--red);
 }
 .shell .commits-dropdown__pop {
+  left: 0;
+  right: auto;
   width: 320px;
   max-width: calc(100vw - 24px);
 }

@@ -45,6 +45,7 @@ export function TrunkPage({
   threadId: string;
   thread: {
     title: string;
+    description?: string | null;
     createdLabel?: string;
     status?: string;
     errorMessage?: string | null;
@@ -148,7 +149,7 @@ export function TrunkPage({
   const topBar = (
     <div className="trunk-page-v2__topbar">
       <span className="trunk-page-v2__topbar-icon"><TrunkLineIcon /></span>
-      <strong>{thread.title}</strong>
+      <strong title={thread.description ?? undefined}>{thread.title}</strong>
       <span>trunk · {repository} · {mergedCount} tasks merged</span>
       <button type="button" title="Toggle workspace panel" aria-label="Toggle workspace panel"
         onClick={() => setPaneOpen(open => !open)}><PanelIcon /></button>

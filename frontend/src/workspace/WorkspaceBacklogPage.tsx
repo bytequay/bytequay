@@ -21,7 +21,7 @@ import {
 import { CreationOriginBadge } from '../ui/CreationOriginBadge';
 
 type BacklogFilter = 'all' | 'open' | 'in-progress' | 'resolved';
-type BacklogTrunk = Pick<WorkspaceTrunkDto, 'id' | 'title' | 'status' | 'kind'>;
+type BacklogTrunk = Pick<WorkspaceTrunkDto, 'id' | 'title' | 'description' | 'status' | 'kind'>;
 
 type Props = {
   workspaceId: string;
@@ -795,7 +795,7 @@ function TrunkPicker({
               }}
             >
               <i className={trunk.status.toLowerCase()} />
-              <span>{trunk.title}</span>
+              <span title={trunk.description ?? undefined}>{trunk.title}</span>
               <em>{trunk.kind}</em>
             </button>
           ))}

@@ -33,11 +33,15 @@ function thread(over: Partial<ThreadDto> = {}): ThreadDto {
 describe('WorkspaceThreadsSurface', () => {
   it('renders a thread card with trunk tile, title, meta chips and active count', () => {
     const { container } = render(
-      <WorkspaceThreadsSurface threads={[thread()]} loading={false} />,
+      <WorkspaceThreadsSurface
+        threads={[thread({ description: 'Owns backend cleanup work.' })]}
+        loading={false}
+      />,
     );
     expect(screen.getByRole('heading', { name: 'Trunks' })).toBeTruthy();
     expect(screen.getByText('1 open · 1 active')).toBeTruthy();
-    expect(screen.getByText('Backend cleanup review')).toBeTruthy();
+    expect(screen.getByText('Backend cleanup review').getAttribute('title'))
+      .toBe('Owns backend cleanup work.');
     expect(screen.getByText('agent running')).toBeTruthy();
     expect(screen.getByText('Agent is working in this trunk')).toBeTruthy();
     expect(container.querySelector('.thread-card .tile svg')).toBeTruthy();

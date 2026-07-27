@@ -228,7 +228,7 @@ function ThreadCard({
       </span>
       <div className="col">
         <div className="title-row">
-          <span className="title">{thread.title}</span>
+          <span className="title" title={thread.description ?? undefined}>{thread.title}</span>
           {status.label !== null && (
             <span className={`wu-status-chip is-${status.tone}`}>{status.label}</span>
           )}

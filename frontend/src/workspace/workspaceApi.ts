@@ -191,6 +191,7 @@ export type WorkspaceTrunkDto = {
   id: string;
   workspaceId: string;
   title: string;
+  description?: string | null;
   kind: 'dev' | 'review';
   status: string;
   provider: string | null;

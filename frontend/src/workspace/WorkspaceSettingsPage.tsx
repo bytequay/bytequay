@@ -70,7 +70,7 @@ const defaults: StoredSettings = {
   devModel: INHERIT,
   reviewModel: INHERIT,
   ciFixModel: INHERIT,
-  perSessionCap: 1,
+  perSessionCap: 100,
   dailyCap: 500,
   pauseAtCap: true,
   syncSeconds: 60,

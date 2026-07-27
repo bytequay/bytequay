@@ -62,6 +62,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -280,7 +281,33 @@ class TestTaskPushSaga
 
         verify(git).push(WORKTREE);
         verify(pullRequests, never()).createPullRequest(any(), any(), any());
+        verify(prs, never()).recordPushFailureInCommand(any(), any(), any());
         assertThat(pushes.findActiveByTask("task-1")).isPresent();
+    }
+
+    @Test
+    void aPermanentFailureRecordsItsDurableResultBeforeParking()
+    {
+        when(pullRequests.listPullRequests(any(), any(), any())).thenThrow(
+                new ResponseStatusException(HttpStatus.FORBIDDEN, "credentials rejected"));
+        doAnswer(invocation -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue();
+            assertThat(pushes.findEffect(
+                    pushes.authorization.token(), TaskPushSaga.EFFECT_ENSURE_PULL_REQUEST)
+                    .orElseThrow().status()).isEqualTo(TaskPushEffect.Status.PERMANENT_FAILED);
+            return null;
+        }).when(prs).recordPushFailureInCommand(
+                eq("pr-1"), eq(TaskPushSaga.EFFECT_ENSURE_PULL_REQUEST), anyString());
+
+        assertThatThrownBy(() -> saga.push("pr-1", false))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("credentials rejected");
+
+        verify(prs).recordPushFailureInCommand(
+                eq("pr-1"), eq(TaskPushSaga.EFFECT_ENSURE_PULL_REQUEST),
+                contains("credentials rejected"));
+        verify(taskMachine).parkOperationalInCommand(
+                "task-1", Actor.AGENT, "local_push_failed");
     }
 
     @Test

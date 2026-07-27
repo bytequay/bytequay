@@ -52,7 +52,8 @@ public record PRTimelineEntry(
      *  back to it (see {@code PRService#recordPlanApproved}). */
     public static final String TYPE_PLAN_FINALIZED = "plan-finalized";
     /** One durable local PR-preparation milestone. The payload's phase is
-     *  either {@link #PHASE_STARTING} or {@link #PHASE_CREATING_DRAFT}. */
+     *  {@link #PHASE_STARTING}, {@link #PHASE_CREATING_DRAFT}, or the terminal
+     *  publication result {@link #PHASE_FAILED}. */
     public static final String TYPE_PULL_REQUEST_PROGRESS = "pull-request-progress";
     /** The task's local branch was published as its first remote pull request.
      *  Payload carries the branch flow, GitHub URL, and local diff totals. */
@@ -60,6 +61,7 @@ public record PRTimelineEntry(
 
     public static final String PHASE_STARTING = "starting";
     public static final String PHASE_CREATING_DRAFT = "creating-draft";
+    public static final String PHASE_FAILED = "failed";
     public static final String PHASE_CREATED = "created";
 
     public static final String ACTOR_AGENT = "claude-code";

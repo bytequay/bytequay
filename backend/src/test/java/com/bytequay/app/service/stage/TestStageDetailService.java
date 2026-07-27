@@ -220,6 +220,7 @@ class TestStageDetailService
         StageDetailData.ConversationRow created = detail.conversation().stream()
                 .filter(row -> row.kind().equals("pull_request_created"))
                 .findFirst().orElseThrow();
+        assertThat(created.text()).isEqualTo("PR pushed successfully");
         assertThat(created.pullRequest()).isNotNull();
         assertThat(created.pullRequest().phase()).isEqualTo("created");
         assertThat(created.pullRequest().branch()).isEqualTo("feature/timeline");
@@ -278,6 +279,29 @@ class TestStageDetailService
         assertThat(progress.text()).isEqualTo("Starting pull request");
         assertThat(progress.pullRequest().phase()).isEqualTo("starting");
         assertThat(progress.pullRequest().branch()).isEqualTo("feature/timeline");
+    }
+
+    @Test
+    void developmentConversationProjectsTerminalPullRequestPublishFailure()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        StageInstance stage = stageStore.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
+        stageStore.recordEvent(stage.id(), taskId, StageEventType.PULL_REQUEST_PROGRESS, Map.of(
+                "phase", "failed",
+                "branch", "feature/timeline",
+                "baseBranch", "main",
+                "failedStep", "push_branch",
+                "reason", "remote rejected the push"));
+
+        StageDetailData.ConversationRow failure = detailService.getDetail(stage.id()).conversation().stream()
+                .filter(row -> row.kind().equals("pull_request_progress"))
+                .findFirst().orElseThrow();
+
+        assertThat(failure.text()).isEqualTo("PR push failed");
+        assertThat(failure.pullRequest().phase()).isEqualTo("failed");
+        assertThat(failure.pullRequest().failedStep()).isEqualTo("push_branch");
+        assertThat(failure.pullRequest().reason()).isEqualTo("remote rejected the push");
     }
 
     @Test

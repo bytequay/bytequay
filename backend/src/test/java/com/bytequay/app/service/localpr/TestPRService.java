@@ -1009,6 +1009,46 @@ class TestPRService
     }
 
     @Test
+    void recordPushFailureDualWritesBoundedReasonAndFailedStep()
+            throws Exception
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+        UUID developmentStageId = UUID.randomUUID();
+        StageInstance development = new StageInstance(
+                developmentStageId, "task1", StageType.DEVELOPMENT_STAGE,
+                StageState.CLOSED, NOW, NOW, null);
+        when(stageStore.findStageByType("task1", StageType.DEVELOPMENT_STAGE))
+                .thenReturn(Optional.of(development));
+        String reason = "x".repeat(2_050);
+
+        commands.executeVoid("task1", () -> service.recordPushFailureInCommand(
+                "pr1", TaskPushSaga.EFFECT_ENSURE_PULL_REQUEST, reason));
+
+        ArgumentCaptor<PRTimelineEntry> event = ArgumentCaptor.forClass(PRTimelineEntry.class);
+        verify(store).addEvent(event.capture());
+        assertThat(event.getValue().eventType()).isEqualTo(PRTimelineEntry.TYPE_PULL_REQUEST_PROGRESS);
+        assertThat(event.getValue().actor()).isEqualTo(PRTimelineEntry.ACTOR_AGENT);
+        assertThat(event.getValue().localOnly()).isTrue();
+        JsonNode timelinePayload = new ObjectMapper().readTree(event.getValue().payloadJson());
+        assertThat(timelinePayload.path("phase").asText()).isEqualTo(PRTimelineEntry.PHASE_FAILED);
+        assertThat(timelinePayload.path("failedStep").asText())
+                .isEqualTo(TaskPushSaga.EFFECT_ENSURE_PULL_REQUEST);
+        assertThat(timelinePayload.path("reason").asText()).hasSize(2_000);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> stagePayload = ArgumentCaptor.forClass(Map.class);
+        verify(stageStore).recordEvent(
+                eq(developmentStageId), eq("task1"), eq(StageEventType.PULL_REQUEST_PROGRESS),
+                stagePayload.capture());
+        assertThat(stagePayload.getValue())
+                .containsEntry("phase", PRTimelineEntry.PHASE_FAILED)
+                .containsEntry("branch", "dev/x")
+                .containsEntry("baseBranch", "main")
+                .containsEntry("failedStep", TaskPushSaga.EFFECT_ENSURE_PULL_REQUEST);
+        assertThat((String) stagePayload.getValue().get("reason")).hasSize(2_000);
+    }
+
+    @Test
     void recordProgressRejectsUnknownPhases()
     {
         pr(PR.STATUS_LOCAL_DRAFTED);

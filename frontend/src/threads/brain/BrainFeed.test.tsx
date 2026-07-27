@@ -84,7 +84,7 @@ describe('BrainFeed', () => {
       { ...row('c', 'STAGE_CLOSED'), stageId: 'dev' },
     ]} stages={[DEV]} density="focused" />);
 
-    expect(screen.getByText('Pull request created')).toBeTruthy();
+    expect(screen.getByText('PR pushed successfully')).toBeTruthy();
     expect(screen.getByText('#145')).toBeTruthy();
     expect(screen.getByText('feature/timeline')).toBeTruthy();
     expect(screen.getByText('main')).toBeTruthy();
@@ -112,6 +112,30 @@ describe('BrainFeed', () => {
     expect(screen.getByText('feature/timeline')).toBeTruthy();
     expect(screen.queryByText('later agent work')).toBeNull();
     expect(screen.queryByText('R1')).toBeNull();
+  });
+
+  it('keeps a terminal push failure visible with its reason folded', () => {
+    const pushFailed: BrainFeedRow = {
+      ...row('pr-failed', 'PULL_REQUEST_PROGRESS'),
+      stageId: 'dev',
+      pullRequest: {
+        phase: 'failed', branch: 'feature/timeline', baseBranch: 'main',
+        failedStep: 'ensure_pull_request', reason: 'GitHub returned 403 Forbidden',
+      },
+    };
+    const { container } = render(<BrainFeed feed={[
+      { ...row('o', 'STAGE_OPENED'), stageId: 'dev' },
+      pushFailed,
+      { ...row('c', 'STAGE_CLOSED'), stageId: 'dev' },
+    ]} stages={[DEV]} density="focused" />);
+
+    const failure = container.querySelector<HTMLDetailsElement>('.pr-created-event--failed');
+    expect(failure?.open).toBe(false);
+    expect(screen.getByText('PR push failed')).toBeTruthy();
+    expect(screen.getByText('GitHub returned 403 Forbidden')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('PR push failed'));
+    expect(failure?.open).toBe(true);
   });
 
   it('keeps completed-stage summaries visible in the locked focused feed', () => {

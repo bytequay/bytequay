@@ -29,15 +29,17 @@ export function PullRequestCreatedEvent({
   const baseBranch = pullRequest?.baseBranch?.trim() || 'base branch';
   const phase = pullRequest?.phase ?? 'created';
   const progress = phase === 'starting' || phase === 'creating-draft';
+  const failed = phase === 'failed';
   const label = phase === 'starting'
     ? 'Starting pull request'
-    : phase === 'creating-draft' ? 'Creating draft' : 'Pull request created';
+    : phase === 'creating-draft' ? 'Creating draft'
+      : failed ? 'PR push failed' : 'PR pushed successfully';
   const number = pullRequest?.number;
   const additions = pullRequest?.additions ?? 0;
   const deletions = pullRequest?.deletions ?? 0;
-
-  return (
-    <div className={`pr-created-event${progress ? ' pr-created-event--progress' : ''}${timeline ? ' pr-created-event--timeline' : ''}`}>
+  const eventClassName = `pr-created-event${progress ? ' pr-created-event--progress' : ''}${failed ? ' pr-created-event--failed' : ''}${timeline ? ' pr-created-event--timeline' : ''}`;
+  const content = (
+    <>
       <span className="pr-created-event__icon" aria-hidden>
         <PullRequestIcon size={16} strokeWidth={2.1} />
       </span>
@@ -59,6 +61,26 @@ export function PullRequestCreatedEvent({
         </div>
       </div>
       {timestamp !== undefined && <span className="pr-created-event__time">{timestamp}</span>}
-    </div>
+    </>
+  );
+
+  if (failed) {
+    const failedStep = pullRequest?.failedStep?.trim();
+    const reason = pullRequest?.reason?.trim() || 'No failure reason was recorded.';
+    return (
+      <details className={eventClassName}>
+        <summary>
+          <span className="pr-created-event__summary-content">{content}</span>
+        </summary>
+        <div className="pr-created-event__reason">
+          {failedStep && <strong>{failedStep.replaceAll('_', ' ')}</strong>}
+          <span>{reason}</span>
+        </div>
+      </details>
+    );
+  }
+
+  return (
+    <div className={eventClassName}>{content}</div>
   );
 }

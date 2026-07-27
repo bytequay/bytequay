@@ -148,6 +148,10 @@ public interface PRService
      *  {@code creating-draft}) in the PR, Development, and Brain timelines. */
     void recordProgress(String prId, String phase);
 
+    /** Record a terminal task-push failure in the PR, Development, and Brain
+     * timelines. Must run inside the task command that persisted the failure. */
+    void recordPushFailureInCommand(String prId, String failedStep, String reason);
+
     /** Correct the head/base branch names once a detail fetch resolves the
      *  real ones (a null argument leaves that field unchanged). */
     PR updateBranches(String prId, String branchName, String baseBranch);

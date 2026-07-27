@@ -254,6 +254,18 @@ export function TaskBrainRoute({
   // (localStorage) lets new tasks inherit the user's latest choice, with the
   // per-task toggle overriding (A4.3, defaulted). Toggling updates both.
   const [autoApprove, setAutoApprove] = useState(false);
+  const autoApproveRead = useRef(0);
+  const autoMergeRead = useRef(0);
+  const minApprovalsRead = useRef(0);
+  const pendingPolicyWrites = useRef(new Set<Promise<unknown>>());
+  const trackPolicyWrite = <T,>(write: Promise<T>) => {
+    pendingPolicyWrites.current.add(write);
+    void write.then(
+      () => pendingPolicyWrites.current.delete(write),
+      () => pendingPolicyWrites.current.delete(write),
+    );
+    return write;
+  };
   const threadDefaultKey = `bq.autoApprove.thread.${threadId}`;
   const readThreadDefault = () => {
     try { return typeof localStorage !== 'undefined' && localStorage.getItem(threadDefaultKey) === 'true'; }
@@ -262,24 +274,29 @@ export function TaskBrainRoute({
   useEffect(() => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     const threadDefault = readThreadDefault();
+    const read = ++autoApproveRead.current;
     bridge?.getTaskAutoApprove?.(threadId, taskId)
       .then(r => {
+        if (read !== autoApproveRead.current) return;
         const eff = r.enabled || threadDefault;
         setAutoApprove(eff);
         // A new task whose backend value is still off inherits the thread
         // default — persist it so the backend matches what the UI shows.
         if (eff && !r.enabled) bridge?.setTaskAutoApprove?.(threadId, taskId, true).catch(() => { /* poll reconciles */ });
       })
-      .catch(() => setAutoApprove(threadDefault));
+      .catch(() => { if (read === autoApproveRead.current) setAutoApprove(threadDefault); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, taskId]);
   const toggleAutoApprove = () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     const next = !autoApprove;
+    ++autoApproveRead.current;
     setAutoApprove(next);
     try { if (typeof localStorage !== 'undefined') localStorage.setItem(threadDefaultKey, String(next)); }
     catch { /* storage unavailable */ }
-    bridge?.setTaskAutoApprove?.(threadId, taskId, next)
+    const write = bridge?.setTaskAutoApprove?.(threadId, taskId, next);
+    if (write === undefined) return;
+    trackPolicyWrite(write)
       .then(r => setAutoApprove(r.enabled))
       .catch(() => setAutoApprove(!next));
   };
@@ -292,17 +309,22 @@ export function TaskBrainRoute({
   const [autoMerge, setAutoMerge] = useState(false);
   useEffect(() => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    const read = ++autoMergeRead.current;
     bridge?.getTaskAutoMerge?.(threadId, taskId)
-      .then(r => setAutoMerge(r.enabled))
+      .then(r => { if (read === autoMergeRead.current) setAutoMerge(r.enabled); })
       .catch(() => { /* poll reconciles */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, taskId]);
   const toggleAutoMerge = () => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
     const next = !autoMerge;
+    ++autoMergeRead.current;
+    if (next) ++autoApproveRead.current;
     setAutoMerge(next);
     if (next) setAutoApprove(true);
-    bridge?.setTaskAutoMerge?.(threadId, taskId, next)
+    const write = bridge?.setTaskAutoMerge?.(threadId, taskId, next);
+    if (write === undefined) return;
+    trackPolicyWrite(write)
       .then(r => { setAutoMerge(r.enabled); if (r.enabled) setAutoApprove(true); })
       .catch(() => setAutoMerge(!next));
   };
@@ -311,15 +333,19 @@ export function TaskBrainRoute({
   const [minApprovals, setMinApprovalsState] = useState(0);
   useEffect(() => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    const read = ++minApprovalsRead.current;
     bridge?.getTaskMinApprovals?.(threadId, taskId)
-      .then(r => setMinApprovalsState(r.minApprovals))
+      .then(r => { if (read === minApprovalsRead.current) setMinApprovalsState(r.minApprovals); })
       .catch(() => { /* poll reconciles */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId, taskId]);
   const setMinApprovals = (n: number) => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    ++minApprovalsRead.current;
     setMinApprovalsState(n);
-    bridge?.setTaskMinApprovals?.(threadId, taskId, n)
+    const write = bridge?.setTaskMinApprovals?.(threadId, taskId, n);
+    if (write === undefined) return;
+    trackPolicyWrite(write)
       .then(r => setMinApprovalsState(r.minApprovals))
       .catch(() => { /* leave the optimistic value; a reload reconciles */ });
   };
@@ -393,7 +419,8 @@ export function TaskBrainRoute({
     if (bridge === undefined) return;
     setActionError(null);
     setApprovingPlan(true);
-    bridge.approvePlan(plan.planStageId)
+    Promise.all([...pendingPolicyWrites.current])
+      .then(() => bridge.approvePlan(plan.planStageId))
       .then(result => onOpenStage(result.devStageId))
       .catch((reason: unknown) => setActionError(
         reason instanceof Error ? reason.message : 'Could not approve the plan'))

@@ -42,7 +42,8 @@ public class WorkspaceCreationController
     {
         requireNonNull(request, "request is null");
         return creations.create(
-                request.owner(), request.repo(), request.writeMode());
+                request.owner(), request.repo(), request.writeMode(),
+                request.existingForkRepo());
     }
 
     @GetMapping
@@ -63,5 +64,9 @@ public class WorkspaceCreationController
         return creations.retry(id);
     }
 
-    public record CreateRequest(String owner, String repo, String writeMode) {}
+    public record CreateRequest(
+            String owner,
+            String repo,
+            String writeMode,
+            String existingForkRepo) {}
 }

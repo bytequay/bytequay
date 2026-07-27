@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import AddRepoModal from './AddRepoModal';
 
@@ -46,5 +46,44 @@ describe('AddRepoModal', () => {
     const warning = screen.getByRole('alert');
     expect(warning.textContent).toContain('configured GitHub token');
     expect(warning.textContent).toContain('bytequay/bytequay');
+  });
+
+  it('passes an existing fork repository to workspace creation', async () => {
+    const workspaceApi = vi.fn().mockResolvedValue({ id: 'creation-1' });
+    (window as unknown as { bridge: unknown }).bridge = {
+      getManagedClonePlan: vi.fn().mockResolvedValue({
+        viewerLogin: 'chenjian2664',
+        directAvailable: false,
+        forkAvailable: true,
+        defaultWriteMode: 'FORK',
+        destination: '/managed/trino',
+      }),
+      workspaceApi,
+    };
+
+    render(
+      <AddRepoModal
+        owner="trinodb"
+        repo="trino"
+        onClose={() => {}}
+        onStarted={() => {}}
+      />,
+    );
+
+    fireEvent.change(await screen.findByLabelText(
+      'Existing fork repository (optional)',
+    ), { target: { value: 'trino_new' } });
+    fireEvent.click(screen.getByText('Clone into ByteQuay'));
+
+    await waitFor(() => expect(workspaceApi).toHaveBeenCalledWith({
+      path: '/api/workspace-creations',
+      method: 'POST',
+      body: {
+        owner: 'trinodb',
+        repo: 'trino',
+        writeMode: 'FORK',
+        existingForkRepo: 'trino_new',
+      },
+    }));
   });
 });

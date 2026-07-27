@@ -25,6 +25,7 @@ type Props = {
 function AddRepoModal({ owner, repo, onClose, onStarted }: Props) {
   const [plan, setPlan] = useState<ManagedClonePlanDto | null>(null);
   const [writeMode, setWriteMode] = useState<ManagedRepoWriteMode>('FORK');
+  const [existingForkRepo, setExistingForkRepo] = useState('');
   const [loading, setLoading] = useState(true);
   const [cloning, setCloning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,13 +51,19 @@ function AddRepoModal({ owner, repo, onClose, onStarted }: Props) {
 
   const selectedAvailable = plan != null
       && (writeMode === 'FORK' ? plan.forkAvailable : plan.directAvailable);
+  const forkRepoName = existingForkRepo.trim() || repo;
 
   const submitClone = async () => {
     if (!selectedAvailable || cloning) return;
     setError(null);
     setCloning(true);
     try {
-      const operation = await workspaceApi.createWorkspace(owner, repo, writeMode);
+      const operation = await workspaceApi.createWorkspace(
+        owner,
+        repo,
+        writeMode,
+        existingForkRepo.trim() || undefined,
+      );
       onStarted(operation);
       window.dispatchEvent(new CustomEvent(
         'bytequay:workspace-creation-started',
@@ -101,9 +108,33 @@ function AddRepoModal({ owner, repo, onClose, onStarted }: Props) {
                 disabled={!plan.forkAvailable || cloning}
                 onSelect={() => setWriteMode('FORK')}
                 detail={plan.forkAvailable
-                  ? `Push branches to ${plan.viewerLogin}/${repo}; open PRs against ${owner}/${repo}. ByteQuay will create the fork if needed.`
+                  ? `Push branches to ${plan.viewerLogin}/${forkRepoName}; open PRs against ${owner}/${repo}. ByteQuay will verify an existing fork or create one if needed.`
                   : 'This repo is already owned by the signed-in user.'}
               />
+              {writeMode === 'FORK' && plan.forkAvailable && (
+                <div>
+                  <label
+                    className="add-repo-modal__label"
+                    htmlFor="existing-fork-repo"
+                  >
+                    Existing fork repository (optional)
+                  </label>
+                  <div className="add-repo-modal__row">
+                    <input
+                      id="existing-fork-repo"
+                      className="add-repo-modal__input"
+                      value={existingForkRepo}
+                      onChange={event => setExistingForkRepo(event.target.value)}
+                      placeholder={repo}
+                      disabled={cloning}
+                    />
+                  </div>
+                  <p className="add-repo-modal__hint">
+                    Enter only the repository name, for example <code>trino_new</code>.
+                    Leave blank to find or create a fork automatically.
+                  </p>
+                </div>
+              )}
               <WriteModeChoice
                 title="Write directly"
                 checked={writeMode === 'DIRECT'}

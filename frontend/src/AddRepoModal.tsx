@@ -19,8 +19,8 @@ import MapRepoModal from './repos/AddRepoModal';
 
 type Props = {
   watchedRepos: WatchedRepoDto[];
-  // Called after the repo has been watched and cloned into ByteQuay's
-  // managed repo folder.
+  // Called after the repo has been watched and its managed clone has
+  // been queued. Clone progress continues in the background.
   onAdded: (operation: WorkspaceCreationDto) => void;
   onClose: () => void;
 };
@@ -69,8 +69,8 @@ function AddRepoModal({ watchedRepos, onAdded, onClose }: Props) {
   const [loadingUser, setLoadingUser] = useState(true);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
-  // Picking a repo opens the managed-clone step; persistence happens
-  // only after that succeeds.
+  // Picking a repo opens the managed-clone step. Starting that step
+  // persists the watched row before background cloning begins.
   const [mapTarget, setMapTarget] = useState<{ owner: string; repo: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);

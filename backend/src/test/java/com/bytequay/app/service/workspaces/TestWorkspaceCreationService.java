@@ -26,9 +26,13 @@ import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -38,6 +42,56 @@ class TestWorkspaceCreationService
 {
     @TempDir
     private Path tempDir;
+
+    @Test
+    void watchesRepositoryAndKeepsForkingStateUntilForkIsReady()
+            throws Exception
+    {
+        JdbcTemplate jdbc = schema();
+        LocalRepoService local = mock(LocalRepoService.class);
+        CountDownLatch forkStarted = new CountDownLatch(1);
+        CountDownLatch forkReady = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            forkStarted.countDown();
+            if (!forkReady.await(2, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("test did not release fork");
+            }
+            throw new IllegalStateException("403 FORBIDDEN");
+        }).when(local).cloneManaged(
+                "trinodb", "trino", LocalRepoService.WriteMode.FORK,
+                "trino_new");
+        WatchedRepoStore watched = mock(WatchedRepoStore.class);
+        when(watched.find("trinodb", "trino"))
+                .thenReturn(Optional.empty());
+        WorkspaceCreationService service = new WorkspaceCreationService(
+                jdbc,
+                local,
+                mock(RepoService.class),
+                mock(WorkspaceService.class),
+                mock(WorkspaceConfigurationService.class),
+                watched,
+                mock(ProjectLearningService.class));
+
+        String operationId = service.create(
+                "trinodb", "trino", "FORK", "trino_new").id();
+
+        verify(watched).add("trinodb", "trino");
+        assertThat(forkStarted.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(jdbc.queryForObject("""
+                SELECT state || ':' || stage_message
+                FROM workspace_creation WHERE id = ?
+                """, String.class, operationId))
+                .isEqualTo("forking:Preparing your fork");
+        assertThat(jdbc.queryForObject("""
+                SELECT fork_repo FROM workspace_creation WHERE id = ?
+                """, String.class, operationId))
+                .isEqualTo("trino_new");
+        forkReady.countDown();
+        awaitState(jdbc, operationId, "failed");
+        verify(local).cloneManaged(
+                "trinodb", "trino", LocalRepoService.WriteMode.FORK,
+                "trino_new");
+    }
 
     @Test
     void recoversAnInterruptedOperationAndPersistsEveryReadyMilestone()
@@ -60,7 +114,7 @@ class TestWorkspaceCreationService
                 mock(WorkspaceConfigurationService.class);
         Path clone = tempDir.resolve("widget");
         when(local.cloneManaged(
-                "acme", "widget", LocalRepoService.WriteMode.DIRECT))
+                "acme", "widget", LocalRepoService.WriteMode.DIRECT, null))
                 .thenReturn(new LocalRepoStatus(
                         "acme",
                         "widget",
@@ -108,7 +162,7 @@ class TestWorkspaceCreationService
                 """, String.class, "ws-widget"))
                 .isEqualTo("ready:3:3");
         verify(local).cloneManaged(
-                "acme", "widget", LocalRepoService.WriteMode.DIRECT);
+                "acme", "widget", LocalRepoService.WriteMode.DIRECT, null);
         verify(repos).getRepoPullRequests("acme", "widget");
         verify(repos).getRepoIssues("acme", "widget", "open");
         verify(repos).getRepoMeta("acme", "widget");
@@ -132,6 +186,7 @@ class TestWorkspaceCreationService
                     owner TEXT NOT NULL,
                     repo TEXT NOT NULL,
                     write_mode TEXT NOT NULL,
+                    fork_repo TEXT,
                     state TEXT NOT NULL,
                     stage_message TEXT,
                     progress_current INTEGER NOT NULL,

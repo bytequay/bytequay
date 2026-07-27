@@ -14,7 +14,10 @@
 package com.bytequay.app.repository.github;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestGitHubApiSupport
@@ -56,5 +59,20 @@ class TestGitHubApiSupport
 
         assertThat(summary).hasSizeLessThan(big.length());
         assertThat(summary).endsWith("(truncated, 4000 bytes)");
+    }
+
+    @Test
+    void explainsHowToFixAPersonalAccessTokenPermissionFailure()
+    {
+        HttpClientErrorException upstream = HttpClientErrorException.create(
+                HttpStatus.FORBIDDEN,
+                "Forbidden",
+                null,
+                "{\"message\":\"Resource not accessible by personal access token\"}".getBytes(UTF_8),
+                null);
+
+        assertThat(GitHubApiSupport.toReadableException(upstream).getReason())
+                .contains("Grant it access to this repository")
+                .contains("Settings → Credentials");
     }
 }

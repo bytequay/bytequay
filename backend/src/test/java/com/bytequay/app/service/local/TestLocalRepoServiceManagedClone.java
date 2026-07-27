@@ -21,6 +21,7 @@ import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.UserProfile;
+import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.CredentialStore;
@@ -112,6 +113,60 @@ class TestLocalRepoServiceManagedClone
                 .containsExactly(new AddedRemote(destination, "upstream", "https://github.com/trinodb/trino.git"));
         assertThat(f.gitRunner.fetchedRemotes)
                 .containsExactly(new FetchedRemote(destination, "upstream"));
+    }
+
+    @Test
+    void forkModeUsesExistingRenamedFork()
+            throws Exception
+    {
+        Fixture f = new Fixture();
+        Path destination = managedPath(home, "trinodb", "trino");
+        f.gitHub.profile = profile("jack");
+        f.gitHub.userRepos = List.of(
+                new UserRepo(
+                        "jack", "tempto", "jack/tempto", null, null, 0),
+                new UserRepo(
+                        "jack", "trino_new", "jack/trino_new", null, null, 0));
+        f.gitHub.repoMetaResponses.add(Optional.empty());
+        f.gitHub.repoMetaResponses.add(Optional.of(
+                forkMeta("jack", "tempto", "prestodb", "presto")));
+        f.gitHub.repoMetaResponses.add(Optional.of(
+                forkMeta("jack", "trino_new", "trinodb", "trino")));
+
+        withHome(home, () -> f.service.cloneManaged(
+                "trinodb", "trino", LocalRepoService.WriteMode.FORK));
+
+        assertThat(f.gitHub.createdFork).isNull();
+        assertThat(f.gitRunner.clonedUrl)
+                .isEqualTo("https://github.com/jack/trino_new.git");
+        assertThat(f.gitRunner.addedRemotes)
+                .containsExactly(new AddedRemote(
+                        destination,
+                        "upstream",
+                        "https://github.com/trinodb/trino.git"));
+    }
+
+    @Test
+    void forkModeUsesExplicitForkRepositoryWithoutScanning()
+            throws Exception
+    {
+        Fixture f = new Fixture();
+        f.gitHub.profile = profile("jack");
+        f.gitHub.userRepos = List.of(new UserRepo(
+                "jack", "tempto", "jack/tempto", null, null, 0));
+        f.gitHub.repoMetaResponses.add(Optional.of(
+                forkMeta("jack", "trino_new", "trinodb", "trino")));
+
+        withHome(home, () -> f.service.cloneManaged(
+                "trinodb",
+                "trino",
+                LocalRepoService.WriteMode.FORK,
+                "trino_new"));
+
+        assertThat(f.gitHub.userRepoFetches).isZero();
+        assertThat(f.gitHub.createdFork).isNull();
+        assertThat(f.gitRunner.clonedUrl)
+                .isEqualTo("https://github.com/jack/trino_new.git");
     }
 
     @Test
@@ -325,6 +380,8 @@ class TestLocalRepoServiceManagedClone
         UserProfile profile = profile("jack");
         boolean viewerCanWrite;
         RepoRef createdFork;
+        List<UserRepo> userRepos = List.of();
+        int userRepoFetches;
         final List<Optional<RepoMeta>> repoMetaResponses = new ArrayList<>();
 
         @Override
@@ -346,6 +403,13 @@ class TestLocalRepoServiceManagedClone
                 return Optional.empty();
             }
             return repoMetaResponses.remove(0);
+        }
+
+        @Override
+        public List<UserRepo> fetchUserRepos(String pat)
+        {
+            userRepoFetches++;
+            return userRepos;
         }
 
         @Override

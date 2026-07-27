@@ -166,6 +166,26 @@ describe('BrainFeed', () => {
     expect(screen.getByText('Managed skills: ponytail')).toBeTruthy();
   });
 
+  it('renders an automatic planning kickoff as a collapsed runtime card', () => {
+    const text = `You are the planning agent for a new development task. The conversation above is
+the trunk discussion that led to this task — your planning seed.`;
+    const { container } = render(<BrainFeed
+      feed={[row('planning-kickoff', 'USER_MESSAGE', text)]}
+      stages={[]}
+      density="full"
+    />);
+
+    const card = container.querySelector<HTMLDetailsElement>('.runtime-kickoff-card');
+    expect(card?.open).toBe(false);
+    expect(container.querySelector('.sp-uturn')).toBeNull();
+    expect(screen.getByText('Planning started')).toBeTruthy();
+    expect(screen.getByText('Task context and planning instructions sent automatically')).toBeTruthy();
+
+    fireEvent.click(screen.getByText('Planning started'));
+    expect(card?.open).toBe(true);
+    expect(container.querySelector('.runtime-kickoff-card__prompt')?.textContent).toBe(text);
+  });
+
   it('keeps the current plan self-review checkpoint visible as the headline', () => {
     const started = row('plan-review-started', 'PLAN_SELF_REVIEW_STARTED', 'Brain started mandatory plan self-review');
     const reviewed = row('plan-reviewed', 'PLAN_SELF_REVIEWED', 'Brain approved the plan');

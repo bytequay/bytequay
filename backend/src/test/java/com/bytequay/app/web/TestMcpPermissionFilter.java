@@ -133,7 +133,8 @@ class TestMcpPermissionFilter
         // at startup and exits 1 if it's missing, so the brain scoping must
         // not strip it even though it isn't in the read-only allowlist.
         assertThat(toolNames(tools)).contains(
-                "approval_prompt", "record_plan", "read_plan_summary", "read_diff_summary");
+                "approval_prompt", "codegraph_explore", "record_plan",
+                "read_plan_summary", "read_diff_summary");
         // The brain stays read-only: no create_task / publish tools leak in.
         assertThat(toolNames(tools))
                 .doesNotContain("create_task", "queue_task", "push", "post_comment");

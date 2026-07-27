@@ -33,6 +33,8 @@ export { RunEpisode } from './RunEpisode';
 export { RoundEpisode } from './RoundEpisode';
 export { RoundGateBar } from './RoundGateBar';
 export { PullRequestCreatedEvent } from './PullRequestCreatedEvent';
+export { RuntimeKickoffCard, runtimeKickoff } from './RuntimeKickoffCard';
+export type { RuntimeKickoff } from './RuntimeKickoffCard';
 
 /** V3 Layer 3b — timeline-spine primitives + conversation units. */
 export * from './spine';

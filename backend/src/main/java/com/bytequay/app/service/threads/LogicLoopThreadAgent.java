@@ -283,6 +283,7 @@ public class LogicLoopThreadAgent
      *  sees a write tool. The handlers register in {@code LogicLoopToolRegistry}
      *  via {@code @AgentTool}; until they land the list renders empty. */
     public static final Set<String> BRAIN_TOOL_ALLOWLIST = Set.of(
+            "codegraph_explore",
             "count_operations",
             "read_commit_summary",
             "read_diff_summary",

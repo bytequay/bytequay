@@ -16,13 +16,12 @@ import { BACKEND_BASE } from './backendProcess';
 import type { ThreadStreamEvent } from './types';
 
 /**
- * Main-process broker for the per-thread Server-Sent Events stream that
- * the backend exposes at {@code GET /api/threads/:id/stream}. The
+ * Main-process broker for explicit trunk/stage Server-Sent Events streams.
  * renderer can't open an SSE connection itself under the sandboxed
  * preload model, so we keep one open in main and forward each parsed
  * event to the renderer via {@code webContents.send('threads:stream:event', ...)}.
  *
- * <p>Multiple subscribers per threadId are supported through a small
+ * <p>Multiple subscribers per target are supported through a small
  * refcount: the first subscribe opens the upstream connection; the
  * last unsubscribe closes it. The renderer-side preload helper
  * filters events by threadId so callers only see what they asked for.
@@ -33,6 +32,11 @@ type Subscription = {
 };
 
 const subscriptions = new Map<string, Subscription>();
+type StreamTarget = { scope: 'thread' | 'stage'; id: string };
+
+function targetKey(target: StreamTarget): string {
+  return `${target.scope}:${target.id}`;
+}
 
 /** Each line of an SSE response is either a comment ({@code :...}),
  *  a field (e.g. {@code event: AssistantText}, {@code data: {...}}),
@@ -44,40 +48,48 @@ type SseBuffer = {
 };
 
 export function registerTaskStreamIpc(getMainWindow: () => BrowserWindow | null): void {
-  ipcMain.handle('threads:stream:start', async (_e, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    const existing = subscriptions.get(id);
+  ipcMain.handle('agent-stream:start', async (_e, value: unknown) => {
+    const target = requireTarget(value);
+    const key = targetKey(target);
+    const existing = subscriptions.get(key);
     if (existing) {
       existing.refCount += 1;
       return;
     }
     const controller = new AbortController();
-    subscriptions.set(id, { controller, refCount: 1 });
-    void runStream(id, controller, getMainWindow);
+    subscriptions.set(key, { controller, refCount: 1 });
+    void runStream(target, controller, getMainWindow);
   });
 
-  ipcMain.handle('threads:stream:stop', async (_e, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
-      return;
-    }
-    const entry = subscriptions.get(id);
+  ipcMain.handle('agent-stream:stop', async (_e, value: unknown) => {
+    const target = requireTarget(value);
+    const key = targetKey(target);
+    const entry = subscriptions.get(key);
     if (!entry) return;
     entry.refCount -= 1;
     if (entry.refCount <= 0) {
       entry.controller.abort();
-      subscriptions.delete(id);
+      subscriptions.delete(key);
     }
   });
 }
 
+function requireTarget(value: unknown): StreamTarget {
+  const target = value as Partial<StreamTarget> | null;
+  if ((target?.scope !== 'thread' && target?.scope !== 'stage')
+      || typeof target.id !== 'string' || target.id.trim().length === 0) {
+    throw new Error('stream target must contain a valid scope and id');
+  }
+  return { scope: target.scope, id: target.id };
+}
+
 async function runStream(
-  threadId: string,
+  target: StreamTarget,
   controller: AbortController,
   getMainWindow: () => BrowserWindow | null,
 ): Promise<void> {
-  const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/stream`;
+  const resource = target.scope === 'thread' ? 'threads' : 'stages';
+  const url = `${BACKEND_BASE}/api/${resource}/${encodeURIComponent(target.id)}/stream`;
   let reason = 'closed';
   try {
     const res = await fetch(url, {
@@ -107,7 +119,7 @@ async function runStream(
         carry = carry.slice(nl + 1);
         nl = carry.indexOf('\n');
         if (line.length === 0) {
-          dispatch(buf, threadId, getMainWindow);
+          dispatch(buf, target, getMainWindow);
           continue;
         }
         if (line.startsWith(':')) {
@@ -128,7 +140,7 @@ async function runStream(
     }
     // Flush whatever's left if the server cut us off mid-stream.
     if (carry.length > 0) {
-      dispatch(buf, threadId, getMainWindow);
+      dispatch(buf, target, getMainWindow);
     }
   }
   catch (err) {
@@ -142,15 +154,15 @@ async function runStream(
   finally {
     const win = getMainWindow();
     if (win && !win.isDestroyed()) {
-      win.webContents.send('threads:stream:close', { threadId, reason });
+      win.webContents.send('agent-stream:close', { target, reason });
     }
-    subscriptions.delete(threadId);
+    subscriptions.delete(targetKey(target));
   }
 }
 
 function dispatch(
   buf: SseBuffer,
-  threadId: string,
+  target: StreamTarget,
   getMainWindow: () => BrowserWindow | null,
 ): void {
   if (buf.data.length === 0 && buf.event === null) return;
@@ -172,6 +184,6 @@ function dispatch(
   const win = getMainWindow();
   if (win && !win.isDestroyed()) {
     const ev: ThreadStreamEvent = { name, data };
-    win.webContents.send('threads:stream:event', { threadId, event: ev });
+    win.webContents.send('agent-stream:event', { target, event: ev });
   }
 }

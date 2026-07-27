@@ -17,6 +17,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -152,7 +153,7 @@ public class TaskCompletionAnnouncer
         threadStore.appendMessage(new ThreadMessage(
                 UUID.randomUUID().toString(), task.threadId(), /* taskId (trunk) */ null, seq,
                 "assistant", TASK_SUMMARY_TYPE, env.toString(),
-                null, null, null, null, Instant.now()));
+                null, null, null, null, Instant.now(), null, ThreadScope.TRUNK));
         log.debug("wrote completion summary marker for task {} on thread {}", task.id(), task.threadId());
     }
 

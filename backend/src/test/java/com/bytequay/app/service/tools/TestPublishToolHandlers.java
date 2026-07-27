@@ -17,6 +17,7 @@ import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
@@ -89,7 +90,7 @@ class TestPublishToolHandlers
 
         ToolOutcome outcome = handlers.resolveReviewThread(
                 new PublishToolHandlers.ResolveReviewThreadArgs(555L, true, "acme/widget", 42),
-                new ToolCall("thread-1", null, AgentRole.TASK, "task-1", null));
+                new ToolCall(ThreadScope.TASK, "thread-1", null, AgentRole.TASK, "task-1", null));
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
         ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);
@@ -109,7 +110,7 @@ class TestPublishToolHandlers
 
         handlers.resolveReviewThread(
                 new PublishToolHandlers.ResolveReviewThreadArgs(7L, null, "acme/widget", 5),
-                new ToolCall("thread-2", null, AgentRole.TASK, "task-2", null));
+                new ToolCall(ThreadScope.TASK, "thread-2", null, AgentRole.TASK, "task-2", null));
 
         ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);
         verify(parkedProposals).park(eq(task), captor.capture());
@@ -121,7 +122,7 @@ class TestPublishToolHandlers
     {
         ToolOutcome outcome = handlers.resolveReviewThread(
                 new PublishToolHandlers.ResolveReviewThreadArgs(null, true, "acme/widget", 42),
-                new ToolCall("thread-3", null, AgentRole.TASK));
+                new ToolCall(ThreadScope.TRUNK, "thread-3", null, AgentRole.TASK));
 
         assertThat(((ToolOutcome.Completed) outcome).text()).contains("root_comment_id is required");
         verify(parkedProposals, never()).park(any(), any());
@@ -132,7 +133,7 @@ class TestPublishToolHandlers
     {
         ToolOutcome outcome = handlers.listPrReviewThreads(
                 new PublishToolHandlers.ListPrReviewThreadsArgs(null, null),
-                new ToolCall("thread-4", null, AgentRole.TASK));
+                new ToolCall(ThreadScope.TRUNK, "thread-4", null, AgentRole.TASK));
 
         ToolOutcome.Completed completed = (ToolOutcome.Completed) outcome;
         assertThat(completed.isError()).isFalse();
@@ -148,7 +149,7 @@ class TestPublishToolHandlers
 
         ToolOutcome outcome = handlers.listPrReviewThreads(
                 new PublishToolHandlers.ListPrReviewThreadsArgs("acme/widget", 42),
-                new ToolCall("thread-5", null, AgentRole.TASK));
+                new ToolCall(ThreadScope.TRUNK, "thread-5", null, AgentRole.TASK));
 
         ToolOutcome.Completed completed = (ToolOutcome.Completed) outcome;
         assertThat(completed.isError()).isTrue();
@@ -164,7 +165,7 @@ class TestPublishToolHandlers
         ToolOutcome outcome = handlers.shipTask(
                 new PublishToolHandlers.ShipTaskArgs(
                         "Next thing", "main", "Add cache layer", "## Summary\nCaches reads."),
-                new ToolCall("thread-ship", null, AgentRole.TASK, "task-ship", null));
+                new ToolCall(ThreadScope.TASK, "thread-ship", null, AgentRole.TASK, "task-ship", null));
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
         ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);
@@ -184,7 +185,7 @@ class TestPublishToolHandlers
                 .thenReturn(Optional.of(PR.create(
                         "pr-local", task.id(), task.branchName(), task.baseBranch(),
                         "Local PR", "", task.createdAt())));
-        ToolCall call = new ToolCall(
+        ToolCall call = new ToolCall(ThreadScope.TASK,
                 "thread-task-local-pr", null, AgentRole.TASK, "task-local-pr", null);
 
         ToolOutcome ship = handlers.shipTask(
@@ -217,7 +218,7 @@ class TestPublishToolHandlers
 
         ToolOutcome outcome = handlers.shipTask(
                 new PublishToolHandlers.ShipTaskArgs(null, null, "   ", ""),
-                new ToolCall("thread-ship-blank", null, AgentRole.TASK, "task-ship-blank", null));
+                new ToolCall(ThreadScope.TASK, "thread-ship-blank", null, AgentRole.TASK, "task-ship-blank", null));
 
         ToolOutcome.Completed completed = (ToolOutcome.Completed) outcome;
         assertThat(completed.text()).contains("prepare the PR draft").contains("record_pr_description");
@@ -232,7 +233,7 @@ class TestPublishToolHandlers
 
         handlers.shipTask(
                 new PublishToolHandlers.ShipTaskArgs(null, null, null, null),
-                new ToolCall("thread-ship-existing", null, AgentRole.TASK, "task-ship-existing", null));
+                new ToolCall(ThreadScope.TASK, "thread-ship-existing", null, AgentRole.TASK, "task-ship-existing", null));
 
         ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);
         verify(parkedProposals).park(eq(task), captor.capture());
@@ -249,7 +250,7 @@ class TestPublishToolHandlers
 
         handlers.shipTask(
                 new PublishToolHandlers.ShipTaskArgs(null, null, null, null),
-                new ToolCall("thread-ship-linked", null, AgentRole.TASK, "task-ship-linked", null));
+                new ToolCall(ThreadScope.TASK, "thread-ship-linked", null, AgentRole.TASK, "task-ship-linked", null));
 
         verify(parkedProposals).park(eq(task), any(ParkedProposal.ShipTask.class));
     }
@@ -264,7 +265,7 @@ class TestPublishToolHandlers
 
         ToolOutcome outcome = handlers.shipTask(
                 new PublishToolHandlers.ShipTaskArgs(null, "main", "Add cache layer", "body"),
-                new ToolCall("thread-dirty", null, AgentRole.TASK, "task-dirty", null));
+                new ToolCall(ThreadScope.TASK, "thread-dirty", null, AgentRole.TASK, "task-dirty", null));
 
         // Nothing parks — the agent is told to commit its own work and re-ship,
         // so the user never reviews an empty branch.
@@ -286,7 +287,7 @@ class TestPublishToolHandlers
 
         ToolOutcome outcome = handlers.requestReview(
                 new PublishToolHandlers.RequestReviewArgs("ready", null),
-                new ToolCall("thread-task-ship", null, AgentRole.TASK, "task-ship", null));
+                new ToolCall(ThreadScope.TASK, "thread-task-ship", null, AgentRole.TASK, "task-ship", null));
 
         ToolOutcome.Completed completed = (ToolOutcome.Completed) outcome;
         assertThat(completed.isError()).isFalse();
@@ -306,7 +307,7 @@ class TestPublishToolHandlers
 
         ToolOutcome outcome = handlers.requestReview(
                 new PublishToolHandlers.RequestReviewArgs("ready", null),
-                new ToolCall("thread-fork", null, AgentRole.TASK, "task-fork", null));
+                new ToolCall(ThreadScope.TASK, "thread-fork", null, AgentRole.TASK, "task-fork", null));
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
         ArgumentCaptor<ParkedProposal> captor = ArgumentCaptor.forClass(ParkedProposal.class);

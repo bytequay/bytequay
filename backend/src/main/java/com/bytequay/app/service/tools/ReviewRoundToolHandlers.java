@@ -15,6 +15,7 @@ package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewRound;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.RoundGateSaga;
@@ -116,11 +117,11 @@ public class ReviewRoundToolHandlers
 
     private boolean belongsToActiveRound(ToolCall call, ReviewComment comment)
     {
-        if (call.taskId() == null || !call.taskId().equals(comment.taskId())
+        if (call.scope() == ThreadScope.TRUNK || !call.requireTaskId().equals(comment.taskId())
                 || comment.roundId() == null) {
             return false;
         }
-        return roundStore.findLiveByTask(call.taskId())
+        return roundStore.findLiveByTask(call.requireTaskId())
                 .filter(round -> round.id().equals(comment.roundId().toString()))
                 .filter(round -> ReviewRound.STATUS_ADDRESSING.equals(round.status()))
                 .filter(round -> call.agentRunId() == null

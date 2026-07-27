@@ -45,8 +45,8 @@ import static org.mockito.Mockito.when;
 /**
  * Regression coverage for the trunk-altitude session routing in
  * {@link ThreadService}. A 0-task (planning) thread has no task to
- * build a task-mode CLI agent from, so {@code sessionOrThrow} must
- * route to the trunk-scope agent — otherwise every session-scoped op
+ * build a task-mode CLI agent from, so explicit trunk routing must
+ * select the trunk-scope agent — otherwise every session-scoped op
  * at the trunk (subscribe, interrupt, the permission-prompt / budget
  * path behind gated MCP tools) throws
  * "thread … has no task; cannot spawn CLI agent".
@@ -98,9 +98,7 @@ class TestThreadServiceTrunkSession
     {
         String threadId = newTrunkThread();
 
-        // Before the fix this threw "has no task; cannot spawn CLI
-        // agent" — sessionOrThrow always tried the task-mode builder.
-        Runnable unsubscribe = threads.subscribe(threadId, event -> {});
+        Runnable unsubscribe = threads.subscribeTrunk(threadId, event -> {});
 
         assertThat(unsubscribe).isNotNull();
         // The trunk-scope session is the one that got built; the

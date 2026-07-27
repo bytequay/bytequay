@@ -603,6 +603,9 @@ public class ThreadController
         if (body.input() == null || body.input().isBlank()) {
             throw new IllegalArgumentException("input is required");
         }
+        if (body.taskId() == null || body.taskId().isBlank()) {
+            throw new IllegalArgumentException("taskId is required");
+        }
         String input = encodeWithImages(id, body.input(), body.images());
         String turnId = threads.send(id, body.taskId(), input);
         return ImmutableMap.of("status", "queued", "turnId", turnId);
@@ -651,7 +654,7 @@ public class ThreadController
     @PostMapping("/{id}/interrupt")
     public Map<String, String> interrupt(@PathVariable String id)
     {
-        threads.interrupt(id);
+        threads.interruptTrunk(id);
         return ImmutableMap.of("status", "interrupted");
     }
 
@@ -717,7 +720,7 @@ public class ThreadController
         // Optional pre-approval rider — when the user clicks "Allow next
         // 5 / 10 / 50 / Always", the service captures the issuing agent
         // before resolving the gate, then stores the budget on that same
-        // stage session. -1 is the "always" sentinel.
+        // Task session. -1 is the "always" sentinel.
         boolean resolved = threads.decide(
                 id, body.callId(), body.decision(),
                 body.preApproveToolName(), body.preApproveCount());
@@ -737,7 +740,7 @@ public class ThreadController
     public SseEmitter stream(@PathVariable String id)
     {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
-        Runnable unsubscribe = threads.subscribe(id, event -> {
+        Runnable unsubscribe = threads.subscribeTrunk(id, event -> {
             try {
                 emitter.send(SseEmitter.event()
                         .name(event.getClass().getSimpleName())

@@ -63,7 +63,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
@@ -142,25 +141,18 @@ public class ThreadRegistry
      *  scoped: it must be one of the active workspace's pinned
      *  repos, never an arbitrary watched repo from another workspace. */
     private final Function<Thread, String> trunkCwdResolver;
-    /** Live dev/CLI sessions keyed by thread + <em>stage key</em>:
-     *  each stage of a task (Development, CI-fixing, Comments-addressing)
-     *  gets its own fresh agent. The stage key is the stage id when the
-     *  turn is stage-scoped, the task id for a task-level turn with no
-     *  stage, and the thread id on a legacy 0-stage path. Thread identity
-     *  matters because a brain-review turn and its development fix turn
-     *  deliberately share the same task stage id. */
+    /** Live dev/CLI sessions keyed by thread + Task. Stages are transcript
+     *  scopes on a Task-owned session, never provider-session identities. */
     private final ConcurrentHashMap<SessionKey, ThreadAgent> sessions = new ConcurrentHashMap<>();
-    /** Secondary index: threadId → the set of stage keys it currently has
-     *  a live session for. Lets {@link #find}/{@link #evict} reach every
-     *  stage-agent on a thread without scanning {@link #sessions}. */
-    private final ConcurrentHashMap<String, Set<String>> threadStageKeys = new ConcurrentHashMap<>();
+    /** Secondary index: threadId → live Task ids. */
+    private final ConcurrentHashMap<String, Set<String>> threadTaskIds = new ConcurrentHashMap<>();
     /** Per-thread trunk-mode agent — the planning-altitude runtime
      *  that runs without a focused Task. Lives alongside (not instead
      *  of) the task-scope {@link #sessions} so switching trunk ↔ task
      *  inside one Thread doesn't tear down either session. */
     private final ConcurrentHashMap<String, ThreadAgent> trunkSessions = new ConcurrentHashMap<>();
     /** Worktree path each live session holds the lease against, keyed by
-     *  the same thread + stage key as {@link #sessions}, so {@link #evict} can
+     *  the same thread + Task id as {@link #sessions}, so {@link #evict} can
      *  release the exact path acquired in {@link #getOrCreate} even after
      *  the underlying task rolled over. Empty when the stage had no
      *  isolated worktree (legacy 0-Task rows). */
@@ -403,10 +395,10 @@ public class ThreadRegistry
     }
 
     /**
-     * A live stage-agent for this thread, preferring one whose turn is
+     * A live Task agent for this thread, preferring one whose turn is
      * still RUNNING (the one an interrupt should hit). Returns empty when
-     * the thread has no live stage-agent. Use {@link #findAll} when every
-     * stage-agent matters (evict / stop).
+     * the thread has no live Task agent. Use {@link #findAll} when every
+     * Task agent matters (evict / stop).
      */
     public Optional<ThreadAgent> find(String threadId)
     {
@@ -417,26 +409,19 @@ public class ThreadRegistry
                 .or(() -> all.stream().findFirst());
     }
 
-    /** The live stage-agent for a thread + stage key (= stage id for a
-     *  stage-scoped agent), if one exists. */
-    public Optional<ThreadAgent> findStage(String threadId, String stageKey)
+    /** Exact Task-owned development agent, with no stage inference. */
+    public Optional<ThreadAgent> findTask(String threadId, String taskId)
     {
-        if (threadId == null || stageKey == null) {
+        if (threadId == null || taskId == null) {
             return Optional.empty();
         }
-        ThreadAgent exact = sessions.get(new SessionKey(threadId, stageKey));
-        if (exact != null) {
-            return Optional.of(exact);
-        }
-        return Optional.ofNullable(trunkSessions.get(threadId))
-                .filter(agent -> stageKey.equals(agent.activeStageId()));
+        return Optional.ofNullable(sessions.get(new SessionKey(threadId, taskId)));
     }
 
-    /** Every live stage-agent for this thread (zero, one, or — with
-     *  concurrent stages — several). */
+    /** Every live Task agent for this thread. */
     public List<ThreadAgent> findAll(String threadId)
     {
-        Set<String> keys = threadStageKeys.get(threadId);
+        Set<String> keys = threadTaskIds.get(threadId);
         if (keys == null || keys.isEmpty()) {
             return List.of();
         }
@@ -450,8 +435,8 @@ public class ThreadRegistry
         return out;
     }
 
-    /** The exact agent addressed by {@code agentKey}. Stage agents are filed
-     *  under that key; a shared task Brain is matched by its active task/stage
+    /** The exact agent addressed by {@code agentKey}. Task agents are filed
+     *  under the Task id; a shared task Brain is matched by its active task
      *  context in {@link #trunkSessions}. */
     public Optional<ThreadAgent> findByAgentKey(String threadId, String agentKey)
     {
@@ -463,7 +448,8 @@ public class ThreadRegistry
             return Optional.of(exact);
         }
         return Optional.ofNullable(trunkSessions.get(threadId))
-                .filter(agent -> scopedBy(agent, agentKey));
+                .filter(agent -> agentKey.equals(agent.activeTaskId())
+                        || ("trunk".equals(agentKey) && agent.activeTaskId() == null));
     }
 
     /** Trunk-scope counterpart of {@link #find(String)} — the
@@ -488,6 +474,14 @@ public class ThreadRegistry
     public ThreadAgent getOrCreateTrunk(Thread thread)
     {
         requireNonNull(thread, "thread is null");
+        if (thread.kind() == ThreadKind.BRAIN_AGENT) {
+            throw new IllegalArgumentException("thread " + thread.id() + " is a task brain, not a trunk");
+        }
+        return getOrCreateReadOnlyThreadAgent(thread);
+    }
+
+    private ThreadAgent getOrCreateReadOnlyThreadAgent(Thread thread)
+    {
         // A cached trunk outlives picker changes made anywhere in the
         // cascade — including the workspace default, which has no
         // per-thread notification. Re-check the resolved choice on every
@@ -506,11 +500,16 @@ public class ThreadRegistry
 
     public TaskBrainAgent getOrCreateTaskBrainAgent(Thread thread)
     {
+        return AgentViews.taskBrain(getOrCreateTaskBrain(thread));
+    }
+
+    ThreadAgent getOrCreateTaskBrain(Thread thread)
+    {
         requireNonNull(thread, "thread is null");
         if (thread.kind() != ThreadKind.BRAIN_AGENT) {
             throw new IllegalArgumentException("thread " + thread.id() + " is not a task brain thread");
         }
-        return AgentViews.taskBrain(getOrCreateTrunk(thread));
+        return getOrCreateReadOnlyThreadAgent(thread);
     }
 
     public void evictTrunk(String threadId)
@@ -534,51 +533,24 @@ public class ThreadRegistry
         current.updateWorkModel(workModel);
     }
 
-    /**
-     * Build the session if it isn't already in the map, otherwise
-     * return the existing one. The {@link Thread} argument seeds the
-     * fresh session's status / metrics, so callers should pass the
-     * latest {@link ThreadStore#findThreadById} result.
-     *
-     * <p>On a fresh attach, the active task's worktree gets a lease
-     * tied to the registry-owned session lifetime. A concurrent
-     * holder whose process is gone is reclaimed cleanly; a concurrent
-     * holder whose process is alive surfaces as 409 so a second
-     * agent can't barge in on the same worktree.
-     */
-    public ThreadAgent getOrCreate(Thread thread)
+    /** Build or return the Task-owned agent. {@code stageId}, when present,
+     *  is validated and used to resolve the initial work model only; it does
+     *  not participate in provider-session identity. */
+    ThreadAgent getOrCreate(Thread thread, Task task, String stageId)
     {
         requireNonNull(thread, "thread is null");
-        // Legacy entry point: resolve the active-or-latest task and its
-        // active stage, then route through the per-stage path. Kept so
-        // callers that haven't yet threaded the running turn's stage id
-        // keep working with the same behaviour.
-        Task task = taskStore.activeTasksForThread(thread.id()).stream().findFirst()
-                .or(() -> taskStore.findLatestTaskForThread(thread.id()))
-                .orElse(null);
-        return getOrCreate(thread, task, null);
-    }
-
-    /**
-     * Build (or return) the per-stage CLI agent for {@code stageId}. Each
-     * stage of a task — Development, CI-fixing, Comments-addressing — gets
-     * its own fresh agent, so a trunk thread can drive several stages
-     * concurrently. The session is keyed by the stage key derived from
-     * ({@code stageId}, {@code task}, {@code thread}), and the worktree
-     * lease is taken against that same key so two live stage-agents never
-     * share one worktree.
-     *
-     * @param task the task this stage belongs to; null only on the legacy
-     *             0-task trunk-ish path, which never reaches a worktree.
-     * @param stageId the stamped stage id of the running turn; null for a
-     *             task-level turn with no stage (keys by task id) or a
-     *             0-task path (keys by thread id).
-     */
-    public ThreadAgent getOrCreate(Thread thread, Task task, String stageId)
-    {
-        requireNonNull(thread, "thread is null");
+        requireNonNull(task, "task is null");
+        if (thread.kind() == ThreadKind.BRAIN_AGENT) {
+            throw new IllegalArgumentException(
+                    "thread " + thread.id() + " requires the task-brain entry point");
+        }
+        if (!thread.id().equals(task.threadId()) && thread.kind() != ThreadKind.BRAIN_AGENT) {
+            throw new IllegalArgumentException(
+                    "task " + task.id() + " does not belong to thread " + thread.id());
+        }
         requireAgentBackedStage(stageId);
-        String agentKey = stageKey(thread.id(), task, stageId);
+        requireStageBelongsToTask(stageId, task);
+        String agentKey = task.id();
         SessionKey key = new SessionKey(thread.id(), agentKey);
         ThreadAgent existing = sessions.get(key);
         if (existing != null) {
@@ -596,7 +568,7 @@ public class ThreadRegistry
         // Only writing stages (dev / CI-fix / cleanup, on CLI_AGENT threads)
         // lease the worktree.
         boolean writesWorktree = thread.kind() != ThreadKind.BRAIN_AGENT;
-        String leasedPath = task == null || !writesWorktree
+        String leasedPath = !writesWorktree
                 ? null
                 : Optional.ofNullable(task.worktreePath())
                         .filter(p -> !p.isBlank())
@@ -606,14 +578,14 @@ public class ThreadRegistry
         }
         try {
             ThreadAgent agent = sessions.computeIfAbsent(key, k -> {
-                ThreadAgent built = buildStage(thread, task, stageId);
-                // Bind the agent to the stage key it's filed under so its CLI
+                ThreadAgent built = buildTaskRuntime(thread, task, stageId);
+                // Bind the agent to the Task key it's filed under so its CLI
                 // subprocess writes a per-agent MCP URL and tool calls resolve
                 // role / capability against its own running turn.
                 built.setMcpAgentKey(agentKey);
                 return built;
             });
-            threadStageKeys.computeIfAbsent(thread.id(), id -> ConcurrentHashMap.newKeySet()).add(agentKey);
+            threadTaskIds.computeIfAbsent(thread.id(), id -> ConcurrentHashMap.newKeySet()).add(agentKey);
             return agent;
         }
         catch (RuntimeException e) {
@@ -627,21 +599,26 @@ public class ThreadRegistry
         }
     }
 
-    public StageAgent getOrCreateStageAgent(Thread thread, Task task, String stageId)
+    public TaskAgent getOrCreateTaskAgent(Thread thread, Task task, String stageId)
     {
-        return AgentViews.stage(getOrCreate(thread, task, stageId));
+        requireNonNull(stageId, "stageId is null");
+        return AgentViews.task(getOrCreate(thread, task, stageId));
     }
 
-    /** Evict and release every stage-agent for the given thread. The
+    TaskAgent getOrCreateTaskAgent(Thread thread, Task task)
+    {
+        return AgentViews.task(getOrCreate(thread, task, null));
+    }
+
+    /** Evict and release every Task agent for the given thread. The
      *  sessions are not stopped: call {@link ThreadAgent#stop} first if
      *  that matters. Releases each worktree lease so the next attachment
      *  sees the worktree as free. */
     public void evict(String threadId)
     {
-        Set<String> keys = threadStageKeys.remove(threadId);
+        Set<String> keys = threadTaskIds.remove(threadId);
         if (keys == null) {
-            // Legacy 0-stage callers may have keyed directly by threadId.
-            keys = Set.of(threadId);
+            return;
         }
         for (String key : keys) {
             SessionKey sessionKey = new SessionKey(threadId, key);
@@ -653,63 +630,42 @@ public class ThreadRegistry
         }
     }
 
-    /** Every live agent filed under any of the supplied raw stage keys,
-     *  across owning threads. A review stage can have both a development
-     *  agent and a brain agent, so stage-close teardown must reach both. */
-    public List<ThreadAgent> findStages(Collection<String> stageKeys)
+    /** Every cached runtime owned by one of the addressed Tasks. Includes a
+     *  Task's development agent and its separate read-only Brain agent. */
+    public List<ThreadAgent> findTaskAgents(Collection<String> taskIds)
     {
-        if (stageKeys == null || stageKeys.isEmpty()) {
+        if (taskIds == null || taskIds.isEmpty()) {
             return List.of();
         }
         return Stream.concat(
                         sessions.entrySet().stream()
-                                .filter(entry -> stageKeys.contains(entry.getKey().agentKey()))
+                                .filter(entry -> taskIds.contains(entry.getKey().agentKey()))
                                 .map(entry -> entry.getValue()),
                         trunkSessions.values().stream()
-                                .filter(agent -> stageKeys.stream().anyMatch(key -> scopedBy(agent, key))))
+                                .filter(agent -> taskIds.contains(agent.activeTaskId())))
                 .distinct()
                 .toList();
     }
 
-    /** Durable stage ids currently named by cached agents. Task/thread
-     *  fallback keys are deliberately excluded: only an agent's explicit
-     *  activeStageId can be reconciled against task_stage. */
-    public Set<String> cachedStageIds()
+    /** Evict every runtime owned by the addressed Tasks. */
+    public void evictTaskAgents(String threadId, Collection<String> taskIds)
     {
-        return Stream.concat(sessions.values().stream(), trunkSessions.values().stream())
-                .map(ThreadAgent::activeStageId)
-                .filter(id -> id != null && !id.isBlank())
-                .collect(Collectors.toUnmodifiableSet());
-    }
-
-    /** Evict + release every stage-agent in {@code stageKeys}. A raw stage
-     *  key belongs to one task but may have runtimes on its development and
-     *  brain threads, so both are removed together. */
-    public void evictStages(String threadId, Collection<String> stageKeys)
-    {
-        if (stageKeys == null) {
+        if (taskIds == null) {
             return;
         }
-        for (String key : stageKeys) {
-            if (key != null) {
-                evictStage(threadId, key);
+        for (String taskId : taskIds) {
+            if (taskId != null) {
+                evictTaskAgent(threadId, taskId);
             }
         }
     }
 
-    /** Evict and release a single stage-agent by its stage key (= stage
-     *  id for a stage-scoped agent). Used when a stage closes so its CLI
-     *  process + worktree lease are released without touching the thread's
-     *  other concurrent stages. */
-    public void evictStage(String threadId, String stageKey)
+    /** Evict development and Brain runtimes by their owning Task id. */
+    public void evictTaskAgent(String threadId, String taskId)
     {
-        requireNonNull(stageKey, "stageKey is null");
-        // A task stage may own both the development agent and a read-only
-        // brain agent on separate threads. Closing that stage reaps every
-        // runtime filed under its raw key; pair-scoped lookups remain
-        // available for live routing through findStage/findByAgentKey.
+        requireNonNull(taskId, "taskId is null");
         for (SessionKey sessionKey : List.copyOf(sessions.keySet())) {
-            if (!stageKey.equals(sessionKey.agentKey())) {
+            if (!taskId.equals(sessionKey.agentKey())) {
                 continue;
             }
             sessions.remove(sessionKey);
@@ -717,60 +673,54 @@ public class ThreadRegistry
             if (leased != null) {
                 releaseLeaseQuietly(leased);
             }
-            Set<String> keys = threadStageKeys.get(sessionKey.threadId());
+            Set<String> keys = threadTaskIds.get(sessionKey.threadId());
             if (keys != null) {
-                keys.remove(stageKey);
+                keys.remove(taskId);
                 if (keys.isEmpty()) {
-                    threadStageKeys.remove(sessionKey.threadId(), keys);
+                    threadTaskIds.remove(sessionKey.threadId(), keys);
                 }
             }
         }
         for (var entry : List.copyOf(trunkSessions.entrySet())) {
-            if (scopedBy(entry.getValue(), stageKey)) {
+            if (taskId.equals(entry.getValue().activeTaskId())) {
                 trunkSessions.remove(entry.getKey(), entry.getValue());
             }
         }
         // Also clear a stale owner-index entry if its session disappeared
         // before this best-effort teardown ran.
-        Set<String> ownerKeys = threadId == null ? null : threadStageKeys.get(threadId);
+        Set<String> ownerKeys = threadId == null ? null : threadTaskIds.get(threadId);
         if (ownerKeys != null) {
-            ownerKeys.remove(stageKey);
+            ownerKeys.remove(taskId);
             if (ownerKeys.isEmpty()) {
-                threadStageKeys.remove(threadId, ownerKeys);
+                threadTaskIds.remove(threadId, ownerKeys);
             }
         }
     }
 
-    /** The find/evict key for a stage-agent: the stage id when stage-
-     *  scoped, else the task id for a task-level turn, else the thread id
-     *  on the legacy 0-task path. */
-    private static String stageKey(String threadId, Task task, String stageId)
-    {
-        if (stageId != null && !stageId.isBlank()) {
-            return stageId;
-        }
-        if (task != null && task.id() != null && !task.id().isBlank()) {
-            return task.id();
-        }
-        return threadId;
-    }
-
-    private static boolean scopedBy(ThreadAgent agent, String key)
-    {
-        if (key == null) {
-            return false;
-        }
-        return key.equals(agent.activeStageId())
-                || key.equals(agent.activeTaskId())
-                || ("trunk".equals(key)
-                        && agent.activeTaskId() == null
-                        && agent.activeStageId() == null);
-    }
-
-    /** In-memory identity of a stage agent. The MCP-facing agent key remains
-     *  the raw stage/task key because its URL is already nested under the
-     *  owning thread id. */
+    /** In-memory identity of a Task-owned agent. */
     private record SessionKey(String threadId, String agentKey) {}
+
+    private void requireStageBelongsToTask(String stageId, Task task)
+    {
+        if (stageStore == null || stageId == null || stageId.isBlank()) {
+            return;
+        }
+        UUID id;
+        try {
+            id = UUID.fromString(stageId);
+        }
+        catch (IllegalArgumentException e) {
+            // Non-UUID ids exist only in legacy rows and small unit fakes.
+            // HTTP stage routes and current persisted rows are UUID-checked.
+            return;
+        }
+        var stage = stageStore.findStageById(id)
+                .orElseThrow(() -> new IllegalArgumentException("no stage: " + stageId));
+        if (!task.id().equals(stage.taskId())) {
+            throw new IllegalArgumentException(
+                    "stage " + stageId + " does not belong to task " + task.id());
+        }
+    }
 
     private void acquireLease(SessionKey sessionKey, Task active, String worktreePath)
     {
@@ -795,21 +745,20 @@ public class ThreadRegistry
         }
     }
 
-    private ThreadAgent buildStage(Thread thread, Task boundTask, String stageId)
+    private ThreadAgent buildTaskRuntime(Thread thread, Task boundTask, String stageId)
     {
         // The CLI agent binds to the explicit task the caller resolved for
-        // this stage, rather than re-deriving it inside the agent ctor.
-        // Resolved once per stage — a stage's session is built once and
-        // reused across every iteration within it (see getOrCreate), so
-        // this is a stage-open-time decision, not re-evaluated per turn.
+        // this runtime, rather than re-deriving it inside the agent ctor.
+        // The provider session is owned by the Task and reused by all of its
+        // stage turns. The first addressed stage selects the initial model;
+        // provider-session identity never includes the stage id.
         // A brain thread points at its parent task, which belongs to the
         // development thread. Its model is therefore resolved from the brain
         // thread itself; asking the task/stage cascade to validate that pair
         // incorrectly reports "task is not on thread".
-        // The Thread row is shared by every stage. A prior stage can have
-        // been reaped without making this newly-created stage session done,
-        // so never seed a fresh stage agent with that stale COMPLETED status.
-        Thread runtimeThread = runnableStageThread(thread);
+        // The Thread row is shared with the trunk runtime. Its status does
+        // not describe this newly-created Task runtime, so normalize it below.
+        Thread runtimeThread = runnableTaskThread(thread);
         ThreadAgent agent;
         if (runtimeThread.kind() == ThreadKind.BRAIN_AGENT) {
             agent = buildBrain(runtimeThread);
@@ -855,11 +804,14 @@ public class ThreadRegistry
         return withManagedSkillBundle(agent);
     }
 
-    private static Thread runnableStageThread(Thread thread)
+    private static Thread runnableTaskThread(Thread thread)
     {
-        if (thread.status() != ThreadStatus.COMPLETED) {
+        if (thread.status() == ThreadStatus.IDLE) {
             return thread;
         }
+        // The Thread row is the trunk runtime's projection. The Task runtime
+        // has independent in-memory status, so it must not inherit a
+        // concurrently RUNNING trunk status.
         return new Thread(
                 thread.id(), thread.kind(), thread.provider(), thread.agentSessionId(),
                 thread.title(), ThreadStatus.IDLE, thread.model(),
@@ -916,7 +868,7 @@ public class ThreadRegistry
         if (thread.kind() == ThreadKind.BRAIN_AGENT) {
             return buildBrain(thread);
         }
-        // As in buildStage: the resolved audience snapshot picks the runtime,
+        // As in buildTaskRuntime: the resolved audience snapshot picks the runtime,
         // even when it differs from the compatibility kind on the thread row.
         WorkModel resolved = resolveWorkModel(thread);
         // The resolver applies whatever base movement the background

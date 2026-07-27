@@ -42,7 +42,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -71,7 +70,7 @@ class TestThreadRegistryLease
         when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(active));
         ThreadRegistry registry = newRegistry();
 
-        registry.getOrCreate(thread("thread-1"));
+        registry.getOrCreateTaskAgent(thread("thread-1"), active);
 
         assertThat(leaseService.isHeld(WORKTREE)).isTrue();
     }
@@ -80,9 +79,9 @@ class TestThreadRegistryLease
     void evictReleasesTheWorktreeLease()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
-        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(task("task-1", "thread-1", WORKTREE)));
+        Task active = task("task-1", "thread-1", WORKTREE);
         ThreadRegistry registry = newRegistry();
-        registry.getOrCreate(thread("thread-1"));
+        registry.getOrCreateTaskAgent(thread("thread-1"), active);
 
         registry.evict("thread-1");
 
@@ -93,7 +92,7 @@ class TestThreadRegistryLease
     void getOrCreateRefusesWhenLeaseHeldByLiveHolder()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
-        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(task("task-1", "thread-1", WORKTREE)));
+        Task active = task("task-1", "thread-1", WORKTREE);
         // Seed a lease held by *this* JVM's pid so the liveness check
         // sees a live holder — that's the "another agent already
         // attached" case, which must surface a 409.
@@ -103,7 +102,7 @@ class TestThreadRegistryLease
                 Instant.now(), /* expiresAt */ null));
         ThreadRegistry registry = newRegistry();
 
-        assertThatThrownBy(() -> registry.getOrCreate(thread("thread-1")))
+        assertThatThrownBy(() -> registry.getOrCreateTaskAgent(thread("thread-1"), active))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("leased by another live session");
         // The pre-existing row stays put — refusing the attachment
@@ -116,7 +115,7 @@ class TestThreadRegistryLease
     void getOrCreateReclaimsLeaseWhenPriorHolderProcessIsGone()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
-        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(task("task-1", "thread-1", WORKTREE)));
+        Task active = task("task-1", "thread-1", WORKTREE);
         // Seed a lease held by a pid that doesn't exist. The
         // registry should reclaim it (the prior JVM died and never
         // got to release) rather than refusing the attach.
@@ -126,7 +125,7 @@ class TestThreadRegistryLease
                 Instant.now().minusSeconds(3600), /* expiresAt */ null));
         ThreadRegistry registry = newRegistry();
 
-        registry.getOrCreate(thread("thread-1"));
+        registry.getOrCreateTaskAgent(thread("thread-1"), active);
 
         assertThat(leaseService.find(WORKTREE).map(WorktreeLease::taskId))
                 .contains("task-1");
@@ -136,7 +135,7 @@ class TestThreadRegistryLease
     void getOrCreateReclaimsLeaseHeldByASiblingStageOfTheSameTask()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
-        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(task("task-1", "thread-1", WORKTREE)));
+        Task active = task("task-1", "thread-1", WORKTREE);
         // A sibling session of the SAME task holds the worktree on a LIVE pid
         // (e.g. the planning/idle session, now handing off to Development).
         // A task's stages share one worktree and run sequentially, so the new
@@ -147,7 +146,7 @@ class TestThreadRegistryLease
                 Instant.now(), /* expiresAt */ null));
         ThreadRegistry registry = newRegistry();
 
-        registry.getOrCreate(thread("thread-1"));
+        registry.getOrCreateTaskAgent(thread("thread-1"), active);
 
         assertThat(leaseService.isHeld(WORKTREE)).isTrue();
         assertThat(leaseService.find(WORKTREE).map(WorktreeLease::taskId))
@@ -166,19 +165,18 @@ class TestThreadRegistryLease
     }
 
     @Test
-    void getOrCreateRefusesABrainstormThreadAndLeavesLeaseStoreUntouched()
+    void taskEntryPointRejectsANullTaskAndLeavesLeaseStoreUntouched()
     {
         // 0-Task brainstorm thread — no worktree to protect and no
         // agent to spawn. The agent ctor refuses to build, the lease
         // never gets a chance to land, and the lease store stays
         // empty.
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
-        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of());
         ThreadRegistry registry = newRegistry();
 
-        assertThatThrownBy(() -> registry.getOrCreate(thread("thread-1")))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("no task");
+        assertThatThrownBy(() -> registry.getOrCreateTaskAgent(thread("thread-1"), null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("task is null");
 
         assertThat(leaseStore.rows).isEmpty();
     }
@@ -212,18 +210,13 @@ class TestThreadRegistryLease
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         Task active = task("task-1", "thread-1", WORKTREE);
-        when(taskStore.activeTasksForThread("thread-1")).thenReturn(List.of(active));
         ThreadRegistry registry = newRegistry();
 
-        registry.getOrCreate(thread("thread-1"));
-        registry.getOrCreate(thread("thread-1"));
+        registry.getOrCreateTaskAgent(thread("thread-1"), active);
+        registry.getOrCreateTaskAgent(thread("thread-1"), active);
 
-        // The legacy getOrCreate(Thread) resolves the active task once per
-        // call to derive the stage key (it has no stage id to key on), so
-        // two calls hit the store twice. The second call still returns the
-        // cached per-stage session — no second agent is built and the lease
-        // is taken only once.
-        verify(taskStore, times(2)).activeTasksForThread("thread-1");
+        // Explicit Task identity makes the second attach hit the same cached
+        // provider session and keeps one worktree lease.
         assertThat(leaseService.isHeld(WORKTREE)).isTrue();
     }
 

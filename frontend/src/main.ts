@@ -3966,6 +3966,19 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
+  ipcMain.handle('stages:interrupt', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/stages/${encodeURIComponent(id)}/interrupt`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend stage interrupt returned ${res.status}: ${body}`);
+    }
+  });
+
   ipcMain.handle('threads:get', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
@@ -5477,16 +5490,16 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   ipcMain.handle('threads:send', async (_event, payload: unknown) => {
-    const { id, input } = (payload ?? {}) as { id?: string; input?: string };
-    if (!id || typeof input !== 'string' || input.trim().length === 0) {
-      throw new Error('id and non-empty input are required');
+    const { id, taskId, input } = (payload ?? {}) as { id?: string; taskId?: string; input?: string };
+    if (!id || !taskId || typeof input !== 'string' || input.trim().length === 0) {
+      throw new Error('id, taskId, and non-empty input are required');
     }
     const res = await fetch(
       `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/messages`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ input }),
+        body: JSON.stringify({ taskId, input }),
       });
     if (!res.ok) {
       const text = await res.text().catch(() => '');

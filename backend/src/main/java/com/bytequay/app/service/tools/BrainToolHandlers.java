@@ -27,6 +27,7 @@ import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhaseEvent;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.LocalRepoService;
@@ -362,7 +363,8 @@ public class BrainToolHandlers
         if (blank(args.taskId())) {
             return ToolOutcome.Completed.error("task_id is required");
         }
-        if (call != null && !blank(call.taskId()) && !call.taskId().equals(args.taskId())) {
+        if (call != null && call.scope() != ThreadScope.TRUNK
+                && !call.requireTaskId().equals(args.taskId())) {
             return ToolOutcome.Completed.error("task_id must match the current task scope");
         }
         Optional<RemotePrStatus> status = freshRemotePrStatus(args.taskId());
@@ -407,10 +409,10 @@ public class BrainToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome readCiLog(ReadCiLogArgs args, ToolCall call)
     {
-        if (call == null || blank(call.taskId())) {
+        if (call == null || call.scope() == ThreadScope.TRUNK) {
             return ToolOutcome.Completed.error("read_ci_log requires a task-scoped turn");
         }
-        Optional<PullRequestRef> ref = repoFor(call.taskId());
+        Optional<PullRequestRef> ref = repoFor(call.requireTaskId());
         if (ref.isEmpty()) {
             return ToolOutcome.Completed.error("task has no linked PR");
         }

@@ -131,7 +131,7 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
-    void aFreshStageKeyPicksUpTheChangedOverride()
+    void aLaterStageReusesTheTaskSessionWithoutReResolving()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         WorkModel firstPick = new WorkModel(WorkModelKind.API, "anthropic", "claude-opus-4-7", null);
@@ -145,11 +145,12 @@ class TestThreadRegistryWorkModel
         ThreadRegistry registry = newRegistry();
         Task task = task(TASK_ID);
 
-        registry.getOrCreate(logicLoopThread(), task, "stage-1");
-        registry.getOrCreate(logicLoopThread(), task, "stage-2");
+        ThreadAgent first = registry.getOrCreate(logicLoopThread(), task, "stage-1");
+        ThreadAgent second = registry.getOrCreate(logicLoopThread(), task, "stage-2");
 
+        assertThat(second).isSameAs(first);
         verify(workModelResolver).resolveForStage(THREAD_ID, TASK_ID, "stage-1");
-        verify(workModelResolver).resolveForStage(THREAD_ID, TASK_ID, "stage-2");
+        verify(workModelResolver, never()).resolveForStage(THREAD_ID, TASK_ID, "stage-2");
     }
 
     @Test
@@ -174,21 +175,20 @@ class TestThreadRegistryWorkModel
 
         ThreadAgent development = registry.getOrCreate(
                 cliThread("claude-code", "claude-sonnet-4-6", null), task, "shared-stage");
-        ThreadAgent brain = registry.getOrCreate(brainThread(), task, "shared-stage");
+        ThreadAgent brain = registry.getOrCreateTaskBrain(brainThread());
+        development.setActiveStage("shared-stage");
+        brain.setActiveTask(TASK_ID);
+        brain.setActiveStage("shared-stage");
 
         assertThat(brain).isNotSameAs(development);
         assertThat(development.id()).isEqualTo(THREAD_ID);
         assertThat(brain.id()).isEqualTo("brain-1");
-        assertThat(registry.findStage(THREAD_ID, "shared-stage")).containsSame(development);
-        assertThat(registry.findStage("brain-1", "shared-stage")).containsSame(brain);
-        assertThat(registry.findStages(List.of("shared-stage")))
+        assertThat(registry.findTask(THREAD_ID, TASK_ID)).containsSame(development);
+        assertThat(registry.findByAgentKey("brain-1", TASK_ID)).containsSame(brain);
+        assertThat(registry.findTaskAgents(List.of(TASK_ID)))
                 .containsExactlyInAnyOrder(development, brain);
         verify(workModelResolver).resolveForThread("brain-1");
         verify(workModelResolver, never()).resolveForStage("brain-1", TASK_ID, "shared-stage");
-
-        registry.evictStage(THREAD_ID, "shared-stage");
-        assertThat(registry.findStage(THREAD_ID, "shared-stage")).isEmpty();
-        assertThat(registry.findStage("brain-1", "shared-stage")).isEmpty();
     }
 
     @Test
@@ -245,11 +245,16 @@ class TestThreadRegistryWorkModel
                 .thenReturn(new WorkModelResolver.Resolved(workspacePick,
                         new WorkModelResolver.Provenance(
                                 WorkModelResolver.Source.WORKSPACE, "ws-default", "workspace ByteQuay")));
+        when(workModelResolver.resolveForTask(THREAD_ID, TASK_ID))
+                .thenReturn(new WorkModelResolver.Resolved(workspacePick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.WORKSPACE, "ws-default", "workspace ByteQuay")));
         ThreadRegistry registry = newRegistry();
 
         assertThat(registry.getOrCreateTrunk(cliThread("claude-code", "claude-opus-4-8", null)))
                 .isInstanceOf(LogicLoopThreadAgent.class);
-        assertThat(registry.getOrCreate(cliThread("claude-code", "claude-opus-4-8", null), null, null))
+        assertThat(registry.getOrCreate(
+                cliThread("claude-code", "claude-opus-4-8", null), task(TASK_ID), null))
                 .isInstanceOf(LogicLoopThreadAgent.class);
     }
 
@@ -313,7 +318,7 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
-    void typedStageEntrypointReturnsAStageAgent()
+    void typedStageEntrypointReturnsATaskAgent()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         WorkModel stagePick = new WorkModel(WorkModelKind.API, "anthropic", "claude-opus-4-7", null);
@@ -323,14 +328,14 @@ class TestThreadRegistryWorkModel
                                 WorkModelResolver.Source.STAGE, "stage-typed", "stage-typed")));
         ThreadRegistry registry = newRegistry();
 
-        StageAgent agent = registry.getOrCreateStageAgent(logicLoopThread(), task(TASK_ID), "stage-typed");
+        TaskAgent agent = registry.getOrCreateTaskAgent(logicLoopThread(), task(TASK_ID), "stage-typed");
 
-        assertThat(agent).isInstanceOf(StageAgent.class);
+        assertThat(agent).isInstanceOf(TaskAgent.class);
         verify(workModelResolver).resolveForStage(THREAD_ID, TASK_ID, "stage-typed");
     }
 
     @Test
-    void completedSharedThreadBuildsARunnableCliStageAgent()
+    void completedSharedThreadBuildsARunnableCliTaskAgent()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         WorkModel stagePick = new WorkModel(
@@ -350,7 +355,7 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
-    void completedSharedThreadBuildsARunnableApiStageAgent()
+    void completedSharedThreadBuildsARunnableApiTaskAgent()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         WorkModel stagePick = new WorkModel(
@@ -366,6 +371,25 @@ class TestThreadRegistryWorkModel
                 task(TASK_ID), "stage-api");
 
         assertThat(agent).isInstanceOf(LogicLoopThreadAgent.class);
+        assertThat(agent.status()).isEqualTo(ThreadStatus.IDLE);
+    }
+
+    @Test
+    void runningSharedThreadBuildsARunnableApiTaskAgent()
+    {
+        when(threadStore.listMessages(anyString())).thenReturn(List.of());
+        WorkModel stagePick = new WorkModel(
+                WorkModelKind.API, "anthropic", "claude-opus-4-7", null);
+        when(workModelResolver.resolveForStage(THREAD_ID, TASK_ID, "stage-api"))
+                .thenReturn(new WorkModelResolver.Resolved(stagePick,
+                        new WorkModelResolver.Provenance(
+                                WorkModelResolver.Source.STAGE, "stage-api", "stage-api")));
+        ThreadRegistry registry = newRegistry();
+
+        ThreadAgent agent = registry.getOrCreate(
+                withStatus(logicLoopThread(), ThreadStatus.RUNNING),
+                task(TASK_ID), "stage-api");
+
         assertThat(agent.status()).isEqualTo(ThreadStatus.IDLE);
     }
 
@@ -388,7 +412,7 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
-    void sharedTaskBrainIsReachableAndEvictableByItsActiveStage()
+    void sharedTaskBrainIsReachableAndEvictableByItsTaskWhileAStageIsActive()
     {
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task(TASK_ID)));
@@ -403,11 +427,10 @@ class TestThreadRegistryWorkModel
         brain.setActiveTask(TASK_ID);
         brain.setActiveStage("review-stage");
 
-        assertThat(registry.findStage("brain-1", "review-stage")).isPresent();
-        assertThat(registry.findByAgentKey("brain-1", "review-stage")).isPresent();
-        assertThat(registry.findStages(List.of("review-stage"))).hasSize(1);
+        assertThat(registry.findByAgentKey("brain-1", TASK_ID)).isPresent();
+        assertThat(registry.findTaskAgents(List.of(TASK_ID))).hasSize(1);
 
-        registry.evictStage(THREAD_ID, "review-stage");
+        registry.evictTaskAgent(THREAD_ID, TASK_ID);
 
         assertThat(registry.findTrunk("brain-1")).isEmpty();
     }
@@ -427,9 +450,9 @@ class TestThreadRegistryWorkModel
         TaskBrainAgent brain = registry.getOrCreateTaskBrainAgent(brainThread());
         brain.setActiveTask(TASK_ID);
 
-        assertThat(registry.findStages(List.of(TASK_ID))).hasSize(1);
+        assertThat(registry.findTaskAgents(List.of(TASK_ID))).hasSize(1);
 
-        registry.evictStage(THREAD_ID, TASK_ID);
+        registry.evictTaskAgent(THREAD_ID, TASK_ID);
 
         assertThat(registry.findTrunk("brain-1")).isEmpty();
     }
@@ -462,7 +485,7 @@ class TestThreadRegistryWorkModel
     }
 
     @Test
-    void planStageDoesNotCreateAStageAgent()
+    void planStageDoesNotCreateATaskAgent()
     {
         UUID stageId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         when(stageStore.findStageById(stageId))
@@ -470,10 +493,10 @@ class TestThreadRegistryWorkModel
         ThreadRegistry registry = newRegistry();
 
         assertThatThrownBy(() ->
-                registry.getOrCreateStageAgent(logicLoopThread(), task(TASK_ID), stageId.toString()))
+                registry.getOrCreateTaskAgent(logicLoopThread(), task(TASK_ID), stageId.toString()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("TaskBrainAgent");
-        assertThat(registry.findStage(THREAD_ID, stageId.toString())).isEmpty();
+        assertThat(registry.findTask(THREAD_ID, TASK_ID)).isEmpty();
     }
 
     @Test
@@ -485,10 +508,10 @@ class TestThreadRegistryWorkModel
         ThreadRegistry registry = newRegistry();
 
         assertThatThrownBy(() ->
-                registry.getOrCreateStageAgent(logicLoopThread(), task(TASK_ID), stageId.toString()))
+                registry.getOrCreateTaskAgent(logicLoopThread(), task(TASK_ID), stageId.toString()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("CleanupStage");
-        assertThat(registry.findStage(THREAD_ID, stageId.toString())).isEmpty();
+        assertThat(registry.findTask(THREAD_ID, TASK_ID)).isEmpty();
     }
 
     @Test
@@ -504,7 +527,7 @@ class TestThreadRegistryWorkModel
         ThreadRegistry registry = newRegistry();
 
         ClaudeCodeCliThreadAgent agent = (ClaudeCodeCliThreadAgent)
-                registry.getOrCreate(brainThread(), null, null);
+                registry.getOrCreateTaskBrain(brainThread());
 
         assertThat(agent.buildCommand("review this iteration").command())
                 .containsSubsequence("--effort", "high");
@@ -524,7 +547,7 @@ class TestThreadRegistryWorkModel
         ThreadRegistry registry = newRegistry();
 
         CodexCliThreadAgent agent = (CodexCliThreadAgent)
-                registry.getOrCreate(codexBrainThread(), null, null);
+                registry.getOrCreateTaskBrain(codexBrainThread());
 
         assertThat(agent.buildCommand("review this iteration").command())
                 .startsWith("codex")

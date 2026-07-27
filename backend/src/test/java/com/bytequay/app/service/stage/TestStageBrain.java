@@ -29,6 +29,7 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
@@ -272,7 +273,8 @@ class TestStageBrain
                 UUID.randomUUID().toString(), brainThreadId, null, 1, "user", "text",
                 "{\"text\":\"see this\",\"images\":[\"/tmp/attachments/a.png\"],"
                         + "\"managedSkills\":[\"ponytail-review\"]}",
-                null, null, null, null, Instant.parse("2026-06-21T10:01:00Z")));
+                null, null, null, null, Instant.parse("2026-06-21T10:01:00Z"),
+                null, ThreadScope.TRUNK));
         appendBrainMsg(brainThreadId, 2, "assistant", "Got it.", Instant.parse("2026-06-21T10:01:30Z"));
 
         TaskBrainViewData brainView = stageService.getBrain(taskId);
@@ -322,7 +324,7 @@ class TestStageBrain
         String contentJson = "{\"text\":\"" + text.replace("\"", "\\\"") + "\"}";
         threadStore.appendMessage(new ThreadMessage(
                 UUID.randomUUID().toString(), threadId, null, seq, role, "text", contentJson,
-                null, null, null, null, ts));
+                null, null, null, null, ts, null, ThreadScope.TRUNK));
     }
 
     @Test
@@ -418,12 +420,14 @@ class TestStageBrain
         String devThread = taskStore.findTaskById(taskId).orElseThrow().threadId();
         StageInstance stage = stageStore.openStage(taskId, StageType.CI_FIXING_STAGE, null);
         // Two cost-bearing dev-thread messages for this task, inside the window.
-        threadStore.appendMessage(new ThreadMessage(
+        threadStore.appendStageMessage(new ThreadMessage(
                 UUID.randomUUID().toString(), devThread, taskId, 1, "assistant", "text",
-                "{\"text\":\"working\"}", null, 100L, 50L, 300L, stage.openedAt()));
-        threadStore.appendMessage(new ThreadMessage(
+                "{\"text\":\"working\"}", null, 100L, 50L, 300L, stage.openedAt(),
+                stage.id().toString(), ThreadScope.STAGE));
+        threadStore.appendStageMessage(new ThreadMessage(
                 UUID.randomUUID().toString(), devThread, taskId, 2, "assistant", "text",
-                "{\"text\":\"more\"}", null, 100L, 50L, 200L, stage.openedAt()));
+                "{\"text\":\"more\"}", null, 100L, 50L, 200L, stage.openedAt(),
+                stage.id().toString(), ThreadScope.STAGE));
 
         TaskBrainViewData brain = stageService.getBrain(taskId);
 
@@ -448,9 +452,9 @@ class TestStageBrain
         // A turn_done row stamped with this stage's id contributes its tokens.
         ThreadMessage turnDone = new ThreadMessage(
                 UUID.randomUUID().toString(), devThread, taskId, 1, "system", "turn_done",
-                "{}", 1_000L, 20_000L, 10_000L, 0L, stage.openedAt())
-                .withStageScope(stage.id().toString(), null);
-        threadStore.appendMessage(turnDone);
+                "{}", 1_000L, 20_000L, 10_000L, 0L, stage.openedAt(),
+                stage.id().toString(), ThreadScope.STAGE);
+        threadStore.appendStageMessage(turnDone);
         stageStore.closeStage(stage.id(), "phase_transition");
 
         TaskBrainViewData brain = stageService.getBrain(taskId);
@@ -795,6 +799,7 @@ class TestStageBrain
         Instant now = Instant.parse("2026-06-20T09:30:00Z");
         threadTurnStore.saveTurn(new ThreadTurn(
                 turnId, threadId, taskId, ThreadResourceLane.CLI, ThreadTurnStatus.QUEUED,
-                "monitor work", now, now, null, null, null, TurnInitiator.unattended("test")));
+                "monitor work", now, now, null, null, null, TurnInitiator.unattended("test"),
+                null, ThreadScope.TASK));
     }
 }

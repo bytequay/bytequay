@@ -407,6 +407,7 @@ export type StageDetailData = {
     callerStageId: string | null;
     iterationCount: number;
     currentIterationNumber: number | null;
+    agentActive: boolean;
     config: {
       autoPushBudget?: { used: number; limit: number } | null;
       internalReviewEnabled: boolean;

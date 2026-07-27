@@ -40,6 +40,23 @@ export function useThreadStream(
   threadId: string,
   status: string | undefined,
   onCanonicalRefresh: () => void | Promise<void>,
+): ReturnType<typeof useAgentStream> {
+  return useAgentStream('thread', threadId, status, onCanonicalRefresh);
+}
+
+export function useStageStream(
+  stageId: string,
+  status: string | undefined,
+  onCanonicalRefresh: () => void | Promise<void>,
+): ReturnType<typeof useAgentStream> {
+  return useAgentStream('stage', stageId, status, onCanonicalRefresh);
+}
+
+function useAgentStream(
+  scope: 'thread' | 'stage',
+  id: string,
+  status: string | undefined,
+  onCanonicalRefresh: () => void | Promise<void>,
 ): { liveText: string; liveThinking: string; liveUsage: LiveUsage | null; liveActivities: LiveActivity[] } {
   const [liveText, setLiveText] = useState('');
   const liveTextRef = useRef('');
@@ -110,15 +127,16 @@ export function useThreadStream(
     };
     // The bridge may be absent (test mounts) or lack the stream method —
     // degrade to poll-only rather than throwing on mount.
-    const subscribe = typeof window !== 'undefined' ? window.bridge?.subscribeTaskStream : undefined;
-    const unsubscribe = typeof subscribe === 'function' ? subscribe(threadId, onEvent) : undefined;
+    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
+    const subscribe = scope === 'thread' ? bridge?.subscribeTaskStream : bridge?.subscribeStageStream;
+    const unsubscribe = typeof subscribe === 'function' ? subscribe(id, onEvent) : undefined;
     return () => {
       disposed = true;
       if (timer !== null) clearTimeout(timer);
       flush();
       unsubscribe?.();
     };
-  }, [threadId, status]);
+  }, [scope, id, status]);
 
   return { liveText, liveThinking, liveUsage, liveActivities };
 }

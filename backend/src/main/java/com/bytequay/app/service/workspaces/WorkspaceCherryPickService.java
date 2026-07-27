@@ -343,7 +343,7 @@ public class WorkspaceCherryPickService
                 stage.id().toString(),
                 AgentRun.KIND_CI_FIX,
                 prompt);
-        scheduler.enqueueTaskTurn(
+        scheduler.enqueueStageTurn(
                 trunk,
                 prompt,
                 task.id(),

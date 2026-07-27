@@ -20,6 +20,9 @@ import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.CiStatus;
+import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StageState;
+import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -45,6 +48,7 @@ import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.stage.ReadyToMergeService;
 import com.bytequay.app.service.stage.RemoteCommentIngestor;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
@@ -57,6 +61,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,6 +82,8 @@ import static org.mockito.Mockito.when;
 
 class TestTaskLifecycleDriver
 {
+    private static final UUID DEVELOPMENT_STAGE_ID =
+            UUID.fromString("00000000-0000-0000-0000-000000000001");
     private final TaskStore taskStore = mock(TaskStore.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
@@ -104,6 +111,15 @@ class TestTaskLifecycleDriver
 
     @TempDir
     private Path tempDir;
+
+    @BeforeEach
+    void addressTurnsUseTheTasksDevelopmentStage()
+    {
+        when(stageStore.findLiveStageByType("t1.k2", StageType.DEVELOPMENT_STAGE))
+                .thenReturn(Optional.of(new StageInstance(
+                        DEVELOPMENT_STAGE_ID, "t1.k2", StageType.DEVELOPMENT_STAGE,
+                        StageState.OPEN, Instant.parse("2026-07-01T08:00:00Z"), null, null)));
+    }
 
     @Test
     void sweepReapsTerminalTaskWhoseWorktreeStillExists()
@@ -470,7 +486,7 @@ class TestTaskLifecycleDriver
                 "t1.k2", TaskPhase.ADDRESSING_LOCAL_COMMENTS, "new_local_comments", Actor.AGENT);
         verify(prService).markLocalAddressed("pr1", submittedAt);
         ArgumentCaptor<TurnInitiator> initiator = ArgumentCaptor.forClass(TurnInitiator.class);
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
                 initiator.capture(), isNull(), eq(TurnLiveness.CODE));
         assertThat(initiator.getValue().attended()).isFalse();
@@ -491,7 +507,7 @@ class TestTaskLifecycleDriver
 
         verify(phaseMachine, never()).transition(
                 eq("t1.k2"), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString(), any());
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
@@ -517,7 +533,7 @@ class TestTaskLifecycleDriver
 
         verify(phaseMachine, never()).transition(
                 eq("t1.k2"), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString(), any());
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
         verify(claimedValidation, never()).claimAndRunLocalReview(anyString(), anyLong(), anyString());
     }
@@ -543,7 +559,7 @@ class TestTaskLifecycleDriver
 
         driver.onLocalReviewSubmitted(new LocalReviewSubmittedEvent("t1.k2", "pr1"));
 
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
                 any(), isNull(), eq(TurnLiveness.CODE));
     }
@@ -572,7 +588,7 @@ class TestTaskLifecycleDriver
 
         driver.onLocalReviewSubmitted(new LocalReviewSubmittedEvent("t1.k2", "pr1"));
 
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
         verify(brainReview, never()).reviewAfterLocalComments(anyString());
 
@@ -582,7 +598,7 @@ class TestTaskLifecycleDriver
 
         verify(phaseMachine).transition(
                 "t1.k2", TaskPhase.ADDRESSING_LOCAL_COMMENTS, "new_local_comments", Actor.AGENT);
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
                 any(), isNull(), eq(TurnLiveness.CODE));
         verify(prService).markLocalAddressed("pr1", submittedAt);
@@ -658,7 +674,7 @@ class TestTaskLifecycleDriver
         driver.onLocalAddressTurnFinished(
                 new TaskTurnFinishedEvent("t1.k2", "address-turn", false));
 
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq("local-review:sub-1:cm2:0"), eq(thread), prompt.capture(), eq("t1.k2"),
                 any(), any(), isNull(), eq(TurnLiveness.CODE));
         assertThat(prompt.getValue())
@@ -693,7 +709,7 @@ class TestTaskLifecycleDriver
         verify(submissions).incrementFailures("sub-1");
         verify(phaseMachine, never()).parkOperational(anyString(), any(), anyString());
         // Below the bound the queue re-drives the same root.
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 startsWith("local-review:sub-1:cm1:"), eq(thread), anyString(), eq("t1.k2"),
                 any(), any(), isNull(), eq(TurnLiveness.CODE));
         verify(claimedValidation, never()).claimAndRunLocalReview(anyString(), anyLong(), anyString());
@@ -761,7 +777,7 @@ class TestTaskLifecycleDriver
         driver.reconcileLocalTask(task);
 
         verify(prService).markLocalAddressed("pr1", submittedAt);
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
                 any(), isNull(), eq(TurnLiveness.CODE));
     }
@@ -797,7 +813,7 @@ class TestTaskLifecycleDriver
         driver.reconcileLocalTask(task);
 
         verify(prService).markLocalAddressed("pr1", secondSubmission);
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq("local-review:sub-1:cm1:0"), eq(thread), prompt.capture(), eq("t1.k2"),
                 any(), any(), isNull(), eq(TurnLiveness.CODE));
         assertThat(prompt.getValue())
@@ -829,7 +845,7 @@ class TestTaskLifecycleDriver
 
         driver.reconcileLocalTask(task);
 
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq("local-review:sub-1:finding-comment:0"), eq(thread), prompt.capture(),
                 eq("t1.k2"), any(), any(), isNull(), eq(TurnLiveness.CODE));
         assertThat(prompt.getValue())
@@ -866,7 +882,7 @@ class TestTaskLifecycleDriver
         verify(phaseMachine, never()).transition(
                 eq("t1.k2"), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString(), any());
         verify(prService, never()).markLocalAddressed(anyString(), any());
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
@@ -888,7 +904,7 @@ class TestTaskLifecycleDriver
 
         verify(phaseMachine, never()).transition(anyString(), any(), anyString(), any());
         verify(prService, never()).markLocalAddressed(anyString(), any());
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
@@ -915,7 +931,7 @@ class TestTaskLifecycleDriver
         driver.reconcileLocalTask(task);
         driver.reconcileLocalTask(task);
 
-        verify(scheduler, times(2)).enqueueTaskTurnOnce(
+        verify(scheduler, times(2)).enqueueStageTurnOnce(
                 eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
                 any(), isNull(), eq(TurnLiveness.CODE));
     }
@@ -941,7 +957,7 @@ class TestTaskLifecycleDriver
         driver.reconcileLocalTask(task);
 
         verify(claimedValidation).claimAndRunLocalReview(eq("t1.k2"), eq(1L), anyString());
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
@@ -1031,7 +1047,7 @@ class TestTaskLifecycleDriver
 
         // Retries the turn rather than declaring the round done.
         verify(phaseMachine, never()).observe("t1.k2", TaskPhase.AWAITING_PUSH, "local_comments_addressed");
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
                 any(), isNull(), eq(TurnLiveness.CODE));
     }
@@ -1060,7 +1076,7 @@ class TestTaskLifecycleDriver
 
         driver.reconcileLocalTask(task);
 
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
         verify(prService, never()).markLocalAddressed(anyString(), any());
     }
@@ -1116,7 +1132,7 @@ class TestTaskLifecycleDriver
 
         driver.reconcileLocalTask(task);
 
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq("local-review:sub-1:selected:0"), eq(thread), prompt.capture(), eq("t1.k2"),
                 any(), any(), isNull(), eq(TurnLiveness.CODE));
         assertThat(prompt.getValue())
@@ -1154,7 +1170,7 @@ class TestTaskLifecycleDriver
 
         verify(phaseMachine, never())
                 .observe(anyString(), eq(TaskPhase.ADDRESSING_LOCAL_COMMENTS), anyString());
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
@@ -1167,7 +1183,7 @@ class TestTaskLifecycleDriver
         driver.reconcileLocalTask(task);
 
         verify(prService, never()).findByTask(anyString());
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
@@ -1193,7 +1209,7 @@ class TestTaskLifecycleDriver
 
         driver.reconcileLocalTask(task);
 
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq("local-review:sub-1:cm1:0"), eq(thread), anyString(), eq("t1.k2"), any(),
                 any(), isNull(), eq(TurnLiveness.CODE));
     }

@@ -32,6 +32,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.WatchedRepo;
@@ -135,7 +136,7 @@ class TestTaskServiceShipAndContinue
     // The sweep's TaskService provider stays unused here; the interface
     // default throws if a test unexpectedly reaches it.
     private final TaskRuntimeStopReconciler stopReconciler = new TaskRuntimeStopReconciler(
-            taskStore, stageStore, mock(ThreadTurnStore.class), registry, scheduler,
+            taskStore, mock(ThreadTurnStore.class), registry, scheduler,
             mock(ValidationPassStore.class), mock(ValidationExecutorRegistry.class),
             new ObjectProvider<>() {}, new ObjectProvider<>() {});
 
@@ -570,7 +571,7 @@ class TestTaskServiceShipAndContinue
         Task active = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);
         taskState(active);
         ThreadAgent session = mock(ThreadAgent.class);
-        when(registry.findStages(List.of("t1.k1"))).thenReturn(List.of(session));
+        when(registry.findTaskAgents(List.of("t1.k1"))).thenReturn(List.of(session));
 
         Task paused = service.pauseTask("t1", "t1.k1");
 
@@ -579,7 +580,7 @@ class TestTaskServiceShipAndContinue
         verify(scheduler).cancelTaskTurns("t1.k1");
         verify(brainReview).pauseActiveReview("t1.k1", "user_paused_task");
         verify(session).interrupt();
-        verify(registry).evictStages("t1", List.of("t1.k1"));
+        verify(registry).evictTaskAgent("t1", "t1.k1");
         // Pause keeps the work — the worktree is NOT reaped (unlike cancel).
         verify(worktreeService, never()).reap(any());
         ArgumentCaptor<Task> saved = ArgumentCaptor.forClass(Task.class);
@@ -605,8 +606,8 @@ class TestTaskServiceShipAndContinue
                 .hasMessage("commit failed");
 
         verify(scheduler, never()).cancelTaskTurns(anyString());
-        verify(registry, never()).findStages(any());
-        verify(registry, never()).evictStages(anyString(), any());
+        verify(registry, never()).findTaskAgents(any());
+        verify(registry, never()).evictTaskAgent(anyString(), anyString());
     }
 
     @Test
@@ -621,8 +622,8 @@ class TestTaskServiceShipAndContinue
         });
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread("t1")));
         when(stageStore.findActiveStage(taskId)).thenReturn(Optional.empty());
-        StageAgent resumedAgent = mock(StageAgent.class);
-        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(resumedAgent);
+        TaskAgent resumedAgent = mock(TaskAgent.class);
+        when(registry.getOrCreateTaskAgent(any(), any(), any())).thenReturn(resumedAgent);
 
         commitPause(controlled, "t1", taskId);
         assertThat(state.get().status()).isEqualTo(TaskStatus.PAUSED);
@@ -637,7 +638,7 @@ class TestTaskServiceShipAndContinue
         // exactly once; the late pause callback lost its token and must
         // not run a second teardown against the resumed runtime.
         verify(scheduler, times(1)).cancelTaskTurns(taskId);
-        verify(registry, times(1)).evictStages(anyString(), any());
+        verify(registry, times(1)).evictTaskAgent(anyString(), anyString());
         verify(resumedAgent, never()).interrupt();
     }
 
@@ -651,9 +652,9 @@ class TestTaskServiceShipAndContinue
         TaskService controlled = serviceWithPauseDispatcher(pendingTeardown::set);
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread("t1")));
         when(stageStore.findActiveStage(taskId)).thenReturn(Optional.empty());
-        when(registry.findStages(List.of(taskId))).thenReturn(List.of());
-        StageAgent resumedAgent = mock(StageAgent.class);
-        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(resumedAgent);
+        when(registry.findTaskAgents(List.of(taskId))).thenReturn(List.of());
+        TaskAgent resumedAgent = mock(TaskAgent.class);
+        when(registry.getOrCreateTaskAgent(any(), any(), any())).thenReturn(resumedAgent);
 
         commitPause(controlled, "t1", taskId);
         pendingTeardown.get().run();
@@ -662,8 +663,8 @@ class TestTaskServiceShipAndContinue
         assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
         InOrder order = inOrder(scheduler, registry, resumedAgent);
         order.verify(scheduler).cancelTaskTurns(taskId);
-        order.verify(registry).evictStages("t1", List.of(taskId));
-        order.verify(registry).getOrCreateStageAgent(any(), any(), any());
+        order.verify(registry).evictTaskAgent("t1", taskId);
+        order.verify(registry).getOrCreateTaskAgent(any(), any(), any());
         order.verify(resumedAgent).resume();
     }
 
@@ -687,7 +688,7 @@ class TestTaskServiceShipAndContinue
 
         assertThat(pendingTeardown).hasNullValue();
         verify(scheduler, never()).cancelTaskTurns(taskId);
-        verify(registry, never()).evictStages(anyString(), any());
+        verify(registry, never()).evictTaskAgent(anyString(), anyString());
     }
 
     @Test
@@ -744,8 +745,8 @@ class TestTaskServiceShipAndContinue
         when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(paused));
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread("t1")));
         when(stageStore.findActiveStage("t1.k1")).thenReturn(Optional.empty());
-        StageAgent agent = mock(StageAgent.class);
-        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(agent);
+        TaskAgent agent = mock(TaskAgent.class);
+        when(registry.getOrCreateTaskAgent(any(), any(), any())).thenReturn(agent);
 
         Task resumed = service.resumeTask("t1", "t1.k1");
 
@@ -779,7 +780,7 @@ class TestTaskServiceShipAndContinue
                 paused.id(), Actor.HUMAN, "user_resumed_task");
         order.verify(pushSaga).activeToken(paused.id());
         order.verify(pushSaga).drive("push-1");
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
         verify(registry, never()).getOrCreateTaskBrainAgent(any());
     }
 
@@ -809,12 +810,12 @@ class TestTaskServiceShipAndContinue
                 paused.id(), Actor.HUMAN, "user_resumed_task");
         order.verify(roundGateSaga).activeToken(paused.id());
         order.verify(roundGateSaga).drive("round-gate-1");
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
         verify(registry, never()).getOrCreateTaskBrainAgent(any());
     }
 
     @Test
-    void resumeOfAPausedBrainRoundUsesTheCoordinatorInsteadOfTheStageAgent()
+    void resumeOfAPausedBrainRoundUsesTheCoordinatorInsteadOfTheTaskAgent()
     {
         Task base = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.PAUSED);
         Task paused = taskAtPhase(base, TaskPhase.INTERNAL_REVIEW);
@@ -832,7 +833,7 @@ class TestTaskServiceShipAndContinue
         assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
         assertThat(resumed.phase()).isEqualTo(TaskPhase.INTERNAL_REVIEW);
         verify(brainReview).resumeParkedReview(paused.id());
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
         verify(registry, never()).getOrCreateTaskBrainAgent(any());
     }
 
@@ -852,7 +853,7 @@ class TestTaskServiceShipAndContinue
 
         assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
         assertThat(resumed.phase()).isEqualTo(TaskPhase.VALIDATING);
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
         verify(registry, never()).getOrCreateTaskBrainAgent(any());
     }
 
@@ -865,8 +866,8 @@ class TestTaskServiceShipAndContinue
         when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(paused));
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread("t1")));
         when(stageStore.findActiveStage("t1.k1")).thenReturn(Optional.empty());
-        StageAgent agent = mock(StageAgent.class);
-        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(agent);
+        TaskAgent agent = mock(TaskAgent.class);
+        when(registry.getOrCreateTaskAgent(any(), any(), any())).thenReturn(agent);
 
         Task resumed = service.resumeTask("t1", "t1.k1");
 
@@ -896,9 +897,13 @@ class TestTaskServiceShipAndContinue
         when(taskStore.currentLivenessTurnId("t1.k1"))
                 .thenReturn(Optional.of("turn-failed"));
         ThreadTurn failed = mock(ThreadTurn.class);
+        when(failed.scope()).thenReturn(ThreadScope.STAGE);
+        when(failed.stageId()).thenReturn("development-stage");
+        when(failed.requireTaskId()).thenReturn("t1.k1");
+        when(failed.requireStageId()).thenReturn("development-stage");
         when(taskPhaseMachine.retryErroredInCommand("t1.k1", "turn-failed"))
                 .thenReturn(failed);
-        when(scheduler.enqueueTaskTurnOnce(
+        when(scheduler.enqueueStageTurnOnce(
                 anyString(), any(), any(), anyString(), any(), any(), any(), any()))
                 .thenReturn("turn-retry");
         when(threadStore.findThreadById("t1")).thenReturn(Optional.of(thread));
@@ -916,7 +921,7 @@ class TestTaskServiceShipAndContinue
         verify(taskPhaseMachine).retryErroredInCommand("t1.k1", "turn-failed");
         verify(taskStore).setCurrentLivenessTurnIdIf(
                 "t1.k1", "turn-failed", "turn-retry");
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
     }
 
     @Test
@@ -928,8 +933,8 @@ class TestTaskServiceShipAndContinue
         when(threadStore.findThreadById(idle.threadId()))
                 .thenReturn(Optional.of(thread(idle.threadId())));
         when(stageStore.findActiveStage(idle.id())).thenReturn(Optional.empty());
-        StageAgent agent = mock(StageAgent.class);
-        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(agent);
+        TaskAgent agent = mock(TaskAgent.class);
+        when(registry.getOrCreateTaskAgent(any(), any(), any())).thenReturn(agent);
 
         Task resumed = service.resumeTask(idle.id());
 
@@ -965,7 +970,7 @@ class TestTaskServiceShipAndContinue
 
         assertThat(resumed.status()).isEqualTo(TaskStatus.IDLE);
         verify(registry).getOrCreateTaskBrainAgent(brain);
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
         verify(agent).resume();
     }
 
@@ -995,7 +1000,7 @@ class TestTaskServiceShipAndContinue
         assertThat(resumed.phase()).isEqualTo(TaskPhase.PUSHED_AWAITING_CI);
         verify(taskPhaseMachine).completeRecoveryInCommand(
                 parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.PUSHED_AWAITING_CI);
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
         verify(notifications).markRead("notice-1");
     }
 
@@ -1032,8 +1037,8 @@ class TestTaskServiceShipAndContinue
         when(threadStore.findThreadById(parked.threadId()))
                 .thenReturn(Optional.of(thread(parked.threadId())));
         when(stageStore.findActiveStage(parked.id())).thenReturn(Optional.empty());
-        StageAgent agent = mock(StageAgent.class);
-        when(registry.getOrCreateStageAgent(any(), any(), any())).thenReturn(agent);
+        TaskAgent agent = mock(TaskAgent.class);
+        when(registry.getOrCreateTaskAgent(any(), any(), any())).thenReturn(agent);
 
         service.resumeTask(parked.id());
 
@@ -1126,7 +1131,7 @@ class TestTaskServiceShipAndContinue
                 TaskPhase.IMPLEMENTING);
         order.verify(roundGateSaga).drive("round-token");
         verify(pushSaga, never()).resumeExternalSagaInCommand(any());
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
         assertThat(result).isEqualTo(recovered);
     }
 
@@ -1167,7 +1172,7 @@ class TestTaskServiceShipAndContinue
         assertThat(resumed.phase()).isEqualTo(TaskPhase.VALIDATING);
         verify(taskPhaseMachine).completeRecoveryInCommand(
                 parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.VALIDATING);
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
     }
 
     @Test
@@ -1191,7 +1196,7 @@ class TestTaskServiceShipAndContinue
                 parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.INTERNAL_REVIEW);
         verify(brainReview).ownsParkedResume(parked.id());
         verify(brainReview).resumeParkedReview(parked.id());
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
     }
 
     @Test
@@ -1214,7 +1219,7 @@ class TestTaskServiceShipAndContinue
         verify(taskPhaseMachine).completeRecoveryInCommand(
                 parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.AWAITING_REMOTE_REVIEW);
         verify(brainReview).resumeParkedReview(parked.id());
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
     }
 
     @Test
@@ -1237,7 +1242,7 @@ class TestTaskServiceShipAndContinue
         verify(taskPhaseMachine).completeRecoveryInCommand(
                 parked.id(), Actor.HUMAN, "user_resumed_task", TaskPhase.PLANNING);
         verify(brainReview).resumeParkedReview(parked.id());
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
     }
 
     @Test
@@ -1302,7 +1307,7 @@ class TestTaskServiceShipAndContinue
         Task t = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone");
         when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(t));
         ThreadAgent session = mock(ThreadAgent.class);
-        when(registry.findStages(List.of("t1.k1"))).thenReturn(List.of(session));
+        when(registry.findTaskAgents(List.of("t1.k1"))).thenReturn(List.of(session));
 
         service.cancelTask("t1", "t1.k1");
 
@@ -1375,8 +1380,8 @@ class TestTaskServiceShipAndContinue
         pendingTeardown.get().run();
         assertThat(state.get().status()).isEqualTo(TaskStatus.CANCELED);
         verify(scheduler, times(1)).cancelTaskTurns(taskId);
-        verify(registry, times(1)).evictStages("t1", List.of(taskId));
-        verify(registry, never()).getOrCreateStageAgent(any(), any(), any());
+        verify(registry, times(1)).evictTaskAgent("t1", taskId);
+        verify(registry, never()).getOrCreateTaskAgent(any(), any(), any());
     }
 
     private AtomicReference<Task> taskState(Task initial)

@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -78,6 +79,7 @@ class TestStalePermissionResolution
     {
         return new ThreadMessage(
                 "m-" + seq, "t", null, seq, role, type, content,
-                null, null, null, null, Instant.ofEpochMilli(seq));
+                null, null, null, null, Instant.ofEpochMilli(seq),
+                null, ThreadScope.TRUNK);
     }
 }

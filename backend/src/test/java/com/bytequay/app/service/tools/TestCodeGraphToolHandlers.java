@@ -14,6 +14,7 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -52,7 +53,7 @@ class TestCodeGraphToolHandlers
 
         ToolOutcome outcome = handlers.codegraphExplore(
                 new CodeGraphToolHandlers.CodeGraphExploreArgs("locate the feature", null),
-                new ToolCall(threadId, null, AgentRole.TASK, taskId, null));
+                new ToolCall(ThreadScope.TASK, threadId, null, AgentRole.TASK, taskId, null));
 
         assertThat(outcome).isEqualTo(ToolOutcome.Completed.error(
                 "no usable local checkout is bound to task " + taskId));
@@ -73,7 +74,7 @@ class TestCodeGraphToolHandlers
 
         handlers.codegraphExplore(
                 new CodeGraphToolHandlers.CodeGraphExploreArgs(" ", null),
-                new ToolCall(threadId, null, AgentRole.TASK, taskId, null));
+                new ToolCall(ThreadScope.TASK, threadId, null, AgentRole.TASK, taskId, null));
 
         assertThat(CodeGraphFirstRuntime.shouldRedirect(threadId, taskId)).isTrue();
     }
@@ -100,7 +101,7 @@ class TestCodeGraphToolHandlers
 
         ToolOutcome outcome = handlers.codegraphExplore(
                 new CodeGraphToolHandlers.CodeGraphExploreArgs("AuthToken", null, "symbol"),
-                new ToolCall(threadId, null, AgentRole.TASK, taskId, null));
+                new ToolCall(ThreadScope.TASK, threadId, null, AgentRole.TASK, taskId, null));
 
         assertThat(outcome).isEqualTo(ToolOutcome.Completed.ok("symbol result"));
         verify(codeGraph).query(checkout.toAbsolutePath().normalize(), "AuthToken");
@@ -131,7 +132,7 @@ class TestCodeGraphToolHandlers
 
         ToolOutcome outcome = handlers.codegraphExplore(
                 new CodeGraphToolHandlers.CodeGraphExploreArgs("map auth", null),
-                new ToolCall(threadId, null, AgentRole.TASK, taskId, null));
+                new ToolCall(ThreadScope.TASK, threadId, null, AgentRole.TASK, taskId, null));
 
         assertThat(outcome).isEqualTo(ToolOutcome.Completed.error(
                 "CodeGraph unavailable: index unavailable"));
@@ -154,7 +155,7 @@ class TestCodeGraphToolHandlers
 
         ToolOutcome outcome = handlers.codegraphExplore(
                 new CodeGraphToolHandlers.CodeGraphExploreArgs("AuthToken", null, "literal"),
-                new ToolCall(threadId, null, AgentRole.TASK, taskId, null));
+                new ToolCall(ThreadScope.TASK, threadId, null, AgentRole.TASK, taskId, null));
 
         assertThat(outcome).isEqualTo(ToolOutcome.Completed.error(
                 "mode must be 'explore' or 'symbol'"));

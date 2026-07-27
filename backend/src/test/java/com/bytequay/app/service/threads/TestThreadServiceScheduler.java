@@ -28,6 +28,7 @@ import com.bytequay.app.domain.ThreadGroupMembership;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
@@ -52,7 +53,9 @@ import com.bytequay.app.service.workspaces.WorkspaceDataPurger;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -77,7 +80,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestThreadServiceScheduler
 {
     @Test
-    void permissionBudgetStaysOnTheStageAgentThatRaisedThePrompt()
+    void permissionBudgetStaysOnTheTaskAgentThatRaisedThePrompt()
     {
         McpPermissionGate gate = new McpPermissionGate();
         gate.register("call-1", "Bash", "stage-1");
@@ -138,7 +141,6 @@ class TestThreadServiceScheduler
                 noopWorktreeService(),
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
-
         // initialPrompt feeds title derivation but is treated as
         // context the create dialog will stage in the trunk composer,
         // not as a turn to fire at the agent.
@@ -295,13 +297,19 @@ class TestThreadServiceScheduler
     void followUpSendQueuesThroughScheduler()
     {
         Thread thread = thread();
+        Task task = new Task(
+                "task-1", thread.id(), 1L, TaskStatus.IDLE,
+                "dev/thread-1", "/tmp/work/.wt/task-1", "main", "/tmp/work",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, null,
+                Instant.parse("2026-05-18T12:00:00Z"), null, null, null, null, null);
         InMemoryTaskStore store = new InMemoryTaskStore();
         store.saveThread(thread);
         RecordingScheduler scheduler = new RecordingScheduler();
         ThrowingRegistry registry = new ThrowingRegistry();
         ThreadService service = new ThreadService(
                 store,
-                new StubTaskStore(),
+                new LatestOnlyTaskStore(task),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -314,7 +322,7 @@ class TestThreadServiceScheduler
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
-        String turnId = service.send(thread.id(), null, "next");
+        String turnId = service.send(thread.id(), task.id(), "next");
 
         assertThat(turnId).isEqualTo("turn-1");
         assertThat(scheduler.requests).containsExactly(new QueuedRequest(thread, "next"));
@@ -322,13 +330,8 @@ class TestThreadServiceScheduler
     }
 
     @Test
-    void followUpSendBindsTheTurnToTheLatestTaskWhenNoTaskIsActive()
+    void followUpSendRejectsAnUnaddressedTask()
     {
-        // The task-window composer sends through /messages with no explicit
-        // taskId while the task is parked at AWAITING_REVIEW. send() must fall
-        // back to the thread's latest task so the row lands in the task's
-        // slice — not as a task_id = null trunk row that leaks into the trunk
-        // conversation.
         Thread thread = thread();
         InMemoryTaskStore store = new InMemoryTaskStore();
         store.saveThread(thread);
@@ -354,9 +357,10 @@ class TestThreadServiceScheduler
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
 
-        service.send(thread.id(), null, "keep going");
-
-        assertThat(scheduler.taskTurnTaskIds).containsExactly("task-9");
+        assertThatThrownBy(() -> service.send(thread.id(), null, "keep going"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId is required");
+        assertThat(scheduler.taskTurnTaskIds).isEmpty();
     }
 
     @Test
@@ -764,6 +768,8 @@ class TestThreadServiceScheduler
                 worktrees,
                 new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator(), Mockito.mock(PullRequestService.class), Mockito.mock(WorkspaceDataPurger.class), Mockito.mock(CheckpointSummariser.class));
+        ApplicationEventPublisher publisher = Mockito.mock(ApplicationEventPublisher.class);
+        service.setApplicationEventPublisher(publisher);
 
         // Step 1 — create is a 0-Task path: no worktree, no Task.
         Thread thread = service.create(new ThreadService.NewTaskRequest(
@@ -820,6 +826,52 @@ class TestThreadServiceScheduler
         // The cut no longer consumes the snapshot — it keeps reflecting the
         // planning worktree until the turn-start sync moves it.
         assertThat(projecting.findPlanningSnapshot(thread.id())).isPresent();
+        var createdEvent = ArgumentCaptor.forClass(TaskCreatedEvent.class);
+        Mockito.verify(publisher).publishEvent(createdEvent.capture());
+        assertThat(createdEvent.getValue().taskId()).isEqualTo(active.id());
+        assertThat(createdEvent.getValue().initialPrompt()).isEqualTo("please fix");
+        assertThat(createdEvent.getValue().planKickoffRequested()).isTrue();
+        Mockito.verify(publisher, Mockito.never())
+                .publishEvent(Mockito.any(PlanKickoffRequested.class));
+    }
+
+    @Test
+    void materialiseTaskRemovesWorktreeWhenCreationFailsAfterGitCut()
+    {
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.of(
+                new WorktreeService.WorktreeHandle(
+                        Path.of("/tmp/repo/.worktrees/task-1"), "dev/task-1", "base-sha")));
+        InMemoryRecordingTaskStore tasks = new InMemoryRecordingTaskStore();
+        ThreadService service = new ThreadService(
+                store, tasks, new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(), new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(), Mockito.mock(McpPermissionGate.class),
+                new RecordingScheduler(), Mockito.mock(WorktreeLeaseService.class),
+                new GitRunner(), worktrees, new RoleSkillService(new ConceptRegistry()),
+                stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+        ApplicationEventPublisher publisher = Mockito.mock(ApplicationEventPublisher.class);
+        Mockito.doThrow(new IllegalStateException("kickoff failed"))
+                .when(publisher).publishEvent(Mockito.any(TaskCreatedEvent.class));
+        service.setApplicationEventPublisher(publisher);
+        Thread thread = service.create(new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix tests",
+                null, null, null, List.of(), "DEVELOP", null, null,
+                null, "ws-default", null));
+
+        assertThatThrownBy(() -> service.materialiseTask(
+                thread.id(), new ThreadService.NewTaskRequest(
+                        ThreadKind.CLI_AGENT, "claude-code", "claude-sonnet-4.6", "Fix tests",
+                        "/tmp/repo", null, "please fix", List.of(), "DEVELOP", null, null,
+                        null, "ws-default", null)))
+                .hasMessage("kickoff failed");
+
+        assertThat(worktrees.removeRequests)
+                .containsExactly(new WorktreeRemoveRequest(
+                        Path.of("/tmp/repo").toAbsolutePath().normalize(),
+                        "/tmp/repo/.worktrees/task-1", "dev/task-1"));
     }
 
     @Test
@@ -1390,19 +1442,6 @@ class TestThreadServiceScheduler
         }
 
         @Override
-        public String enqueueTurn(Thread thread, String input)
-        {
-            requests.add(new QueuedRequest(thread, input));
-            return "turn-" + requests.size();
-        }
-
-        @Override
-        public String enqueueTurn(Thread thread, String input, TurnInitiator initiator)
-        {
-            return enqueueTurn(thread, input);
-        }
-
-        @Override
         public String enqueueTrunkTurn(Thread thread, String input)
         {
             // The recording surface doesn't distinguish trunk vs task —
@@ -1418,6 +1457,16 @@ class TestThreadServiceScheduler
             // a test can assert a task-window send binds to its task even
             // when no task is "active". Still records the QueuedRequest so
             // the existing arrival-order assertions hold.
+            requests.add(new QueuedRequest(thread, input));
+            taskTurnTaskIds.add(taskId);
+            return "turn-" + requests.size();
+        }
+
+        @Override
+        public String enqueueStageTurn(
+                Thread thread, String input, String taskId, String stageId,
+                TurnInitiator initiator)
+        {
             requests.add(new QueuedRequest(thread, input));
             taskTurnTaskIds.add(taskId);
             return "turn-" + requests.size();
@@ -1452,12 +1501,6 @@ class TestThreadServiceScheduler
                     new WorktreeLeaseService(new StubLeaseStore()));
             this.events = events;
             this.session = new RecordingStopSession(events);
-        }
-
-        @Override
-        public ThreadAgent getOrCreate(Thread thread)
-        {
-            return session;
         }
 
         @Override
@@ -1606,13 +1649,6 @@ class TestThreadServiceScheduler
                     CheckpointTrigger.NOOP,
                     () -> "",
                     new WorktreeLeaseService(new StubLeaseStore()));
-        }
-
-        @Override
-        public ThreadAgent getOrCreate(Thread thread)
-        {
-            used = true;
-            throw new AssertionError("ThreadService should use the scheduler");
         }
     }
 
@@ -2054,6 +2090,16 @@ class TestThreadServiceScheduler
                     .toList();
         }
 
+        @Override
+        public boolean hasOtherActiveTurn(String agentRunId, String excludingTurnId)
+        {
+            return turns.values().stream()
+                    .filter(turn -> agentRunId.equals(turn.agentRunId()))
+                    .filter(turn -> !excludingTurnId.equals(turn.id()))
+                    .anyMatch(turn -> turn.status() == ThreadTurnStatus.QUEUED
+                            || turn.status() == ThreadTurnStatus.RUNNING);
+        }
+
         private static Comparator<ThreadTurn> turnOrder()
         {
             return Comparator.comparing(ThreadTurn::createdAt)
@@ -2116,7 +2162,7 @@ class TestThreadServiceScheduler
                 /* startedAt */ null,
                 /* finishedAt */ null,
                 /* errorMessage */ null,
-                TurnInitiator.user());
+                TurnInitiator.user(), null, ThreadScope.TRUNK);
     }
 
     private static ThreadTurnEvent turnEvent(String id, String turnId, String threadId, Instant createdAt)

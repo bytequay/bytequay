@@ -141,7 +141,7 @@ public class StageSteeringServiceImpl
         AgentRun run = agentRuns.openSchedulerSessionInCommand(
                 devThread, task.id(), stage.id().toString(),
                 sessionKind(devThread, stage.type()), input);
-        String turnId = scheduler.enqueueTaskTurn(
+        String turnId = scheduler.enqueueStageTurn(
                 devThread, input, task.id(), stage.id().toString(), initiator, run.id());
         // 1 turn = 1 iteration: open a user_steering iteration so the steer
         // shows up as its own band on the stage detail page. A no-op unless

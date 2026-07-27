@@ -20,8 +20,8 @@ import jakarta.persistence.Table;
 
 /**
  * A row in {@code stage_messages} — one work stage's transcript, keyed by a
- * per-stage {@code seq} so concurrent per-stage agents never collide on a
- * thread-global sequence. Mirrors {@link ThreadMessageEntity}'s columns minus
+ * per-stage {@code seq} so exact-stage transcript ordering is independent
+ * from the thread-global sequence. Mirrors {@link ThreadMessageEntity}'s columns minus
  * {@code scope} (every row here is STAGE-scoped by construction).
  */
 @Entity

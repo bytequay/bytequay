@@ -63,12 +63,12 @@ class TestLocalCiFixExecutor
     void queuesAFixTurnWhenAnIdleTaskFailsLocalCi()
     {
         wire("task-1", "thread-1", ThreadStatus.IDLE, /* iterations */ 0);
-        when(scheduler.enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any())).thenReturn("turn-1");
+        when(scheduler.enqueueStageTurn(any(), any(), any(), any(), any(), any(), any())).thenReturn("turn-1");
 
         boolean queued = executor.tryFix(newTask("task-1", "thread-1", WORKTREE), FAILURES);
 
         assertThat(queued).isTrue();
-        verify(scheduler).enqueueTaskTurn(any(), any(), eq("task-1"), eq(STAGE_ID), any(), any(), any());
+        verify(scheduler).enqueueStageTurn(any(), any(), eq("task-1"), eq(STAGE_ID), any(), any(), any());
         verify(agentRuns).recordIteration(eq("run-1"), any());
     }
 
@@ -81,7 +81,7 @@ class TestLocalCiFixExecutor
 
         assertThat(queued).isFalse();
         verify(agentRuns).transition("run-1", AgentRun.STATUS_FAILED, "local_ci_attempts_exhausted");
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -90,7 +90,7 @@ class TestLocalCiFixExecutor
         boolean queued = executor.tryFix(newTask("task-1", "thread-1", null), FAILURES);
 
         assertThat(queued).isFalse();
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -102,7 +102,7 @@ class TestLocalCiFixExecutor
         boolean queued = executor.tryFix(newTask("task-1", "thread-1", WORKTREE), FAILURES);
 
         assertThat(queued).isTrue();
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test

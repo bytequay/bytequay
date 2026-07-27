@@ -87,7 +87,7 @@ public class McpPermissionGate
 
     /** Same as {@link #register(String, String)} but also records the
      *  registry agent key that raised the prompt, so {@link #agentKeyFor}
-     *  can route the decision event back to that exact stage agent. */
+     *  can route the decision event back to that exact Task agent. */
     public CompletableFuture<PermissionDecision> register(String callId, String toolName, String agentKey)
     {
         requireNonNull(callId, "callId is null");

@@ -15,6 +15,7 @@ package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.TaskStore;
@@ -108,7 +109,7 @@ public class CodeGraphToolHandlers
         // Only an actual graph invocation unlocks native search. Invalid
         // arguments and checkout-selection errors remain correctable and keep
         // the redirect active; availability/indexing failures unlock fallback.
-        String agentKey = PermissionResolver.agentKeyFor(call.taskId(), call.stageId());
+        String agentKey = call.runtimeAgentKey();
         CodeGraphFirstRuntime.markAttempted(call.threadId(), agentKey);
         try {
             String result = mode.equals("symbol")
@@ -134,12 +135,13 @@ public class CodeGraphToolHandlers
 
     private CheckoutChoice checkoutFor(ToolCall call, String repoFullName)
     {
-        if (call.taskId() != null && !call.taskId().isBlank()) {
-            return taskStore.findTaskById(call.taskId())
+        if (call.scope() != ThreadScope.TRUNK) {
+            String taskId = call.requireTaskId();
+            return taskStore.findTaskById(taskId)
                     .flatMap(CodeGraphToolHandlers::taskCheckout)
                     .map(CheckoutChoice::found)
                     .orElseGet(() -> CheckoutChoice.error(
-                            "no usable local checkout is bound to task " + call.taskId()));
+                            "no usable local checkout is bound to task " + taskId));
         }
         Optional<Thread> thread = threadStore.findThreadById(call.threadId());
         if (thread.isEmpty()) {

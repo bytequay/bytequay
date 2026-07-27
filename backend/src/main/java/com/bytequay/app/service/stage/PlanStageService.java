@@ -59,7 +59,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -200,12 +199,13 @@ public class PlanStageService
         // Succeeded without recording — nudge once (after the kickoff only).
         if ("plan-kickoff".equals(source)) {
             threadStore.findBrainThreadByTask(event.taskId()).ifPresent(brain -> {
-                scheduler.enqueueTurn(brain,
+                scheduler.enqueueStageTurn(brain,
                         "Your planning turn ended without recording a plan. Call "
                                 + "record_plan(task_id='" + event.taskId() + "', plan={…}) now with a "
                                 + "structured plan (status='finalized' when ready for review). Do not "
                                 + "do any other work this turn.",
-                        TurnInitiator.unattended("plan-followup"));
+                        event.taskId(), plan.id().toString(),
+                        TurnInitiator.unattended("plan-followup"), null, TurnLiveness.NARRATION);
                 log.debug("nudged brain {} to record a plan for task {}", brain.id(), event.taskId());
             });
         }
@@ -502,7 +502,7 @@ public class PlanStageService
                 taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
                 || !turnStore.listTurnsByExactTaskIdAndStatus(
                         taskId, ThreadTurnStatus.RUNNING, 1).isEmpty();
-        boolean cachedAgent = !registry.findStages(stageKeys(taskId, stages)).isEmpty();
+        boolean cachedAgent = !registry.findTaskAgents(List.of(taskId)).isEmpty();
         if (!openValidation.isEmpty() || liveTurns || !liveRuns.isEmpty() || cachedAgent
                 || task.phase() == TaskPhase.NEEDS_ATTENTION
                 || task.status() == TaskStatus.NEEDS_ATTENTION) {
@@ -532,8 +532,7 @@ public class PlanStageService
         ReplanResult result = TaskExternalEffectGate.withEffectGate(
                 taskId, () -> commands.execute(taskId, () -> {
                     requirePushRevocable(taskId);
-                    if (!registry.findStages(
-                            stageKeys(taskId, stageStore.findStagesByTask(taskId))).isEmpty()) {
+                    if (!registry.findTaskAgents(List.of(taskId)).isEmpty()) {
                         throw status(409, "task " + taskId + " still has a cached replan runtime");
                     }
                     for (AgentRun run : agentRuns.liveRunsByTask(taskId)) {
@@ -562,14 +561,6 @@ public class PlanStageService
                     "task " + taskId + " has a Push already in progress; "
                             + "finish or recover that Push before replanning");
         }
-    }
-
-    private static List<String> stageKeys(String taskId, List<StageInstance> stages)
-    {
-        List<String> keys = new ArrayList<>();
-        keys.add(taskId);
-        stages.stream().map(stage -> stage.id().toString()).forEach(keys::add);
-        return keys;
     }
 
     private static void assertReplanSource(Task task)
@@ -639,7 +630,7 @@ public class PlanStageService
         String prompt = devKickoffPrompt(approval.plan());
         AgentRun run = agentRuns.openSchedulerSessionInCommand(
                 dev, task.id(), approval.dev().id().toString(), AgentRun.KIND_DEV, prompt);
-        scheduler.enqueueTaskTurnOnce(
+        scheduler.enqueueStageTurnOnce(
                 kickKey,
                 dev,
                 prompt,

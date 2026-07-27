@@ -406,7 +406,7 @@ public class ClaudeCodeCliThreadAgent
         try {
             Path tmp = Files.createTempFile("bytequay-mcp-" + threadId + "-", ".json");
             // Per-agent MCP URL: the agent key scopes role / capability
-            // resolution to THIS agent's running turn, so concurrent stage
+            // resolution to THIS agent's running turn, so concurrent Task
             // agents on one thread don't read each other's scope. The trunk
             // agent's key is the reserved "trunk" sentinel.
             String json = "{\"mcpServers\":{\"bytequay\":{"

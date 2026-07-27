@@ -117,12 +117,12 @@ public class ConceptToolHandlers
         }
         String needle = args.query() == null ? "" : args.query().toLowerCase(Locale.ROOT).trim();
         // Resolve role + grants against THIS call's own agent (its stamped
-        // task/stage), not the thread's first running turn — under concurrent
-        // stage agents on one thread that would otherwise read a sibling's
+        // task/stage), not another runtime's turn — under concurrent
+        // Task agents on one thread that would otherwise read a sibling's
         // scope. The role is already stamped on the call at dispatch.
         AgentRole role = call.role();
         Set<SecurityType> grants = permissions.grants(
-                call.threadId(), PermissionResolver.agentKeyFor(call.taskId(), call.stageId()));
+                call.threadId(), call.runtimeAgentKey());
         List<ConceptBrief> briefs = registry.list(kindFilter).stream()
                 .filter(s -> visibleToRole(s, role, grants))
                 .filter(s -> matchesQuery(s, needle))

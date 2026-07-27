@@ -48,6 +48,8 @@ import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStageIteration;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
+import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.repository.IterationStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -79,6 +81,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 
@@ -251,8 +254,20 @@ public class StageDetailServiceImpl
                 stage.callerStageId().map(UUID::toString).orElse(null),
                 iters.size(),
                 currentIter,
+                agentActive(stage),
                 config,
                 buildMetrics(stage, iters, window, devMessages));
+    }
+
+    private boolean agentActive(StageInstance stage)
+    {
+        return Stream.concat(
+                        turnStore.listTurnsByExactTaskIdAndStatus(
+                                stage.taskId(), ThreadTurnStatus.QUEUED, TURN_SCAN_CAP).stream(),
+                        turnStore.listTurnsByExactTaskIdAndStatus(
+                                stage.taskId(), ThreadTurnStatus.RUNNING, TURN_SCAN_CAP).stream())
+                .filter(turn -> turn.scope() == ThreadScope.STAGE)
+                .anyMatch(turn -> stage.id().toString().equals(turn.requireStageId()));
     }
 
     private StageMetricsSubset buildMetrics(

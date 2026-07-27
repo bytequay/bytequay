@@ -67,7 +67,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -860,14 +859,12 @@ public class TaskService
         // before we reap the worktree. interrupt() only sends destroy()
         // (SIGTERM); without the wait, `git worktree remove` can race a
         // still-live process that's mid-tool-call inside the worktree we're
-        // deleting. A task can have several per-stage agents in flight, so
-        // hit each of this task's stage agents.
-        List<String> stageKeys = stageKeysForTask(taskId);
-        for (ThreadAgent agent : registry.findStages(stageKeys)) {
+        // deleting. Include the Task's development and Brain runtimes.
+        for (ThreadAgent agent : registry.findTaskAgents(List.of(taskId))) {
             agent.interrupt();
             awaitAgentStopped(agent);
         }
-        registry.evictStages(threadId, stageKeys);
+        registry.evictTaskAgent(threadId, taskId);
         // finishTerminalInCommand already sealed every durable child before
         // this post-commit runtime teardown began.
         // Drop any still-open publish gate (push / ship / merge): the worktree
@@ -876,21 +873,6 @@ public class TaskService
         notificationService.dismissOpenForTask(threadId, taskId);
         worktreeService.reap(task);
         return taskStore.findTaskById(taskId).orElse(task);
-    }
-
-    /** The set of registry stage keys a task's per-stage agents are keyed
-     *  by: each of its stage ids plus the task id itself (the key for a
-     *  task-level agent that ran with no stage). Lets the cancel / pause /
-     *  ship paths reach exactly this task's agents without disturbing the
-     *  thread's other concurrent tasks. */
-    private List<String> stageKeysForTask(String taskId)
-    {
-        List<String> keys = new ArrayList<>();
-        keys.add(taskId);
-        for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
-            keys.add(stage.id().toString());
-        }
-        return keys;
     }
 
     /** Block until the agent leaves RUNNING (its turn thread transitions to
@@ -1482,9 +1464,18 @@ public class TaskService
         Thread resumedThread = reviveOwningThreadInCommand(retried);
         // Attempt is always 1 per failed id: a failed retry becomes the
         // new failure identity, so the next retry keys off the new turn.
-        String replacementId = scheduler.enqueueTaskTurnOnce(
-                "task-retry:" + failedTurnId + ":1", resumedThread, failed.input(), taskId,
-                failed.stageId(), failed.initiator(), failed.agentRunId(), TurnLiveness.CODE);
+        String kickKey = "task-retry:" + failedTurnId + ":1";
+        String replacementId = switch (failed.scope()) {
+            case TASK -> scheduler.enqueueTaskTurnOnce(
+                    kickKey, resumedThread, failed.input(), failed.requireTaskId(),
+                    failed.initiator(), failed.agentRunId(), TurnLiveness.CODE);
+            case STAGE -> scheduler.enqueueStageTurnOnce(
+                    kickKey, resumedThread, failed.input(), failed.requireTaskId(),
+                    failed.requireStageId(), failed.initiator(), failed.agentRunId(),
+                    TurnLiveness.CODE);
+            case TRUNK -> throw new IllegalStateException(
+                    "task " + taskId + " points at a trunk-scoped failed turn");
+        };
         taskStore.setCurrentLivenessTurnIdIf(taskId, failedTurnId, replacementId);
         return ResumeCommandResult.complete(
                 retried.withStatus(TaskStatus.IDLE).withEndedAt(null).withErrorMessage(null));
@@ -1690,7 +1681,7 @@ public class TaskService
             registry.getOrCreateTaskBrainAgent(runtime.thread()).resume();
             return;
         }
-        registry.getOrCreateStageAgent(
+        registry.getOrCreateTaskAgent(
                 runtime.thread(), runtime.task(), runtime.stageId()).resume();
     }
 

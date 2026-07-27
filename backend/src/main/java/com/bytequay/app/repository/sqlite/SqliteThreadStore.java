@@ -496,8 +496,6 @@ class SqliteThreadStore
                 e.getCostUsdMilli(),
                 Instant.ofEpochMilli(e.getTsMs()),
                 e.getStageId(),
-                e.getScope() == null
-                        ? ThreadScope.of(e.getTaskId(), e.getStageId())
-                        : ThreadScope.valueOf(e.getScope()));
+                ThreadScope.valueOf(requireNonNull(e.getScope(), "message scope is null")));
     }
 }

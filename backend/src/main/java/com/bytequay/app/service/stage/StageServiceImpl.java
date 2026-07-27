@@ -1032,10 +1032,15 @@ public class StageServiceImpl
         // lands. Gate "awaiting" on actual structural completeness too, not
         // status alone, so an in-between stake reads as still drafting.
         boolean structurallyComplete = !goal.isBlank() && !steps.isEmpty();
-        boolean selfReviewed = latestPlanWasSelfReviewed(events);
+        String selfReviewVerdict = latestPlanSelfReviewVerdict(events);
         String state = plan.state() == StageState.CLOSED ? "locked"
-                : "finalized".equals(status) && structurallyComplete && selfReviewed
+                : "finalized".equals(status) && structurallyComplete
+                        && "approved".equals(selfReviewVerdict)
                         ? "awaiting" : "draft";
+        if (plan.state() != StageState.CLOSED
+                && "changes_requested".equals(selfReviewVerdict)) {
+            state = "revision_required";
+        }
         return new TaskBrainViewData.PlanCard(
                 plan.id().toString(),
                 state,
@@ -1054,18 +1059,24 @@ public class StageServiceImpl
                 error);
     }
 
-    private static boolean latestPlanWasSelfReviewed(List<StageEvent> events)
+    private String latestPlanSelfReviewVerdict(List<StageEvent> events)
     {
-        boolean reviewed = false;
+        String verdict = null;
+        String revisionId = null;
         for (StageEvent event : events) {
             if (event.eventType() == StageEventType.PLAN_RECORDED) {
-                reviewed = false;
+                revisionId = parseJson(event.payloadJson()).path("id").asText(null);
+                verdict = null;
             }
             else if (event.eventType() == StageEventType.PLAN_SELF_REVIEWED) {
-                reviewed = true;
+                JsonNode payload = parseJson(event.payloadJson());
+                String reviewedRevisionId = payload.path("reviewedRevisionId").asText(null);
+                verdict = revisionId != null && revisionId.equals(reviewedRevisionId)
+                        ? payload.path("verdict").asText(null)
+                        : null;
             }
         }
-        return reviewed;
+        return verdict;
     }
 
     /** A JSON array node read as a list of non-blank strings; empty otherwise. */

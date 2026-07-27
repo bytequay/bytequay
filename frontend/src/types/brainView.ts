@@ -241,7 +241,7 @@ export type LinkedPrDto = {
 /** The structured plan card on the right rail. Lifecycle: a purple `draft`
  *  while the brain is recording it, an amber `awaiting` once finalized and
  *  pending the user, a green `locked` after approval (read-only). */
-export type PlanCardState = 'draft' | 'awaiting' | 'locked';
+export type PlanCardState = 'draft' | 'revision_required' | 'awaiting' | 'locked';
 
 export type PlanCardSignals = {
   riskLevel: 'low' | 'medium' | 'high';
@@ -354,7 +354,7 @@ export type TaskBrainViewData = {
     panelSpawnable: boolean;          // true in an internal-review phase over a PR
     parentStageId: string | null;     // the stage a panel review is called from
     costBreakdown: CostBreakdown;
-    plan: PlanCardDto | null;         // the plan card (draft/awaiting/locked), null if no PlanStage
+    plan: PlanCardDto | null;         // plan card lifecycle state, null if no PlanStage
   };
   scrubbers: {
     stageEvents: ScrubberDash[];      // for the LEFT scrubber

@@ -669,14 +669,14 @@ export function TaskBrainRoute({
 
   // Once shipped, the linked PR shows as a clickable chip that opens the
   // right-panel overview.
-  // A completed task's PR has landed (merged, or the queue merged it) — show
-  // it merged + flag the task finished, rather than the stale "open"/draft.
+  // The terminal task phase covers both merged and closed-without-merge.
+  // Keep the linked PR state authoritative so a closed PR never reads merged.
   const finished = task.currentPhase === 'COMPLETED';
   const linkedPr = data.rightRail.linkedPr;
   const pr = task.prNumber !== null
     ? {
         number: task.prNumber,
-        status: finished ? 'merged' : (linkedPr?.status ?? (task.prDraft ? 'draft' : 'open')),
+        status: linkedPr?.status ?? (task.prDraft ? 'draft' : finished ? 'merged' : 'open'),
         onOpen: () => openTab('pr', 'overview'),
         onOpenRemote: () => { void window.bridge.openInAppBrowser(prUrl(task.repoFullName, task.prNumber)); },
       }
@@ -709,7 +709,7 @@ export function TaskBrainRoute({
           paused: task.paused,
           terminal: task.terminal,
         },
-        prStatus: task.prNumber === null ? null : task.prDraft ? 'draft' : 'open',
+        prStatus: linkedPr?.status ?? (task.prNumber === null ? null : task.prDraft ? 'draft' : 'open'),
         mergeReady: proposalAction(shipProposal) === 'merge_pr',
         viewedStageId: null,
         viewingBrain: true,

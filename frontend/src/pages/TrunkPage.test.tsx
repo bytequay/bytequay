@@ -212,6 +212,7 @@ describe('TrunkPage', () => {
     expect(screen.getByTestId('sidebar')).toBeTruthy();
     expect(screen.getByTestId('conv')).toBeTruthy();
     expect(screen.getByText('Backend cleanup')).toBeTruthy();
+    expect(screen.getByText(/1 task done/)).toBeTruthy();
     expect(await screen.findByText('Active task')).toBeTruthy();
     expect(screen.getByText('RUNNING NOW')).toBeTruthy();
     expect(screen.getByText('OPEN PRS')).toBeTruthy();

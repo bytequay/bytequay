@@ -283,6 +283,7 @@ function FallbackTaskRow({ task, onOpen }: { task: TaskNavRow; onOpen: () => voi
 
 function taskState(task: WorkUnitTaskDto): 'merged' | 'review' | 'running' | 'error' | 'quiet' {
   if (task.status === 'COMPLETED' || task.prState?.toUpperCase() === 'MERGED') return 'merged';
+  if (task.status === 'REMOTE_CLOSED' || task.prState?.toUpperCase() === 'CLOSED') return 'quiet';
   if (task.status === 'ERRORED') return 'error';
   if (task.prNumber !== null || task.status === 'IN_REVIEW' || task.status === 'AWAITING_REVIEW') return 'review';
   if (task.status === 'RUNNING') return 'running';

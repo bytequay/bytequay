@@ -17,6 +17,7 @@ import type { MarkdownRepoContext } from '../markdown';
 import { ReactionAddButton } from '../pr/Reactions';
 import { ReviewThreadCard } from '../pr/ReviewThreadCard';
 import { ReviewThreadCard as LocalReviewThreadCard } from '../pr/localpr/ReviewThreadCard';
+import { QUICK_REVIEW_AUTHOR } from '../pr/localpr/prViewMeta';
 import type { ReactionContent } from '../pr/utils';
 import type { ReviewThreadDto } from '../types';
 import type { LocalPR, LocalPRComment } from '../types/localPr';
@@ -394,6 +395,7 @@ export default function PullTimeline({
             if (root === undefined || localPr === undefined) return null;
             const resolved = root.resolvedAt !== null || root.dismissedAt !== null;
             const findingBacked = root.author === 'agent' && root.findingId != null;
+            const quickReviewDraft = root.author === QUICK_REVIEW_AUTHOR;
             const taskReviewClosed = localPr.origin === 'task' && localPr.status !== 'local-open';
             const statusLabel = resolved || taskReviewClosed
               ? undefined
@@ -401,7 +403,7 @@ export default function PullTimeline({
                 ? 'WAITING FOR DEV'
                 : findingBacked
                   ? item.submitted ? 'WAITING FOR DEV' : 'PENDING REVIEW'
-                : root.author === 'you'
+                : root.author === 'you' || quickReviewDraft
                   ? item.submitted ? 'SENT TO DEV' : 'PENDING REVIEW'
                   : undefined;
             return (
@@ -415,7 +417,8 @@ export default function PullTimeline({
                   onReply={onLocalReply === undefined || resolved && root.author === 'brain'
                     ? undefined
                     : (_rootId, body) => onLocalReply(root, body)}
-                  onSetResolved={(root.author === 'you' || root.author === 'brain' || findingBacked)
+                  onSetResolved={(root.author === 'you' || root.author === 'brain'
+                      || findingBacked || quickReviewDraft)
                       && (onLocalResolve !== undefined || onLocalReopen !== undefined)
                     ? next => { if (next) onLocalResolve?.(root.id); else onLocalReopen?.(root.id); }
                     : undefined}

@@ -209,7 +209,7 @@ public class GlobalReviewRunner
             List<ReviewOutput.LineComment> comments = Optional.ofNullable(parsed.comments())
                     .orElse(List.of()).stream()
                     .map(comment -> new ReviewOutput.LineComment(
-                            comment.file(), comment.line(), comment.body(), severity(comment.severity())))
+                            comment.file(), comment.line(), comment.body(), comment.severity()))
                     .toList();
             return new ReviewOutput(
                     requireNonNullElse(parsed.summary(), ""), comments, provider, model);
@@ -225,17 +225,6 @@ public class GlobalReviewRunner
         node.put("role", role);
         node.put("content", content);
         return node;
-    }
-
-    private static String severity(String raw)
-    {
-        if (raw == null) {
-            return "suggestion";
-        }
-        return switch (raw.toLowerCase(Locale.ROOT)) {
-            case "info", "suggestion", "warning", "blocker" -> raw.toLowerCase(Locale.ROOT);
-            default -> "suggestion";
-        };
     }
 
     private record Endpoint(TurnSpec.Transport transport, String url, String token) {}

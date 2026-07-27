@@ -230,7 +230,7 @@ describe('PullDetailPane', () => {
     expect(screen.queryByRole('menuitem', { name: 'Watch repo · Full review' })).toBeNull();
   });
 
-  it('keeps completed quick review non-navigable and renders its diff-only findings inline', () => {
+  it('keeps completed quick review non-navigable and renders sanitized Markdown inline', async () => {
     const openAgent = vi.fn();
     const quickReview = vi.fn();
     const dto: DashboardPR = {
@@ -243,21 +243,28 @@ describe('PullDetailPane', () => {
       reviewState: 'none',
     };
     const result: AiReviewDraftDto = {
-      id: 2, prId: 1, summary: 'The supplied diff changes retry behavior.', providerId: 'openai',
+      id: 2, prId: 1,
+      summary: 'The **supplied diff** changes `retry` behavior.<script>alert(1)</script>', providerId: 'openai',
       model: 'review-model', headSha: 'abc', status: 'DRAFT', createdAt: '2026-07-19T00:00:00Z',
       updatedAt: '2026-07-19T00:00:00Z',
       comments: [{
-        id: 3, filePath: 'src/retry.ts', lineNumber: 21, body: 'This retry can loop forever.',
-        editedBody: null, severity: 'warning', dismissed: false, source: 'AI', side: 'RIGHT',
+        id: 3, filePath: 'src/retry.ts', lineNumber: 21,
+        body: '**Critical:** this retry can loop forever.',
+        editedBody: null, severity: 'blocker', dismissed: false, source: 'AI', side: 'RIGHT',
         startLine: null, startSide: null,
+      }, {
+        id: 4, filePath: 'src/style.ts', lineNumber: 9,
+        body: 'Optional naming cleanup.', editedBody: null, severity: 'suggestion',
+        dismissed: false, source: 'AI', side: 'RIGHT', startLine: null, startSide: null,
       }],
     };
+    const refresh = vi.fn();
 
-    render(
+    const { container } = render(
       <PullDetailBody
         row={toRow(dto)}
         bundle={null}
-        refresh={vi.fn()}
+        refresh={refresh}
         noWorkspace
         onRunQuickReview={quickReview}
         onWorkWithAgent={openAgent}
@@ -265,16 +272,20 @@ describe('PullDetailPane', () => {
       />,
     );
 
-    const done = screen.getByRole('button', { name: 'Run quick review' }) as HTMLButtonElement;
+    const done = screen.getByRole('button', { name: 'Quick review ✓' }) as HTMLButtonElement;
     expect(done.disabled).toBe(true);
     expect(done.title).toBe('Quick review completed');
     fireEvent.click(done);
     expect(quickReview).not.toHaveBeenCalled();
     expect(openAgent).not.toHaveBeenCalled();
     expect(screen.getByText('Diff only · no repository exploration')).not.toBeNull();
-    expect(screen.getByText(result.summary as string)).not.toBeNull();
+    expect(screen.getByText('supplied diff').tagName).toBe('STRONG');
+    expect(screen.getByText('retry').tagName).toBe('CODE');
+    expect(container.querySelector('script')).toBeNull();
     expect(screen.getByText('src/retry.ts:21')).not.toBeNull();
-    expect(screen.getByText('This retry can loop forever.')).not.toBeNull();
+    expect(screen.getByText('Critical:').tagName).toBe('STRONG');
+    expect(screen.queryByText('Optional naming cleanup.')).toBeNull();
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
   });
 
   it('shows running, retry, and repository-preparation button states without opening an agent window', () => {
@@ -301,9 +312,11 @@ describe('PullDetailPane', () => {
       />,
     );
 
-    const running = screen.getByRole('button', { name: 'Run quick review' }) as HTMLButtonElement;
+    const running = screen.getByRole('button', { name: 'Quick review • running' }) as HTMLButtonElement;
     expect(running.disabled).toBe(true);
     expect(running.title).toBe('Quick review is running');
+    expect(running.getAttribute('aria-busy')).toBe('true');
+    expect(running.querySelector('.pl-quick-review__running-dot')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'More review options' }));
     expect((screen.getByRole('menuitem', { name: 'Preparing repo…' }) as HTMLButtonElement).disabled).toBe(true);
 
@@ -315,7 +328,7 @@ describe('PullDetailPane', () => {
       />,
     );
     expect(screen.getByRole('alert').textContent).toContain('Diff is too large');
-    const retryButton = screen.getByRole('button', { name: 'Run quick review' });
+    const retryButton = screen.getByRole('button', { name: 'Retry quick review' });
     expect(retryButton.title).toBe('Retry quick review');
     fireEvent.click(retryButton);
     expect(retry).toHaveBeenCalledOnce();

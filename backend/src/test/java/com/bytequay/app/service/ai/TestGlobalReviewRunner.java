@@ -47,7 +47,7 @@ import static org.mockito.Mockito.when;
 class TestGlobalReviewRunner
 {
     private static final String JSON = """
-            {"summary":"Looks focused","comments":[{"file":"src/App.java","line":7,"severity":"warning","body":"Check this branch."}]}
+            {"summary":"Looks focused","comments":[{"file":"src/App.java","line":7,"severity":"critical","body":"Check this branch."}]}
             """;
 
     @Test
@@ -73,7 +73,7 @@ class TestGlobalReviewRunner
         assertThat(output.comments()).singleElement().satisfies(comment -> {
             assertThat(comment.file()).isEqualTo("src/App.java");
             assertThat(comment.line()).isEqualTo(7);
-            assertThat(comment.severity()).isEqualTo("warning");
+            assertThat(comment.severity()).isEqualTo("critical");
         });
         verify(cli).runWithSchedulerCapacity(
                 eq(CliReviewRunner.Provider.CODEX),

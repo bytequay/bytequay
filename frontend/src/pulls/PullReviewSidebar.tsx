@@ -16,6 +16,8 @@ import CurrentUserAvatar from '../CurrentUserAvatar';
 import { commentLineLabel } from '../diff/DiffInlineComments';
 import { renderMarkdown, type MarkdownRepoContext } from '../markdown';
 import { relativeTime } from '../notificationDisplay';
+import { QUICK_REVIEW_AUTHOR } from '../pr/localpr/prViewMeta';
+import { MarkdownProse } from '../threads/MarkdownProse';
 import type { ActivityItemDto, DiffFileDto } from '../types';
 import type { LocalPRBundle, LocalPRComment } from '../types/localPr';
 import { assocLabel, lastTwoSegments, snippetRowFor } from './changesModel';
@@ -42,11 +44,10 @@ function Chevron({ deg = 0, size = 11 }: { deg?: number; size?: number }) {
   );
 }
 
-function PendingCard({ c, files, login, repoCtx, onJump, onResolve, onDelete }: {
+function PendingCard({ c, files, login, onJump, onResolve, onDelete }: {
   c: LocalPRComment;
   files: DiffFileDto[] | null;
   login: string;
-  repoCtx: MarkdownRepoContext;
   onJump: (filePath: string, side: 'LEFT' | 'RIGHT', line: number) => void;
   onResolve: (id: string) => void;
   onDelete: (id: string) => void;
@@ -55,6 +56,7 @@ function PendingCard({ c, files, login, repoCtx, onJump, onResolve, onDelete }: 
   const snippet = file !== null && c.lineNumber !== null ? snippetRowFor(file.patch, c.side, c.lineNumber) : null;
   const jumpable = c.filePath !== null && c.lineNumber !== null;
   const lineLabel = commentLineLabel(c);
+  const quickReview = c.author === QUICK_REVIEW_AUTHOR;
   return (
     <div style={{ border: '1px solid #d5dbe1', borderRadius: 10, overflow: 'hidden', marginTop: 4 }}>
       <div
@@ -93,8 +95,10 @@ function PendingCard({ c, files, login, repoCtx, onJump, onResolve, onDelete }: 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           {c.author === 'you'
             ? <CurrentUserAvatar size={22} />
-            : <Av login={c.author} size={22} />}
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: '#17191c' }}>{c.author === 'you' ? login : c.author}</span>
+            : <Av login={c.author} size={22} square={quickReview} />}
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: '#17191c' }}>
+            {c.author === 'you' ? login : quickReview ? 'Quick review' : c.author}
+          </span>
           <span style={{ fontSize: 11.5, color: '#8b949e' }}>{relativeTime(new Date(c.createdAt).toISOString())}</span>
           <span style={{ flex: 1 }} />
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 600, color: '#9a6700', border: '1px solid rgba(154,103,0,0.4)', borderRadius: 999, padding: '1px 8px' }}>
@@ -103,10 +107,9 @@ function PendingCard({ c, files, login, repoCtx, onJump, onResolve, onDelete }: 
           </span>
           <span style={chipStyle}>Contributor</span>
         </div>
-        <div
-          className="md-body pl-pending-comment-body"
-          dangerouslySetInnerHTML={{ __html: renderMarkdown(c.body, repoCtx) }}
-        />
+        <div className="md-body pl-pending-comment-body">
+          <MarkdownProse text={c.body} />
+        </div>
         <div style={{ marginTop: 9 }}><EmojiPlusPill /></div>
         <div title="Not wired yet" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 9, fontSize: 12.5, color: '#59636e', cursor: 'pointer' }}>
           No replies<Chevron deg={0} size={12} />
@@ -205,7 +208,7 @@ export default function PullReviewSidebar({
                 {pending.length} pending review {pending.length === 1 ? 'comment' : 'comments'}
               </div>
               {pending.map(c => (
-                <PendingCard key={c.id} c={c} files={files} login={login} repoCtx={repoCtx} onJump={onJump} onResolve={onResolve} onDelete={onDelete} />
+                <PendingCard key={c.id} c={c} files={files} login={login} onJump={onJump} onResolve={onResolve} onDelete={onDelete} />
               ))}
             </>
           ) : (

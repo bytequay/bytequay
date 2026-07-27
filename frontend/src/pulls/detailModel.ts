@@ -217,6 +217,7 @@ function duplicateLocalReviewIds(bundle: LocalPRBundle): Set<string> {
 export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
   const items: TimelineItem[] = [];
   const seenCommits = new Set<string>();
+  let lastAggregateCi: string | null = null;
   const remoteCommentIds = new Map<string, number>();
   const submittedCommentIds = activelySubmittedCommentIds(bundle.timeline);
   const duplicateReviews = duplicateLocalReviewIds(bundle);
@@ -273,6 +274,12 @@ export function buildTimeline(bundle: LocalPRBundle): TimelineItem[] {
     if (event.eventType === 'ci') {
       const status = str(event.payload, 'status');
       if (status === null) continue;
+      const signature = JSON.stringify([
+        status, str(event.payload, 'headSha'), num(event.payload, 'checkCount'),
+        str(event.payload, 'name'), str(event.payload, 'trigger'),
+      ]);
+      if (signature === lastAggregateCi) continue;
+      lastAggregateCi = signature;
       items.push({
         kind: 'ci', id: event.id, at: event.createdAt, time: agoLabel(event.createdAt), status,
         previousStatus: str(event.payload, 'previousStatus'),

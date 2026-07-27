@@ -64,6 +64,21 @@ const plainBtn: CSSProperties = {
   borderRadius: 7, fontSize: 13, fontWeight: 500, color: '#24292f', cursor: 'pointer',
 };
 
+function mergeQueueCopy(state: string): { title: string; description: string; accent: string } {
+  switch (state) {
+    case 'AWAITING_CHECKS':
+      return { title: 'In merge queue', description: 'Waiting for merge queue checks to pass.', accent: '#bf8700' };
+    case 'LOCKED':
+      return { title: 'In merge queue', description: 'This pull request is locked while the merge queue processes it.', accent: '#bf8700' };
+    case 'MERGEABLE':
+      return { title: 'In merge queue', description: 'This pull request is ready to be merged by the queue.', accent: '#1f883d' };
+    case 'UNMERGEABLE':
+      return { title: 'Merge queue blocked', description: 'This pull request cannot currently be merged by the queue.', accent: '#cf222e' };
+    default:
+      return { title: 'In merge queue', description: 'This pull request is waiting in the merge queue.', accent: '#bf8700' };
+  }
+}
+
 /**
  * The Overview-tab merge card, restored for the unified PR pane. Shows a
  * github-style "Ready to merge" split-button (or "Merge when ready" for a
@@ -92,14 +107,16 @@ export default function PullMergeBox({ pr, detail, onDone }: {
       .finally(() => setBusy(false));
   };
 
-  // Queued and merged are terminal-ish tails, shown as the box's whole content.
-  if (pr.syncedMergeQueueState === 'QUEUED') {
+  // Every non-null GitHub entry state means the PR is already in the queue.
+  const queueState = pr.syncedMergeQueueState?.trim().toUpperCase();
+  if (queueState) {
+    const copy = mergeQueueCopy(queueState);
     return (
-      <div style={shellStyle('#bf8700')}>
+      <div style={shellStyle(copy.accent)}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ display: 'block', fontSize: 14, color: '#17191c' }}>Queued to merge…</span>
-            <span style={{ display: 'block', fontSize: 12.5, color: '#8b949e', marginTop: 2 }}>This pull request is next up in the merge queue.</span>
+            <span style={{ display: 'block', fontSize: 14, color: '#17191c' }}>{copy.title}</span>
+            <span style={{ display: 'block', fontSize: 12.5, color: '#8b949e', marginTop: 2 }}>{copy.description}</span>
           </span>
           <button type="button" style={plainBtn} disabled={busy} onClick={() => run(window.bridge.dequeueLocalPr(pr.id))}>Remove from queue</button>
         </div>

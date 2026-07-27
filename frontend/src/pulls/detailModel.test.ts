@@ -153,6 +153,19 @@ describe('buildTimeline', () => {
     });
   });
 
+  it('collapses duplicate aggregate CI events without hiding later transitions', () => {
+    const items = buildTimeline(bundle({
+      timeline: [
+        event({ id: 'pass-1', eventType: 'ci', payload: { status: 'passed', headSha: 'abcdef0', checkCount: 23 } }),
+        event({ id: 'pass-2', eventType: 'ci', createdAt: 1100, payload: { status: 'passed', headSha: 'abcdef0', checkCount: 23 } }),
+        event({ id: 'fail', eventType: 'ci', createdAt: 1200, payload: { status: 'failed', headSha: 'abcdef0', checkCount: 23 } }),
+        event({ id: 'pass-3', eventType: 'ci', createdAt: 1300, payload: { status: 'passed', headSha: 'abcdef0', checkCount: 23 } }),
+      ],
+    }));
+
+    expect(items.map(item => item.id)).toEqual(['pass-1', 'fail', 'pass-3']);
+  });
+
   it('distinguishes local harness milestones from aggregate CI transitions', () => {
     const items = buildTimeline(bundle({
       timeline: [

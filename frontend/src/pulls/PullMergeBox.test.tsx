@@ -76,6 +76,19 @@ describe('PullMergeBox', () => {
     expect(screen.getByRole('button', { name: 'Merge when ready' })).toBeTruthy();
   });
 
+  it.each([
+    ['AWAITING_CHECKS', 'Waiting for merge queue checks to pass.'],
+    ['LOCKED', 'This pull request is locked while the merge queue processes it.'],
+    ['MERGEABLE', 'This pull request is ready to be merged by the queue.'],
+    ['QUEUED', 'This pull request is waiting in the merge queue.'],
+    ['UNMERGEABLE', 'This pull request cannot currently be merged by the queue.'],
+  ])('shows %s as an existing merge-queue entry', (state, description) => {
+    render(<PullMergeBox pr={pr({ syncedMergeQueueEnabled: true, syncedMergeQueueState: state })} detail={detail()} onDone={() => {}} />);
+    expect(screen.getByText(description)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove from queue' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Merge when ready' })).toBeNull();
+  });
+
   it('offers to delete the branch of a merged PR', () => {
     render(<PullMergeBox pr={pr({ status: 'merged' })} detail={null} onDone={() => {}} />);
     expect(screen.getByRole('button', { name: 'Delete branch' })).toBeTruthy();

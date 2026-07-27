@@ -56,6 +56,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -231,6 +232,28 @@ class TestPRService
                 .contains("\"previousStatus\":\"failed\"")
                 .contains("\"headSha\":\"deadbeef\"")
                 .contains("\"checkCount\":12");
+    }
+
+    @Test
+    void aggregateRemoteCiTransitionIsIdempotentButKeepsRealStateChanges()
+    {
+        pr(PR.STATUS_REMOTE_OPEN);
+        List<PRTimelineEntry> persisted = new ArrayList<>();
+        when(store.timelineFor("pr1")).thenAnswer(ignored -> List.copyOf(persisted));
+        when(store.addEvent(any())).thenAnswer(invocation -> {
+            PRTimelineEntry event = invocation.getArgument(0);
+            persisted.add(event);
+            return event;
+        });
+
+        service.recordRemoteCiState("pr1", PRCheck.STATUS_PASSED, null, "deadbeef", 12);
+        service.recordRemoteCiState("pr1", PRCheck.STATUS_PASSED, null, "deadbeef", 12);
+        service.recordRemoteCiState("pr1", PRCheck.STATUS_FAILED, PRCheck.STATUS_PASSED, "deadbeef", 12);
+        service.recordRemoteCiState("pr1", PRCheck.STATUS_PASSED, PRCheck.STATUS_FAILED, "deadbeef", 12);
+
+        assertThat(persisted).hasSize(3);
+        assertThat(persisted).extracting(PRTimelineEntry::payloadJson)
+                .anySatisfy(payload -> assertThat(payload).contains("\"status\":\"failed\""));
     }
 
     @Test

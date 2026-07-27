@@ -550,8 +550,8 @@ function TaskLaunchCard({
   // the user closed. Otherwise a COMPLETED dev-lifecycle phase is terminal
   // even when the runtime status lags (e.g. IDLE after a remote merge), so
   // the card reads "SHIPPED" rather than a stale "RUNNING".
-  const status = task.status === 'CANCELED'
-    ? 'CANCELED'
+  const status = task.status === 'CANCELED' || task.status === 'REMOTE_CLOSED'
+    ? task.status
     : task.phase === 'COMPLETED' ? 'COMPLETED' : task.status;
   return (
     <div style={launchRowStyle}>
@@ -581,6 +581,7 @@ function launchLabel(isForeground: boolean, status: string): string {
   if (status === 'AWAITING_REVIEW') return 'AWAITING';
   if (status === 'NEEDS_ATTENTION') return 'NEEDS YOU';
   if (status === 'CANCELED') return 'CANCELED';
+  if (status === 'REMOTE_CLOSED') return 'CLOSED';
   if (status === 'COMPLETED') return 'SHIPPED';
   if (status === 'ERRORED') return 'ERRORED';
   return status;
@@ -852,7 +853,7 @@ function launchPillStyle(isForeground: boolean, status: string): React.CSSProper
     bg = 'rgba(34, 197, 94, 0.18)';
     color = '#166534';
   }
-  else if (status === 'COMPLETED' || status === 'CANCELED') {
+  else if (status === 'COMPLETED' || status === 'REMOTE_CLOSED' || status === 'CANCELED') {
     bg = 'rgba(71, 85, 105, 0.12)';
     color = SLATE;
   }

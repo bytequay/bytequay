@@ -23,13 +23,13 @@ import { relativeTime } from '../notificationDisplay';
  *  compact top history rather than staying live in the feed. IN_REVIEW is NOT
  *  terminal (a shipped task is still in-flight: CI-fixing / addressing comments
  *  / awaiting merge); PENDING is the Queued folder. */
-export const TERMINAL_TASK_STATUSES = new Set(['COMPLETED', 'CANCELED', 'ARCHIVED']);
+export const TERMINAL_TASK_STATUSES = new Set(['COMPLETED', 'REMOTE_CLOSED', 'CANCELED', 'ARCHIVED']);
 
 /** Map a work-unit status to the task card's status pill. */
 export function cardStatus(status: string): TaskStatus {
   switch (status) {
     case 'COMPLETED': case 'IN_REVIEW': return 'shipped';
-    case 'CANCELED': case 'ARCHIVED': return 'closed';
+    case 'REMOTE_CLOSED': case 'CANCELED': case 'ARCHIVED': return 'closed';
     case 'ERRORED': return 'errored';
     case 'AWAITING_REVIEW': return 'review';
     case 'PAUSED': return 'paused';
@@ -53,7 +53,7 @@ function cardStatusText(status: string): string | undefined {
  *  has no PR yet. */
 export function cardPr(t: WorkUnitTaskDto): PrGlyphState | undefined {
   if (t.status === 'COMPLETED') return 'merged';
-  if (t.status === 'ERRORED') return 'closed';
+  if (t.status === 'REMOTE_CLOSED' || t.status === 'ERRORED') return 'closed';
   if (t.prNumber == null) {
     return cardStatus(t.status) === 'foreground' ? 'progress' : undefined;
   }

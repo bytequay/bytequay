@@ -527,6 +527,9 @@ class TestTaskServiceShipAndContinue
         Task inReview = task("task-1", "thread-1", 1L, "dev/task-1",
                 "/tmp/wt", workingDir, TaskStatus.IN_REVIEW);
         when(taskStore.findByLinkedPrNumber(42)).thenReturn(List.of(inReview));
+        when(taskStore.findTaskById("task-1")).thenReturn(
+                Optional.of(inReview),
+                Optional.of(inReview.withStatus(TaskStatus.REMOTE_CLOSED)));
         when(watchedRepoStore.findAll()).thenReturn(List.of(
                 new WatchedRepo(1L, "acme", "widget", 0, workingDir, null, null)));
 
@@ -535,6 +538,7 @@ class TestTaskServiceShipAndContinue
         verify(taskPhaseMachine).finishTerminalInCommand(
                 eq("task-1"), eq(TaskStatus.REMOTE_CLOSED), eq(Actor.WEBHOOK), eq("pr_closed"));
         verify(taskStore).linkPullRequest("task-1", 42, "closed");
+        verify(scheduler).cancelTaskTurns("task-1");
         verify(sealer, never()).seal("task-1", "pr_closed");
     }
 

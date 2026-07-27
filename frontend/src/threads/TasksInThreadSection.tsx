@@ -155,10 +155,12 @@ function StatusPill({
   // Prefer a PR-driven label when a PR exists — that's the
   // user-facing "where did this task land" answer.
   if (prNumber !== null) {
-    const merged = (prState ?? '').toLowerCase() === 'merged';
+    const state = (prState ?? '').toLowerCase();
+    const merged = state === 'merged';
+    const closed = state === 'closed' || status === 'REMOTE_CLOSED';
     return (
-      <span style={pillStyle(merged ? 'completed' : 'active')}>
-        {merged ? 'merged' : `PR #${prNumber}`}
+      <span style={pillStyle(merged ? 'completed' : closed ? 'idle' : 'active')}>
+        {merged ? 'merged' : closed ? 'closed' : `PR #${prNumber}`}
       </span>
     );
   }

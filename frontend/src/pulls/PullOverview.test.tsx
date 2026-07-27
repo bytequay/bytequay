@@ -131,6 +131,19 @@ describe('PullOverview', () => {
     expect(onOpenCommit).toHaveBeenCalledWith('deadbeef');
   });
 
+  it('does not claim a rerun for a legacy zero-workflow event', () => {
+    const items: TimelineItem[] = [{
+      kind: 'ci', id: 'ci-rerun-zero', at: 1, time: 'now', status: 'rerun_requested',
+      previousStatus: 'failed', headSha: 'deadbeef', checkCount: 0, name: null, trigger: 'automatic',
+    }];
+
+    render(<PullTimeline items={items} repo="acme/widget" />);
+
+    expect(screen.getByText('No GitHub Actions workflow was ready to rerun')).toBeTruthy();
+    expect(screen.queryByText('ByteQuay requested a GitHub Actions rerun')).toBeNull();
+    expect(screen.queryByText(/0 workflows/)).toBeNull();
+  });
+
   it('shows structured skeleton cards while a large pull request loads', () => {
     const { container } = render(
       <PullOverview row={row([])} bundle={undefined} isMerged={false} />,

@@ -116,7 +116,7 @@ export function stageRow(
           kind="system"
           who={`Iteration ${r.iterationNumber ?? ''}`}
           timestamp={<EventTimestamp iso={r.ts} />}
-          markdown={r.text ?? undefined}
+          markdown={r.text === 'user_steering' ? 'Steered by you' : r.text ?? undefined}
         />
       );
     case 'tool_call':

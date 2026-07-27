@@ -35,6 +35,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestStore;
@@ -61,6 +62,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.after;
@@ -288,6 +290,45 @@ class TestCiFixRunExecutor
         // second call neither re-runs again nor jumps to an agent turn.
         verify(pullRequests).rerunFailedChecks(REPO, PR_NUMBER);
         verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any());
+    }
+
+    @Test
+    void fallsThroughToAgentWhenGitHubRerunsNoWorkflow()
+    {
+        Task task = newShippedTask("ship-zero", "thread-zero");
+        wireRun(task.id(), 0);
+        when(pullRequests.rerunFailedChecks(REPO, PR_NUMBER)).thenReturn(0);
+        Thread thread = newThread("thread-zero", ThreadStatus.COMPLETED);
+        when(threadStore.findThreadById(thread.id())).thenReturn(Optional.of(thread));
+        when(leaseService.isHeldByAnotherTask(WORKTREE_PATH, task.id())).thenReturn(false);
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any()))
+                .thenReturn("turn-id");
+
+        newExecutor().driveShippedCiFix(task, REPO, failingCi());
+
+        verify(localPrs, never()).recordRemoteCiRerun(anyString(), anyString(), any(), anyInt());
+        verify(scheduler).enqueueTaskTurn(
+                eq(thread), anyString(), eq(task.id()), eq(REMOTE_STAGE_ID),
+                any(), eq("run-1"), eq(TurnLiveness.CODE));
+        verify(agentRuns).recordIteration("run-1", "backend-tests");
+    }
+
+    @Test
+    void retriesLaterWhenTheGitHubRerunRequestFails()
+    {
+        Task task = newShippedTask("ship-rerun-error", "thread-error");
+        wireRun(task.id(), 0);
+        when(pullRequests.rerunFailedChecks(REPO, PR_NUMBER))
+                .thenThrow(new RuntimeException("network unavailable"));
+        CiFixRunExecutor executor = newExecutor();
+
+        executor.driveShippedCiFix(task, REPO, failingCi());
+        executor.driveShippedCiFix(task, REPO, failingCi());
+
+        verify(pullRequests, times(2)).rerunFailedChecks(REPO, PR_NUMBER);
+        verify(agentRuns, never()).recordIteration(anyString(), any());
+        verify(scheduler, never())
+                .enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any(), any());
     }
 
     @Test

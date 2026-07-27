@@ -32,6 +32,7 @@ import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -74,6 +75,16 @@ class TestStageSteeringService
         when(attachmentStore.save(any(), any())).thenReturn(List.of());
         service = new StageSteeringServiceImpl(
                 stageStore, taskStore, threadStore, scheduler, iterationService, attachmentStore, new ObjectMapper());
+    }
+
+    @Test
+    void steeringPersistsItsIterationBeforeSchedulerDispatchCanRun()
+            throws NoSuchMethodException
+    {
+        assertThat(StageSteeringServiceImpl.class
+                .getMethod("steer", UUID.class, String.class, List.class)
+                .isAnnotationPresent(Transactional.class))
+                .isTrue();
     }
 
     @Test

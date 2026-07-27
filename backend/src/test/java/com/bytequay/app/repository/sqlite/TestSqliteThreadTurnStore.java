@@ -93,7 +93,7 @@ class TestSqliteThreadTurnStore
                 id(threadId, "auto"), threadId, /* taskId */ null,
                 ThreadResourceLane.CLI, QUEUED, "input", now, now,
                 null, null, null,
-                TurnInitiator.unattended("auto-fix-ci-fail"));
+                TurnInitiator.unattended("auto-fix-ci-fail"), null, ThreadScope.TRUNK);
         turns.saveTurn(unattended);
 
         ThreadTurn reloadedAttended = turns.findTurnById(id(threadId, "attended")).orElseThrow();
@@ -192,7 +192,7 @@ class TestSqliteThreadTurnStore
                 id(threadId, "keyed"), threadId, /* taskId */ null,
                 ThreadResourceLane.CLI, QUEUED, "input", now, now,
                 null, null, null,
-                TurnInitiator.unattended("brain-review-fix"));
+                TurnInitiator.unattended("brain-review-fix"), null, ThreadScope.TRUNK);
 
         ThreadTurnStore.InsertResult inserted = turns.insertTurn(turn, true, kickKey);
         assertThat(inserted.turnId()).isEqualTo(turn.id());
@@ -205,7 +205,7 @@ class TestSqliteThreadTurnStore
                 id(threadId, "keyed-dup"), threadId, null,
                 ThreadResourceLane.CLI, QUEUED, "input", now, now,
                 null, null, null,
-                TurnInitiator.unattended("brain-review-fix"));
+                TurnInitiator.unattended("brain-review-fix"), null, ThreadScope.TRUNK);
         ThreadTurnStore.InsertResult replay = turns.insertTurn(duplicate, false, kickKey);
         assertThat(replay.turnId()).isEqualTo(turn.id());
         assertThat(replay.inserted()).isFalse();
@@ -218,7 +218,7 @@ class TestSqliteThreadTurnStore
                 turn.id(), threadId, null,
                 ThreadResourceLane.CLI, ThreadTurnStatus.COMPLETED, "input", now, now,
                 now, now, null,
-                TurnInitiator.unattended("brain-review-fix")));
+                TurnInitiator.unattended("brain-review-fix"), null, ThreadScope.TRUNK));
         assertThat(turns.turnAffectsTaskLiveness(turn.id())).isTrue();
         assertThat(turns.findTurnIdByKickKey(kickKey)).contains(turn.id());
     }
@@ -301,7 +301,7 @@ class TestSqliteThreadTurnStore
                 /* startedAt */ null,
                 /* finishedAt */ null,
                 /* errorMessage */ null,
-                TurnInitiator.user());
+                TurnInitiator.user(), null, ThreadScope.TRUNK);
     }
 
     private static ThreadTurn taskTurn(

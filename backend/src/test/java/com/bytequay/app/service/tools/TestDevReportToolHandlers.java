@@ -107,7 +107,7 @@ class TestDevReportToolHandlers
 
     private static ToolCall call()
     {
-        return new ToolCall("thread-1", NullNode.getInstance(), AgentRole.TASK, TASK_ID, null);
+        return new ToolCall(ThreadScope.TASK, "thread-1", NullNode.getInstance(), AgentRole.TASK, TASK_ID, null);
     }
 
     private static ToolOutcome.Completed completed(ToolOutcome outcome)

@@ -18,6 +18,7 @@ import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -980,10 +981,10 @@ public class PublishToolHandlers
      */
     private Optional<Task> resolveTaskForCall(ToolCall call)
     {
-        if (call.taskId() == null || call.taskId().isBlank()) {
+        if (call.scope() == ThreadScope.TRUNK) {
             return Optional.empty();
         }
-        return taskStore.findTaskById(call.taskId());
+        return taskStore.findTaskById(call.requireTaskId());
     }
 
     /** Canonical task-origin PRs advance through record_local_review,

@@ -16,8 +16,14 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.skills.ByteQuayRole;
@@ -50,6 +56,8 @@ class TestMcpMetaTools
     @Autowired
     private ThreadStore threads;
     @Autowired
+    private ThreadTurnStore turns;
+    @Autowired
     private ActiveAgentContextRegistry activeContexts;
     @Autowired
     private ObjectMapper mapper;
@@ -59,8 +67,12 @@ class TestMcpMetaTools
             throws InterruptedException
     {
         String threadId = newTrunkThread();
+        activeContexts.put(threadId, "trunk", new ResolvedAgentContext(
+                ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
+                RoleCapabilities.forRole(AgentRole.TRUNK), List.of(), Set.of(),
+                Set.of("approval_prompt", "recall_thread")));
 
-        JsonNode response = await(controller.handle(threadId,
+        JsonNode response = await(controller.handle(threadId, "trunk",
                 jsonRpc("tools/list", mapper.createObjectNode())));
 
         List<String> names = toNames(response.path("result").path("tools"));
@@ -77,7 +89,7 @@ class TestMcpMetaTools
         String threadId = newTrunkThread();
 
         for (String name : List.of("list_tools", "list_skills", "load_skill")) {
-            JsonNode response = await(controller.handle(threadId,
+            JsonNode response = await(controller.handle(threadId, "trunk",
                     jsonRpc("tools/call", mapper.createObjectNode()
                             .put("name", name)
                             .set("arguments", mapper.createObjectNode()))));
@@ -174,6 +186,10 @@ class TestMcpMetaTools
                 /* workModel */ null,
                 /* activeTask */ null);
         threads.saveThread(thread);
+        turns.saveTurn(new ThreadTurn(
+                UUID.randomUUID().toString(), id, null,
+                ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING, "input",
+                now, now, now, null, null, TurnInitiator.user(), null, ThreadScope.TRUNK));
         return id;
     }
 }

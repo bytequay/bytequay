@@ -14,6 +14,7 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.AgentQuestion;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.question.AgentQuestionService;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
@@ -84,7 +85,7 @@ public class QuestionToolHandlers
         try {
             questions.ask(
                     threadId,
-                    call.taskId(),
+                    call.scope() == ThreadScope.TRUNK ? null : call.requireTaskId(),
                     /* toolCallId */ null,
                     args.question(),
                     args.context(),

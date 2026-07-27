@@ -13,13 +13,24 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 /**
  * Fired right after a brand-new Task row is first persisted — the first
  * task a thread materialises and each ship-and-continue successor.
- * Listeners that need to initialise per-Task state (e.g. opening the
- * Development stage) react to it; it carries no payload beyond the id, so
- * a listener loads whatever it needs.
+ * Listeners that need to initialise per-Task state react to it. A normal
+ * materialisation also carries the planning kickoff so the lifecycle listener
+ * can open the PlanStage first and only then publish the kickoff.
  */
-public record TaskCreatedEvent(String taskId)
+public record TaskCreatedEvent(
+        String taskId,
+        String initialPrompt,
+        JsonNode trunkPlan,
+        boolean planKickoffRequested)
 {
+    /** Compatibility shape for callers that only announce task creation. */
+    public TaskCreatedEvent(String taskId)
+    {
+        this(taskId, null, null, false);
+    }
 }

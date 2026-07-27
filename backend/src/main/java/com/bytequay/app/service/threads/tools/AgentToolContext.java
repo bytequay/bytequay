@@ -14,6 +14,8 @@
 package com.bytequay.app.service.threads.tools;
 
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadScope;
+import com.bytequay.app.service.tools.PermissionResolver;
 
 import java.nio.file.Path;
 
@@ -27,16 +29,15 @@ import java.nio.file.Path;
  * in one place.
  *
  * @param threadId           the owning thread's id.
+ * @param scope              authoritative scope of the running turn.
  * @param taskId             the focused task id, or {@code null} for
  *                           trunk turns.
  * @param workingDir         absolute path the tool should resolve
  *                           relative paths against, and refuse to
  *                           escape from.
  * @param permissionMediator session-scoped policy hook used by the
- *                           CLI-bridge to gate mutating tools. Null
- *                           on the legacy ctor — bridged tools then
- *                           treat any non-{@code AUTO} gating as
- *                           denied, which is the conservative default.
+ *                           CLI-bridge to gate mutating tools. Null means
+ *                           bridged non-{@code AUTO} tools are denied.
  * @param stageId            the focused stage id, or {@code null} for
  *                           task-level / trunk turns.
  * @param agentRunId         the focused AgentRun episode id, or
@@ -46,6 +47,7 @@ import java.nio.file.Path;
  */
 public record AgentToolContext(
         String threadId,
+        ThreadScope scope,
         String taskId,
         Path workingDir,
         ToolPermissionMediator permissionMediator,
@@ -53,31 +55,14 @@ public record AgentToolContext(
         String agentRunId,
         ThreadKind threadKind)
 {
-    public AgentToolContext(
-            String threadId,
-            String taskId,
-            Path workingDir,
-            ToolPermissionMediator permissionMediator,
-            String stageId,
-            ThreadKind threadKind)
+    public AgentToolContext
     {
-        this(threadId, taskId, workingDir, permissionMediator, stageId, null, threadKind);
-    }
-
-    public AgentToolContext(String threadId, String taskId, Path workingDir,
-            ToolPermissionMediator permissionMediator)
-    {
-        this(threadId, taskId, workingDir, permissionMediator,
-                /* stageId */ null, /* agentRunId */ null, /* threadKind */ null);
-    }
-
-    /** Legacy 3-arg constructor for call sites that don't care about
-     *  the permission mediator (tests, native read-only tools). Null
-     *  here forces bridged GATED / PARKED tools to refuse — the
-     *  agent is expected to pass the 4-arg form in production. */
-    public AgentToolContext(String threadId, String taskId, Path workingDir)
-    {
-        this(threadId, taskId, workingDir, /* permissionMediator */ null,
-                /* stageId */ null, /* agentRunId */ null, /* threadKind */ null);
+        PermissionResolver.agentKeyFor(scope, taskId);
+        if (scope == ThreadScope.STAGE && (stageId == null || stageId.isBlank())) {
+            throw new IllegalArgumentException("STAGE tool context requires stageId");
+        }
+        if (scope != ThreadScope.STAGE && stageId != null && !stageId.isBlank()) {
+            throw new IllegalArgumentException(scope + " tool context forbids stageId");
+        }
     }
 }

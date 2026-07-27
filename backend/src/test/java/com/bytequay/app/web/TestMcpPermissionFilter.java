@@ -20,6 +20,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
@@ -27,6 +28,11 @@ import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
+import com.bytequay.app.service.skills.ByteQuayRole;
+import com.bytequay.app.service.tools.AgentRole;
+import com.bytequay.app.service.tools.RoleCapabilities;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -37,6 +43,7 @@ import org.springframework.web.context.request.async.DeferredResult;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -63,6 +70,8 @@ class TestMcpPermissionFilter
     @Autowired
     private ThreadTurnStore turns;
     @Autowired
+    private ActiveAgentContextRegistry activeContexts;
+    @Autowired
     private ObjectMapper mapper;
 
     @Test
@@ -71,7 +80,7 @@ class TestMcpPermissionFilter
     {
         String threadId = newTrunkThread();
 
-        JsonNode listing = await(controller.handle(threadId,
+        JsonNode listing = await(controller.handle(threadId, agentKey(threadId),
                 jsonRpc("tools/list", null)));
 
         JsonNode tools = listing.path("result").path("tools");
@@ -88,7 +97,7 @@ class TestMcpPermissionFilter
     {
         String threadId = newThreadWithActiveTask();
 
-        JsonNode listing = await(controller.handle(threadId,
+        JsonNode listing = await(controller.handle(threadId, agentKey(threadId),
                 jsonRpc("tools/list", null)));
 
         JsonNode tools = listing.path("result").path("tools");
@@ -102,7 +111,7 @@ class TestMcpPermissionFilter
     {
         String threadId = newTrunkThread();
 
-        JsonNode response = await(controller.handle(threadId,
+        JsonNode response = await(controller.handle(threadId, agentKey(threadId),
                 jsonRpc("tools/call", mapper.createObjectNode()
                         .put("name", "push")
                         .set("arguments", mapper.createObjectNode()))));
@@ -124,7 +133,7 @@ class TestMcpPermissionFilter
     {
         String threadId = newBrainThread();
 
-        JsonNode listing = await(controller.handle(threadId,
+        JsonNode listing = await(controller.handle(threadId, agentKey(threadId),
                 jsonRpc("tools/list", null)));
 
         JsonNode tools = listing.path("result").path("tools");
@@ -147,11 +156,11 @@ class TestMcpPermissionFilter
         String trunkThreadId = newTrunkThread();
         String taskThreadId = newThreadWithActiveTask();
 
-        JsonNode trunkOut = await(controller.handle(trunkThreadId,
+        JsonNode trunkOut = await(controller.handle(trunkThreadId, agentKey(trunkThreadId),
                 jsonRpc("tools/call", mapper.createObjectNode()
                         .put("name", "recall_thread")
                         .set("arguments", mapper.createObjectNode()))));
-        JsonNode taskOut = await(controller.handle(taskThreadId,
+        JsonNode taskOut = await(controller.handle(taskThreadId, agentKey(taskThreadId),
                 jsonRpc("tools/call", mapper.createObjectNode()
                         .put("name", "recall_thread")
                         .set("arguments", mapper.createObjectNode()))));
@@ -174,6 +183,27 @@ class TestMcpPermissionFilter
             node.set("params", params);
         }
         return node;
+    }
+
+    private String agentKey(String threadId)
+    {
+        String key = turns.listTurnsByTaskIdAndStatus(threadId, ThreadTurnStatus.RUNNING, 1).stream()
+                .findFirst()
+                .map(turn -> turn.scope() == ThreadScope.TRUNK ? "trunk" : turn.requireTaskId())
+                .orElse("trunk");
+        AgentRole permissionRole = "trunk".equals(key) ? AgentRole.TRUNK : AgentRole.TASK;
+        ByteQuayRole role = threads.findThreadById(threadId)
+                .filter(thread -> thread.kind() == ThreadKind.BRAIN_AGENT)
+                .map(thread -> ByteQuayRole.BRAIN)
+                .orElse(permissionRole == AgentRole.TRUNK ? ByteQuayRole.TRUNK : ByteQuayRole.TASK);
+        activeContexts.put(threadId, key, new ResolvedAgentContext(
+                role, "1", permissionRole, null,
+                RoleCapabilities.forRole(permissionRole), List.of(), Set.of(),
+                Set.of("approval_prompt", "recall_thread", "read_current_repository",
+                        "push", "post_comment", "request_review", "codegraph_explore",
+                        "record_plan", "read_plan_summary", "read_diff_summary",
+                        "create_task", "queue_task")));
+        return key;
     }
 
     private static JsonNode await(DeferredResult<JsonNode> deferred)
@@ -203,6 +233,11 @@ class TestMcpPermissionFilter
 
     private String newTrunkThread()
     {
+        return newThread(true);
+    }
+
+    private String newThread(boolean withTrunkTurn)
+    {
         String id = UUID.randomUUID().toString();
         Instant now = Instant.now();
         Thread thread = new Thread(
@@ -225,6 +260,14 @@ class TestMcpPermissionFilter
                 /* workModel */ null,
                 /* activeTask */ null);
         threads.saveThread(thread);
+        if (withTrunkTurn) {
+            Instant turnTime = Instant.now();
+            turns.saveTurn(new ThreadTurn(
+                    UUID.randomUUID().toString(), id, null,
+                    ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING, "input",
+                    turnTime, turnTime, turnTime, null, null,
+                    TurnInitiator.user(), null, ThreadScope.TRUNK));
+        }
         return id;
     }
 
@@ -252,12 +295,18 @@ class TestMcpPermissionFilter
                 /* workModel */ null,
                 /* activeTask */ null);
         threads.saveThread(thread);
+        Instant turnTime = Instant.now();
+        turns.saveTurn(new ThreadTurn(
+                UUID.randomUUID().toString(), id, null,
+                ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING, "input",
+                turnTime, turnTime, turnTime, null, null,
+                TurnInitiator.user(), null, ThreadScope.TRUNK));
         return id;
     }
 
     private String newThreadWithActiveTask()
     {
-        String id = newTrunkThread();
+        String id = newThread(false);
         Task task = new Task(
                 UUID.randomUUID().toString(), id, 1L, TaskStatus.RUNNING,
                 "feature/permission-test", "/tmp/permission-test", "main", "/tmp/permission-test",
@@ -279,7 +328,7 @@ class TestMcpPermissionFilter
         turns.saveTurn(new ThreadTurn(
                 UUID.randomUUID().toString(), id, task.id(),
                 ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING, "input",
-                now, now, now, null, null, TurnInitiator.user()));
+                now, now, now, null, null, TurnInitiator.user(), null, ThreadScope.TASK));
         return id;
     }
 }

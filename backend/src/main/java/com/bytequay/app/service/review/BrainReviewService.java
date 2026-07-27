@@ -49,7 +49,7 @@ public interface BrainReviewService
     boolean resumeParkedReview(String taskId);
 
     /** True when task Resume must be handed back to this coordinator instead
-     *  of generically waking a stage agent. Covers plan self-review plus local
+     *  of generically waking a Task agent. Covers plan self-review plus local
      *  and external code-review episodes. */
     boolean ownsParkedResume(String taskId);
 

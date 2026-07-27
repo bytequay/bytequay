@@ -20,7 +20,6 @@ import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
-import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -614,14 +613,15 @@ public class TaskLifecycleDriver
             }
             String stageId = stageStore.findLiveStageByType(taskId, StageType.DEVELOPMENT_STAGE)
                     .map(s -> s.id().toString())
-                    .orElse(null);
+                    .orElseThrow(() -> new IllegalStateException(
+                            "task " + taskId + " has no live DevelopmentStage"));
             String prompt = buildLocalAddressingPrompt(pr, next.root(), comments);
             // Attempt rides the durable failure counter, so a retry never
             // reuses a terminal turn's kick key.
             String kickKey = "local-review:" + next.submission().id() + ":" + next.root().id()
                     + ":" + next.submission().failures();
             try {
-                scheduler.enqueueTaskTurnOnce(
+                scheduler.enqueueStageTurnOnce(
                         kickKey, thread, prompt, taskId, stageId,
                         TurnInitiator.unattended(SOURCE_ADDRESS_LOCAL_COMMENTS), null,
                         TurnLiveness.CODE);
@@ -884,8 +884,8 @@ public class TaskLifecycleDriver
     /** Drive a task to a terminal state from an observed remote merge /
      *  close. A merge lands at COMPLETED; a close-without-merge lands at the
      *  distinct REMOTE_CLOSED. Either way it is terminal, so we tear the
-     *  task's resources down the same way: interrupt + evict any running
-     *  per-stage agents, seal the stages, then reap the worktree + branch.
+     *  task's resources down the same way: interrupt + evict the running
+     *  Task agent, seal the stages, then reap the worktree + branch.
      *  A closed PR cleans up just like a merged one — the work didn't land,
      *  so the branch is dead weight. */
     private void completeRemotelyTerminal(Task task, boolean merged)
@@ -910,10 +910,10 @@ public class TaskLifecycleDriver
         if (task.prNumber() != null) {
             taskStore.linkPullRequest(task.id(), task.prNumber(), merged ? "merged" : "closed");
         }
-        // Interrupt + evict any still-running per-stage agents BEFORE the reap,
+        // Interrupt + evict the still-running Task agent BEFORE the reap,
         // so a live subprocess isn't yanked out from under a worktree it's
         // mid-tool-call inside. Best-effort: the orphan sweep retries the reap.
-        evictRunningStages(task);
+        evictTaskRuntime(task);
         // finishTerminal already sealed every durable child in the terminal
         // transaction; only external runtime cleanup remains here.
         // Clear the task's still-open publish gates and "needs you" prompts
@@ -943,17 +943,10 @@ public class TaskLifecycleDriver
                 || status == TaskStatus.CANCELED;
     }
 
-    /** Interrupt + evict every per-stage agent of a task (its stage ids plus
-     *  the task id itself, the key for a task-level agent that ran with no
-     *  stage), so no subprocess survives the task's terminal teardown. */
-    private void evictRunningStages(Task task)
+    /** Interrupt + evict every runtime owned by the Task. */
+    private void evictTaskRuntime(Task task)
     {
-        List<String> stageKeys = new ArrayList<>();
-        for (StageInstance stage : stageStore.findStagesByTask(task.id())) {
-            stageKeys.add(stage.id().toString());
-        }
-        stageKeys.add(task.id());
-        registry.findStages(stageKeys).forEach(ThreadAgent::interrupt);
-        registry.evictStages(task.threadId(), stageKeys);
+        registry.findTaskAgents(List.of(task.id())).forEach(ThreadAgent::interrupt);
+        registry.evictTaskAgent(task.threadId(), task.id());
     }
 }

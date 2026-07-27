@@ -230,7 +230,7 @@ class TestWorkspaceCherryPickService
                 .startsWith("cherry-pick/main-");
         assertThat(savedTask.getValue().worktreePath())
                 .isEqualTo(result.worktreePath());
-        verify(scheduler).enqueueTaskTurn(
+        verify(scheduler).enqueueStageTurn(
                 eq(trunk),
                 startsWith("Resolve the in-progress cherry-pick"),
                 eq("task-conflict"),

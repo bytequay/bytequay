@@ -20,6 +20,7 @@ import com.bytequay.app.domain.PRTimelineEntry;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
@@ -38,7 +39,7 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Local-PR AUTO tool handlers — the {@code record_pr_*} writers a stage agent
+ * Local-PR AUTO tool handlers — the {@code record_pr_*} writers a Task agent
  * calls to build the local PR artifact (design #44). They resolve the target
  * PR from the running turn's stamped task id ({@link ToolCall#taskId()}); a
  * trunk turn (null task) can't call them.
@@ -335,17 +336,17 @@ public class PRRecordToolHandlers
      *  — attributes the comment to the brain rather than the dev agent. */
     private boolean isBrainReviewTurn(ToolCall call)
     {
-        String taskId = call.taskId();
-        String stageId = call.stageId();
-        if (taskId == null) {
+        if (call.scope() != ThreadScope.STAGE) {
             return false;
         }
+        String taskId = call.requireTaskId();
+        String stageId = call.requireStageId();
         return roundStore.findLiveByTask(taskId)
                 .filter(r -> ReviewRound.STATUS_TRIAGING.equals(r.status()))
                 .filter(r -> r.runId() != null)
                 .filter(r -> call.agentRunId() == null || r.runId().equals(call.agentRunId()))
                 .flatMap(r -> agentRuns.findById(r.runId()))
-                .map(run -> stageId != null && stageId.equals(run.stageId()))
+                .map(run -> stageId.equals(run.stageId()))
                 .orElse(false);
     }
 
@@ -407,10 +408,10 @@ public class PRRecordToolHandlers
      *  — and apply {@code action}. */
     private ToolOutcome withPr(ToolCall call, PrAction action)
     {
-        String taskId = call.taskId();
-        if (taskId == null) {
+        if (call.scope() == ThreadScope.TRUNK) {
             return ToolOutcome.Completed.error("this tool needs a task-scoped turn");
         }
+        String taskId = call.requireTaskId();
         Optional<Task> task = taskStore.findTaskById(taskId);
         if (task.isEmpty()) {
             return ToolOutcome.Completed.error("unknown task: " + taskId);

@@ -112,6 +112,11 @@ interface ThreadTurnJpaRepository
             String agentRunId,
             Pageable pageable);
 
+    long countByAgentRunIdAndIdNotAndStatusIn(
+            String agentRunId,
+            String id,
+            Collection<String> statuses);
+
     List<ThreadTurnEntity> findByTaskIdAndStatusOrderByCreatedAtMsDescIdDesc(
             String taskId,
             String status,

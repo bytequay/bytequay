@@ -17,14 +17,18 @@ import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.threads.ThreadAgent;
 import com.bytequay.app.service.threads.ThreadRegistry;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,11 +42,12 @@ class TestSessionControlService
 {
     private final AgentRunService runs = mock(AgentRunService.class);
     private final ThreadStore threads = mock(ThreadStore.class);
+    private final ThreadTurnStore turns = mock(ThreadTurnStore.class);
     private final ThreadTurnScheduler scheduler =
             mock(ThreadTurnScheduler.class);
     private final ThreadRegistry registry = mock(ThreadRegistry.class);
     private final SessionControlService service = new SessionControlService(
-            runs, threads, scheduler, registry);
+            runs, threads, turns, scheduler, registry);
 
     @Test
     void resumeValidatesReplayBeforeChangingSessionState()
@@ -69,6 +74,7 @@ class TestSessionControlService
                 "run-new", AgentRun.STATUS_QUEUED,
                 prior.launchInput(), trunk.id());
         when(runs.findById(prior.id())).thenReturn(Optional.of(prior));
+        stubScope(prior.id(), ThreadScope.TRUNK);
         when(threads.findThreadById(trunk.id())).thenReturn(Optional.of(trunk));
         when(runs.restart(prior.id())).thenReturn(restarted);
 
@@ -89,6 +95,7 @@ class TestSessionControlService
                 .withStatus(AgentRun.STATUS_CANCELLED, Instant.now());
         ThreadAgent agent = mock(ThreadAgent.class);
         when(runs.findById(running.id())).thenReturn(Optional.of(running));
+        stubScope(running.id(), ThreadScope.TRUNK);
         when(registry.findTrunk(trunk.id())).thenReturn(Optional.of(agent));
         when(runs.transition(
                 running.id(), AgentRun.STATUS_CANCELLED, "stopped by user"))
@@ -99,6 +106,13 @@ class TestSessionControlService
         assertThat(result.outcome()).isEqualTo("cancelled");
         verify(scheduler).cancelSessionTurns(running.id());
         verify(agent).stop();
+    }
+
+    private void stubScope(String runId, ThreadScope scope)
+    {
+        ThreadTurn turn = mock(ThreadTurn.class);
+        when(turn.scope()).thenReturn(scope);
+        when(turns.listTurnsByAgentRunId(runId, 1)).thenReturn(List.of(turn));
     }
 
     private static AgentRun run(

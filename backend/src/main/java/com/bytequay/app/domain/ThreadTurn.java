@@ -22,11 +22,8 @@ import java.time.Instant;
  * capacity. Keeping that state here avoids overloading
  * {@link ThreadStatus} with queue details.
  *
- * <p>{@code taskId} is the focused Task when the turn was enqueued;
- * {@code null} marks a trunk planning turn (no task focused, no
- * worktree). The agent scheduler routes the turn to the matching
- * Task's session, or to the Thread trunk session if {@code taskId}
- * is {@code null}.
+ * <p>{@link #scope} is authoritative. IDs are validated payload for that
+ * declared scope; callers must never infer scope from their nullability.
  *
  * <p>{@code initiator} records who set the turn in motion — a human
  * (attended) or an automated trigger (unattended). The tool-approval
@@ -54,7 +51,57 @@ public record ThreadTurn(
          *  the execution/session stage. */
         String agentRunId)
 {
-    /** Constructor for stage-scoped rows that predate run correlation. */
+    public ThreadTurn
+    {
+        if (scope == null) {
+            throw new IllegalArgumentException("thread turn scope is null");
+        }
+        boolean hasTask = taskId != null && !taskId.isBlank();
+        boolean hasStage = stageId != null && !stageId.isBlank();
+        switch (scope) {
+            case TRUNK -> {
+                if (hasTask || hasStage) {
+                    throw new IllegalArgumentException("TRUNK turn cannot carry taskId or stageId");
+                }
+            }
+            case TASK -> {
+                if (!hasTask || hasStage) {
+                    throw new IllegalArgumentException("TASK turn requires taskId and forbids stageId");
+                }
+            }
+            case STAGE -> {
+                if (!hasTask || !hasStage) {
+                    throw new IllegalArgumentException("STAGE turn requires taskId and stageId");
+                }
+            }
+        }
+    }
+
+    /** Read a task identity only after proving this is task-owned work. */
+    public String requireTaskId()
+    {
+        if (scope == ThreadScope.TRUNK) {
+            throw new IllegalStateException("TRUNK turn has no taskId");
+        }
+        return taskId;
+    }
+
+    /** Read a stage identity only after proving this is stage-scoped work. */
+    public String requireStageId()
+    {
+        if (scope != ThreadScope.STAGE) {
+            throw new IllegalStateException(scope + " turn has no stageId");
+        }
+        return stageId;
+    }
+
+    /** Runtime identity: one trunk agent per thread, one dev agent per Task. */
+    public String runtimeAgentKey()
+    {
+        return scope == ThreadScope.TRUNK ? threadId : requireTaskId();
+    }
+
+    /** Convenience constructor for a turn with no AgentRun correlation. */
     public ThreadTurn(
             String id,
             String threadId,
@@ -73,29 +120,6 @@ public record ThreadTurn(
     {
         this(id, threadId, taskId, lane, status, input, createdAt, updatedAt,
                 startedAt, finishedAt, errorMessage, initiator, stageId, scope,
-                /* agentRunId */ null);
-    }
-
-    /** Legacy constructor for callers (and rows) that predate the explicit
-     *  scope/stage_id fields — derives the scope from the ids and leaves the
-     *  stage null. New enqueue paths use the full constructor. */
-    public ThreadTurn(
-            String id,
-            String threadId,
-            String taskId,
-            ThreadResourceLane lane,
-            ThreadTurnStatus status,
-            String input,
-            Instant createdAt,
-            Instant updatedAt,
-            Instant startedAt,
-            Instant finishedAt,
-            String errorMessage,
-            TurnInitiator initiator)
-    {
-        this(id, threadId, taskId, lane, status, input, createdAt, updatedAt,
-                startedAt, finishedAt, errorMessage, initiator,
-                /* stageId */ null, ThreadScope.of(taskId, null),
                 /* agentRunId */ null);
     }
 }

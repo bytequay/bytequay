@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.CiFixingLogQueryMarkerStore;
 import com.bytequay.app.service.stage.IterationService;
 import com.bytequay.app.service.stage.IterationService.CiFixingSummaryEntry;
@@ -25,7 +26,7 @@ import java.util.UUID;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The {@code record_iteration_summary} agent tool. A monitor-stage agent
+ * The {@code record_iteration_summary} agent tool. A Task agent on a monitor stage
  * calls it at the end of a loop iteration to record a one-line, user-facing
  * summary that lands on the brain feed. The tool is stateless: the
  * iteration it summarises is named by the explicit {@code iteration_id}
@@ -104,11 +105,11 @@ public class IterationToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome getNewUpdatedCiFixingLog(GetNewUpdatedCiFixingLogArgs args, ToolCall call)
     {
-        String taskId = call.taskId();
-        if (taskId == null || taskId.isBlank()) {
+        if (call.scope() == ThreadScope.TRUNK) {
             return ToolOutcome.Completed.ok(
                     "No task is in scope for this turn — cannot read the CI-fixing log.");
         }
+        String taskId = call.requireTaskId();
         Instant since = ciFixingLogMarkers.find(taskId).orElse(Instant.EPOCH);
         List<CiFixingSummaryEntry> entries = iterationService.latestCiFixingSummaryEntries(taskId);
         Instant newest = since;

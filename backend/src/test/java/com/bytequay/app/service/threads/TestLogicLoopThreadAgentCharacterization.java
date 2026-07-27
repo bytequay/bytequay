@@ -18,6 +18,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
@@ -320,6 +321,8 @@ class TestLogicLoopThreadAgentCharacterization
                 ds4,
                 /* ds4Instrumentation */ null,
                 /* permissionGate */ null);
+        agent.setActiveTask("task-1");
+        agent.setActiveScope(ThreadScope.TASK);
         agent.subscribeToEvents(events::add);
         return agent;
     }
@@ -327,9 +330,8 @@ class TestLogicLoopThreadAgentCharacterization
     private static Thread thread()
     {
         Instant t0 = Instant.ofEpochMilli(0);
-        // A non-null parentTaskId keeps the loop at task altitude — the trunk
-        // allowlist would otherwise filter the fake tools out of the rendered
-        // catalog. Altitude now derives from the thread's parentTaskId.
+        // The parent link identifies the owning Task; the test sets the turn's
+        // explicit TASK scope on the agent before dispatch.
         return new Thread(
                 THREAD_ID, ThreadKind.LOGIC_LOOP, "deepseek", null,
                 "test thread", ThreadStatus.IDLE, "deepseek-v4-flash",

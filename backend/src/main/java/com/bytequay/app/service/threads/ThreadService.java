@@ -660,67 +660,69 @@ public class ThreadService
             throw new IllegalStateException(
                     "could not cut task from planned base " + plannedBaseSha);
         }
-        String branchName = handle
-                .map(WorktreeService.WorktreeHandle::branchName)
-                .orElse(request.branchName());
-        // The PR base: the upstream default for a fork-based clone (e.g.
-        // master for a trinodb/trino fork), else the local default. Read
-        // after create() so the just-fetched upstream HEAD is current.
-        // Previously hardcoded "main", which mis-targeted master repos and
-        // forks alike.
-        String baseBranch = worktreeService.resolveBaseBranchName(Path.of(request.workingDir()));
-        // Persist an immutable ByteQuay role reference, not a provider prompt
-        // snapshot. The registry renders this version for every provider.
-        String roleSkillText = roleRegistry.taskRoleReference();
-        Task task = new Task(
-                taskId,
-                threadId,
-                seq,
-                TaskStatus.PENDING,
-                branchName,
-                handle.map(worktreeHandle -> worktreeHandle.worktreePath().toString()).orElse(null),
-                baseBranch,
-                request.workingDir(),
-                /* processPid */ null,
-                /* logPath */ null,
-                /* prNumber */ null,
-                /* prState */ null,
-                /* ciState */ null,
-                taskType,
-                request.linkedPrNumber(),
-                request.linkedIssueNumber(),
-                /* costUsdMilli */ 0L,
-                /* tokensIn */ 0L,
-                /* tokensOut */ 0L,
-                /* agentSessionId */ null,
-                now,
-                /* endedAt */ null,
-                /* errorMessage */ null,
-                taskName,
-                roleSkillText,
-                /* workModel */ null,
-                request.origin());
-        taskStore.saveTask(task);
-        // The snapshot survives the cut: it always reflects the current
-        // planning worktree, and the next trunk turn's sync applies any
-        // base movement the background fetcher brought down.
-        // Open the PlanStage at creation and kick off planning. Guarded
-        // because the publisher is only wired under Spring (see the field's
-        // note). Planning is the brain's job: the opening prompt seeds a
-        // planning turn on the task's brain thread rather than starting dev
-        // work — the DevelopmentStage (and any dev turn) only opens once the
-        // user approves the plan.
-        if (events != null) {
-            events.publishEvent(new TaskCreatedEvent(task.id()));
-            // A queued task opens its PlanStage now but defers the brain's
-            // planning turn until the scheduler promotes it to PLANNING on a
-            // free slot — otherwise it would plan while still waiting in line.
-            if (!request.deferPlanKickoff()) {
-                events.publishEvent(new PlanKickoffRequested(
-                        task.id(), request.initialPrompt(), request.trunkPlan()));
+        try {
+            String branchName = handle
+                    .map(WorktreeService.WorktreeHandle::branchName)
+                    .orElse(request.branchName());
+            // The PR base: the upstream default for a fork-based clone (e.g.
+            // master for a trinodb/trino fork), else the local default. Read
+            // after create() so the just-fetched upstream HEAD is current.
+            // Previously hardcoded "main", which mis-targeted master repos and
+            // forks alike.
+            String baseBranch = worktreeService.resolveBaseBranchName(Path.of(request.workingDir()));
+            // Persist an immutable ByteQuay role reference, not a provider prompt
+            // snapshot. The registry renders this version for every provider.
+            String roleSkillText = roleRegistry.taskRoleReference();
+            Task task = new Task(
+                    taskId,
+                    threadId,
+                    seq,
+                    TaskStatus.PENDING,
+                    branchName,
+                    handle.map(worktreeHandle -> worktreeHandle.worktreePath().toString()).orElse(null),
+                    baseBranch,
+                    request.workingDir(),
+                    /* processPid */ null,
+                    /* logPath */ null,
+                    /* prNumber */ null,
+                    /* prState */ null,
+                    /* ciState */ null,
+                    taskType,
+                    request.linkedPrNumber(),
+                    request.linkedIssueNumber(),
+                    /* costUsdMilli */ 0L,
+                    /* tokensIn */ 0L,
+                    /* tokensOut */ 0L,
+                    /* agentSessionId */ null,
+                    now,
+                    /* endedAt */ null,
+                    /* errorMessage */ null,
+                    taskName,
+                    roleSkillText,
+                    /* workModel */ null,
+                    request.origin());
+            taskStore.saveTask(task);
+            // The snapshot survives the cut: it always reflects the current
+            // planning worktree, and the next trunk turn's sync applies any
+            // base movement the background fetcher brought down.
+            // TaskCreatedEvent owns the ordering: after this transaction commits,
+            // StageLifecycle opens the PlanStage and only then publishes the
+            // planning kickoff. A queued task still defers that kickoff.
+            if (events != null) {
+                events.publishEvent(new TaskCreatedEvent(
+                        task.id(), request.initialPrompt(), request.trunkPlan(),
+                        !request.deferPlanKickoff()));
             }
+            return task;
         }
-        return task;
+        catch (RuntimeException e) {
+            // Git is outside the database transaction. If persistence or an
+            // event listener rejects the cut, compensate the already-created
+            // worktree so a retry can reuse this task id safely.
+            handle.ifPresent(created -> worktreeService.remove(
+                    repoRoot, created.worktreePath().toString(), created.branchName()));
+            throw e;
+        }
     }
 
     /**
@@ -849,24 +851,22 @@ public class ThreadService
                 Math.min(limit, ACTIVE_TURN_LIMIT));
     }
 
-    /** Send a follow-up turn to an existing thread. Re-creates the
-     *  in-memory session if it was evicted (e.g. after restart).
-     *
-     *  <p>This is the task-altitude composer's path ({@code POST
-     *  /messages}), distinct from the trunk's {@link #sendTrunk}. The
-     *  surface passes the {@code taskId} it is scoped to so the turn binds
-     *  to exactly that task; when omitted it falls back to the thread's
-     *  latest task. Binding the row to a concrete task keeps a task-window
-     *  turn out of the trunk slice even when the task is parked / awaiting
-     *  review / phase-complete — states in which a thread-level "active
-     *  task" guess would be null and leak the row into the trunk view. */
+    /** Send a task-scoped follow-up. The task id is mandatory and its
+     *  ownership is checked against the expected trunk before enqueue. */
     public String send(String threadId, String taskId, String input)
     {
         Thread thread = requireTask(threadId);
-        String resolved = resolveSurfaceTask(threadId, taskId)
-                .map(Task::id)
-                .orElse(null);
-        return scheduler.enqueueTaskTurn(thread, input, resolved);
+        if (taskId == null || taskId.isBlank()) {
+            throw new IllegalArgumentException("taskId is required for a task turn");
+        }
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (!threadId.equals(task.threadId())) {
+            throw new IllegalArgumentException(
+                    "task " + taskId + " does not belong to thread " + threadId);
+        }
+        return scheduler.enqueueTaskTurn(thread, input, task.id());
     }
 
     /** Trunk-scope counterpart of {@link #send} — drives the trunk
@@ -886,28 +886,14 @@ public class ThreadService
                 requireTask(threadId), input, TurnInitiator.unattended(source));
     }
 
-    public void interrupt(String threadId)
+    public void interruptTrunk(String threadId)
     {
         requireNonNull(threadId, "threadId is null");
-        // A thread may have several concurrent stage-agents in flight;
-        // interrupt every live one (and the trunk agent if present) rather
-        // than guessing a single session. Interrupt is a no-op on an agent
-        // whose subprocess isn't running, so hitting them all is safe.
-        boolean any = false;
-        for (ThreadAgent agent : registry.findAll(threadId)) {
-            agent.interrupt();
-            any = true;
-        }
-        Optional<ThreadAgent> trunk = registry.findTrunk(threadId);
-        if (trunk.isPresent()) {
-            trunk.get().interrupt();
-            any = true;
-        }
-        if (!any) {
-            // Preserve the prior contract: a thread with no live session
-            // still validates that the thread exists / can be addressed.
-            sessionOrThrow(threadId).interrupt();
-        }
+        Thread thread = requireTask(threadId);
+        requireTrunkThread(thread);
+        registry.findTrunk(threadId)
+                .orElseGet(() -> registry.getOrCreateTrunk(thread))
+                .interrupt();
     }
 
     /**
@@ -980,8 +966,8 @@ public class ThreadService
     {
         requireTask(threadId);
         scheduler.cancelQueuedTurns(threadId);
-        // Stop every live stage-agent before evicting — a thread may have
-        // several concurrent stages running. evict() then drops all of
+        // Stop every live Task agent before evicting — a thread may have
+        // several Tasks running. evict() then drops all of
         // them and releases each worktree lease.
         List<ThreadAgent> live = registry.findAll(threadId);
         if (!live.isEmpty()) {
@@ -1067,7 +1053,7 @@ public class ThreadService
     {
         // Stop the live agents + drop any queued turns so we don't leave a
         // subprocess running against a deleted row. A thread may have
-        // several concurrent stage agents plus its trunk/planning agent.
+        // several Task agents plus its trunk/planning agent.
         for (ThreadAgent agent : registry.findAll(threadId)) {
             stopQuietly(threadId, agent);
         }
@@ -1544,7 +1530,7 @@ public class ThreadService
     }
 
     /** Applies a decision and, when requested, grants a per-tool budget to
-     *  the same stage agent that raised the prompt. The agent key must be
+     *  the same Task agent that raised the prompt. The agent key must be
      *  captured before {@link ThreadAgent#decide} clears the gate entry. */
     public boolean decide(
             String threadId,
@@ -1604,36 +1590,33 @@ public class ThreadService
     /** Subscribe to live events. The returned {@link Runnable}
      *  unsubscribes — controllers wire it to the SSE
      *  {@code onCompletion}/{@code onTimeout} callbacks. */
-    public Runnable subscribe(String threadId, Consumer<StreamEvent> listener)
+    public Runnable subscribeTrunk(String threadId, Consumer<StreamEvent> listener)
     {
-        return sessionOrThrow(threadId).subscribeToEvents(listener);
+        Thread thread = requireTask(threadId);
+        requireTrunkThread(thread);
+        return registry.getOrCreateTrunkAgent(thread).subscribeToEvents(listener);
     }
 
     /** The exact agent that issued an MCP call, by its {@code agentKey}
-     *  (== the registry stage key), falling back to the thread-altitude
-     *  session when the key is absent or its agent was evicted. Routing
+     *  (Task id or the reserved trunk key). Routing
      *  permission prompts / decisions this way lands them in the stage that
      *  raised them instead of a thread-level "active session" guess. */
     private ThreadAgent sessionForAgent(String threadId, String agentKey)
     {
-        return registry.findByAgentKey(threadId, agentKey).orElseGet(() -> sessionOrThrow(threadId));
+        if (agentKey == null || agentKey.isBlank()) {
+            throw new NoSuchElementException("permission call has no agent key");
+        }
+        return registry.findByAgentKey(threadId, agentKey)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "no live agent " + agentKey + " on thread " + threadId));
     }
 
-    private ThreadAgent sessionOrThrow(String threadId)
+    private static void requireTrunkThread(Thread thread)
     {
-        Thread thread = store.findThreadById(threadId)
-                .orElseThrow(() -> new NoSuchElementException("no thread: " + threadId));
-        // Route by altitude, the same way AgentScheduler picks the
-        // session for a turn: a 0-task (trunk / planning) thread runs
-        // through the trunk-scope agent, which doesn't need a task.
-        // Resolving via getOrCreate (task mode) here threw
-        // "thread … has no task; cannot spawn CLI agent" for every
-        // session-scoped op at the trunk — interrupt, subscribe, and
-        // (the one users hit) the permission-prompt + tool-budget path
-        // that fires when the trunk agent calls a gated MCP tool.
-        return taskStore.hasActiveTask(threadId)
-                ? registry.getOrCreate(thread)
-                : registry.getOrCreateTrunk(thread);
+        if (thread.kind() == ThreadKind.BRAIN_AGENT) {
+            throw new IllegalArgumentException(
+                    "thread " + thread.id() + " is a task brain, not a trunk");
+        }
     }
 
     /**

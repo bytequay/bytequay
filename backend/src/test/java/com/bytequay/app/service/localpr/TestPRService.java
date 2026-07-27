@@ -29,6 +29,7 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPushAuthorization;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
@@ -138,7 +139,7 @@ class TestPRService
         return new ThreadTurn(
                 "turn1", "thread1", "task1", ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING,
                 "fix", createdAt, createdAt, createdAt, null, null,
-                TurnInitiator.unattended("brain-review-fix"));
+                TurnInitiator.unattended("brain-review-fix"), null, ThreadScope.TASK);
     }
 
     @Test

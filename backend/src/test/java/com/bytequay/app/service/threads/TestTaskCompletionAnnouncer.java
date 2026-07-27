@@ -19,6 +19,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -91,7 +92,7 @@ class TestTaskCompletionAnnouncer
         return new ThreadMessage(
                 "m-brain-1", BRAIN_THREAD, TASK, 1L, "assistant", "text",
                 mapper.createObjectNode().put("text", text).toString(),
-                null, null, null, null, Instant.EPOCH);
+                null, null, null, null, Instant.EPOCH, null, ThreadScope.TASK);
     }
 
     @Test
@@ -205,7 +206,7 @@ class TestTaskCompletionAnnouncer
         ThreadMessage existing = new ThreadMessage(
                 "m0", THREAD, null, 5L, "assistant", "task_summary",
                 "{\"text\":\"done\",\"taskId\":\"" + TASK + "\",\"taskSeq\":3}",
-                null, null, null, null, Instant.EPOCH);
+                null, null, null, null, Instant.EPOCH, null, ThreadScope.TRUNK);
         when(threadStore.listMessages(THREAD)).thenReturn(List.of(existing));
 
         announcer.onTurnFinished(finished(true));
@@ -260,7 +261,7 @@ class TestTaskCompletionAnnouncer
         ThreadMessage existing = new ThreadMessage(
                 "m0", THREAD, null, 5L, "assistant", "task_summary",
                 "{\"text\":\"done\",\"taskId\":\"" + TASK + "\",\"taskSeq\":3}",
-                null, null, null, null, Instant.EPOCH);
+                null, null, null, null, Instant.EPOCH, null, ThreadScope.TRUNK);
         when(threadStore.listMessages(THREAD)).thenReturn(List.of(existing));
 
         announcer.sweepStaleCompletions();

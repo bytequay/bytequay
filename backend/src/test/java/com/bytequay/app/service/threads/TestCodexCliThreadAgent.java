@@ -32,11 +32,8 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -108,29 +105,15 @@ class TestCodexCliThreadAgent
     }
 
     @Test
-    void aStageTurnStartsAFreshSessionInsteadOfResumingTheTask()
+    void aStageTurnResumesTheTaskSession()
     {
-        // The task carries a session, but entering a work stage must start a
-        // BRAND-NEW session (no --resume) — cross-stage context flows through
-        // the seeded kickoff, not a shared provider session.
         CodexCliThreadAgent agent = agent("gpt-5", "sess-abc", "");
         agent.setActiveStage("stage-1");
 
         List<String> cmd = agent.buildCommand("go").command();
 
-        assertThat(cmd).doesNotContain("resume");
+        assertThat(cmd).containsSubsequence("resume", "sess-abc");
         assertThat(cmd.get(cmd.size() - 1)).isEqualTo("go");
-    }
-
-    @Test
-    void retiringAStageDoesNotCompleteTheSharedThread()
-    {
-        CodexCliThreadAgent agent = agent("gpt-5", null, "");
-        agent.setActiveStage("stage-1");
-
-        agent.retireStage();
-
-        verify(threadStore, never()).saveThread(any(Thread.class));
     }
 
     @Test

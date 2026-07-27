@@ -16,6 +16,7 @@ package com.bytequay.app.service.tools;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.ReviewRound;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.ReviewCommentService;
@@ -42,7 +43,7 @@ class TestReviewCommentToolHandlers
     private final ReviewCommentToolHandlers handlers = new ReviewCommentToolHandlers(
             reviewComments, stageStore, roundStore);
 
-    private final ToolCall call = new ToolCall(
+    private final ToolCall call = new ToolCall(ThreadScope.STAGE,
             "thread-1", null, AgentRole.TASK, "task-1", "stage-1", "run-1");
 
     @Test

@@ -15,6 +15,7 @@ package com.bytequay.app.service.threads.tools;
 
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.AgentToolRegistry;
 import com.bytequay.app.service.tools.Gating;
@@ -295,7 +296,7 @@ public class LogicLoopToolRegistry
         @Override
         public Result invoke(JsonNode input, AgentToolContext ctx)
         {
-            AgentRole role = ctx.taskId() == null ? AgentRole.TRUNK : AgentRole.TASK;
+            AgentRole role = ctx.scope() == ThreadScope.TRUNK ? AgentRole.TRUNK : AgentRole.TASK;
             if (!spec.availableTo(role)) {
                 return Result.error("Tool '" + spec.name()
                         + "' is not available to the current role (" + role + ").");
@@ -336,7 +337,7 @@ public class LogicLoopToolRegistry
 
             ToolCall call = new ToolCall(
                     ctx.threadId(), args, role,
-                    ctx.taskId(), ctx.stageId(), ctx.agentRunId());
+                    ctx.taskId(), ctx.stageId(), ctx.agentRunId(), ctx.scope());
             try {
                 Optional<ToolOutcome> outcome = cliLaneTools.invoke(spec.name(), call);
                 if (outcome.isEmpty()) {

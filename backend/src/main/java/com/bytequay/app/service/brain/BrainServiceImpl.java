@@ -14,15 +14,19 @@
 package com.bytequay.app.service.brain;
 
 import com.bytequay.app.beans.brain.BrainMessageResponse;
+import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.TurnInitiator;
+import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ids.IdGenerator;
@@ -37,10 +41,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -57,28 +64,67 @@ public class BrainServiceImpl
 
     private final TaskStore taskStore;
     private final ThreadStore threadStore;
+    private final StageStore stageStore;
     private final ThreadTurnScheduler scheduler;
     private final IdGenerator idGenerator;
     private final WorkModelResolver workModelResolver;
     private final ChatAttachmentStore attachmentStore;
     private final ObjectMapper mapper;
+    private final TransactionTemplate planningTransactions;
 
+    @Autowired
     public BrainServiceImpl(
             TaskStore taskStore,
             ThreadStore threadStore,
+            StageStore stageStore,
+            ThreadTurnScheduler scheduler,
+            IdGenerator idGenerator,
+            WorkModelResolver workModelResolver,
+            ChatAttachmentStore attachmentStore,
+            ObjectMapper mapper,
+            PlatformTransactionManager transactionManager)
+    {
+        this(taskStore, threadStore, stageStore, scheduler, idGenerator,
+                workModelResolver, attachmentStore, mapper,
+                new TransactionTemplate(requireNonNull(
+                        transactionManager, "transactionManager is null")));
+    }
+
+    /** Dependency-light constructor retained for focused unit tests. */
+    public BrainServiceImpl(
+            TaskStore taskStore,
+            ThreadStore threadStore,
+            StageStore stageStore,
             ThreadTurnScheduler scheduler,
             IdGenerator idGenerator,
             WorkModelResolver workModelResolver,
             ChatAttachmentStore attachmentStore,
             ObjectMapper mapper)
     {
+        this(taskStore, threadStore, stageStore, scheduler, idGenerator,
+                workModelResolver, attachmentStore, mapper, (TransactionTemplate) null);
+    }
+
+    private BrainServiceImpl(
+            TaskStore taskStore,
+            ThreadStore threadStore,
+            StageStore stageStore,
+            ThreadTurnScheduler scheduler,
+            IdGenerator idGenerator,
+            WorkModelResolver workModelResolver,
+            ChatAttachmentStore attachmentStore,
+            ObjectMapper mapper,
+            TransactionTemplate planningTransactions)
+    {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
         this.attachmentStore = requireNonNull(attachmentStore, "attachmentStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.planningTransactions = planningTransactions;
     }
 
     @Override
@@ -103,7 +149,8 @@ public class BrainServiceImpl
 
         // The brain agent persists the user message and the assistant reply
         // itself when the turn runs; the reply streams via the thread SSE.
-        String turnId = scheduler.enqueueTurn(brain, input, TurnInitiator.user());
+        String turnId = scheduler.enqueueTaskTurn(
+                brain, input, task.id(), TurnInitiator.user(), null, TurnLiveness.NARRATION);
         return new BrainMessageResponse(turnId, brain.id());
     }
 
@@ -114,18 +161,26 @@ public class BrainServiceImpl
      * {@code record_plan}; the user approves before any development begins.
      */
     @EventListener
-    @Transactional
     public void onPlanKickoff(PlanKickoffRequested event)
     {
         Task task = taskStore.findTaskById(event.taskId()).orElse(null);
         if (task == null) {
             return;
         }
-        Thread brain = threadStore.findBrainThreadByTask(event.taskId())
-                .orElseGet(() -> createBrainThread(task));
-        String turnId = scheduler.enqueueTurn(
+        Thread brain = planningTransactions == null
+                ? ensureBrainThread(task)
+                : planningTransactions.execute(status -> ensureBrainThread(task));
+        var plan = stageStore.findActiveStage(task.id())
+                .orElseThrow(() -> new IllegalStateException(
+                        "task " + task.id() + " has no active PlanStage"));
+        long attempt = 1 + stageStore.findEventsByStage(plan.id()).stream()
+                .filter(stageEvent -> stageEvent.eventType() == StageEventType.PLAN_FAILED)
+                .count();
+        String turnId = scheduler.enqueueStageTurnOnce(
+                "plan-kickoff:" + task.id() + ":" + plan.id() + ":" + attempt,
                 brain, planningPrompt(event.taskId(), event.initialPrompt(), event.trunkPlan()),
-                TurnInitiator.unattended("plan-kickoff"));
+                task.id(), plan.id().toString(), TurnInitiator.unattended("plan-kickoff"), null,
+                TurnLiveness.NARRATION);
         log.debug("kicked off planning turn {} on brain thread {} for task {}",
                 turnId, brain.id(), event.taskId());
     }
@@ -157,8 +212,10 @@ public class BrainServiceImpl
         Thread brain = threadStore.findBrainThreadByTask(event.taskId())
                 .orElseGet(() -> createBrainThread(task));
         try {
-            String turnId = scheduler.enqueueTurn(
-                    brain, completionSummaryPrompt(task), TurnInitiator.unattended("task-completion-summary"));
+            String turnId = scheduler.enqueueTaskTurn(
+                    brain, completionSummaryPrompt(task), task.id(),
+                    TurnInitiator.unattended("task-completion-summary"), null,
+                    TurnLiveness.NARRATION);
             taskStore.setPendingCompletionSummaryTurnId(event.taskId(), turnId);
         }
         catch (RuntimeException e) {
@@ -263,6 +320,12 @@ public class BrainServiceImpl
         return brain;
     }
 
+    private Thread ensureBrainThread(Task task)
+    {
+        return threadStore.findBrainThreadByTask(task.id())
+                .orElseGet(() -> createBrainThread(task));
+    }
+
     /** Copy the trunk's seed conversation (previous task → this cut) onto the
      *  brain thread as its first messages, preserving roles and original
      *  timestamps. The brain thread is the single source for the plan stage:
@@ -277,7 +340,7 @@ public class BrainServiceImpl
                     UUID.randomUUID().toString(), brainThreadId, /* taskId */ null, seq++,
                     m.role(), m.type(), m.contentJson(),
                     /* durationMs */ null, /* tokensIn */ null, /* tokensOut */ null,
-                    /* costUsdMilli */ null, m.ts()));
+                    /* costUsdMilli */ null, m.ts(), null, ThreadScope.TRUNK));
         }
     }
 

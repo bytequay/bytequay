@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.service.threads;
 
-/** Model-driven agent for a concrete work stage. */
-public interface StageAgent
+/** Model-driven agent whose provider session is owned by one Task. */
+public interface TaskAgent
         extends ThreadAgent
 {
 }

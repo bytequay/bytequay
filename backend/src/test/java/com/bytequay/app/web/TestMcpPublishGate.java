@@ -25,6 +25,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
@@ -34,10 +35,15 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
+import com.bytequay.app.service.skills.ByteQuayRole;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.threads.McpPermissionGate;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.PublishService;
+import com.bytequay.app.service.tools.AgentRole;
+import com.bytequay.app.service.tools.RoleCapabilities;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -47,6 +53,7 @@ import org.springframework.web.context.request.async.DeferredResult;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -92,6 +99,8 @@ class TestMcpPublishGate
     private NotificationController notificationController;
     @Autowired
     private McpPermissionGate gate;
+    @Autowired
+    private ActiveAgentContextRegistry activeContexts;
     @Autowired
     private ObjectMapper mapper;
 
@@ -438,7 +447,7 @@ class TestMcpPublishGate
     {
         String threadId = newThread("Successor prompt fixture");
         tasks.saveTask(parkedTask(threadId, TaskStatus.AWAITING_REVIEW));
-        tasks.saveTask(newTask(threadId, 2L, "feature/next", "/tmp/bytequay-test-successor"));
+        saveActiveTask(newTask(threadId, 2L, "feature/next", "/tmp/bytequay-test-successor"));
 
         DeferredResult<JsonNode> pending = requestApprovalPrompt(threadId, "Bash", "call-successor");
 
@@ -449,19 +458,21 @@ class TestMcpPublishGate
     }
 
     @Test
-    void needsAttentionPriorTaskStillBlocksApprovalPromptFromActiveSuccessor()
+    void needsAttentionPriorTaskDoesNotBlockApprovalPromptFromActiveSuccessor()
             throws Exception
     {
         String threadId = newThread("Needs-attention successor fixture");
         tasks.saveTask(parkedTask(threadId, TaskStatus.NEEDS_ATTENTION));
-        tasks.saveTask(newTask(threadId, 2L, "feature/next", "/tmp/bytequay-test-attention-successor"));
+        saveActiveTask(newTask(
+                threadId, 2L, "feature/next", "/tmp/bytequay-test-attention-successor"));
 
-        JsonNode response = invokeApprovalPrompt(threadId, "Bash", "call-attention-successor");
+        DeferredResult<JsonNode> pending = requestApprovalPrompt(
+                threadId, "Bash", "call-attention-successor");
 
-        JsonNode envelope = parseToolEnvelope(response);
-        assertThat(envelope.path("behavior").asText()).isEqualTo("deny");
-        assertThat(envelope.path("message").asText())
-                .contains("parked at the publish gate");
+        assertThat(pending.hasResult()).isFalse();
+        gate.decide("call-attention-successor", PermissionDecision.ALLOW);
+        JsonNode envelope = parseToolEnvelope(resolved(pending));
+        assertThat(envelope.path("behavior").asText()).isEqualTo("allow");
     }
 
     @Test
@@ -561,7 +572,7 @@ class TestMcpPublishGate
                   "params": { "name": "push", "arguments": {} }
                 }
                 """;
-        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+        return resolved(controller.handle(threadId, agentKey(threadId, "push"), mapper.readTree(rpc)));
     }
 
     private JsonNode invokeApprovalPrompt(String threadId, String toolName, String callId)
@@ -590,7 +601,7 @@ class TestMcpPublishGate
                 """.formatted(
                         mapper.writeValueAsString(toolName),
                         mapper.writeValueAsString(callId));
-        return controller.handle(threadId, mapper.readTree(rpc));
+        return controller.handle(threadId, agentKey(threadId, "approval_prompt"), mapper.readTree(rpc));
     }
 
     private JsonNode invokeRecallThread(String threadId, String query)
@@ -607,7 +618,7 @@ class TestMcpPublishGate
                   }
                 }
                 """.formatted(mapper.writeValueAsString(query));
-        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+        return resolved(controller.handle(threadId, agentKey(threadId, "recall_thread"), mapper.readTree(rpc)));
     }
 
     /** The approval_prompt path returns the gate envelope (allow/deny)
@@ -633,7 +644,7 @@ class TestMcpPublishGate
                   "params": { "name": "post_comment", "arguments": { "body": %s } }
                 }
                 """.formatted(mapper.writeValueAsString(body));
-        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+        return resolved(controller.handle(threadId, agentKey(threadId, "post_comment"), mapper.readTree(rpc)));
     }
 
     private JsonNode invokeRequestReview(String threadId, String summary, String draftReply)
@@ -650,7 +661,7 @@ class TestMcpPublishGate
                   }
                 }
                 """.formatted(mapper.writeValueAsString(summary), mapper.writeValueAsString(draftReply));
-        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+        return resolved(controller.handle(threadId, agentKey(threadId, "request_review"), mapper.readTree(rpc)));
     }
 
     private JsonNode invokeNextTask(String threadId, String nextTitle, String baseMode)
@@ -667,7 +678,7 @@ class TestMcpPublishGate
                   }
                 }
                 """.formatted(mapper.writeValueAsString(nextTitle), mapper.writeValueAsString(baseMode));
-        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+        return resolved(controller.handle(threadId, agentKey(threadId, "next_task"), mapper.readTree(rpc)));
     }
 
     private JsonNode invokeValidate(String threadId, String summary)
@@ -684,7 +695,7 @@ class TestMcpPublishGate
                   "params": { "name": "validate", "arguments": %s }
                 }
                 """.formatted(args);
-        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+        return resolved(controller.handle(threadId, agentKey(threadId, "validate"), mapper.readTree(rpc)));
     }
 
     private JsonNode invokeShipTask(String threadId, String nextTitle, String baseMode)
@@ -706,7 +717,33 @@ class TestMcpPublishGate
                   }
                 }
                 """.formatted(mapper.writeValueAsString(nextTitle), mapper.writeValueAsString(baseMode));
-        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+        return resolved(controller.handle(threadId, agentKey(threadId, "ship_task"), mapper.readTree(rpc)));
+    }
+
+    private String agentKey(String threadId, String toolName)
+    {
+        List<ThreadTurn> running = turns.listTurnsByTaskIdAndStatus(
+                threadId, ThreadTurnStatus.RUNNING, 10);
+        if (running.isEmpty()) {
+            Instant now = Instant.parse("2026-05-22T12:00:00Z");
+            turns.saveTurn(new ThreadTurn(
+                    UUID.randomUUID().toString(), threadId, null,
+                    ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING, "trunk gate fixture",
+                    now, now, now, null, null, TurnInitiator.user(), null, ThreadScope.TRUNK));
+            running = turns.listTurnsByTaskIdAndStatus(
+                    threadId, ThreadTurnStatus.RUNNING, 10);
+        }
+        String key = running.getFirst().scope() == ThreadScope.TRUNK
+                ? "trunk"
+                : running.getFirst().requireTaskId();
+        AgentRole permissionRole = "trunk".equals(key) ? AgentRole.TRUNK : AgentRole.TASK;
+        ByteQuayRole role = permissionRole == AgentRole.TRUNK
+                ? ByteQuayRole.TRUNK
+                : ByteQuayRole.TASK;
+        activeContexts.put(threadId, key, new ResolvedAgentContext(
+                role, "1", permissionRole, null,
+                RoleCapabilities.forRole(permissionRole), List.of(), Set.of(), Set.of(toolName)));
+        return key;
     }
 
     private static JsonNode resolved(DeferredResult<JsonNode> deferred)
@@ -764,7 +801,7 @@ class TestMcpPublishGate
         turns.saveTurn(new ThreadTurn(
                 UUID.randomUUID().toString(), task.threadId(), task.id(),
                 ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING, "gate fixture",
-                now, now, now, null, null, TurnInitiator.user()));
+                now, now, now, null, null, TurnInitiator.user(), null, ThreadScope.TASK));
     }
 
     private String newThread(String title)

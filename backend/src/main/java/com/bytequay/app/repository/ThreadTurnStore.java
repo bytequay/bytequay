@@ -120,6 +120,9 @@ public interface ThreadTurnStore
         return List.of();
     }
 
+    /** True when another queued or running turn is bound to the same Session. */
+    boolean hasOtherActiveTurn(String agentRunId, String excludingTurnId);
+
     /** Turns for one exact task in one status, newest-first. Unlike the
      *  legacy {@code listTurnsByTaskId*} names above, this filters the
      *  durable row's {@code task_id}, not its owning thread id. */

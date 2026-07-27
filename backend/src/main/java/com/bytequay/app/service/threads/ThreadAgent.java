@@ -16,7 +16,7 @@ package com.bytequay.app.service.threads;
 /**
  * Compatibility name for the old thread-shaped runtime contract. New code
  * should prefer the scope-specific entry points that return {@link TrunkAgent},
- * {@link TaskBrainAgent}, or {@link StageAgent}.
+ * {@link TaskBrainAgent}, or {@link TaskAgent}.
  */
 public interface ThreadAgent
         extends Agent

@@ -20,7 +20,6 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.ValidationClaim;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.ValidationPassStore;
@@ -47,7 +46,6 @@ class TestTaskRuntimeStopReconciler
     private static final Instant NOW = Instant.parse("2026-06-15T12:00:00Z");
 
     private final TaskStore taskStore = mock(TaskStore.class);
-    private final StageStore stageStore = mock(StageStore.class);
     private final ThreadTurnStore turnStore = mock(ThreadTurnStore.class);
     private final ThreadRegistry registry = mock(ThreadRegistry.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
@@ -64,7 +62,7 @@ class TestTaskRuntimeStopReconciler
         }
     };
     private final TaskRuntimeStopReconciler reconciler = new TaskRuntimeStopReconciler(
-            taskStore, stageStore, turnStore, registry, scheduler,
+            taskStore, turnStore, registry, scheduler,
             validationStore, executorRegistry, provider, provider(planStages));
 
     @Test
@@ -73,7 +71,7 @@ class TestTaskRuntimeStopReconciler
         when(taskStore.findTaskById("t1")).thenReturn(
                 Optional.of(task("t1", TaskStatus.PAUSED)));
         ThreadAgent agent = mock(ThreadAgent.class);
-        when(registry.findStages(List.of("t1"))).thenReturn(List.of(agent));
+        when(registry.findTaskAgents(List.of("t1"))).thenReturn(List.of(agent));
         when(validationStore.findOpenByTask("t1")).thenReturn(List.of(
                 claim("claim-1", null, null)));
 
@@ -81,7 +79,7 @@ class TestTaskRuntimeStopReconciler
 
         verify(scheduler).cancelTaskTurns("t1");
         verify(agent).interrupt();
-        verify(registry).evictStages("thread-1", List.of("t1"));
+        verify(registry).evictTaskAgent("thread-1", "t1");
         verify(validationStore).requestCancel(eq("claim-1"), any(), any());
     }
 
@@ -94,7 +92,7 @@ class TestTaskRuntimeStopReconciler
         reconciler.reconcileStoppedTask("t1");
 
         verify(scheduler, never()).cancelTaskTurns(anyString());
-        verify(registry, never()).evictStages(anyString(), any());
+        verify(registry, never()).evictTaskAgent(anyString(), anyString());
         verify(validationStore, never()).requestCancel(any(), any(), any());
     }
 
@@ -107,10 +105,10 @@ class TestTaskRuntimeStopReconciler
 
         when(turnStore.listTurnsByExactTaskIdAndStatus("t1", ThreadTurnStatus.QUEUED, 1))
                 .thenReturn(List.of());
-        when(registry.findStages(List.of("t1"))).thenReturn(List.of(mock(ThreadAgent.class)));
+        when(registry.findTaskAgents(List.of("t1"))).thenReturn(List.of(mock(ThreadAgent.class)));
         assertThat(reconciler.runtimeStopped("t1")).isFalse();
 
-        when(registry.findStages(List.of("t1"))).thenReturn(List.of());
+        when(registry.findTaskAgents(List.of("t1"))).thenReturn(List.of());
         when(validationStore.findOpenByTask("t1")).thenReturn(List.of(
                 claim("claim-1", null, null)));
         when(executorRegistry.isInFlight("claim-1")).thenReturn(true);
@@ -157,6 +155,24 @@ class TestTaskRuntimeStopReconciler
                 "req-1", TaskRecoveryRequest.KIND_NORMAL, null, NOW)));
 
         reconciler.sweep();
+
+        verify(taskService).completeRequestedRecovery("t1");
+    }
+
+    @Test
+    void startupCompletesRecoveryOnlyAfterSchedulerStartupRecovery()
+    {
+        Task parked = task("t1", TaskStatus.NEEDS_ATTENTION);
+        when(taskStore.listByStatuses(any(), eq(200))).thenReturn(List.of(parked));
+        when(taskStore.findTaskById("t1")).thenReturn(Optional.of(parked));
+        when(taskStore.recoveryRequest("t1")).thenReturn(Optional.of(new TaskRecoveryRequest(
+                "req-1", TaskRecoveryRequest.KIND_NORMAL, null, NOW)));
+
+        reconciler.reconcileOnStartup();
+
+        verify(taskService, never()).completeRequestedRecovery("t1");
+
+        reconciler.completePendingRequestsOnStartup();
 
         verify(taskService).completeRequestedRecovery("t1");
     }

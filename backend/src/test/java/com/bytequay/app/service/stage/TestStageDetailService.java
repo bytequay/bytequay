@@ -402,9 +402,9 @@ class TestStageDetailService
                 brainId, ThreadKind.BRAIN_AGENT, "anthropic", null, "Brain", ThreadStatus.IDLE,
                 "claude-haiku-4-5-20251001", 0L, 0L, 0L, plan.openedAt(), plan.openedAt(), null, null,
                 ThreadFlow.BUILD, "ws-default", null, null, 1, taskId));
-        appendMessage(brainId, null, 1, "user", "text",
+        appendTrunkMessage(brainId, 1, "user", "text",
                 "{\"text\":\"tidy the nits\"}", plan.openedAt());
-        appendMessage(brainId, null, 2, "assistant", "text",
+        appendTrunkMessage(brainId, 2, "assistant", "text",
                 "{\"text\":\"Here is the plan.\"}", plan.openedAt().plusSeconds(1));
 
         StageDetailData detail = detailService.getDetail(plan.id());
@@ -427,7 +427,7 @@ class TestStageDetailService
                 brainId, ThreadKind.BRAIN_AGENT, "anthropic", null, "Brain", ThreadStatus.IDLE,
                 "claude-haiku-4-5-20251001", 0L, 0L, 0L, plan.openedAt(), plan.openedAt(), null, null,
                 ThreadFlow.BUILD, "ws-default", null, null, 1, taskId));
-        appendMessage(brainId, null, 1, "assistant", "text",
+        appendTrunkMessage(brainId, 1, "assistant", "text",
                 "{\"text\":\"Planning complete.\"}", plan.openedAt().plusSeconds(2));
 
         ThreadMessage selfReview = new ThreadMessage(
@@ -472,9 +472,10 @@ class TestStageDetailService
                 open.minusSeconds(86_400), stage.id().toString());
         // Stamped with a DIFFERENT stage but inside this stage's own window —
         // must still be excluded; only the stage_id match counts.
+        StageInstance other = stageStore.openStage(taskId, StageType.REVIEW_STAGE, null);
         appendStageMessage(threadId, taskId, 2, "assistant", "text",
                 "{\"text\":\"belongs to another stage\"}",
-                open, UUID.randomUUID().toString());
+                open, other.id().toString());
 
         StageDetailData detail = detailService.getDetail(stage.id());
 
@@ -497,7 +498,7 @@ class TestStageDetailService
         // A trunk-chat message (no task focused) timed inside iteration #1's
         // window — the per-iteration log must not sweep it in either, the
         // same leak buildConversation() had before it was scoped by stage id.
-        appendMessage(threadId, null, 1, "user", "text",
+        appendTrunkMessage(threadId, 1, "user", "text",
                 "{\"text\":\"trunk-level chat, not this iteration\"}", open);
         appendStageMessage(threadId, taskId, 2, "user", "text",
                 "{\"text\":\"the iteration's own steering message\"}", open, stage.id().toString());
@@ -521,7 +522,7 @@ class TestStageDetailService
         // A message typed on the thread's trunk chat (no task focused) whose
         // timestamp happens to fall inside this stage's open window — must
         // not be swept in as if it were the stage's own transcript.
-        appendMessage(threadId, null, 1, "user", "text",
+        appendTrunkMessage(threadId, 1, "user", "text",
                 "{\"text\":\"trunk-level chat, not this stage\"}", open);
         appendStageMessage(threadId, taskId, 2, "assistant", "text",
                 "{\"text\":\"the stage's own reply\"}", open, stage.id().toString());
@@ -544,7 +545,7 @@ class TestStageDetailService
         Instant open = stage.openedAt();
         // A sibling task's message on the same thread, timed inside this
         // stage's window — must not leak into this stage's transcript either.
-        appendMessage(threadId, otherTaskId, 1, "assistant", "text",
+        appendTaskMessage(threadId, otherTaskId, 1, "assistant", "text",
                 "{\"text\":\"belongs to the other task\"}", open);
 
         StageDetailData detail = detailService.getDetail(stage.id());
@@ -560,22 +561,29 @@ class TestStageDetailService
                 .isInstanceOf(ResponseStatusException.class);
     }
 
-    private void appendMessage(
+    private void appendTrunkMessage(
+            String threadId, long seq, String role, String type, String json, Instant ts)
+    {
+        threadStore.appendMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), threadId, null, seq, role, type, json,
+                null, 100L, 50L, 5L, ts, null, ThreadScope.TRUNK));
+    }
+
+    private void appendTaskMessage(
             String threadId, String taskId, long seq, String role, String type, String json, Instant ts)
     {
         threadStore.appendMessage(new ThreadMessage(
                 UUID.randomUUID().toString(), threadId, taskId, seq, role, type, json,
-                null, 100L, 50L, 5L, ts));
+                null, 100L, 50L, 5L, ts, null, ThreadScope.TASK));
     }
 
     private void appendStageMessage(
             String threadId, String taskId, long seq, String role, String type, String json,
             Instant ts, String stageId)
     {
-        threadStore.appendMessage(new ThreadMessage(
+        threadStore.appendStageMessage(new ThreadMessage(
                 UUID.randomUUID().toString(), threadId, taskId, seq, role, type, json,
-                null, 100L, 50L, 5L, ts)
-                .withStageScope(stageId, ThreadScope.of(taskId, stageId)));
+                null, 100L, 50L, 5L, ts, stageId, ThreadScope.STAGE));
     }
 
     private String seedThread()

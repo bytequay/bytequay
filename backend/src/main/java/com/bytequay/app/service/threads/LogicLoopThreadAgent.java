@@ -148,7 +148,7 @@ public class LogicLoopThreadAgent
 
     private final String threadId;
     /** Task attribution for the current scheduler turn. A BRAIN_AGENT starts
-     *  with its 1:1 parent task; stage agents receive the explicit turn task
+     *  with its 1:1 parent task; Task agents receive the explicit turn task
      *  immediately before dispatch. */
     private volatile String activeTaskId;
     private final ThreadKind kind;
@@ -156,6 +156,7 @@ public class LogicLoopThreadAgent
     /** Stage of the in-flight turn, set by the scheduler before each send;
      *  emitted messages inherit it as their explicit stage_id. */
     private volatile String activeStageId;
+    private volatile ThreadScope activeTurnScope = ThreadScope.TRUNK;
     /** AgentRun episode of the in-flight turn, when this turn belongs to one. */
     private volatile String activeAgentRunId;
     private volatile ManagedSkillBundle managedSkillBundle = ManagedSkillBundle.empty();
@@ -208,8 +209,7 @@ public class LogicLoopThreadAgent
     private final AtomicBoolean userInterrupted = new AtomicBoolean(false);
     private final AtomicLong nextSeq = new AtomicLong();
     /** Per-stage seq counters — a STAGE-scoped message uses its stage's own
-     *  seq space (stage_messages), so concurrent per-stage agents don't
-     *  collide on the thread-global (thread_id, seq). */
+     *  seq space (stage_messages), separate from the thread-global key. */
     private final ConcurrentHashMap<String, AtomicLong> stageNextSeq = new ConcurrentHashMap<>();
     private final AtomicLong runningTokensIn = new AtomicLong();
     private final AtomicLong runningTokensOut = new AtomicLong();
@@ -523,14 +523,9 @@ public class LogicLoopThreadAgent
         userInterrupted.set(false);
         lastError.set(null);
         status.set(ThreadStatus.RUNNING);
-        // Persist RUNNING synchronously — a turn can run many autonomous
-        // steps over several minutes, and the thread row is the only signal
-        // GET /api/threads/{id} (and so the sidebar dot + the trunk's
-        // Working banner) has. Without this, the row sits at its pre-turn
-        // status for the whole turn and only gets rewritten once, back to
-        // IDLE, when the turn finishes — the UI shows nothing is happening
-        // until some unrelated write (like the user's own next message)
-        // happens to persist a fresher snapshot.
+        // Persist RUNNING synchronously for a trunk runtime. Task/stage
+        // activity is projected from ThreadTurn instead; it must not replace
+        // the shared Thread row's trunk status.
         persistThreadProgress();
         CompletableFuture<Void> turn = CompletableFuture.runAsync(
                 () -> runTurn(userInput), executor);
@@ -875,7 +870,7 @@ public class LogicLoopThreadAgent
         String taskId = activeTaskId();
         try {
             return tool.get().invoke(input, new AgentToolContext(
-                    threadId, taskId, cwd, permissionMediator,
+                    threadId, activeTurnScope, taskId, cwd, permissionMediator,
                     activeStageId, activeAgentRunId, kind));
         }
         catch (RuntimeException e) {
@@ -900,7 +895,7 @@ public class LogicLoopThreadAgent
         catch (Exception e) {
             contentJson = "{}";
         }
-        appendStamped(new ThreadMessage(
+        appendStamped(turnMessage(
                 UUID.randomUUID().toString(), threadId, activeTaskId(), seq,
                 "tool", "tool_call", contentJson,
                 null, null, null, null, Instant.now()));
@@ -920,7 +915,7 @@ public class LogicLoopThreadAgent
         catch (Exception e) {
             contentJson = "{}";
         }
-        appendStamped(new ThreadMessage(
+        appendStamped(turnMessage(
                 UUID.randomUUID().toString(), threadId, activeTaskId(), seq,
                 "tool", "tool_result", contentJson,
                 null, null, null, null, Instant.now()));
@@ -1191,7 +1186,7 @@ public class LogicLoopThreadAgent
     {
         long seq = nextSeq.getAndIncrement();
         String contentJson = MessageAttachments.encodeMessage(mapper, text, images, activeManagedSkillNames());
-        appendStamped(new ThreadMessage(
+        appendStamped(turnMessage(
                 UUID.randomUUID().toString(), threadId, activeTaskId(), seq,
                 "user", "text", contentJson,
                 /* durationMs */ null, /* tokensIn */ null, /* tokensOut */ null,
@@ -1203,7 +1198,7 @@ public class LogicLoopThreadAgent
             long tokensIn, long tokensOut, long costMilli)
     {
         long seq = nextSeq.getAndIncrement();
-        appendStamped(new ThreadMessage(
+        appendStamped(turnMessage(
                 UUID.randomUUID().toString(), threadId, activeTaskId(), seq,
                 "assistant", "text", encodeText(text),
                 durationMs, tokensIn, tokensOut, costMilli, ts));
@@ -1232,6 +1227,12 @@ public class LogicLoopThreadAgent
     public String activeStageId()
     {
         return activeStageId;
+    }
+
+    @Override
+    public void setActiveScope(ThreadScope scope)
+    {
+        this.activeTurnScope = requireNonNull(scope, "scope is null");
     }
 
     @Override
@@ -1278,7 +1279,7 @@ public class LogicLoopThreadAgent
      *  is left unused (a harmless gap in the thread's seq). */
     private void appendStamped(ThreadMessage message)
     {
-        if (activeStageId != null && !activeStageId.isBlank()) {
+        if (activeTurnScope == ThreadScope.STAGE) {
             long seq = nextStageSeq(activeStageId);
             store.appendStageMessage(new ThreadMessage(
                     message.id(), message.threadId(), message.taskId(), seq,
@@ -1287,9 +1288,20 @@ public class LogicLoopThreadAgent
                     message.costUsdMilli(), message.ts(), activeStageId, ThreadScope.STAGE));
         }
         else {
-            store.appendMessage(message.withStageScope(
-                    activeStageId, ThreadScope.of(message.taskId(), activeStageId)));
+            store.appendMessage(message);
         }
+    }
+
+    private ThreadMessage turnMessage(
+            String id, String threadId, String taskId, long seq,
+            String role, String type, String contentJson,
+            Long durationMs, Long tokensIn, Long tokensOut, Long costUsdMilli, Instant ts)
+    {
+        String stageId = activeTurnScope == ThreadScope.STAGE ? activeStageId : null;
+        return new ThreadMessage(
+                id, threadId, taskId, seq, role, type, contentJson,
+                durationMs, tokensIn, tokensOut, costUsdMilli, ts,
+                stageId, activeTurnScope);
     }
 
     /** Next seq in a stage's own space, seeded lazily from the stage store. */
@@ -1370,10 +1382,11 @@ public class LogicLoopThreadAgent
             return;
         }
         Thread t = current.get();
+        boolean trunkRuntime = activeTaskId == null;
         Thread next = new Thread(
                 t.id(), t.kind(), t.provider(), t.agentSessionId(),
-                t.title(), status.get(),
-                model(),
+                t.title(), trunkRuntime ? status.get() : t.status(),
+                trunkRuntime ? model() : t.model(),
                 runningCostUsdMilli.get(),
                 runningTokensIn.get() + liveTurnTokensIn.get(),
                 runningTokensOut.get() + liveTurnTokensOut.get(),

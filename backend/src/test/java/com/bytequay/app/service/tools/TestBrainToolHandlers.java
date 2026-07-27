@@ -26,6 +26,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
@@ -64,7 +65,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)
 class TestBrainToolHandlers
 {
-    private static final ToolCall CALL = new ToolCall("brain-thread", null, AgentRole.TASK);
+    private static final ToolCall CALL = new ToolCall(ThreadScope.TRUNK, "brain-thread", null, AgentRole.TASK);
 
     @Autowired
     private BrainToolHandlers tools;

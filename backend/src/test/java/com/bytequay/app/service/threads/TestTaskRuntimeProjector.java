@@ -19,6 +19,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
@@ -142,7 +143,7 @@ class TestTaskRuntimeProjector
                 status == ThreadTurnStatus.QUEUED || status == ThreadTurnStatus.RUNNING ? null : NOW,
                 error,
                 "user".equals(source) ? TurnInitiator.user() : TurnInitiator.unattended(source),
-                null, null, null);
+                null, ThreadScope.TASK, null);
         turnStore.insertTurn(turn, TurnLiveness.CODE.affectsTask(), null);
     }
 

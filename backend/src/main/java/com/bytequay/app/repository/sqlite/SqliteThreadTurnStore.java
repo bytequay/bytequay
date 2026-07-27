@@ -221,6 +221,17 @@ class SqliteThreadTurnStore
     }
 
     @Override
+    public boolean hasOtherActiveTurn(String agentRunId, String excludingTurnId)
+    {
+        requireNonNull(agentRunId, "agentRunId is null");
+        requireNonNull(excludingTurnId, "excludingTurnId is null");
+        return turns.countByAgentRunIdAndIdNotAndStatusIn(
+                agentRunId,
+                excludingTurnId,
+                List.of(ThreadTurnStatus.QUEUED.name(), ThreadTurnStatus.RUNNING.name())) > 0;
+    }
+
+    @Override
     public List<ThreadTurn> listTurnsByExactTaskIdAndStatus(
             String taskId, ThreadTurnStatus status, int limit)
     {
@@ -249,9 +260,7 @@ class SqliteThreadTurnStore
                 e.getErrorMessage(),
                 new TurnInitiator(e.isInitiatorAttended(), e.getInitiatorSource()),
                 e.getStageId(),
-                e.getScope() == null
-                        ? ThreadScope.of(e.getTaskId(), e.getStageId())
-                        : ThreadScope.valueOf(e.getScope()),
+                ThreadScope.valueOf(requireNonNull(e.getScope(), "turn scope is null")),
                 e.getAgentRunId());
     }
 }

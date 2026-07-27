@@ -22,7 +22,7 @@ import { ShipReviewPrompt, StaleMarkReadyGatePrompt, StaleShipGatePrompt } from 
 import type { DiffFileDto } from '../types';
 import type { AgentRunDto, StageType, TaskPhase } from '../types/brainView';
 import {
-  Conv, EventRow, EventTimestamp, QueuedMessages, RoundEpisode, RunEpisode, Spine, Working,
+  Conv, EventRow, EventTimestamp, QueuedMessages, RoundEpisode, RunEpisode, Spine, UserMsg, Working,
 } from '../ui/conv';
 import { useTaskRuns } from '../threads/brain/useTaskRuns';
 import { useTaskRounds } from '../threads/brain/useTaskRounds';
@@ -147,6 +147,12 @@ export function StageDetailRoute({
   const [images, setImages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingSteer, setPendingSteer] = useState<{
+    text: string;
+    imageCount: number;
+    sentAt: number;
+    status: 'sending' | 'queued';
+  } | null>(null);
   const [approvingPlan, setApprovingPlan] = useState(false);
   const [prZoomed, setPrZoomed] = useState(false);
   const {
@@ -367,14 +373,42 @@ export function StageDetailRoute({
     />
   ) : null;
 
-  const sendNow = useCallback((body: string, sendImages: string[] = []) => {
-    setBusy(true);
+  const sendNow = useCallback(async (body: string, sendImages: string[] = []) => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    bridge?.steerStage(stageId, body, sendImages)
-      .then(() => refresh())
-      .catch(() => { /* poll reconciles */ })
-      .finally(() => setBusy(false));
+    if (bridge === undefined) return;
+    const sentAt = Date.now();
+    setActionError(null);
+    setPendingSteer({ text: body, imageCount: sendImages.length, sentAt, status: 'sending' });
+    setBusy(true);
+    try {
+      await bridge.steerStage(stageId, body, sendImages);
+      setPendingSteer(pending => pending?.sentAt === sentAt
+        ? { ...pending, status: 'queued' }
+        : pending);
+      refresh();
+    }
+    catch (reason: unknown) {
+      setPendingSteer(pending => pending?.sentAt === sentAt ? null : pending);
+      setText(current => current.length === 0 ? body : current);
+      setImages(current => current.length === 0 ? sendImages : current);
+      setActionError(reason instanceof Error ? reason.message : 'Could not steer this stage');
+    }
+    finally {
+      setBusy(false);
+    }
   }, [stageId, refresh]);
+
+  // Keep the accepted local row until the stage transcript catches up. A
+  // queued steer has no durable user-message row until its agent turn starts.
+  useEffect(() => {
+    if (pendingSteer === null || data === null) return;
+    const echoed = data.conversation.some(row => {
+      if (row.kind !== 'user' || row.text?.trim() !== pendingSteer.text.trim()) return false;
+      const echoedAt = Date.parse(row.ts);
+      return !Number.isNaN(echoedAt) && echoedAt >= pendingSteer.sentAt - 1000;
+    });
+    if (echoed) setPendingSteer(null);
+  }, [data, pendingSteer]);
 
   // Interrupt the running turn — stops the agent doing more and stops it
   // waiting for further steering. Shared by the working-row Stop and the
@@ -605,6 +639,14 @@ export function StageDetailRoute({
         )}
         {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
         {shipGatePrompt}
+        {pendingSteer !== null && (
+          <UserMsg
+            who={`You · ${pendingSteer.status}`}
+            text={pendingSteer.text || (pendingSteer.imageCount === 1
+              ? 'Attached an image'
+              : `Attached ${pendingSteer.imageCount} images`)}
+          />
+        )}
         <QueuedMessages
           messages={queue}
           onEdit={id => setText(takeForEdit(id))}

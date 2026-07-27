@@ -85,4 +85,15 @@ describe('SubmitReviewDrawer', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('GitHub rejected this approval.');
   });
+
+  it('removes Electron IPC noise from a submission error', async () => {
+    const message = "Error invoking remote method 'pr:publishReview': Error: "
+      + 'The configured GitHub token cannot perform this action.';
+    render(<SubmitReviewDrawer open onClose={() => {}} onSubmit={() => Promise.reject(new Error(message))} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit review' }));
+
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe('The configured GitHub token cannot perform this action.');
+  });
 });

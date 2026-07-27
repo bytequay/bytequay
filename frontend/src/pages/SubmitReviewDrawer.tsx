@@ -23,6 +23,11 @@ const VERDICT_OPTIONS: Array<{ value: ReviewVerdict; label: string; desc: string
   { value: 'REQUEST_CHANGES', label: 'Request changes', desc: 'Submit feedback that must be addressed before merging.' },
 ];
 
+function submitErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Could not submit the review.';
+  return message.replace(/^Error invoking remote method '[^']+': Error:\s*/, '');
+}
+
 /**
  * Right-side drawer for submitting a review on the task's own diff — a
  * top-level comment plus a verdict, mirroring github.com's "Finish your
@@ -68,7 +73,7 @@ export function SubmitReviewDrawer({
     try {
       await onSubmit(body, verdict);
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : 'Could not submit the review.');
+      setSubmitError(submitErrorMessage(error));
     }
   };
 

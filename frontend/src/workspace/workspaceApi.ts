@@ -1159,11 +1159,16 @@ export const workspaceApi = {
     window.bridge.workspaceApi<WorkspaceCreationDto>({
       path: `/api/workspace-creations/${enc(operationId)}`,
     }),
-  createWorkspace: (owner: string, repo: string, writeMode: string) =>
+  createWorkspace: (
+    owner: string,
+    repo: string,
+    writeMode: string,
+    existingForkRepo?: string,
+  ) =>
     window.bridge.workspaceApi<WorkspaceCreationDto>({
       path: '/api/workspace-creations',
       method: 'POST',
-      body: { owner, repo, writeMode },
+      body: { owner, repo, writeMode, existingForkRepo },
     }),
   retryCreation: (operationId: string) =>
     window.bridge.workspaceApi<WorkspaceCreationDto>({

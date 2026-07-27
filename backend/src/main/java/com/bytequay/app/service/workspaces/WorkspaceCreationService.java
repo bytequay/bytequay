@@ -89,9 +89,25 @@ public class WorkspaceCreationService
             String repo,
             String writeMode)
     {
+        return create(owner, repo, writeMode, null);
+    }
+
+    @Transactional
+    public WorkspaceCreationDto create(
+            String owner,
+            String repo,
+            String writeMode,
+            String existingForkRepo)
+    {
         requireText(owner, "owner");
         requireText(repo, "repo");
-        LocalRepoService.WriteMode.parse(writeMode);
+        LocalRepoService.WriteMode mode = LocalRepoService.WriteMode.parse(writeMode);
+        String forkRepo = normalizeForkRepo(existingForkRepo);
+        if (forkRepo != null && mode != LocalRepoService.WriteMode.FORK) {
+            throw new IllegalArgumentException(
+                    "existingForkRepo can only be used in fork mode");
+        }
+        ensureWatched(owner, repo);
         List<WorkspaceCreationDto> existing = jdbc.query("""
                 SELECT * FROM workspace_creation
                 WHERE lower(owner) = lower(?)
@@ -107,14 +123,14 @@ public class WorkspaceCreationService
         String id = UUID.randomUUID().toString();
         jdbc.update("""
                 INSERT INTO workspace_creation (
-                    id, operation_kind, owner, repo, write_mode, state,
+                    id, operation_kind, owner, repo, write_mode, fork_repo, state,
                     stage_message, progress_current, progress_total,
                     attempt, created_at_ms, updated_at_ms)
-                VALUES (?, 'connect', ?, ?, ?, 'queued',
+                VALUES (?, 'connect', ?, ?, ?, ?, 'queued',
                     'Waiting to start', 0, ?, 1, ?, ?)
                 """,
                 id, owner, repo, writeMode.toUpperCase(Locale.ROOT),
-                FIRST_SYNC_STEPS, now, now);
+                forkRepo, FIRST_SYNC_STEPS, now, now);
         launchAfterCommit(id);
         return require(id);
     }
@@ -201,6 +217,9 @@ public class WorkspaceCreationService
         if (!"failed".equals(current.state())) {
             return current;
         }
+        if ("connect".equals(current.operationKind())) {
+            ensureWatched(current.owner(), current.repo());
+        }
         jdbc.update("""
                 UPDATE workspace_creation
                 SET state = 'queued',
@@ -273,6 +292,13 @@ public class WorkspaceCreationService
                 });
     }
 
+    private void ensureWatched(String owner, String repo)
+    {
+        if (watchedRepos.find(owner, repo).isEmpty()) {
+            watchedRepos.add(owner, repo);
+        }
+    }
+
     private void execute(String id)
     {
         WorkspaceCreationDto operation = require(id);
@@ -284,20 +310,22 @@ public class WorkspaceCreationService
                 executeReclone(operation);
                 return;
             }
-            String cloneState = "FORK".equals(operation.writeMode())
-                    ? "forking" : "cloning";
-            update(id, cloneState,
-                    "FORK".equals(operation.writeMode())
-                            ? "Preparing your fork" : "Cloning repository",
-                    0, null, null, null);
             if ("FORK".equals(operation.writeMode())) {
+                update(id, "forking", "Preparing your fork", 0,
+                        null, null, null);
+            }
+            else {
                 update(id, "cloning", "Cloning repository", 0,
                         null, null, null);
             }
+            String existingForkRepo = jdbc.queryForObject("""
+                    SELECT fork_repo FROM workspace_creation WHERE id = ?
+                    """, String.class, id);
             LocalRepoStatus local = localRepos.cloneManaged(
                     operation.owner(),
                     operation.repo(),
-                    LocalRepoService.WriteMode.parse(operation.writeMode()));
+                    LocalRepoService.WriteMode.parse(operation.writeMode()),
+                    existingForkRepo);
             Workspace workspace = workspaces.ensureForVerifiedClone(
                     operation.owner(), operation.repo());
             configuration.reconnect(workspace.id());
@@ -484,5 +512,18 @@ public class WorkspaceCreationService
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(name + " is required");
         }
+    }
+
+    private static String normalizeForkRepo(String value)
+    {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (!normalized.matches("[A-Za-z0-9._-]+")) {
+            throw new IllegalArgumentException(
+                    "existingForkRepo must be a repository name such as trino_new");
+        }
+        return normalized;
     }
 }

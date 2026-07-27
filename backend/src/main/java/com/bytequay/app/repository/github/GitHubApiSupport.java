@@ -67,9 +67,20 @@ final class GitHubApiSupport
         // GitHub only sends a generic top-level message — but summarize HTML
         // error pages and oversized bodies so a transient 5xx doesn't dump a
         // whole markup blob into the log.
-        log.warn("GitHub API {} failed: {}", e.getStatusCode().value(), summarizeErrorBody(responseBody));
+        if (e.getStatusCode().value() == 404) {
+            log.debug("GitHub API 404: {}", summarizeErrorBody(responseBody));
+        }
+        else {
+            log.warn("GitHub API {} failed: {}", e.getStatusCode().value(), summarizeErrorBody(responseBody));
+        }
         String githubMessage = extractGitHubErrorMessage(responseBody);
         String message = githubMessage != null ? githubMessage : fallback;
+        if (e.getStatusCode().value() == 403
+                && "Resource not accessible by personal access token".equals(githubMessage)) {
+            message = "The configured GitHub token cannot perform this action. "
+                    + "Grant it access to this repository and the required write permissions, "
+                    + "then update it in Settings → Credentials.";
+        }
         return new ResponseStatusException(status, message, e);
     }
 

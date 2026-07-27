@@ -52,6 +52,7 @@ function toolDesc(label: string | null, detail: string | null, tag?: string): Re
 }
 
 const PLAN_KICKOFF_PREFIX = 'The plan for this task has been approved — implement it now.';
+const PLANNING_KICKOFF_PREFIX = 'You are the planning agent for a new development task.';
 const CI_FIX_CONTEXT_PREFIX = '## Context from prior stages\nYou are a fresh agent for the CI-fixing stage —';
 const CI_FIX_PROMPT_PREFIX = 'CI is failing on the shipped PR ';
 const LOCAL_COMMENTS_PREFIX = 'New comments arrived on your local PR "';
@@ -95,6 +96,14 @@ function runtimeKickoff(r: StageConversationRow): RuntimeKickoff | null {
       title: 'Approved plan',
       preview: kickoffIntent(r.text),
       bodyLabel: 'Development kickoff prompt',
+      icon: <PlanIcon size={14} />,
+    };
+  }
+  if (r.text.startsWith(PLANNING_KICKOFF_PREFIX)) {
+    return {
+      title: 'Planning started',
+      preview: 'Task context and planning instructions sent automatically',
+      bodyLabel: 'Planning kickoff prompt',
       icon: <PlanIcon size={14} />,
     };
   }

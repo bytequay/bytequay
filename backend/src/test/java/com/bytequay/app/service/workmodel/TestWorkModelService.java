@@ -15,6 +15,8 @@ package com.bytequay.app.service.workmodel;
 
 import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
+import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.WorkModelOptions;
 import com.bytequay.app.service.CredentialService;
 import com.google.common.collect.ImmutableList;
@@ -104,6 +106,50 @@ class TestWorkModelService
                         assertThat(m.isDefault()).isTrue();
                     });
         }
+    }
+
+    @Test
+    void freezingACodexPickerChoiceCapturesTheLiveDefaultModel()
+    {
+        CredentialService credentials = Mockito.mock(CredentialService.class);
+        CodexModelCatalogProbe codexModels = Mockito.mock(CodexModelCatalogProbe.class);
+        when(codexModels.models(false)).thenReturn(Optional.of(List.of(
+                new CodexModelCatalogProbe.Model(
+                        "gpt-live-default",
+                        "GPT live default",
+                        null,
+                        true,
+                        "medium",
+                        List.of()))));
+
+        assertThat(new WorkModelService(credentials, codexModels).freezeChoice("cli:codex"))
+                .contains(new WorkModel(
+                        WorkModelKind.CLI, "codex", "gpt-live-default", null));
+    }
+
+    @Test
+    void freezingAnApiChoiceCapturesItsDefaultModelAndAccount()
+    {
+        CredentialService credentials = Mockito.mock(CredentialService.class);
+        Instant now = Instant.parse("2026-05-22T00:00:00Z");
+        when(credentials.getDefault(CredentialType.AI, "anthropic"))
+                .thenReturn(Optional.of(credential(
+                        1, "anthropic", "personal", true, now)));
+
+        String defaultModel = WorkModelCatalog.provider("anthropic").defaultModel().id();
+        assertThat(service(credentials).freezeChoice("api:anthropic"))
+                .contains(new WorkModel(
+                        WorkModelKind.API, "anthropic", defaultModel, "personal"));
+    }
+
+    @Test
+    void freezingTheLocalChoiceNeedsNoCredential()
+    {
+        CredentialService credentials = Mockito.mock(CredentialService.class);
+
+        assertThat(service(credentials).freezeChoice("local"))
+                .contains(new WorkModel(
+                        WorkModelKind.API, "deepseek", "deepseek-v4-flash", null));
     }
 
     private static WorkModelService service(CredentialService credentials)

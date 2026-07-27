@@ -77,10 +77,10 @@ public record Thread(
          *  back-filled to "ws-default" by V73, and the store's
          *  fallback covers any null sneaking through. */
         String workspaceId,
-        /** Per-thread override on the work-model cascade. Null means
-         *  "no override" — the resolver falls back to the workspace
-         *  pick, then to the global default. See V95 for the column
-         *  and {@link WorkModel} for the value shape. */
+        /** Scope-level reasoning effort for ordinary trunks. Task-brain
+         *  child threads store their parent trunk's frozen plan engine here
+         *  because they do not own a separate engine snapshot. See V95 for
+         *  the column and {@link WorkModel} for the value shape. */
         WorkModel workModel,
         /** The review pass this thread was spawned from ("→ Spawn build
          *  thread"), or null. Set at creation on the spawned BUILD

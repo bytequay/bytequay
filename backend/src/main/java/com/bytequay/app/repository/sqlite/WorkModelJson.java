@@ -27,12 +27,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * deserialise failure on a stale or bad row is treated as "no override" so a
  * single corrupt column never breaks the whole load.
  */
-final class WorkModelJson
+public final class WorkModelJson
 {
     private WorkModelJson() {}
 
     /** JSON for persistence; a {@code null} model stays null. */
-    static String serialise(ObjectMapper mapper, WorkModel model)
+    public static String serialise(ObjectMapper mapper, WorkModel model)
     {
         if (model == null) {
             return null;
@@ -46,7 +46,7 @@ final class WorkModelJson
     }
 
     /** Model from a persisted column; null/blank/bad JSON resolves to no override. */
-    static WorkModel deserialise(ObjectMapper mapper, String json)
+    public static WorkModel deserialise(ObjectMapper mapper, String json)
     {
         if (json == null || json.isBlank()) {
             return null;

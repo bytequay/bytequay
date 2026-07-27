@@ -61,6 +61,20 @@ class TestWorkspaceEngineSettings
     }
 
     @Test
+    void completeModelsKeepTheirCompactPickerIdentity()
+    {
+        assertThat(WorkspaceEngineSettings.pickerChoice(new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-5.3-codex", null)))
+                .contains("cli:codex");
+        assertThat(WorkspaceEngineSettings.pickerChoice(new WorkModel(
+                WorkModelKind.API, "anthropic", "claude-opus-4-8", "work")))
+                .contains("api:anthropic:work");
+        assertThat(WorkspaceEngineSettings.pickerChoice(new WorkModel(
+                WorkModelKind.API, "deepseek", "deepseek-v4-flash", null)))
+                .contains("local");
+    }
+
+    @Test
     void aRolesOwnPickWinsOverTheWorkspaceDefault()
     {
         stubSettings("""

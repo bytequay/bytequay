@@ -32,6 +32,7 @@ import com.bytequay.app.domain.ThreadTurnEventType;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.TurnLiveness;
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.AgentRunStore;
 import com.bytequay.app.repository.StageStore;
@@ -443,6 +444,10 @@ public class AgentScheduler
                 return existing.get();
             }
         }
+        // Resolve before opening the correlated run: an invalid task/stage
+        // must not leave an orphan run, and the persisted lane must match the
+        // exact audience-specific runtime this turn will spawn.
+        ThreadResourceLane resourceLane = laneFor(thread, taskId, stageId);
         String correlatedRunId = agentRunId;
         if (correlatedRunId == null && agentRuns != null) {
             correlatedRunId = agentRuns.openSchedulerSession(
@@ -453,7 +458,7 @@ public class AgentScheduler
                 UUID.randomUUID().toString(),
                 thread.id(),
                 taskId,
-                laneFor(thread),
+                resourceLane,
                 QUEUED,
                 input,
                 now,
@@ -1627,13 +1632,20 @@ public class AgentScheduler
         return turn.taskId();
     }
 
-    /** The lane a turn belongs on. Every thread follows its resolved work
-     *  model — the same cascade the registry builds the runtime from — so a
-     *  CLI subprocess always counts against the small CLI cap even when the
-     *  thread row was stamped LOGIC_LOOP at creation, and vice versa. */
-    ThreadResourceLane laneFor(Thread thread)
+    /** The lane a turn belongs on, resolved at its actual trunk/task/stage
+     *  audience through the same path that builds the runtime. */
+    ThreadResourceLane laneFor(Thread thread, String taskId, String stageId)
     {
-        return sessions.resolvedWorkModel(thread).kind() == WorkModelKind.CLI ? CLI : API;
+        Task task = taskId == null || taskId.isBlank()
+                ? null
+                : tasks.findTaskById(taskId).orElse(null);
+        WorkModel resolved = sessions.resolvedWorkModelForTurn(thread, task, stageId);
+        // Compatibility for minimal Mockito registries that predate the
+        // scoped entry point; real registries never return null.
+        if (resolved == null) {
+            resolved = sessions.resolvedWorkModel(thread);
+        }
+        return resolved.kind() == WorkModelKind.CLI ? CLI : API;
     }
 
     private String waitingReason(ThreadTurn turn, LaneState lane)

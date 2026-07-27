@@ -2347,13 +2347,14 @@ export type ThreadSettingsDto = {
   overriddenAt: string | null;
 };
 
+export type SessionAudienceDto = 'plan' | 'dev' | 'review' | 'ci-fix';
+
 export type NewTaskRequestDto = {
   kind: ThreadKindDto;
-  /** Per-session-kind engine pins from the create dialog, keyed by
-   *  audience ('plan' | 'dev' | 'review' | 'ci-fix') and valued with
-   *  the workspace settings picker ids. Absent kinds inherit the
-   *  workspace. Honoured on thread create only. */
-  engines?: Record<string, string>;
+  /** Explicit per-session-kind engine changes from the create dialog.
+   *  Absent kinds copy the workspace's effective choice at creation;
+   *  the backend then freezes all four choices for this thread. */
+  engines?: Partial<Record<SessionAudienceDto, string>>;
   /** Optional and advisory — the backend stamps the thread with the
    *  workspace's engine, which is the only thing that decides what
    *  actually runs. */

@@ -41,12 +41,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The engine (CLI agent / API provider) is the workspace's call; a thread,
- * task, or stage can only dial reasoning effort. These tests pin both
- * halves and the audience each scope resolves under.
+ * New trunks freeze the workspace's effective engines at creation; a task
+ * or stage can only dial reasoning effort. These tests pin both halves and
+ * the audience each scope resolves under, including child brain sessions.
  */
 class TestWorkModelResolver
 {
@@ -94,6 +96,23 @@ class TestWorkModelResolver
                 .thenReturn(Optional.of(new WorkspaceEngineSettings.Engine(CODEX, true)));
 
         assertThat(resolver.resolveForThread(THREAD_ID).choice()).isEqualTo(CODEX);
+    }
+
+    @Test
+    void aTaskBrainUsesTheParentSnapshotCopiedOntoItsChildThread()
+    {
+        WorkModel frozen = new WorkModel(
+                WorkModelKind.CLI, "codex", "gpt-frozen", null, "high");
+        String brainId = "brain-1";
+        when(threadStore.findThreadById(brainId))
+                .thenReturn(Optional.of(brainThread(brainId, frozen)));
+
+        WorkModelResolver.Resolved got = resolver.resolveForThread(brainId);
+
+        assertThat(got.choice()).isEqualTo(frozen);
+        assertThat(got.provenance().source()).isEqualTo(WorkModelResolver.Source.THREAD);
+        assertThat(got.provenance().scopeLabel()).isEqualTo("parent trunk snapshot · plan");
+        verify(engineSettings, never()).forAudience(any(), any());
     }
 
     @Test
@@ -310,6 +329,16 @@ class TestWorkModelResolver
                 "Resolver fixture", ThreadStatus.IDLE, "claude-sonnet-4-6",
                 0L, 0L, 0L, NOW, NOW, null, null,
                 ThreadFlow.BUILD, WS_ID, workModel, null);
+    }
+
+    private static Thread brainThread(String id, WorkModel workModel)
+    {
+        return new Thread(
+                id, ThreadKind.BRAIN_AGENT, workModel.agentOrProvider(), null,
+                "Brain fixture", ThreadStatus.IDLE, workModel.model(),
+                0L, 0L, 0L, NOW, NOW, null, null,
+                ThreadFlow.BUILD, WS_ID, workModel,
+                null, 1, TASK_ID);
     }
 
     private static Task task(WorkModel workModel)

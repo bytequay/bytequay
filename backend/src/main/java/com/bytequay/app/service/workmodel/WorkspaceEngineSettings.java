@@ -140,4 +140,27 @@ public class WorkspaceEngineSettings
         }
         return Optional.empty();
     }
+
+    /**
+     * Picker identity for a resolved engine. The full model is persisted
+     * separately for thread snapshots; this value remains the compact,
+     * backwards-compatible label used by workspace settings and legacy rows.
+     */
+    public static Optional<String> pickerChoice(WorkModel model)
+    {
+        if (model == null || model.kind() == null
+                || model.agentOrProvider() == null || model.agentOrProvider().isBlank()) {
+            return Optional.empty();
+        }
+        String engine = model.agentOrProvider().strip();
+        if (model.kind() == WorkModelKind.CLI) {
+            return Optional.of("cli:" + engine);
+        }
+        if (LOCAL_PROVIDER.equals(engine) && LOCAL_MODEL.equals(model.model())) {
+            return Optional.of("local");
+        }
+        String account = model.account();
+        return Optional.of("api:" + engine
+                + (account == null || account.isBlank() ? "" : ":" + account.strip()));
+    }
 }

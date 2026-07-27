@@ -16,6 +16,7 @@ package com.bytequay.app.service.workmodel;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.domain.Workspace;
@@ -70,6 +71,13 @@ class WorkModelResolverImpl
     {
         requireNonNull(threadId, "threadId is null");
         Thread thread = thread(threadId);
+        // A task brain is a child thread created after its parent trunk. Its
+        // work_model stores the parent's already-frozen plan choice so it must
+        // not fall back to whatever the workspace happens to say later.
+        if (thread.kind() == ThreadKind.BRAIN_AGENT && hasEngine(thread.workModel())) {
+            return new Resolved(thread.workModel(), new Provenance(
+                    Source.THREAD, thread.id(), "parent trunk snapshot · plan"));
+        }
         return compose(thread, SessionAudience.forThread(thread), effortOf(thread.workModel()));
     }
 
@@ -118,12 +126,12 @@ class WorkModelResolverImpl
     }
 
     /**
-     * The engine for this audience — the trunk's own pin when its creator
-     * swapped this session kind, else the workspace's — wearing the nearest
-     * scope's reasoning effort. Beyond that pin the scopes contribute effort
-     * only: an engine stored on a thread / task / stage {@code work_model}
-     * row is deliberately ignored so a task can't quietly switch providers
-     * mid-flight.
+     * The engine for this audience — the trunk's creation-time snapshot for
+     * new rows, or the workspace fallback for legacy sparse rows — wearing
+     * the nearest scope's reasoning effort. Beyond that snapshot the scopes
+     * contribute effort only: an engine stored on a thread / task / stage
+     * {@code work_model} row is deliberately ignored so a task can't quietly
+     * switch providers mid-flight.
      */
     private Resolved compose(Thread thread, String audience, String effort)
     {
@@ -178,6 +186,14 @@ class WorkModelResolverImpl
         }
         String effort = scoped.reasoningEffort();
         return effort == null || effort.isBlank() ? null : effort;
+    }
+
+    private static boolean hasEngine(WorkModel model)
+    {
+        return model != null
+                && model.kind() != null
+                && model.agentOrProvider() != null
+                && !model.agentOrProvider().isBlank();
     }
 
     private static String firstEffort(String... candidates)

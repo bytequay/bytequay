@@ -177,6 +177,7 @@ public record StageDetailData(
             String callerStageId,
             int iterationCount,
             Integer currentIterationNumber,
+            boolean agentActive,
             StageConfig config,
             StageMetricsSubset metrics)
     {

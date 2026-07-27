@@ -16,8 +16,19 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
+import com.bytequay.app.service.skills.ByteQuayRole;
+import com.bytequay.app.service.tools.AgentRole;
+import com.bytequay.app.service.tools.RoleCapabilities;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -26,6 +37,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.web.context.request.async.DeferredResult;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -47,6 +60,10 @@ class TestMcpReadTools
     @Autowired
     private ThreadStore threads;
     @Autowired
+    private ThreadTurnStore turns;
+    @Autowired
+    private ActiveAgentContextRegistry activeContexts;
+    @Autowired
     private ObjectMapper mapper;
 
     @Test
@@ -56,8 +73,9 @@ class TestMcpReadTools
         // ws-default is seeded by the workspace migration with an
         // empty memory body, so the success path returns it verbatim.
         String threadId = newThread("ws-default");
+        activateReadTools(threadId);
 
-        JsonNode response = await(controller.handle(threadId,
+        JsonNode response = await(controller.handle(threadId, "trunk",
                 jsonRpc("read_workspace_memory", mapper.createObjectNode())));
 
         String text = response.path("result").path("content").get(0).path("text").asText();
@@ -73,8 +91,9 @@ class TestMcpReadTools
             throws Exception
     {
         String threadId = newThread("ws-default");
+        activateReadTools(threadId);
 
-        JsonNode response = await(controller.handle(threadId,
+        JsonNode response = await(controller.handle(threadId, "trunk",
                 jsonRpc("read_task", mapper.createObjectNode())));
 
         JsonNode envelope = denyEnvelope(response);
@@ -91,8 +110,9 @@ class TestMcpReadTools
         // reaches the handler: a value supplied under task_id must
         // surface as the looked-up id in the not-found message.
         String threadId = newThread("ws-default");
+        activateReadTools(threadId);
 
-        JsonNode response = await(controller.handle(threadId,
+        JsonNode response = await(controller.handle(threadId, "trunk",
                 jsonRpc("read_task", mapper.createObjectNode()
                         .put("task_id", "task-does-not-exist"))));
 
@@ -114,6 +134,14 @@ class TestMcpReadTools
         node.put("method", "tools/call");
         node.set("params", params);
         return node;
+    }
+
+    private void activateReadTools(String threadId)
+    {
+        activeContexts.put(threadId, "trunk", new ResolvedAgentContext(
+                ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
+                RoleCapabilities.forRole(AgentRole.TRUNK), List.of(), Set.of(),
+                Set.of("read_task", "read_workspace_memory")));
     }
 
     private JsonNode denyEnvelope(JsonNode response)
@@ -155,6 +183,10 @@ class TestMcpReadTools
                 /* workModel */ null,
                 /* activeTask */ null);
         threads.saveThread(thread);
+        turns.saveTurn(new ThreadTurn(
+                UUID.randomUUID().toString(), id, null,
+                ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING, "input",
+                now, now, now, null, null, TurnInitiator.user(), null, ThreadScope.TRUNK));
         return id;
     }
 }

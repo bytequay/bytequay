@@ -62,8 +62,9 @@ class TestCascadingPermissionResolver
         when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-1")));
         noGrants();
 
-        assertThat(resolver.roleFor(threadId)).isEqualTo(AgentRole.TRUNK);
-        assertThat(resolver.grants(threadId))
+        assertThat(resolver.roleFor(threadId, PermissionResolver.TRUNK_AGENT_KEY))
+                .isEqualTo(AgentRole.TRUNK);
+        assertThat(resolver.grants(threadId, PermissionResolver.TRUNK_AGENT_KEY))
                 .isEqualTo(RoleCapabilities.forRole(AgentRole.TRUNK))
                 .contains(SecurityType.TASK_MANAGE, SecurityType.CODE_READ)
                 .doesNotContain(SecurityType.GIT_PUSH);
@@ -77,8 +78,8 @@ class TestCascadingPermissionResolver
         when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-1")));
         noGrants();
 
-        assertThat(resolver.roleFor(threadId)).isEqualTo(AgentRole.TASK);
-        assertThat(resolver.grants(threadId))
+        assertThat(resolver.roleFor(threadId, "task-1")).isEqualTo(AgentRole.TASK);
+        assertThat(resolver.grants(threadId, "task-1"))
                 .contains(SecurityType.GIT_PUSH, SecurityType.CODE_WRITE, SecurityType.VCS_PUBLISH);
     }
 
@@ -95,8 +96,9 @@ class TestCascadingPermissionResolver
         when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-1")));
         noGrants();
 
-        assertThat(resolver.roleFor(threadId)).isEqualTo(AgentRole.TRUNK);
-        assertThat(resolver.grants(threadId))
+        assertThat(resolver.roleFor(threadId, PermissionResolver.TRUNK_AGENT_KEY))
+                .isEqualTo(AgentRole.TRUNK);
+        assertThat(resolver.grants(threadId, PermissionResolver.TRUNK_AGENT_KEY))
                 .isEqualTo(RoleCapabilities.forRole(AgentRole.TRUNK))
                 .doesNotContain(SecurityType.GIT_PUSH);
     }
@@ -113,7 +115,7 @@ class TestCascadingPermissionResolver
         when(grantStore.findForScope(eq("thread"), anyString())).thenReturn(List.of());
         when(grantStore.findForScope(eq("task"), anyString())).thenReturn(List.of());
 
-        assertThat(resolver.grants(threadId))
+        assertThat(resolver.grants(threadId, "task-1"))
                 .doesNotContain(SecurityType.GIT_PUSH)
                 .contains(SecurityType.CODE_WRITE);
     }
@@ -134,7 +136,8 @@ class TestCascadingPermissionResolver
         when(grantStore.findForScope("task", "task-1"))
                 .thenReturn(List.of(grant("task", "task-1", SecurityType.VCS_PUBLISH, "allow")));
 
-        assertThat(resolver.grants(threadId)).doesNotContain(SecurityType.VCS_PUBLISH);
+        assertThat(resolver.grants(threadId, "task-1"))
+                .doesNotContain(SecurityType.VCS_PUBLISH);
     }
 
     @Test
@@ -147,7 +150,7 @@ class TestCascadingPermissionResolver
                 .thenReturn(List.of(deny("global", null, SecurityType.TASK_MANAGE)));
         when(grantStore.findForScope(anyString(), anyString())).thenReturn(List.of());
 
-        assertThat(resolver.grants(threadId))
+        assertThat(resolver.grants(threadId, PermissionResolver.TRUNK_AGENT_KEY))
                 .doesNotContain(SecurityType.TASK_MANAGE)
                 .contains(SecurityType.CODE_READ);
     }
@@ -164,12 +167,13 @@ class TestCascadingPermissionResolver
         when(grantStore.findForScope(anyString(), anyString())).thenReturn(List.of());
 
         // The stray capability name is skipped — the base set is intact.
-        assertThat(resolver.grants(threadId)).isEqualTo(RoleCapabilities.forRole(AgentRole.TRUNK));
+        assertThat(resolver.grants(threadId, PermissionResolver.TRUNK_AGENT_KEY))
+                .isEqualTo(RoleCapabilities.forRole(AgentRole.TRUNK));
     }
 
     /**
      * Two task agents running concurrently on one thread: the resolver must
-     * read EACH agent's own running turn by its registry stage key, not the
+     * read EACH agent's own running turn by its task runtime key, not the
      * thread's first running turn. Without the agent-key filter both calls
      * would collapse onto turn-A's task.
      */
@@ -186,17 +190,14 @@ class TestCascadingPermissionResolver
         // the matching turn so its scope is its own task.
         assertThat(resolver.runningScope(threadId, "task-a").taskId()).isEqualTo("task-a");
         assertThat(resolver.runningScope(threadId, "task-b").taskId()).isEqualTo("task-b");
-        // The legacy thread-only overload keeps returning the first running
-        // turn, unchanged for single-agent callers.
-        assertThat(resolver.runningScope(threadId).taskId()).isEqualTo("task-a");
     }
 
     /**
-     * A stage agent keys by its stage id; the reserved trunk key selects the
-     * task-less turn. Both stage and trunk turns can be in flight at once.
+     * A stage-scoped turn still addresses its Task-owned agent; the reserved
+     * trunk key selects the task-less turn. Both can be in flight at once.
      */
     @Test
-    void stageAndTrunkAgentsResolveByStageIdAndTrunkKey()
+    void stageAndTrunkTurnsResolveByTaskIdAndTrunkKey()
     {
         String threadId = "t-mix";
         ThreadTurn stage = turnWithId("turn-s", threadId, "task-x", "stage-7");
@@ -206,8 +207,8 @@ class TestCascadingPermissionResolver
         when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-1")));
         noGrants();
 
-        assertThat(resolver.runningScope(threadId, "stage-7").stageId()).isEqualTo("stage-7");
-        assertThat(resolver.roleFor(threadId, "stage-7")).isEqualTo(AgentRole.TASK);
+        assertThat(resolver.runningScope(threadId, "task-x").stageId()).isEqualTo("stage-7");
+        assertThat(resolver.roleFor(threadId, "task-x")).isEqualTo(AgentRole.TASK);
         assertThat(resolver.roleFor(threadId, PermissionResolver.TRUNK_AGENT_KEY))
                 .isEqualTo(AgentRole.TRUNK);
         assertThat(resolver.runningScope(threadId, PermissionResolver.TRUNK_AGENT_KEY).taskId())
@@ -248,13 +249,13 @@ class TestCascadingPermissionResolver
                 ThreadFlow.BUILD, workspaceId, null, null);
     }
 
-    /** A trunk-scoped running turn (no task) → derives ThreadScope.TRUNK. */
+    /** A trunk-scoped running turn (no task). */
     private static ThreadTurn trunkTurn(String threadId)
     {
         return turn(threadId, null);
     }
 
-    /** A task-scoped running turn → derives ThreadScope.TASK. */
+    /** A task-scoped running turn. */
     private static ThreadTurn taskTurn(String threadId, String taskId)
     {
         return turn(threadId, taskId);
@@ -265,7 +266,8 @@ class TestCascadingPermissionResolver
         Instant now = Instant.parse("2026-05-28T00:00:00Z");
         return new ThreadTurn(
                 "turn-1", threadId, taskId, ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING,
-                "input", now, now, now, null, null, TurnInitiator.user());
+                "input", now, now, now, null, null, TurnInitiator.user(),
+                null, taskId == null ? ThreadScope.TRUNK : ThreadScope.TASK);
     }
 
     /** A RUNNING turn with explicit id + stamped task/stage scope, used to
@@ -276,6 +278,8 @@ class TestCascadingPermissionResolver
         return new ThreadTurn(
                 id, threadId, taskId, ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING,
                 "input", now, now, now, null, null, TurnInitiator.user(),
-                stageId, ThreadScope.of(taskId, stageId));
+                stageId, stageId == null
+                        ? (taskId == null ? ThreadScope.TRUNK : ThreadScope.TASK)
+                        : ThreadScope.STAGE);
     }
 }

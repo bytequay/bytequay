@@ -21,14 +21,20 @@ import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.threads.PlanKickoffRequested;
+import com.bytequay.app.service.threads.TaskPhaseTransitionedEvent;
+import com.bytequay.app.service.threads.ThreadStartupReconciler;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.annotation.Order;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -39,8 +45,9 @@ import static org.mockito.Mockito.when;
 
 /**
  * The startup planning reconcile: a live PLANNING task with no stages at
- * all gets exactly one PlanStage + one planning kickoff; a task that
- * already has any stage, or is stopped, is left alone.
+ * all gets exactly one PlanStage + one planning kickoff; an existing
+ * PlanStage still replays the idempotent kickoff, while stopped tasks stay
+ * untouched.
  */
 class TestStageLifecyclePlanningReconcile
 {
@@ -69,7 +76,7 @@ class TestStageLifecyclePlanningReconcile
     }
 
     @Test
-    void taskWithAnyStageIsLeftAlone()
+    void taskWithExistingPlanStageReplaysKickoffWithoutOpeningAnotherStage()
     {
         Task task = planningTask("task-2", TaskStatus.IDLE);
         when(taskStore.listByPhases(anyList(), anyInt())).thenReturn(List.of(task));
@@ -78,7 +85,7 @@ class TestStageLifecyclePlanningReconcile
         lifecycle.reconcilePlanningTasksOnStartup();
 
         verify(stageMachine, never()).ensurePhaseOpen(any(), any(), any());
-        verify(events, never()).publishEvent(any(PlanKickoffRequested.class));
+        verify(events).publishEvent(new PlanKickoffRequested("task-2", "do the thing", null));
     }
 
     @Test
@@ -91,6 +98,40 @@ class TestStageLifecyclePlanningReconcile
 
         verify(stageMachine, never()).ensurePhaseOpen(any(), any(), any());
         verify(events, never()).publishEvent(any(PlanKickoffRequested.class));
+    }
+
+    @Test
+    void returningToPlanningReplaysKickoff()
+    {
+        when(stageStore.findActiveStage("task-recover"))
+                .thenReturn(Optional.of(stage("task-recover")));
+
+        lifecycle.onPhaseTransition(new TaskPhaseTransitionedEvent(
+                "task-recover", TaskPhase.NEEDS_ATTENTION, TaskPhase.PLANNING,
+                "recovered"));
+
+        verify(events).publishEvent(
+                new PlanKickoffRequested("task-recover", null, null));
+    }
+
+    @Test
+    void staleRuntimeRecoveryFinishesBeforePlanningReplay()
+            throws NoSuchMethodException
+    {
+        int threadCleanup = startupOrder(
+                ThreadStartupReconciler.class, "reconcileOnStartup");
+        int turnRecovery = startupOrder(AgentScheduler.class, "recoverQueuedTurns");
+        int planningReplay = startupOrder(
+                StageLifecycle.class, "reconcilePlanningTasksOnStartup");
+
+        assertThat(threadCleanup).isLessThan(turnRecovery);
+        assertThat(turnRecovery).isLessThan(planningReplay);
+    }
+
+    private static int startupOrder(Class<?> type, String method)
+            throws NoSuchMethodException
+    {
+        return type.getMethod(method).getAnnotation(Order.class).value();
     }
 
     private static Task planningTask(String id, TaskStatus status)

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.concepts;
 
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.AgentToolRegistry;
 import com.bytequay.app.service.tools.PermissionResolver;
@@ -87,7 +88,7 @@ class TestConceptToolHandlers
 
     private static ToolCall call()
     {
-        return new ToolCall("thread-1", mapper().createObjectNode(), AgentRole.TRUNK);
+        return new ToolCall(ThreadScope.TRUNK, "thread-1", mapper().createObjectNode(), AgentRole.TRUNK);
     }
 
     private static ObjectMapper mapper()

@@ -136,7 +136,7 @@ public class LocalCiFixExecutor
             return false;
         }
         try {
-            String turnId = scheduler.enqueueTaskTurn(
+            String turnId = scheduler.enqueueStageTurn(
                     thread, buildPrompt(failures), task.id(), stageId,
                     TurnInitiator.unattended("local-ci-fix"), run.id(), TurnLiveness.CODE);
             agentRuns.recordIteration(run.id(), headline(failures));

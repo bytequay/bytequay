@@ -36,11 +36,9 @@ import java.time.Instant;
  * {@code costUsdMilli} are populated for the rows where they apply
  * (tool calls, turn completions) and {@code null} elsewhere.
  *
- * <p>{@code taskId} is the focused Task at the time this row was
- * written. {@code null} marks a trunk planning row — talk that
- * happens at the Thread level with no task focused. The Task slice
- * for a thread is {@code WHERE task_id = :task}; the trunk is
- * {@code WHERE task_id IS NULL}.
+ * <p>{@code scope} is authoritative. {@code taskId} and {@code stageId}
+ * are identifiers required or forbidden by that declared scope; their
+ * nullability must never be used to decide what kind of row this is.
  */
 public record ThreadMessage(
         String id,
@@ -60,33 +58,27 @@ public record ThreadMessage(
         /** Explicit TRUNK | TASK | STAGE discriminator (see {@link ThreadScope}). */
         ThreadScope scope)
 {
-    /** Legacy constructor for callers (and rows) that predate the explicit
-     *  scope/stage_id fields. Derives the scope from the ids; the owning
-     *  agent stamps the stage afterward via {@link #withStageScope}. */
-    public ThreadMessage(
-            String id,
-            String threadId,
-            String taskId,
-            long seq,
-            String role,
-            String type,
-            String contentJson,
-            Long durationMs,
-            Long tokensIn,
-            Long tokensOut,
-            Long costUsdMilli,
-            Instant ts)
+    public ThreadMessage
     {
-        this(id, threadId, taskId, seq, role, type, contentJson, durationMs,
-                tokensIn, tokensOut, costUsdMilli, ts,
-                /* stageId */ null, ThreadScope.of(taskId, null));
-    }
-
-    /** A copy carrying the explicit stage_id + scope, stamped by the agent
-     *  for the turn it is emitting under. */
-    public ThreadMessage withStageScope(String stageId, ThreadScope scope)
-    {
-        return new ThreadMessage(id, threadId, taskId, seq, role, type, contentJson,
-                durationMs, tokensIn, tokensOut, costUsdMilli, ts, stageId, scope);
+        if (scope == null) {
+            throw new IllegalArgumentException("message scope is null");
+        }
+        switch (scope) {
+            case TRUNK -> {
+                if (taskId != null || stageId != null) {
+                    throw new IllegalArgumentException("TRUNK message forbids taskId and stageId");
+                }
+            }
+            case TASK -> {
+                if (taskId == null || stageId != null) {
+                    throw new IllegalArgumentException("TASK message requires taskId and forbids stageId");
+                }
+            }
+            case STAGE -> {
+                if (taskId == null || stageId == null) {
+                    throw new IllegalArgumentException("STAGE message requires taskId and stageId");
+                }
+            }
+        }
     }
 }

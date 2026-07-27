@@ -15,6 +15,7 @@ package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.review.BrainReviewService;
 import org.springframework.stereotype.Component;
 
@@ -62,13 +63,13 @@ public class BrainReviewToolHandlers
             kinds = ThreadKind.BRAIN_AGENT)
     public ToolOutcome recordReviewVerdict(RecordReviewVerdictArgs args, ToolCall call)
     {
-        String taskId = call.taskId();
-        if (taskId == null || taskId.isBlank()) {
+        if (call.scope() == ThreadScope.TRUNK) {
             return ToolOutcome.Completed.error("no active task on this thread");
         }
-        if (call.stageId() == null) {
+        if (call.scope() != ThreadScope.STAGE) {
             return ToolOutcome.Completed.error("this tool needs a stage-scoped turn");
         }
+        String taskId = call.requireTaskId();
         if (args == null || args.scope() == null || !SCOPES.contains(args.scope())) {
             return ToolOutcome.Completed.error("scope must be one of " + SCOPES);
         }
@@ -77,7 +78,7 @@ public class BrainReviewToolHandlers
             return ToolOutcome.Completed.error("verdict must be 'approved' or 'changes_requested'");
         }
         brainReview.recordVerdict(
-                taskId, call.stageId(), call.agentRunId(), args.scope(), args.verdict());
+                taskId, call.requireStageId(), call.agentRunId(), args.scope(), args.verdict());
         return ToolOutcome.Completed.ok("recorded " + args.verdict() + " (" + args.scope() + ")");
     }
 }

@@ -89,7 +89,8 @@ public class CascadingPermissionResolver
     public RunningScope runningScope(String threadId, String agentKey)
     {
         return runningTurn(threadId, agentKey)
-                .map(turn -> new RunningScope(turn.taskId(), turn.stageId(), turn.agentRunId()))
+                .map(turn -> new RunningScope(
+                        turn.scope(), turn.taskId(), turn.stageId(), turn.agentRunId()))
                 .orElse(RunningScope.NONE);
     }
 
@@ -118,8 +119,8 @@ public class CascadingPermissionResolver
 
         // Task-scoped denies target the task the running turn belongs to —
         // the same stamped fact that drives the role.
-        turn.map(ThreadTurn::taskId)
-                .filter(id -> id != null && !id.isBlank())
+        turn.filter(value -> value.scope() != ThreadScope.TRUNK)
+                .map(ThreadTurn::requireTaskId)
                 .ifPresent(taskId -> applyDenials(effective, grantStore.findForScope("task", taskId)));
 
         return ImmutableSet.copyOf(effective);
@@ -129,13 +130,10 @@ public class CascadingPermissionResolver
      * The in-flight turn whose stamped scope + task id are the authoritative
      * role and task target for this resolution.
      *
-     * <p>When {@code agentKey} is null the resolver returns the thread's
-     * first RUNNING turn — the legacy single-agent behaviour, unchanged.
-     * When {@code agentKey} is given (concurrent stage agents on one thread),
-     * the RUNNING turns are filtered to the one this agent connects under:
-     * {@link PermissionResolver#TRUNK_AGENT_KEY} selects the trunk turn
-     * (task_id null), any other key selects the turn whose registry stage
-     * key ({@code stage_id}, else {@code task_id}) equals it. Filtering is
+     * <p>The explicit {@code agentKey} selects one Task/trunk runtime.
+     * RUNNING turns are filtered to the one this agent connects under:
+     * {@link PermissionResolver#TRUNK_AGENT_KEY} selects the trunk turn;
+     * any other key selects the turn owned by that Task. Filtering is
      * done in memory over the thread's RUNNING turns — at most a handful
      * with the CLI lane cap of 4.
      */
@@ -147,19 +145,17 @@ public class CascadingPermissionResolver
         List<ThreadTurn> running = turnStore.listTurnsByTaskIdAndStatus(
                 threadId, ThreadTurnStatus.RUNNING, RUNNING_TURN_SCAN_LIMIT);
         if (agentKey == null || agentKey.isBlank()) {
-            return running.stream().findFirst();
+            throw new IllegalArgumentException("agentKey is required");
         }
         return running.stream()
                 .filter(turn -> agentKey.equals(agentKeyOf(turn)))
                 .findFirst();
     }
 
-    /** The registry stage key a running turn connects under — the same
-     *  derivation the scheduler's run gate and the MCP URL use: stage id,
-     *  else task id, else the reserved trunk key for a task-less turn. */
+    /** The task-owned runtime key a running turn connects under. */
     private static String agentKeyOf(ThreadTurn turn)
     {
-        return PermissionResolver.agentKeyFor(turn.taskId(), turn.stageId());
+        return PermissionResolver.agentKeyFor(turn.scope(), turn.taskId());
     }
 
     /** TRUNK for a trunk-scoped (planning) turn, TASK for task- or

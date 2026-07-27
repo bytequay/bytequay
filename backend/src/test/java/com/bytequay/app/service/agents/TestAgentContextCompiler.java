@@ -200,6 +200,7 @@ class TestAgentContextCompiler
         return new ThreadTurn(
                 "turn-1", "thread-1", taskId, ThreadResourceLane.CLI,
                 ThreadTurnStatus.QUEUED, "implement", now, now, null, null, null,
-                TurnInitiator.user(), null, ThreadScope.of(taskId, null));
+                TurnInitiator.user(), null,
+                taskId == null ? ThreadScope.TRUNK : ThreadScope.TASK);
     }
 }

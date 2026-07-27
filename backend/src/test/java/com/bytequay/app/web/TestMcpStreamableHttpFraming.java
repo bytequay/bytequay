@@ -52,7 +52,7 @@ class TestMcpStreamableHttpFraming
     {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        JsonNode body = await(controller.handle("thread-xyz",
+        JsonNode body = await(controller.handle("thread-xyz", "trunk",
                 mapper.readTree("{\"jsonrpc\":\"2.0\",\"method\":\"" + method + "\"}"),
                 response));
 
@@ -69,7 +69,7 @@ class TestMcpStreamableHttpFraming
     {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        JsonNode body = await(controller.handle("thread-xyz",
+        JsonNode body = await(controller.handle("thread-xyz", "trunk",
                 mapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
                         + "\"params\":{\"protocolVersion\":\"2024-11-05\"}}"),
                 response));
@@ -90,7 +90,7 @@ class TestMcpStreamableHttpFraming
         // downgraded to 202 — only notifications/* are.
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        JsonNode body = await(controller.handle("thread-xyz",
+        JsonNode body = await(controller.handle("thread-xyz", "trunk",
                 mapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}"),
                 response));
 

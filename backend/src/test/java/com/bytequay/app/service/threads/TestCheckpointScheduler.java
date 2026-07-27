@@ -21,6 +21,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
@@ -269,7 +270,7 @@ class TestCheckpointScheduler
                 /* tokensIn */ tokens / 2,
                 /* tokensOut */ tokens - tokens / 2,
                 /* costUsdMilli */ 1L,
-                Instant.ofEpochMilli(seq * 1000L));
+                Instant.ofEpochMilli(seq * 1000L), null, ThreadScope.TRUNK);
     }
 
     private static ThreadCheckpoint seg(

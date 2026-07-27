@@ -81,7 +81,8 @@ class TestSqliteThreadStore
         // A trunk row for contrast — stays in the per-thread log.
         store.appendMessage(new ThreadMessage(
                 UUID.randomUUID().toString(), thread.id(), null, 0L,
-                "user", "text", "trunk row", null, null, null, 0L, ts));
+                "user", "text", "trunk row", null, null, null, 0L, ts,
+                null, ThreadScope.TRUNK));
 
         // The stage row landed in the decoupled stage_messages store …
         assertThat(store.listStageMessages(stageId)).extracting(ThreadMessage::contentJson)
@@ -556,6 +557,7 @@ class TestSqliteThreadStore
                 /* tokensIn */ null,
                 /* tokensOut */ null,
                 /* costUsdMilli */ null,
-                Instant.parse("2026-05-15T12:00:00Z").plusSeconds(seq));
+                Instant.parse("2026-05-15T12:00:00Z").plusSeconds(seq),
+                null, ThreadScope.TRUNK);
     }
 }

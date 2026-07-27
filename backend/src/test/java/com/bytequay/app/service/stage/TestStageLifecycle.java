@@ -35,6 +35,7 @@ import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationEventPublisher;
@@ -47,6 +48,10 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Drives a Task through its phase walk against the real
@@ -90,6 +95,29 @@ class TestStageLifecycle
         events.publishEvent(new TaskCreatedEvent(taskId));
         assertThat(stagesOfType(taskId, StageType.PLAN_STAGE)).hasSize(1);
         assertThat(stageStore.findStagesByTask(taskId)).hasSize(1);
+    }
+
+    @Test
+    void taskCreationOpensPlanStageBeforePublishingPlanningKickoff()
+    {
+        StageStore stages = mock(StageStore.class);
+        StageStateMachine stageMachine = mock(StageStateMachine.class);
+        TaskStore tasks = mock(TaskStore.class);
+        ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
+        StageInstance opened = mock(StageInstance.class);
+        when(stages.findStagesByTask("task-order")).thenReturn(List.of());
+        when(stageMachine.ensurePhaseOpen("task-order", StageType.PLAN_STAGE, null))
+                .thenReturn(opened);
+
+        ObjectNode trunkPlan = new ObjectMapper().createObjectNode().put("status", "finalized");
+        new StageLifecycle(stages, stageMachine, tasks, publisher).onTaskCreated(
+                new TaskCreatedEvent("task-order", "fix it", trunkPlan, true));
+
+        InOrder order = inOrder(stageMachine, publisher);
+        order.verify(stageMachine).ensurePhaseOpen("task-order", StageType.PLAN_STAGE, null);
+        order.verify(publisher).publishEvent(
+                new PlanKickoffRequested("task-order", "fix it", trunkPlan));
+        verify(opened).id();
     }
 
     @Test

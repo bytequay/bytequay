@@ -14,14 +14,19 @@
 package com.bytequay.app.service.brain;
 
 import com.bytequay.app.beans.brain.BrainMessageResponse;
+import com.bytequay.app.domain.StageEvent;
+import com.bytequay.app.domain.StageEventType;
+import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ids.IdGenerator;
@@ -39,6 +44,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -58,13 +64,15 @@ class TestBrainService
 
     private final TaskStore taskStore = mock(TaskStore.class);
     private final ThreadStore threadStore = mock(ThreadStore.class);
+    private final StageStore stageStore = mock(StageStore.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final IdGenerator idGenerator = mock(IdGenerator.class);
     private final WorkModelResolver workModelResolver = mock(WorkModelResolver.class);
     private final ChatAttachmentStore attachmentStore = new ChatAttachmentStore();
 
     private final BrainServiceImpl service = new BrainServiceImpl(
-            taskStore, threadStore, scheduler, idGenerator, workModelResolver, attachmentStore, new ObjectMapper());
+            taskStore, threadStore, stageStore, scheduler, idGenerator,
+            workModelResolver, attachmentStore, new ObjectMapper());
 
     @BeforeEach
     void resolveBrainToTheParentThreadDefault()
@@ -74,6 +82,9 @@ class TestBrainService
                 new WorkModelResolver.Resolved(choice,
                         new WorkModelResolver.Provenance(
                                 WorkModelResolver.Source.THREAD, DEV_THREAD, DEV_THREAD)));
+        StageInstance plan = mock(StageInstance.class);
+        when(plan.id()).thenReturn(UUID.fromString("11111111-1111-1111-1111-111111111111"));
+        when(stageStore.findActiveStage(anyString())).thenReturn(Optional.of(plan));
     }
 
     @Test
@@ -88,7 +99,8 @@ class TestBrainService
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
         when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-1");
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+                .thenReturn("turn-1");
 
         BrainMessageResponse out = service.sendMessage(TASK_ID, "How many pushes?", null);
 
@@ -98,7 +110,8 @@ class TestBrainService
         assertThat(saved.getValue().kind()).isEqualTo(ThreadKind.BRAIN_AGENT);
         assertThat(saved.getValue().parentTaskId()).isEqualTo(TASK_ID);
         // The answering turn was enqueued on that thread.
-        verify(scheduler).enqueueTurn(eq(saved.getValue()), eq("How many pushes?"), any());
+        verify(scheduler).enqueueTaskTurn(
+                eq(saved.getValue()), eq("How many pushes?"), eq(TASK_ID), any(), any(), any());
         assertThat(out.turnId()).isEqualTo("turn-1");
         assertThat(out.brainThreadId()).isEqualTo("ws-default.brain-1");
     }
@@ -115,7 +128,8 @@ class TestBrainService
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
         when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-1");
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+                .thenReturn("turn-1");
         // The parent thread explicitly selects Codex and leaves its model to
         // the CLI default.
         WorkModelResolver.Resolved resolved = mock(WorkModelResolver.Resolved.class);
@@ -142,7 +156,8 @@ class TestBrainService
         Thread existing = mock(Thread.class);
         when(existing.id()).thenReturn("ws-default.brain-existing");
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(existing));
-        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-2");
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+                .thenReturn("turn-2");
 
         BrainMessageResponse out = service.sendMessage(TASK_ID, "again", null);
 
@@ -162,7 +177,9 @@ class TestBrainService
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
         when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("plan-turn-1");
+        when(scheduler.enqueueStageTurnOnce(
+                anyString(), any(), anyString(), anyString(), anyString(), any(), any(), any()))
+                .thenReturn("plan-turn-1");
 
         service.onPlanKickoff(new PlanKickoffRequested(TASK_ID, "fix the flaky retry test", null));
 
@@ -172,7 +189,11 @@ class TestBrainService
         verify(threadStore).saveThread(saved.capture());
         assertThat(saved.getValue().kind()).isEqualTo(ThreadKind.BRAIN_AGENT);
         ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(scheduler).enqueueTurn(eq(saved.getValue()), prompt.capture(), any());
+        verify(scheduler).enqueueStageTurnOnce(
+                eq("plan-kickoff:" + TASK_ID
+                        + ":11111111-1111-1111-1111-111111111111:1"),
+                eq(saved.getValue()), prompt.capture(),
+                eq(TASK_ID), any(), any(), any(), any());
         assertThat(prompt.getValue())
                 .contains("fix the flaky retry test")
                 .contains("at most two")
@@ -183,6 +204,30 @@ class TestBrainService
                 .contains("After record_plan succeeds, do not restate or summarize the plan")
                 .contains("Plan recorded; Brain self-review is starting.")
                 .contains("If record_plan fails, instead report the failure concisely");
+    }
+
+    @Test
+    void planFailureAllowsANewKickoffAttempt()
+    {
+        Task task = mock(Task.class);
+        when(task.id()).thenReturn(TASK_ID);
+        when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
+        Thread existing = mock(Thread.class);
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(existing));
+        UUID stageId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        StageInstance plan = mock(StageInstance.class);
+        when(plan.id()).thenReturn(stageId);
+        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(plan));
+        when(stageStore.findEventsByStage(stageId)).thenReturn(List.of(
+                new StageEvent(UUID.randomUUID(), stageId, TASK_ID,
+                        StageEventType.PLAN_FAILED, Instant.now(), "{}")));
+
+        service.onPlanKickoff(new PlanKickoffRequested(TASK_ID, "try again", null));
+
+        verify(scheduler).enqueueStageTurnOnce(
+                eq("plan-kickoff:" + TASK_ID + ":" + stageId + ":2"),
+                eq(existing), anyString(), eq(TASK_ID), eq(stageId.toString()),
+                any(), any(), any());
     }
 
     @Test
@@ -203,7 +248,9 @@ class TestBrainService
         when(threadStore.listMessages(DEV_THREAD)).thenReturn(List.of(
                 msg(1, "user", "{\"text\":\"let's tidy the AssertJ nits\"}", cut.minusSeconds(60)),
                 msg(2, "assistant", "{\"text\":\"Got it — cutting the task.\"}", cut.minusSeconds(30))));
-        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("plan-turn-1");
+        when(scheduler.enqueueStageTurnOnce(
+                anyString(), any(), anyString(), anyString(), anyString(), any(), any(), any()))
+                .thenReturn("plan-turn-1");
 
         service.onPlanKickoff(new PlanKickoffRequested(TASK_ID, "tidy nits", null));
 
@@ -222,7 +269,7 @@ class TestBrainService
     {
         return new ThreadMessage(
                 "m" + seq, DEV_THREAD, null, seq, role, "text", contentJson,
-                null, null, null, null, ts);
+                null, null, null, null, ts, null, ThreadScope.TRUNK);
     }
 
     @Test
@@ -240,7 +287,8 @@ class TestBrainService
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
         when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("summary-turn-1");
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+                .thenReturn("summary-turn-1");
 
         service.onTaskCompleted(
                 new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.COMPLETED, "pr_merged"));
@@ -249,7 +297,8 @@ class TestBrainService
         verify(threadStore).saveThread(saved.capture());
         assertThat(saved.getValue().kind()).isEqualTo(ThreadKind.BRAIN_AGENT);
         ArgumentCaptor<TurnInitiator> initiator = ArgumentCaptor.forClass(TurnInitiator.class);
-        verify(scheduler).enqueueTurn(eq(saved.getValue()), anyString(), initiator.capture());
+        verify(scheduler).enqueueTaskTurn(
+                eq(saved.getValue()), anyString(), eq(TASK_ID), initiator.capture(), any(), any());
         assertThat(initiator.getValue().attended()).isFalse();
         verify(taskStore).setPendingCompletionSummaryTurnId(TASK_ID, "summary-turn-1");
     }
@@ -268,13 +317,15 @@ class TestBrainService
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
         when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("summary-turn-1");
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+                .thenReturn("summary-turn-1");
 
         service.onTaskCompleted(
                 new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.COMPLETED, "pr_merged"));
 
         ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(scheduler).enqueueTurn(any(), prompt.capture(), any());
+        verify(scheduler).enqueueTaskTurn(
+                any(), prompt.capture(), eq(TASK_ID), any(), any(), any());
         assertThat(prompt.getValue()).contains("#30").contains("was merged");
     }
 
@@ -286,7 +337,8 @@ class TestBrainService
         service.onTaskCompleted(
                 new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.COMPLETED, "pr_merged"));
 
-        verify(scheduler, never()).enqueueTurn(any(), anyString(), any());
+        verify(scheduler, never()).enqueueTaskTurn(
+                any(), anyString(), anyString(), any(), any(), any());
     }
 
     @Test
@@ -301,7 +353,8 @@ class TestBrainService
         when(devThread.workspaceId()).thenReturn("ws-default");
         when(threadStore.findThreadById(DEV_THREAD)).thenReturn(Optional.of(devThread));
         when(idGenerator.newThreadId(any())).thenReturn("ws-default.brain-1");
-        when(scheduler.enqueueTurn(any(), anyString(), any())).thenThrow(new RuntimeException("scheduler busy"));
+        when(scheduler.enqueueTaskTurn(any(), anyString(), anyString(), any(), any(), any()))
+                .thenThrow(new RuntimeException("scheduler busy"));
 
         service.onTaskCompleted(
                 new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.AWAITING_REMOTE_REVIEW, TaskPhase.COMPLETED, "pr_merged"));
@@ -316,7 +369,8 @@ class TestBrainService
         service.onTaskCompleted(
                 new TaskPhaseTransitionedEvent(TASK_ID, TaskPhase.IMPLEMENTING, TaskPhase.VALIDATING, "x"));
 
-        verify(scheduler, never()).enqueueTurn(any(), anyString(), any());
+        verify(scheduler, never()).enqueueTaskTurn(
+                any(), anyString(), anyString(), any(), any(), any());
     }
 
     @Test

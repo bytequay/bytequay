@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads.tools;
 
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.tools.AgentToolRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -40,7 +41,8 @@ class TestReadFileTool
         Files.writeString(workingDir.resolve("hello.txt"), "Hi from the tool", StandardCharsets.UTF_8);
 
         AgentTool.Result result = tool.invoke(input("hello.txt"),
-                new AgentToolContext("thread-1", null, workingDir));
+                new AgentToolContext("thread-1", ThreadScope.TRUNK,
+                        null, workingDir, null, null, null, null));
 
         assertThat(result.isError()).isFalse();
         assertThat(result.text()).isEqualTo("Hi from the tool");
@@ -50,7 +52,8 @@ class TestReadFileTool
     void refusesPathsThatEscapeTheWorkingDir(@TempDir Path workingDir)
     {
         AgentTool.Result result = tool.invoke(input("../../etc/passwd"),
-                new AgentToolContext("thread-1", null, workingDir));
+                new AgentToolContext("thread-1", ThreadScope.TRUNK,
+                        null, workingDir, null, null, null, null));
 
         // No accidental file serve outside the sandbox even on the
         // read path — the tool reports an error and the model can
@@ -63,7 +66,8 @@ class TestReadFileTool
     void rejectsMissingPathArgument(@TempDir Path workingDir)
     {
         AgentTool.Result result = tool.invoke(mapper.createObjectNode(),
-                new AgentToolContext("thread-1", null, workingDir));
+                new AgentToolContext("thread-1", ThreadScope.TRUNK,
+                        null, workingDir, null, null, null, null));
 
         assertThat(result.isError()).isTrue();
         assertThat(result.text()).containsIgnoringCase("path");
@@ -73,7 +77,8 @@ class TestReadFileTool
     void returnsAClearErrorWhenTheFileIsMissing(@TempDir Path workingDir)
     {
         AgentTool.Result result = tool.invoke(input("nope.txt"),
-                new AgentToolContext("thread-1", null, workingDir));
+                new AgentToolContext("thread-1", ThreadScope.TRUNK,
+                        null, workingDir, null, null, null, null));
 
         assertThat(result.isError()).isTrue();
         assertThat(result.text()).contains("No such file");

@@ -17,6 +17,7 @@ import com.bytequay.app.domain.KnowledgeItem;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -141,7 +142,7 @@ class TestProjectIntelligenceToolHandlers
     {
         ToolOutcome.Completed outcome = (ToolOutcome.Completed) handlers.exploreProject(
                 new ProjectIntelligenceToolHandlers.ExploreProjectArgs(question),
-                new ToolCall("thread-1", null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, "thread-1", null, AgentRole.TRUNK));
         assertThat(outcome.isError()).isFalse();
         return mapper.readTree(outcome.text());
     }

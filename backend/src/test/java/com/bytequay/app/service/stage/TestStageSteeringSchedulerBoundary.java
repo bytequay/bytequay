@@ -33,7 +33,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.runs.AgentRunService;
-import com.bytequay.app.service.threads.StageAgent;
+import com.bytequay.app.service.threads.TaskAgent;
 import com.bytequay.app.service.threads.ThreadRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -82,14 +82,14 @@ class TestStageSteeringSchedulerBoundary
         String workingDir = System.getProperty("user.dir");
         String taskId = seedTask(workingDir);
         StageInstance stage = stages.openStage(taskId, StageType.CI_FIXING_STAGE, null);
-        StageAgent agent = mock(StageAgent.class);
+        TaskAgent agent = mock(TaskAgent.class);
         CompletableFuture<Void> completion = new CompletableFuture<>();
         CountDownLatch dispatched = new CountDownLatch(1);
         AtomicReference<Throwable> dispatchFailure = new AtomicReference<>();
         WorkModel workModel = new WorkModel(WorkModelKind.CLI, "claude-code", null, null);
         when(registry.resolvedWorkModel(any())).thenReturn(workModel);
         when(registry.resolvedWorkModelForTurn(any(), any(), anyString())).thenReturn(workModel);
-        when(registry.getOrCreateStageAgent(any(), any(), anyString())).thenReturn(agent);
+        when(registry.getOrCreateTaskAgent(any(), any(), anyString())).thenReturn(agent);
         when(agent.workingDir()).thenReturn(workingDir);
         when(agent.metrics()).thenReturn(AgentMetrics.empty());
         when(agent.send(anyString())).thenAnswer(invocation -> {

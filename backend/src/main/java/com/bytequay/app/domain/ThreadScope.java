@@ -32,14 +32,5 @@ public enum ThreadScope
 {
     TRUNK,
     TASK,
-    STAGE;
-
-    /** Derive the scope from the ids a turn/message carries. */
-    public static ThreadScope of(String taskId, String stageId)
-    {
-        if (taskId == null || taskId.isBlank()) {
-            return TRUNK;
-        }
-        return stageId != null && !stageId.isBlank() ? STAGE : TASK;
-    }
+    STAGE
 }

@@ -57,6 +57,7 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -150,13 +151,9 @@ public class AgentScheduler
     // local CI should run as part of the round.
     private final ConcurrentHashMap<String, String> headBaselines = new ConcurrentHashMap<>();
     private final EnumMap<ThreadResourceLane, LaneState> lanes = new EnumMap<>(ThreadResourceLane.class);
-    /** Per-agent-identity run gate: holds the agent key of every turn
-     *  currently dispatched, so two turns for the SAME agent serialize
-     *  while different stages/tasks of one thread run concurrently. The
-     *  key is the thread id for a trunk turn (one trunk agent per thread)
-     *  and the registry stage key (stage id, else task id) for a
-     *  task/stage turn — the same key the registry uses to find the live
-     *  agent. The global lane cap still bounds total concurrent agents. */
+    /** Per-agent-identity run gate. The key is the thread id for a trunk
+     *  turn and the Task id for task/stage work, so stages of one Task
+     *  serialize while sibling Tasks may run concurrently. */
     private final Set<String> runningAgentKeys = new HashSet<>();
     /** Running turns explicitly cancelled through run/task lifecycle control,
      *  with the durable reason to record. They keep their lane/agent lock
@@ -290,29 +287,6 @@ public class AgentScheduler
     }
 
     /**
-     * Queue a user turn and start it immediately when the lane has
-     * capacity. Routes to the foreground Task when one exists; sends a
-     * trunk planning turn otherwise.
-     */
-    @Override
-    public String enqueueTurn(Thread thread, String input)
-    {
-        return enqueueTurn(thread, input, TurnInitiator.user());
-    }
-
-    @Override
-    public String enqueueTurn(Thread thread, String input, TurnInitiator initiator)
-    {
-        // Route to the thread's newest active task when one exists (a thread
-        // may run several at once); otherwise a trunk planning turn. The 4-arg
-        // overload resolves the task's active stage for the turn's scope.
-        return enqueueTaskTurn(thread, input,
-                tasks.activeTasksForThread(thread.id()).stream().findFirst()
-                        .map(Task::id).orElse(null),
-                initiator);
-    }
-
-    /**
      * Queue a trunk-scope turn — forces {@code task_id = null} on the
      * row even when the thread has a foreground Task. The trunk window's
      * composer calls this so cross-task planning never pollutes a task's
@@ -325,7 +299,7 @@ public class AgentScheduler
         return enqueueTurnInternal(
                 thread, input, /* taskId */ null, /* stageId */ null,
                 TurnInitiator.user(), /* agentRunId */ null,
-                TurnLiveness.NARRATION, /* kickKey */ null);
+                TurnLiveness.NARRATION, /* kickKey */ null, ThreadScope.TRUNK);
     }
 
     @Override
@@ -334,7 +308,7 @@ public class AgentScheduler
         return enqueueTurnInternal(
                 thread, input, /* taskId */ null, /* stageId */ null,
                 requireNonNull(initiator, "initiator is null"), /* agentRunId */ null,
-                TurnLiveness.NARRATION, /* kickKey */ null);
+                TurnLiveness.NARRATION, /* kickKey */ null, ThreadScope.TRUNK);
     }
 
     @Override
@@ -343,19 +317,10 @@ public class AgentScheduler
         return enqueueTurnInternal(
                 thread, input, /* taskId */ null, /* stageId */ null,
                 TurnInitiator.user(), agentRunId,
-                TurnLiveness.NARRATION, /* kickKey */ null);
+                TurnLiveness.NARRATION, /* kickKey */ null, ThreadScope.TRUNK);
     }
 
-    /**
-     * Queue an attended task-scope turn bound to an explicit {@code
-     * taskId} the caller resolved (active-or-latest), rather than
-     * re-deriving it from {@link Thread#activeTask()}. The task composer
-     * uses this so a turn lands on its task even when that task is parked
-     * / awaiting review / phase-complete — states the active-task
-     * projection drops to null, which would otherwise stamp the row
-     * {@code task_id = null} and surface it in the trunk slice. A null
-     * {@code taskId} falls through to a trunk turn.
-     */
+    /** Queue an attended, explicitly task-scoped turn. */
     @Override
     public String enqueueTaskTurn(Thread thread, String input, String taskId)
     {
@@ -365,67 +330,91 @@ public class AgentScheduler
     @Override
     public String enqueueTaskTurn(Thread thread, String input, String taskId, TurnInitiator initiator)
     {
-        // No explicit stage: resolve the task's active stage so the turn (and
-        // its messages) carry a stage_id + scope rather than leaving stage
-        // attribution to a time window. A trunk turn (no task) stays stage-less.
-        String stageId = taskId == null || taskId.isBlank()
-                ? null
-                : stages.findActiveStage(taskId).map(s -> s.id().toString()).orElse(null);
-        // Attended composer/steering turns are the dev agent doing the
-        // user's code work — task-runtime liveness by definition.
+        requireScopeId(taskId, "taskId");
         return enqueueTurnInternal(
-                thread, input, taskId, stageId, initiator, null,
-                TurnLiveness.CODE, /* kickKey */ null);
+                thread, input, taskId, null, initiator, null,
+                TurnLiveness.CODE, /* kickKey */ null, ThreadScope.TASK);
     }
 
     @Override
     public String enqueueTaskTurn(
-            Thread thread, String input, String taskId, String stageId, TurnInitiator initiator)
+            Thread thread, String input, String taskId, TurnInitiator initiator,
+            String agentRunId, TurnLiveness liveness)
     {
-        // Caller pins the stage explicitly (automation/iteration turns whose
-        // stage is known) — bypass findActiveStage so the turn is stage-scoped
-        // even if the active-stage projection is momentarily empty. A turn that
-        // carries a stage_id writes to stage_messages, never the thread slice.
+        requireScopeId(taskId, "taskId");
         return enqueueTurnInternal(
-                thread, input, taskId, stageId, initiator, null,
-                TurnLiveness.CODE, /* kickKey */ null);
-    }
-
-    @Override
-    public String enqueueTaskTurn(
-            Thread thread, String input, String taskId, String stageId,
-            TurnInitiator initiator, String agentRunId)
-    {
-        return enqueueTurnInternal(
-                thread, input, taskId, stageId, initiator, agentRunId,
-                TurnLiveness.CODE, /* kickKey */ null);
-    }
-
-    @Override
-    public String enqueueTaskTurn(
-            Thread thread, String input, String taskId, String stageId,
-            TurnInitiator initiator, String agentRunId, TurnLiveness liveness)
-    {
-        return enqueueTurnInternal(
-                thread, input, taskId, stageId, initiator, agentRunId,
-                requireNonNull(liveness, "liveness is null"), /* kickKey */ null);
+                thread, input, taskId, null, initiator, agentRunId,
+                requireNonNull(liveness, "liveness is null"), /* kickKey */ null,
+                ThreadScope.TASK);
     }
 
     @Override
     public String enqueueTaskTurnOnce(
+            String kickKey, Thread thread, String input, String taskId,
+            TurnInitiator initiator, String agentRunId, TurnLiveness liveness)
+    {
+        requireNonNull(kickKey, "kickKey is null");
+        requireScopeId(taskId, "taskId");
+        return enqueueTurnInternal(
+                thread, input, taskId, null, initiator, agentRunId,
+                requireNonNull(liveness, "liveness is null"), kickKey,
+                ThreadScope.TASK);
+    }
+
+    @Override
+    public String enqueueStageTurn(
+            Thread thread, String input, String taskId, String stageId, TurnInitiator initiator)
+    {
+        requireScopeId(taskId, "taskId");
+        requireScopeId(stageId, "stageId");
+        return enqueueTurnInternal(
+                thread, input, taskId, stageId, initiator, null,
+                TurnLiveness.CODE, /* kickKey */ null, ThreadScope.STAGE);
+    }
+
+    @Override
+    public String enqueueStageTurn(
+            Thread thread, String input, String taskId, String stageId,
+            TurnInitiator initiator, String agentRunId)
+    {
+        requireScopeId(taskId, "taskId");
+        requireScopeId(stageId, "stageId");
+        return enqueueTurnInternal(
+                thread, input, taskId, stageId, initiator, agentRunId,
+                TurnLiveness.CODE, /* kickKey */ null, ThreadScope.STAGE);
+    }
+
+    @Override
+    public String enqueueStageTurn(
+            Thread thread, String input, String taskId, String stageId,
+            TurnInitiator initiator, String agentRunId, TurnLiveness liveness)
+    {
+        requireScopeId(taskId, "taskId");
+        requireScopeId(stageId, "stageId");
+        return enqueueTurnInternal(
+                thread, input, taskId, stageId, initiator, agentRunId,
+                requireNonNull(liveness, "liveness is null"), /* kickKey */ null,
+                ThreadScope.STAGE);
+    }
+
+    @Override
+    public String enqueueStageTurnOnce(
             String kickKey, Thread thread, String input, String taskId, String stageId,
             TurnInitiator initiator, String agentRunId, TurnLiveness liveness)
     {
         requireNonNull(kickKey, "kickKey is null");
+        requireScopeId(taskId, "taskId");
+        requireScopeId(stageId, "stageId");
         return enqueueTurnInternal(
                 thread, input, taskId, stageId, initiator, agentRunId,
-                requireNonNull(liveness, "liveness is null"), kickKey);
+                requireNonNull(liveness, "liveness is null"), kickKey,
+                ThreadScope.STAGE);
     }
 
     private String enqueueTurnInternal(
             Thread thread, String input, String taskId, String stageId,
             TurnInitiator initiator, String agentRunId,
-            TurnLiveness liveness, String kickKey)
+            TurnLiveness liveness, String kickKey, ThreadScope scope)
     {
         requireNonNull(thread, "thread is null");
         requireNonNull(input, "input is null");
@@ -447,11 +436,11 @@ public class AgentScheduler
         // Resolve before opening the correlated run: an invalid task/stage
         // must not leave an orphan run, and the persisted lane must match the
         // exact audience-specific runtime this turn will spawn.
-        ThreadResourceLane resourceLane = laneFor(thread, taskId, stageId);
+        ThreadResourceLane resourceLane = laneFor(thread, taskId, stageId, scope);
         String correlatedRunId = agentRunId;
         if (correlatedRunId == null && agentRuns != null) {
             correlatedRunId = agentRuns.openSchedulerSession(
-                    thread, taskId, stageId, sessionKind(thread, stageId), input).id();
+                    thread, taskId, stageId, sessionKind(thread, stageId, scope), input).id();
         }
         Instant now = Instant.now();
         ThreadTurn turn = new ThreadTurn(
@@ -468,9 +457,9 @@ public class AgentScheduler
                 /* errorMessage */ null,
                 initiator,
                 stageId,
-                ThreadScope.of(taskId, stageId),
+                requireNonNull(scope, "scope is null"),
                 correlatedRunId);
-        boolean affectsLiveness = taskId != null && liveness.affectsTask();
+        boolean affectsLiveness = scope != ThreadScope.TRUNK && liveness.affectsTask();
         ThreadTurnStore.InsertResult insert = turns.insertTurn(
                 turn, affectsLiveness, kickKey);
         if (!insert.inserted()) {
@@ -483,6 +472,13 @@ public class AgentScheduler
         publishTurnStatus(turn);
         enqueueAfterCommit(turn);
         return insert.turnId();
+    }
+
+    private static void requireScopeId(String id, String name)
+    {
+        if (id == null || id.isBlank()) {
+            throw new IllegalArgumentException(name + " is blank");
+        }
     }
 
     static boolean isLegalTurnTransition(ThreadTurnStatus from, ThreadTurnStatus to)
@@ -525,8 +521,6 @@ public class AgentScheduler
     {
         TurnInitiator initiator = turn.initiator();
         return turn.scope() == ThreadScope.STAGE
-                && turn.stageId() != null
-                && !turn.stageId().isBlank()
                 && initiator != null
                 && initiator.attended()
                 && ("steering".equals(initiator.source())
@@ -537,11 +531,11 @@ public class AgentScheduler
      *  published after commit so the handler reloads durable state. */
     private void publishTurnStatus(ThreadTurn turn)
     {
-        if (eventPublisher == null || turn.taskId() == null) {
+        if (eventPublisher == null || turn.scope() == ThreadScope.TRUNK) {
             return;
         }
         TaskTurnStatusChanged changed =
-                new TaskTurnStatusChanged(turn.taskId(), turn.id(), turn.status());
+                new TaskTurnStatusChanged(turn.requireTaskId(), turn.id(), turn.status());
         if (!deferUntilAfterCommit(() -> eventPublisher.publishEvent(changed))) {
             eventPublisher.publishEvent(changed);
         }
@@ -905,7 +899,7 @@ public class AgentScheduler
         headBaselines.remove(turn.id());
         activeContexts.remove(
                 turn.threadId(),
-                PermissionResolver.agentKeyFor(turn.taskId(), turn.stageId()));
+                PermissionResolver.agentKeyFor(turn.scope(), turn.taskId()));
 
         // Every locally dispatched turn is present in runningTurnSessions
         // until completion. No entry means this durable orphan owns no local
@@ -918,6 +912,7 @@ public class AgentScheduler
      * RUNNING turns are downgraded to QUEUED because their local
      * process/coroutine died with the previous backend.
      */
+    @Order(20)
     @EventListener(ApplicationReadyEvent.class)
     public void recoverQueuedTurns()
     {
@@ -941,11 +936,11 @@ public class AgentScheduler
     ThreadTurn recoverInterruptedTurn(ThreadTurn snapshot)
     {
         try {
-            if (snapshot.taskId() != null && taskCommands != null) {
+            if (snapshot.scope() != ThreadScope.TRUNK && taskCommands != null) {
                 return taskCommands.execute(
-                        snapshot.taskId(), () -> recoverInterruptedTurnInTransaction(snapshot.id()));
+                        snapshot.requireTaskId(), () -> recoverInterruptedTurnInTransaction(snapshot.id()));
             }
-            if (snapshot.taskId() == null && detachedTransactions != null) {
+            if (snapshot.scope() == ThreadScope.TRUNK && detachedTransactions != null) {
                 return detachedTransactions.execute(
                         ignored -> recoverInterruptedTurnInTransaction(snapshot.id()));
             }
@@ -1117,9 +1112,10 @@ public class AgentScheduler
             // A runtime turn dispatches only while it holds the task's
             // liveness pointer — queued followers stay durable and deferred
             // behind the current turn until the projection promotes them.
-            if (turn.taskId() != null
+            if (turn.scope() != ThreadScope.TRUNK
                     && turns.turnAffectsTaskLiveness(turn.id())
-                    && !turn.id().equals(tasks.currentLivenessTurnId(turn.taskId()).orElse(null))) {
+                    && !turn.id().equals(tasks.currentLivenessTurnId(
+                            turn.requireTaskId()).orElse(null))) {
                 continue;
             }
             iterator.remove();
@@ -1156,10 +1152,10 @@ public class AgentScheduler
 
     private String stoppedTaskReason(ThreadTurn turn)
     {
-        if (turn.taskId() == null || turn.taskId().isBlank()) {
+        if (turn.scope() == ThreadScope.TRUNK) {
             return null; // Trunk work is not governed by a Task row.
         }
-        Task task = tasks.findTaskById(turn.taskId()).orElse(null);
+        Task task = tasks.findTaskById(turn.requireTaskId()).orElse(null);
         if (task == null) {
             return "cancelled because task no longer exists";
         }
@@ -1225,26 +1221,31 @@ public class AgentScheduler
 
         ThreadAgent session;
         try {
-            // A brain thread always drives the TaskBrainAgent, even for a
-            // task-scoped turn like plan self-review (task_id + plan stage
-            // id both set) — the PLAN_STAGE has no per-stage CLI agent, so
-            // routing it through getOrCreateStageAgent throws. Otherwise:
-            // a trunk turn (task_id IS NULL) routes to the trunk-scope
-            // agent — no worktree lease, planning altitude; a task turn
-            // routes to the per-stage agent keyed off the turn's stamped
-            // stage id (each stage — Development, CI-fixing, Comments-
-            // addressing — gets its own fresh agent); a task-level turn
-            // with no stage falls back to keying by task id inside the
-            // registry.
+            // ThreadTurn.scope is the altitude authority. IDs are read only
+            // through its checked accessors; nullable columns are payload,
+            // never a discriminator. A stage selects the transcript scope,
+            // while the provider session remains owned by the Task.
             if (thread.kind() == ThreadKind.BRAIN_AGENT) {
+                runningTurn.requireTaskId();
                 session = sessions.getOrCreateTaskBrainAgent(thread);
             }
-            else if (runningTurn.taskId() == null) {
-                session = sessions.getOrCreateTrunkAgent(thread);
-            }
             else {
-                Task task = tasks.findTaskById(runningTurn.taskId()).orElse(null);
-                session = sessions.getOrCreateStageAgent(thread, task, runningTurn.stageId());
+                session = switch (runningTurn.scope()) {
+                    case TRUNK -> sessions.getOrCreateTrunkAgent(thread);
+                    case TASK -> {
+                        Task task = tasks.findTaskById(runningTurn.requireTaskId())
+                                .orElseThrow(() -> new NoSuchElementException(
+                                        "no task: " + runningTurn.requireTaskId()));
+                        yield sessions.getOrCreateTaskAgent(thread, task);
+                    }
+                    case STAGE -> {
+                        Task task = tasks.findTaskById(runningTurn.requireTaskId())
+                                .orElseThrow(() -> new NoSuchElementException(
+                                        "no task: " + runningTurn.requireTaskId()));
+                        yield sessions.getOrCreateTaskAgent(
+                                thread, task, runningTurn.requireStageId());
+                    }
+                };
             }
         }
         catch (RuntimeException e) {
@@ -1260,18 +1261,19 @@ public class AgentScheduler
             // turns (PlanStage / review-stage key). Point the MCP bridge at
             // this turn's active context before spawning the provider.
             session.setMcpAgentKey(PermissionResolver.agentKeyFor(
-                    runningTurn.taskId(), runningTurn.stageId()));
+                    runningTurn.scope(), runningTurn.taskId()));
             session.setActiveTask(runningTurn.taskId());
             // Tell the session which stage this turn runs under so the
             // messages it emits inherit an explicit stage_id.
             session.setActiveStage(runningTurn.stageId());
+            session.setActiveScope(runningTurn.scope());
             session.setActiveAgentRun(runningTurn.agentRunId());
             ResolvedAgentContext context = contextCompiler.resolve(
                     thread.kind(), runningTurn, stageType(runningTurn.stageId()), session.workingDir());
             session.setResolvedAgentContext(context);
             activeContexts.put(
                     runningTurn.threadId(),
-                    PermissionResolver.agentKeyFor(runningTurn.taskId(), runningTurn.stageId()),
+                    PermissionResolver.agentKeyFor(runningTurn.scope(), runningTurn.taskId()),
                     context);
             CodeGraphFirstRuntime.beginTurn(runningTurn.threadId(), agentKeyOf(runningTurn));
             usageBaselines.put(runningTurn.id(), session.metrics());
@@ -1293,9 +1295,9 @@ public class AgentScheduler
      * their detached scheduler path. */
     private ThreadTurn admitDispatch(ThreadTurn snapshot)
     {
-        if (snapshot.taskId() != null && taskCommands != null) {
+        if (snapshot.scope() != ThreadScope.TRUNK && taskCommands != null) {
             return taskCommands.execute(
-                    snapshot.taskId(), () -> admitTaskDispatchInCommand(snapshot.id()));
+                    snapshot.requireTaskId(), () -> admitTaskDispatchInCommand(snapshot.id()));
         }
         if (cancelIfTaskStopped(snapshot)) {
             return turns.findTurnById(snapshot.id()).orElse(snapshot);
@@ -1420,7 +1422,7 @@ public class AgentScheduler
                 && !cancelled && detectedCodeChanged;
         activeContexts.remove(
                 runningTurn.threadId(),
-                PermissionResolver.agentKeyFor(runningTurn.taskId(), runningTurn.stageId()));
+                PermissionResolver.agentKeyFor(runningTurn.scope(), runningTurn.taskId()));
         if (completion.applied()) {
             appendEvent(
                     finished,
@@ -1437,11 +1439,18 @@ public class AgentScheduler
         // A newly exhausted budget parks the run and suppresses the normal
         // success transition; cancelled turns still retain their usage.
         boolean budgetPaused = completion.applied() && accountRun(finished, session);
-        // Some turns are one step inside a coordinator-owned, multi-turn run.
-        // Their coordinator alone decides when live CI is green, review drafts
-        // need a gate, or the whole review episode has concluded.
+        // A Session can own several serialized turns. It stays queued while
+        // another bound turn remains, rather than becoming terminal between
+        // turns and then failing the next admission. Some coordinators also
+        // keep their Session open after the last currently queued turn.
         if (completion.applied() && !cancelled && !budgetPaused) {
-            if (coordinatorOwnsRunCompletion(finished)) {
+            if (finished.agentRunId() != null
+                    && turns.hasOtherActiveTurn(finished.agentRunId(), finished.id())) {
+                transitionRun(
+                        finished.agentRunId(), AgentRun.STATUS_QUEUED,
+                        "scheduler session continues");
+            }
+            else if (coordinatorOwnsRunCompletion(finished)) {
                 // Multi-turn owners consume the terminal turn after this
                 // checkpoint. QUEUED means the run owes its next domain step
                 // (retry, validation, or gate); it is not complete yet.
@@ -1497,7 +1506,7 @@ public class AgentScheduler
      *  just means the round won't be classified as code-changed). */
     private void captureHeadBaseline(ThreadTurn turn, ThreadAgent session)
     {
-        if (git == null || turn.taskId() == null) {
+        if (git == null || turn.scope() == ThreadScope.TRUNK) {
             return;
         }
         String workingDir = session.workingDir();
@@ -1554,17 +1563,17 @@ public class AgentScheduler
         }
     }
 
-    private String sessionKind(Thread thread, String stageId)
+    private String sessionKind(Thread thread, String stageId, ThreadScope scope)
     {
         if (thread.flow() == ThreadFlow.REVIEW) {
             return AgentRun.KIND_REVIEW;
         }
-        StageType type = stageType(stageId);
+        StageType type = scope == ThreadScope.STAGE ? stageType(stageId) : null;
         if (type == StageType.CI_FIXING_STAGE) {
             return AgentRun.KIND_CI_FIX;
         }
         if (type == StageType.PLAN_STAGE || thread.kind() == ThreadKind.BRAIN_AGENT
-                || stageId == null) {
+                || scope != ThreadScope.STAGE) {
             return AgentRun.KIND_PLAN;
         }
         if (type == StageType.REVIEW_STAGE || type == StageType.REVIEW_ROUND_STAGE) {
@@ -1631,46 +1640,28 @@ public class AgentScheduler
 
     /**
      * The run-gate key identifying the AGENT a turn dispatches to — the
-     * same key {@link ThreadRegistry} uses to find that agent. A trunk
-     * turn (no task) routes to the one-per-thread trunk agent, so it keys
-     * by thread id and stays serialized. A task/stage turn keys by its
-     * stamped stage id (each stage gets its own agent), falling back to
-     * the task id for a task-level turn with no stage. Two turns sharing
-     * a key serialize; turns for different stages/tasks of one thread do
-     * not block each other.
+     * same key {@link ThreadRegistry} uses to find that agent. Stage scope
+     * does not create a second provider session: every turn for one Task
+     * serializes on that Task's key.
      */
     private String agentKeyOf(ThreadTurn turn)
     {
-        // A Brain thread has exactly one reusable TaskBrainAgent in
-        // trunkSessions. All of its stage-scoped turns therefore share the
-        // thread key; stage-keying allowed concurrent sends to one session.
-        if (threads.findThreadById(turn.threadId())
-                .map(Thread::kind)
-                .filter(kind -> kind == ThreadKind.BRAIN_AGENT)
-                .isPresent()) {
-            return turn.threadId();
-        }
-        if (turn.taskId() == null || turn.taskId().isBlank()) {
-            return turn.threadId();
-        }
-        if (turn.stageId() != null && !turn.stageId().isBlank()) {
-            return turn.stageId();
-        }
-        return turn.taskId();
+        return turn.runtimeAgentKey();
     }
 
     /** The lane a turn belongs on, resolved at its actual trunk/task/stage
      *  audience through the same path that builds the runtime. */
-    ThreadResourceLane laneFor(Thread thread, String taskId, String stageId)
+    ThreadResourceLane laneFor(
+            Thread thread, String taskId, String stageId, ThreadScope scope)
     {
-        Task task = taskId == null || taskId.isBlank()
-                ? null
-                : tasks.findTaskById(taskId).orElse(null);
+        Task task = switch (scope) {
+            case TRUNK -> null;
+            case TASK, STAGE -> tasks.findTaskById(taskId)
+                    .orElseThrow(() -> new IllegalArgumentException("no task " + taskId));
+        };
         WorkModel resolved = sessions.resolvedWorkModelForTurn(thread, task, stageId);
-        // Compatibility for minimal Mockito registries that predate the
-        // scoped entry point; real registries never return null.
         if (resolved == null) {
-            resolved = sessions.resolvedWorkModel(thread);
+            throw new IllegalStateException("no work model for " + scope + " turn");
         }
         return resolved.kind() == WorkModelKind.CLI ? CLI : API;
     }
@@ -1779,11 +1770,11 @@ public class AgentScheduler
 
     private void publishTaskSchedulerConflict(ThreadTurn turn, String reason)
     {
-        if (eventPublisher == null || turn.taskId() == null) {
+        if (eventPublisher == null || turn.scope() == ThreadScope.TRUNK) {
             return;
         }
         TaskSchedulerConflictEvent conflict =
-                new TaskSchedulerConflictEvent(turn.taskId(), turn.id(), reason);
+                new TaskSchedulerConflictEvent(turn.requireTaskId(), turn.id(), reason);
         if (!deferUntilAfterCommit(() -> eventPublisher.publishEvent(conflict))) {
             eventPublisher.publishEvent(conflict);
         }
@@ -1811,9 +1802,8 @@ public class AgentScheduler
                 errorMessage,
                 turn.initiator(),
                 // Preserve the stamped stage id + scope across status
-                // updates — the dispatcher keys the per-stage agent off the
-                // running turn's stage id, and the running row must keep the
-                // scope so the permission resolver reads the right role.
+                // updates so transcript attribution and permission role stay
+                // attached to the authoritative turn.
                 turn.stageId(),
                 turn.scope(),
                 turn.agentRunId());

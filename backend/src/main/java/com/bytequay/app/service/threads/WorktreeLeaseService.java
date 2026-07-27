@@ -174,7 +174,7 @@ public class WorktreeLeaseService
     }
 
     /** True when the worktree is leased by a different task. Same-task
-     *  remote wakeups are reentrant: the stage session may already hold
+     *  remote wakeups are reentrant: the Task session may already hold
      *  the lease between CI/comment/guard turns. */
     public boolean isHeldByAnotherTask(String worktreePath, String taskId)
     {

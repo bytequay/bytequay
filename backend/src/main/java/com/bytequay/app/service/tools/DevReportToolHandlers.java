@@ -19,6 +19,7 @@ import com.bytequay.app.domain.DevReport.TestMapEntry;
 import com.bytequay.app.domain.DevReport.TrickySpot;
 import com.bytequay.app.domain.StageType;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.review.DevReportService;
@@ -93,10 +94,10 @@ public class DevReportToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome recordDevReport(RecordDevReportArgs args, ToolCall call)
     {
-        String taskId = call.taskId();
-        if (taskId == null || taskId.isBlank()) {
+        if (call.scope() == ThreadScope.TRUNK) {
             return ToolOutcome.Completed.error("no active task on this thread");
         }
+        String taskId = call.requireTaskId();
         if (args == null || args.summary() == null || args.summary().isBlank()) {
             return ToolOutcome.Completed.error("summary is required");
         }
@@ -124,10 +125,10 @@ public class DevReportToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome readDevReport(ReadDevReportArgs args, ToolCall call)
     {
-        String taskId = call.taskId();
-        if (taskId == null || taskId.isBlank()) {
+        if (call.scope() == ThreadScope.TRUNK) {
             return ToolOutcome.Completed.error("no active task on this thread");
         }
+        String taskId = call.requireTaskId();
         Optional<DevReport> report = devReports.find(taskId);
         if (report.isEmpty()) {
             return ToolOutcome.Completed.ok("no dev report recorded for this task");
@@ -153,10 +154,10 @@ public class DevReportToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome readDevConversation(ReadDevConversationArgs args, ToolCall call)
     {
-        String taskId = call.taskId();
-        if (taskId == null || taskId.isBlank()) {
+        if (call.scope() == ThreadScope.TRUNK) {
             return ToolOutcome.Completed.error("no active task on this thread");
         }
+        String taskId = call.requireTaskId();
         List<String> devStageIds = stageStore.findStagesByTask(taskId).stream()
                 .filter(s -> s.type() == StageType.DEVELOPMENT_STAGE)
                 .map(s -> s.id().toString())

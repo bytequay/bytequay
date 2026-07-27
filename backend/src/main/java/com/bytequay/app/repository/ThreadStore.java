@@ -175,8 +175,8 @@ public interface ThreadStore
     List<ThreadMessage> listMessages(String threadId);
 
     // ── Stage transcripts (the decoupled stage_messages store) ────────────
-    // A STAGE-scoped message has its own per-stage seq space, so concurrent
-    // per-stage agents can't collide on the thread-global (thread_id, seq).
+    // A STAGE-scoped message has its own per-stage seq space so exact-stage
+    // transcripts remain independent from the thread-global sequence.
     // These delegate to StageMessageStore; defaults are no-ops for test
     // stores that don't opt in.
 
@@ -188,7 +188,7 @@ public interface ThreadStore
     }
 
     /** Highest per-stage seq for a stage, or empty when it has none — the
-     *  seed for a stage agent's per-stage next-seq counter. */
+     *  seed for the Task agent's active-stage next-seq counter. */
     default Optional<Long> maxStageMessageSeq(String stageId)
     {
         return Optional.empty();

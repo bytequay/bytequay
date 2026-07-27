@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads.tools;
 
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.threads.LogicLoopThreadAgent;
 import com.bytequay.app.service.tools.AgentRole;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -146,8 +147,9 @@ class TestLogicLoopToolRegistryBridge
         var result = registry.find("record_review_verdict").orElseThrow().invoke(
                 input,
                 new AgentToolContext(
-                        "thread-1", "task-1", Path.of("."), null,
-                        "stage-1", ThreadKind.LOGIC_LOOP));
+                        "thread-1", ThreadScope.STAGE,
+                        "task-1", Path.of("."), null,
+                        "stage-1", null, ThreadKind.LOGIC_LOOP));
 
         assertThat(result.isError()).isTrue();
         assertThat(result.text())

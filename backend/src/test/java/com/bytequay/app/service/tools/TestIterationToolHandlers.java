@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.CiFixingLogQueryMarkerStore;
 import com.bytequay.app.service.stage.IterationService;
 import com.bytequay.app.service.stage.IterationService.CiFixingSummaryEntry;
@@ -40,7 +41,7 @@ class TestIterationToolHandlers
     private final IterationToolHandlers handlers =
             new IterationToolHandlers(iterationService, ciFixingLogMarkers);
 
-    private final ToolCall call = new ToolCall("thread-1", null, AgentRole.TASK);
+    private final ToolCall call = new ToolCall(ThreadScope.TRUNK, "thread-1", null, AgentRole.TASK);
 
     @Test
     void recordsSummaryForAValidCall()
@@ -85,7 +86,7 @@ class TestIterationToolHandlers
     }
 
     private final ToolCall taskCall =
-            new ToolCall("thread-1", null, AgentRole.TASK, "task-1", null);
+            new ToolCall(ThreadScope.TASK, "thread-1", null, AgentRole.TASK, "task-1", null);
 
     @Test
     void ciFixingLogReturnsOnlySummariesNewerThanTheMarkerAndAdvancesIt()

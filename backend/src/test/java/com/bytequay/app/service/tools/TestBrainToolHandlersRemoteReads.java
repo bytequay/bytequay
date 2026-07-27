@@ -16,6 +16,7 @@ package com.bytequay.app.service.tools;
 import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.LocalRepoService;
@@ -44,7 +45,7 @@ import static org.mockito.Mockito.when;
 class TestBrainToolHandlersRemoteReads
 {
     private static final String TASK_ID = "task-1";
-    private static final ToolCall CALL = new ToolCall(
+    private static final ToolCall CALL = new ToolCall(ThreadScope.TASK,
             "thread-1", null, AgentRole.TASK, TASK_ID, null);
 
     @Mock
@@ -132,7 +133,7 @@ class TestBrainToolHandlersRemoteReads
     {
         ToolOutcome.Completed result = completed(tools.readCiLog(
                 new ReadCiLogArgs("build"),
-                new ToolCall("thread-1", null, AgentRole.TASK)));
+                new ToolCall(ThreadScope.TRUNK, "thread-1", null, AgentRole.TASK)));
 
         assertThat(result.isError()).isTrue();
         assertThat(result.text()).contains("task-scoped turn");

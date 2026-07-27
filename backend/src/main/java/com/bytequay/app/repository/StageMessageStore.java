@@ -21,8 +21,8 @@ import java.util.Optional;
 /**
  * Persistence for per-stage transcripts (the {@code stage_messages} table),
  * decoupled from the shared per-thread {@link ThreadStore} log. Each work
- * stage owns its own {@code seq} space here, so concurrent per-stage agents
- * can't collide on a thread-global sequence.
+ * stage owns its own {@code seq} space so its exact transcript can be read
+ * and streamed independently while one Task-owned agent serves its stages.
  *
  * <p>Reuses the {@link ThreadMessage} domain record (its {@code stageId} is
  * the partition key); {@code scope} is implicitly STAGE for every row. No-op
@@ -51,7 +51,7 @@ public interface StageMessageStore
     }
 
     /** Highest seq in a stage, or empty when the stage has no messages yet —
-     *  the seed for a stage agent's next-seq counter. */
+     *  the seed for the Task agent's active-stage next-seq counter. */
     default Optional<Long> maxMessageSeq(String stageId)
     {
         return Optional.empty();

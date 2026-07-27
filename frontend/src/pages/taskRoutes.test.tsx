@@ -528,6 +528,7 @@ describe('StageDetailRoute', () => {
       stage: {
         id: 'stage-remote', type: 'REMOTE_DEVELOPMENT_STAGE', state: 'OPEN', openedAt: now,
         closedAt: null, callerStageId: null, iterationCount: 0, currentIterationNumber: null,
+        agentActive: false,
         config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
       },
       allStages: [], subStages: [], conversationThreadId: 't1', iterations: [], conversation: [],
@@ -570,6 +571,7 @@ describe('StageDetailRoute', () => {
       stage: {
         id: 'stage-1', type: 'DEVELOPMENT_STAGE', state: 'OPEN', openedAt: now, closedAt: null,
         callerStageId: null, iterationCount: 0, currentIterationNumber: null,
+        agentActive: false,
         config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
       },
       allStages: [], subStages: [], conversationThreadId: 'stage-thread', iterations: [],
@@ -627,6 +629,7 @@ describe('StageDetailRoute', () => {
       stage: {
         id: 'stage-remote', type: 'REMOTE_DEVELOPMENT_STAGE', state: 'OPEN', openedAt: now,
         closedAt: null, callerStageId: null, iterationCount: 1, currentIterationNumber: 1,
+        agentActive: false,
         config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
       },
       allStages: [], subStages: [], conversationThreadId: 'stage-thread', iterations: [],
@@ -689,6 +692,7 @@ describe('StageDetailRoute', () => {
       stage: {
         id: 'stage-approve', type: 'REVIEW_MONITOR_STAGE', state: 'OPEN', openedAt: now, closedAt: null,
         callerStageId: null, iterationCount: 0, currentIterationNumber: null,
+        agentActive: false,
         config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
       },
       allStages: [], subStages: [], conversationThreadId: 't1', iterations: [], conversation: [],
@@ -786,6 +790,7 @@ describe('StageDetailRoute', () => {
       stage: {
         id: 'stage-plan', type: 'PLAN_STAGE', state: 'CLOSED', openedAt: now, closedAt: now,
         callerStageId: null, iterationCount: 0, currentIterationNumber: null,
+        agentActive: false,
         config: { internalReviewEnabled: false }, metrics: { panelInvocationsCount: 0 },
       },
       allStages: [{

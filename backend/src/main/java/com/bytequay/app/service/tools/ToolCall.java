@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.ThreadScope;
 import com.fasterxml.jackson.databind.JsonNode;
 
 /**
@@ -37,20 +38,60 @@ import com.fasterxml.jackson.databind.JsonNode;
  *                   a task-level / trunk turn
  * @param agentRunId the AgentRun episode the in-flight turn belongs to, or
  *                   null for ordinary task/stage turns
+ * @param scope      authoritative trunk/task/stage scope copied from the turn
  */
 public record ToolCall(
         String threadId, JsonNode arguments, AgentRole role,
-        String taskId, String stageId, String agentRunId)
+        String taskId, String stageId, String agentRunId, ThreadScope scope)
 {
-    public ToolCall(String threadId, JsonNode arguments, AgentRole role, String taskId, String stageId)
+    public ToolCall
     {
-        this(threadId, arguments, role, taskId, stageId, null);
+        PermissionResolver.agentKeyFor(scope, taskId);
+        if (scope == ThreadScope.STAGE && (stageId == null || stageId.isBlank())) {
+            throw new IllegalArgumentException("STAGE tool call requires stageId");
+        }
+        if (scope != ThreadScope.STAGE && stageId != null && !stageId.isBlank()) {
+            throw new IllegalArgumentException(scope + " tool call forbids stageId");
+        }
     }
 
-    /** Convenience for callers (and tests) that don't carry the running
-     *  turn's scope — task/stage default to null, matching a trunk turn. */
-    public ToolCall(String threadId, JsonNode arguments, AgentRole role)
+    public String runtimeAgentKey()
     {
-        this(threadId, arguments, role, null, null, null);
+        return PermissionResolver.agentKeyFor(scope, taskId);
+    }
+
+    public String requireTaskId()
+    {
+        if (scope == ThreadScope.TRUNK || taskId == null || taskId.isBlank()) {
+            throw new IllegalStateException(scope + " tool call has no taskId");
+        }
+        return taskId;
+    }
+
+    public String requireStageId()
+    {
+        if (scope != ThreadScope.STAGE || stageId == null || stageId.isBlank()) {
+            throw new IllegalStateException(scope + " tool call has no stageId");
+        }
+        return stageId;
+    }
+
+    public ToolCall(
+            ThreadScope scope, String threadId, JsonNode arguments, AgentRole role,
+            String taskId, String stageId, String agentRunId)
+    {
+        this(threadId, arguments, role, taskId, stageId, agentRunId, scope);
+    }
+
+    public ToolCall(
+            ThreadScope scope, String threadId, JsonNode arguments, AgentRole role,
+            String taskId, String stageId)
+    {
+        this(threadId, arguments, role, taskId, stageId, null, scope);
+    }
+
+    public ToolCall(ThreadScope scope, String threadId, JsonNode arguments, AgentRole role)
+    {
+        this(threadId, arguments, role, null, null, null, scope);
     }
 }

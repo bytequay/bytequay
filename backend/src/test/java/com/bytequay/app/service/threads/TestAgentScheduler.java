@@ -101,7 +101,9 @@ import static com.bytequay.app.domain.ThreadTurnStatus.FAILED;
 import static com.bytequay.app.domain.ThreadTurnStatus.QUEUED;
 import static com.bytequay.app.domain.ThreadTurnStatus.RUNNING;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
@@ -122,7 +124,7 @@ class TestAgentScheduler
 
         TransactionSynchronizationManager.initSynchronization();
         try {
-            String turnId = harness.scheduler.enqueueTurn(thread, "after commit");
+            String turnId = harness.scheduler.enqueueTrunkTurn(thread, "after commit");
 
             assertThat(session.inputs).isEmpty();
             assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
@@ -150,7 +152,7 @@ class TestAgentScheduler
 
         TransactionSynchronizationManager.initSynchronization();
         try {
-            harness.scheduler.enqueueTurn(thread, "must roll back");
+            harness.scheduler.enqueueTrunkTurn(thread, "must roll back");
 
             assertThat(session.inputs).isEmpty();
         }
@@ -174,7 +176,7 @@ class TestAgentScheduler
         String turnId;
         List<TransactionSynchronization> callbacks;
         try {
-            turnId = harness.scheduler.enqueueTaskTurn(
+            turnId = harness.scheduler.enqueueStageTurn(
                     brain, "stale callback", "task-1", "stage-1",
                     TurnInitiator.unattended("brain-review"), "run-1");
             callbacks = List.copyOf(TransactionSynchronizationManager.getSynchronizations());
@@ -199,7 +201,7 @@ class TestAgentScheduler
         TestHarness harness = new TestHarness(1, 4);
         Thread brain = thread("brain-rollback-cancel", ThreadKind.BRAIN_AGENT);
         RecordingSession session = harness.register(brain);
-        String turnId = harness.scheduler.enqueueTaskTurn(
+        String turnId = harness.scheduler.enqueueStageTurn(
                 brain, "keep running", "task-1", "stage-1",
                 TurnInitiator.unattended("brain-review"), "run-1");
 
@@ -226,7 +228,7 @@ class TestAgentScheduler
         TestHarness harness = new TestHarness(1, 4);
         Thread brain = thread("brain-committed-cancel", ThreadKind.BRAIN_AGENT);
         RecordingSession session = harness.register(brain);
-        String turnId = harness.scheduler.enqueueTaskTurn(
+        String turnId = harness.scheduler.enqueueStageTurn(
                 brain, "cancel after commit", "task-1", "stage-1",
                 TurnInitiator.unattended("brain-review"), "run-1");
 
@@ -253,10 +255,10 @@ class TestAgentScheduler
         String firstStage = "11111111-1111-1111-1111-111111111111";
         String secondStage = "22222222-2222-2222-2222-222222222222";
 
-        String first = harness.scheduler.enqueueTaskTurn(
+        String first = harness.scheduler.enqueueStageTurn(
                 brain, "first review", "task-1", firstStage,
                 TurnInitiator.unattended("brain-review"));
-        String second = harness.scheduler.enqueueTaskTurn(
+        String second = harness.scheduler.enqueueStageTurn(
                 brain, "second review", "task-1", secondStage,
                 TurnInitiator.unattended("brain-review"));
 
@@ -273,12 +275,61 @@ class TestAgentScheduler
     }
 
     @Test
+    void sharedSessionStaysQueuedUntilItsLastTurnCompletes()
+    {
+        AgentRunService agentRuns = mock(AgentRunService.class);
+        Map<String, String> runStatuses = new LinkedHashMap<>();
+        runStatuses.put("run-shared", AgentRun.STATUS_QUEUED);
+        when(agentRuns.transition(eq("run-shared"), anyString(), anyString()))
+                .thenAnswer(invocation -> {
+                    String requested = invocation.getArgument(1);
+                    String current = runStatuses.get("run-shared");
+                    if (!Set.of(
+                            AgentRun.STATUS_SUCCEEDED,
+                            AgentRun.STATUS_FAILED,
+                            AgentRun.STATUS_CANCELLED).contains(current)) {
+                        runStatuses.put("run-shared", requested);
+                    }
+                    AgentRun run = mock(AgentRun.class);
+                    when(run.status()).thenReturn(runStatuses.get("run-shared"));
+                    return run;
+                });
+        TestHarness harness = new TestHarness(1, 4, agentRuns);
+        Thread brain = thread("brain-shared-run", ThreadKind.BRAIN_AGENT);
+        RecordingSession session = harness.register(brain);
+
+        String first = harness.scheduler.enqueueStageTurn(
+                brain, "record plan", "task-shared", "stage-shared",
+                TurnInitiator.unattended("plan-kickoff"), "run-shared");
+        String second = harness.scheduler.enqueueStageTurn(
+                brain, "self review", "task-shared", "stage-shared",
+                TurnInitiator.unattended("brain-plan-self-review"), "run-shared");
+
+        session.completeNext();
+
+        assertThat(harness.turns.findTurnById(first).orElseThrow().status())
+                .isEqualTo(COMPLETED);
+        assertThat(harness.turns.findTurnById(second).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(session.inputs).containsExactly("record plan", "self review");
+        assertThat(runStatuses.get("run-shared")).isEqualTo(AgentRun.STATUS_RUNNING);
+        verify(agentRuns).transition(
+                "run-shared", AgentRun.STATUS_QUEUED, "scheduler session continues");
+
+        session.completeNext();
+
+        assertThat(harness.turns.findTurnById(second).orElseThrow().status())
+                .isEqualTo(COMPLETED);
+        assertThat(runStatuses.get("run-shared")).isEqualTo(AgentRun.STATUS_SUCCEEDED);
+    }
+
+    @Test
     void cancellingASessionInterruptsItsRunningTurnAndPersistsCancellation()
     {
         TestHarness harness = new TestHarness(2, 4);
         Thread brain = thread("brain-1", ThreadKind.BRAIN_AGENT);
         RecordingSession session = harness.register(brain);
-        String turnId = harness.scheduler.enqueueTaskTurn(
+        String turnId = harness.scheduler.enqueueStageTurn(
                 brain, "review", "task-1", "stage-1",
                 TurnInitiator.unattended("brain-review"), "run-1");
 
@@ -338,7 +389,7 @@ class TestAgentScheduler
         TestHarness harness = new TestHarness(2, 4);
         Thread thread = thread("evicted-thread", CLI_AGENT);
         RecordingSession session = harness.register(thread);
-        String turnId = harness.scheduler.enqueueTaskTurn(
+        String turnId = harness.scheduler.enqueueStageTurn(
                 thread, "running", "task-evicted", "stage-evicted",
                 TurnInitiator.user(), "run-evicted");
         harness.registry.sessions.remove(thread.id());
@@ -357,7 +408,7 @@ class TestAgentScheduler
         TestHarness harness = new TestHarness(2, 4);
         Thread thread = thread("completing-thread", CLI_AGENT);
         RecordingSession session = harness.register(thread);
-        String turnId = harness.scheduler.enqueueTaskTurn(
+        String turnId = harness.scheduler.enqueueStageTurn(
                 thread, "running", "task-completing", "stage-completing",
                 TurnInitiator.user(), "run-completing");
         session.blockNextStatusRead();
@@ -391,13 +442,13 @@ class TestAgentScheduler
         RecordingSession targetSession = harness.register(targetThread);
         RecordingSession siblingSession = harness.register(siblingThread);
 
-        String running = harness.scheduler.enqueueTaskTurn(
+        String running = harness.scheduler.enqueueStageTurn(
                 targetThread, "target running", "task-target", "stage-target",
                 TurnInitiator.user(), "run-target");
-        String queued = harness.scheduler.enqueueTaskTurn(
+        String queued = harness.scheduler.enqueueStageTurn(
                 targetThread, "target queued", "task-target", "stage-target",
                 TurnInitiator.user(), "run-target-next");
-        String sibling = harness.scheduler.enqueueTaskTurn(
+        String sibling = harness.scheduler.enqueueStageTurn(
                 siblingThread, "sibling running", "task-sibling", "stage-sibling",
                 TurnInitiator.user(), "run-sibling");
 
@@ -421,13 +472,13 @@ class TestAgentScheduler
         Thread thread = thread("thread-run-cancel", CLI_AGENT);
         harness.register(thread);
 
-        harness.scheduler.enqueueTaskTurn(
+        harness.scheduler.enqueueStageTurn(
                 thread, "running", "task-run-cancel", "stage-run-cancel",
                 TurnInitiator.user(), "run-running");
-        harness.scheduler.enqueueTaskTurn(
+        harness.scheduler.enqueueStageTurn(
                 thread, "queued", "task-run-cancel", "stage-run-cancel",
                 TurnInitiator.user(), "run-queued");
-        harness.scheduler.enqueueTaskTurn(
+        harness.scheduler.enqueueStageTurn(
                 thread, "coordinator", "task-run-cancel", "stage-run-cancel",
                 TurnInitiator.unattended("brain-review"), "run-coordinator");
 
@@ -452,7 +503,7 @@ class TestAgentScheduler
         Thread thread = thread("thread-budget", CLI_AGENT);
         RecordingSession session = harness.register(thread);
 
-        String turnId = harness.scheduler.enqueueTaskTurn(
+        String turnId = harness.scheduler.enqueueStageTurn(
                 thread, "finish", "task-1", "stage-1",
                 TurnInitiator.user(), "run-ordinary");
         session.completeNext();
@@ -519,7 +570,7 @@ class TestAgentScheduler
         RecordingSession session = harness.register(thread);
         harness.tasks.setStatus("task-stopped", TaskStatus.PAUSED);
 
-        String turnId = harness.scheduler.enqueueTaskTurn(
+        String turnId = harness.scheduler.enqueueStageTurn(
                 thread, "do not run", "task-stopped", "stage-stopped",
                 TurnInitiator.user(), "run-stopped");
 
@@ -548,7 +599,7 @@ class TestAgentScheduler
             assertThat(harness.tasks.setCurrentLivenessTurnIdIf(
                     taskId, null, holder.id())).isTrue();
 
-            String steered = harness.scheduler.enqueueTaskTurn(
+            String steered = harness.scheduler.enqueueStageTurn(
                     thread, "please continue", taskId, "stage-1",
                     TurnInitiator.attended("steering"));
 
@@ -574,7 +625,7 @@ class TestAgentScheduler
         assertThat(harness.tasks.setCurrentLivenessTurnIdIf(
                 taskId, null, failed.id())).isTrue();
 
-        String steered = harness.scheduler.enqueueTaskTurn(
+        String steered = harness.scheduler.enqueueStageTurn(
                 thread, "try anyway", taskId, "stage-1",
                 TurnInitiator.attended("steering"));
 
@@ -625,7 +676,7 @@ class TestAgentScheduler
             String runId = "run-stopped-phase-" + index;
             harness.tasks.setStatus(taskId, TaskStatus.IDLE);
             harness.tasks.setPhase(taskId, phase);
-            String turnId = harness.scheduler.enqueueTaskTurn(
+            String turnId = harness.scheduler.enqueueStageTurn(
                     thread, "do not run " + phase, taskId, "stage-" + index,
                     TurnInitiator.user(), runId);
 
@@ -649,7 +700,7 @@ class TestAgentScheduler
         harness.tasks.setStatus("task-parked", TaskStatus.NEEDS_ATTENTION);
         harness.tasks.setPhase("task-parked", TaskPhase.NEEDS_ATTENTION);
 
-        String turnId = harness.scheduler.enqueueTaskTurn(
+        String turnId = harness.scheduler.enqueueStageTurn(
                 thread, "what happened?", "task-parked", "stage-remote",
                 TurnInitiator.attended(TurnInitiator.SOURCE_PARKED_STEERING));
 
@@ -675,7 +726,7 @@ class TestAgentScheduler
         for (TaskStatus status : runnable) {
             String taskId = "task-runnable-" + index;
             harness.tasks.setStatus(taskId, status);
-            harness.scheduler.enqueueTaskTurn(
+            harness.scheduler.enqueueStageTurn(
                     thread, "run " + status, taskId, "stage-" + index,
                     TurnInitiator.user(), "run-" + index);
             index++;
@@ -694,7 +745,7 @@ class TestAgentScheduler
         Thread thread = thread("thread-cancelled-budget", CLI_AGENT);
         harness.register(thread);
 
-        harness.scheduler.enqueueTaskTurn(
+        harness.scheduler.enqueueStageTurn(
                 thread, "cancel", "task-1", "stage-1",
                 TurnInitiator.user(), "run-cancelled");
         harness.scheduler.cancelSessionTurns("run-cancelled");
@@ -720,7 +771,7 @@ class TestAgentScheduler
                 "address-local-comments", "local-ci-fix", "ci-fix-shipped",
                 "review-round", "brain-review", "brain-review-fix", "branch-guard-fix")) {
             String runId = "run-" + source;
-            String turnId = harness.scheduler.enqueueTaskTurn(
+            String turnId = harness.scheduler.enqueueStageTurn(
                     thread, "coordinator step", "task-ci", stageId,
                     TurnInitiator.unattended(source), runId);
             session.completeNext();
@@ -736,7 +787,7 @@ class TestAgentScheduler
                     eq(runId), eq(AgentRun.STATUS_FAILED), any());
         }
 
-        harness.scheduler.enqueueTaskTurn(
+        harness.scheduler.enqueueStageTurn(
                 thread, "ordinary step", "task-ci", stageId,
                 TurnInitiator.user(), "run-ordinary");
         session.completeNext();
@@ -753,8 +804,8 @@ class TestAgentScheduler
         RecordingSession firstSession = harness.register(first);
         RecordingSession secondSession = harness.register(second);
 
-        String firstTurn = harness.scheduler.enqueueTurn(first, "first");
-        String secondTurn = harness.scheduler.enqueueTurn(second, "second");
+        String firstTurn = harness.scheduler.enqueueTrunkTurn(first, "first");
+        String secondTurn = harness.scheduler.enqueueTrunkTurn(second, "second");
 
         assertThat(firstSession.inputs).containsExactly("first");
         assertThat(secondSession.inputs).isEmpty();
@@ -791,15 +842,15 @@ class TestAgentScheduler
     }
 
     @Test
-    void enqueueTaskTurnWithNullTaskIdFallsBackToATrunkTurn()
+    void taskTurnRejectsANullTaskIdInsteadOfGuessingTrunkScope()
     {
         TestHarness harness = new TestHarness(1, 4);
         Thread thread = thread("thread-1", CLI_AGENT);
         harness.register(thread);
 
-        String turnId = harness.scheduler.enqueueTaskTurn(thread, "plan", null);
-
-        assertThat(harness.turns.findTurnById(turnId).orElseThrow().taskId()).isNull();
+        assertThatThrownBy(() -> harness.scheduler.enqueueTaskTurn(thread, "plan", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("taskId");
     }
 
     @Test
@@ -831,7 +882,7 @@ class TestAgentScheduler
                 UUID.fromString(stageId), "task-1", StageType.DEVELOPMENT_STAGE,
                 StageState.OPEN, now, null, null));
 
-        harness.scheduler.enqueueTaskTurn(
+        harness.scheduler.enqueueStageTurn(
                 thread, "implement", "task-1", stageId, TurnInitiator.user());
 
         assertThat(session.inputs).containsExactly("implement");
@@ -854,7 +905,7 @@ class TestAgentScheduler
                 UUID.fromString(stageId), "task-1", StageType.DEVELOPMENT_STAGE,
                 StageState.OPEN, now, null, null));
 
-        harness.scheduler.enqueueTaskTurn(
+        harness.scheduler.enqueueStageTurn(
                 thread, "implement", "task-1", stageId, TurnInitiator.user());
 
         assertThat(session.inputs).containsExactly("implement");
@@ -866,7 +917,7 @@ class TestAgentScheduler
     }
 
     @Test
-    void brainThreadTaskTurnRoutesToBrainAgentNotStageAgent()
+    void brainThreadTaskTurnRoutesToBrainAgentNotTaskAgent()
     {
         // A plan self-review turn runs on the BRAIN_AGENT thread but is
         // stamped with the task id + the PLAN_STAGE's id. That stage has no
@@ -881,7 +932,7 @@ class TestAgentScheduler
                 UUID.fromString(stageId), "task-1", StageType.PLAN_STAGE,
                 StageState.OPEN, now, null, null));
 
-        harness.scheduler.enqueueTaskTurn(
+        harness.scheduler.enqueueStageTurn(
                 thread, "self-review the plan", "task-1", stageId,
                 TurnInitiator.unattended("brain-plan-self-review"));
 
@@ -889,7 +940,7 @@ class TestAgentScheduler
         assertThat(session.inputs).containsExactly("self-review the plan");
         assertThat(session.skillNames).containsExactly(List.of(
                 "codegraph-first", "i-have-adhd", CavemanPrompt.NAME));
-        assertThat(session.mcpAgentKeys).containsExactly(stageId);
+        assertThat(session.mcpAgentKeys).containsExactly("task-1");
     }
 
     @Test
@@ -920,9 +971,9 @@ class TestAgentScheduler
         RecordingSession cliSecondSession = harness.register(cliSecond);
         RecordingSession apiSession = harness.register(apiTask);
 
-        harness.scheduler.enqueueTurn(cliFirst, "cli first");
-        String cliSecondTurn = harness.scheduler.enqueueTurn(cliSecond, "cli second");
-        String apiTurn = harness.scheduler.enqueueTurn(apiTask, "api");
+        harness.scheduler.enqueueTrunkTurn(cliFirst, "cli first");
+        String cliSecondTurn = harness.scheduler.enqueueTrunkTurn(cliSecond, "cli second");
+        String apiTurn = harness.scheduler.enqueueTrunkTurn(apiTask, "api");
 
         assertThat(cliFirstSession.inputs).containsExactly("cli first");
         assertThat(cliSecondSession.inputs).isEmpty();
@@ -960,7 +1011,7 @@ class TestAgentScheduler
         harness.registry.scopedWorkModel = new WorkModel(
                 WorkModelKind.CLI, "codex", "gpt-5", null);
 
-        String turnId = harness.scheduler.enqueueTaskTurn(
+        String turnId = harness.scheduler.enqueueStageTurn(
                 apiTrunk, "fix CI", "task-1", "stage-1", TurnInitiator.user());
 
         assertThat(harness.turns.findTurnById(turnId).orElseThrow().lane())
@@ -976,8 +1027,8 @@ class TestAgentScheduler
         Thread thread = thread("thread-1", CLI_AGENT);
         RecordingSession session = harness.register(thread);
 
-        String firstTurn = harness.scheduler.enqueueTurn(thread, "first");
-        String secondTurn = harness.scheduler.enqueueTurn(thread, "second");
+        String firstTurn = harness.scheduler.enqueueTrunkTurn(thread, "first");
+        String secondTurn = harness.scheduler.enqueueTrunkTurn(thread, "second");
 
         assertThat(session.inputs).containsExactly("first");
         assertThat(harness.turns.findTurnById(firstTurn).orElseThrow().status())
@@ -1024,9 +1075,9 @@ class TestAgentScheduler
         RecordingSession firstSession = harness.register(first);
         RecordingSession secondSession = harness.register(second);
 
-        String runningTurn = harness.scheduler.enqueueTurn(first, "first");
-        String cancelledTurn = harness.scheduler.enqueueTurn(first, "second");
-        String otherTaskTurn = harness.scheduler.enqueueTurn(second, "other");
+        String runningTurn = harness.scheduler.enqueueTrunkTurn(first, "first");
+        String cancelledTurn = harness.scheduler.enqueueTrunkTurn(first, "second");
+        String otherTaskTurn = harness.scheduler.enqueueTrunkTurn(second, "other");
 
         assertThat(harness.scheduler.cancelQueuedTurns(first.id())).isEqualTo(1);
 
@@ -1054,7 +1105,7 @@ class TestAgentScheduler
         Thread thread = thread("thread-1", CLI_AGENT);
         RecordingSession session = harness.register(thread);
 
-        String turnId = harness.scheduler.enqueueTurn(thread, "first");
+        String turnId = harness.scheduler.enqueueTrunkTurn(thread, "first");
         session.completeNext();
 
         assertThat(harness.events.listEventsByTaskId(thread.id(), 10))
@@ -1072,7 +1123,7 @@ class TestAgentScheduler
         Thread thread = thread("thread-codegraph", CLI_AGENT);
         RecordingSession session = harness.register(thread);
 
-        String turnId = harness.scheduler.enqueueTurn(thread, "find auth flow");
+        String turnId = harness.scheduler.enqueueTrunkTurn(thread, "find auth flow");
         CodeGraphFirstRuntime.shouldRedirect(thread.id(), thread.id());
         CodeGraphFirstRuntime.markAttempted(thread.id(), thread.id());
         CodeGraphFirstRuntime.markSucceeded(thread.id(), thread.id());
@@ -1097,8 +1148,8 @@ class TestAgentScheduler
         harness.register(first);
         harness.register(second);
 
-        harness.scheduler.enqueueTurn(first, "first");
-        String cancelledTurn = harness.scheduler.enqueueTurn(second, "second");
+        harness.scheduler.enqueueTrunkTurn(first, "first");
+        String cancelledTurn = harness.scheduler.enqueueTrunkTurn(second, "second");
 
         assertThat(harness.scheduler.cancelQueuedTurns(second.id())).isEqualTo(1);
         assertThat(harness.events.listEventsByTaskId(second.id(), 10))
@@ -1118,8 +1169,8 @@ class TestAgentScheduler
         harness.register(first);
         harness.register(second);
 
-        harness.scheduler.enqueueTurn(first, "first");
-        String waitingTurn = harness.scheduler.enqueueTurn(second, "second");
+        harness.scheduler.enqueueTrunkTurn(first, "first");
+        String waitingTurn = harness.scheduler.enqueueTrunkTurn(second, "second");
 
         assertThat(harness.events.listEventsByTaskId(second.id(), 10))
                 .anySatisfy(event -> {
@@ -1136,8 +1187,8 @@ class TestAgentScheduler
         Thread thread = thread("thread-1", CLI_AGENT);
         harness.register(thread);
 
-        harness.scheduler.enqueueTurn(thread, "first");
-        String waitingTurn = harness.scheduler.enqueueTurn(thread, "second");
+        harness.scheduler.enqueueTrunkTurn(thread, "first");
+        String waitingTurn = harness.scheduler.enqueueTrunkTurn(thread, "second");
 
         assertThat(harness.events.listEventsByTaskId(thread.id(), 10))
                 .anySatisfy(event -> {
@@ -1209,11 +1260,11 @@ class TestAgentScheduler
         TransactionSynchronizationManager.initSynchronization();
         try {
             String first = harness.scheduler.enqueueTaskTurnOnce(
-                    "round:1:attempt:1", thread, "review", null, null,
+                    "round:1:attempt:1", thread, "review", "task-1",
                     TurnInitiator.unattended("brain-review"), null,
                     TurnLiveness.NARRATION);
             String replay = harness.scheduler.enqueueTaskTurnOnce(
-                    "round:1:attempt:1", thread, "duplicate", null, null,
+                    "round:1:attempt:1", thread, "duplicate", "task-1",
                     TurnInitiator.unattended("brain-review"), null,
                     TurnLiveness.NARRATION);
 
@@ -1243,7 +1294,7 @@ class TestAgentScheduler
             return ((Supplier<?>) invocation.getArgument(1)).get();
         });
 
-        String turnId = harness.scheduler.enqueueTaskTurn(
+        String turnId = harness.scheduler.enqueueStageTurn(
                 thread, "must not launch", "task-command-dispatch", "stage-command-dispatch",
                 TurnInitiator.user(), "run-command-dispatch");
 
@@ -1273,7 +1324,7 @@ class TestAgentScheduler
         Thread thread = thread("thread-command-start", CLI_AGENT);
         RecordingSession session = harness.register(thread);
 
-        String turnId = harness.scheduler.enqueueTaskTurn(
+        String turnId = harness.scheduler.enqueueStageTurn(
                 thread, "launch", "task-command-start", "stage-command-start",
                 TurnInitiator.user(), "run-command-start");
 
@@ -1350,7 +1401,7 @@ class TestAgentScheduler
         harness.scheduler.setApplicationEventPublisher(publisher);
         Thread thread = thread("task-conflict", CLI_AGENT);
         RecordingSession session = harness.register(thread);
-        String turnId = harness.scheduler.enqueueTaskTurn(
+        String turnId = harness.scheduler.enqueueStageTurn(
                 thread, "work", "task-1", "stage-1",
                 TurnInitiator.user(), "run-1");
         ThreadTurn running = harness.turns.findTurnById(turnId).orElseThrow();
@@ -1424,8 +1475,8 @@ class TestAgentScheduler
         RecordingSession firstSession = harness.register(first);
         RecordingSession secondSession = harness.register(second);
 
-        String firstTurn = harness.scheduler.enqueueTurn(first, "first");
-        String secondTurn = harness.scheduler.enqueueTurn(second, "second");
+        String firstTurn = harness.scheduler.enqueueTrunkTurn(first, "first");
+        String secondTurn = harness.scheduler.enqueueTrunkTurn(second, "second");
 
         firstSession.failNext(new IllegalStateException("boom"));
 
@@ -1549,8 +1600,7 @@ class TestAgentScheduler
                     new WorktreeLeaseService(new StubLeaseStore()));
         }
 
-        @Override
-        public ThreadAgent getOrCreate(Thread thread)
+        private ThreadAgent recorded(Thread thread)
         {
             ThreadAgent session = sessions.get(thread.id());
             if (session == null) {
@@ -1565,7 +1615,7 @@ class TestAgentScheduler
             // The scheduler tests record one session per thread and don't
             // distinguish per-stage agents — route the per-stage call back
             // to the recorded session.
-            return getOrCreate(thread);
+            return recorded(thread);
         }
 
         @Override
@@ -1573,7 +1623,13 @@ class TestAgentScheduler
         {
             // The scheduler tests don't distinguish trunk vs task agents.
             // Both return the recorded session for the thread.
-            return getOrCreate(thread);
+            return recorded(thread);
+        }
+
+        @Override
+        public ThreadAgent getOrCreateTaskBrain(Thread thread)
+        {
+            return recorded(thread);
         }
 
         @Override
@@ -1599,10 +1655,10 @@ class TestAgentScheduler
         }
 
         @Override
-        public StageAgent getOrCreateStageAgent(Thread thread, Task task, String stageId)
+        public TaskAgent getOrCreateTaskAgent(Thread thread, Task task, String stageId)
         {
             lastRouted = "stage";
-            return super.getOrCreateStageAgent(thread, task, stageId);
+            return super.getOrCreateTaskAgent(thread, task, stageId);
         }
 
         @Override
@@ -1928,6 +1984,15 @@ class TestAgentScheduler
         }
 
         @Override
+        public boolean hasOtherActiveTurn(String agentRunId, String excludingTurnId)
+        {
+            return turns.values().stream()
+                    .filter(turn -> agentRunId.equals(turn.agentRunId()))
+                    .filter(turn -> !excludingTurnId.equals(turn.id()))
+                    .anyMatch(turn -> turn.status() == QUEUED || turn.status() == RUNNING);
+        }
+
+        @Override
         public List<ThreadTurn> listTurnsByExactTaskIdAndStatus(
                 String taskId, ThreadTurnStatus status, int limit)
         {
@@ -2001,7 +2066,7 @@ class TestAgentScheduler
                 /* startedAt */ null,
                 /* finishedAt */ null,
                 /* errorMessage */ null,
-                TurnInitiator.user());
+                TurnInitiator.user(), null, ThreadScope.TRUNK);
     }
 
     private static ThreadTurn taskTurn(

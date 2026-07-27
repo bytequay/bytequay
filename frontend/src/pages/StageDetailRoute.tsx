@@ -17,7 +17,7 @@ import { useBrainViewData } from '../threads/brain/useBrainViewData';
 import { prUrl } from '../activityNarrative';
 import { useLocalPrActions } from '../pr/localpr/useLocalPrActions';
 import { usePendingShipProposal, proposalAction } from '../threads/usePendingShipProposal';
-import { useThreadStream } from '../threads/useThreadStream';
+import { useStageStream } from '../threads/useThreadStream';
 import { ShipReviewPrompt, StaleMarkReadyGatePrompt, StaleShipGatePrompt } from '../threads/ShipReviewPrompt';
 import type { DiffFileDto } from '../types';
 import type { AgentRunDto, StageType, TaskPhase } from '../types/brainView';
@@ -415,41 +415,21 @@ export function StageDetailRoute({
   // composer's Stop button.
   const stopAgent = useCallback(() => {
     const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    void bridge?.interruptTask(threadId).then(refresh).catch(() => { /* poll reconciles */ });
-  }, [threadId, refresh]);
+    void bridge?.interruptStage(stageId).then(refresh).catch(() => { /* poll reconciles */ });
+  }, [stageId, refresh]);
 
   // Live stream of the agent working this stage: its text appears
   // token-by-token (and a non-delta event refreshes the canonical
   // transcript, which clears the live buffer). This is what makes the stage
   // feel alive between the periodic poll snapshots.
-  const { liveText, liveActivities } = useThreadStream(
-    conversationThreadId, state === 'CLOSED' ? 'COMPLETED' : 'RUNNING', refresh);
-
-  // Poll the thread's run state. This is the signal that stays true through a
-  // long, quiet tool call (e.g. a multi-minute build) where no text streams
-  // and the stage-state poll lags — so the working indicator doesn't blink
-  // off mid-turn. Stops once the stage is closed.
-  const [threadRunning, setThreadRunning] = useState(false);
-  useEffect(() => {
-    if (state === 'CLOSED') { setThreadRunning(false); return; }
-    const bridge = typeof window !== 'undefined' ? window.bridge : undefined;
-    if (bridge?.getTask === undefined) return;
-    let cancelled = false;
-    const poll = () => {
-      void bridge.getTask(threadId)
-        .then(t => { if (!cancelled) setThreadRunning(t.status === 'RUNNING'); })
-        .catch(() => { /* transient; next tick retries */ });
-    };
-    poll();
-    const id = window.setInterval(poll, 3000);
-    return () => { cancelled = true; window.clearInterval(id); };
-  }, [threadId, state]);
+  const { liveText, liveActivities } = useStageStream(
+    stageId, state === 'CLOSED' ? 'COMPLETED' : 'RUNNING', refresh);
 
   // Show the working indicator whenever a turn is executing — the thread is
   // RUNNING, the stage is ACTIVE, the user just steered, or text is streaming
   // in. Track when the working period began so the indicator can tick an
   // elapsed counter (a long, quiet turn shouldn't read as dead).
-  const working = busy || threadRunning || liveText.length > 0;
+  const working = busy || data?.stage.agentActive === true || liveText.length > 0;
 
   // Messages typed while the stage agent is working queue up and auto-send
   // when it goes idle; click one to pull it back into the composer to edit.

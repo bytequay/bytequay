@@ -39,9 +39,9 @@ public record ToolDispatchContext(
          *  task_id (null for a trunk turn). Authoritative — never re-derived
          *  from a thread-level "active task" guess. */
         String taskId,
-        /** The registry agent key of the agent that issued this call (its
-         *  per-agent MCP URL segment, == the stage key). Lets permission
-         *  prompts and budget events route back to the exact stage agent
+        /** The runtime key of the agent that issued this call (its
+         *  per-agent MCP URL segment: task id or trunk sentinel). Lets permission
+         *  prompts and budget events route back to the exact Task/trunk agent
          *  that raised them, not a thread-level "active session" guess. */
         String agentKey,
         JsonNode id,

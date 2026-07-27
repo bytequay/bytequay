@@ -215,15 +215,14 @@ public class McpServiceImpl
         // spec into the wire shape, filtered to the caller's role so
         // a trunk agent doesn't even see task-only tools. The role is
         // resolved against THIS agent's running turn (agentKey), not just
-        // the thread, so concurrent stage agents list their own tools.
+        // the thread, so concurrent Task agents list their own tools.
         AgentRole role = permissions.roleFor(threadId, agentKey);
         ThreadKind kind = kindFor(threadId);
         Set<SecurityType> grants = permissions.grants(threadId, agentKey);
         Set<String> activeToolNames = activeContexts.find(threadId, agentKey)
                 .map(ResolvedAgentContext::toolNames)
-                // Agent-scoped URLs are deny-by-default between turns. The
-                // null-key legacy endpoint retains its role-filtered catalog.
-                .orElse(agentKey == null ? null : Set.of());
+                // Runtime URLs are deny-by-default between turns.
+                .orElse(Set.of());
         List<ToolDescriptor> tools = new ArrayList<>();
         for (ToolSpec spec : registry.visibleTo(role)) {
             if (!grants.contains(spec.security())
@@ -356,7 +355,7 @@ public class McpServiceImpl
         Optional<ToolOutcome> outcome = registry.invoke(
                 name, new ToolCall(
                         threadId, params.arguments(), role,
-                        scope.taskId(), scope.stageId(), scope.agentRunId()));
+                        scope.taskId(), scope.stageId(), scope.agentRunId(), scope.scope()));
         if (outcome.isPresent()) {
             deferred.setResult(adaptOutcome(id, outcome.get()));
             return;

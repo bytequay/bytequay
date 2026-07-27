@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.backlog.BacklogService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -46,7 +47,7 @@ class TestBacklogToolHandlers
 
         ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.proposeBacklogItems(
                 new BacklogToolHandlers.ProposeBacklogItemsArgs(items, "found 2"),
-                new ToolCall("t1", null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, "t1", null, AgentRole.TRUNK));
 
         assertThat(result.isError()).isFalse();
         assertThat(result.text()).contains("grp-1").contains("backlogItemIds");
@@ -66,7 +67,7 @@ class TestBacklogToolHandlers
     {
         ToolOutcome.Completed empty = (ToolOutcome.Completed) handlers.proposeBacklogItems(
                 new BacklogToolHandlers.ProposeBacklogItemsArgs(mapper.readTree("[]"), null),
-                new ToolCall("t1", null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, "t1", null, AgentRole.TRUNK));
         assertThat(empty.isError()).isTrue();
         verify(backlog, never()).createBatch(any(), any());
     }
@@ -78,7 +79,7 @@ class TestBacklogToolHandlers
         ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.proposeBacklogItems(
                 new BacklogToolHandlers.ProposeBacklogItemsArgs(
                         mapper.readTree("[{\"body\":\"no title here\"}]"), null),
-                new ToolCall("t1", null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, "t1", null, AgentRole.TRUNK));
         assertThat(result.isError()).isTrue();
         verify(backlog, never()).createBatch(any(), any());
     }

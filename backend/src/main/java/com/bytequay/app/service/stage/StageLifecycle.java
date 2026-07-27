@@ -30,6 +30,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -85,16 +86,22 @@ public class StageLifecycle
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onTaskCreated(TaskCreatedEvent event)
     {
-        TaskCommandExecutor.dispatchAfterCommit(() -> ensurePlanStageOpen(event.taskId()));
+        TaskCommandExecutor.dispatchAfterCommit(() -> {
+            ensurePlanStageOpen(event.taskId());
+            if (event.planKickoffRequested()) {
+                events.publishEvent(new PlanKickoffRequested(
+                        event.taskId(), event.initialPrompt(), event.trunkPlan()));
+            }
+        });
     }
 
     /**
-     * Startup backstop for PLANNING tasks whose creation-time hooks never
-     * ran — e.g. rows normalized from the retired QUEUED phase by the
-     * lifecycle migration. Idempotent: a task with any stage at all is
-     * left alone (its PlanStage exists, so its kickoff already fired),
-     * and stopped tasks are never re-armed.
+     * Startup backstop for PLANNING tasks whose creation-time hooks did not
+     * finish. The PlanStage open and planning-turn enqueue are separate
+     * durable steps, so an existing stage does not prove the kickoff landed.
+     * The brain uses a keyed enqueue, making this replay idempotent.
      */
+    @Order(30)
     @EventListener(ApplicationReadyEvent.class)
     public void reconcilePlanningTasksOnStartup()
     {
@@ -104,13 +111,12 @@ public class StageLifecycle
                     && task.status() != TaskStatus.IDLE) {
                 continue;
             }
-            if (!stageStore.findStagesByTask(task.id()).isEmpty()) {
-                continue;
+            if (stageStore.findStagesByTask(task.id()).isEmpty()) {
+                ensurePlanStageOpen(task.id());
             }
-            ensurePlanStageOpen(task.id());
             events.publishEvent(new PlanKickoffRequested(
                     task.id(), task.openingPrompt(), /* trunkPlan */ null));
-            log.info("startup planning reconcile: opened PlanStage and kicked planning for task {}",
+            log.info("startup planning reconcile: ensured PlanStage and planning kickoff for task {}",
                     task.id());
         }
     }
@@ -119,6 +125,10 @@ public class StageLifecycle
     public void onPhaseTransition(TaskPhaseTransitionedEvent event)
     {
         reconcile(event.taskId(), event.to(), event.reason());
+        if (event.to() == TaskPhase.PLANNING) {
+            TaskCommandExecutor.dispatchAfterCommit(() -> events.publishEvent(
+                    new PlanKickoffRequested(event.taskId(), null, null)));
+        }
     }
 
     /**

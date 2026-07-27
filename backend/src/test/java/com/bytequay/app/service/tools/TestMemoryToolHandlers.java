@@ -22,6 +22,7 @@ import com.bytequay.app.domain.MemoryItemSource;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -61,7 +62,7 @@ class TestMemoryToolHandlers
     {
         ensureThread(threadId);
         ObjectNode args = new ObjectMapper().createObjectNode();
-        return new ToolCall(threadId, args, AgentRole.TRUNK);
+        return new ToolCall(ThreadScope.TRUNK, threadId, args, AgentRole.TRUNK);
     }
 
     private void ensureThread(String threadId)

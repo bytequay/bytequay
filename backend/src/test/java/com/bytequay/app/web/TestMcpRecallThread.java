@@ -17,9 +17,20 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
+import com.bytequay.app.service.skills.ByteQuayRole;
+import com.bytequay.app.service.tools.AgentRole;
+import com.bytequay.app.service.tools.RoleCapabilities;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -29,6 +40,7 @@ import org.springframework.web.context.request.async.DeferredResult;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,6 +66,10 @@ class TestMcpRecallThread
     private ThreadStore threads;
     @Autowired
     private ThreadCheckpointStore checkpoints;
+    @Autowired
+    private ThreadTurnStore turns;
+    @Autowired
+    private ActiveAgentContextRegistry activeContexts;
     @Autowired
     private ObjectMapper mapper;
 
@@ -138,7 +154,16 @@ class TestMcpRecallThread
                   }
                 }
                 """.formatted(mapper.writeValueAsString(query), limit);
-        DeferredResult<JsonNode> deferred = controller.handle(threadId, mapper.readTree(rpc));
+        Instant now = Instant.parse("2026-05-15T12:00:00Z");
+        turns.saveTurn(new ThreadTurn(
+                UUID.randomUUID().toString(), threadId, null,
+                ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING, "recall fixture",
+                now, now, now, null, null, TurnInitiator.user(), null, ThreadScope.TRUNK));
+        activeContexts.put(threadId, "trunk", new ResolvedAgentContext(
+                ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
+                RoleCapabilities.forRole(AgentRole.TRUNK), List.of(), Set.of(),
+                Set.of("recall_thread")));
+        DeferredResult<JsonNode> deferred = controller.handle(threadId, "trunk", mapper.readTree(rpc));
         // recall_thread is read-only and never parks the request; the
         // result lands synchronously on the calling thread.
         Object resolved = deferred.getResult();

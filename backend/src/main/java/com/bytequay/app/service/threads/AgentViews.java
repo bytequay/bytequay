@@ -18,6 +18,7 @@ import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.service.skills.ManagedSkill;
 import com.bytequay.app.service.skills.ManagedSkillBundle;
@@ -42,9 +43,9 @@ final class AgentViews
         return new TaskBrain(agent);
     }
 
-    static StageAgent stage(ThreadAgent agent)
+    static TaskAgent task(ThreadAgent agent)
     {
-        return new Stage(agent);
+        return new Task(agent);
     }
 
     private abstract static class Forwarding
@@ -71,6 +72,7 @@ final class AgentViews
         @Override public void setActiveTask(String taskId) { delegate.setActiveTask(taskId); }
         @Override public String activeTaskId() { return delegate.activeTaskId(); }
         @Override public void setActiveStage(String stageId) { delegate.setActiveStage(stageId); }
+        @Override public void setActiveScope(ThreadScope scope) { delegate.setActiveScope(scope); }
         @Override public String activeStageId() { return delegate.activeStageId(); }
         @Override public void setActiveAgentRun(String agentRunId) { delegate.setActiveAgentRun(agentRunId); }
         @Override public void setManagedSkillBundle(ManagedSkillBundle bundle) { delegate.setManagedSkillBundle(bundle); }
@@ -81,7 +83,6 @@ final class AgentViews
         @Override public void interrupt() { delegate.interrupt(); }
         @Override public void resume() { delegate.resume(); }
         @Override public void stop() { delegate.stop(); }
-        @Override public void retireStage() { delegate.retireStage(); }
         @Override public void notifyPermissionRequested(String callId, String toolName, String summary)
         {
             delegate.notifyPermissionRequested(callId, toolName, summary);
@@ -122,10 +123,10 @@ final class AgentViews
         TaskBrain(ThreadAgent delegate) { super(delegate); }
     }
 
-    private static final class Stage
+    private static final class Task
             extends Forwarding
-            implements StageAgent
+            implements TaskAgent
     {
-        Stage(ThreadAgent delegate) { super(delegate); }
+        Task(ThreadAgent delegate) { super(delegate); }
     }
 }

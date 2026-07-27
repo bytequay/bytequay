@@ -110,6 +110,7 @@ class TestAbstractCliThreadAgentRecovery
         try (Harness harness = harness(brain, List.of())) {
             harness.agent.setActiveTask("task-1");
             harness.agent.setActiveStage("review-stage");
+            harness.agent.setActiveScope(ThreadScope.STAGE);
 
             harness.agent.send("review the diff").get(5, TimeUnit.SECONDS);
 

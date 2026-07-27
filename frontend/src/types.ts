@@ -4102,7 +4102,7 @@ export type Bridge = {
   renameTask: (id: string, title: string) => Promise<ThreadDto>;
   /** Send a follow-up turn to a non-terminal thread and return its
    *  durable scheduler turn id. */
-  sendTaskMessage: (id: string, input: string) => Promise<ThreadSendResultDto>;
+  sendTaskMessage: (id: string, taskId: string, input: string) => Promise<ThreadSendResultDto>;
   /** Reply to a {@code permission_request}. When {@code preApprove}
    *  is supplied, the backend records the per-call decision and then
    *  grants an auto-approval budget for future invocations of the same
@@ -4121,6 +4121,8 @@ export type Bridge = {
   /** Cancel the in-flight turn (Ctrl+C semantics). The session
    *  itself stays alive — the user can send another turn. */
   interruptTask: (id: string) => Promise<void>;
+  /** Interrupt only the Task agent currently executing this stage. */
+  interruptStage: (id: string) => Promise<void>;
   /** Terminal — releases the underlying agent loop and removes the
    *  thread from the live registry. */
   stopTask: (id: string) => Promise<void>;
@@ -4191,6 +4193,13 @@ export type Bridge = {
    *  to an in-flight assistant card). */
   subscribeTaskStream: (
     threadId: string,
+    onEvent: (event: ThreadStreamEvent) => void,
+    onClose?: (reason: string) => void,
+  ) => () => void;
+  /** Subscribe to the runtime that owns this stage; the backend resolves
+   *  Stage -> Task -> agent and validates every hop. */
+  subscribeStageStream: (
+    stageId: string,
     onEvent: (event: ThreadStreamEvent) => void,
     onClose?: (reason: string) => void,
   ) => () => void;

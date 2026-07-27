@@ -15,10 +15,8 @@ package com.bytequay.app.service.stage;
 
 /**
  * Fired right after a Task's active stage is closed on a phase transition.
- * Each per-stage CLI agent is keyed by its stage id, so the runtime listens
- * for this to evict the closed stage's agent — releasing its CLI subprocess
- * and worktree lease — without disturbing the thread's other concurrent
- * stages.
+ * The Task-owned provider session deliberately survives this boundary; the
+ * event is for stage-scoped lifecycle observers only.
  *
  * @param taskId  the task the closed stage belonged to
  * @param stageId the id of the stage that just closed (stringified UUID)

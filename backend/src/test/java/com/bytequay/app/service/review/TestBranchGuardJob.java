@@ -175,7 +175,7 @@ class TestBranchGuardJob
         verify(agentRuns).transition(run.id(), AgentRun.STATUS_SUCCEEDED, "rebased_and_pushed");
         verify(guards).save(argThatState(BranchGuard.STATE_HEALTHY));
         verify(notifications, never()).notifyNeedsAttention(any(), any(), any());
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -226,7 +226,7 @@ class TestBranchGuardJob
 
         verify(git, never()).rebase(any(), any());
         verify(git, never()).pushForceWithLease(any());
-        verify(scheduler).enqueueTaskTurn(any(Thread.class), anyString(), eq(TASK_ID),
+        verify(scheduler).enqueueStageTurn(any(Thread.class), anyString(), eq(TASK_ID),
                 eq(run.stageId()), any(TurnInitiator.class), eq(run.id()), any());
         verify(guards).save(argThatState(BranchGuard.STATE_CONFLICTED));
         verify(guards).save(argThatState(BranchGuard.STATE_FIXING));
@@ -445,7 +445,7 @@ class TestBranchGuardJob
         return new ThreadTurn(
                 "turn-1", "t1", TASK_ID, ThreadResourceLane.CLI, ThreadTurnStatus.COMPLETED, "prompt",
                 Instant.now(), Instant.now(), Instant.now(), Instant.now(), null,
-                TurnInitiator.unattended("branch-guard-fix"), stageId, ThreadScope.TASK, runId);
+                TurnInitiator.unattended("branch-guard-fix"), stageId, ThreadScope.STAGE, runId);
     }
 
     private static StageInstance remoteStage()

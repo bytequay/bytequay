@@ -20,6 +20,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.PullRequestStore;
@@ -714,9 +715,9 @@ public class AgentToolHandlers
             roles = AgentRole.TASK)
     public ToolOutcome runChecks(RunChecksArgs args, ToolCall call)
     {
-        Optional<Task> active = call.taskId() == null
+        Optional<Task> active = call.scope() == ThreadScope.TRUNK
                 ? Optional.empty()
-                : taskStore.findTaskById(call.taskId());
+                : taskStore.findTaskById(call.requireTaskId());
         if (active.isEmpty() || active.get().worktreePath() == null
                 || active.get().worktreePath().isBlank()) {
             return ToolOutcome.Completed.error("run_checks requires a task with a worktree");

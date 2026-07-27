@@ -35,7 +35,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.runs.AgentRunService;
-import com.bytequay.app.service.threads.StageAgent;
+import com.bytequay.app.service.threads.TaskAgent;
 import com.bytequay.app.service.threads.ThreadRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -78,10 +78,10 @@ class TestPlanApprovalSchedulerBoundary
     @BeforeEach
     void keepTheRealSchedulerOffExternalProviders()
     {
-        StageAgent agent = mock(StageAgent.class);
-        when(registry.resolvedWorkModel(any())).thenReturn(
+        TaskAgent agent = mock(TaskAgent.class);
+        when(registry.resolvedWorkModelForTurn(any(), any(), any())).thenReturn(
                 new WorkModel(WorkModelKind.CLI, "claude-code", null, null));
-        when(registry.getOrCreateStageAgent(any(), any(), anyString())).thenReturn(agent);
+        when(registry.getOrCreateTaskAgent(any(), any(), anyString())).thenReturn(agent);
         when(agent.workingDir()).thenReturn("/tmp");
         when(agent.metrics()).thenReturn(AgentMetrics.empty());
         when(agent.send(anyString())).thenReturn(new CompletableFuture<>());

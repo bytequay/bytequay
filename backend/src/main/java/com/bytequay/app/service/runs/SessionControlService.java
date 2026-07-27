@@ -15,9 +15,13 @@ package com.bytequay.app.service.runs;
 
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadScope;
+import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.threads.ThreadAgent;
 import com.bytequay.app.service.threads.ThreadRegistry;
 import com.bytequay.app.service.threads.ThreadTurnScheduler;
@@ -34,17 +38,20 @@ public class SessionControlService
 {
     private final AgentRunService runs;
     private final ThreadStore threads;
+    private final ThreadTurnStore turns;
     private final ThreadTurnScheduler scheduler;
     private final ThreadRegistry registry;
 
     public SessionControlService(
             AgentRunService runs,
             ThreadStore threads,
+            ThreadTurnStore turns,
             ThreadTurnScheduler scheduler,
             ThreadRegistry registry)
     {
         this.runs = requireNonNull(runs, "runs is null");
         this.threads = requireNonNull(threads, "threads is null");
+        this.turns = requireNonNull(turns, "turns is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.registry = requireNonNull(registry, "registry is null");
     }
@@ -53,7 +60,7 @@ public class SessionControlService
     {
         AgentRun run = requireRun(runId);
         scheduler.cancelSessionTurns(run.id());
-        activeAgent(run).ifPresent(ThreadAgent::interrupt);
+        activeAgent(run, scopeOf(run)).ifPresent(ThreadAgent::interrupt);
         return runs.pause(run.id(), "paused by user");
     }
 
@@ -61,41 +68,43 @@ public class SessionControlService
     {
         AgentRun run = requireRun(runId);
         scheduler.cancelSessionTurns(run.id());
-        activeAgent(run).ifPresent(ThreadAgent::stop);
+        activeAgent(run, scopeOf(run)).ifPresent(ThreadAgent::stop);
         return runs.transition(run.id(), AgentRun.STATUS_CANCELLED, "stopped by user");
     }
 
     public AgentRun resume(String runId)
     {
-        validateReplay(requireRun(runId));
+        AgentRun prior = requireRun(runId);
+        validateReplay(prior);
+        ThreadScope scope = scopeOf(prior);
         AgentRun run = runs.resume(runId);
-        enqueue(run);
+        enqueue(run, scope);
         return run;
     }
 
     public AgentRun restart(String runId)
     {
-        validateReplay(requireRun(runId));
+        AgentRun prior = requireRun(runId);
+        validateReplay(prior);
+        ThreadScope scope = scopeOf(prior);
         AgentRun restarted = runs.restart(runId);
-        enqueue(restarted);
+        enqueue(restarted, scope);
         return restarted;
     }
 
-    private void enqueue(AgentRun run)
+    private void enqueue(AgentRun run, ThreadScope scope)
     {
         Thread thread = validateReplay(run);
-        if (run.taskId() == null) {
-            scheduler.enqueueTrunkTurn(thread, run.launchInput(), run.id());
-            return;
+        switch (scope) {
+            case TRUNK -> scheduler.enqueueTrunkTurn(thread, run.launchInput(), run.id());
+            case TASK -> scheduler.enqueueTaskTurn(
+                    thread, run.launchInput(), required(run.taskId(), "taskId"),
+                    TurnInitiator.user(), run.id(), livenessFor(run));
+            case STAGE -> scheduler.enqueueStageTurn(
+                    thread, run.launchInput(), required(run.taskId(), "taskId"),
+                    required(run.stageId(), "stageId"), TurnInitiator.user(), run.id(),
+                    livenessFor(run));
         }
-        scheduler.enqueueTaskTurn(
-                thread,
-                run.launchInput(),
-                run.taskId(),
-                run.stageId(),
-                TurnInitiator.user(),
-                run.id(),
-                livenessFor(run));
     }
 
     /** A replayed session's liveness classification comes from the run's
@@ -123,15 +132,33 @@ public class SessionControlService
                         "no trunk for session: " + run.id()));
     }
 
-    private Optional<ThreadAgent> activeAgent(AgentRun run)
+    private Optional<ThreadAgent> activeAgent(AgentRun run, ThreadScope scope)
     {
-        if (run.stageId() != null && !run.stageId().isBlank()) {
-            return registry.findStage(run.threadId(), run.stageId());
+        return switch (scope) {
+            case TRUNK -> registry.findTrunk(run.threadId());
+            case TASK, STAGE -> threads.findThreadById(run.threadId())
+                    .filter(thread -> thread.kind() == ThreadKind.BRAIN_AGENT)
+                    .flatMap(thread -> registry.findTrunk(thread.id()))
+                    .or(() -> registry.findTask(
+                            run.threadId(), required(run.taskId(), "taskId")));
+        };
+    }
+
+    private ThreadScope scopeOf(AgentRun run)
+    {
+        ThreadTurn turn = turns.listTurnsByAgentRunId(run.id(), 1).stream()
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "session has no authoritative turn: " + run.id()));
+        return turn.scope();
+    }
+
+    private static String required(String value, String name)
+    {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException("session has no " + name);
         }
-        if (run.taskId() != null && !run.taskId().isBlank()) {
-            return registry.find(run.threadId());
-        }
-        return registry.findTrunk(run.threadId());
+        return value;
     }
 
     private AgentRun requireRun(String id)

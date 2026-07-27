@@ -315,7 +315,7 @@ public class CiFixRunExecutor
             // task's (worktree-leased) agent and its messages land in
             // stage_messages — never the read-only trunk planner, never the
             // thread slice.
-            String turnId = scheduler.enqueueTaskTurn(
+            String turnId = scheduler.enqueueStageTurn(
                     thread, prompt, task.id(), remoteStage.id().toString(),
                     TurnInitiator.unattended("auto-fix-ci-fail"), run.id(), TurnLiveness.CODE);
             agentRuns.recordIteration(run.id(), headlineFor(failingRuns));
@@ -506,7 +506,7 @@ public class CiFixRunExecutor
             // IN_REVIEW (empty active-task projection) so the no-id enqueue
             // would misroute to the read-only trunk; the explicit stage keeps
             // the fix's messages in stage_messages instead of the thread slice.
-            String turnId = scheduler.enqueueTaskTurn(
+            String turnId = scheduler.enqueueStageTurn(
                     thread, prompt, task.id(), run.stageId(),
                     TurnInitiator.unattended("ci-fix-shipped"), run.id(), TurnLiveness.CODE);
             AgentRun updated = agentRuns.recordIteration(run.id(), headlineFor(failingRuns));
@@ -585,12 +585,9 @@ public class CiFixRunExecutor
         };
     }
 
-    /**
-     * Context a fresh CI-fix stage agent gets seeded with, since it no longer
-     * resumes the Development session: the task's plan/agenda and the
-     * Development summary (the drafted PR description). Assembled from existing
-     * rows — no extra agent turn. Empty when neither is available.
-     */
+    /** Durable context supplement for a CI-fix turn on the Task-owned session:
+     *  its plan/agenda and Development summary. This remains useful after
+     *  provider-side compaction and costs no extra agent turn. */
     private String priorStageContext(Task task, String repoFullName)
     {
         StringBuilder ctx = new StringBuilder();
@@ -627,8 +624,7 @@ public class CiFixRunExecutor
         StringBuilder out = new StringBuilder();
         if (priorContext != null && !priorContext.isBlank()) {
             out.append("## Context from prior stages\n")
-                    .append("You are a fresh agent for the CI-fixing stage — you did NOT do the ")
-                    .append("development work, so here is what came before:\n\n")
+                    .append("Use this durable summary to supplement your existing Task session context:\n\n")
                     .append(priorContext)
                     .append("---\n\n");
         }

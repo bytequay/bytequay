@@ -111,6 +111,7 @@ class TestManagedSkillPolicy
         return new ThreadTurn(
                 "turn-1", "thread-1", taskId, ThreadResourceLane.CLI,
                 ThreadTurnStatus.QUEUED, input, now, now, null, null, null,
-                TurnInitiator.unattended(source), null, ThreadScope.of(taskId, null));
+                TurnInitiator.unattended(source), null,
+                taskId == null ? ThreadScope.TRUNK : ThreadScope.TASK);
     }
 }

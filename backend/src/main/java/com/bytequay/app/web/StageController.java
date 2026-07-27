@@ -26,6 +26,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.stage.StageDetailService;
+import com.bytequay.app.service.stage.StageRuntimeService;
 import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
 import com.bytequay.app.service.workmodel.ScopeWorkModel;
@@ -39,7 +40,9 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 
@@ -58,6 +61,7 @@ public class StageController
     private final StageService service;
     private final StageDetailService detailService;
     private final StageSteeringService steeringService;
+    private final StageRuntimeService runtimeService;
     private final PlanStageService planStageService;
     private final StageStore stageStore;
     private final TaskStore taskStore;
@@ -68,6 +72,7 @@ public class StageController
             StageService service,
             StageDetailService detailService,
             StageSteeringService steeringService,
+            StageRuntimeService runtimeService,
             PlanStageService planStageService,
             StageStore stageStore,
             TaskStore taskStore,
@@ -77,6 +82,7 @@ public class StageController
         this.service = requireNonNull(service, "service is null");
         this.detailService = requireNonNull(detailService, "detailService is null");
         this.steeringService = requireNonNull(steeringService, "steeringService is null");
+        this.runtimeService = requireNonNull(runtimeService, "runtimeService is null");
         this.planStageService = requireNonNull(planStageService, "planStageService is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -112,6 +118,35 @@ public class StageController
     public StageDetailData stageDetail(@PathVariable String stageId)
     {
         return detailService.getDetail(parseStageId(stageId));
+    }
+
+    @GetMapping(value = "/api/stages/{stageId}/stream", produces = "text/event-stream")
+    public SseEmitter stream(@PathVariable String stageId)
+    {
+        SseEmitter emitter = new SseEmitter(30L * 60L * 1000L);
+        Runnable unsubscribe = runtimeService.subscribe(parseStageId(stageId), event -> {
+            try {
+                emitter.send(SseEmitter.event()
+                        .name(event.getClass().getSimpleName())
+                        .data(event));
+            }
+            catch (IOException e) {
+                throw new IllegalStateException("SSE channel closed", e);
+            }
+        });
+        emitter.onCompletion(unsubscribe);
+        emitter.onTimeout(() -> {
+            unsubscribe.run();
+            emitter.complete();
+        });
+        emitter.onError(ignored -> unsubscribe.run());
+        return emitter;
+    }
+
+    @PostMapping("/api/stages/{stageId}/interrupt")
+    public void interrupt(@PathVariable String stageId)
+    {
+        runtimeService.interrupt(parseStageId(stageId));
     }
 
     public record SteerRequest(String text, List<String> images) {}

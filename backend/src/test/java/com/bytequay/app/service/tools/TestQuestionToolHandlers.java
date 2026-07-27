@@ -14,6 +14,7 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.AgentQuestion;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.question.AgentQuestionService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -46,7 +47,8 @@ class TestQuestionToolHandlers
 
         ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.askUserQuestion(
                 new QuestionToolHandlers.AskUserQuestionArgs("Which DB?", "ctx", options, true),
-                new ToolCall("t1", null, AgentRole.TRUNK, "task-1", null));
+                new ToolCall(ThreadScope.TASK,
+                        "t1", null, AgentRole.TRUNK, "task-1", null));
 
         assertThat(result.isError()).isFalse();
         assertThat(result.text()).contains("shown to the user");
@@ -62,7 +64,8 @@ class TestQuestionToolHandlers
     {
         ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.askUserQuestion(
                 new QuestionToolHandlers.AskUserQuestionArgs("  ", null, null, null),
-                new ToolCall("t1", null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK,
+                        "t1", null, AgentRole.TRUNK));
 
         assertThat(result.isError()).isTrue();
         verify(service, never()).ask(any(), any(), any(), any(), any(), any(), anyBoolean());

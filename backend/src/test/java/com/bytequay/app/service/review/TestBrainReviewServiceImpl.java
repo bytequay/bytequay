@@ -141,7 +141,7 @@ class TestBrainReviewServiceImpl
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
 
-        verify(scheduler).enqueueTaskTurn(
+        verify(scheduler).enqueueStageTurn(
                 eq(brainThread), argThat(prompt -> prompt.contains("task `" + TASK_ID + "`")
                         && prompt.contains("revision `plan-rev-1`")
                         && prompt.contains("\"goal\" : \"Fix the bug\"")
@@ -166,7 +166,7 @@ class TestBrainReviewServiceImpl
                 .thenReturn(List.of(planRecordedEvent("finalized")));
         when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
         doThrow(new IllegalStateException("scheduler unavailable"))
-                .when(scheduler).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), any(), any());
+                .when(scheduler).enqueueStageTurn(any(), anyString(), anyString(), anyString(), any(), any(), any());
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
 
@@ -186,7 +186,7 @@ class TestBrainReviewServiceImpl
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-1", false));
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -203,7 +203,7 @@ class TestBrainReviewServiceImpl
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "turn-2", false));
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -224,7 +224,7 @@ class TestBrainReviewServiceImpl
                 eq(PLAN_STAGE_ID), eq(TASK_ID), eq(StageEventType.PLAN_SELF_REVIEWED), any());
         verify(taskStore).setAutoApprove(TASK_ID, true);
         // The self-review turn's own completion must not re-enqueue itself.
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -258,7 +258,7 @@ class TestBrainReviewServiceImpl
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "changes-requested-review", false));
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any(), any(), any());
         verify(taskStore, never()).setAutoApprove(anyString(), any(Boolean.class));
     }
 
@@ -277,7 +277,7 @@ class TestBrainReviewServiceImpl
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "unverdicted-review", false));
 
-        verify(scheduler).enqueueTaskTurn(
+        verify(scheduler).enqueueStageTurn(
                 any(), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
                 argThat(initiator -> "brain-plan-self-review".equals(initiator.source())), isNull(), any());
         verify(stageStore, never()).recordEvent(
@@ -300,7 +300,7 @@ class TestBrainReviewServiceImpl
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "failed-review", true));
 
-        verify(scheduler).enqueueTaskTurn(
+        verify(scheduler).enqueueStageTurn(
                 any(), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
                 argThat(initiator -> "brain-plan-self-review".equals(initiator.source())), isNull(), any());
         verify(phaseMachine, never()).transition(eq(TASK_ID), eq(TaskPhase.NEEDS_ATTENTION), any(), any());
@@ -324,7 +324,7 @@ class TestBrainReviewServiceImpl
                 TASK_ID, Actor.AGENT, "plan_self_review_failed");
         verify(events).publishEvent((Object) argThat(
                 (Object event) -> event instanceof BrainReviewServiceImpl.NeedsAttentionNotice));
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -355,7 +355,7 @@ class TestBrainReviewServiceImpl
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, current.id(), true));
 
-        verify(scheduler).enqueueTaskTurn(
+        verify(scheduler).enqueueStageTurn(
                 any(), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
                 argThat(initiator -> "brain-plan-self-review".equals(initiator.source())), isNull(), any());
         verify(phaseMachine, never()).transition(
@@ -376,9 +376,33 @@ class TestBrainReviewServiceImpl
 
         assertThat(service.resumeParkedReview(TASK_ID)).isTrue();
 
-        verify(scheduler).enqueueTaskTurn(
+        verify(scheduler).enqueueStageTurn(
                 any(), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
                 argThat(initiator -> "brain-plan-self-review".equals(initiator.source())), isNull(), any());
+    }
+
+    @Test
+    void schedulerConflictDuringPlanSelfReviewIsOwnedAndRequeuedOnResume()
+    {
+        Task parked = taskAt(TaskPhase.NEEDS_ATTENTION).withStatus(TaskStatus.NEEDS_ATTENTION);
+        Task recovered = taskAt(TaskPhase.PLANNING);
+        when(taskStore.findTaskById(TASK_ID))
+                .thenReturn(Optional.of(parked), Optional.of(recovered));
+        when(taskStore.listPhaseEvents(TASK_ID)).thenReturn(List.of(new TaskPhaseEvent(
+                1L, TASK_ID, TaskPhase.PLANNING, TaskPhase.NEEDS_ATTENTION,
+                NOW, "scheduler_turn_conflict", Actor.AGENT)));
+        when(stageStore.findActiveStage(TASK_ID)).thenReturn(Optional.of(planStage(StageState.OPEN)));
+        when(stageStore.findEventsByStage(PLAN_STAGE_ID))
+                .thenReturn(List.of(planRecordedEvent("finalized")));
+        when(threadStore.findBrainThreadByTask(TASK_ID)).thenReturn(Optional.of(brainThread()));
+
+        assertThat(service.ownsParkedResume(TASK_ID)).isTrue();
+        assertThat(service.resumeParkedReview(TASK_ID)).isTrue();
+
+        verify(scheduler).enqueueStageTurn(
+                any(), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
+                argThat(initiator -> "brain-plan-self-review".equals(initiator.source())),
+                isNull(), any());
     }
 
     @Test
@@ -415,7 +439,7 @@ class TestBrainReviewServiceImpl
 
         verify(agentRuns).pauseInCommand(TASK_ID, running.id(), "user_paused_task");
         verify(agentRuns).restartInCommand(TASK_ID, pausedRun.id());
-        verify(scheduler).enqueueTaskTurn(
+        verify(scheduler).enqueueStageTurn(
                 any(), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
                 argThat(initiator -> "brain-plan-self-review".equals(initiator.source())),
                 eq(replacement.id()), any());
@@ -438,7 +462,7 @@ class TestBrainReviewServiceImpl
 
         service.reconcilePlanSelfReviews();
 
-        verify(scheduler).enqueueTaskTurn(
+        verify(scheduler).enqueueStageTurn(
                 any(), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
                 argThat(initiator -> "brain-plan-self-review".equals(initiator.source())), isNull(), any());
         verify(stageStore, never()).recordEvent(
@@ -471,7 +495,7 @@ class TestBrainReviewServiceImpl
 
         service.reconcilePlanSelfReviews();
 
-        verify(scheduler).enqueueTaskTurn(
+        verify(scheduler).enqueueStageTurn(
                 any(), anyString(), eq(TASK_ID), eq(PLAN_STAGE_ID.toString()),
                 argThat(initiator -> "brain-plan-self-review".equals(initiator.source())), isNull(), any());
         verify(stageStore, never()).recordEvent(
@@ -760,7 +784,7 @@ class TestBrainReviewServiceImpl
         assertThat(service.resumeParkedReview(TASK_ID)).isTrue();
 
         verify(roundMachine).resumeInCommand(TASK_ID, parked.id(), "review_resumed");
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq(ReviewRoundStateMachine.kickKey(resumed, "brain-review")),
                 any(), anyString(), eq(TASK_ID), eq("replacement-stage"),
                 argThat(initiator -> "brain-review".equals(initiator.source())),
@@ -798,7 +822,7 @@ class TestBrainReviewServiceImpl
         assertThat(service.resumeParkedReview(TASK_ID)).isTrue();
 
         verify(roundMachine).resumeInCommand(TASK_ID, parked.id(), "review_resumed");
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq(ReviewRoundStateMachine.kickKey(resumed, "brain-review")),
                 any(), anyString(), eq(TASK_ID), eq(replacement.stageId()),
                 argThat(initiator -> "brain-review".equals(initiator.source())),
@@ -831,7 +855,7 @@ class TestBrainReviewServiceImpl
         verify(prService).recordBrainReviewFailed(
                 TASK_ID, "dev", parked.iteration(), parked.id(),
                 "brain_fixes_validation_failed", null);
-        verify(scheduler, never()).enqueueTaskTurn(
+        verify(scheduler, never()).enqueueStageTurn(
                 any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
@@ -861,7 +885,7 @@ class TestBrainReviewServiceImpl
 
         verify(validation).run(TASK_ID);
         verify(roundMachine).resumeInCommand(TASK_ID, parked.id(), "review_resumed");
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq(ReviewRoundStateMachine.kickKey(resumed, "brain-review")),
                 any(), anyString(), eq(TASK_ID), eq(remoteStageId),
                 argThat(initiator -> "brain-review".equals(initiator.source())),
@@ -898,7 +922,7 @@ class TestBrainReviewServiceImpl
         verify(validation, never()).run(TASK_ID);
         verify(prService, never()).recordBrainReviewAddressing(
                 anyString(), anyString(), anyInt(), anyString(), anyString());
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq(ReviewRoundStateMachine.kickKey(resumed, "brain-review-fix")),
                 any(), anyString(), eq(TASK_ID), eq(replacement.stageId()),
                 argThat(initiator -> "brain-review-fix".equals(initiator.source())),
@@ -968,7 +992,7 @@ class TestBrainReviewServiceImpl
 
         service.reviewAfterLocalComments("pr1");
 
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq(ReviewRoundStateMachine.kickKey(opened, "brain-review-fix")),
                 any(), argThat(prompt -> prompt.contains("[id: older-root]")), eq(TASK_ID), eq("stage2"),
                 argThat(initiator -> "brain-review-fix".equals(initiator.source())), eq("run2"), any());
@@ -1012,7 +1036,7 @@ class TestBrainReviewServiceImpl
         service.driveRound(addressing.id());
 
         verify(roundMachine).concludeBrainInCommand(TASK_ID, triaging.id(), reviewTurn.id());
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq(ReviewRoundStateMachine.kickKey(addressing, "brain-review-fix")),
                 eq(taskThread),
                 argThat(prompt -> prompt.contains("[id: c1]")
@@ -1068,7 +1092,7 @@ class TestBrainReviewServiceImpl
 
         verify(taskStore, never()).saveTask(any());
         verify(threadStore, never()).findThreadById(anyString());
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
@@ -1238,7 +1262,7 @@ class TestBrainReviewServiceImpl
 
         verify(roundMachine).recordOwnedTurnEndedInCommand(
                 TASK_ID, addressing.id(), completed.id());
-        verify(scheduler, never()).enqueueTaskTurn(
+        verify(scheduler, never()).enqueueStageTurn(
                 any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
@@ -1462,7 +1486,7 @@ class TestBrainReviewServiceImpl
                 "brain_review_verdict_missing", completed.id());
         verify(roundMachine).parkInCommand(
                 TASK_ID, triaging.id(), "brain_review_verdict_missing");
-        verify(scheduler, never()).enqueueTaskTurn(
+        verify(scheduler, never()).enqueueStageTurn(
                 any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
@@ -1506,7 +1530,7 @@ class TestBrainReviewServiceImpl
         verify(prService).recordBrainReviewFailed(
                 TASK_ID, "round", addressed.iteration(), addressed.id(),
                 "review_fixes_validation_failed", null);
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
     @Test
@@ -1525,7 +1549,7 @@ class TestBrainReviewServiceImpl
 
         verify(roundMachine).recordDeliveryFailure(
                 addressed.id(), addressed.kickAttempt(), "review_turn_enqueue_failed");
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
     // ── reconcileStalledRounds: the intra-thread-multi-tasking backstop ───
@@ -1546,7 +1570,7 @@ class TestBrainReviewServiceImpl
 
         service.reconcileStalledRounds();
 
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq(ReviewRoundStateMachine.kickKey(triaging, "brain-review")),
                 any(), anyString(), eq(TASK_ID), eq("run-stage"),
                 argThat(i -> "brain-review".equals(i.source())), anyString(), any());
@@ -1568,7 +1592,7 @@ class TestBrainReviewServiceImpl
         service.reconcileStalledRounds();
 
         verify(agentRuns, never()).findById(anyString());
-        verify(scheduler, never()).enqueueTaskTurn(
+        verify(scheduler, never()).enqueueStageTurn(
                 any(), anyString(), anyString(), anyString(), any(), anyString(), any());
         verify(roundMachine, never()).recordKickAdmittedInCommand(
                 anyString(), anyString(), any(), anyInt());
@@ -1596,7 +1620,7 @@ class TestBrainReviewServiceImpl
 
         service.reconcileStalledRounds();
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), anyString(), anyString(), anyString(), any(), any(), any());
         verify(roundMachine, never()).recordOwnedTurnEndedInCommand(
                 anyString(), anyString(), anyString());
     }
@@ -1619,7 +1643,7 @@ class TestBrainReviewServiceImpl
 
         service.reconcileStalledRounds();
 
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq(ReviewRoundStateMachine.kickKey(addressing, "brain-review-fix")),
                 any(), anyString(), eq(TASK_ID), eq("run-stage"),
                 argThat(i -> "brain-review-fix".equals(i.source())), anyString(), any());
@@ -1648,7 +1672,7 @@ class TestBrainReviewServiceImpl
         when(taskStore.findTaskById(TASK_ID)).thenReturn(Optional.of(task));
         when(agentRuns.findById(addressing.runId())).thenReturn(Optional.of(run));
         when(threadStore.findThreadById(task.threadId())).thenReturn(Optional.of(idleTaskThread()));
-        when(scheduler.enqueueTaskTurnOnce(
+        when(scheduler.enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), anyString(), any(), anyString(), any()))
                 .thenReturn(replacement.id());
         when(taskStore.currentLivenessTurnId(TASK_ID)).thenReturn(Optional.of(failed.id()));
@@ -1685,7 +1709,7 @@ class TestBrainReviewServiceImpl
 
         service.reconcileStalledRounds();
 
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq(ReviewRoundStateMachine.kickKey(addressing, "brain-review-fix")),
                 any(), anyString(), eq(TASK_ID), eq("run-stage"),
                 argThat(i -> "brain-review-fix".equals(i.source())), anyString(), any());
@@ -1710,7 +1734,7 @@ class TestBrainReviewServiceImpl
 
         service.reconcileStalledRounds();
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), anyString(), anyString(), anyString(), any(), anyString(), any());
         verify(roundMachine).recordDeliveryFailure(
                 addressing.id(), addressing.kickAttempt(), "review_turn_enqueue_failed");
         verify(prService, never()).recordBrainReviewStarted(anyString(), anyString(), anyInt(), anyString());
@@ -1728,7 +1752,7 @@ class TestBrainReviewServiceImpl
                 "run-stage", AgentRun.STATUS_QUEUED, 0, null, null, null, NOW, null);
         when(agentRuns.findById(addressing.runId())).thenReturn(Optional.of(run));
         when(threadStore.findThreadById(task().threadId())).thenReturn(Optional.of(idleTaskThread()));
-        when(scheduler.enqueueTaskTurnOnce(
+        when(scheduler.enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), anyString(), any(), anyString(), any()))
                 .thenThrow(new IllegalStateException("queue unavailable"));
         when(roundMachine.recordDeliveryFailure(
@@ -1761,11 +1785,11 @@ class TestBrainReviewServiceImpl
 
         service.reconcileStalledRounds();
 
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq(ReviewRoundStateMachine.kickKey(secondReview, "brain-review")),
                 any(), anyString(), eq(TASK_ID), eq("run-stage"),
                 argThat(i -> "brain-review".equals(i.source())), eq(secondReview.runId()), any());
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), anyString(),
                 argThat(i -> "brain-review-fix".equals(i.source())), anyString(), any());
     }
@@ -1825,7 +1849,7 @@ class TestBrainReviewServiceImpl
 
         verify(claimedValidation).claimAndRunReviewRound(
                 TASK_ID, addressing.id(), completed.id());
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
@@ -1853,7 +1877,7 @@ class TestBrainReviewServiceImpl
 
         service.reconcileStalledRounds();
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), anyString(), anyString(), anyString(), any(), any(), any());
         verify(roundMachine, never()).recordOwnedTurnEndedInCommand(
                 anyString(), anyString(), anyString());
     }
@@ -1882,7 +1906,7 @@ class TestBrainReviewServiceImpl
 
         verify(roundMachine, never()).recordOwnedTurnEndedInCommand(
                 anyString(), anyString(), anyString());
-        verify(scheduler, never()).enqueueTaskTurnOnce(
+        verify(scheduler, never()).enqueueStageTurnOnce(
                 anyString(), any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
@@ -1910,7 +1934,7 @@ class TestBrainReviewServiceImpl
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "failed-turn", true));
 
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq(ReviewRoundStateMachine.kickKey(retry, "brain-review")),
                 any(), anyString(), eq(TASK_ID), eq("run-stage"),
                 argThat(initiator -> "brain-review".equals(initiator.source())), eq(triaging.runId()), any());
@@ -1943,7 +1967,7 @@ class TestBrainReviewServiceImpl
 
         service.onTurnFinished(new TaskTurnFinishedEvent(TASK_ID, "failed-turn", true));
 
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 eq(ReviewRoundStateMachine.kickKey(retry, "brain-review-fix")),
                 any(), anyString(), eq(TASK_ID), eq("run-stage"),
                 argThat(initiator -> "brain-review-fix".equals(initiator.source())), eq(addressing.runId()), any());
@@ -1968,7 +1992,7 @@ class TestBrainReviewServiceImpl
 
         verify(roundMachine, times(4)).recordOwnedTurnEndedInCommand(
                 TASK_ID, triaging.id(), cancelled.id());
-        verify(scheduler, never()).enqueueTaskTurn(
+        verify(scheduler, never()).enqueueStageTurn(
                 any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
@@ -1990,7 +2014,7 @@ class TestBrainReviewServiceImpl
         verify(prService).recordBrainReviewFailed(
                 TASK_ID, "dev", triaging.iteration(), triaging.id(),
                 "review_turn_failed", secondFailure.id());
-        verify(scheduler, never()).enqueueTaskTurn(any(), anyString(), anyString(), anyString(), any(), anyString(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), anyString(), anyString(), anyString(), any(), anyString(), any());
     }
 
     @Test
@@ -2097,7 +2121,7 @@ class TestBrainReviewServiceImpl
         return new ThreadTurn(
                 "turn-x", "thread-1", TASK_ID, ThreadResourceLane.CLI,
                 ThreadTurnStatus.COMPLETED, "prompt", NOW, NOW, NOW, NOW,
-                null, initiator, stageId, ThreadScope.TASK);
+                null, initiator, stageId, ThreadScope.STAGE);
     }
 
     private static ThreadTurn runTurn(

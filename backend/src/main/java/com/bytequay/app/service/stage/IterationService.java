@@ -297,7 +297,7 @@ public class IterationService
             // stage_messages, not the thread slice. (The stage is PAUSED while
             // it waits, which findActiveStage misses — the iteration knows its
             // stage id directly, so pin it.)
-            String turnId = scheduler.enqueueTaskTurn(
+            String turnId = scheduler.enqueueStageTurn(
                     thread.get(), prompt, iteration.taskId(), iteration.stageId().toString(),
                     TurnInitiator.unattended("iteration-summary-request"), null, TurnLiveness.NARRATION);
             iterationStore.save(iteration.withSummaryRequestTurnId(turnId));

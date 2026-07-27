@@ -16,6 +16,7 @@ package com.bytequay.app.service.tools;
 import com.bytequay.app.domain.ReviewComment;
 import com.bytequay.app.domain.ReviewCommentSource;
 import com.bytequay.app.domain.ReviewRound;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.review.RoundGateSaga;
@@ -63,7 +64,7 @@ class TestReviewRoundToolHandlers
 
         ToolOutcome outcome = handlers.recordRoundReply(
                 new ReviewRoundToolHandlers.RecordRoundReplyArgs(comment.id().toString(), "Fixed"),
-                new ToolCall("thread-1", null, AgentRole.TASK,
+                new ToolCall(ThreadScope.STAGE, "thread-1", null, AgentRole.TASK,
                         "task-1", "stage-1", "run-1"));
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isFalse();
@@ -81,7 +82,7 @@ class TestReviewRoundToolHandlers
 
         ToolOutcome outcome = handlers.recordRoundReply(
                 new ReviewRoundToolHandlers.RecordRoundReplyArgs(comment.id().toString(), "Fixed"),
-                new ToolCall("thread-1", null, AgentRole.TASK,
+                new ToolCall(ThreadScope.STAGE, "thread-1", null, AgentRole.TASK,
                         "task-1", "stage-1", "run-1"));
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();

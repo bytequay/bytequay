@@ -57,7 +57,7 @@ public class McpController
     /**
      * The mapped entry point. Adds the two pieces of Streamable-HTTP framing
      * that a strict client needs but the in-JVM / direct callers don't, then
-     * delegates to {@link #handle(String, JsonNode)} for the JSON-RPC body:
+     * delegates to the transport-agnostic JSON-RPC handler below:
      *
      * <ul>
      *   <li><b>{@code Mcp-Session-Id} header</b> — the spec lets a server
@@ -76,24 +76,9 @@ public class McpController
      *       the 200, which is why it lists/uses our tools and Codex did not.</li>
      * </ul>
      */
-    @PostMapping("/api/threads/{threadId}/mcp")
-    public DeferredResult<JsonNode> handle(
-            @PathVariable String threadId,
-            @RequestBody JsonNode request,
-            HttpServletResponse response)
-    {
-        // Legacy / trunk path: no agent key in the URL, so role / capability
-        // resolution falls back to the thread's first RUNNING turn. The trunk
-        // agent and any single-agent thread reach the server here, unchanged.
-        return dispatch(threadId, /* agentKey */ null, request, response);
-    }
-
     /**
-     * Stage-scoped entry point: the URL carries the connecting agent's
-     * registry stage key, so role / capability / running-turn resolution
-     * targets THAT agent's own turn even when several stage agents on one
-     * thread are running concurrently. Each stage agent writes this URL with
-     * its own key; the trunk agent uses the reserved {@code trunk} key.
+     * Explicit runtime entry point. The URL carries either a task id or the
+     * reserved trunk key, so role/capability resolution targets that runtime.
      */
     @PostMapping("/api/threads/{threadId}/agents/{agentKey}/mcp")
     public DeferredResult<JsonNode> handle(
@@ -124,17 +109,6 @@ public class McpController
                 && request.path("method").asText("").startsWith("notifications/");
     }
 
-    /** Legacy / trunk overload with no agent key — role / capability
-     *  resolution falls back to the thread's first RUNNING turn. Kept so
-     *  the in-JVM lane and the existing unit suite exercise the JSON-RPC
-     *  contract via the same single-agent path the old URL served. */
-    DeferredResult<JsonNode> handle(
-            String threadId,
-            JsonNode request)
-    {
-        return handle(threadId, /* agentKey */ null, request);
-    }
-
     /**
      * The transport-agnostic core: validates the envelope and hands off to
      * the service. Kept separate (and unmapped) so the in-JVM lane and the
@@ -154,6 +128,9 @@ public class McpController
         // protocol errors over HTTP 200 by convention.
         if (threadId == null || threadId.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "threadId is required");
+        }
+        if (agentKey == null || agentKey.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "agentKey is required");
         }
         if (request == null || request.isMissingNode() || request.isNull()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "request body is required");

@@ -19,6 +19,7 @@ import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
@@ -70,7 +71,8 @@ class TestPRRecordToolHandlers
             new PRRecordToolHandlers(
                     prService, taskStore, brainReview, roundStore, agentRuns, phaseMachine, git);
 
-    private final ToolCall taskCall = new ToolCall("thread-1", null, AgentRole.TASK, "task1", null);
+    private final ToolCall taskCall = new ToolCall(ThreadScope.TASK,
+            "thread-1", null, AgentRole.TASK, "task1", null);
 
     private static Task task()
     {
@@ -279,7 +281,9 @@ class TestPRRecordToolHandlers
     void rejectsATrunkTurnWithNoTask()
     {
         ToolOutcome outcome = handlers.recordPrDescription(
-                new RecordPrDescriptionArgs(null, "x"), new ToolCall("thread-1", null, AgentRole.TRUNK));
+                new RecordPrDescriptionArgs(null, "x"),
+                new ToolCall(ThreadScope.TRUNK,
+                        "thread-1", null, AgentRole.TRUNK));
 
         assertThat(((ToolOutcome.Completed) outcome).isError()).isTrue();
         verify(prService, never()).createForTask(any(), any(), any(), any(), any());

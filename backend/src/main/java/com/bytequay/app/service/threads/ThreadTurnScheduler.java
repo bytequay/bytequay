@@ -22,17 +22,8 @@ import com.bytequay.app.domain.TurnLiveness;
  */
 public interface ThreadTurnScheduler
 {
-    /** Queue a user (attended) turn and return its durable turn id. */
-    String enqueueTurn(Thread thread, String input);
-
-    /** Queue a turn stamped with an explicit initiator — automated
-     *  triggers use this to mark the turn unattended so the approval
-     *  gate escalates rather than waits for a human. */
-    String enqueueTurn(Thread thread, String input, TurnInitiator initiator);
-
-    /** Queue a trunk-scope turn — forces {@code task_id = null} on the
-     *  persisted row so the trunk planning agent picks it up regardless
-     *  of any foreground Task on the thread. */
+    /** Queue a trunk-scope turn. Runtime scope is selected by this method,
+     *  never inferred from nullable task/stage ids. */
     String enqueueTrunkTurn(Thread thread, String input);
 
     /** Queue a trunk-scope turn with an explicit attended/unattended
@@ -50,24 +41,9 @@ public interface ThreadTurnScheduler
         return enqueueTrunkTurn(thread, input);
     }
 
-    /** Queue a task-scope (attended) turn bound to an explicit {@code
-     *  taskId}, bypassing the active-task projection the no-id overloads
-     *  derive. The task-altitude composer uses this so a turn lands on
-     *  its task's conversation slice even when that task isn't in the
-     *  narrow "active" set — parked at {@code AWAITING_REVIEW}, {@code
-     *  NEEDS_ATTENTION}, or with a {@code COMPLETED} dev-lifecycle phase.
-     *  In those states the thread has no active task, which used to
-     *  mislabel the turn as a {@code task_id = null} (trunk) row and leak
-     *  the task conversation into the trunk slice. A null {@code taskId}
-     *  falls back to a trunk turn, matching the no-id behaviour.
-     *
-     *  <p>Defaulted to the active-task-derived {@link #enqueueTurn(Thread,
-     *  String)} so simple implementors (test fakes) need no change; the
-     *  production scheduler overrides it to honour {@code taskId}. */
-    default String enqueueTaskTurn(Thread thread, String input, String taskId)
-    {
-        return enqueueTurn(thread, input);
-    }
+    /** Queue an attended task-scope turn. {@code taskId} is required and
+     *  the resulting turn intentionally carries no stage. */
+    String enqueueTaskTurn(Thread thread, String input, String taskId);
 
     /** As {@link #enqueueTaskTurn(Thread, String, String)} but with an
      *  explicit initiator. Used to steer the dev agent at the review gate:
@@ -80,27 +56,32 @@ public interface ThreadTurnScheduler
         return enqueueTaskTurn(thread, input, taskId);
     }
 
-    /** As {@link #enqueueTaskTurn(Thread, String, String, TurnInitiator)} but
-     *  with the stage pinned explicitly rather than derived from the active-
-     *  stage projection. Automation/iteration turns (shipped-CI fix, comment
-     *  addressing) use this so the turn is stage-scoped — its detail lands in
-     *  {@code stage_messages}, never the thread slice — even when the active-
-     *  stage lookup would momentarily miss. Defaulted to the no-stage overload
-     *  so test fakes need no change; the production scheduler overrides it. */
+    /** Task-scope overload with run correlation and explicit liveness. */
     default String enqueueTaskTurn(
-            Thread thread, String input, String taskId, String stageId, TurnInitiator initiator)
+            Thread thread, String input, String taskId, TurnInitiator initiator,
+            String agentRunId, TurnLiveness liveness)
     {
         return enqueueTaskTurn(thread, input, taskId, initiator);
     }
 
-    /** As the explicit-stage overload, plus an AgentRun correlation id. The
-     *  turn still executes on {@code stageId}; {@code agentRunId} identifies
-     *  the episode whose completion handler should advance. */
-    default String enqueueTaskTurn(
+    /** Idempotent keyed enqueue for a task-scoped turn. */
+    default String enqueueTaskTurnOnce(
+            String kickKey, Thread thread, String input, String taskId,
+            TurnInitiator initiator, String agentRunId, TurnLiveness liveness)
+    {
+        return enqueueTaskTurn(thread, input, taskId, initiator, agentRunId, liveness);
+    }
+
+    /** Queue a stage-scope turn. Both owning task and stage are required. */
+    String enqueueStageTurn(
+            Thread thread, String input, String taskId, String stageId, TurnInitiator initiator);
+
+    /** As the explicit-stage overload, plus an AgentRun correlation id. */
+    default String enqueueStageTurn(
             Thread thread, String input, String taskId, String stageId,
             TurnInitiator initiator, String agentRunId)
     {
-        return enqueueTaskTurn(thread, input, taskId, stageId, initiator);
+        return enqueueStageTurn(thread, input, taskId, stageId, initiator);
     }
 
     /** As the run-correlated overload, with the turn's explicit liveness
@@ -108,22 +89,22 @@ public interface ThreadTurnScheduler
      *  whether the turn is the task's own runtime ({@code CODE}) or
      *  brain/planning/review narration ({@code NARRATION}); it is never
      *  inferred from the shared thread. */
-    default String enqueueTaskTurn(
+    default String enqueueStageTurn(
             Thread thread, String input, String taskId, String stageId,
             TurnInitiator initiator, String agentRunId, TurnLiveness liveness)
     {
-        return enqueueTaskTurn(thread, input, taskId, stageId, initiator, agentRunId);
+        return enqueueStageTurn(thread, input, taskId, stageId, initiator, agentRunId);
     }
 
     /** Idempotent keyed enqueue: at most one turn ever exists per
      *  {@code kickKey} — a repeat (listener and sweep racing, or a retry
      *  after a crash between claim and launch) returns the existing
      *  turn's id instead of inserting a duplicate. */
-    default String enqueueTaskTurnOnce(
+    default String enqueueStageTurnOnce(
             String kickKey, Thread thread, String input, String taskId, String stageId,
             TurnInitiator initiator, String agentRunId, TurnLiveness liveness)
     {
-        return enqueueTaskTurn(thread, input, taskId, stageId, initiator, agentRunId, liveness);
+        return enqueueStageTurn(thread, input, taskId, stageId, initiator, agentRunId, liveness);
     }
 
     /** Cancel queued turns for one thread and return the number cancelled. */

@@ -113,10 +113,10 @@ public abstract class AbstractCliThreadAgent
     /** Thread id this agent serves. Protected so a subclass's
      *  {@link #buildCommand} can name per-thread temp files. */
     protected final String threadId;
-    /** The registry stage key this agent connects to the MCP server under,
+    /** The registry runtime key this agent connects to the MCP server under,
      *  embedded in its per-agent MCP URL ({@code .../agents/{agentKey}/mcp})
      *  so its tool calls resolve role / capability against its OWN running
-     *  turn under concurrent stage agents. Set by {@link ThreadRegistry}
+     *  turn under concurrent Task agents. Set by {@link ThreadRegistry}
      *  right after construction; defaults to the reserved trunk key so the
      *  legacy single-agent path keeps working when it's never set. */
     private volatile String mcpAgentKey = PermissionResolver.TRUNK_AGENT_KEY;
@@ -172,13 +172,9 @@ public abstract class AbstractCliThreadAgent
     /** The stage the in-flight turn belongs to, set by the scheduler before
      *  each {@link #send}; messages emitted during the turn inherit it. */
     private volatile String activeStageId;
+    private volatile ThreadScope activeTurnScope = ThreadScope.TRUNK;
     private volatile ManagedSkillBundle managedSkillBundle = ManagedSkillBundle.empty();
     private volatile List<ManagedSkill> activeManagedSkills = List.of();
-    /** The stage this agent has bound to (set on its first stage turn). A work
-     *  stage starts a BRAND-NEW session — it never {@code --resume}s the task's
-     *  or a prior stage's session — so cross-stage context flows only through
-     *  the seeded kickoff, not a shared provider session. */
-    private volatile String boundStageId;
     private final AtomicReference<String> model = new AtomicReference<>("");
     private final AtomicReference<Process> currentProcess = new AtomicReference<>();
     /** Set true by {@link #interrupt} just before {@code destroy()} so
@@ -187,8 +183,7 @@ public abstract class AbstractCliThreadAgent
     private final AtomicBoolean userInterrupted = new AtomicBoolean(false);
     private final AtomicLong nextSeq = new AtomicLong();
     /** Per-stage seq counters. A STAGE-scoped message uses its stage's own
-     *  seq space (stage_messages), seeded lazily from the store, so concurrent
-     *  per-stage agents never collide on the thread-global (thread_id, seq). */
+     *  seq space (stage_messages), seeded lazily from the store. */
     private final ConcurrentHashMap<String, AtomicLong> stageNextSeq = new ConcurrentHashMap<>();
 
     /** Accumulates {@code thinking_delta} chunks for the in-flight thinking
@@ -251,8 +246,8 @@ public abstract class AbstractCliThreadAgent
         this.kind = thread.kind();
         this.provider = thread.provider();
         // The resolved work-model cascade (task/stage-aware) wins over the
-        // thread's own stored model when the caller supplies one — buildStage
-        // passes the stage-resolved model here so a stage override reaches
+        // thread's own stored model when the caller supplies one — the Task
+        // runtime builder passes the resolved model here so an override reaches
         // the actual --model/-m spawn arg, not just the thread's frozen value.
         this.model.set(modelOverride != null && !modelOverride.isBlank()
                 ? modelOverride
@@ -303,8 +298,8 @@ public abstract class AbstractCliThreadAgent
         else {
             // The Task this agent is bound to is resolved by the caller (the
             // ThreadRegistry) and handed in explicitly, rather than re-derived
-            // here from the thread's active-task projection. Per-stage agents
-            // each bind their own task; the registry resolves it from the
+            // here from the thread's active-task projection. Each Task agent
+            // binds one task; the registry resolves it from the
             // running turn's stamped task id (active-or-latest for the
             // resume-from-terminal path).
             if (boundTask == null) {
@@ -506,14 +501,6 @@ public abstract class AbstractCliThreadAgent
     @Override
     public final void setActiveStage(String stageId)
     {
-        if (stageId != null && !stageId.isBlank() && !stageId.equals(boundStageId)) {
-            // First turn of a new work stage: drop any inherited resume id so
-            // this stage starts a fresh session instead of continuing the
-            // task's (or a prior stage's). Within the stage, the id captured
-            // from its own SessionStarted is reused across iterations.
-            this.boundStageId = stageId;
-            this.agentSessionId.set(null);
-        }
         this.activeStageId = stageId;
     }
 
@@ -521,6 +508,12 @@ public abstract class AbstractCliThreadAgent
     public final String activeStageId()
     {
         return activeStageId;
+    }
+
+    @Override
+    public final void setActiveScope(ThreadScope scope)
+    {
+        this.activeTurnScope = requireNonNull(scope, "scope is null");
     }
 
     @Override
@@ -569,9 +562,9 @@ public abstract class AbstractCliThreadAgent
         }
     }
 
-    /** The registry stage key this agent embeds in its MCP server URL.
+    /** The task/trunk runtime key this agent embeds in its MCP server URL.
      *  Defaults to the reserved trunk key until {@link #setMcpAgentKey} runs,
-     *  so the legacy single-agent URL keeps resolving. */
+     *  so a trunk session is correctly addressed before its first turn. */
     protected final String mcpAgentKey()
     {
         return mcpAgentKey;
@@ -703,22 +696,9 @@ public abstract class AbstractCliThreadAgent
     @Override
     public final void stop()
     {
-        terminate(/* completeThread */ true);
-    }
-
-    @Override
-    public final void retireStage()
-    {
-        terminate(/* completeThread */ false);
-    }
-
-    private void terminate(boolean completeThread)
-    {
         interrupt();
         if (status.getAndSet(ThreadStatus.COMPLETED) != ThreadStatus.COMPLETED) {
-            if (completeThread) {
-                persistThreadSnapshot(Instant.now());
-            }
+            persistThreadSnapshot(Instant.now());
             handle(new StreamEvent.SessionEnded(Instant.now(), 0, null));
         }
         cleanupProviderResources();
@@ -1166,23 +1146,23 @@ public abstract class AbstractCliThreadAgent
 
     private ThreadMessage toMessage(StreamEvent event)
     {
-        boolean stageScoped = activeStageId != null && !activeStageId.isBlank();
+        boolean stageScoped = activeTurnScope == ThreadScope.STAGE;
         long seq = stageScoped ? nextStageSeq(activeStageId) : nextSeq.getAndIncrement();
         String id = UUID.randomUUID().toString();
         Instant ts = event.timestamp();
         ThreadMessage built = switch (event) {
-            case StreamEvent.SessionStarted e -> new ThreadMessage(
+            case StreamEvent.SessionStarted e -> scopedMessage(
                     id, threadId, activeTurnTaskId, seq, "system", "session_started",
                     content(mapper.createObjectNode()
                             .put("sessionId", e.sessionId())
                             .put("cwd", e.cwd())
                             .put("model", e.model())),
                     null, null, null, null, ts);
-            case StreamEvent.UserMessage e -> new ThreadMessage(
+            case StreamEvent.UserMessage e -> scopedMessage(
                     id, threadId, activeTurnTaskId, seq, "user", "text",
                     MessageAttachments.encodeMessage(mapper, e.text(), e.images(), activeManagedSkillNames()),
                     null, null, null, null, ts);
-            case StreamEvent.AssistantText e -> new ThreadMessage(
+            case StreamEvent.AssistantText e -> scopedMessage(
                     id, threadId, activeTurnTaskId, seq, "assistant", "text",
                     content(mapper.createObjectNode().put("text", e.text())),
                     null, null, null, null, ts);
@@ -1191,40 +1171,40 @@ public abstract class AbstractCliThreadAgent
             // durable form. Persisting deltas would inflate the table by
             // ~1 row per token.
             case StreamEvent.AssistantTextDelta ignored -> null;
-            case StreamEvent.ThinkingStarted e -> new ThreadMessage(
+            case StreamEvent.ThinkingStarted e -> scopedMessage(
                     id, threadId, activeTurnTaskId, seq, "assistant", "thinking",
                     content(mapper.createObjectNode().put("summary", e.summary())),
                     null, null, null, null, ts);
             case StreamEvent.ThinkingTextDelta ignored -> null;
             case StreamEvent.ThinkingDone ignored -> null;
-            case StreamEvent.ToolCallStarted e -> new ThreadMessage(
+            case StreamEvent.ToolCallStarted e -> scopedMessage(
                     id, threadId, activeTurnTaskId, seq, "tool", "tool_call",
                     content(mapper.createObjectNode()
                             .put("callId", e.callId())
                             .put("toolName", e.toolName())
                             .set("input", rawJson(e.inputJson()))),
                     null, null, null, null, ts);
-            case StreamEvent.ToolCallDone e -> new ThreadMessage(
+            case StreamEvent.ToolCallDone e -> scopedMessage(
                     id, threadId, activeTurnTaskId, seq, "tool", "tool_result",
                     content(mapper.createObjectNode()
                             .put("callId", e.callId())
                             .put("isError", e.isError())
                             .set("output", rawJson(e.outputJson()))),
                     null, null, null, null, ts);
-            case StreamEvent.PermissionRequested e -> new ThreadMessage(
+            case StreamEvent.PermissionRequested e -> scopedMessage(
                     id, threadId, activeTurnTaskId, seq, "system", "permission_request",
                     content(mapper.createObjectNode()
                             .put("callId", e.callId())
                             .put("toolName", e.toolName())
                             .put("summary", e.summary())),
                     null, null, null, null, ts);
-            case StreamEvent.PermissionDecided e -> new ThreadMessage(
+            case StreamEvent.PermissionDecided e -> scopedMessage(
                     id, threadId, activeTurnTaskId, seq, "system", "permission_decision",
                     content(mapper.createObjectNode()
                             .put("callId", e.callId())
                             .put("decision", e.decision().name())),
                     null, null, null, null, ts);
-            case StreamEvent.PermissionAutoAllowed e -> new ThreadMessage(
+            case StreamEvent.PermissionAutoAllowed e -> scopedMessage(
                     id, threadId, activeTurnTaskId, seq, "system", "permission_auto_allowed",
                     content(mapper.createObjectNode()
                             .put("callId", e.callId())
@@ -1234,28 +1214,35 @@ public abstract class AbstractCliThreadAgent
             // Live-only — in-flight token counters reach SSE subscribers
             // and overlay the metrics panel; TurnDone is the durable row.
             case StreamEvent.UsageUpdated ignored -> null;
-            case StreamEvent.TurnDone e -> new ThreadMessage(
+            case StreamEvent.TurnDone e -> scopedMessage(
                     id, threadId, activeTurnTaskId, seq, "system", "turn_done", "{}",
                     e.durationMs(), e.tokensIn(), e.tokensOut(), e.costUsdMilli(), ts);
-            case StreamEvent.ErrorOccurred e -> new ThreadMessage(
+            case StreamEvent.ErrorOccurred e -> scopedMessage(
                     id, threadId, activeTurnTaskId, seq, "system", "error",
                     content(mapper.createObjectNode()
                             .put("message", e.message())
                             .put("recoverable", e.recoverable())),
                     null, null, null, null, ts);
-            case StreamEvent.SessionEnded e -> new ThreadMessage(
+            case StreamEvent.SessionEnded e -> scopedMessage(
                     id, threadId, activeTurnTaskId, seq, "system", "session_ended",
                     content(mapper.createObjectNode()
                             .put("exitCode", e.exitCode())
                             .put("errorMessage", e.errorMessage())),
                     null, null, null, null, ts);
         };
-        // Stamp the explicit stage + scope for the turn this session is
-        // running, so the row joins to its stage instead of relying on a time
-        // window. activeStageId is set by the scheduler before each send.
-        return built == null
-                ? null
-                : built.withStageScope(activeStageId, ThreadScope.of(activeTurnTaskId, activeStageId));
+        return built;
+    }
+
+    private ThreadMessage scopedMessage(
+            String id, String threadId, String taskId, long seq,
+            String role, String type, String contentJson,
+            Long durationMs, Long tokensIn, Long tokensOut, Long costUsdMilli, Instant ts)
+    {
+        String stageId = activeTurnScope == ThreadScope.STAGE ? activeStageId : null;
+        return new ThreadMessage(
+                id, threadId, taskId, seq, role, type, contentJson,
+                durationMs, tokensIn, tokensOut, costUsdMilli, ts,
+                stageId, activeTurnScope);
     }
 
     private List<String> activeManagedSkillNames()
@@ -1298,13 +1285,9 @@ public abstract class AbstractCliThreadAgent
         // and keep the Thread row's trunk session id untouched. Trunk
         // mode: the captured session IS the trunk session, so it lands on
         // threads.agent_session_id directly.
-        if (activeStageId == null
-                && activeTaskId != null
+        if (activeTaskId != null
                 && capturedSession != null
                 && !capturedSession.isBlank()) {
-            // Only a task-level (non-stage) turn writes its session onto the
-            // task. A stage's session is per-stage and in-memory — never
-            // pushed to the task, so the next stage can't --resume it.
             taskStore.findTaskById(activeTaskId).ifPresent(task -> {
                 if (!capturedSession.equals(task.agentSessionId())) {
                     taskStore.saveTask(new Task(
@@ -1325,16 +1308,18 @@ public abstract class AbstractCliThreadAgent
                 && !capturedSession.isBlank()
                 ? capturedSession
                 : current.agentSessionId();
-        String errorMessage = status.get() == ThreadStatus.ERRORED
+        boolean trunkRuntime = activeTaskId == null;
+        ThreadStatus persistedStatus = trunkRuntime ? status.get() : current.status();
+        String errorMessage = trunkRuntime && status.get() == ThreadStatus.ERRORED
                 ? lastError.get()
                 : current.errorMessage();
         Thread next = new Thread(
                 current.id(), current.kind(), current.provider(), threadSessionId,
-                current.title(), status.get(),
-                model.get(),
+                current.title(), persistedStatus,
+                trunkRuntime ? model.get() : current.model(),
                 runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),
                 current.createdAt(), Instant.now(),
-                endedAt != null ? endedAt : current.endedAt(),
+                trunkRuntime && endedAt != null ? endedAt : current.endedAt(),
                 errorMessage,
                 current.flow(),
                 current.workspaceId(),

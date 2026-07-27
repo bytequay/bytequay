@@ -25,6 +25,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -370,6 +371,6 @@ class TestContextAssembler
                 id, threadId, null, 1L,
                 "user", "text", contentJson,
                 null, null, null, null,
-                Instant.parse("2026-06-01T00:00:00Z"));
+                Instant.parse("2026-06-01T00:00:00Z"), null, ThreadScope.TRUNK);
     }
 }

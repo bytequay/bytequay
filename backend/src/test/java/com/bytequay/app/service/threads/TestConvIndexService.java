@@ -17,6 +17,7 @@ import com.bytequay.app.domain.ConvIndexPage;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.ThreadStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -179,7 +180,8 @@ class TestConvIndexService
         return new ThreadMessage(
                 "m-" + seq, "thread", /* taskId */ null, seq, "user", "text",
                 "{\"text\":\"" + text + "\"}",
-                null, null, null, null, Instant.ofEpochMilli(seq * 1000L));
+                null, null, null, null, Instant.ofEpochMilli(seq * 1000L),
+                null, ThreadScope.TRUNK);
     }
 
     private static ThreadMessage assistantMsg(long seq, String text)
@@ -187,7 +189,8 @@ class TestConvIndexService
         return new ThreadMessage(
                 "m-" + seq, "thread", /* taskId */ null, seq, "assistant", "text",
                 "{\"text\":\"" + text + "\"}",
-                null, null, null, null, Instant.ofEpochMilli(seq * 1000L));
+                null, null, null, null, Instant.ofEpochMilli(seq * 1000L),
+                null, ThreadScope.TRUNK);
     }
 
     /** The CLI emits tool results with role=user; the index must
@@ -197,7 +200,8 @@ class TestConvIndexService
         return new ThreadMessage(
                 "m-" + seq, "thread", /* taskId */ null, seq, "user", "tool_result",
                 "{\"text\":\"" + text + "\"}",
-                null, null, null, null, Instant.ofEpochMilli(seq * 1000L));
+                null, null, null, null, Instant.ofEpochMilli(seq * 1000L),
+                null, ThreadScope.TRUNK);
     }
 
     /** Minimal in-memory ThreadStore for the conv-index tests. Only

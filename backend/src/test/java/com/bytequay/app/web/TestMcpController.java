@@ -23,7 +23,6 @@ import org.springframework.web.context.request.async.DeferredResult;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -31,30 +30,13 @@ import static org.mockito.Mockito.when;
  * The thread MCP controller exposes two routes onto the same service: the
  * legacy {@code /threads/{threadId}/mcp} path (no agent key — single-agent /
  * trunk resolution) and the per-agent {@code /threads/{threadId}/agents/
- * {agentKey}/mcp} path that carries the connecting agent's registry stage key
- * so concurrent stage agents on one thread resolve against their own turn.
+ * {agentKey}/mcp} path that carries the connecting runtime's task/trunk key.
  */
 class TestMcpController
 {
     private final ObjectMapper mapper = new ObjectMapper();
     private final McpService service = mock(McpService.class);
     private final McpController controller = new McpController(service);
-
-    @Test
-    void legacyRouteDelegatesWithNoAgentKey()
-            throws Exception
-    {
-        DeferredResult<JsonNode> expected = new DeferredResult<>();
-        when(service.handle(eq("thread-1"), isNull(), any())).thenReturn(expected);
-        MockHttpServletResponse response = new MockHttpServletResponse();
-
-        DeferredResult<JsonNode> result = controller.handle("thread-1",
-                mapper.readTree("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"),
-                response);
-
-        assertThat(result).isSameAs(expected);
-        assertThat(response.getHeader("Mcp-Session-Id")).isEqualTo("thread-1");
-    }
 
     @Test
     void agentScopedRouteForwardsTheAgentKey()

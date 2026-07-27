@@ -31,9 +31,9 @@ public record ApprovalContext(
          *  null for a trunk turn). Authoritative — gates use this instead of
          *  guessing the thread's "active task". */
         String taskId,
-        /** The registry agent key of the agent that issued this call (== the
-         *  stage key). Lets a registered permission prompt / auto-allow event
-         *  route back to the exact stage agent that raised it. */
+        /** The runtime key of the agent that issued this call (task id or
+         *  trunk sentinel). Lets a registered permission prompt / auto-allow
+         *  event route back to the exact Task/trunk agent that raised it. */
         String agentKey,
         JsonNode id,
         String toolName,

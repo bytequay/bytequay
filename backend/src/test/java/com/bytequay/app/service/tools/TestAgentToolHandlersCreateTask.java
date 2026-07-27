@@ -21,6 +21,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceRepo;
@@ -152,7 +153,7 @@ class TestAgentToolHandlersCreateTask
 
         ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.readCurrentRepository(
                 new AgentToolHandlers.ReadCurrentRepositoryArgs(),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         assertThat(result.isError()).isFalse();
         assertThat(mapper.readTree(result.text()).path("repo").asText())
@@ -197,7 +198,7 @@ class TestAgentToolHandlersCreateTask
         ToolOutcome.Completed result =
                 (ToolOutcome.Completed) handlers.readIssue(
                         new AgentToolHandlers.ReadIssueArgs(482),
-                        new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                        new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         assertThat(result.isError()).isFalse();
         JsonNode payload = mapper.readTree(result.text());
@@ -223,7 +224,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/bytequay", /* title */ null,
                         "Clean duplicate and unused code",
                         null, null, null, plan, null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
                 ArgumentCaptor.forClass(ThreadService.NewTaskRequest.class);
@@ -246,7 +247,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/bytequay", "Clean up backend exception handling",
                         "Clean up a few backend exception-handling spots. Scope is limited to X.",
                         null, null, null, null, null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
                 ArgumentCaptor.forClass(ThreadService.NewTaskRequest.class);
@@ -267,7 +268,7 @@ class TestAgentToolHandlersCreateTask
                         "De-duplicate the two identical keyset-pagination recovery loops in "
                                 + "AgentScheduler into one private recoverTurns(status, cursor)",
                         null, null, null, null, null, null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
                 ArgumentCaptor.forClass(ThreadService.NewTaskRequest.class);
@@ -290,7 +291,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/bytequay", /* title */ null,
                         "Clean up a few backend exception-handling spots. Scope is limited to X.",
                         null, null, null, null, null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
                 ArgumentCaptor.forClass(ThreadService.NewTaskRequest.class);
@@ -313,7 +314,7 @@ class TestAgentToolHandlersCreateTask
         handlers.createTask(
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, "bl-1", false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         verify(backlog).resolve("bl-1", "task-42");
     }
@@ -328,7 +329,7 @@ class TestAgentToolHandlersCreateTask
         handlers.createTask(
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         verify(backlog, never()).resolve(any(), any());
     }
@@ -350,7 +351,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", "Fix an unrelated notification race",
                         null, null, null, null, null, null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         verify(threads).materialiseTask(eq(THREAD_ID), any());
         verify(backlog, never()).resolve(any(), any());
@@ -371,7 +372,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", "Add PR ranking and evidence bundles",
                         null, null, null, null, null, null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         JsonNode payload = mapper.readTree(result.text());
         assertThat(result.isError()).isFalse();
@@ -412,7 +413,7 @@ class TestAgentToolHandlersCreateTask
                         mapper.createObjectNode().put(
                                 "deferred", "Project Intelligence Phase 3 — canonical knowledge"),
                         null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         verify(backlog).resolve("phase-2", "task-42");
     }
@@ -442,7 +443,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/bytequay", "Implement Phase 2 PR ranking",
                         "Proceed with the agreed plan.", null, null, null,
                         mapper.createObjectNode().put("status", "finalized"), null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         verify(backlog).resolve("phase-2", "task-42");
     }
@@ -464,7 +465,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/bytequay", "Implement Phase 2 PR ranking",
                         "Implement Phase 3 extraction and canonical knowledge.",
                         null, null, null, null, null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         JsonNode payload = mapper.readTree(result.text());
         assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
@@ -487,7 +488,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", "Implement Phase 2 PR ranking",
                         null, null, null, null, null, null, true),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         verify(threads).materialiseTask(eq(THREAD_ID), any());
         verify(backlog, never()).list(any());
@@ -517,7 +518,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/bytequay", "Fix the notification race",
                         "Implement the approved notification fix.",
                         null, null, null, null, null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         verify(backlog, never()).resolve(any(), any());
     }
@@ -544,7 +545,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/bytequay", "Implement the approved roadmap step",
                         "Proceed with the approved roadmap step.", null, null, null,
                         mapper.createObjectNode().put("status", "finalized"), null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         verify(threads).materialiseTask(eq(THREAD_ID), any());
         verify(backlog).resolve("phase-2", "task-42");
@@ -570,7 +571,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/bytequay", "Fix the notification race",
                         "Proceed with the notification fix.", null, null, null,
                         null, null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         verify(threads).materialiseTask(eq(THREAD_ID), any());
         verify(backlog, never()).resolve(any(), any());
@@ -592,7 +593,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", "Add PR ranking",
                         null, null, null, null, null, "phase-2", true),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         verify(backlog).resolve("phase-2", "task-42");
         verify(backlog).list(THREAD_ID);
@@ -618,7 +619,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/bytequay", "Implement Phase 2 PR ranking",
                         "Implement the approved Phase 2 plan.", null, null, null,
                         mapper.createObjectNode().put("status", "finalized"), "phase-3", false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         JsonNode payload = mapper.readTree(result.text());
         assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
@@ -659,7 +660,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/ByteQuay",
                         "Add extraction and canonical knowledge for project learning",
                         initialPrompt, null, null, null, trunkPlan, phase4Id, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         JsonNode payload = mapper.readTree(result.text());
         assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
@@ -688,7 +689,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/ByteQuay", "Add PR ranking and evidence bundles",
                         null, null, null, null, null, "phase-3", false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         JsonNode payload = mapper.readTree(result.text());
         assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
@@ -716,7 +717,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/ByteQuay", "Implement Phase 3 extraction and canonical knowledge",
                         "Implement Phase 4 retrieval and agent context.",
                         null, null, null, null, "phase-4", false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         JsonNode payload = mapper.readTree(result.text());
         assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
@@ -748,7 +749,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/ByteQuay", "Implement Phase 2 and Phase 3",
                         null, null, null, null, null, "phase-3", false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         verify(threads).materialiseTask(eq(THREAD_ID), any());
         verify(backlog).resolve("phase-3", "task-42");
@@ -771,7 +772,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/ByteQuay", "Implement Phase 3 canonical knowledge",
                         null, null, null, null, null, "phase-3", false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         JsonNode payload = mapper.readTree(result.text());
         assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
@@ -799,7 +800,7 @@ class TestAgentToolHandlersCreateTask
                         "chenjian2664/bytequay", "Implement Phase 2 PR ranking",
                         "Implement the approved Phase 2 plan.", null, null, null,
                         null, "phase-2", false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         JsonNode linked = mapper.readTree(result.text()).path("linkedBacklog");
         assertThat(linked.path("id").asText()).isEqualTo("phase-2");
@@ -817,7 +818,7 @@ class TestAgentToolHandlersCreateTask
         ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.createTask(
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", null, "Fix the thing", null, null, null, null, "stale-id", false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         JsonNode payload = mapper.readTree(result.text());
         assertThat(result.isError()).isFalse();
@@ -842,7 +843,7 @@ class TestAgentToolHandlersCreateTask
                 new AgentToolHandlers.CreateTaskArgs(
                         "chenjian2664/bytequay", null, "Fix the thing",
                         null, null, null, null, "bl-1", false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         JsonNode payload = mapper.readTree(result.text());
         assertThat(payload.path("confirmation_required").asBoolean()).isTrue();
@@ -871,7 +872,7 @@ class TestAgentToolHandlersCreateTask
 
         ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.syncRepo(
                 new AgentToolHandlers.SyncRepoArgs(),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         assertThat(result.isError()).isFalse();
         assertThat(result.text()).contains("origin/main");
@@ -889,7 +890,7 @@ class TestAgentToolHandlersCreateTask
 
         ToolOutcome.Completed result = (ToolOutcome.Completed) handlers.syncRepo(
                 new AgentToolHandlers.SyncRepoArgs(),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
 
         assertThat(result.isError()).isFalse();
         assertThat(result.text()).contains("nothing to sync");
@@ -901,7 +902,7 @@ class TestAgentToolHandlersCreateTask
         ToolOutcome outcome = handlers.createTask(
                 new AgentToolHandlers.CreateTaskArgs(
                         repo, null, null, null, null, null, null, null, false),
-                new ToolCall(THREAD_ID, null, AgentRole.TRUNK));
+                new ToolCall(ThreadScope.TRUNK, THREAD_ID, null, AgentRole.TRUNK));
         return (ToolOutcome.Completed) outcome;
     }
 
@@ -947,7 +948,8 @@ class TestAgentToolHandlersCreateTask
     {
         return new ThreadMessage(
                 "message-" + seq, THREAD_ID, taskId, seq, role, type,
-                content.toString(), null, null, null, null, NOW);
+                content.toString(), null, null, null, null, NOW, null,
+                taskId == null ? ThreadScope.TRUNK : ThreadScope.TASK);
     }
 
     private static Thread trunkThread()

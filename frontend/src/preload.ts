@@ -105,6 +105,37 @@ import type {
   ThreadSignalDto,
 } from './types';
 
+type AgentStreamScope = 'thread' | 'stage';
+
+function subscribeAgentStream(
+  scope: AgentStreamScope,
+  id: string,
+  onEvent: (event: ThreadStreamEvent) => void,
+  onClose?: (reason: string) => void,
+): () => void {
+  const target = { scope, id };
+  const eventListener = (
+    _e: unknown,
+    payload: { target: typeof target; event: ThreadStreamEvent },
+  ) => {
+    if (payload.target.scope === scope && payload.target.id === id) onEvent(payload.event);
+  };
+  const closeListener = (
+    _e: unknown,
+    payload: { target: typeof target; reason: string },
+  ) => {
+    if (payload.target.scope === scope && payload.target.id === id) onClose?.(payload.reason);
+  };
+  ipcRenderer.on('agent-stream:event', eventListener);
+  ipcRenderer.on('agent-stream:close', closeListener);
+  void ipcRenderer.invoke('agent-stream:start', target);
+  return () => {
+    ipcRenderer.removeListener('agent-stream:event', eventListener);
+    ipcRenderer.removeListener('agent-stream:close', closeListener);
+    void ipcRenderer.invoke('agent-stream:stop', target);
+  };
+}
+
 const bridge: Bridge = {
   workspaceApi: <T = unknown>(request: WorkspaceApiRequest): Promise<T> =>
     ipcRenderer.invoke('workspace:api', request),
@@ -898,8 +929,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:files', id),
   renameTask: (id: string, title: string): Promise<ThreadDto> =>
     ipcRenderer.invoke('threads:rename', { id, title }),
-  sendTaskMessage: (id: string, input: string): Promise<ThreadSendResultDto> =>
-    ipcRenderer.invoke('threads:send', { id, input }),
+  sendTaskMessage: (id: string, taskId: string, input: string): Promise<ThreadSendResultDto> =>
+    ipcRenderer.invoke('threads:send', { id, taskId, input }),
   decideTaskPermission: (
     id: string,
     callId: string,
@@ -908,6 +939,7 @@ const bridge: Bridge = {
   ): Promise<{ status: 'recorded' | 'already_resolved' }> =>
     ipcRenderer.invoke('threads:decide', { id, callId, decision, preApprove }),
   interruptTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:interrupt', id),
+  interruptStage: (id: string): Promise<void> => ipcRenderer.invoke('stages:interrupt', id),
   stopTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:stop', id),
   resumeTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:resume', id),
   deleteTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:delete', id),
@@ -944,40 +976,16 @@ const bridge: Bridge = {
   fetchTaskFileBlob: (id: string, taskId: string, path: string) =>
       ipcRenderer.invoke('threads:fileBlob', id, taskId, path),
 
-  /** Wire the renderer to the per-thread SSE stream brokered by the
-   *  main process. The contract: ask main to open (or join) a
-   *  subscription for {@code threadId}; register listeners that filter
-   *  by {@code threadId}; on cleanup, drop the listeners and ask main
-   *  to release the subscription. Main process ref-counts the
-   *  underlying SSE connection so multiple renderers/components can
-   *  share one. */
   subscribeTaskStream: (
     threadId: string,
     onEvent: (event: ThreadStreamEvent) => void,
     onClose?: (reason: string) => void,
-  ) => {
-    const eventListener = (
-      _e: unknown,
-      payload: { threadId: string; event: ThreadStreamEvent },
-    ) => {
-      if (payload.threadId === threadId) onEvent(payload.event);
-    };
-    const closeListener = (
-      _e: unknown,
-      payload: { threadId: string; reason: string },
-    ) => {
-      if (payload.threadId === threadId) onClose?.(payload.reason);
-    };
-    ipcRenderer.on('threads:stream:event', eventListener);
-    ipcRenderer.on('threads:stream:close', closeListener);
-    // Fire-and-forget: main handles the actual SSE lifecycle.
-    void ipcRenderer.invoke('threads:stream:start', threadId);
-    return () => {
-      ipcRenderer.removeListener('threads:stream:event', eventListener);
-      ipcRenderer.removeListener('threads:stream:close', closeListener);
-      void ipcRenderer.invoke('threads:stream:stop', threadId);
-    };
-  },
+  ) => subscribeAgentStream('thread', threadId, onEvent, onClose),
+  subscribeStageStream: (
+    stageId: string,
+    onEvent: (event: ThreadStreamEvent) => void,
+    onClose?: (reason: string) => void,
+  ) => subscribeAgentStream('stage', stageId, onEvent, onClose),
 
   // ── Brain agent ──────────────────────────────────────────────────
   getBrainView: (taskId: string) => ipcRenderer.invoke('brain:getView', taskId),

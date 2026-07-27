@@ -18,6 +18,7 @@ import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.service.agents.ResolvedAgentContext;
@@ -32,7 +33,7 @@ import java.util.function.Consumer;
 
 /**
  * One running or paused agent runtime. Scope-specific entry points expose
- * this as {@link TrunkAgent}, {@link TaskBrainAgent}, or {@link StageAgent};
+ * this as {@link TrunkAgent}, {@link TaskBrainAgent}, or {@link TaskAgent};
  * {@link ThreadAgent} remains the old compatibility name.
  */
 public interface Agent
@@ -79,6 +80,11 @@ public interface Agent
     }
 
     default void setActiveStage(String stageId)
+    {
+    }
+
+    /** Authoritative scope of the scheduler turn about to run. */
+    default void setActiveScope(ThreadScope scope)
     {
     }
 
@@ -130,16 +136,6 @@ public interface Agent
     void resume();
 
     void stop();
-
-    /**
-     * Tear down one stage-scoped session without completing the shared
-     * owning thread. A task can open another stage after this one closes,
-     * so stage reaping must not make that later agent inherit COMPLETED.
-     */
-    default void retireStage()
-    {
-        stop();
-    }
 
     void notifyPermissionRequested(String callId, String toolName, String summary);
 

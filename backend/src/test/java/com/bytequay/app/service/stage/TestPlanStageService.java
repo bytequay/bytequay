@@ -26,6 +26,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
@@ -133,7 +134,7 @@ class TestPlanStageService
                     .isEqualTo(StageState.CLOSED);
             kickedOff.set(true);
             return "turn-1";
-        }).when(scheduler).enqueueTaskTurnOnce(
+        }).when(scheduler).enqueueStageTurnOnce(
                 any(), any(), any(), eq(taskId), any(), any(), any(), any());
 
         planStageService.approveByStage(plan.id());
@@ -156,7 +157,7 @@ class TestPlanStageService
                 .isEqualTo(StageState.OPEN);
         assertThat(stageStore.findEventsByStage(plan.id()))
                 .noneMatch(event -> event.eventType() == StageEventType.PLAN_APPROVED);
-        verify(scheduler, never()).enqueueTaskTurn(any(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -377,15 +378,16 @@ class TestPlanStageService
     void planKickoffTurnFinishingWithoutAPlanNudgesTheBrain()
     {
         String taskId = seedTask();
+        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
         // Create the brain thread (the kickoff enqueue is mocked away).
         brainService.onPlanKickoff(new PlanKickoffRequested(taskId, "do the thing", null));
-        stageStore.openStage(taskId, StageType.PLAN_STAGE, null);
         String brainId = threadStore.findBrainThreadByTask(taskId).orElseThrow().id();
         String turnId = saveKickoffTurn(taskId, brainId, "plan-kickoff");
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
 
-        verify(scheduler).enqueueTurn(any(), contains("ended without recording a plan"), any());
+        verify(scheduler).enqueueStageTurn(
+                any(), contains("ended without recording a plan"), eq(taskId), any(), any(), any(), any());
     }
 
     @Test
@@ -399,7 +401,8 @@ class TestPlanStageService
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
 
-        verify(scheduler, never()).enqueueTurn(any(), contains("ended without recording"), any());
+        verify(scheduler, never()).enqueueStageTurn(
+                any(), contains("ended without recording"), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -412,8 +415,10 @@ class TestPlanStageService
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
 
-        verify(scheduler, never()).enqueueTurn(any(), eq("plan-followup"), any());
-        verify(scheduler, never()).enqueueTurn(any(), contains("ended without recording"), any());
+        verify(scheduler, never()).enqueueStageTurn(
+                any(), eq("plan-followup"), any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(
+                any(), contains("ended without recording"), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -429,7 +434,7 @@ class TestPlanStageService
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), contains("ship_task"), any(), any(), any());
     }
 
     @Test
@@ -453,7 +458,7 @@ class TestPlanStageService
         planStageService.approveByStage(plan.id());
 
         ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        verify(scheduler).enqueueTaskTurnOnce(
+        verify(scheduler).enqueueStageTurnOnce(
                 any(), any(), prompt.capture(), any(), any(), any(), any(), any());
         assertThat(prompt.getValue())
                 .contains("1. Add the migration and stores")
@@ -473,7 +478,7 @@ class TestPlanStageService
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), contains("ship_task"), any(), any(), any());
     }
 
     @Test
@@ -488,7 +493,7 @@ class TestPlanStageService
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, true));
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), contains("ship_task"), any(), any(), any());
     }
 
     @Test
@@ -504,7 +509,7 @@ class TestPlanStageService
 
         planStageService.onTurnFinished(new TaskTurnFinishedEvent(taskId, turnId, false));
 
-        verify(scheduler, never()).enqueueTaskTurn(any(), contains("ship_task"), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(any(), contains("ship_task"), any(), any(), any());
     }
 
     @Test
@@ -523,7 +528,8 @@ class TestPlanStageService
                 .findFirst().orElseThrow();
         assertThat(failed.payloadJson()).contains("claude-code exited with code 1");
         // A failure must not also enqueue a nudge turn.
-        verify(scheduler, never()).enqueueTurn(any(), contains("record_plan"), any());
+        verify(scheduler, never()).enqueueStageTurn(
+                any(), contains("record_plan"), any(), any(), any(), any(), any());
     }
 
     private String saveKickoffTurn(String taskId, String threadId, String source)
@@ -537,7 +543,8 @@ class TestPlanStageService
         Instant now = Instant.parse("2026-06-20T09:30:00Z");
         turnStore.saveTurn(new ThreadTurn(
                 turnId, threadId, taskId, ThreadResourceLane.CLI, ThreadTurnStatus.QUEUED,
-                "plan", now, now, now, now, errorMessage, TurnInitiator.unattended(source)));
+                "plan", now, now, now, now, errorMessage, TurnInitiator.unattended(source),
+                null, ThreadScope.TASK));
         return turnId;
     }
 

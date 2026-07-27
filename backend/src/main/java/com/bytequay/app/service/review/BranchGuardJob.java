@@ -320,7 +320,7 @@ public class BranchGuardJob
                 + "— stop once the rebase is clean and committed; pushing happens automatically once "
                 + "you're done.";
         try {
-            scheduler.enqueueTaskTurn(
+            scheduler.enqueueStageTurn(
                     thread, prompt, task.id(), run.stageId(),
                     TurnInitiator.unattended("branch-guard-fix"), run.id(), TurnLiveness.CODE);
             guards.save(guard.withState(BranchGuard.STATE_FIXING).withLastRun(run.id(), Instant.now()));

@@ -13,14 +13,12 @@
  */
 package com.bytequay.app.service.threads;
 
-import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskRecoveryRequest;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.ValidationClaim;
-import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.ValidationPassStore;
@@ -38,10 +36,10 @@ import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -78,7 +76,6 @@ public class TaskRuntimeStopReconciler
     private static final int SWEEP_PAGE = 200;
 
     private final TaskStore taskStore;
-    private final StageStore stageStore;
     private final ThreadTurnStore turnStore;
     private final ThreadRegistry registry;
     private final ThreadTurnScheduler scheduler;
@@ -92,7 +89,6 @@ public class TaskRuntimeStopReconciler
 
     public TaskRuntimeStopReconciler(
             TaskStore taskStore,
-            StageStore stageStore,
             ThreadTurnStore turnStore,
             ThreadRegistry registry,
             ThreadTurnScheduler scheduler,
@@ -102,7 +98,6 @@ public class TaskRuntimeStopReconciler
             ObjectProvider<PlanStageService> planStages)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
@@ -114,7 +109,7 @@ public class TaskRuntimeStopReconciler
 
     /**
      * Idempotent teardown for one stopped task: cancel its persisted
-     * QUEUED/RUNNING turns, interrupt + evict its cached stage agents,
+     * QUEUED/RUNNING turns, interrupt + evict its cached Task agent,
      * and durably request cancellation of its live validation claims.
      * No-op when the task is not stopped (a late callback for a task
      * that already resumed must not kill the new runtime).
@@ -133,12 +128,11 @@ public class TaskRuntimeStopReconciler
                 log.warn("cancelling durable turns of stopped task {} threw: {}",
                         taskId, e.getMessage());
             }
-            List<String> stageKeys = stageKeysForTask(taskId);
             try {
-                registry.findStages(stageKeys).forEach(ThreadAgent::interrupt);
+                registry.findTaskAgents(List.of(taskId)).forEach(ThreadAgent::interrupt);
             }
             finally {
-                registry.evictStages(task.threadId(), stageKeys);
+                registry.evictTaskAgent(task.threadId(), taskId);
             }
             requestValidationCancellation(taskId);
             return null;
@@ -150,7 +144,7 @@ public class TaskRuntimeStopReconciler
 
     /**
      * The stop barrier: true only when no pre-stop QUEUED/RUNNING turn,
-     * no cached stage agent, and no live task-owned validation
+     * no cached Task agent, and no live task-owned validation
      * lease/executor remains. A cancellation-requested validator is
      * still live until this proof; lease expiry alone is insufficient
      * while its executor is in flight.
@@ -161,7 +155,7 @@ public class TaskRuntimeStopReconciler
                 || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()) {
             return false;
         }
-        if (!registry.findStages(stageKeysForTask(taskId)).isEmpty()) {
+        if (!registry.findTaskAgents(List.of(taskId)).isEmpty()) {
             return false;
         }
         Instant now = Instant.now();
@@ -177,13 +171,26 @@ public class TaskRuntimeStopReconciler
     }
 
     /** Startup pass: tear down every stopped task's leftover runtime
-     *  before queued-turn recovery can redispatch it, then complete any
-     *  resume request whose barrier already holds. */
+     *  before queued-turn recovery can redispatch it. Recovery completion
+     *  is a later ordered pass: it may enqueue fresh work, which must not
+     *  be mistaken for an orphan by the scheduler's startup scan. */
     @Order(0)
     @EventListener(ApplicationReadyEvent.class)
     public void reconcileOnStartup()
     {
-        sweep();
+        forEachStoppedTask(task -> reconcileStoppedTask(task.id()));
+    }
+
+    /** Complete durable resume/recovery requests only after the scheduler
+     *  has recovered pre-restart RUNNING/QUEUED turns at order 20. */
+    @Order(25)
+    @EventListener(ApplicationReadyEvent.class)
+    public void completePendingRequestsOnStartup()
+    {
+        forEachStoppedTask(task -> {
+            completePendingResume(task);
+            completePendingRecovery(task);
+        });
     }
 
     /** Park and terminal transitions publish teardown work: run it after
@@ -206,11 +213,18 @@ public class TaskRuntimeStopReconciler
     @Scheduled(fixedDelay = 30_000, initialDelay = 30_000)
     public void sweep()
     {
+        forEachStoppedTask(task -> {
+            reconcileStoppedTask(task.id());
+            completePendingResume(task);
+            completePendingRecovery(task);
+        });
+    }
+
+    private void forEachStoppedTask(Consumer<Task> action)
+    {
         for (Task task : taskStore.listByStatuses(SWEEP_STATUSES, SWEEP_PAGE)) {
             try {
-                reconcileStoppedTask(task.id());
-                completePendingResume(task);
-                completePendingRecovery(task);
+                action.accept(task);
             }
             catch (RuntimeException e) {
                 log.warn("stop reconcile for task {} failed: {}", task.id(), e.getMessage());
@@ -252,15 +266,5 @@ public class TaskRuntimeStopReconciler
                         claim.claimKey(), now, now.plus(VALIDATION_CANCEL_DEADLINE));
             }
         }
-    }
-
-    private List<String> stageKeysForTask(String taskId)
-    {
-        List<String> keys = new ArrayList<>();
-        keys.add(taskId);
-        for (StageInstance stage : stageStore.findStagesByTask(taskId)) {
-            keys.add(stage.id().toString());
-        }
-        return keys;
     }
 }

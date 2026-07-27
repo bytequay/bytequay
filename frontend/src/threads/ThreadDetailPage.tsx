@@ -530,7 +530,9 @@ export default function ThreadDetailPage({
     if (!text || sending) return;
     setSending(true);
     try {
-      await window.bridge.sendTaskMessage(threadId, text);
+      const taskId = threadTasks?.at(-1)?.id;
+      if (!taskId) throw new Error('This thread has no task to receive the message.');
+      await window.bridge.sendTaskMessage(threadId, taskId, text);
       setDraft('');
       await refresh();
     }
@@ -540,7 +542,7 @@ export default function ThreadDetailPage({
     finally {
       setSending(false);
     }
-  }, [threadId, draft, sending, refresh]);
+  }, [threadId, threadTasks, draft, sending, refresh]);
 
   const onDecide = useCallback(async (
     callId: string,

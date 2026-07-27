@@ -22,6 +22,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
@@ -29,7 +30,12 @@ import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
+import com.bytequay.app.service.skills.ByteQuayRole;
 import com.bytequay.app.service.threads.NotificationService;
+import com.bytequay.app.service.tools.AgentRole;
+import com.bytequay.app.service.tools.RoleCapabilities;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -39,6 +45,7 @@ import org.springframework.web.context.request.async.DeferredResult;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -65,6 +72,8 @@ class TestMcpAutonomyEnvelope
     private ThreadTurnStore turns;
     @Autowired
     private NotificationService notifications;
+    @Autowired
+    private ActiveAgentContextRegistry activeContexts;
     @Autowired
     private ObjectMapper mapper;
 
@@ -145,7 +154,13 @@ class TestMcpAutonomyEnvelope
                 """.formatted(
                         mapper.writeValueAsString(toolName),
                         mapper.writeValueAsString(callId));
-        return controller.handle(threadId, mapper.readTree(rpc));
+        String taskId = tasks.activeTasksForThread(threadId).stream()
+                .findFirst().map(Task::id).orElseThrow();
+        activeContexts.put(threadId, taskId, new ResolvedAgentContext(
+                ByteQuayRole.TASK, "1", AgentRole.TASK, null,
+                RoleCapabilities.forRole(AgentRole.TASK), List.of(), Set.of(),
+                Set.of("approval_prompt")));
+        return controller.handle(threadId, taskId, mapper.readTree(rpc));
     }
 
     private JsonNode parseEnvelope(JsonNode rpcResponse)
@@ -199,6 +214,6 @@ class TestMcpAutonomyEnvelope
         turns.saveTurn(new ThreadTurn(
                 UUID.randomUUID().toString(), threadId, taskId,
                 ThreadResourceLane.CLI, ThreadTurnStatus.RUNNING, "input",
-                now, now, now, null, null, initiator));
+                now, now, now, null, null, initiator, null, ThreadScope.TASK));
     }
 }

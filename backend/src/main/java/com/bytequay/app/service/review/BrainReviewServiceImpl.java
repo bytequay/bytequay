@@ -343,11 +343,9 @@ public class BrainReviewServiceImpl
         return task != null
                 && (task.phase() == TaskPhase.NEEDS_ATTENTION
                         || task.status() == TaskStatus.NEEDS_ATTENTION)
-                && planReviewWasLatestPark(taskId)
-                && stageStore.findActiveStage(taskId)
-                        .filter(stage -> stage.type() == StageType.PLAN_STAGE)
-                        .filter(stage -> stage.state() != StageState.CLOSED)
-                        .isPresent();
+                && (planReviewWasLatestPark(taskId)
+                        || ("scheduler_turn_conflict".equals(parkReason)
+                                && planSelfReviewOwed(taskId)));
     }
 
     @Override
@@ -507,7 +505,12 @@ public class BrainReviewServiceImpl
         if (task == null || task.phase() != TaskPhase.PLANNING) {
             return false;
         }
-        return stageStore.findActiveStage(task.id())
+        return planSelfReviewOwed(task.id());
+    }
+
+    private boolean planSelfReviewOwed(String taskId)
+    {
+        return stageStore.findActiveStage(taskId)
                 .filter(stage -> stage.type() == StageType.PLAN_STAGE)
                 .filter(stage -> stage.state() != StageState.CLOSED)
                 .map(stage -> stageStore.findEventsByStage(stage.id()))
@@ -943,7 +946,7 @@ public class BrainReviewServiceImpl
                 : threadStore.findThreadById(task.threadId())
                         .orElseThrow(() -> new IllegalStateException(
                                 "review owner thread missing for task " + taskId));
-        String turnId = scheduler.enqueueTaskTurnOnce(
+        String turnId = scheduler.enqueueStageTurnOnce(
                 ReviewRoundStateMachine.kickKey(round, source),
                 thread, owedPrompt(round, task, source),
                 taskId, run.stageId(), TurnInitiator.unattended(source), run.id(),
@@ -1260,12 +1263,12 @@ public class BrainReviewServiceImpl
         try {
             TurnInitiator initiator = TurnInitiator.unattended(SOURCE_PLAN_SELF_REVIEW);
             if (agentRunId == null) {
-                scheduler.enqueueTaskTurn(
+                scheduler.enqueueStageTurn(
                         brain.get(), prompt.orElseThrow(), taskId, stageId.toString(),
                         initiator, null, TurnLiveness.NARRATION);
             }
             else {
-                scheduler.enqueueTaskTurn(
+                scheduler.enqueueStageTurn(
                         brain.get(), prompt.orElseThrow(), taskId, stageId.toString(),
                         initiator, agentRunId, TurnLiveness.NARRATION);
             }

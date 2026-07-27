@@ -456,6 +456,55 @@ describe('TaskBrainRoute', () => {
     // The old top-bar button (with its dynamic "Auto-approve on/off" label) is gone.
     expect(screen.queryByText(/^Auto-approve (on|off)$/)).toBeNull();
   });
+
+  it('keeps selected policy values and saves them before approving the plan', async () => {
+    const base = buildMockBrainView(0);
+    const plan: PlanCardDto = {
+      planStageId: 'plan-1', state: 'awaiting', status: 'finalized', source: 'brain',
+      understandingSummary: 'Add a cost meter to the rail', intentSummary: 'wire it',
+      steps: [{ ordinal: 1, action: 'Build the meter' }], validationStrategy: 'tests',
+      pushStrategy: 'await_approval',
+      signals: { riskLevel: 'low', estimatedComplexity: 'small', componentsCount: 2, expectedGain: 'x' },
+      revisionCount: 0, followups: [],
+    };
+    const view = { ...base, rightRail: { ...base.rightRail, plan } };
+    let resolveAutoApproveRead!: (value: { enabled: boolean }) => void;
+    let resolveAutoMergeRead!: (value: { enabled: boolean }) => void;
+    let resolveAutoApproveWrite!: (value: { enabled: boolean }) => void;
+    let resolveAutoMergeWrite!: (value: { enabled: boolean }) => void;
+    const getTaskAutoApprove = vi.fn(() => new Promise(resolve => { resolveAutoApproveRead = resolve; }));
+    const getTaskAutoMerge = vi.fn(() => new Promise(resolve => { resolveAutoMergeRead = resolve; }));
+    const setTaskAutoApprove = vi.fn(() => new Promise(resolve => { resolveAutoApproveWrite = resolve; }));
+    const setTaskAutoMerge = vi.fn(() => new Promise(resolve => { resolveAutoMergeWrite = resolve; }));
+    const approvePlan = vi.fn().mockResolvedValue({ devStageId: 'dev-1' });
+    const onOpenStage = vi.fn();
+    (window as unknown as { bridge: unknown }).bridge = {
+      getBrainView: vi.fn().mockResolvedValue(view),
+      sendBrainMessage: vi.fn().mockResolvedValue({}),
+      getTaskAutoApprove,
+      setTaskAutoApprove,
+      getTaskAutoMerge,
+      setTaskAutoMerge,
+      approvePlan,
+    };
+
+    render(<TaskBrainRoute threadId="t1" taskId="task-1" onOpenStage={onOpenStage} onClosed={() => {}} />);
+
+    await screen.findByText('Build the meter');
+    const onButtons = screen.getAllByText('On', { selector: '.ppc-seg-cell' });
+    fireEvent.click(onButtons[0]);
+    fireEvent.click(onButtons[1]);
+    resolveAutoApproveRead({ enabled: false });
+    resolveAutoMergeRead({ enabled: false });
+    await waitFor(() => onButtons.forEach(button => expect(button.getAttribute('aria-pressed')).toBe('true')));
+
+    fireEvent.click(screen.getByText('Approve & start dev'));
+    expect(approvePlan).not.toHaveBeenCalled();
+    resolveAutoApproveWrite({ enabled: true });
+    resolveAutoMergeWrite({ enabled: true });
+    await waitFor(() => expect(approvePlan).toHaveBeenCalledWith('plan-1'));
+    await waitFor(() => expect(onOpenStage).toHaveBeenCalledWith('dev-1'));
+  });
 });
 
 describe('StageDetailRoute', () => {

@@ -83,7 +83,7 @@
   display: flex;
   width: 100%;
   align-items: center;
-  gap: var(--left-nav-row-gap);
+  gap: 12px;
   padding: 6px 10px 6px 36px;
   background: var(--left-nav-active-bg);
   border: 0;
@@ -115,7 +115,7 @@ button.workspace-task-row.is-sibling:hover { background: var(--left-nav-hover-bg
   min-width: 0;
   overflow: hidden;
   color: #454c54;
-  font-size: var(--left-nav-nested-font-size);
+  font-size: 14px;
   font-weight: var(--left-nav-font-weight);
   line-height: var(--left-nav-row-line-height);
   text-overflow: ellipsis;

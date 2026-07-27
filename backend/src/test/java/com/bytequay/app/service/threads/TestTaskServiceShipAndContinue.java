@@ -543,6 +543,28 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
+    void closingAPausedTasksPrStillSealsItAndClearsAttention()
+    {
+        String workingDir = "/tmp/acme/widget";
+        Task paused = task("task-1", "thread-1", 1L, "dev/task-1",
+                "/tmp/wt", workingDir, TaskStatus.PAUSED);
+        when(taskStore.findByLinkedPrNumber(42)).thenReturn(List.of(paused));
+        when(taskStore.findTaskById("task-1")).thenReturn(
+                Optional.of(paused),
+                Optional.of(paused.withStatus(TaskStatus.REMOTE_CLOSED)));
+        when(watchedRepoStore.findAll()).thenReturn(List.of(
+                new WatchedRepo(1L, "acme", "widget", 0, workingDir, null, null)));
+
+        service.closeTasksForRemotePr("acme/widget", 42);
+
+        verify(taskPhaseMachine).finishTerminalInCommand(
+                eq("task-1"), eq(TaskStatus.REMOTE_CLOSED), eq(Actor.WEBHOOK), eq("pr_closed"));
+        verify(taskStore).linkPullRequest("task-1", 42, "closed");
+        verify(notifications).dismissOpenForTask("thread-1", "task-1");
+        verify(worktreeService).reap(paused);
+    }
+
+    @Test
     void pauseStopsTheAgentAndParksAtPausedKeepingTheWorktree()
     {
         Task active = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone", TaskStatus.RUNNING);

@@ -707,7 +707,7 @@ public class TaskService
      *
      * <p>Best-effort and idempotent: matches the merged PR to tasks by
      * linked PR number, narrows to the right repo via {@code workingDir},
-     * and only flips rows that are still {@code IN_REVIEW}. A bookkeeping
+     * and only flips rows that are not already terminal. A bookkeeping
      * failure here never propagates back to the merge call.
      */
     @TransactionalEventListener(fallbackExecution = true)
@@ -728,7 +728,7 @@ public class TaskService
      * merge (via {@link PullRequestMergedEvent}) and directly by an
      * approved {@code merge_pr} proposal. Best-effort and idempotent:
      * narrows by repo (PR numbers aren't globally unique) and only flips
-     * rows still at IN_REVIEW; a failure never propagates to the merge.
+     * rows that are not already terminal; a failure never propagates to the merge.
      */
     public void completeTasksForMergedPr(String repoFullName, int prNumber)
     {
@@ -769,7 +769,7 @@ public class TaskService
         // task-owned push. A merge can therefore seal/reap only
         // after an in-flight push has committed and left its critical section.
         Task task = taskStore.findTaskById(candidate.id()).orElse(candidate);
-        if (task.status() != TaskStatus.IN_REVIEW
+        if (task.status().isDone()
                 || !repoMatches(task, repoFullName)) {
             return null;
         }

@@ -26,6 +26,7 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDraft;
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
@@ -69,7 +70,7 @@ public class LocalRepoService
 {
     private static final Logger log = LoggerFactory.getLogger(LocalRepoService.class);
     private static final String UPSTREAM_REMOTE = "upstream";
-    private static final Duration FORK_READY_TIMEOUT = Duration.ofMinutes(2);
+    private static final Duration FORK_READY_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration FORK_READY_POLL = Duration.ofSeconds(2);
 
     public enum WriteMode
@@ -245,15 +246,31 @@ public class LocalRepoService
      * where branches are pushed:
      * <ul>
      *   <li>DIRECT: origin is {@code owner/repo}; requires push access.</li>
-     *   <li>FORK: origin is {@code viewer/repo}, upstream is {@code owner/repo}.</li>
+     *   <li>FORK: origin is the viewer's fork, upstream is {@code owner/repo}.</li>
      * </ul>
      */
     public LocalRepoStatus cloneManaged(String owner, String repo, WriteMode writeMode)
             throws IOException, InterruptedException
     {
+        return cloneManaged(owner, repo, writeMode, null);
+    }
+
+    public LocalRepoStatus cloneManaged(
+            String owner,
+            String repo,
+            WriteMode writeMode,
+            String existingForkRepo)
+            throws IOException, InterruptedException
+    {
         requireNonNull(owner, "owner is null");
         requireNonNull(repo, "repo is null");
         WriteMode mode = requireNonNull(writeMode, "writeMode is null");
+        if (mode != WriteMode.FORK
+                && existingForkRepo != null
+                && !existingForkRepo.isBlank()) {
+            throw new IllegalArgumentException(
+                    "existingForkRepo can only be used in fork mode");
+        }
         Path destination = defaultClonePath(owner, repo);
         Optional<WatchedRepo> existing = watchedRepoStore.find(owner, repo);
         if (existing.isPresent()
@@ -266,12 +283,19 @@ public class LocalRepoService
             }
         }
         PreparedClone prepared = recoverPreparedClone(
-                owner, repo, mode, destination)
+                owner, repo, mode, destination, null)
                 .orElse(null);
+        RepoRef fork = null;
+        if (prepared == null && mode == WriteMode.FORK) {
+            fork = prepareManagedFork(owner, repo, existingForkRepo);
+            prepared = recoverPreparedClone(
+                    owner, repo, mode, destination, fork)
+                    .orElse(null);
+        }
         if (prepared == null) {
             Path cloneDestination = recoveryDestination(destination);
             prepared = prepareManagedClone(
-                    owner, repo, mode, cloneDestination);
+                    owner, repo, mode, cloneDestination, fork);
         }
         ensureWatched(owner, repo);
         activatePreparedClone(owner, repo, prepared);
@@ -287,7 +311,8 @@ public class LocalRepoService
             String owner,
             String repo,
             WriteMode mode,
-            Path destination)
+            Path destination,
+            RepoRef fork)
             throws IOException, InterruptedException
     {
         if (!gitRunner.isGitWorkingTree(destination)) {
@@ -302,9 +327,9 @@ public class LocalRepoService
             return Optional.empty();
         }
 
-        String pat = patResolver.resolve(owner + "/" + repo);
         RepoRef watched = RepoRef.of(owner, repo);
         if (mode == WriteMode.DIRECT) {
+            String pat = patResolver.resolve(owner + "/" + repo);
             if (!LocalRepoRemote.remoteMatchesRepo(origin.url(), owner, repo)
                     || !gitHub.fetchViewerCanWrite(pat, watched)) {
                 return Optional.empty();
@@ -313,10 +338,14 @@ public class LocalRepoService
                     destination.toAbsolutePath().normalize(), null));
         }
 
-        String viewer = gitHub.fetchUserProfile(pat).login();
-        if (owner.equalsIgnoreCase(viewer)
-                || !LocalRepoRemote.remoteMatchesRepo(
-                        origin.url(), viewer, repo)) {
+        RepoRef actualFork = fork;
+        if (actualFork == null) {
+            String pat = patResolver.resolve(owner + "/" + repo);
+            String viewer = gitHub.fetchUserProfile(pat).login();
+            actualFork = RepoRef.of(viewer, repo);
+        }
+        if (!LocalRepoRemote.remoteMatchesRepo(
+                origin.url(), actualFork.owner(), actualFork.repo())) {
             return Optional.empty();
         }
         String upstream = remotes.stream()
@@ -377,14 +406,28 @@ public class LocalRepoService
             Path destination)
             throws IOException, InterruptedException
     {
+        WriteMode mode = requireNonNull(writeMode, "writeMode is null");
+        RepoRef fork = mode == WriteMode.FORK
+                ? prepareManagedFork(owner, repo)
+                : null;
+        return prepareManagedClone(owner, repo, mode, destination, fork);
+    }
+
+    private PreparedClone prepareManagedClone(
+            String owner,
+            String repo,
+            WriteMode writeMode,
+            Path destination,
+            RepoRef fork)
+            throws IOException, InterruptedException
+    {
         requireNonNull(owner, "owner is null");
         requireNonNull(repo, "repo is null");
         WriteMode mode = requireNonNull(writeMode, "writeMode is null");
         requireEmptyDestination(destination);
         String pat = patResolver.resolve(owner + "/" + repo);
         RepoRef watched = RepoRef.of(owner, repo);
-        String viewer = gitHub.fetchUserProfile(pat).login();
-        String cloneOwner;
+        RepoRef cloneSource;
         String upstreamRemoteName = null;
 
         if (mode == WriteMode.DIRECT) {
@@ -392,19 +435,15 @@ public class LocalRepoService
                 throw new IllegalStateException("No write access to " + owner + "/" + repo
                         + ". Use fork mode instead.");
             }
-            cloneOwner = owner;
+            cloneSource = watched;
         }
         else {
-            if (owner.equalsIgnoreCase(viewer)) {
-                throw new IllegalStateException(owner + "/" + repo
-                        + " is owned by the current user; use direct mode.");
-            }
-            ensureForkReady(pat, viewer, watched);
-            cloneOwner = viewer;
+            cloneSource = requireNonNull(fork, "fork is null");
             upstreamRemoteName = UPSTREAM_REMOTE;
         }
 
-        String cloneUrl = githubCloneUrl(cloneOwner, repo);
+        String cloneUrl = githubCloneUrl(
+                cloneSource.owner(), cloneSource.repo());
         log.info("Cloning managed repo {} via {} -> {}", watched.fullName(), mode, destination);
         gitRunner.clone(cloneUrl, destination);
         if (upstreamRemoteName != null) {
@@ -453,36 +492,105 @@ public class LocalRepoService
                 upstreamRemoteName));
     }
 
-    private void ensureForkReady(String pat, String viewer, RepoRef watched)
+    private RepoRef prepareManagedFork(String owner, String repo)
             throws InterruptedException
     {
-        if (findExpectedFork(pat, viewer, watched).isPresent()) {
-            return;
+        return prepareManagedFork(owner, repo, null);
+    }
+
+    private RepoRef prepareManagedFork(
+            String owner,
+            String repo,
+            String existingForkRepo)
+            throws InterruptedException
+    {
+        requireNonNull(owner, "owner is null");
+        requireNonNull(repo, "repo is null");
+        String pat = patResolver.resolve(owner + "/" + repo);
+        String viewer = gitHub.fetchUserProfile(pat).login();
+        if (owner.equalsIgnoreCase(viewer)) {
+            throw new IllegalStateException(owner + "/" + repo
+                    + " is owned by the current user; use direct mode.");
+        }
+        RepoRef watched = RepoRef.of(owner, repo);
+        if (existingForkRepo == null || existingForkRepo.isBlank()) {
+            return ensureForkReady(pat, viewer, watched);
+        }
+        String forkName = existingForkRepo.trim();
+        if (!forkName.matches("[A-Za-z0-9._-]+")) {
+            throw new IllegalArgumentException(
+                    "Existing fork must be a repository name such as trino_new.");
+        }
+        RepoRef requested = RepoRef.of(viewer, forkName);
+        return findExpectedFork(pat, requested, watched)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Fork " + requested.fullName()
+                                + " was not found or is not accessible with the configured token."));
+    }
+
+    private RepoRef ensureForkReady(String pat, String viewer, RepoRef watched)
+            throws InterruptedException
+    {
+        RepoRef conventional = RepoRef.of(viewer, watched.repo());
+        Optional<RepoRef> existing = findExpectedFork(
+                pat, conventional, watched);
+        if (existing.isPresent()) {
+            return existing.orElseThrow();
+        }
+        existing = findRenamedFork(pat, viewer, watched);
+        if (existing.isPresent()) {
+            return existing.orElseThrow();
         }
         gitHub.createFork(pat, watched);
         Instant deadline = Instant.now().plus(FORK_READY_TIMEOUT);
         while (Instant.now().isBefore(deadline)) {
             Thread.sleep(FORK_READY_POLL.toMillis());
-            if (findExpectedFork(pat, viewer, watched).isPresent()) {
-                return;
+            existing = findExpectedFork(pat, conventional, watched);
+            if (existing.isPresent()) {
+                return existing.orElseThrow();
             }
         }
-        throw new IllegalStateException("Fork " + viewer + "/" + watched.repo()
+        throw new IllegalStateException("Fork " + conventional.fullName()
                 + " was not ready after " + FORK_READY_TIMEOUT.toSeconds() + " seconds.");
     }
 
-    private Optional<RepoMeta> findExpectedFork(String pat, String viewer, RepoRef watched)
+    private Optional<RepoRef> findRenamedFork(
+            String pat,
+            String viewer,
+            RepoRef watched)
     {
-        Optional<RepoMeta> fork = gitHub.findRepoMeta(pat, RepoRef.of(viewer, watched.repo()));
+        for (UserRepo candidate : gitHub.fetchUserRepos(pat)) {
+            if (!viewer.equalsIgnoreCase(candidate.owner())
+                    || watched.repo().equalsIgnoreCase(candidate.name())) {
+                continue;
+            }
+            RepoMeta meta = gitHub.findRepoMeta(
+                    pat, RepoRef.of(candidate.owner(), candidate.name()))
+                    .orElse(null);
+            if (meta != null
+                    && watched.owner().equalsIgnoreCase(meta.parentOwner())
+                    && watched.repo().equalsIgnoreCase(meta.parentName())) {
+                return Optional.of(RepoRef.parse(meta.fullName()));
+            }
+        }
+        return Optional.empty();
+    }
+
+    private Optional<RepoRef> findExpectedFork(
+            String pat,
+            RepoRef candidate,
+            RepoRef watched)
+    {
+        Optional<RepoMeta> fork = gitHub.findRepoMeta(pat, candidate);
         if (fork.isEmpty()) {
             return Optional.empty();
         }
         RepoMeta meta = fork.get();
         if (watched.owner().equalsIgnoreCase(meta.parentOwner())
                 && watched.repo().equalsIgnoreCase(meta.parentName())) {
-            return fork;
+            return Optional.of(RepoRef.parse(meta.fullName()));
         }
-        throw new IllegalStateException(viewer + "/" + watched.repo()
+        throw new IllegalStateException(candidate.fullName()
                 + " already exists but is not a fork of " + watched.fullName() + ".");
     }
 
@@ -505,9 +613,8 @@ public class LocalRepoService
     }
 
     /**
-     * Creates the watched-repo row if it does not exist yet. A watched
-     * repo must always carry a managed clone, so the only way one is born
-     * is through the managed-clone flow that lands its path in the same call.
+     * Ensures direct callers can still activate a managed clone when no
+     * workspace-creation request created the watched-repo row first.
      * Idempotent — an existing row is left untouched.
      */
     private void ensureWatched(String owner, String repo)

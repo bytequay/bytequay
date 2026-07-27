@@ -86,7 +86,10 @@ describe('PullReviewSidebar', () => {
   });
 
   it('renders every pending body as markdown and jumps from its exact file range', () => {
-    const first = comment();
+    const first = comment({
+      author: 'ai-reviewer',
+      body: '**Broken invariant:** the `close()` path can leak.<script>alert(1)</script>',
+    });
     const second = comment({
       id: 'finding-2', filePath: 'src/review/Retry.java', lineNumber: 77,
       startLine: null, startSide: null, body: 'Second finding with its complete ending.',
@@ -108,6 +111,8 @@ describe('PullReviewSidebar', () => {
     expect(screen.getByText('Second finding with its complete ending.')).not.toBeNull();
     expect(container.querySelector('.pl-pending-comment-body strong')?.textContent).toBe('Broken invariant:');
     expect(container.querySelector('.pl-pending-comment-body code')?.textContent).toBe('close()');
+    expect(screen.getByText('Quick review')).not.toBeNull();
+    expect(container.querySelector('script')).toBeNull();
     expect(container.querySelector('textarea.pl-pend-ta')).toBeNull();
 
     fireEvent.click(screen.getAllByTitle('Jump to line')[0]);

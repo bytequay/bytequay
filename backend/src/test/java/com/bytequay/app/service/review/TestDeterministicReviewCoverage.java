@@ -131,6 +131,19 @@ class TestDeterministicReviewCoverage
     }
 
     @Test
+    void pendingCommentsRequireVerifiedRequestChangesSeverity()
+    {
+        assertThat(InvestigationReviewService.isPublishableComment(
+                finding(4, "VERIFIED", "verified"))).isTrue();
+        assertThat(InvestigationReviewService.isPublishableComment(
+                finding(3, "VERIFIED", "verified"))).isFalse();
+        assertThat(InvestigationReviewService.isPublishableComment(
+                finding(5, "UNKNOWN", "unknown"))).isFalse();
+        assertThat(InvestigationReviewService.isPublishableComment(
+                finding(5, "TENTATIVE", "verified"))).isFalse();
+    }
+
+    @Test
     void untouchedApplicableObjectivesAreReportedAsBudgetGaps()
     {
         ReviewObjectiveRow objective = new ReviewObjectiveRow(
@@ -157,5 +170,13 @@ class TestDeterministicReviewCoverage
         return new FindingEvidenceRow(
                 "finding", "observation", relation, "proposition", "E1", "reason",
                 "DIRECT_ONLY", JsonNodeFactory.instance.objectNode());
+    }
+
+    private static FindingRow finding(int severity, String confidence, String verification)
+    {
+        return new FindingRow(
+                "finding", "review", "round", "objective", "hypothesis", "hard-invariant",
+                "src/A.java", 7, 7, "A merge-blocking defect.", severity, confidence, verification,
+                "Fix the broken branch.", "ready", "head");
     }
 }

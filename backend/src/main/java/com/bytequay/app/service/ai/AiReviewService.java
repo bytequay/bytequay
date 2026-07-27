@@ -17,6 +17,7 @@ import com.bytequay.app.domain.AiReviewDraft;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
 import com.bytequay.app.domain.PR;
+import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
@@ -34,10 +35,17 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -52,10 +60,21 @@ import static java.util.Objects.requireNonNullElse;
 @Service
 public class AiReviewService
 {
+    private static final String QUICK_REVIEW_AUTHOR = "ai-reviewer";
+    private static final Pattern DIFF_HUNK_HEADER = Pattern.compile(
+            "^@@ -\\d+(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@.*$");
     private static final String QUICK_REVIEW_SCOPE = """
+            The following quick-review rules override all other review guidance in this prompt.
             Quick-review scope: Review only the pull-request description and complete unified diff supplied in this request.
             You have no repository exploration, file-reading, search, history, test, or code-navigation tools.
             Do not claim anything about code outside the supplied diff; call out uncertainty instead.
+
+            Quick-review output policy:
+            - Emit only critical, error-level defects that must be fixed before merge and warrant REQUEST_CHANGES.
+            - Use severity "blocker" for every emitted comment. Never emit info, suggestion, warning, nit, praise, or optional-improvement comments.
+            - Prefer an empty comments array over a weak or speculative finding.
+            - Keep the summary to at most two short sentences and mention only retained merge-blocking defects; do not hide lower-severity feedback in it.
+            - Keep each comment precise and ADHD-friendly: at most three short sentences or 80 words. Lead with the concrete impact, then the smallest actionable fix. Use Markdown only where it improves scanning.
             """;
 
     private final PullRequestStore pullRequestStore;
@@ -133,22 +152,262 @@ public class AiReviewService
                 .orElse(QUICK_REVIEW_SCOPE);
         ReviewRequest request = new ReviewRequest(
                 repo, number, pr.title(), raw.body(), raw.headSha(), diff, skillContext);
-        ReviewOutput output = globalReview.review(request);
-        AiReviewDraft saved = draftStore.saveForUnifiedPr(prId, repo, number, raw.headSha(), output);
-        if (prs.findById(prId).isPresent()) {
-            return saved;
+        ReviewOutput output = filterQuickReviewOutput(globalReview.review(request), diff);
+
+        PR target = materialiseOnCurrentQuickReviewTarget(
+                prId, repo, number, output.comments());
+
+        // Save COMPLETE only after canonical pending comments are durable. If
+        // reconciliation fails, no persisted result can disable Retry after a
+        // restart; a retry safely converges the provenance-owned comment set.
+        AiReviewDraft saved = draftStore.saveForUnifiedPr(
+                target.id(), repo, number, raw.headSha(), output);
+
+        // Close the final save-vs-fold race. The fold transaction moves both
+        // comments and any draft already present; reparent is idempotent for
+        // the case where the draft insert landed just after that transaction.
+        PR finalTarget = quickReviewTarget(prId, repo, number)
+                .orElseThrow(() -> quickReviewTargetMissing(prId));
+        if (!finalTarget.id().equals(target.id())) {
+            draftStore.reparentUnifiedPr(target.id(), finalTarget.id());
+            return draftStore.latestForUnifiedPr(finalTarget.id()).orElse(saved);
         }
-        return prs.findTaskByRepoAndNumber(repo, number)
-                .map(survivor -> {
-                    draftStore.reparentUnifiedPr(prId, survivor.id());
-                    return draftStore.latestForUnifiedPr(survivor.id()).orElse(saved);
-                })
-                .orElse(saved);
+        return saved;
     }
+
+    /**
+     * Reconciles against the external row or its task-owned fold survivor.
+     * If the fold lands between reading the target and writing comments, retry
+     * once on the survivor instead of leaving a partial result behind.
+     */
+    private PR materialiseOnCurrentQuickReviewTarget(
+            String sourcePrId,
+            String repo,
+            int number,
+            List<ReviewOutput.LineComment> comments)
+    {
+        PR target = quickReviewTarget(sourcePrId, repo, number)
+                .orElseThrow(() -> quickReviewTargetMissing(sourcePrId));
+        try {
+            materialiseQuickReviewComments(target.id(), comments);
+        }
+        catch (RuntimeException failure) {
+            Optional<PR> moved = quickReviewTarget(sourcePrId, repo, number)
+                    .filter(candidate -> !candidate.id().equals(target.id()));
+            if (moved.isEmpty()) {
+                throw failure;
+            }
+            materialiseQuickReviewComments(moved.get().id(), comments);
+            return moved.get();
+        }
+
+        // Covers a successful empty-result reconciliation and a fold that
+        // moved all inserted rows immediately after the final comment write.
+        PR settled = quickReviewTarget(sourcePrId, repo, number)
+                .orElseThrow(() -> quickReviewTargetMissing(sourcePrId));
+        if (!settled.id().equals(target.id())) {
+            materialiseQuickReviewComments(settled.id(), comments);
+        }
+        return settled;
+    }
+
+    /**
+     * Copies the kept one-shot findings into the canonical local PR review
+     * draft stream. Changes, the submit drawer, and the PR timeline all read
+     * this stream, so the generated comments behave exactly like review text
+     * staged locally. Replacing only open quick-review drafts makes
+     * a failed/retried materialisation safe while preserving every human,
+     * resolved, dismissed, or already-published comment.
+     */
+    private void materialiseQuickReviewComments(
+            String prId, List<ReviewOutput.LineComment> comments)
+    {
+        List<PRComment> allComments = prs.comments(prId);
+        Set<String> repliedRoots = allComments.stream()
+                .map(PRComment::parentCommentId)
+                .filter(id -> id != null && !id.isBlank())
+                .collect(Collectors.toSet());
+        List<PRComment> openComments = allComments.stream()
+                .filter(comment -> PRComment.ORIGIN_LOCAL.equals(comment.origin()))
+                .filter(comment -> PRComment.SCOPE_FILE_LINE.equals(comment.scope()))
+                .filter(comment -> comment.parentCommentId() == null)
+                .filter(comment -> comment.publishedAt() == null
+                        && comment.strippedOnPushAt() == null
+                        && comment.resolvedAt() == null
+                        && comment.dismissedAt() == null)
+                .toList();
+
+        // A quick-review thread with a reply is now user-owned conversation
+        // history. Never delete it during replacement; its key also prevents
+        // the latest model output from creating a duplicate beside it.
+        List<PRComment> replaceable = openComments.stream()
+                .filter(comment -> QUICK_REVIEW_AUTHOR.equals(comment.author()))
+                .filter(comment -> !repliedRoots.contains(comment.id()))
+                .toList();
+        Set<QuickReviewCommentKey> retained = new HashSet<>();
+        openComments.stream()
+                .filter(comment -> !replaceable.contains(comment))
+                .map(comment -> new QuickReviewCommentKey(
+                        comment.filePath(), comment.lineNumber(), comment.body()))
+                .forEach(retained::add);
+
+        Map<QuickReviewCommentKey, ReviewOutput.LineComment> desired = new LinkedHashMap<>();
+        for (ReviewOutput.LineComment comment : comments) {
+            if (comment.file() == null || comment.file().isBlank()
+                    || comment.line() < 1 || comment.body() == null || comment.body().isBlank()) {
+                continue;
+            }
+            QuickReviewCommentKey key = new QuickReviewCommentKey(
+                    comment.file(), comment.line(), comment.body());
+            if (retained.add(key)) {
+                desired.putIfAbsent(key, comment);
+            }
+        }
+
+        Set<QuickReviewCommentKey> current = replaceable.stream()
+                .map(comment -> new QuickReviewCommentKey(
+                        comment.filePath(), comment.lineNumber(), comment.body()))
+                .collect(Collectors.toSet());
+        if (current.equals(desired.keySet()) && replaceable.size() == desired.size()) {
+            return;
+        }
+        replaceable.forEach(comment -> prs.deleteDraftComment(comment.id()));
+        for (ReviewOutput.LineComment comment : desired.values()) {
+            prs.addComment(
+                    prId, PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                    comment.file(), comment.line(), "RIGHT", null, null,
+                    QUICK_REVIEW_AUTHOR, comment.body(), null);
+        }
+    }
+
+    /**
+     * Treat the model response as untrusted: quick review has a narrower
+     * contract than the shared global runner, so enforce it before either
+     * result store can expose the response to the UI.
+     */
+    private static ReviewOutput filterQuickReviewOutput(ReviewOutput output, String diff)
+    {
+        Set<QuickReviewAnchor> anchors = quickReviewAnchors(diff);
+        List<ReviewOutput.LineComment> comments = Optional.ofNullable(output.comments())
+                .orElse(List.of()).stream()
+                .filter(AiReviewService::isValidQuickReviewComment)
+                .filter(comment -> anchors.contains(
+                        new QuickReviewAnchor(comment.file(), comment.line())))
+                .map(comment -> new ReviewOutput.LineComment(
+                        comment.file(), comment.line(), comment.body(), "blocker"))
+                .distinct()
+                .toList();
+        return new ReviewOutput(
+                quickReviewSummary(comments.size()), comments,
+                output.providerId(), output.modelName());
+    }
+
+    private static boolean isValidQuickReviewComment(ReviewOutput.LineComment comment)
+    {
+        if (comment == null || comment.file() == null || comment.file().isBlank()
+                || comment.line() < 1 || comment.body() == null || comment.body().isBlank()) {
+            return false;
+        }
+        return isCriticalSeverity(comment.severity());
+    }
+
+    /** Every new-side line GitHub can accept as a RIGHT-side review anchor. */
+    private static Set<QuickReviewAnchor> quickReviewAnchors(String diff)
+    {
+        Set<QuickReviewAnchor> anchors = new HashSet<>();
+        String path = null;
+        int newLine = -1;
+        for (String raw : requireNonNullElse(diff, "").split("\\R", -1)) {
+            if (raw.startsWith("diff --git ")) {
+                path = null;
+                newLine = -1;
+                continue;
+            }
+            if (newLine < 0 && raw.startsWith("+++ b/")) {
+                path = raw.substring("+++ b/".length());
+                continue;
+            }
+            Matcher hunk = DIFF_HUNK_HEADER.matcher(raw);
+            if (hunk.matches()) {
+                newLine = Integer.parseInt(hunk.group(1));
+                continue;
+            }
+            if (path == null || newLine < 0 || raw.startsWith("\\ No newline")) {
+                continue;
+            }
+            if (raw.startsWith("-")) {
+                continue;
+            }
+            if (raw.startsWith("+") || raw.startsWith(" ")) {
+                anchors.add(new QuickReviewAnchor(path, newLine++));
+            }
+        }
+        return Set.copyOf(anchors);
+    }
+
+    private Optional<PR> quickReviewTarget(String sourcePrId, String repo, int number)
+    {
+        return prs.findById(sourcePrId)
+                .or(() -> prs.findTaskByRepoAndNumber(repo, number));
+    }
+
+    private static ResponseStatusException quickReviewTargetMissing(String prId)
+    {
+        return new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "PR " + prId + " changed while quick review was running; retry the review");
+    }
+
+    private record QuickReviewCommentKey(String file, Integer line, String body) {}
+
+    private record QuickReviewAnchor(String file, int line) {}
 
     public Optional<AiReviewDraft> latestQuickReview(String prId)
     {
-        return draftStore.latestForUnifiedPr(prId);
+        return draftStore.latestForUnifiedPr(prId).map(AiReviewService::filterStoredQuickReview);
+    }
+
+    /** Keeps older stored results inside the current blocker-only contract. */
+    private static AiReviewDraft filterStoredQuickReview(AiReviewDraft draft)
+    {
+        List<AiReviewDraft.DraftComment> comments = draft.comments().stream()
+                .filter(comment -> "AI".equals(comment.source()))
+                .filter(comment -> !comment.dismissed())
+                .filter(comment -> isCriticalSeverity(comment.severity()))
+                .filter(comment -> comment.filePath() != null && !comment.filePath().isBlank()
+                        && comment.lineNumber() > 0 && comment.body() != null && !comment.body().isBlank())
+                .map(comment -> new AiReviewDraft.DraftComment(
+                        comment.id(), comment.filePath(), comment.lineNumber(), comment.body(),
+                        comment.editedBody(), "blocker", false, comment.source(),
+                        comment.side(), comment.startLine(), comment.startSide()))
+                .toList();
+        return new AiReviewDraft(
+                draft.id(), draft.prId(), draft.repo(), draft.number(), quickReviewSummary(comments.size()),
+                draft.providerId(), draft.model(), draft.headSha(), draft.status(),
+                draft.createdAt(), draft.updatedAt(), comments);
+    }
+
+    private static String quickReviewSummary(int findingCount)
+    {
+        if (findingCount == 0) {
+            return "No merge-blocking findings in the supplied diff.";
+        }
+        return "Quick review found %d merge-blocking %s in the supplied diff."
+                .formatted(findingCount, findingCount == 1 ? "finding" : "findings");
+    }
+
+    private static boolean isCriticalSeverity(String raw)
+    {
+        if (raw == null) {
+            return false;
+        }
+        String severity = raw.strip().toLowerCase(Locale.ROOT)
+                .replace('-', '_')
+                .replace(' ', '_');
+        return switch (severity) {
+            case "blocker", "critical", "error", "request_changes" -> true;
+            default -> false;
+        };
     }
 
     /**

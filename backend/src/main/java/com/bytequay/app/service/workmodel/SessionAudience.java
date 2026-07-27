@@ -32,8 +32,8 @@ public final class SessionAudience
     public static final String REVIEW = "review";
     public static final String CI_FIX = "ci-fix";
 
-    /** The four names, for validating audience keys that arrive from a
-     *  client (the new-trunk dialog's per-kind engine pins). */
+    /** The four names, for validating create-dialog overrides and the
+     *  complete per-trunk snapshot written from them. */
     public static final Set<String> ALL = Set.of(PLAN, DEV, REVIEW, CI_FIX);
 
     private SessionAudience() {}

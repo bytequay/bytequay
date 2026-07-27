@@ -41,9 +41,7 @@ import com.bytequay.app.service.threads.PrTaskLinkService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.ScopeWorkModel;
 import com.bytequay.app.service.workmodel.SessionAudience;
-import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
-import com.bytequay.app.service.workmodel.WorkspaceEngineSettings;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -109,7 +107,6 @@ public class ThreadController
     private final CheckpointTrigger checkpointTrigger;
     private final ContextAssembler contextAssembler;
     private final WorkModelResolver workModelResolver;
-    private final ThreadEngineOverrides threadEngines;
     private final PrTaskLinkService prTaskLink;
     private final TaskStore taskStore;
     private final ChatAttachmentStore attachmentStore;
@@ -122,7 +119,6 @@ public class ThreadController
             CheckpointTrigger checkpointTrigger,
             ContextAssembler contextAssembler,
             WorkModelResolver workModelResolver,
-            ThreadEngineOverrides threadEngines,
             PrTaskLinkService prTaskLink,
             TaskStore taskStore,
             ChatAttachmentStore attachmentStore,
@@ -134,7 +130,6 @@ public class ThreadController
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
         this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
-        this.threadEngines = requireNonNull(threadEngines, "threadEngines is null");
         this.prTaskLink = requireNonNull(prTaskLink, "prTaskLink is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.attachmentStore = requireNonNull(attachmentStore, "attachmentStore is null");
@@ -207,15 +202,12 @@ public class ThreadController
         if (body.workspaceId() == null || body.workspaceId().isBlank()) {
             throw new IllegalArgumentException("workspaceId is required");
         }
-        // The engine is the workspace's call unless the create dialog pinned
-        // one for this trunk, so the row is stamped from that rather than
-        // from the body's kind / provider — a client-supplied engine would
-        // only put a second, drifting answer on the thread.
-        Map<String, String> engines = body.engines() == null ? Map.of() : body.engines();
-        WorkModel engine = WorkspaceEngineSettings.parseChoice(engines.get(SessionAudience.PLAN))
-                .orElseGet(() -> workModelResolver
-                        .resolveForWorkspace(body.workspaceId(), SessionAudience.PLAN).choice());
-        Thread created = threads.create(new ThreadService.NewTaskRequest(
+        // Resolve all four roles now. The request contains only explicit
+        // picker overrides; untouched roles start from the workspace, then
+        // the complete model/account choices are frozen on the new trunk.
+        WorkModel engine = workModelResolver
+                .resolveForWorkspace(body.workspaceId(), SessionAudience.PLAN).choice();
+        return threads.createWithEngineOverrides(new ThreadService.NewTaskRequest(
                 engine.kind() == WorkModelKind.API ? ThreadKind.LOGIC_LOOP : ThreadKind.CLI_AGENT,
                 engine.agentOrProvider(),
                 engine.model(),
@@ -230,12 +222,7 @@ public class ThreadController
                 /* flow */ null,
                 body.workspaceId(),
                 ScopeWorkModel.effortOnly(engine, body.workModel()))
-                .withDescription(body.description()));
-        // After the insert: the pins hang off the thread id. Nothing runs
-        // until the user sends the first turn, so they are in place well
-        // before any session resolves an engine.
-        threadEngines.replace(created.id(), engines);
-        return created;
+                .withDescription(body.description()), body.engines());
     }
 
     /**
@@ -804,12 +791,12 @@ public class ThreadController
              *  seeds the new PlanStage's first plan ({@code source=trunk}) so
              *  the brain validates or revises it instead of planning cold. */
             JsonNode trunkPlan,
-            /** Optional per-session-kind engine pins from the create dialog,
+            /** Optional per-session-kind engine overrides from the create dialog,
              *  keyed by audience ({@code plan} / {@code dev} / {@code review}
              *  / {@code ci-fix}) and valued with the settings page's picker
-             *  ids. Absent kinds inherit the workspace. Honoured on create
-             *  only — materialising a task under an existing thread keeps
-             *  that thread's pins. */
+             *  ids. Absent kinds copy the workspace's effective choice at
+             *  creation. All four choices are then immutable for the thread;
+             *  materialising a task keeps that snapshot. */
             Map<String, String> engines) {}
 
     /** {@code images}: pasted-screenshot data URLs (e.g. {@code

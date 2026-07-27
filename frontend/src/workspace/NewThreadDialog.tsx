@@ -64,12 +64,11 @@ const CURATED_DEFAULT = 'cli:claude-code';
  * session kind will run on.
  *
  * <p>The repo is fixed by the workspace (one workspace, one repo), so
- * it reads as a caption rather than a picker. The agent rows inherit
- * the workspace Agents config and can be pinned per session kind for
- * this trunk only — the pins ride along on the create call and the
- * resolver honours them for every session under the trunk. With no
- * agent available at all, creation is blocked up front rather than
- * failing after submit.
+ * it reads as a caption rather than a picker. The agent rows start from
+ * the workspace Agents config and can be overridden per session kind.
+ * On create, the backend freezes all four effective choices for every
+ * later session under this trunk. With no agent available at all,
+ * creation is blocked up front rather than failing after submit.
  */
 function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, workspaceName }: Props) {
   const wsLabel = workspaceName.length > 0 ? workspaceName : 'Workspace';
@@ -82,7 +81,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
   const [codeAreas, setCodeAreas] = useState<DirectoryScopeOverviewDto | null>(null);
   const [selectedCodeArea, setSelectedCodeArea] = useState<string | null>(null);
   const [approvingCodeArea, setApprovingCodeArea] = useState<string | null>(null);
-  /** Per-audience pins for this trunk only. An absent key inherits. */
+  /** Explicit picker changes; absent keys copy workspace values on create. */
   const [pins, setPins] = useState<Record<string, string>>({});
   const [openKind, setOpenKind] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);

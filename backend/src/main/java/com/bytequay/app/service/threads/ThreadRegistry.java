@@ -811,13 +811,11 @@ public class ThreadRegistry
             agent = buildBrain(thread);
         }
         else {
-            // The resolved choice — not the ThreadKind frozen at creation —
-            // decides which runtime spawns. A thread created before the
-            // workspace pick changed (or created with the frontend's
-            // CLI_AGENT default) must still run whatever the workspace now
-            // says, otherwise every thread silently falls back to Claude Code.
+            // The audience-specific snapshot — not the trunk ThreadKind —
+            // decides which runtime spawns. Legacy threads without a complete
+            // snapshot retain the resolver's workspace fallback.
             String audience = stageAudience(thread, stageId);
-            WorkModel resolved = resolveWorkModelForStage(thread, boundTask, stageId);
+            WorkModel resolved = resolvedWorkModelForTurn(thread, boundTask, stageId);
             agent = switch (resolved.kind()) {
                 case API -> new LogicLoopThreadAgent(
                         thread, store, mapper, executor,
@@ -876,11 +874,11 @@ public class ThreadRegistry
         return resolved.reasoningEffort();
     }
 
-    /** Resolves the effective work model for a stage's spawn: the
-     *  workspace's engine for {@code audience}, wearing the nearest scope's
-     *  reasoning effort (stage → task → thread). Falls back to the
-     *  thread-only cascade on the legacy 0-task path (no bound task) or
-     *  when the resolver isn't wired (test paths). */
+    /** Resolves the effective work model for a stage's spawn: the trunk's
+     *  audience snapshot, wearing the nearest scope's reasoning effort
+     *  (stage → task → thread). Legacy sparse trunks may fall through to
+     *  the workspace. The thread-only path remains for 0-task trunks and
+     *  tests where the resolver isn't wired. */
     private WorkModel resolveWorkModelForStage(Thread thread, Task boundTask, String stageId)
     {
         if (boundTask == null || workModelResolver == null) {
@@ -899,9 +897,8 @@ public class ThreadRegistry
         if (thread.kind() == ThreadKind.BRAIN_AGENT) {
             return buildBrain(thread);
         }
-        // As in buildStage: the resolved cascade picks the runtime, so a
-        // workspace-level pick reaches the trunk even on a thread whose
-        // row still says CLI_AGENT.
+        // As in buildStage: the resolved audience snapshot picks the runtime,
+        // even when it differs from the compatibility kind on the thread row.
         WorkModel resolved = resolveWorkModel(thread);
         // The resolver applies whatever base movement the background
         // fetcher brought down; an unmoved base reopens cheaply.
@@ -1109,12 +1106,29 @@ public class ThreadRegistry
                 : agent instanceof ClaudeCodeCliThreadAgent;
     }
 
-    /** The work model the thread's next turn will actually run with.
-     *  Public so the scheduler can pick the matching resource lane
-     *  before any session exists. */
+    /** The work model the thread's next trunk turn will actually run with.
+     *  Public so the scheduler can pick the matching resource lane before
+     *  any session exists. */
     public WorkModel resolvedWorkModel(Thread thread)
     {
         return resolveWorkModel(thread);
+    }
+
+    /**
+     * The model a queued turn will actually use. The scheduler calls this
+     * same path as stage construction so its CLI/API capacity lane cannot
+     * disagree with the runtime selected for a task or stage audience.
+     */
+    public WorkModel resolvedWorkModelForTurn(Thread thread, Task task, String stageId)
+    {
+        requireNonNull(thread, "thread is null");
+        // A brain thread's bound task belongs to the development thread, so
+        // its own trunk model is authoritative and avoids a false cross-thread
+        // validation failure in WorkModelResolver.
+        if (thread.kind() == ThreadKind.BRAIN_AGENT || task == null) {
+            return resolveWorkModel(thread);
+        }
+        return resolveWorkModelForStage(thread, task, stageId);
     }
 
     private WorkModel resolveWorkModel(Thread thread)

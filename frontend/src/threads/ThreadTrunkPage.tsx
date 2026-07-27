@@ -1580,7 +1580,7 @@ function humanizeBranch(branch: string): string {
  * keeps that status; a COMPLETED phase must not relabel it "completed".
  */
 function displayStatus(task: WorkUnitTaskDto): string {
-  if (task.status === 'ERRORED' || task.status === 'CANCELED') {
+  if (task.status === 'ERRORED' || task.status === 'REMOTE_CLOSED' || task.status === 'CANCELED') {
     return task.status;
   }
   return task.phase === 'COMPLETED' ? 'COMPLETED' : task.status;
@@ -1600,6 +1600,7 @@ function glyphChar(task: WorkUnitTaskDto): string {
 function statusLabel(status: string): string {
   if (status === 'AWAITING_REVIEW') return 'awaiting';
   if (status === 'NEEDS_ATTENTION') return 'needs you';
+  if (status === 'REMOTE_CLOSED') return 'closed';
   return status.toLowerCase();
 }
 

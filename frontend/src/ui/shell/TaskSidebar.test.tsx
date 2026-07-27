@@ -169,6 +169,28 @@ describe('TaskSidebar', () => {
     expect(validation.querySelector('.is-running, .is-planning, .is-monitoring')).toBeNull();
   });
 
+  it('labels a remotely closed terminal task as closed rather than merged', () => {
+    render(
+      <TaskSidebar
+        task={{ title: 'x', branch: 'b' }}
+        nodes={buildLivePlan({
+          stages: [{
+            id: 'remote-closed', taskId: 't', type: 'REMOTE_DEVELOPMENT_STAGE', state: 'CLOSED',
+            openedAt: '2026-01-01T00:00:00Z', closedAt: '2026-01-01T01:00:00Z', callerStageId: null,
+            summary: '', loopIteration: 0,
+          }],
+          subStages: [],
+          task: { prNumber: 145, currentPhase: 'COMPLETED' as TaskPhase, paused: false, terminal: true },
+          prStatus: 'closed',
+        })}
+      />,
+    );
+
+    const remote = screen.getByText('Remote Development').closest('button') as HTMLButtonElement;
+    expect(remote.textContent?.toLowerCase()).toContain('closed');
+    expect(remote.textContent?.toLowerCase()).not.toContain('merged');
+  });
+
   it('keeps Cleanup disabled while CI validation remains actionable', () => {
     const onOpenTab = vi.fn();
     const { container } = render(

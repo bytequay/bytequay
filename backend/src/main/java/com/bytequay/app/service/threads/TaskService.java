@@ -788,6 +788,7 @@ public class TaskService
         Task task = result.task();
         // finishTerminalInCommand already sealed every durable child in the
         // terminal transaction; only external runtime cleanup remains here.
+        stopReconciler.reconcileStoppedTask(task.id());
         notificationService.dismissOpenForTask(task.threadId(), task.id());
         worktreeService.reap(task);
         worktreeService.deleteRemoteBranch(task);

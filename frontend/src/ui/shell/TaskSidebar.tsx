@@ -351,7 +351,9 @@ function PhaseStatusIcon({ status }: { status: LivePlanStatus }) {
 
 function stageStatusLabel(node: LivePlanNode): string {
   if (node.key === 'plan' && node.status === 'done') return 'approved';
-  if (node.key === 'remote-development' && node.status === 'done') return 'merged';
+  if (node.key === 'remote-development' && node.status === 'done') {
+    return node.meta === 'closed' ? 'closed' : 'merged';
+  }
   switch (node.status) {
     case 'done': return 'done';
     case 'planning': return 'planning';

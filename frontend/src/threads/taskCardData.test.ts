@@ -50,6 +50,12 @@ describe('toTaskCard', () => {
     expect(c.pr).toBe('closed');
   });
 
+  it('renders a remotely closed PR as a terminal closed task', () => {
+    const c = toTaskCard(task({ status: 'REMOTE_CLOSED', prState: 'CLOSED' }), false);
+    expect(c.status).toBe('closed');
+    expect(c.pr).toBe('closed');
+  });
+
   it('omits the glyph for a parked task before a PR exists', () => {
     const c = toTaskCard(task({ prNumber: null, prState: null, status: 'PENDING' }), false);
     expect(c.pr).toBeUndefined();

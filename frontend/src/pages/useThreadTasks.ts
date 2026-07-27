@@ -26,6 +26,7 @@ function navDot(status: string): StatusDotVariant {
     case 'PENDING': return 'created';
     case 'PAUSED':
     case 'ERRORED':
+    case 'REMOTE_CLOSED':
     case 'CANCELED':
     case 'ARCHIVED': return 'sleep';
     case 'COMPLETED': return 'done';
@@ -38,6 +39,7 @@ function navDot(status: string): StatusDotVariant {
  *  nothing before a PR exists. */
 function navPr(t: WorkUnitTaskDto): PrGlyphState | undefined {
   if (t.status === 'COMPLETED') return 'merged';
+  if (t.status === 'REMOTE_CLOSED' || t.prState?.toUpperCase() === 'CLOSED') return 'closed';
   if (t.prNumber == null) return undefined;
   return typeof t.prState === 'string' && t.prState.toUpperCase() === 'DRAFT' ? 'draft' : 'open';
 }

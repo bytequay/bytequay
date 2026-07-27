@@ -767,7 +767,10 @@ export function StageDetailRoute({
       reason => brain.task.statusLabel.toLowerCase().startsWith(reason));
   const embeddedPr = stagePullDetail !== null && stageRemotePrNumber !== null ? {
     number: stageRemotePrNumber,
-    status: taskCompleted ? 'merged' : (pr?.status ?? displayedLocalPrBundle?.pr.status ?? 'open'),
+    status: displayedLocalPrBundle?.pr.status
+      ?? pr?.status
+      ?? brain.rightRail.linkedPr?.status
+      ?? (taskCompleted ? 'merged' : 'open'),
     onOpen: () => openTab('pr', 'overview'),
     onOpenRemote: () => {
       void window.bridge.openInAppBrowser(

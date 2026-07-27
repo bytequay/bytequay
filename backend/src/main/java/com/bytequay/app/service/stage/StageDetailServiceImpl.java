@@ -727,6 +727,7 @@ public class StageDetailServiceImpl
                 && !detail.mergeQueueState().isBlank()
                 && !detail.merged();
         String status = detail.merged() ? "merged"
+                : "closed".equalsIgnoreCase(detail.state()) ? "closed"
                 : queued ? "queued"
                 : detail.draft() ? "draft" : "open";
 

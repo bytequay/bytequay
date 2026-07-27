@@ -104,7 +104,7 @@ export type LivePlanInput = {
     terminal: boolean;
   };
   /** The PR's merge-state, when known — drives the Merge / Close row. */
-  prStatus?: 'open' | 'draft' | 'queued' | 'merged' | null;
+  prStatus?: 'open' | 'draft' | 'queued' | 'merged' | 'closed' | null;
   /** True when a ready-to-merge gate is open (CI green, no unresolved
    *  comments, mergeable) — lights the Merge / Close row as actionable. */
   mergeReady?: boolean;
@@ -512,14 +512,14 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   // running while queued, sleeping while out for remote review, and future
   // otherwise.
   const mergeStatus: LivePlanStatus =
-    task.currentPhase === 'COMPLETED' || prStatus === 'merged' ? 'done'
+    task.currentPhase === 'COMPLETED' || prStatus === 'merged' || prStatus === 'closed' ? 'done'
       : prStatus === 'queued' ? 'running'
         : mergeReady ? 'awaiting'
           : task.currentPhase === 'AWAITING_REMOTE_REVIEW'
             ? 'sleep'
             : 'future';
   const mergeMeta = prStatus === 'queued' ? 'queued'
-    : mergeStatus === 'done' ? 'merged'
+    : mergeStatus === 'done' ? (prStatus === 'closed' ? 'closed' : 'merged')
       : mergeStatus === 'awaiting' ? 'ready to merge'
         : mergeStatus === 'sleep' ? 'awaiting' : undefined;
 
@@ -581,6 +581,7 @@ export function buildLivePlan(input: LivePlanInput): LivePlanNode[] {
   const remoteMeta = remoteLiveStatus === 'awaiting' ? 'awaiting you'
     : remoteCiFixRun !== undefined ? runMeta(remoteCiFixRun)
       : roundRun !== undefined ? runMeta(roundRun)
+        : task.currentPhase === 'COMPLETED' && prStatus === 'closed' ? 'closed'
         : task.currentPhase === 'PUSHED_AWAITING_CI' ? 'checking CI'
           : task.currentPhase === 'AWAITING_REMOTE_REVIEW' ? 'watching review'
             : iterMeta(remote);

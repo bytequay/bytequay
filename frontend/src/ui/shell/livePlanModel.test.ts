@@ -270,9 +270,12 @@ describe('buildLivePlan', () => {
         origin: 'external', brainVerdict: null, iteration: 1, budget: 3,
       },
       task: { prNumber: 145, currentPhase: 'COMPLETED' as TaskPhase, terminal: true, paused: false },
+      prStatus: 'closed',
     });
 
     expect(phase(nodes, 'remote-development', 'comments').status).toBe('done');
+    expect(node(nodes, 'remote-development').meta).toBe('closed');
+    expect(phase(nodes, 'remote-development', 'merge-close').meta).toBe('closed');
     expect(phase(nodes, 'remote-development', 'comments').nav).toEqual({
       kind: 'stage', stageId: 'REMOTE_DEVELOPMENT_STAGE-id',
     });

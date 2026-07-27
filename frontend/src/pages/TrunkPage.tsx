@@ -138,7 +138,7 @@ export function TrunkPage({
   };
 
   const repository = panel.overview?.repository.fullName ?? thread.repository ?? 'workspace';
-  const mergedCount = tasks.closed.length;
+  const doneCount = tasks.closed.length;
   const taskCount = pane.activity.taskCount ?? tasks.active.length + tasks.closed.length;
   const pullRequestCount = pane.activity.pullRequestCount
     ?? [...tasks.active, ...tasks.closed].filter(task => task.prNumber !== undefined).length;
@@ -150,7 +150,7 @@ export function TrunkPage({
     <div className="trunk-page-v2__topbar">
       <span className="trunk-page-v2__topbar-icon"><TrunkLineIcon /></span>
       <strong title={thread.description ?? undefined}>{thread.title}</strong>
-      <span>trunk · {repository} · {mergedCount} tasks merged</span>
+      <span>trunk · {repository} · {doneCount} {doneCount === 1 ? 'task' : 'tasks'} done</span>
       <button type="button" title="Toggle workspace panel" aria-label="Toggle workspace panel"
         onClick={() => setPaneOpen(open => !open)}><PanelIcon /></button>
     </div>
@@ -176,7 +176,7 @@ export function TrunkPage({
                     <span className="trunk-page-v2__history-rail"><PullRequestBranchIcon size={9} /></span>
                     <span className="trunk-page-v2__history-content">
                       <span>{task.title}</span>
-                      <small>merged{task.prNumber === undefined ? '' : ` · PR #${task.prNumber}`}</small>
+                      <small>{task.pr === 'merged' ? 'merged' : 'closed'}{task.prNumber === undefined ? '' : ` · PR #${task.prNumber}`}</small>
                       <ChevronRightIcon />
                     </span>
                   </button>

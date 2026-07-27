@@ -34,10 +34,10 @@ public enum StageEventType
     BUDGET_EXHAUSTED,
     BUDGET_EXHAUSTED_DECISION,
 
-    /** The Development agent began one of the two durable PR-preparation
-     *  phases ({@code starting} or {@code creating-draft}). The ordinary git,
-     *  template, and diff tool calls remain in the Development transcript;
-     *  this compact milestone is also projected into Brain and the PR timeline. */
+    /** The Development agent began a durable PR-preparation phase, or the
+     *  task's terminal publish attempt failed. The ordinary git, template,
+     *  diff, and retry details remain in their source stores; this compact
+     *  milestone is also projected into Brain and the PR timeline. */
     PULL_REQUEST_PROGRESS,
 
     /** A task's local branch was published as a new remote pull request.

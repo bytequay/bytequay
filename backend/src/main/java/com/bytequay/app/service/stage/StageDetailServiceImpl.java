@@ -655,12 +655,13 @@ public class StageDetailServiceImpl
     private static String pullRequestMilestoneLabel(PullRequestCreatedData data, boolean progress)
     {
         if (data == null) {
-            return progress ? "Pull request preparation" : "Pull request created";
+            return progress ? "Pull request preparation" : "PR pushed successfully";
         }
         return switch (data.phase()) {
             case "starting" -> "Starting pull request";
             case "creating-draft" -> "Creating draft";
-            default -> "Pull request created";
+            case "failed" -> "PR push failed";
+            default -> "PR pushed successfully";
         };
     }
 

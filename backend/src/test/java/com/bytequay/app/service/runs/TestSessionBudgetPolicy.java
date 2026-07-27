@@ -45,8 +45,9 @@ class TestSessionBudgetPolicy
             runs, notifications, jdbc, new ObjectMapper());
 
     @Test
-    void workspaceDailyBudgetDefaultsToFiveHundredDollars()
+    void workspaceBudgetDefaultsToOneHundredDollarsPerSessionAndFiveHundredDaily()
     {
+        assertThat(WorkspaceSettingsDto.defaults().sessionCapUsd()).isEqualTo(100.0);
         assertThat(WorkspaceSettingsDto.defaults().dailyCapUsd()).isEqualTo(500.0);
     }
 

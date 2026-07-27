@@ -41,7 +41,7 @@ describe('stageRow tool_call', () => {
       },
     }))}</>);
 
-    expect(screen.getByText('Pull request created')).toBeTruthy();
+    expect(screen.getByText('PR pushed successfully')).toBeTruthy();
     expect(screen.getByText('#145')).toBeTruthy();
     expect(screen.getByText('feature/timeline')).toBeTruthy();
     expect(screen.getByText('main')).toBeTruthy();

@@ -109,6 +109,29 @@ class TestSqliteThreadStore
     }
 
     @Test
+    void roundtripsAndPreservesATrunkDescription()
+    {
+        Thread described = withDescription(
+                newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING),
+                "Owns the core execution engine");
+        store.saveThread(described);
+        assertThat(store.findThreadById(described.id()).orElseThrow().description())
+                .isEqualTo("Owns the core execution engine");
+
+        // Existing lifecycle copies omit the optional field. Saving one must
+        // not erase the persisted remark.
+        Thread lifecycleCopy = new Thread(
+                described.id(), described.kind(), described.provider(), described.agentSessionId(),
+                described.title(), ThreadStatus.IDLE, described.model(), described.costUsdMilli(),
+                described.tokensIn(), described.tokensOut(), described.createdAt(), described.updatedAt(),
+                described.endedAt(), described.errorMessage(), described.flow(), described.workspaceId(),
+                described.workModel());
+        store.saveThread(lifecycleCopy);
+        assertThat(store.findThreadById(described.id()).orElseThrow().description())
+                .isEqualTo("Owns the core execution engine");
+    }
+
+    @Test
     void roundtripsALogicLoopTaskWithNullCliFields()
     {
         Thread thread = newTask(ThreadKind.LOGIC_LOOP, ThreadStatus.PENDING);
@@ -493,6 +516,17 @@ class TestSqliteThreadStore
                 ThreadFlow.BUILD,
                 "ws-default",
                 /* workModel */ null);
+    }
+
+    private static Thread withDescription(Thread source, String description)
+    {
+        return new Thread(
+                source.id(), source.kind(), source.provider(), source.agentSessionId(),
+                source.title(), source.status(), source.model(), source.costUsdMilli(),
+                source.tokensIn(), source.tokensOut(), source.createdAt(), source.updatedAt(),
+                source.endedAt(), source.errorMessage(), source.flow(), source.workspaceId(),
+                source.workModel(), source.parentReviewPassId(), source.parallelSlots(),
+                source.parentTaskId(), source.prRef(), description);
     }
 
     private static Thread withTimestamps(Thread source, Instant created, Instant updated)

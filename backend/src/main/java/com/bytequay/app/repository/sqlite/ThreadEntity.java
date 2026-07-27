@@ -38,6 +38,9 @@ class ThreadEntity
     @Column(name = "title", nullable = false)
     private String title;
 
+    @Column(name = "description")
+    private String description;
+
     @Column(name = "status", nullable = false)
     private String status;
 
@@ -132,6 +135,9 @@ class ThreadEntity
 
     String getTitle() { return title; }
     void setTitle(String title) { this.title = title; }
+
+    String getDescription() { return description; }
+    void setDescription(String description) { this.description = description; }
 
     String getStatus() { return status; }
     void setStatus(String status) { this.status = status; }

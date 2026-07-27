@@ -116,6 +116,11 @@ class SqliteThreadStore
         entity.setProvider(thread.provider());
         entity.setAgentSessionId(thread.agentSessionId());
         entity.setTitle(thread.title());
+        // Older lifecycle copy constructors do not know about the optional
+        // remark yet; a null update must not erase one already persisted.
+        if (existing.isEmpty() || thread.description() != null) {
+            entity.setDescription(thread.description());
+        }
         entity.setStatus(thread.status().name());
         entity.setModel(thread.model());
         entity.setCostUsdMilli(thread.costUsdMilli());
@@ -471,7 +476,8 @@ class SqliteThreadStore
                 e.getParentReviewPassId(),
                 e.getParallelSlots(),
                 e.getParentTaskId(),
-                e.getPrRef());
+                e.getPrRef(),
+                e.getDescription());
     }
 
     private static ThreadMessage toMessage(ThreadMessageEntity e)

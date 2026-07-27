@@ -154,12 +154,14 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default", /* workModel */ null));
+                /* flow */ null, "ws-default", /* workModel */ null)
+                .withDescription("Focused remark for this trunk"));
 
         assertThat(store.threads).hasSize(1);
         assertThat(scheduler.requests).isEmpty();
         assertThat(registry.used).isFalse();
         assertThat(created.title()).isEqualTo("Please fix the broken tests");
+        assertThat(created.description()).isEqualTo("Focused remark for this trunk");
         // A NewTaskRequest with no flow defaults to BUILD per the
         // V74 column default and the design's "BUILD threads are the
         // overwhelming majority" guidance.

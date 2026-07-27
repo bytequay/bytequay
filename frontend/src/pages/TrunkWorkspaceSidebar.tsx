@@ -195,6 +195,7 @@ export function TrunkWorkspaceSidebar({
               <button
                 type="button"
                 className={active ? 'is-active' : ''}
+                title={thread.description ?? undefined}
                 onClick={() => toggleThread(thread, hasTasks)}
                 aria-expanded={hasTasks ? open : undefined}
               >

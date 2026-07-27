@@ -229,7 +229,8 @@ public class ThreadController
                 body.linkedIssueNumber(),
                 /* flow */ null,
                 body.workspaceId(),
-                ScopeWorkModel.effortOnly(engine, body.workModel())));
+                ScopeWorkModel.effortOnly(engine, body.workModel()))
+                .withDescription(body.description()));
         // After the insert: the pins hang off the thread id. Nothing runs
         // until the user sends the first turn, so they are in place well
         // before any session resolves an engine.
@@ -785,6 +786,7 @@ public class ThreadController
             String provider,
             String model,
             String title,
+            String description,
             String workingDir,
             String branchName,
             String initialPrompt,

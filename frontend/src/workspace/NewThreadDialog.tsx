@@ -59,10 +59,9 @@ const KINDS = [
 const CURATED_DEFAULT = 'cli:claude-code';
 
 /**
- * Workspace-scoped new-trunk modal: a free-form prompt at the top, a
- * chip row for Add files / Reference a PR / Skills, the "Plan here,
- * steer your wild horse" hint, and an AGENTS table showing which
- * engine each session kind will run on.
+ * Workspace-scoped new-trunk modal: a short name, an optional remark,
+ * code-area selection, and an AGENTS table showing which engine each
+ * session kind will run on.
  *
  * <p>The repo is fixed by the workspace (one workspace, one repo), so
  * it reads as a caption rather than a picker. The agent rows inherit
@@ -74,7 +73,8 @@ const CURATED_DEFAULT = 'cli:claude-code';
  */
 function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, workspaceName }: Props) {
   const wsLabel = workspaceName.length > 0 ? workspaceName : 'Workspace';
-  const [prompt, setPrompt] = useState('');
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [repoName, setRepoName] = useState<string | null>(null);
   const [providers, setProviders] = useState<Record<string, string> | null>(null);
   const [options, setOptions] = useState<WorkModelOptionsDto | null>(null);
@@ -118,6 +118,9 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
   // Nothing installed, authed, or keyed: every kind would resolve to an
   // agent that can't run, so the create is refused up front.
   const blocked = !loading && choices.every(choice => choice.disabled);
+  const trimmedName = name.trim();
+  const nameWordCount = wordCount(trimmedName);
+  const nameInvalid = trimmedName.length === 0 || nameWordCount > 7;
 
   /** The engine the workspace says this kind runs on: the kind's own
    *  pick, else the workspace default, else the curated fallback. */
@@ -179,23 +182,21 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
   };
 
   const handleSubmit = async () => {
-    const trimmed = prompt.trim();
-    if (submitting || blocked || approvingCodeArea !== null) return;
+    const trimmedDescription = description.trim();
+    if (submitting || blocked || approvingCodeArea !== null || nameInvalid) return;
     setSubmitting(true);
     setError(null);
     try {
-      // 0-Task thread: no workingDir, no branchName. initialPrompt
-      // feeds the server's auto-title derivation but is NOT enqueued
-      // as a turn — the text is context the user prepared in the
-      // dialog, staged below into the trunk composer so they review
-      // and press Send when ready.
+      // 0-Task thread: no workingDir, no branchName. The short name is
+      // the title; description is a persisted remark, not a queued turn.
       // No engine on the request beyond the pins: the backend stamps
       // the thread from the workspace's plan engine otherwise. Sending
       // one here would only put a second, drifting answer on the row.
       const created = await window.bridge.createTask({
         kind: 'CLI_AGENT',
         workspaceId,
-        initialPrompt: trimmed === '' ? undefined : trimmed,
+        title: trimmedName,
+        description: trimmedDescription === '' ? undefined : trimmedDescription,
         initialGroupIds: initialGroupId !== undefined ? [initialGroupId] : undefined,
         engines: Object.keys(pins).length === 0 ? undefined : pins,
       });
@@ -208,16 +209,6 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
         catch (reason) {
           console.warn('Could not attach the selected code area', reason);
         }
-      }
-      if (trimmed.length > 0) {
-        // Hand the text to the trunk page via sessionStorage — the
-        // ThreadTrunkPage reads + clears this key on mount and seeds
-        // its composer with the value. sessionStorage scopes the
-        // draft to this app window so a reload won't replay it.
-        try {
-          window.sessionStorage.setItem(`bq:trunk-draft:${created.id}`, trimmed);
-        }
-        catch { /* private mode / quota — composer just starts empty */ }
       }
       onCreated(created.id);
     }
@@ -280,6 +271,26 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
           <span style={repoLineMutedStyle}>· set by the workspace</span>
         </div>
 
+        <div style={dialogStyles.field}>
+          <label htmlFor="trunk-name" style={dialogStyles.fieldLabel}>Trunk name</label>
+          <input
+            id="trunk-name"
+            value={name}
+            onChange={event => setName(event.target.value)}
+            placeholder="e.g. Core engine"
+            style={{
+              ...dialogStyles.input,
+              borderColor: nameWordCount > 7 ? '#cf222e' : 'var(--ws-card-border)',
+            }}
+            aria-invalid={nameWordCount > 7}
+            aria-describedby="trunk-name-help"
+          />
+          <div id="trunk-name-help" style={fieldHelpStyle(nameWordCount > 7)}>
+            <span>{nameWordCount > 7 ? 'Use 7 words or fewer.' : 'Required · 7 words maximum'}</span>
+            <span>{nameWordCount}/7 words</span>
+          </div>
+        </div>
+
         {codeAreas !== null && (
           <section style={codeAreaSectionStyle} aria-labelledby="code-area-label">
             <div style={codeAreaHeadingStyle}>
@@ -340,12 +351,19 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
           </section>
         )}
 
-        <textarea
-          value={prompt}
-          onChange={e => setPrompt(e.target.value)}
-          placeholder="What do you want to work on or think through?"
-          style={{ ...dialogStyles.textarea, marginTop: 10 }}
-        />
+        <div style={dialogStyles.field}>
+          <label htmlFor="trunk-description" style={dialogStyles.fieldLabel}>
+            Description <span style={codeAreaOptionalStyle}>(optional)</span>
+          </label>
+          <textarea
+            id="trunk-description"
+            value={description}
+            onChange={event => setDescription(event.target.value)}
+            placeholder="Add a remark about this trunk"
+            style={dialogStyles.textarea}
+          />
+          <div style={fieldHelpStyle(false)}>Shown when the trunk name is hovered.</div>
+        </div>
 
         <div style={dialogStyles.chipRow}>
           <button type="button" style={dialogStyles.chip} disabled>📎 Add files</button>
@@ -460,8 +478,12 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
               type="button"
               style={dialogStyles.primaryBtn}
               onClick={() => { void handleSubmit(); }}
-              disabled={submitting || loading || blocked || approvingCodeArea !== null}
-              title={blocked ? 'Add an agent in workspace settings first' : 'Create the trunk'}
+              disabled={submitting || loading || blocked || approvingCodeArea !== null || nameInvalid}
+              title={blocked
+                ? 'Add an agent in workspace settings first'
+                : nameInvalid
+                  ? 'Enter a trunk name of 7 words or fewer'
+                  : 'Create the trunk'}
             >
               {submitting ? 'Creating…' : 'Create trunk'} <span style={{ marginLeft: 4 }}>⏎</span>
             </button>
@@ -470,6 +492,10 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
       </div>
     </div>
   );
+}
+
+function wordCount(value: string): number {
+  return value === '' ? 0 : value.split(/\s+/).length;
 }
 
 /** One session kind: what it is, which engine it lands on, and the
@@ -617,6 +643,17 @@ const trunkDefinitionFutureStyle: React.CSSProperties = {
 const repoLineMutedStyle: React.CSSProperties = {
   color: 'var(--ws-text-4)',
 };
+
+function fieldHelpStyle(error: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 4,
+    color: error ? '#cf222e' : 'var(--ws-text-4)',
+    fontSize: 10,
+  };
+}
 
 const codeAreaSectionStyle: React.CSSProperties = {
   marginTop: 12,

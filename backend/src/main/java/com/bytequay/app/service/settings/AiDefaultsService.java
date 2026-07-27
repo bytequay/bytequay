@@ -60,6 +60,7 @@ public class AiDefaultsService
                 read(Key.AI_DEFAULT_PLAN, DEFAULT_ENGINE),
                 read(Key.AI_DEFAULT_DEV, DEFAULT_ENGINE),
                 read(Key.AI_DEFAULT_REVIEW, DEFAULT_ENGINE),
+                read(Key.AI_DEFAULT_GLOBAL_REVIEW, DEFAULT_ENGINE),
                 read(Key.AI_DEFAULT_CI_FIX, DEFAULT_CI_FIX_ENGINE),
                 read(Key.AI_DEFAULT_TRIAGE, DEFAULT_ENGINE),
                 read(Key.AI_DEFAULT_PERF, DEFAULT_ENGINE));
@@ -71,6 +72,7 @@ public class AiDefaultsService
         settings.set(Key.AI_DEFAULT_PLAN, clean(next.plan(), DEFAULT_ENGINE));
         settings.set(Key.AI_DEFAULT_DEV, clean(next.dev(), DEFAULT_ENGINE));
         settings.set(Key.AI_DEFAULT_REVIEW, clean(next.review(), DEFAULT_ENGINE));
+        settings.set(Key.AI_DEFAULT_GLOBAL_REVIEW, clean(next.globalReview(), DEFAULT_ENGINE));
         settings.set(Key.AI_DEFAULT_CI_FIX, clean(next.ciFix(), DEFAULT_CI_FIX_ENGINE));
         settings.set(Key.AI_DEFAULT_TRIAGE, clean(next.triage(), DEFAULT_ENGINE));
         settings.set(Key.AI_DEFAULT_PERF, clean(next.perf(), DEFAULT_ENGINE));
@@ -99,13 +101,14 @@ public class AiDefaultsService
     /**
      * One engine choice per kind of agent work. {@code plan} / {@code dev} /
      * {@code review} / {@code ciFix} mirror the four workspace session kinds;
-     * {@code triage} and {@code perf} are account-wide roles with no
-     * workspace equivalent.
+     * {@code globalReview}, {@code triage}, and {@code perf} are account-wide
+     * roles with no workspace equivalent.
      */
     public record AiDefaults(
             String plan,
             String dev,
             String review,
+            String globalReview,
             String ciFix,
             String triage,
             String perf) {}

@@ -76,6 +76,7 @@ class TestAiReviewService
                 mock(PRService.class),
                 gitHub,
                 new LlmReviewerRegistry(List.of(), new EmptyAppSettingsStore()),
+                mock(GlobalReviewRunner.class),
                 draftStore,
                 new SkillService(new EmptySkillStore()),
                 detailInvalidator,
@@ -98,7 +99,7 @@ class TestAiReviewService
         PRService prs = mock(PRService.class);
         PullRequestRepository gitHub = mock(PullRequestRepository.class);
         LlmReviewerRegistry registry = mock(LlmReviewerRegistry.class);
-        LlmReviewer reviewer = mock(LlmReviewer.class);
+        GlobalReviewRunner globalReview = mock(GlobalReviewRunner.class);
         AiReviewDraftStore draftStore = mock(AiReviewDraftStore.class);
         SkillService skills = mock(SkillService.class);
         PatResolver pats = mock(PatResolver.class);
@@ -109,23 +110,21 @@ class TestAiReviewService
         AiReviewDraft expected = draft("COMPLETE");
 
         when(prs.findById("unified-pr")).thenReturn(Optional.of(pr));
-        when(registry.active()).thenReturn(reviewer);
-        when(reviewer.isConfigured()).thenReturn(true);
         when(pats.resolve("owner/repo")).thenReturn("pat");
         when(gitHub.fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(raw);
         when(gitHub.fetchPrDiff("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn("complete diff");
         when(skills.forRepo("owner/repo")).thenReturn(Optional.empty());
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+        when(globalReview.review(any(ReviewRequest.class))).thenReturn(output);
         when(draftStore.saveForUnifiedPr("unified-pr", "owner/repo", 7, "abc123", output))
                 .thenReturn(expected);
 
         AiReviewService service = new AiReviewService(
-                mock(PullRequestStore.class), prs, gitHub, registry, draftStore,
+                mock(PullRequestStore.class), prs, gitHub, registry, globalReview, draftStore,
                 skills, invalidator, pats);
 
         assertThat(service.runQuickReview("unified-pr")).isSameAs(expected);
         ArgumentCaptor<ReviewRequest> request = ArgumentCaptor.forClass(ReviewRequest.class);
-        verify(reviewer).review(request.capture());
+        verify(globalReview).review(request.capture());
         assertThat(request.getValue().diff()).isEqualTo("complete diff");
         assertThat(request.getValue().skillContext())
                 .contains("Review only the pull-request description and complete unified diff")
@@ -139,21 +138,19 @@ class TestAiReviewService
         PRService prs = mock(PRService.class);
         PullRequestRepository gitHub = mock(PullRequestRepository.class);
         LlmReviewerRegistry registry = mock(LlmReviewerRegistry.class);
-        LlmReviewer reviewer = mock(LlmReviewer.class);
+        GlobalReviewRunner globalReview = mock(GlobalReviewRunner.class);
         AiReviewDraftStore draftStore = mock(AiReviewDraftStore.class);
         SkillService skills = mock(SkillService.class);
         PatResolver pats = mock(PatResolver.class);
 
         when(prs.findById("unified-pr")).thenReturn(Optional.of(externalPr("unified-pr")));
-        when(registry.active()).thenReturn(reviewer);
-        when(reviewer.isConfigured()).thenReturn(true);
         when(pats.resolve("owner/repo")).thenReturn("pat");
         when(gitHub.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(rawDetail());
         when(gitHub.fetchPrDiff(eq("pat"), any(PullRequestRef.class)))
                 .thenReturn("x".repeat(ReviewPrompt.MAX_DIFF_CHARS + 1));
 
         AiReviewService service = new AiReviewService(
-                mock(PullRequestStore.class), prs, gitHub, registry, draftStore,
+                mock(PullRequestStore.class), prs, gitHub, registry, globalReview, draftStore,
                 skills, mock(PullRequestDetailInvalidator.class), pats);
 
         assertThatThrownBy(() -> service.runQuickReview("unified-pr"))
@@ -161,7 +158,7 @@ class TestAiReviewService
                     assertThat(error.getStatusCode().value()).isEqualTo(413);
                     assertThat(error.getReason()).contains("Watch the repo and run a full review");
                 });
-        verify(reviewer, never()).review(any());
+        verify(globalReview, never()).review(any());
         verify(draftStore, never()).saveForUnifiedPr(any(), any(), eq(7), any(), any());
     }
 
@@ -171,7 +168,7 @@ class TestAiReviewService
         PRService prs = mock(PRService.class);
         PullRequestRepository gitHub = mock(PullRequestRepository.class);
         LlmReviewerRegistry registry = mock(LlmReviewerRegistry.class);
-        LlmReviewer reviewer = mock(LlmReviewer.class);
+        GlobalReviewRunner globalReview = mock(GlobalReviewRunner.class);
         AiReviewDraftStore draftStore = mock(AiReviewDraftStore.class);
         SkillService skills = mock(SkillService.class);
         PatResolver pats = mock(PatResolver.class);
@@ -188,21 +185,19 @@ class TestAiReviewService
         when(prs.findById("external-pr"))
                 .thenReturn(Optional.of(external), Optional.empty());
         when(prs.findTaskByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(survivor));
-        when(registry.active()).thenReturn(reviewer);
-        when(reviewer.isConfigured()).thenReturn(true);
         when(pats.resolve("owner/repo")).thenReturn("pat");
         when(gitHub.fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7)))
                 .thenReturn(rawDetail());
         when(gitHub.fetchPrDiff("pat", PullRequestRef.of("owner", "repo", 7)))
                 .thenReturn("complete diff");
         when(skills.forRepo("owner/repo")).thenReturn(Optional.empty());
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+        when(globalReview.review(any(ReviewRequest.class))).thenReturn(output);
         when(draftStore.saveForUnifiedPr("external-pr", "owner/repo", 7, "abc123", output))
                 .thenReturn(saved);
         when(draftStore.latestForUnifiedPr("task-pr")).thenReturn(Optional.of(reparented));
 
         AiReviewService service = new AiReviewService(
-                mock(PullRequestStore.class), prs, gitHub, registry, draftStore,
+                mock(PullRequestStore.class), prs, gitHub, registry, globalReview, draftStore,
                 skills, mock(PullRequestDetailInvalidator.class), pats);
 
         assertThat(service.runQuickReview("external-pr")).isSameAs(reparented);
@@ -220,6 +215,7 @@ class TestAiReviewService
         when(prs.findById("local-pr")).thenReturn(Optional.of(local));
         AiReviewService service = new AiReviewService(
                 mock(PullRequestStore.class), prs, gitHub, mock(LlmReviewerRegistry.class),
+                mock(GlobalReviewRunner.class),
                 mock(AiReviewDraftStore.class), mock(SkillService.class),
                 mock(PullRequestDetailInvalidator.class), mock(PatResolver.class));
 

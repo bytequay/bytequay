@@ -33,6 +33,7 @@ class TestAiDefaultsService
         assertThat(defaults.plan()).isEqualTo("cli:claude-code");
         assertThat(defaults.dev()).isEqualTo("cli:claude-code");
         assertThat(defaults.review()).isEqualTo("cli:claude-code");
+        assertThat(defaults.globalReview()).isEqualTo("cli:claude-code");
         assertThat(defaults.triage()).isEqualTo("cli:claude-code");
         assertThat(defaults.perf()).isEqualTo("cli:claude-code");
         // Red-build loops start on the cheap lane, not the planning engine.
@@ -45,10 +46,12 @@ class TestAiDefaultsService
         AiDefaultsService service = new AiDefaultsService(new InMemoryStore());
 
         service.update(new AiDefaults(
-                "api:anthropic", "cli:codex", "cli:claude-code", "local", "api:deepseek", "cli:codex"));
+                "api:anthropic", "cli:codex", "cli:claude-code", "api:openai:work",
+                "local", "api:deepseek", "cli:codex"));
 
         assertThat(service.get()).isEqualTo(new AiDefaults(
-                "api:anthropic", "cli:codex", "cli:claude-code", "local", "api:deepseek", "cli:codex"));
+                "api:anthropic", "cli:codex", "cli:claude-code", "api:openai:work",
+                "local", "api:deepseek", "cli:codex"));
     }
 
     @Test
@@ -56,12 +59,14 @@ class TestAiDefaultsService
     {
         AiDefaultsService service = new AiDefaultsService(new InMemoryStore());
 
-        service.update(new AiDefaults("  ", null, "x".repeat(121), "cli:codex", " api:deepseek ", "local"));
+        service.update(new AiDefaults(
+                "  ", null, "x".repeat(121), null, "cli:codex", " api:deepseek ", "local"));
 
         AiDefaults stored = service.get();
         assertThat(stored.plan()).isEqualTo("cli:claude-code");
         assertThat(stored.dev()).isEqualTo("cli:claude-code");
         assertThat(stored.review()).isEqualTo("cli:claude-code");
+        assertThat(stored.globalReview()).isEqualTo("cli:claude-code");
         assertThat(stored.ciFix()).isEqualTo("cli:codex");
         // A usable id still round-trips, trimmed.
         assertThat(stored.triage()).isEqualTo("api:deepseek");

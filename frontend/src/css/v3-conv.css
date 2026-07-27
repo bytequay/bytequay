@@ -1303,19 +1303,13 @@
 .shell .trunk-questions {
   display: flex;
   flex-direction: column;
-  /* Wide enough that stacked cards' halos don't bleed into each other. */
   gap: 18px;
   padding: 0 32px 8px;
 }
-/* The card is a three-layer sandwich: a wrapper carrying the blurred halo,
-   an overflow-clipped 2px frame carrying the rotating beam, and the inner
-   surface holding the content. Both light effects are pseudo-elements. */
+/* Two layers: a 2px gradient frame and the inner surface holding the
+   content. Static — the card carries no animated light. */
 .shell .ask-question-card {
   --aq-beam: #f0b429;
-  --aq-beam-sweep: conic-gradient(from 0deg,
-    rgba(240, 180, 41, 0) 0%, rgba(240, 180, 41, 0) 60%,
-    rgba(240, 180, 41, 0.18) 72%, #f0b429 85%, #ffffff 90.5%,
-    #f0b429 95%, rgba(240, 180, 41, 0) 100%);
   --aq-frame: linear-gradient(160deg, #f8d78d 0%, #f0bf5c 42%, #dda23a 100%);
   --aq-surface: #fffbeb;
   --aq-texture: radial-gradient(130% 95% at 18% 0%, rgba(255, 255, 255, 0.7), transparent 55%);
@@ -1326,59 +1320,19 @@
 
   position: relative;
 }
-@keyframes aq-beam-spin { to { transform: rotate(360deg); } }
-@keyframes aq-halo-pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 0.55; } }
-/* Centred variant for the crisp beam: it has to stay square (see below), so
-   the rotation origin is re-centred by the transform rather than by inset. */
-@keyframes aq-beam-orbit {
-  from { transform: translate(-50%, -50%) rotate(0deg); }
-  to { transform: translate(-50%, -50%) rotate(360deg); }
-}
-.shell .ask-question-card::before {
-  content: "";
-  position: absolute;
-  inset: -7px;
-  border-radius: 20px;
-  background: var(--aq-beam-sweep);
-  filter: blur(15px);
-  opacity: 0.4;
-  animation: aq-beam-spin 5s linear infinite, aq-halo-pulse 3.6s ease-in-out infinite;
-  pointer-events: none;
-}
 .shell .ask-question-card__frame {
   position: relative;
   border-radius: 14px;
   padding: 2px;
-  overflow: hidden;
   background: var(--aq-frame);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 44px -26px rgba(0, 0, 0, 0.55);
-}
-/* Square and twice the card's width, so no rotation angle can uncover a
-   corner — an inset-based box works only while the card is near-square, and
-   a conversation-width card is wide and short. */
-.shell .ask-question-card__frame::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 200%;
-  aspect-ratio: 1;
-  background: var(--aq-beam-sweep);
-  animation: aq-beam-orbit 5s linear infinite;
-  pointer-events: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .shell .ask-question-card::before { animation: none; }
-  .shell .ask-question-card__frame::before {
-    animation: none;
-    transform: translate(-50%, -50%);
-  }
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 24px 56px -28px rgba(0, 0, 0, 0.7);
 }
 .shell .ask-question-card__inner {
   position: relative;
   border-radius: 12px;
   padding: 15px 17px 17px;
   background: var(--aq-texture), var(--aq-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), inset 0 0 0 1px rgba(255, 255, 255, 0.03);
   display: flex;
   flex-direction: column;
   gap: 9px;

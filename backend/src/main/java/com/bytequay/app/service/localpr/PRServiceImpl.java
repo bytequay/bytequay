@@ -42,6 +42,7 @@ import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.bytequay.app.service.threads.TaskExternalEffectGate;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
@@ -864,11 +865,14 @@ class PRServiceImpl
     }
 
     @Override
-    public void recordRemoteCiState(
+    public synchronized void recordRemoteCiState(
             String prId, String status, String previousStatus, String headSha, int checkCount)
     {
         PR pr = require(prId);
         requireText(status, "status");
+        if (repeatsLastRemoteCiState(pr.id(), status, headSha, checkCount)) {
+            return;
+        }
         Instant when = now();
         appendEvent(pr.id(), PRTimelineEntry.TYPE_CI, PRTimelineEntry.ACTOR_AGENT,
                 /* localOnly */ true, when,
@@ -876,6 +880,36 @@ class PRServiceImpl
                         "previousStatus", previousStatus, "headSha", headSha,
                         "checkCount", checkCount));
         notifyUpdated(pr.id());
+    }
+
+    /** The PR detail can be refreshed concurrently by polling, dashboard sync,
+     *  and a manual refresh. Serialise the read+append and compare against the
+     *  durable last aggregate so those callers still produce one transition. */
+    private boolean repeatsLastRemoteCiState(String prId, String status, String headSha, int checkCount)
+    {
+        List<PRTimelineEntry> timeline = store.timelineFor(prId);
+        for (int i = timeline.size() - 1; i >= 0; i--) {
+            PRTimelineEntry event = timeline.get(i);
+            if (!PRTimelineEntry.TYPE_CI.equals(event.eventType()) || event.payloadJson() == null) {
+                continue;
+            }
+            try {
+                JsonNode payload = mapper.readTree(event.payloadJson());
+                if (!PRCheck.KIND_REMOTE.equals(payload.path("kind").asText())) {
+                    continue;
+                }
+                String previousHead = payload.path("headSha").isTextual()
+                        ? payload.path("headSha").textValue()
+                        : null;
+                return status.equals(payload.path("status").asText())
+                        && Objects.equals(headSha, previousHead)
+                        && checkCount == payload.path("checkCount").asInt(-1);
+            }
+            catch (JsonProcessingException ignored) {
+                // A malformed historical row cannot establish aggregate state.
+            }
+        }
+        return false;
     }
 
     @Override

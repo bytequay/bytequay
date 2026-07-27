@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentQuestionDto, BacklogItemDto, PullRequestDto } from '../types';
 import type {
@@ -413,12 +413,9 @@ describe('TrunkPage', () => {
     renderTrunk();
 
     expect(await screen.findByText('Keep the legacy field order?')).toBeTruthy();
-    // The card holds the answer for an undo window before posting it — run
-    // it out on fake timers rather than waiting five real seconds.
-    vi.useFakeTimers();
     fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
-    await act(async () => { vi.advanceTimersByTime(5000); });
-    vi.useRealTimers();
+    expect(bridge.answerQuestion).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
     expect(bridge.answerQuestion).toHaveBeenCalledWith('q1', 'keep', undefined);
   });
 

@@ -11,24 +11,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { MarkdownProse } from '../../threads/MarkdownProse';
 
 export type AskQuestionOption = { id: string; label: string; extra?: string | null };
 
-/** Grace period between picking an answer and posting it, so a misclick on
- *  a one-way question ("Cut this task?") is recoverable. The agent is
- *  blocked meanwhile, so keep it short. */
-const UNDO_WINDOW_MS = 5000;
-
-type Sent = { label: string; undoable: boolean };
+type PreparedAnswer = { label: string; optionId?: string; freeForm?: string };
 
 /**
  * An agent's clarifying question, rendered as a lit amber card in the
  * conversation: the question + optional context, multiple-choice option
  * buttons, and a free-form reply. Picking an option or sending free-form
- * resolves it (the answer is posted as the next message) after a short
- * undo window. Numbered "i of N" when several are open at once.
+ * prepares an answer for explicit confirmation before it is posted as the
+ * next message. Numbered "i of N" when several are open at once.
  */
 export function AskUserQuestionCard({
   question, context, options, allowFreeForm, index, total, onAnswer,
@@ -43,41 +38,19 @@ export function AskUserQuestionCard({
   onAnswer: (optionId?: string, freeForm?: string) => void;
 }) {
   const [text, setText] = useState('');
-  const [sent, setSent] = useState<Sent | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const post = useRef<(() => void) | null>(null);
-
-  // Navigating away mid-window must not swallow the answer the agent is
-  // waiting on — flush it instead of dropping the timer.
-  useEffect(() => () => {
-    if (timer.current !== null) {
-      clearTimeout(timer.current);
-      post.current?.();
-    }
-  }, []);
-
-  const answer = (label: string, optionId?: string, freeForm?: string) => {
-    if (sent !== null) return;
-    setSent({ label, undoable: true });
-    post.current = () => onAnswer(optionId, freeForm);
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      setSent(s => (s === null ? null : { ...s, undoable: false }));
-      post.current?.();
-    }, UNDO_WINDOW_MS);
-  };
-
-  const undo = () => {
-    if (timer.current === null) return;
-    clearTimeout(timer.current);
-    timer.current = null;
-    post.current = null;
-    setSent(null);
-  };
+  const [prepared, setPrepared] = useState<PreparedAnswer | null>(null);
+  const [sent, setSent] = useState<string | null>(null);
 
   const submitFreeForm = () => {
     const t = text.trim();
-    if (t.length > 0) answer(t, undefined, t);
+    if (t.length > 0) setPrepared({ label: t, freeForm: t });
+  };
+
+  const confirm = () => {
+    if (prepared === null) return;
+    onAnswer(prepared.optionId, prepared.freeForm);
+    setSent(prepared.label);
+    setPrepared(null);
   };
 
   return (
@@ -106,11 +79,23 @@ export function AskUserQuestionCard({
               </span>
               <span className="ask-question-card__sent-copy">
                 <small>Answer sent to agent</small>
-                <span>{sent.label}</span>
+                <span>{sent}</span>
               </span>
-              {sent.undoable && (
-                <button type="button" className="ask-question-card__undo" onClick={undo}>Undo</button>
-              )}
+            </div>
+          ) : prepared !== null ? (
+            <div className="ask-question-card__prepared" aria-label="Prepared answer">
+              <span className="ask-question-card__prepared-copy">
+                <small>Ready to send</small>
+                <span>{prepared.label}</span>
+              </span>
+              <span className="ask-question-card__actions">
+                <button type="button" className="ask-question-card__change" onClick={() => setPrepared(null)}>
+                  Change
+                </button>
+                <button type="button" className="ask-question-card__confirm" onClick={confirm}>
+                  Confirm
+                </button>
+              </span>
             </div>
           ) : (
             <>
@@ -124,7 +109,7 @@ export function AskUserQuestionCard({
                       // The first option is the card's default: focused on
                       // mount, so the ↵ keycap it shows is real.
                       autoFocus={i === 0 && (index ?? 1) === 1}
-                      onClick={() => answer(o.label, o.id, undefined)}
+                      onClick={() => setPrepared({ label: o.label, optionId: o.id })}
                     >
                       <span className="ask-question-card__opt-label">{o.label}</span>
                       {o.extra != null && o.extra.length > 0 && (

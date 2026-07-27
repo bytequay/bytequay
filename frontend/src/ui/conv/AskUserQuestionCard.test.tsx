@@ -11,18 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AskUserQuestionCard } from './AskUserQuestionCard';
 
-beforeEach(() => { vi.useFakeTimers(); });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
-
-/** Run out the undo window so the pending answer posts. */
-const runUndoWindow = () => act(() => { vi.advanceTimersByTime(5000); });
+afterEach(cleanup);
 
 describe('AskUserQuestionCard', () => {
-  it('answers with the picked option id after the undo window', () => {
+  it('prepares a picked option and sends it only after confirmation', () => {
     const onAnswer = vi.fn();
     render(
       <AskUserQuestionCard
@@ -40,13 +36,15 @@ describe('AskUserQuestionCard', () => {
 
     fireEvent.click(screen.getByText('SQLite'));
     expect(onAnswer).not.toHaveBeenCalled();
-    expect(screen.getByText('Answer sent to agent')).toBeTruthy();
+    expect(screen.getByLabelText('Prepared answer')).toBeTruthy();
+    expect(screen.getByText('Ready to send')).toBeTruthy();
 
-    runUndoWindow();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
     expect(onAnswer).toHaveBeenCalledWith('sqlite', undefined);
+    expect(screen.getByText('Answer sent to agent')).toBeTruthy();
   });
 
-  it('undo cancels the pending answer and restores the options', () => {
+  it('changes a prepared answer without sending it', () => {
     const onAnswer = vi.fn();
     render(
       <AskUserQuestionCard
@@ -58,14 +56,13 @@ describe('AskUserQuestionCard', () => {
     );
 
     fireEvent.click(screen.getByText('Go ahead'));
-    fireEvent.click(screen.getByText('Undo'));
-    runUndoWindow();
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }));
 
     expect(onAnswer).not.toHaveBeenCalled();
     expect(screen.getByText('Go ahead')).toBeTruthy();
   });
 
-  it('flushes a pending answer when the card unmounts mid-window', () => {
+  it('does not send a prepared answer when the card unmounts', () => {
     const onAnswer = vi.fn();
     const { unmount } = render(
       <AskUserQuestionCard
@@ -78,10 +75,10 @@ describe('AskUserQuestionCard', () => {
 
     fireEvent.click(screen.getByText('Go ahead'));
     unmount();
-    expect(onAnswer).toHaveBeenCalledWith('go', undefined);
+    expect(onAnswer).not.toHaveBeenCalled();
   });
 
-  it('answers with free-form text and trims it', () => {
+  it('prepares trimmed free-form text and sends it after confirmation', () => {
     const onAnswer = vi.fn();
     render(
       <AskUserQuestionCard
@@ -94,7 +91,8 @@ describe('AskUserQuestionCard', () => {
 
     fireEvent.change(screen.getByLabelText('Free-form answer'), { target: { value: '  bytequay  ' } });
     fireEvent.click(screen.getByText('Send'));
-    runUndoWindow();
+    expect(onAnswer).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
     expect(onAnswer).toHaveBeenCalledWith(undefined, 'bytequay');
   });
 

@@ -386,7 +386,8 @@ CREATE TABLE plan_task_turn_delivery_receipt (
         'ACCEPTED', 'SUPERSEDED')),
     domain_result       TEXT    NOT NULL CHECK (domain_result IN (
         'DRAFT_ACCEPTED', 'REVIEW_APPROVED', 'REVIEW_FINDINGS',
-        'REVIEW_BLOCKED', 'TURN_FAILED', 'TURN_CANCELED', 'SUPERSEDED')),
+        'REVIEW_BLOCKED', 'PROTOCOL_BLOCKED', 'TURN_FAILED',
+        'TURN_CANCELED', 'SUPERSEDED')),
     recorded_at_ms      INTEGER NOT NULL
 );
 
@@ -403,6 +404,8 @@ WHEN NOT EXISTS (
         OR (NEW.raw_outcome = 'SUCCEEDED' AND turn.status = 'SUCCEEDED'
             AND NEW.domain_result IN ('DRAFT_ACCEPTED', 'REVIEW_APPROVED',
                 'REVIEW_FINDINGS', 'REVIEW_BLOCKED'))
+        OR (NEW.raw_outcome = 'SUCCEEDED' AND turn.status = 'FAILED'
+            AND NEW.domain_result = 'PROTOCOL_BLOCKED')
         OR (NEW.raw_outcome IN ('FAILED', 'INDETERMINATE')
             AND turn.status = 'FAILED' AND NEW.domain_result = 'TURN_FAILED')
         OR (NEW.raw_outcome = 'CANCELED' AND turn.status = 'CANCELED'

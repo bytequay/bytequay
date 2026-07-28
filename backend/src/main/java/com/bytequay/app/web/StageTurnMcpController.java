@@ -15,7 +15,6 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
-import com.bytequay.app.developmentflow.stage.PlanMcpService;
 import com.bytequay.app.service.mcp.McpService;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletResponse;
@@ -33,36 +32,33 @@ import java.time.Clock;
 
 import static java.util.Objects.requireNonNull;
 
-/** Exact operation-scoped Streamable-HTTP endpoint for every V2 TaskTurn. */
+/** Operation-scoped MCP endpoint live only for one leased V2 StageTurn. */
 @RestController
-@RequestMapping("/api/v2/task-turns/{turnId}/operations/{operationId}/mcp")
+@RequestMapping("/api/v2/stage-turns/{turnId}/operations/{operationId}/mcp")
 @ConditionalOnProperty(
         name = "bytequay.development-flow.v2-dispatch-enabled",
         havingValue = "true")
-public final class PlanMcpController
+public final class StageTurnMcpController
 {
     private static final String SESSION_HEADER = "Mcp-Session-Id";
-    private final PlanMcpService plans;
-    private final McpService tools;
+
+    private final McpService service;
     private final AgentTurnOperationHandler.Store turns;
     private final Clock clock;
 
-    public PlanMcpController(
-            PlanMcpService plans,
-            McpService tools,
+    public StageTurnMcpController(
+            McpService service,
             AgentTurnOperationHandler.Store turns)
     {
-        this(plans, tools, turns, Clock.systemUTC());
+        this(service, turns, Clock.systemUTC());
     }
 
-    PlanMcpController(
-            PlanMcpService plans,
-            McpService tools,
+    StageTurnMcpController(
+            McpService service,
             AgentTurnOperationHandler.Store turns,
             Clock clock)
     {
-        this.plans = requireNonNull(plans, "plans is null");
-        this.tools = requireNonNull(tools, "tools is null");
+        this.service = requireNonNull(service, "service is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -85,26 +81,20 @@ public final class PlanMcpController
                     HttpStatusCode.valueOf(400),
                     "request body must be a JSON-RPC object");
         }
+        AgentTurnOperationHandler.McpContext context = turns.authorizeMcp(
+                        DispatchTicket.OwnerKind.STAGE_TURN,
+                        turnId, operationId, clock.instant())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404),
+                        "StageTurn operation is not active"));
         response.setHeader(SESSION_HEADER, turnId + ":" + operationId);
         if (request.path("method").asText("").startsWith("notifications/")) {
             response.setStatus(HttpServletResponse.SC_ACCEPTED);
         }
-        AgentTurnOperationHandler.McpContext context = turns.authorizeMcp(
-                        DispatchTicket.OwnerKind.TASK_TURN,
-                        turnId, operationId, clock.instant())
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404),
-                        "TaskTurn operation is not active"));
-        if (context.purpose().equals("PLAN_DRAFT")
-                || context.purpose().equals("PLAN_SELF_REVIEW")) {
-            DeferredResult<JsonNode> result = new DeferredResult<>();
-            result.setResult(plans.handle(turnId, operationId, request));
-            return result;
-        }
-        return tools.handle(
+        return service.handle(
                 context.trunkId(),
                 AgentTurnOperationHandler.mcpAgentKey(
-                        DispatchTicket.OwnerKind.TASK_TURN, turnId, operationId),
+                        DispatchTicket.OwnerKind.STAGE_TURN, turnId, operationId),
                 request);
     }
 }

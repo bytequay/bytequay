@@ -26,11 +26,17 @@ import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.PermissionGrantStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
+import com.bytequay.app.service.skills.ByteQuayRole;
+import com.bytequay.app.service.skills.RoleDefinition;
+import com.bytequay.app.service.skills.RoleRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -213,6 +219,37 @@ class TestCascadingPermissionResolver
                 .isEqualTo(AgentRole.TRUNK);
         assertThat(resolver.runningScope(threadId, PermissionResolver.TRUNK_AGENT_KEY).taskId())
                 .isNull();
+    }
+
+    @Test
+    void typedTurnContextWinsWithoutARegisteredLegacyTurn()
+    {
+        String threadId = "v2-trunk";
+        String agentKey = "v2-stage-turn:turn-1:operation-1";
+        ActiveAgentContextRegistry active = new ActiveAgentContextRegistry();
+        RoleDefinition role = RoleRegistry.definition(ByteQuayRole.TASK);
+        active.put(
+                threadId,
+                agentKey,
+                new ResolvedAgentContext(
+                        role.role(), role.version(), role.permissionRole(), null,
+                        role.capabilities(), List.of(), List.of(),
+                        role.resources(), Set.of("approval_prompt")),
+                new PermissionResolver.RunningScope(
+                        ThreadScope.STAGE, "task-v2", "stage-v2", "turn-1"));
+        CascadingPermissionResolver typed = new CascadingPermissionResolver(
+                threadStore, turnStore, grantStore, active);
+        runningTurn(threadId, null);
+        when(threadStore.findThreadById(threadId))
+                .thenReturn(Optional.of(thread(threadId, "ws-v2")));
+        noGrants();
+
+        assertThat(typed.roleFor(threadId, agentKey)).isEqualTo(AgentRole.TASK);
+        assertThat(typed.runningScope(threadId, agentKey))
+                .isEqualTo(new PermissionResolver.RunningScope(
+                        ThreadScope.STAGE, "task-v2", "stage-v2", "turn-1"));
+        assertThat(typed.grants(threadId, agentKey))
+                .isEqualTo(role.capabilities());
     }
 
     private void runningTurn(String threadId, ThreadTurn turn)

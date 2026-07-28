@@ -18,6 +18,15 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
+import com.bytequay.app.domain.StageType;
+import com.bytequay.app.domain.ThreadScope;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
+import com.bytequay.app.service.agents.ToolExposurePolicy;
+import com.bytequay.app.service.skills.ByteQuayRole;
+import com.bytequay.app.service.skills.RoleDefinition;
+import com.bytequay.app.service.skills.RoleRegistry;
+import com.bytequay.app.service.tools.PermissionResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,7 +36,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -53,6 +65,8 @@ public final class AgentTurnOperationHandler
     private final Store store;
     private final AgentTurnProviderSession provider;
     private final WorktreeWriterLeaseManager writerLeases;
+    private final ActiveAgentContextRegistry activeContexts;
+    private final ToolExposurePolicy tools;
     private final ObjectMapper mapper;
     private final ObjectReader launchReader;
 
@@ -60,14 +74,29 @@ public final class AgentTurnOperationHandler
             Store store,
             AgentTurnProviderSession provider,
             WorktreeWriterLeaseManager writerLeases,
+            ActiveAgentContextRegistry activeContexts,
+            ToolExposurePolicy tools,
             ObjectMapper mapper)
     {
         this.store = requireNonNull(store, "store is null");
         this.provider = requireNonNull(provider, "provider is null");
         this.writerLeases = requireNonNull(writerLeases, "writerLeases is null");
+        this.activeContexts = requireNonNull(activeContexts, "activeContexts is null");
+        this.tools = requireNonNull(tools, "tools is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.launchReader = mapper.readerFor(LaunchInput.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    }
+
+    /** Compatibility constructor for focused operation-handler tests. */
+    public AgentTurnOperationHandler(
+            Store store,
+            AgentTurnProviderSession provider,
+            WorktreeWriterLeaseManager writerLeases,
+            ObjectMapper mapper)
+    {
+        this(store, provider, writerLeases, new ActiveAgentContextRegistry(),
+                new ToolExposurePolicy(), mapper);
     }
 
     @Override
@@ -151,20 +180,81 @@ public final class AgentTurnOperationHandler
                 endpoint,
                 access);
         Observer observer = new Observer(context);
-        try (AgentTurnProviderSession.Session session = provider.open(request, observer)) {
-            context.onCancellation(session::cancel);
-            ProviderRun run = writerLease == null
-                    ? new ProviderRun(session.startAndAwait(null), null)
-                    : runWithWriterFence(context, writerLease, session);
-            AgentTurnProviderSession.Result result = run.result();
-            context.recordUsage(
-                    result.inputTokens(), result.outputTokens(), result.costUsdMilli());
-            if (result.completion() == AgentTurnProviderSession.Completion.CANCELED) {
-                return canceled(envelope, turn, input, run.writerFence(),
-                        result.error() == null ? "provider session canceled" : result.error());
+        String agentKey = mcpAgentKey(
+                turn.ownerKind(), turn.turnId(), turn.operationId());
+        activeContexts.put(
+                turn.trunkId(), agentKey, runtimeContext(turn), runningScope(turn),
+                new ActiveAgentContextRegistry.TypedOwner(
+                        turn.ownerKind(), turn.turnId(), turn.operationId()));
+        try {
+            try (AgentTurnProviderSession.Session session = provider.open(request, observer)) {
+                context.onCancellation(session::cancel);
+                ProviderRun run = writerLease == null
+                        ? new ProviderRun(session.startAndAwait(null), null)
+                        : runWithWriterFence(context, writerLease, session);
+                AgentTurnProviderSession.Result result = run.result();
+                context.recordUsage(
+                        result.inputTokens(), result.outputTokens(), result.costUsdMilli());
+                if (result.completion() == AgentTurnProviderSession.Completion.CANCELED) {
+                    return canceled(envelope, turn, input, run.writerFence(),
+                            result.error() == null ? "provider session canceled" : result.error());
+                }
+                return providerResult(envelope, turn, input, run);
             }
-            return providerResult(envelope, turn, input, run);
         }
+        finally {
+            activeContexts.remove(turn.trunkId(), agentKey);
+        }
+    }
+
+    public static String mcpAgentKey(
+            DispatchTicket.OwnerKind ownerKind,
+            String turnId,
+            String operationId)
+    {
+        requireNonNull(ownerKind, "ownerKind is null");
+        requireText(turnId, "turnId");
+        requireText(operationId, "operationId");
+        if (ownerKind != DispatchTicket.OwnerKind.TASK_TURN
+                && ownerKind != DispatchTicket.OwnerKind.STAGE_TURN) {
+            throw new IllegalArgumentException("typed agent MCP owner is unsupported");
+        }
+        return "v2-" + ownerKind.name().toLowerCase(Locale.ROOT).replace('_', '-')
+                + ":" + turnId + ":" + operationId;
+    }
+
+    private ResolvedAgentContext runtimeContext(ExactTurn turn)
+    {
+        ByteQuayRole role = turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
+                ? ByteQuayRole.BRAIN : ByteQuayRole.TASK;
+        StageType stageType = stageType(turn.stageKind());
+        RoleDefinition definition = RoleRegistry.definition(role);
+        return new ResolvedAgentContext(
+                definition.role(), definition.version(), definition.permissionRole(),
+                stageType, definition.capabilities(), List.of(), List.of(),
+                definition.resources(), tools.activeTools(role, stageType));
+    }
+
+    private static PermissionResolver.RunningScope runningScope(ExactTurn turn)
+    {
+        ThreadScope scope = turn.ownerKind() == DispatchTicket.OwnerKind.STAGE_TURN
+                ? ThreadScope.STAGE : ThreadScope.TASK;
+        return new PermissionResolver.RunningScope(
+                scope, turn.taskId(), turn.stageId(), turn.turnId());
+    }
+
+    private static StageType stageType(String kind)
+    {
+        if (kind == null) {
+            return null;
+        }
+        return switch (kind) {
+            case "PLAN" -> StageType.PLAN_STAGE;
+            case "LOCAL_DEVELOPMENT" -> StageType.DEVELOPMENT_STAGE;
+            case "REMOTE_DEVELOPMENT" -> StageType.REMOTE_DEVELOPMENT_STAGE;
+            case "CLEANUP" -> StageType.CLEANUP_STAGE;
+            default -> throw new IllegalArgumentException("unknown V2 Stage kind: " + kind);
+        };
     }
 
     private ProviderRun runWithWriterFence(
@@ -357,15 +447,50 @@ public final class AgentTurnOperationHandler
     public interface Store
     {
         Optional<ExactTurn> find(DispatchTicket.OwnerKind ownerKind, String turnId);
+
+        default Optional<McpContext> authorizeMcp(
+                DispatchTicket.OwnerKind ownerKind,
+                String turnId,
+                String operationId,
+                Instant now)
+        {
+            return Optional.empty();
+        }
+    }
+
+    public record McpContext(
+            DispatchTicket.OwnerKind ownerKind,
+            String trunkId,
+            String workspaceId,
+            String taskId,
+            long taskEpoch,
+            String stageId,
+            Long stageGeneration,
+            String purpose)
+    {
+        public McpContext
+        {
+            requireNonNull(ownerKind, "ownerKind is null");
+            requireText(trunkId, "trunkId");
+            requireText(workspaceId, "workspaceId");
+            requireText(taskId, "taskId");
+            requireText(purpose, "purpose");
+            if (taskEpoch < 1 || (stageId == null) != (stageGeneration == null)) {
+                throw new IllegalArgumentException("typed MCP scope is invalid");
+            }
+        }
     }
 
     public record ExactTurn(
             DispatchTicket.OwnerKind ownerKind,
             String turnId,
+            String trunkId,
+            String workspaceId,
             String taskId,
             long taskEpoch,
             String stageId,
             Long stageGeneration,
+            String stageKind,
             String purpose,
             String turnStatus,
             String operationId,
@@ -385,10 +510,49 @@ public final class AgentTurnOperationHandler
             String brainProvider,
             String brainModel)
     {
+        /** Compatibility shape retained for focused handler tests. */
+        public ExactTurn(
+                DispatchTicket.OwnerKind ownerKind,
+                String turnId,
+                String taskId,
+                long taskEpoch,
+                String stageId,
+                Long stageGeneration,
+                String purpose,
+                String turnStatus,
+                String operationId,
+                int semanticAttempt,
+                String expectedCodeFingerprint,
+                String expectedHeadSha,
+                String expectedBaseSha,
+                String launchInput,
+                String worktreePath,
+                String taskLifecycle,
+                String currentStageId,
+                Long currentStageGeneration,
+                boolean stageCompleted,
+                String currentCodeFingerprint,
+                String currentHeadSha,
+                String currentBaseSha,
+                String brainProvider,
+                String brainModel)
+        {
+            this(ownerKind, turnId, "trunk-1", "workspace-1", taskId,
+                    taskEpoch, stageId, stageGeneration,
+                    stageId == null ? null : "LOCAL_DEVELOPMENT",
+                    purpose, turnStatus, operationId, semanticAttempt,
+                    expectedCodeFingerprint, expectedHeadSha, expectedBaseSha,
+                    launchInput, worktreePath, taskLifecycle, currentStageId,
+                    currentStageGeneration, stageCompleted, currentCodeFingerprint,
+                    currentHeadSha, currentBaseSha, brainProvider, brainModel);
+        }
+
         public ExactTurn
         {
             requireNonNull(ownerKind, "ownerKind is null");
             requireText(turnId, "turnId");
+            requireText(trunkId, "trunkId");
+            requireText(workspaceId, "workspaceId");
             requireText(taskId, "taskId");
             requireText(purpose, "purpose");
             requireText(turnStatus, "turnStatus");
@@ -401,6 +565,9 @@ public final class AgentTurnOperationHandler
             }
             if ((stageId == null) != (stageGeneration == null)) {
                 throw new IllegalArgumentException("Stage identity must be complete");
+            }
+            if ((stageId == null) != (stageKind == null)) {
+                throw new IllegalArgumentException("Stage kind must match Stage identity");
             }
             if ((currentStageId == null) != (currentStageGeneration == null)) {
                 throw new IllegalArgumentException("current Stage identity must be complete");

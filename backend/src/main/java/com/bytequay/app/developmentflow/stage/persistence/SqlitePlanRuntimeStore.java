@@ -879,6 +879,32 @@ public class SqlitePlanRuntimeStore
                 .stream().findFirst();
     }
 
+    public Optional<ApprovalContext> findLatestApprovalContextForTask(
+            String taskId)
+    {
+        List<String> stages = jdbc.queryForList("""
+                SELECT stage.id
+                FROM tasks task
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage ON stage.id = current.stage_id
+                WHERE task.id = ? AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND stage.task_id = task.id
+                  AND stage.generation = current.stage_generation
+                  AND stage.kind = 'PLAN'
+                  AND stage.checkpoint = 'AWAITING_APPROVAL'
+                  AND stage.completed_at_ms IS NULL
+                """, String.class, taskId);
+        if (stages.isEmpty()) {
+            return Optional.empty();
+        }
+        if (stages.size() != 1) {
+            throw new IllegalStateException(
+                    "Task has more than one current Plan approval owner");
+        }
+        return findLatestApprovalContext(stages.getFirst());
+    }
+
     @Override
     public Optional<PlanStageManager.FollowupEvidence> find(
             String taskId, String stageId, String followupId)

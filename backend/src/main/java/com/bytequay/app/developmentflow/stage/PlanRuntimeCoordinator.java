@@ -776,6 +776,28 @@ public final class PlanRuntimeCoordinator
         });
     }
 
+    /** Re-evaluates a Plan already parked at approval after a policy change. */
+    public boolean redrivePolicyApproval(String taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireLocalHandoff();
+        return commands.execute(taskId, () -> {
+            TaskCommandExecutor.requireCurrent(taskId);
+            ApprovalContext context = store
+                    .findLatestApprovalContextForTask(taskId)
+                    .orElse(null);
+            if (context == null || !context.autoApprove()
+                    || store.hasOpenStewardship(context.revisionId())) {
+                return false;
+            }
+            maybeAutoApprove(
+                    context.taskId(), context.stageId(),
+                    context.stageGeneration(), context.revisionId(),
+                    context.selfReviewId());
+            return true;
+        });
+    }
+
     private void maybeAutoApprove(
             String taskId,
             String stageId,

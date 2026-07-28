@@ -80,6 +80,16 @@ public class SqliteDispatchTicketStore
                       AND (d.status <> 'RESULT_PENDING' OR NOT EXISTS (
                           SELECT 1 FROM dispatch_delivery_claim c
                           WHERE c.ticket_id = d.id))
+                      AND (d.owner_kind <> 'THREAD_TURN' OR NOT EXISTS (
+                          SELECT 1 FROM dispatch_ticket preceding
+                          WHERE preceding.trunk_id = d.trunk_id
+                            AND preceding.id <> d.id
+                            AND preceding.owner_kind = 'THREAD_TURN'
+                            AND preceding.status NOT IN (
+                                'SUCCEEDED', 'FAILED', 'CANCELED')
+                            AND (preceding.created_at_ms < d.created_at_ms
+                              OR (preceding.created_at_ms = d.created_at_ms
+                                AND preceding.id < d.id))))
                 ),
                 class_ranked AS (
                     SELECT eligible.*,

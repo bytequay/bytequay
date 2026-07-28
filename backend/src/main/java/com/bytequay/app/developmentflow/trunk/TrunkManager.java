@@ -18,6 +18,7 @@ import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.COMMAND_ID_CONFLICT;
@@ -53,6 +54,143 @@ public final class TrunkManager
         return apply(command, TrunkLifecycle.ARCHIVED, "ARCHIVE");
     }
 
+    /** Creates one typed Trunk conversation Turn and its reserved-lane ticket. */
+    public CommandResult<ThreadTurnRequestReceipt> requestThreadTurn(
+            ThreadTurnCommand command)
+    {
+        requireNonNull(command, "command is null");
+        String scope = scope(command.trunkId());
+        return commands.execute(scope, () -> requestThreadTurnInCommand(command, scope));
+    }
+
+    private CommandResult<ThreadTurnRequestReceipt> requestThreadTurnInCommand(
+            ThreadTurnCommand command, String scope)
+    {
+        TaskCommandExecutor.requireCurrent(scope);
+        Optional<ThreadTurnRequestReceipt> duplicate =
+                store.findThreadTurnRequest(command.trunkId(), command.commandId());
+        if (duplicate.isPresent()) {
+            if (!store.matchesThreadTurnRequest(command)) {
+                throw rejected(COMMAND_ID_CONFLICT,
+                        "Command id was already used for another ThreadTurn");
+            }
+            return CommandResult.duplicate(duplicate.orElseThrow());
+        }
+        if (store.findCommandResult(command.trunkId(), command.commandId()).isPresent()
+                || store.findTaskCreationAuthorization(
+                command.trunkId(), command.commandId()).isPresent()
+                || store.isThreadTurnCommandUsed(
+                command.trunkId(), command.commandId())) {
+            throw rejected(COMMAND_ID_CONFLICT,
+                    "Command id was already used for another Trunk command");
+        }
+
+        State current = store.findById(command.trunkId())
+                .orElseThrow(() -> rejected(
+                        NOT_FOUND, "Trunk not found: " + command.trunkId()));
+        if (current.version() != command.expectedTrunkVersion()) {
+            throw rejected(STALE_VERSION,
+                    "Stale Trunk version for " + command.trunkId());
+        }
+        if (current.lifecycle() == TrunkLifecycle.ARCHIVED) {
+            throw rejected(INVALID_STATE,
+                    "Archived Trunk cannot accept a ThreadTurn");
+        }
+        State updated = new State(
+                current.id(), TrunkLifecycle.ACTIVE, current.version() + 1);
+        return CommandResult.applied(
+                store.requestThreadTurn(command, current, updated));
+    }
+
+    /** Accepts one exact asynchronous ThreadTurn fact into Trunk conversation. */
+    public CommandResult<ThreadTurnResultReceipt> acceptThreadTurnResult(
+            ThreadTurnResultFact fact)
+    {
+        requireNonNull(fact, "fact is null");
+        String trunkId = store.findThreadTurnTrunk(
+                        fact.turnId(), fact.operationId())
+                .orElseThrow(() -> rejected(
+                        NOT_FOUND, "ThreadTurn not found: " + fact.turnId()));
+        String scope = scope(trunkId);
+        return commands.execute(scope, () -> acceptThreadTurnResultInCommand(
+                trunkId, fact, scope));
+    }
+
+    private CommandResult<ThreadTurnResultReceipt> acceptThreadTurnResultInCommand(
+            String trunkId, ThreadTurnResultFact fact, String scope)
+    {
+        TaskCommandExecutor.requireCurrent(scope);
+        Optional<ThreadTurnResultReceipt> duplicate = store.findThreadTurnResult(
+                fact.turnId(), fact.operationId());
+        if (duplicate.isPresent()) {
+            ThreadTurnResultReceipt receipt = duplicate.orElseThrow();
+            if (!receipt.commandId().equals(fact.commandId())
+                    || !receipt.actor().equals(fact.actor())
+                    || receipt.attempt() != fact.attempt()
+                    || !receipt.rawOutcome().equals(fact.rawOutcome())
+                    || !receipt.rawResultDigest().equals(fact.rawResultDigest())) {
+                throw rejected(COMMAND_ID_CONFLICT,
+                        "ThreadTurn result was redelivered with different evidence");
+            }
+            return CommandResult.duplicate(receipt);
+        }
+        if (store.findCommandResult(trunkId, fact.commandId()).isPresent()
+                || store.findTaskCreationAuthorization(
+                trunkId, fact.commandId()).isPresent()
+                || store.isThreadTurnCommandUsed(trunkId, fact.commandId())) {
+            throw rejected(COMMAND_ID_CONFLICT,
+                    "Command id was already used for another Trunk command");
+        }
+
+        ThreadTurnResultContext context = store.requireThreadTurnResult(
+                fact.turnId(), fact.operationId());
+        if (!trunkId.equals(context.trunkState().id())
+                || context.attempt() != fact.attempt()) {
+            throw rejected(STALE_VERSION,
+                    "ThreadTurn result fence is stale");
+        }
+
+        boolean live = isLiveTurn(context.turnStatus());
+        String acceptance = live
+                && context.trunkState().lifecycle() != TrunkLifecycle.ARCHIVED
+                ? "ACCEPTED" : "SUPERSEDED";
+        String terminalStatus = "ACCEPTED".equals(acceptance)
+                ? terminalStatus(fact.rawOutcome())
+                : live ? "SUPERSEDED" : context.turnStatus();
+        TrunkLifecycle lifecycle = context.trunkState().lifecycle();
+        if (lifecycle != TrunkLifecycle.ARCHIVED) {
+            lifecycle = context.otherLiveTurns()
+                    ? TrunkLifecycle.ACTIVE : TrunkLifecycle.IDLE;
+        }
+        State updated = new State(
+                context.trunkState().id(), lifecycle,
+                context.trunkState().version() + 1);
+        ThreadTurnResultReceipt receipt = store.acceptThreadTurnResult(
+                fact, context, updated, acceptance, terminalStatus);
+        return "ACCEPTED".equals(acceptance)
+                ? CommandResult.applied(receipt)
+                : CommandResult.superseded(receipt);
+    }
+
+    private static boolean isLiveTurn(String status)
+    {
+        return switch (status) {
+            case "REQUESTED", "QUEUED", "CLAIMED", "RUNNING" -> true;
+            default -> false;
+        };
+    }
+
+    private static String terminalStatus(String outcome)
+    {
+        return switch (outcome) {
+            case "SUCCEEDED" -> "SUCCEEDED";
+            case "CANCELED" -> "CANCELED";
+            case "FAILED", "INDETERMINATE" -> "FAILED";
+            default -> throw new IllegalArgumentException(
+                    "unknown ThreadTurn raw outcome: " + outcome);
+        };
+    }
+
     /** Authorizes one exact assignment without making Trunk conversation busy. */
     public AuthorizedTaskCreation authorizeTaskCreationInCommand(
             TaskCreationCommand command)
@@ -66,6 +204,13 @@ public final class TrunkManager
                 command.commandId()).isPresent()) {
             throw rejected(COMMAND_ID_CONFLICT,
                     "Command id was already used for another Trunk command");
+        }
+
+        if (store.isThreadTurnCommandUsed(
+                command.input().assignment().identity().trunkId(),
+                command.commandId())) {
+            throw rejected(COMMAND_ID_CONFLICT,
+                    "Command id was already used for a ThreadTurn command");
         }
 
         Optional<TaskCreationAuthorizationReceipt> duplicate =
@@ -124,6 +269,11 @@ public final class TrunkManager
                 command.trunkId(), command.commandId()).isPresent()) {
             throw rejected(COMMAND_ID_CONFLICT,
                     "Command id was already used for Task creation");
+        }
+        if (store.isThreadTurnCommandUsed(
+                command.trunkId(), command.commandId())) {
+            throw rejected(COMMAND_ID_CONFLICT,
+                    "Command id was already used for a ThreadTurn command");
         }
         Optional<CommandReceipt> duplicate = store.findCommandResult(
                 command.trunkId(), command.commandId());
@@ -209,6 +359,171 @@ public final class TrunkManager
         }
     }
 
+    public record ThreadTurnCommand(
+            String commandId,
+            String actor,
+            String trunkId,
+            String workspaceId,
+            long expectedTrunkVersion,
+            String turnId,
+            String operationId,
+            String ticketId,
+            String userMessageId,
+            String purpose,
+            String deliveryLane,
+            int laneMask,
+            String launchInput,
+            String launchInputDigest,
+            String userMessage,
+            String userMessageDigest,
+            Instant requestedAt)
+    {
+        public ThreadTurnCommand
+        {
+            requireText(commandId, "commandId");
+            requireText(actor, "actor");
+            requireText(trunkId, "trunkId");
+            requireText(workspaceId, "workspaceId");
+            requireText(turnId, "turnId");
+            requireText(operationId, "operationId");
+            requireText(ticketId, "ticketId");
+            requireText(userMessageId, "userMessageId");
+            requireText(purpose, "purpose");
+            requireText(deliveryLane, "deliveryLane");
+            requireText(launchInput, "launchInput");
+            requireDigest(launchInputDigest, "launchInputDigest");
+            requireText(userMessage, "userMessage");
+            requireDigest(userMessageDigest, "userMessageDigest");
+            requireNonNull(requestedAt, "requestedAt is null");
+            if (expectedTrunkVersion < 0) {
+                throw new IllegalArgumentException(
+                        "expectedTrunkVersion is negative");
+            }
+            if (!("CLI".equals(deliveryLane) && laneMask == 1)
+                    && !("API".equals(deliveryLane) && laneMask == 2)) {
+                throw new IllegalArgumentException(
+                        "ThreadTurn lane and mask are inconsistent");
+            }
+        }
+    }
+
+    public record ThreadTurnRequestReceipt(
+            State state,
+            String commandId,
+            String actor,
+            long expectedVersion,
+            String turnId,
+            String operationId,
+            String ticketId,
+            String purpose,
+            String deliveryLane,
+            String launchInputDigest,
+            String userMessageDigest,
+            Instant recordedAt)
+    {
+        public ThreadTurnRequestReceipt
+        {
+            requireNonNull(state, "state is null");
+            requireText(commandId, "commandId");
+            requireText(actor, "actor");
+            requireText(turnId, "turnId");
+            requireText(operationId, "operationId");
+            requireText(ticketId, "ticketId");
+            requireText(purpose, "purpose");
+            requireText(deliveryLane, "deliveryLane");
+            requireDigest(launchInputDigest, "launchInputDigest");
+            requireDigest(userMessageDigest, "userMessageDigest");
+            requireNonNull(recordedAt, "recordedAt is null");
+            if (expectedVersion < 0) {
+                throw new IllegalArgumentException("expectedVersion is negative");
+            }
+        }
+    }
+
+    public record ThreadTurnResultFact(
+            String commandId,
+            String actor,
+            String turnId,
+            String operationId,
+            int attempt,
+            String rawOutcome,
+            String rawResultDigest,
+            String finalText,
+            String error,
+            Instant finishedAt)
+    {
+        public ThreadTurnResultFact
+        {
+            requireText(commandId, "commandId");
+            requireText(actor, "actor");
+            requireText(turnId, "turnId");
+            requireText(operationId, "operationId");
+            requireText(rawOutcome, "rawOutcome");
+            requireDigest(rawResultDigest, "rawResultDigest");
+            requireNonNull(finishedAt, "finishedAt is null");
+            if (attempt < 1) {
+                throw new IllegalArgumentException("attempt must be positive");
+            }
+            terminalStatus(rawOutcome);
+            if (finalText != null && finalText.isBlank()) {
+                finalText = null;
+            }
+            if (error != null && error.isBlank()) {
+                error = null;
+            }
+        }
+    }
+
+    public record ThreadTurnResultContext(
+            State trunkState,
+            String turnStatus,
+            String operationId,
+            int attempt,
+            boolean otherLiveTurns)
+    {
+        public ThreadTurnResultContext
+        {
+            requireNonNull(trunkState, "trunkState is null");
+            requireText(turnStatus, "turnStatus");
+            requireText(operationId, "operationId");
+            if (attempt < 1) {
+                throw new IllegalArgumentException("attempt must be positive");
+            }
+        }
+    }
+
+    public record ThreadTurnResultReceipt(
+            State state,
+            String commandId,
+            String actor,
+            String turnId,
+            String operationId,
+            int attempt,
+            String rawResultDigest,
+            String rawOutcome,
+            String acceptance,
+            String terminalStatus,
+            String assistantMessageId,
+            Instant recordedAt)
+    {
+        public ThreadTurnResultReceipt
+        {
+            requireNonNull(state, "state is null");
+            requireText(commandId, "commandId");
+            requireText(actor, "actor");
+            requireText(turnId, "turnId");
+            requireText(operationId, "operationId");
+            requireDigest(rawResultDigest, "rawResultDigest");
+            requireText(rawOutcome, "rawOutcome");
+            requireText(acceptance, "acceptance");
+            requireText(terminalStatus, "terminalStatus");
+            requireNonNull(recordedAt, "recordedAt is null");
+            if (attempt < 1) {
+                throw new IllegalArgumentException("attempt must be positive");
+            }
+        }
+    }
+
     public record TaskCreationAuthorizationReceipt(
             State state,
             String actor,
@@ -289,6 +604,36 @@ public final class TrunkManager
 
         boolean matchesTaskCreationAuthorization(TaskCreationCommand command);
 
+        Optional<ThreadTurnRequestReceipt> findThreadTurnRequest(
+                String trunkId, String commandId);
+
+        boolean matchesThreadTurnRequest(ThreadTurnCommand command);
+
+        ThreadTurnRequestReceipt requestThreadTurn(
+                ThreadTurnCommand command, State expected, State updated);
+
+        Optional<String> findThreadTurnTrunk(String turnId, String operationId);
+
+        Optional<ThreadTurnResultReceipt> findThreadTurnResult(
+                String turnId, String operationId);
+
+        /** True for any request or result command receipt on this Trunk. */
+        default boolean isThreadTurnCommandUsed(
+                String trunkId, String commandId)
+        {
+            return false;
+        }
+
+        ThreadTurnResultContext requireThreadTurnResult(
+                String turnId, String operationId);
+
+        ThreadTurnResultReceipt acceptThreadTurnResult(
+                ThreadTurnResultFact fact,
+                ThreadTurnResultContext context,
+                State updated,
+                String acceptance,
+                String terminalStatus);
+
         State authorizeTaskCreation(
                 TaskCreationCommand command, State expected, State updated);
 
@@ -306,6 +651,14 @@ public final class TrunkManager
         requireNonNull(value, name + " is null");
         if (value.isBlank()) {
             throw new IllegalArgumentException(name + " is blank");
+        }
+    }
+
+    private static void requireDigest(String value, String name)
+    {
+        requireText(value, name);
+        if (!value.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException(name + " must be a SHA-256 digest");
         }
     }
 }

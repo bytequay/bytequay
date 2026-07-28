@@ -23,6 +23,7 @@ import com.bytequay.app.developmentflow.execution.ResultDeliveryRouter;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
+import com.bytequay.app.developmentflow.execution.agentturn.ReviewAssignmentTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.agentturn.ThreadTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandler;
 import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupEffects;
@@ -43,6 +44,7 @@ import com.bytequay.app.developmentflow.execution.remote.RemoteMarkReadyOperatio
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteFeedbackEffectOperationStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteMarkReadyOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteAgentTurnOperationStore;
+import com.bytequay.app.developmentflow.persistence.SqliteReviewAssignmentTurnStore;
 import com.bytequay.app.developmentflow.persistence.SqliteThreadTurnOperationStore;
 import com.bytequay.app.developmentflow.stage.BranchSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
@@ -82,6 +84,7 @@ import com.bytequay.app.service.checks.ValidationCheck;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.review.ReviewProviderEndpoints;
 import com.bytequay.app.service.threads.LegacyTaskScopeResolver;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -163,6 +166,7 @@ class TestDevelopmentFlowExecutionConfig
                 ProvisionTaskOperationHandler.class,
                 AgentTurnOperationHandler.class,
                 ThreadTurnOperationHandler.class,
+                ReviewAssignmentTurnOperationHandler.class,
                 LocalValidationOperationHandler.class,
                 PublishOperationHandler.class,
                 CleanupOperationHandler.class,
@@ -191,6 +195,8 @@ class TestDevelopmentFlowExecutionConfig
         AgentTurnOperationHandler turns = mock(AgentTurnOperationHandler.class);
         ThreadTurnOperationHandler threadTurns = mock(
                 ThreadTurnOperationHandler.class);
+        ReviewAssignmentTurnOperationHandler reviewTurns = mock(
+                ReviewAssignmentTurnOperationHandler.class);
         LocalValidationOperationHandler localValidation = mock(
                 LocalValidationOperationHandler.class);
         PublishOperationHandler publish = mock(PublishOperationHandler.class);
@@ -208,9 +214,9 @@ class TestDevelopmentFlowExecutionConfig
         MergeOperationHandler merge = mock(MergeOperationHandler.class);
 
         ExecutionPorts.OperationHandlerRegistry registry = config.v2OperationHandlers(
-                provisioning, turns, threadTurns, localValidation, publish, cleanup,
-                remoteValidation, remoteEffects, markReady, observations,
-                finiteEffects, merge);
+                provisioning, turns, threadTurns, reviewTurns, localValidation,
+                publish, cleanup, remoteValidation, remoteEffects, markReady,
+                observations, finiteEffects, merge);
 
         assertThat(registry.require(ProvisionTaskOperationHandler.OPERATION_KIND))
                 .isSameAs(provisioning);
@@ -220,6 +226,8 @@ class TestDevelopmentFlowExecutionConfig
                 .isSameAs(turns);
         assertThat(registry.require(ThreadTurnOperationHandler.OPERATION_KIND))
                 .isSameAs(threadTurns);
+        assertThat(registry.require(ReviewAssignmentTurnOperationHandler.OPERATION_KIND))
+                .isSameAs(reviewTurns);
         assertThat(registry.require(LocalValidationOperationHandler.OPERATION_KIND))
                 .isSameAs(localValidation);
         assertThat(registry.require(PublishOperationHandler.OPERATION_KIND))
@@ -253,6 +261,8 @@ class TestDevelopmentFlowExecutionConfig
         DevelopmentFlowExecutionConfig config = new DevelopmentFlowExecutionConfig();
         SqliteCleanupOperationStore cleanupStore = mock(
                 SqliteCleanupOperationStore.class);
+        SqliteReviewAssignmentTurnStore reviewTurns = mock(
+                SqliteReviewAssignmentTurnStore.class);
         when(cleanupStore.findPendingFinalizations(7)).thenReturn(List.of());
 
         ExecutionPorts.ResultDeliveryPort delivery = config.v2ResultDelivery(
@@ -275,6 +285,7 @@ class TestDevelopmentFlowExecutionConfig
                 mock(RemoteRepairTurnRuntime.class),
                 mock(RemoteDevelopmentStageManager.class),
                 mock(SqliteMergeOperationStore.class),
+                reviewTurns,
                 mock(JdbcTemplate.class),
                 new ObjectMapper());
 
@@ -309,6 +320,7 @@ class TestDevelopmentFlowExecutionConfig
                 "BRANCH_SYNC_REBASE_RESULT",
                 "BRANCH_SYNC_VALIDATION_RESULT",
                 "BRANCH_SYNC_PUSH_RESULT",
+                ReviewAssignmentTurnOperationHandler.CALLBACK_ROUTE,
                 MergeOperationHandler.CALLBACK_ROUTE);
 
         delivery.recoverCommittedDeliveries(7);
@@ -521,6 +533,10 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(SqliteAgentTurnOperationStore.class))
                 .withBean(SqliteThreadTurnOperationStore.class,
                         () -> mock(SqliteThreadTurnOperationStore.class))
+                .withBean(SqliteReviewAssignmentTurnStore.class,
+                        () -> mock(SqliteReviewAssignmentTurnStore.class))
+                .withBean(ReviewProviderEndpoints.class,
+                        () -> mock(ReviewProviderEndpoints.class))
                 .withBean(ActiveAgentContextRegistry.class,
                         () -> mock(ActiveAgentContextRegistry.class))
                 .withBean(ToolExposurePolicy.class,

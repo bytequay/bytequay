@@ -88,6 +88,8 @@ public final class ReviewAssignmentTurnMcpController
         if (request.path("method").asText("").startsWith("notifications/")) {
             response.setStatus(HttpServletResponse.SC_ACCEPTED);
         }
-        return service.handle(owner.reviewId(), owner.assignmentId(), request);
+        return service.handle(
+                owner.reviewId(), owner.assignmentId(), owner.purpose(),
+                owner.subjectKey(), owner.verifierRunId(), request);
     }
 }

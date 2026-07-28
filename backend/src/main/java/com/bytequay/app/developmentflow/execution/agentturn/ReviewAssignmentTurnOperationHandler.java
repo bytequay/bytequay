@@ -305,12 +305,22 @@ public final class ReviewAssignmentTurnOperationHandler
         STALE
     }
 
-    public record McpOwner(String reviewId, String assignmentId)
+    public record McpOwner(
+            String reviewId,
+            String assignmentId,
+            String purpose,
+            String subjectKey,
+            String verifierRunId)
     {
         public McpOwner
         {
             requireText(reviewId, "reviewId");
             requireText(assignmentId, "assignmentId");
+            requireText(purpose, "purpose");
+            requireText(subjectKey, "subjectKey");
+            if (verifierRunId != null) {
+                requireText(verifierRunId, "verifierRunId");
+            }
         }
     }
 
@@ -320,6 +330,8 @@ public final class ReviewAssignmentTurnOperationHandler
             String roundId,
             String reviewId,
             String purpose,
+            String subjectKey,
+            String verifierRunId,
             String turnStatus,
             String operationId,
             int attempt,
@@ -341,6 +353,10 @@ public final class ReviewAssignmentTurnOperationHandler
             requireText(roundId, "roundId");
             requireText(reviewId, "reviewId");
             requireText(purpose, "purpose");
+            requireText(subjectKey, "subjectKey");
+            if (verifierRunId != null) {
+                requireText(verifierRunId, "verifierRunId");
+            }
             requireText(turnStatus, "turnStatus");
             requireText(operationId, "operationId");
             requireText(startCommit, "startCommit");
@@ -351,6 +367,11 @@ public final class ReviewAssignmentTurnOperationHandler
             if (attempt < 1 || (taskId == null) != (taskEpoch == null)) {
                 throw new IllegalArgumentException(
                         "review Turn attempt and Task scope are invalid");
+            }
+            if ("independent-verification".equals(purpose)
+                    != (verifierRunId != null)) {
+                throw new IllegalArgumentException(
+                        "review verifier purpose and run id do not match");
             }
             if (taskId != null) {
                 requireText(workspaceId, "workspaceId");

@@ -56,25 +56,66 @@ interface InvestigationReviewModel
             ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives, String guidance, int costCapCents);
 
+    default ReviewTurnPrompt planGuidancePrompt(
+            InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewObjectiveRow> objectives,
+            String guidance)
+    {
+        throw new UnsupportedOperationException(
+                "this review model cannot freeze a planner guidance prompt");
+    }
+
     RunOutcome verifyGuidance(
             ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives, String guidance, int costCapCents);
+
+    default ReviewTurnPrompt verifyGuidancePrompt(
+            InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewObjectiveRow> objectives,
+            String guidance)
+    {
+        throw new UnsupportedOperationException(
+                "this review model cannot freeze a verifier guidance prompt");
+    }
 
     RunOutcome selfRefute(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String findingBundles,
             int costCapCents);
 
+    default ReviewTurnPrompt selfRefutationPrompt(
+            InvestigationReviewContext.Snapshot snapshot, String findingBundles)
+    {
+        throw new UnsupportedOperationException(
+                "this review model cannot freeze a self-refutation prompt");
+    }
+
     RunOutcome reconstruct(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String locations,
             String persona, int costCapCents);
+
+    default ReviewTurnPrompt reconstructionPrompt(
+            InvestigationReviewContext.Snapshot snapshot, String locations,
+            String persona)
+    {
+        throw new UnsupportedOperationException(
+                "this review model cannot freeze a reconstruction prompt");
+    }
 
     RunOutcome verify(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String verifierRunId,
             String findingBundle, String blindReconstruction,
             String persona, int costCapCents);
+
+    default ReviewTurnPrompt verificationPrompt(
+            InvestigationReviewContext.Snapshot snapshot, String verifierRunId,
+            String findingBundle, String blindReconstruction, String persona)
+    {
+        throw new UnsupportedOperationException(
+                "this review model cannot freeze a verification prompt");
+    }
 
     String suggestPlanAmendment(
             ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,

@@ -28,6 +28,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
@@ -39,17 +40,28 @@ public final class ReviewAssignmentTurnResultDeliveryPort
     private final ObjectReader resultReader;
     private final ObjectMapper json;
     private final Clock clock;
+    private final Supplier<ReviewAssignmentTurnContinuation> continuation;
 
     public ReviewAssignmentTurnResultDeliveryPort(
             Store store,
             ObjectMapper json,
             Clock clock)
     {
+        this(store, json, clock, () -> null);
+    }
+
+    public ReviewAssignmentTurnResultDeliveryPort(
+            Store store,
+            ObjectMapper json,
+            Clock clock,
+            Supplier<ReviewAssignmentTurnContinuation> continuation)
+    {
         this.store = requireNonNull(store, "store is null");
         this.json = requireNonNull(json, "json is null");
         this.resultReader = json.readerFor(AgentTurnOperationHandler.RawResult.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         this.clock = requireNonNull(clock, "clock is null");
+        this.continuation = requireNonNull(continuation, "continuation is null");
     }
 
     @Override
@@ -94,6 +106,12 @@ public final class ReviewAssignmentTurnResultDeliveryPort
                 rawResult.payloadJson(), rawResult.evidenceJson(), rawResult.error(),
                 clock.instant());
         ResultReceipt receipt = store.accept(command);
+        if (receipt.acceptance() == DispatchTicket.Acceptance.ACCEPTED) {
+            ReviewAssignmentTurnContinuation resume = continuation.get();
+            if (resume != null) {
+                resume.resumeAfter(command.turnId());
+            }
+        }
         return new DispatchTicket.DeliveryReceipt(
                 receipt.acceptance(), receipt.evidenceJson());
     }

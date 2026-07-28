@@ -49,6 +49,9 @@ class TestV2AggregateHandoffStore
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         seedTrunk(jdbc);
         seedAcceptedProvisioning(jdbc, "task-1", "operation-1", 1);
+        seedAcceptedProvisioning(
+                jdbc, "task-rollback", "operation-rollback", 2);
+        Flyway.configure().dataSource(dataSource).target("235").load().migrate();
 
         Stores first = stores(dataSource);
         ProvisionToPlanHandoff handoff = handoff(dataSource, first);
@@ -129,7 +132,6 @@ class TestV2AggregateHandoffStore
         assertThat(count(jdbc, "task_transition", "task-1")).isEqualTo(1);
         assertThat(count(jdbc, "stage_transition", "plan-1")).isEqualTo(1);
 
-        seedAcceptedProvisioning(jdbc, "task-rollback", "operation-rollback", 2);
         TaskManager.ProvisioningCommand invalidGeneration = command(
                 "task-rollback", "operation-rollback", "plan-rollback", 2);
         assertThatThrownBy(() -> handoff(dataSource, restarted).accept(invalidGeneration))
@@ -163,6 +165,8 @@ class TestV2AggregateHandoffStore
         AnnotationConfigApplicationContext context =
                 new AnnotationConfigApplicationContext();
         context.registerBean(JdbcTemplate.class, () -> new JdbcTemplate(dataSource));
+        context.registerBean(DataSourceTransactionManager.class,
+                () -> new DataSourceTransactionManager(dataSource));
         context.scan(
                 "com.bytequay.app.developmentflow.task.persistence",
                 "com.bytequay.app.developmentflow.stage.persistence");
@@ -297,6 +301,16 @@ class TestV2AggregateHandoffStore
                     completed_at_ms = 5
                 WHERE id = ?
                 """, "fingerprint-" + taskId, operationRowId);
+        jdbc.update("""
+                INSERT INTO task_code_identity(
+                    task_id, provision_operation_id, repository_id,
+                    publish_repository_id, branch_name, worktree_path,
+                    base_sha, local_head_sha, code_fingerprint,
+                    created_at_ms, updated_at_ms)
+                VALUES (?, ?, 'acme/widget', 'acme/widget', ?, ?,
+                    'base', 'base', ?, 5, 5)
+                """, taskId, operationRowId, "dev/" + taskId,
+                "/tmp/" + taskId, "fingerprint-" + taskId);
     }
 
     private static void seedPlanEvidence(JdbcTemplate jdbc)
@@ -316,13 +330,40 @@ class TestV2AggregateHandoffStore
                     'USER_EDIT', 'user', 7)
                 """);
         jdbc.update("""
+                INSERT INTO task_brain(
+                    id, task_id, provider, model, engine_snapshot, created_at_ms)
+                VALUES ('brain-1', 'task-1', 'openai', 'review-model',
+                    'engine-v1', 8)
+                """);
+        jdbc.update("""
                 INSERT INTO task_turn(
                     id, task_id, purpose, status, operation_id, attempt, task_epoch,
-                    trigger_stage_id, trigger_stage_generation, delivery_lane,
-                    launch_input, requested_at_ms)
-                VALUES ('task-turn-2', 'task-1', 'PLAN_SELF_REVIEW', 'QUEUED',
-                    'review-operation-2', 1, 1, 'plan-1', 1,
-                    'API', 'review revision-2', 8)
+                    trigger_stage_id, trigger_stage_generation,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, delivery_lane, launch_input,
+                    requested_at_ms)
+                SELECT 'task-turn-2', code.task_id, 'PLAN_SELF_REVIEW',
+                       'REQUESTED', 'review-operation-2', 1, 1, 'plan-1', 1,
+                       code.code_fingerprint, code.local_head_sha, code.base_sha,
+                       'API', json_object(
+                           'schemaVersion', 1,
+                           'transport', 'API',
+                           'provider', 'openai',
+                           'model', 'review-model',
+                           'workingDirectory', code.worktree_path,
+                           'prompt', 'review revision-2',
+                           'toolEndpoint', json_object(
+                               'url', 'http://127.0.0.1:53123/api/v2/task-turns/'
+                                   || 'task-turn-2/operations/review-operation-2/mcp',
+                               'ownerKind', 'TASK_TURN',
+                               'ownerId', 'task-turn-2',
+                               'operationId', 'review-operation-2',
+                               'profile', 'TASK_BRAIN_READ_ONLY',
+                               'approvalPromptTool',
+                                   'mcp__bytequay__approval_prompt')),
+                       8
+                  FROM task_code_identity code
+                 WHERE code.task_id = 'task-1'
                 """);
         jdbc.update("""
                 INSERT INTO plan_self_review(
@@ -330,6 +371,13 @@ class TestV2AggregateHandoffStore
                     reviewed_digest, status, requested_at_ms)
                 VALUES ('review-2', 'revision-2', 'task-turn-2', 1,
                     'digest-2', 'REQUESTED', 8)
+                """);
+        jdbc.update("""
+                INSERT INTO plan_self_review_attempt(
+                    self_review_id, attempt, task_turn_id, operation_id,
+                    predecessor_turn_id, requested_at_ms)
+                VALUES ('review-2', 1, 'task-turn-2', 'review-operation-2',
+                    NULL, 8)
                 """);
         jdbc.update("""
                 UPDATE task_turn

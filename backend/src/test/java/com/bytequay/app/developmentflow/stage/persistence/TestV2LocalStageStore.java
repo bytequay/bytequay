@@ -125,10 +125,11 @@ class TestV2LocalStageStore
         Flyway.configure().dataSource(dataSource).target("237").load().migrate();
         seedBrainReview(jdbc);
 
-        TaskCommandExecutor commands = new TaskCommandExecutor(
-                new DataSourceTransactionManager(dataSource));
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
         V2StageStore stageStore = new V2StageStore(jdbc);
-        TaskManager.Store taskStore = taskStore(jdbc);
+        TaskManager.Store taskStore = taskStore(jdbc, transactions);
         TaskManager tasks = new TaskManager(commands, taskStore);
         LocalDevelopmentStageManager local = new LocalDevelopmentStageManager(
                 commands, stageStore, stageStore);
@@ -178,7 +179,8 @@ class TestV2LocalStageStore
                         + "'BRAIN_BUDGET_EXHAUSTED' AND status = 'OPEN'",
                 Integer.class)).isOne();
 
-        TaskManager restartedTasks = new TaskManager(commands, taskStore(jdbc));
+        TaskManager restartedTasks = new TaskManager(
+                commands, taskStore(jdbc, transactions));
         LocalDevelopmentStageManager restartedLocal =
                 new LocalDevelopmentStageManager(
                         commands, new V2StageStore(jdbc), new V2StageStore(jdbc));
@@ -207,10 +209,11 @@ class TestV2LocalStageStore
         Flyway.configure().dataSource(dataSource).target("237").load().migrate();
         seedBrainReview(jdbc);
 
-        TaskCommandExecutor commands = new TaskCommandExecutor(
-                new DataSourceTransactionManager(dataSource));
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
         V2StageStore stageStore = new V2StageStore(jdbc);
-        TaskManager.Store taskStore = taskStore(jdbc);
+        TaskManager.Store taskStore = taskStore(jdbc, transactions);
         TaskManager tasks = new TaskManager(commands, taskStore);
         LocalDevelopmentStageManager local = new LocalDevelopmentStageManager(
                 commands, stageStore, stageStore);
@@ -288,10 +291,11 @@ class TestV2LocalStageStore
         Flyway.configure().dataSource(dataSource).target("237").load().migrate();
         seedBrainReview(jdbc);
 
-        TaskCommandExecutor commands = new TaskCommandExecutor(
-                new DataSourceTransactionManager(dataSource));
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
         V2StageStore stageStore = new V2StageStore(jdbc);
-        TaskManager.Store taskStore = taskStore(jdbc);
+        TaskManager.Store taskStore = taskStore(jdbc, transactions);
         TaskManager tasks = new TaskManager(commands, taskStore);
         LocalDevelopmentStageManager local = new LocalDevelopmentStageManager(
                 commands, stageStore, stageStore);
@@ -534,11 +538,14 @@ class TestV2LocalStageStore
         jdbc.update("DELETE FROM dispatch_ticket WHERE id = 'provision-ticket'");
     }
 
-    private static TaskManager.Store taskStore(JdbcTemplate jdbc)
+    private static TaskManager.Store taskStore(
+            JdbcTemplate jdbc, DataSourceTransactionManager transactions)
     {
         try (AnnotationConfigApplicationContext context =
                 new AnnotationConfigApplicationContext()) {
             context.registerBean(JdbcTemplate.class, () -> jdbc);
+            context.registerBean(
+                    DataSourceTransactionManager.class, () -> transactions);
             context.scan("com.bytequay.app.developmentflow.task.persistence");
             context.refresh();
             return context.getBean(TaskManager.Store.class);

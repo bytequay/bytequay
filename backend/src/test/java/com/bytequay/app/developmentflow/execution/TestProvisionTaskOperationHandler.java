@@ -206,6 +206,35 @@ class TestProvisionTaskOperationHandler
     }
 
     @Test
+    void cancellationInterruptsBlockingGitInspectionAndDoesNotContinueToFetch()
+            throws Exception
+    {
+        ProvisionRequest request = request(BaseSource.FRESH_REMOTE_BASE);
+        FakeGit git = new FakeGit();
+        git.remotes.put("acme/widget", "origin");
+        git.remoteBranches.put("origin:main", BASE_SHA);
+        git.blockProbe = true;
+        ProvisionTaskOperationHandler handler = handler(request, git);
+
+        try (ContextFixture fixture = context(request);
+                ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<DispatchTicket.DispatchResult> result = executor.submit(
+                    () -> handler.execute(fixture.context()));
+            assertThat(git.probeStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+            fixture.cancellation().cancel();
+
+            assertThatThrownBy(() -> result.get(5, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(ExecutionPorts.OperationCanceledException.class);
+            assertThat(git.probeInterrupted).isTrue();
+            assertThat(git.fetches).isEmpty();
+            assertThat(git.createdHeads).isEmpty();
+            assertThat(fixture.evidence().logs).isEmpty();
+        }
+    }
+
+    @Test
     void staleEnvelopeFenceCannotReachGit()
     {
         ProvisionRequest request = request(BaseSource.PLANNING_SNAPSHOT);
@@ -589,17 +618,33 @@ class TestProvisionTaskOperationHandler
         private final List<Long> mutationTokens = new ArrayList<>();
         private final CountDownLatch fetchStarted = new CountDownLatch(1);
         private final CountDownLatch releaseFetch = new CountDownLatch(1);
+        private final CountDownLatch probeStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseProbe = new CountDownLatch(1);
         private int probeCalls;
         private boolean failAfterCreate;
         private boolean conflictAfterCreate;
         private boolean blockFetch;
+        private boolean blockProbe;
         private volatile boolean fetchInterrupted;
+        private volatile boolean probeInterrupted;
         private Runnable beforeCreate = () -> {};
 
         @Override
         public Probe probe(MutationTarget target)
         {
             probeCalls++;
+            probeStarted.countDown();
+            if (blockProbe) {
+                try {
+                    releaseProbe.await();
+                }
+                catch (InterruptedException interrupted) {
+                    probeInterrupted = true;
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(
+                            "simulated interrupted probe", interrupted);
+                }
+            }
             return probe;
         }
 

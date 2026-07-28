@@ -14,6 +14,7 @@
 package com.bytequay.app.config;
 
 import com.bytequay.app.developmentflow.execution.CapacityManager;
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
@@ -656,25 +657,29 @@ public class DevelopmentFlowExecutionConfig
     }
 
     @Bean
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
+    @ConditionalOnMissingBean(DispatchTicketControl.class)
+    public DispatchTicketControl dispatchTicketControl(
+            ExecutionPorts.DispatchTicketStore tickets,
+            ObjectProvider<ExecutionDispatcher> dispatcher)
+    {
+        return new DispatchTicketControl(tickets, dispatcher);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(V2TaskControlService.class)
     public V2TaskControlService v2TaskControlService(
             TaskManager tasks,
             TaskManager.Store store,
-            ExecutionDispatcher dispatcher,
+            DispatchTicketControl tickets,
             RemoteCiRepairRuntimeCoordinator ciRepair,
             JdbcTemplate jdbc)
     {
         return new V2TaskControlService(
-                tasks, store, dispatcher, ciRepair, jdbc);
+                tasks, store, tickets, ciRepair, jdbc);
     }
 
     @Bean
     @ConditionalOnMissingBean(PlanningBaseTurnRuntime.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public PlanningBaseTurnRuntime v2PlanningBaseTurnRuntime(
             TrunkManager trunks,
             TrunkManager.Store trunkStore,
@@ -691,35 +696,29 @@ public class DevelopmentFlowExecutionConfig
 
     @Bean
     @ConditionalOnMissingBean(V2ThreadControlService.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public V2ThreadControlService v2ThreadControlService(
             PlanningBaseTurnRuntime planning,
             ThreadTurnProjection projection,
-            ExecutionDispatcher dispatcher,
+            DispatchTicketControl tickets,
             ThreadEngineOverrides engines,
             RoleRegistry roles,
             SessionKnowledgeProvider knowledge)
     {
         return new V2ThreadControlService(
-                planning, projection, dispatcher, engines, roles, knowledge);
+                planning, projection, tickets, engines, roles, knowledge);
     }
 
     @Bean
     @ConditionalOnMissingBean(ReviewAssignmentTurnRuntime.class)
-    @ConditionalOnProperty(
-            name = "bytequay.development-flow.v2-dispatch-enabled",
-            havingValue = "true")
     public ReviewAssignmentTurnRuntime v2ReviewAssignmentTurnRuntime(
             SqliteReviewAssignmentTurnStore store,
             ReviewProviderEndpoints providers,
-            ExecutionDispatcher dispatcher,
+            DispatchTicketControl tickets,
             ObjectMapper json,
             @Value("${server.port:8080}") int serverPort)
     {
         return new ReviewAssignmentTurnRuntime(
-                store, providers, dispatcher::requestCancel,
+                store, providers, tickets::requestCancel,
                 json, Clock.systemUTC(), serverPort);
     }
 

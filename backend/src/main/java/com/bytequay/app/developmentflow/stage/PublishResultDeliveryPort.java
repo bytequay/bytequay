@@ -48,6 +48,7 @@ public final class PublishResultDeliveryPort
     private final TaskCommandExecutor commands;
     private final LocalDevelopmentStageManager local;
     private final LocalToRemoteHandoff handoff;
+    private final RemoteObservationRuntimeCoordinator observations;
     private final Store store;
     private final ObjectMapper json;
     private final ObjectReader resultReader;
@@ -57,6 +58,7 @@ public final class PublishResultDeliveryPort
             TaskCommandExecutor commands,
             LocalDevelopmentStageManager local,
             LocalToRemoteHandoff handoff,
+            RemoteObservationRuntimeCoordinator observations,
             Store store,
             ObjectMapper json,
             Clock clock)
@@ -64,6 +66,7 @@ public final class PublishResultDeliveryPort
         this.commands = requireNonNull(commands, "commands is null");
         this.local = requireNonNull(local, "local is null");
         this.handoff = requireNonNull(handoff, "handoff is null");
+        this.observations = requireNonNull(observations, "observations is null");
         this.store = requireNonNull(store, "store is null");
         this.json = requireNonNull(json, "json is null");
         this.resultReader = json.readerFor(PublishRawResult.class)
@@ -164,6 +167,8 @@ public final class PublishResultDeliveryPort
                     context, bindingId, remote,
                     id("remote-ci-policy", context.operationId()),
                     id("remote-automation-policy", context.operationId()), now);
+            observations.requestObservationInCommand(
+                    context.taskId(), remote.id());
             acceptance = ACCEPTED;
             acceptedRemoteStage = remote.id();
         }

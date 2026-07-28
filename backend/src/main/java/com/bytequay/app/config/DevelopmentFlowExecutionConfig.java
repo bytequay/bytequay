@@ -64,6 +64,7 @@ import com.bytequay.app.developmentflow.stage.RemoteFeedbackTurnResultDeliveryPo
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteMarkReadyResultDeliveryPort;
+import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
@@ -119,6 +120,7 @@ public class DevelopmentFlowExecutionConfig
             TaskCommandExecutor commands,
             LocalDevelopmentStageManager localManager,
             LocalToRemoteHandoff localToRemote,
+            RemoteObservationRuntimeCoordinator remoteObservations,
             SqlitePublishResultStore publishStore,
             SqliteCleanupOperationStore cleanupStore,
             CleanupCompletionHandoff cleanupCompletion,
@@ -142,7 +144,8 @@ public class DevelopmentFlowExecutionConfig
         LocalValidationResultDeliveryPort validation =
                 new LocalValidationResultDeliveryPort(localRuntime);
         PublishResultDeliveryPort publish = new PublishResultDeliveryPort(
-                commands, localManager, localToRemote, publishStore, json,
+                commands, localManager, localToRemote, remoteObservations,
+                publishStore, json,
                 Clock.systemUTC());
         CleanupOperationResultDelivery cleanup = new CleanupOperationResultDelivery(
                 cleanupStore, cleanupCompletion, Clock.systemUTC());
@@ -426,7 +429,8 @@ public class DevelopmentFlowExecutionConfig
             ExecutionPorts.DispatchWakeStore wakes,
             ExecutionPorts.OperationHandlerRegistry handlers,
             ExecutionPorts.ResultDeliveryPort resultDelivery,
-            ExecutionPorts.ExecutionEvidencePort evidence)
+            ExecutionPorts.ExecutionEvidencePort evidence,
+            List<ExecutionPorts.MaintenanceWork> maintenanceWork)
     {
         return new ExecutionDispatcher(
                 capacityManager,
@@ -442,6 +446,7 @@ public class DevelopmentFlowExecutionConfig
                         Duration.ofSeconds(20),
                         Duration.ofSeconds(5),
                         3,
-                        100));
+                        100),
+                maintenanceWork);
     }
 }

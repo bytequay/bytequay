@@ -21,7 +21,7 @@ import com.fasterxml.jackson.databind.ObjectReader;
 
 import static java.util.Objects.requireNonNull;
 
-/** Strict decoding boundary used by future Task/Stage result commands. */
+/** Strict decoding boundary used by typed Turn result commands. */
 public final class AgentTurnOwnerResultCodec
 {
     private final ObjectReader reader;
@@ -41,7 +41,8 @@ public final class AgentTurnOwnerResultCodec
         requireNonNull(owner, "owner is null");
         requireNonNull(expectedFence, "expectedFence is null");
         requireNonNull(rawResult, "rawResult is null");
-        if (owner.kind() != DispatchTicket.OwnerKind.TASK_TURN
+        if (owner.kind() != DispatchTicket.OwnerKind.THREAD_TURN
+                && owner.kind() != DispatchTicket.OwnerKind.TASK_TURN
                 && owner.kind() != DispatchTicket.OwnerKind.STAGE_TURN) {
             throw new IllegalArgumentException("Agent Turn result has a non-Turn owner");
         }

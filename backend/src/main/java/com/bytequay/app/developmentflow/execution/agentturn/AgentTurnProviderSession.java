@@ -100,7 +100,8 @@ public interface AgentTurnProviderSession
                 throw new IllegalArgumentException("systemPrompt must not be blank");
             }
             if ((access == Access.READ_ONLY
-                    && toolEndpoint.profile() != ToolProfile.TASK_BRAIN_READ_ONLY)
+                    && toolEndpoint.profile() != ToolProfile.TASK_BRAIN_READ_ONLY
+                    && toolEndpoint.profile() != ToolProfile.TRUNK_CONTROL_READ_ONLY)
                     || (access == Access.WORKTREE_WRITE
                     && toolEndpoint.profile() != ToolProfile.STAGE_DEVELOPMENT)) {
                 throw new IllegalArgumentException(
@@ -136,7 +137,8 @@ public interface AgentTurnProviderSession
                 throw new IllegalArgumentException(
                         "only the ByteQuay MCP server is allowed");
             }
-            if (!(ownerKind == DispatchTicket.OwnerKind.TASK_TURN
+            if (!(ownerKind == DispatchTicket.OwnerKind.THREAD_TURN
+                    || ownerKind == DispatchTicket.OwnerKind.TASK_TURN
                     || ownerKind == DispatchTicket.OwnerKind.STAGE_TURN)) {
                 throw new IllegalArgumentException(
                         "Agent Turn MCP endpoint needs a typed Turn owner");
@@ -166,8 +168,13 @@ public interface AgentTurnProviderSession
                 throw new IllegalArgumentException(
                         "tool endpoint must be an exact loopback HTTP URL");
             }
-            String ownerPath = ownerKind == DispatchTicket.OwnerKind.TASK_TURN
-                    ? "task-turns" : "stage-turns";
+            String ownerPath = switch (ownerKind) {
+                case THREAD_TURN -> "thread-turns";
+                case TASK_TURN -> "task-turns";
+                case STAGE_TURN -> "stage-turns";
+                default -> throw new IllegalArgumentException(
+                        "Agent Turn MCP endpoint needs a typed Turn owner");
+            };
             String expectedPath = "/api/v2/" + ownerPath + "/" + ownerId
                     + "/operations/" + operationId + "/mcp";
             if (!expectedPath.equals(endpoint.getPath())) {
@@ -251,6 +258,7 @@ public interface AgentTurnProviderSession
 
     enum ToolProfile
     {
+        TRUNK_CONTROL_READ_ONLY,
         TASK_BRAIN_READ_ONLY,
         STAGE_DEVELOPMENT
     }

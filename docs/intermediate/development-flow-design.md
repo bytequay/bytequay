@@ -2,7 +2,7 @@
 
 Status: **LOCKED**
 
-Version: **1.1**
+Version: **1.2**
 
 Decision date: **2026-07-28**
 
@@ -10,24 +10,12 @@ This document is the normative architecture contract for development-flow
 ownership, state transitions, persistence, asynchronous work, recovery, and
 cleanup.
 
-The product sequence and user-visible stage rail remain defined by
-[v3/design/plan-rail-runs.md](../mockups/v3/design/plan-rail-runs.md). The
-Workspace / Trunk / Task hierarchy remains defined by
-[workspace-thread-task-design.md](../mockups/workspace-thread-task-design.md). Where
-those older documents describe TaskPhase, AgentScheduler, generic AgentRun,
-CI_FIXING stages, nullable turn scope, or event-driven lifecycle transitions,
-this document supersedes them.
-
-The same architectural supersession applies to the lifecycle machinery in
-[statemachine-design.md](../mockups/statemachine-design.md),
-[task-stages-design.md](../mockups/task-stages-design.md),
-[plan-stage-design.md](../mockups/plan-stage-design.md),
-[local-pr-design.md](../mockups/local-pr-design.md),
-[pr-lifecycle-design.md](../mockups/pr-lifecycle-design.md), and the hosting/coordination
-parts of [multi-agent-review-design.md](../mockups/multi-agent-review-design.md). Their
-product behavior, UX decisions, audit/history requirements, provider lanes,
-and durable claim/recovery lessons remain requirements unless this document
-explicitly changes them.
+This document and its tracked migration plan are a self-contained
+implementation contract. Files under `docs/mockups/` are optional local design
+history, not required inputs. The preserved product topology and journey are
+restated below. If an older note describes TaskPhase, AgentScheduler, generic
+AgentRun, CI_FIXING stages, nullable turn scope, event-driven lifecycle
+transitions, or any other conflicting behavior, this document controls.
 
 Changing a locked rule requires an explicit decision. Record the decision in
 the change log at the end; update at least one acceptance trace and the feature
@@ -52,6 +40,53 @@ The target design has one rule:
 
 The target must preserve the complete existing development and review product,
 not only the happy path.
+
+## Preserved product topology and journey
+
+The product hierarchy is:
+
+~~~text
+Workspace
+  └─ 0..n Trunks
+       └─ 0..n sibling Tasks
+            └─ Task-owned Stages, Episodes, Turns, branch, worktree and PR
+~~~
+
+A zero-Task Trunk is valid. Each Task belongs to exactly one Trunk, receives
+its own execution/conversation context from that Trunk at creation, and never
+inherits a sibling Task's mutable runtime state. UI focus addresses one Trunk
+or Task; it is not ownership or a concurrency restriction. Trunk conversation
+continues and sibling Tasks may run concurrently subject to capacity policy.
+
+The preserved user journey is:
+
+~~~text
+Plan
+  -> implement + validate + Brain review
+  -> Local Review + Approve & ship
+  -> Draft remote PR + CI
+  -> remote feedback rounds
+  -> Merge / Close
+  -> Cleanup
+~~~
+
+The sidebar groups those checkpoints under exactly four durable Stage rows:
+
+~~~text
+Plan
+Local Development
+  Implementing -> Validation -> Brain review -> Local review -> Push / PR
+Remote Development
+  Remote PR -> CI validation -> Comments -> Merge / Close
+Cleanup
+~~~
+
+Approve & ship is the single local-to-remote promotion authority; creating the
+remote PR is its result, not a second approval gate. The stable PR projection
+remains `local-drafted -> local-open -> remote-drafted -> remote-open -> merged
+| closed`. Detailed ownership, gates, automation, audit/history, provider
+lanes, recovery, and cleanup requirements are defined in the sections and
+compatibility matrix below; no ignored document is needed to implement them.
 
 ## Vocabulary
 
@@ -1227,6 +1262,7 @@ second workflow coordinator.
 
 | Current capability | V2 owner/record | Contract |
 |---|---|---|
+| Workspace/Trunk/Task hierarchy and grouped four-Stage rail | aggregate ownership + Stage projection | Preserved and fully defined in this tracked contract |
 | Zero-Task Trunk and planning conversation | TrunkManager, ThreadTurn | Preserved |
 | Create Task while sibling runs | TrunkManager + TaskManager | Preserved with capacity admission |
 | User/agent/issue/quality/automation Task origins | typed TaskAssignment | Preserved without nullable inference |
@@ -1350,6 +1386,9 @@ duplicate-delivery variants where applicable.
     available while Task lanes are saturated.
 54. Reject adapter execution without an exact CapacityLease and reject direct
     development-flow submission to a generic executor.
+55. In a fresh checkout containing no ignored `docs/mockups/` files, derive
+    the hierarchy, grouped rail, product journey, role boundaries, gates, and
+    migration order solely from this contract and its tracked migration plan.
 
 ## Patterns to preserve
 
@@ -1400,6 +1439,14 @@ reconciliation; they are never reassigned using latest/active inference.
   promised extension until separately designed and implemented.
 
 ## Change log
+
+### 1.2 — 2026-07-28
+
+- Removed normative dependencies on ignored local design notes.
+- Restated the preserved Workspace/Trunk/Task topology, user journey, compact
+  four-Stage rail, promotion boundary, and PR projection in this tracked file.
+- Added a clean-checkout acceptance scenario so parallel agents require only
+  the two tracked development-flow documents.
 
 ### 1.1 — 2026-07-28
 

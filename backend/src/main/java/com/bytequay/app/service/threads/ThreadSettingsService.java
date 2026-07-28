@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.domain.ThreadSettings;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,6 +46,7 @@ public class ThreadSettingsService
     private final int globalMaxRunningTasks;
     private final int globalSoftCostUsdMilli;
     private final int globalHardCostUsdMilli;
+    private final CapacityManager capacity;
 
     public ThreadSettingsService(
             ThreadSettingsStore store,
@@ -53,12 +55,14 @@ public class ThreadSettingsService
             @Value("${bytequay.threads.settings.global-soft-cost-usd-milli:5000}")
             int globalSoftCostUsdMilli,
             @Value("${bytequay.threads.settings.global-hard-cost-usd-milli:20000}")
-            int globalHardCostUsdMilli)
+            int globalHardCostUsdMilli,
+            CapacityManager capacity)
     {
         this.store = requireNonNull(store, "store is null");
         this.globalMaxRunningTasks = globalMaxRunningTasks;
         this.globalSoftCostUsdMilli = globalSoftCostUsdMilli;
         this.globalHardCostUsdMilli = globalHardCostUsdMilli;
+        this.capacity = requireNonNull(capacity, "capacity is null");
     }
 
     /** Whatever the user has explicitly set on this thread; empty when
@@ -80,12 +84,14 @@ public class ThreadSettingsService
                 settings.promptAddendum(),
                 Instant.now());
         store.save(withId);
+        capacity.policyChanged();
         return withId;
     }
 
     public void clear(String threadId)
     {
         store.clear(threadId);
+        capacity.policyChanged();
     }
 
     /** Effective config the spawner / scheduler should consult.

@@ -28,6 +28,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -80,7 +81,9 @@ class TestDevelopmentFlowExecutionConfig
         when(threads.findThreadById("trunk")).thenReturn(Optional.of(trunk));
         when(trunk.parallelSlots()).thenReturn(3);
         DevelopmentFlowCapacityPolicySource source =
-                new DevelopmentFlowCapacityPolicySource(threads, settings, 4, 4);
+                new DevelopmentFlowCapacityPolicySource(
+                        threads, settings, 4, 4,
+                        Map.of(CapacityManager.CapacityLane.VALIDATION, 3));
         CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
                 "legacy",
                 CapacityManager.WorkflowSource.LEGACY,
@@ -95,6 +98,44 @@ class TestDevelopmentFlowExecutionConfig
         when(settings.find("trunk")).thenReturn(Optional.of(new ThreadSettings(
                 "trunk", 2, null, null, null, Instant.EPOCH)));
         assertThat(source.current(request).trunkLimit("trunk")).isEqualTo(2);
+        assertThat(source.current(request).laneLimits())
+                .containsEntry(CapacityManager.CapacityLane.CLI, 4)
+                .containsEntry(CapacityManager.CapacityLane.API, 6)
+                .containsEntry(CapacityManager.CapacityLane.VALIDATION, 3);
+    }
+
+    @Test
+    void everyNonAgentLaneHasAnExplicitConfigurableLimit()
+    {
+        contextRunner()
+                .withPropertyValues(
+                        "bytequay.development-flow.capacity.validation=11",
+                        "bytequay.development-flow.capacity.review=12",
+                        "bytequay.development-flow.capacity.local-git=13",
+                        "bytequay.development-flow.capacity.github=14",
+                        "bytequay.development-flow.capacity.remote-observation=15",
+                        "bytequay.development-flow.capacity.merge=16",
+                        "bytequay.development-flow.capacity.cleanup=17")
+                .withUserConfiguration(DevelopmentFlowExecutionConfig.class)
+                .run(context -> {
+                    CapacityManager.CapacityPolicy policy = context.getBean(
+                                    CapacityManager.CapacityPolicySource.class)
+                            .current();
+                    assertThat(policy.laneLimits()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                            CapacityManager.CapacityLane.CLI, 4,
+                            CapacityManager.CapacityLane.API, 6,
+                            CapacityManager.CapacityLane.VALIDATION, 11,
+                            CapacityManager.CapacityLane.REVIEW, 12,
+                            CapacityManager.CapacityLane.LOCAL_GIT, 13,
+                            CapacityManager.CapacityLane.GITHUB, 14,
+                            CapacityManager.CapacityLane.REMOTE_OBSERVATION, 15,
+                            CapacityManager.CapacityLane.MERGE, 16,
+                            CapacityManager.CapacityLane.CLEANUP, 17));
+                    assertThat(policy.reservedTrunkControl()).containsExactlyInAnyOrderEntriesOf(
+                            Map.of(
+                                    CapacityManager.CapacityLane.CLI, 1,
+                                    CapacityManager.CapacityLane.API, 1));
+                });
     }
 
     private static ApplicationContextRunner contextRunner()

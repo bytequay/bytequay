@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.developmentflow.baseline;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.PR;
@@ -27,14 +28,17 @@ import com.bytequay.app.domain.TaskPushAuthorization;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ValidationClaim;
+import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.service.stage.PlanStageService;
 import com.bytequay.app.service.threads.AgentScheduler;
+import com.bytequay.app.service.threads.TaskPhaseMachine;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.nio.file.Files;
@@ -46,6 +50,7 @@ import java.util.Optional;
 import static com.bytequay.app.developmentflow.baseline.DeterministicDevelopmentFlowFakes.deliver;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 @SpringBootTest
 class TestDevelopmentFlowBaselineFixture
@@ -54,6 +59,12 @@ class TestDevelopmentFlowBaselineFixture
     private ApplicationContext context;
     @Autowired
     private PlanStageService contextPlanService;
+    @Autowired
+    private TaskPhaseMachine phaseMachine;
+    @Autowired
+    private StageStore stageStore;
+    @Autowired
+    private JdbcTemplate jdbc;
     @MockitoBean
     private AgentScheduler scheduler;
 
@@ -124,6 +135,44 @@ class TestDevelopmentFlowBaselineFixture
         assertThat(graph.roundEffects())
                 .extracting(RoundGateEffect::status)
                 .containsOnly(RoundGateEffect.Status.PENDING);
+    }
+
+    @Test
+    void canonicalRemoteCompletionKeepsTheDurableOwnerGraph()
+            throws Exception
+    {
+        DevelopmentFlowBaselineFixture.OwnerGraph graph =
+                fixture.createRemoteOwnerGraph("canonical-completion", tempDir);
+
+        assertThat(graph.task().phase()).isEqualTo(TaskPhase.AWAITING_REMOTE_REVIEW);
+        assertThat(fixture.activeStage(graph.task().id()).type())
+                .isEqualTo(StageType.REMOTE_DEVELOPMENT_STAGE);
+        assertThat(jdbc.queryForObject(
+                "SELECT workflow_version FROM tasks WHERE id = ?",
+                String.class,
+                graph.task().id()))
+                .isEqualTo("LEGACY");
+
+        phaseMachine.transition(
+                graph.task().id(), TaskPhase.COMPLETED, "pr_merged", Actor.WEBHOOK);
+
+        assertThat(fixture.reloadTask(graph.task().id()).phase()).isEqualTo(TaskPhase.COMPLETED);
+        List<StageInstance> stages = stageStore.findStagesByTask(graph.task().id());
+        assertThat(stages)
+                .extracting(StageInstance::type, StageInstance::state)
+                .containsExactlyInAnyOrder(
+                        tuple(StageType.PLAN_STAGE, StageState.CLOSED),
+                        tuple(StageType.DEVELOPMENT_STAGE, StageState.CLOSED),
+                        tuple(StageType.REMOTE_DEVELOPMENT_STAGE, StageState.CLOSED),
+                        tuple(StageType.CLEANUP_STAGE, StageState.CLOSED));
+        assertThat(stageStore.findActiveStage(graph.task().id())).isEmpty();
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pr WHERE id = ? AND task_id = ?",
+                Integer.class,
+                graph.pr().id(),
+                graph.task().id()))
+                .isEqualTo(1);
     }
 
     @Test

@@ -165,6 +165,9 @@ public class BranchGuardJob
     /** Visible for tests: run one guard's check. Skips busy threads. */
     void checkOne(BranchGuard snapshot)
     {
+        if (taskStore.isV2Task(snapshot.taskId())) {
+            return;
+        }
         TaskPhaseMachine.withTaskLock(snapshot.taskId(), () -> {
             guards.findByTask(snapshot.taskId()).ifPresent(this::checkOneLocked);
             return null;

@@ -75,6 +75,20 @@ class TestValidationCancellationReconciler
     }
 
     @Test
+    void legacyCancellationSweepNeverClaimsAV2Validation()
+    {
+        when(store.findCancelPending()).thenReturn(List.of(new PendingValidationCancel(
+                "claim-v2", "v2-task", "999@elsewhere", NOW.minusSeconds(60), null)));
+        when(taskStore.isV2Task("v2-task")).thenReturn(true);
+
+        reconciler.sweep();
+
+        verify(store, never()).markSuperseded(any(), any());
+        verify(store, never()).incrementCancelAttempts(any());
+        verify(machine, never()).parkOperational(any(), any(), any());
+    }
+
+    @Test
     void inFlightExecutorIsInterruptedAndTheAttemptRecorded()
             throws Exception
     {

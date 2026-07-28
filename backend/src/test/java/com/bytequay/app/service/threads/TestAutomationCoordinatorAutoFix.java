@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -139,6 +140,20 @@ class TestAutomationCoordinatorAutoFix
         verify(notificationService).notifyNeedsAttention(eq("thread-1"), eq("task-1"), anyString());
         verify(ciFixRunExecutor).tryAutoFix(
                 eq(task), eq(REPO), eq(List.of("backend-tests")), any());
+    }
+
+    @Test
+    void legacyCiSweepNeverClaimsAV2Task()
+    {
+        Task task = newDashboardTask("v2-task");
+        when(taskStore.listWithLinkedPr(200)).thenReturn(List.of(task));
+        when(taskStore.isV2Task(task.id())).thenReturn(true);
+
+        newCoordinator().scanForFailingCi();
+
+        verify(notificationService, never()).notifyNeedsAttention(anyString(), anyString(), anyString());
+        verify(ciFixRunExecutor, never()).tryAutoFix(any(), anyString(), any(), any());
+        verify(pullRequests, never()).refreshPullRequestDetail(anyString(), anyInt());
     }
 
     @Test

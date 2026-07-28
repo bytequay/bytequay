@@ -116,6 +116,9 @@ public class TaskRuntimeStopReconciler
      */
     public void reconcileStoppedTask(String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            return;
+        }
         TaskPhaseMachine.withTaskLock(taskId, () -> {
             Task task = taskStore.findTaskById(taskId).orElse(null);
             if (task == null || !STOPPED.contains(task.status())) {
@@ -151,6 +154,9 @@ public class TaskRuntimeStopReconciler
      */
     public boolean runtimeStopped(String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            return false;
+        }
         if (!turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.QUEUED, 1).isEmpty()
                 || !turnStore.listTurnsByExactTaskIdAndStatus(taskId, ThreadTurnStatus.RUNNING, 1).isEmpty()) {
             return false;
@@ -199,6 +205,9 @@ public class TaskRuntimeStopReconciler
     @TransactionalEventListener(fallbackExecution = true)
     public void onPhaseTransitioned(TaskPhaseTransitionedEvent event)
     {
+        if (taskStore.isV2Task(event.taskId())) {
+            return;
+        }
         if (event.to() != TaskPhase.NEEDS_ATTENTION && event.to() != TaskPhase.COMPLETED) {
             return;
         }
@@ -223,6 +232,9 @@ public class TaskRuntimeStopReconciler
     private void forEachStoppedTask(Consumer<Task> action)
     {
         for (Task task : taskStore.listByStatuses(SWEEP_STATUSES, SWEEP_PAGE)) {
+            if (taskStore.isV2Task(task.id())) {
+                continue;
+            }
             try {
                 action.accept(task);
             }

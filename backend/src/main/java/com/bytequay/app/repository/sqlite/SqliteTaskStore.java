@@ -294,6 +294,13 @@ class SqliteTaskStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Optional<String> findWorkflowVersion(String taskId)
+    {
+        return tasks.findById(taskId).map(TaskEntity::getWorkflowVersion);
+    }
+
+    @Override
     public Optional<Task> findTaskByBranch(String branchName)
     {
         if (branchName == null || branchName.isBlank()) {

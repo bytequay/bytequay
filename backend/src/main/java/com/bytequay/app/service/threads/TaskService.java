@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.ListPullRequestsQuery;
@@ -121,6 +122,7 @@ public class TaskService
     private final ThreadTurnScheduler scheduler;
     private final TaskRuntimeStopReconciler stopReconciler;
     private final Executor pauseTeardownExecutor;
+    private V2DevelopmentFlowProjection v2Projection;
     /** Generation token for the one committed Pause teardown still allowed to
      *  touch a task's runtime. Resume/Cancel remove it under the task lock. */
     private final ConcurrentHashMap<String, Object> pauseTeardownTokens = new ConcurrentHashMap<>();
@@ -208,12 +210,22 @@ public class TaskService
                 pauseTeardownExecutor, "pauseTeardownExecutor is null");
     }
 
+    @Autowired
+    void setV2Projection(V2DevelopmentFlowProjection v2Projection)
+    {
+        this.v2Projection = requireNonNull(v2Projection, "v2Projection is null");
+    }
+
     /** All tasks for a thread, ordered by seq ascending. 404 if the
      *  thread doesn't exist (so callers can't probe arbitrary ids). */
     public List<Task> listTasksForThread(String threadId)
     {
         requireThread(threadId);
-        return taskStore.listTasksByThread(threadId);
+        return taskStore.listTasksByThread(threadId).stream()
+                .map(task -> v2Projection != null && v2Projection.isV2Task(task.id())
+                        ? v2Projection.project(task)
+                        : task)
+                .toList();
     }
 
     /** Read the task's auto-approve mode. */

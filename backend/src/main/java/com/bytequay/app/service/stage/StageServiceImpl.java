@@ -24,6 +24,7 @@ import com.bytequay.app.beans.stage.StageDetailDto;
 import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.StageEventDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
+import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.StageEvent;
@@ -50,6 +51,7 @@ import com.bytequay.app.service.runs.AgentRunService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -90,6 +92,7 @@ public class StageServiceImpl
     private final BranchGuardService branchGuards;
     private final ReviewRoundService reviewRounds;
     private final ObjectMapper mapper;
+    private V2DevelopmentFlowProjection v2Projection;
 
     public StageServiceImpl(
             TaskStore taskStore,
@@ -113,6 +116,12 @@ public class StageServiceImpl
         this.branchGuards = requireNonNull(branchGuards, "branchGuards is null");
         this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+    }
+
+    @Autowired
+    void setV2Projection(V2DevelopmentFlowProjection v2Projection)
+    {
+        this.v2Projection = requireNonNull(v2Projection, "v2Projection is null");
     }
 
     private ReviewRound liveRound(String taskId)
@@ -283,6 +292,9 @@ public class StageServiceImpl
     @Override
     public List<StageDto> getStages(String taskId)
     {
+        if (v2Projection != null && v2Projection.isV2Task(taskId)) {
+            return v2Projection.stages(taskId);
+        }
         return stageStore.findStagesByTask(taskId).stream()
                 .filter(s -> s.callerStageId().isEmpty())
                 .map(StageServiceImpl::toDto)
@@ -292,6 +304,9 @@ public class StageServiceImpl
     @Override
     public List<StageDto> getActiveStages(String taskId)
     {
+        if (v2Projection != null && v2Projection.isV2Task(taskId)) {
+            return v2Projection.activeStages(taskId);
+        }
         return stageStore.findStagesByTask(taskId).stream()
                 .filter(s -> s.state() == StageState.OPEN)
                 .map(StageServiceImpl::toDto)
@@ -301,6 +316,13 @@ public class StageServiceImpl
     @Override
     public StageDetailDto getStageDetail(UUID stageId)
     {
+        if (v2Projection != null) {
+            Optional<StageDetailDto> projected =
+                    v2Projection.stageDetail(stageId.toString());
+            if (projected.isPresent()) {
+                return projected.orElseThrow();
+            }
+        }
         StageInstance stage = stageStore.findStageById(stageId)
                 .orElseThrow(() -> notFound("no stage: " + stageId));
         List<StageEventDto> events = stageStore

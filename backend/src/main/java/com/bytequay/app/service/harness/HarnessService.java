@@ -21,10 +21,13 @@ import com.bytequay.app.service.harness.HarnessModels.Cycle;
 import com.bytequay.app.service.harness.HarnessModels.CycleDetail;
 import com.bytequay.app.service.harness.HarnessModels.CycleDto;
 import com.bytequay.app.service.harness.HarnessModels.CycleStatus;
+import com.bytequay.app.service.harness.HarnessModels.Diagnosis;
 import com.bytequay.app.service.harness.HarnessModels.Event;
 import com.bytequay.app.service.harness.HarnessModels.EventDto;
 import com.bytequay.app.service.harness.HarnessModels.Failure;
 import com.bytequay.app.service.harness.HarnessModels.FailureDto;
+import com.bytequay.app.service.harness.HarnessModels.FailureStatus;
+import com.bytequay.app.service.harness.HarnessModels.FixResult;
 import com.bytequay.app.service.harness.HarnessModels.GitSafetyProof;
 import com.bytequay.app.service.harness.HarnessModels.HandoffDto;
 import com.bytequay.app.service.harness.HarnessModels.HarnessDashboard;
@@ -34,6 +37,7 @@ import com.bytequay.app.service.harness.HarnessModels.Rule;
 import com.bytequay.app.service.harness.HarnessModels.RuleDto;
 import com.bytequay.app.service.harness.HarnessModels.RuleStatus;
 import com.bytequay.app.service.harness.HarnessModels.StatsDto;
+import com.bytequay.app.service.harness.HarnessModels.VerificationResult;
 import com.bytequay.app.service.harness.HarnessModels.Watch;
 import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
 import com.bytequay.app.service.harness.HarnessModels.WatchSummary;
@@ -50,6 +54,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -73,9 +78,12 @@ public class HarnessService
 {
     public static final long DEFAULT_BUDGET_MILLI_USD = 10_000;
     private static final long MAX_BUDGET_MILLI_USD = 100_000;
+    private static final int MAX_NOTE = 4_000;
+    private static final int MAX_ASK_CONTEXT = 24_000;
 
     private final HarnessStore store;
     private final HarnessBootstrapper bootstrapper;
+    private final HarnessDiagnosisService diagnosis;
     private final WorkspaceRepositoryResolver workspaceRepos;
     private final NotificationService notifications;
     private final ObjectMapper mapper;
@@ -85,6 +93,7 @@ public class HarnessService
     public HarnessService(
             HarnessStore store,
             HarnessBootstrapper bootstrapper,
+            HarnessDiagnosisService diagnosis,
             WorkspaceRepositoryResolver workspaceRepos,
             NotificationService notifications,
             ObjectMapper mapper,
@@ -92,6 +101,7 @@ public class HarnessService
     {
         this.store = requireNonNull(store, "store is null");
         this.bootstrapper = requireNonNull(bootstrapper, "bootstrapper is null");
+        this.diagnosis = requireNonNull(diagnosis, "diagnosis is null");
         this.workspaceRepos = requireNonNull(workspaceRepos, "workspaceRepos is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -272,7 +282,7 @@ public class HarnessService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no harness cycle"));
         return new CycleDetail(toCycle(cycle),
                 store.listEventsForCycle(cycle.id()).stream().map(HarnessService::toEvent).toList(),
-                store.listFailuresForCycle(cycle.id()).stream().map(HarnessService::toFailure).toList());
+                store.listFailuresForCycle(cycle.id()).stream().map(this::toFailure).toList());
     }
 
     public List<RuleDto> rules(String workspaceId, String watchId)
@@ -285,14 +295,132 @@ public class HarnessService
     public RuleDto approveRule(String workspaceId, String watchId, String ruleId)
     {
         Watch watch = requireWatch(workspaceId, watchId);
-        Rule rule = store.findRule(ruleId)
-                .filter(value -> value.workspaceId().equals(workspaceId)
-                        && value.owner().equals(watch.owner()) && value.repo().equals(watch.repo()))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no harness rule"));
+        Rule rule = requireRule(workspaceId, watch, ruleId);
         Rule approved = store.approveRule(rule.id(), now());
         store.appendEvent(watch.id(), null, Phase.CLASSIFY, "rule_approved",
                 "Knowledge rule approved for routing", json(Map.of("ruleId", rule.id())), now());
         return toRule(approved);
+    }
+
+    public RuleDto retireRule(String workspaceId, String watchId, String ruleId)
+    {
+        Watch watch = requireWatch(workspaceId, watchId);
+        Rule rule = requireRule(workspaceId, watch, ruleId);
+        Rule retired = store.retireRule(rule.id(), now());
+        store.appendEvent(watch.id(), null, Phase.CLASSIFY, "rule_retired",
+                "Knowledge rule retired; it no longer routes failures",
+                json(Map.of("ruleId", rule.id())), now());
+        return toRule(retired);
+    }
+
+    /** Closes one escalated failure. The note is durable in the milestone feed;
+     * re-running the cycle is the caller's separate, explicit step. */
+    public String resolveFailure(String workspaceId, String watchId, String failureId, String note)
+    {
+        Watch watch = requireWatch(workspaceId, watchId);
+        Failure failure = store.findFailure(failureId)
+                .filter(value -> store.findCycle(value.cycleId())
+                        .filter(cycle -> cycle.watchId().equals(watch.id())).isPresent())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no harness failure"));
+        if (failure.status() != FailureStatus.ESCALATED && failure.status() != FailureStatus.FAILED) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "only an escalated or failed failure can be resolved");
+        }
+        String bounded = boundedNote(note);
+        long now = now();
+        store.updateFailureStatus(failure.id(), FailureStatus.RESOLVED, now);
+        store.appendEvent(watch.id(), failure.cycleId(), Phase.CLASSIFY, "escalation_resolved",
+                "You resolved " + failure.signature(),
+                json(Map.of("failureId", failure.id(), "note", bounded == null ? "" : bounded)), now);
+        if (watch.status() == WatchStatus.NEEDS_ATTENTION
+                && store.listFailuresForWatch(watch.id(), 200).stream()
+                        .noneMatch(value -> value.status() == FailureStatus.ESCALATED)) {
+            store.updateWatchStatusIfNotStopped(
+                    watch.id(), WatchStatus.WATCHING, watch.handoffJson(), now);
+        }
+        return bounded;
+    }
+
+    /** Answers a question about this watch with the read-only diagnosis tools.
+     * The agent may look at the repository; it can never edit, commit, or push. */
+    public HarnessDashboard ask(String workspaceId, String watchId, String question)
+    {
+        Watch watch = requireWatch(workspaceId, watchId);
+        String bounded = boundedNote(question);
+        if (bounded == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "question is required");
+        }
+        if (watch.localPath() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "the watch has no local checkout to read from yet");
+        }
+        long remaining = Math.max(0, watch.budgetMilliUsd() - watch.spentMilliUsd());
+        if (remaining < 100) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "raise the watch budget before asking another question");
+        }
+        long asked = now();
+        store.appendEvent(watch.id(), null, Phase.CLASSIFY, "question",
+                bounded, json(Map.of("author", "user")), asked);
+        HarnessDiagnosisService.AskOutcome outcome;
+        try {
+            outcome = diagnosis.ask(
+                    Path.of(watch.localPath()), watch.workspaceId(),
+                    bounded, askContext(watch), remaining);
+        }
+        catch (RuntimeException failure) {
+            store.appendEvent(watch.id(), null, Phase.CLASSIFY, "answer_failed",
+                    "The question could not be answered: " + message(failure), "{}", now());
+            return get(workspaceId, watchId);
+        }
+        store.addWatchCost(watch.id(), outcome.costMilliUsd(), now());
+        store.appendEvent(watch.id(), null, Phase.CLASSIFY, "answer",
+                outcome.answer(), json(Map.of("author", "harness")), now());
+        return get(workspaceId, watchId);
+    }
+
+    /** The run state the answer must be grounded in, so a question about a
+     * failure does not become a fresh unguided investigation. */
+    private String askContext(Watch watch)
+    {
+        StringBuilder out = new StringBuilder("Watch status: ").append(watch.status().wire())
+                .append("\nPull request: ").append(watch.owner()).append('/').append(watch.repo())
+                .append(" #").append(watch.prNumber())
+                .append("\nBranch: ").append(watch.branch() == null ? "unknown" : watch.branch());
+        for (Failure failure : store.listFailuresForWatch(watch.id(), 40)) {
+            out.append("\n\n- [").append(failure.status().wire()).append("] ")
+                    .append(failure.bucketLabel()).append(" in ").append(failure.module())
+                    .append("\n  signature: ").append(failure.signature());
+            if (failure.targetSubject() != null) {
+                out.append("\n  proposed owner: ").append(failure.targetSubject());
+            }
+            Diagnosis parsed = parse(failure.diagnosisJson(), Diagnosis.class);
+            if (parsed != null) {
+                out.append("\n  root cause: ").append(parsed.rootCause())
+                        .append("\n  confidence: ").append(parsed.confidence());
+            }
+            VerificationResult verified = parse(failure.verificationJson(), VerificationResult.class);
+            if (verified != null && !verified.passed()) {
+                out.append("\n  verification failed: ").append(verified.reason());
+            }
+        }
+        return out.length() <= MAX_ASK_CONTEXT
+                ? out.toString() : out.substring(0, MAX_ASK_CONTEXT);
+    }
+
+    private Rule requireRule(String workspaceId, Watch watch, String ruleId)
+    {
+        return store.findRule(ruleId)
+                .filter(value -> value.workspaceId().equals(workspaceId)
+                        && value.owner().equals(watch.owner()) && value.repo().equals(watch.repo()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no harness rule"));
+    }
+
+    private static String boundedNote(String value)
+    {
+        String stripped = blankToNull(value);
+        return stripped == null || stripped.length() <= MAX_NOTE
+                ? stripped : stripped.substring(0, MAX_NOTE);
     }
 
     public void notifyNeedsAttention(Watch watch, String title, String summary)
@@ -339,7 +467,7 @@ public class HarnessService
                         Math.max(0, watch.budgetMilliUsd() - watch.spentMilliUsd())),
                 active == null ? null : toCycle(active), cycles.stream().map(this::toCycle).toList(),
                 store.listEventsForWatch(watch.id(), 200).stream().map(HarnessService::toEvent).toList(),
-                failures.stream().map(HarnessService::toFailure).toList(),
+                failures.stream().map(this::toFailure).toList(),
                 new StatsDto(Collections.unmodifiableMap(failuresByState),
                         store.countRules(watch.workspaceId(), watch.owner(), watch.repo(), RuleStatus.ACTIVE),
                         store.countRules(watch.workspaceId(), watch.owner(), watch.repo(), RuleStatus.CANDIDATE),
@@ -397,11 +525,16 @@ public class HarnessService
                 event.message(), event.detailJson(), event.createdAtMs());
     }
 
-    static FailureDto toFailure(Failure failure)
+    FailureDto toFailure(Failure failure)
     {
         return new FailureDto(failure.id(), failure.cycleId(), failure.status().wire(),
-                failure.bucketLabel(), failure.jobName(), failure.module(), failure.signature(),
-                failure.logExcerpt(), failure.targetSubject(), failure.ruleId());
+                failure.bucketLabel(), failure.jobName(), failure.module(),
+                failure.testClass(), failure.testMethod(), failure.signature(),
+                failure.logExcerpt(), failure.targetSubject(), failure.ruleId(),
+                parse(failure.diagnosisJson(), Diagnosis.class),
+                parse(failure.fixJson(), FixResult.class),
+                parse(failure.verificationJson(), VerificationResult.class),
+                failure.updatedAtMs());
     }
 
     static RuleDto toRule(Rule rule)

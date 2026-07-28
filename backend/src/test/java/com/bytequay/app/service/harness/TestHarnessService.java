@@ -15,7 +15,13 @@ package com.bytequay.app.service.harness;
 
 import com.bytequay.app.service.harness.HarnessBootstrapper.BootstrapResult;
 import com.bytequay.app.service.harness.HarnessModels.BootstrapProfile;
+import com.bytequay.app.service.harness.HarnessModels.Cycle;
+import com.bytequay.app.service.harness.HarnessModels.CycleStatus;
+import com.bytequay.app.service.harness.HarnessModels.Diagnosis;
+import com.bytequay.app.service.harness.HarnessModels.Failure;
+import com.bytequay.app.service.harness.HarnessModels.FailureStatus;
 import com.bytequay.app.service.harness.HarnessModels.HarnessDashboard;
+import com.bytequay.app.service.harness.HarnessModels.Phase;
 import com.bytequay.app.service.harness.HarnessModels.Watch;
 import com.bytequay.app.service.harness.HarnessModels.WatchStatus;
 import com.bytequay.app.service.threads.NotificationService;
@@ -25,6 +31,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -32,6 +39,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -47,11 +55,12 @@ class TestHarnessService
 {
     private final HarnessStore store = mock(HarnessStore.class);
     private final HarnessBootstrapper bootstrapper = mock(HarnessBootstrapper.class);
+    private final HarnessDiagnosisService diagnosis = mock(HarnessDiagnosisService.class);
     private final WorkspaceRepositoryResolver repositories = mock(WorkspaceRepositoryResolver.class);
     private final NotificationService notifications = mock(NotificationService.class);
     private final List<Runnable> queued = new ArrayList<>();
     private final HarnessService service = new HarnessService(
-            store, bootstrapper, repositories, notifications,
+            store, bootstrapper, diagnosis, repositories, notifications,
             new ObjectMapper(), queued::add);
 
     @BeforeEach
@@ -117,6 +126,136 @@ class TestHarnessService
         queued.getFirst().run();
         verify(bootstrapper).bootstrap(
                 watch.owner(), watch.repo(), watch.localPath(), watch.id(), watch.branch());
+    }
+
+    @Test
+    void resolvingTheLastEscalationReturnsTheWatchToWatching()
+    {
+        Watch watch = liveWatch();
+        Failure failure = escalatedFailure();
+        when(store.findWatch("watch")).thenReturn(Optional.of(watch));
+        when(store.findFailure("failure")).thenReturn(Optional.of(failure));
+        when(store.findCycle("cycle")).thenReturn(Optional.of(cycle()));
+        when(store.listFailuresForWatch("watch", 200)).thenReturn(List.of(
+                new Failure("other", "cycle", "run", 7L, "build", "root", null, null,
+                        "other failure", "excerpt", "test", null,
+                        FailureStatus.RESOLVED, null, null, null, null, 1, 1)));
+
+        assertThat(service.resolveFailure("ws", "watch", "failure", "  known upstream flake  "))
+                .isEqualTo("known upstream flake");
+
+        verify(store).updateFailureStatus(eq("failure"), eq(FailureStatus.RESOLVED), anyLong());
+        verify(store).updateWatchStatusIfNotStopped(
+                eq("watch"), eq(WatchStatus.WATCHING), any(), anyLong());
+    }
+
+    @Test
+    void resolvingKeepsNeedsAttentionWhileAnotherEscalationIsOpen()
+    {
+        Watch watch = liveWatch();
+        when(store.findWatch("watch")).thenReturn(Optional.of(watch));
+        when(store.findFailure("failure")).thenReturn(Optional.of(escalatedFailure()));
+        when(store.findCycle("cycle")).thenReturn(Optional.of(cycle()));
+        when(store.listFailuresForWatch("watch", 200)).thenReturn(List.of(escalatedFailure()));
+
+        service.resolveFailure("ws", "watch", "failure", null);
+
+        verify(store).updateFailureStatus(eq("failure"), eq(FailureStatus.RESOLVED), anyLong());
+        verify(store, never()).updateWatchStatusIfNotStopped(any(), any(), any(), anyLong());
+    }
+
+    @Test
+    void onlyAnEscalatedOrFailedFailureCanBeResolved()
+    {
+        when(store.findWatch("watch")).thenReturn(Optional.of(liveWatch()));
+        when(store.findCycle("cycle")).thenReturn(Optional.of(cycle()));
+        when(store.findFailure("failure")).thenReturn(Optional.of(
+                new Failure("failure", "cycle", "run", 7L, "build", "root", null, null,
+                        "verified failure", "excerpt", "test", null,
+                        FailureStatus.VERIFIED, null, null, null, null, 1, 1)));
+
+        assertThatThrownBy(() -> service.resolveFailure("ws", "watch", "failure", null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("409");
+        verify(store, never()).updateFailureStatus(any(), any(), anyLong());
+    }
+
+    @Test
+    void askRecordsTheQuestionTheAnswerAndItsCost()
+    {
+        when(store.findWatch("watch")).thenReturn(Optional.of(liveWatch()));
+        when(store.listFailuresForWatch("watch", 40)).thenReturn(List.of(escalatedFailure()));
+        when(diagnosis.ask(any(), eq("ws"), eq("why is it red?"), anyString(), eq(10_000L)))
+                .thenReturn(new HarnessDiagnosisService.AskOutcome("Two seams are failing.", 42));
+
+        service.ask("ws", "watch", "  why is it red?  ");
+
+        ArgumentCaptor<String> context = ArgumentCaptor.forClass(String.class);
+        verify(diagnosis).ask(any(), eq("ws"), eq("why is it red?"), context.capture(), eq(10_000L));
+        assertThat(context.getValue()).contains("plan mismatch").contains("escalated");
+        verify(store).addWatchCost(eq("watch"), eq(42L), anyLong());
+        verify(store).appendEvent(
+                eq("watch"), any(), any(), eq("question"), eq("why is it red?"), anyString(), anyLong());
+        verify(store).appendEvent(
+                eq("watch"), any(), any(), eq("answer"), eq("Two seams are failing."),
+                anyString(), anyLong());
+    }
+
+    @Test
+    void aFailedAnswerIsRecordedWithoutChargingTheWatch()
+    {
+        when(store.findWatch("watch")).thenReturn(Optional.of(liveWatch()));
+        when(store.listFailuresForWatch("watch", 40)).thenReturn(List.of());
+        when(diagnosis.ask(any(), any(), any(), any(), anyLong()))
+                .thenThrow(new IllegalStateException("provider is unreachable"));
+
+        service.ask("ws", "watch", "why is it red?");
+
+        verify(store).appendEvent(
+                eq("watch"), any(), any(), eq("answer_failed"), anyString(), anyString(), anyLong());
+        verify(store, never()).addWatchCost(any(), anyLong(), anyLong());
+    }
+
+    @Test
+    void theFailureProjectionKeepsSubTaggedBucketsAndParsedDiagnosis()
+            throws Exception
+    {
+        String diagnosisJson = new ObjectMapper().writeValueAsString(new Diagnosis(
+                "stale plan", null, "Add hive statistics", List.of(), "plan mismatch",
+                "resource:plan_mismatch", "agent", List.of("regen"), 0.9, false,
+                "regenerated fixture"));
+        Failure failure = new Failure(
+                "failure", "cycle", "run", 7L, "build", "root", "TestPlan", "checks",
+                "plan mismatch", "excerpt", "resource:plan_mismatch", null,
+                FailureStatus.ESCALATED, "Add hive statistics",
+                diagnosisJson, null, null, 1, 2);
+
+        var dto = service.toFailure(failure);
+
+        assertThat(dto.bucket()).isEqualTo("resource:plan_mismatch");
+        assertThat(dto.testClass()).isEqualTo("TestPlan");
+        assertThat(dto.diagnosis().rootCause()).isEqualTo("stale plan");
+        assertThat(dto.verification()).isNull();
+    }
+
+    private static Watch liveWatch()
+    {
+        return new Watch("watch", "ws", "acme", "widget", 7, null,
+                "/repo/widget", "feature", "PR", WatchStatus.NEEDS_ATTENTION, "sha",
+                "ready", "{}", 10_000, 0, null, 1, 1, null, null);
+    }
+
+    private static Cycle cycle()
+    {
+        return new Cycle("cycle", "watch", 1, "manual", null, CycleStatus.HANDOFF,
+                Phase.DONE, "sha", null, 0, null, null, null, null, 1, 1, 1L, null);
+    }
+
+    private static Failure escalatedFailure()
+    {
+        return new Failure("failure", "cycle", "run", 7L, "build", "root", null, null,
+                "plan mismatch", "excerpt", "resource:plan_mismatch", null,
+                FailureStatus.ESCALATED, null, null, null, null, 1, 1);
     }
 
     private static Watch pendingWatch()

@@ -127,6 +127,7 @@ public final class HarnessModels
         FIXED,
         VERIFIED,
         ESCALATED,
+        RESOLVED,
         FAILED;
 
         public String wire()
@@ -390,10 +391,16 @@ public final class HarnessModels
             String bucket,
             String jobName,
             String module,
+            String testClass,
+            String testMethod,
             String signature,
             String logExcerpt,
             String targetSubject,
-            String ruleId) {}
+            String ruleId,
+            Diagnosis diagnosis,
+            FixResult fix,
+            VerificationResult verification,
+            long updatedAtMs) {}
 
     public record StatsDto(
             Map<String, Long> failuresByState,

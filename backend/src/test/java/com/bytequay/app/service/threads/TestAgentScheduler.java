@@ -434,9 +434,11 @@ class TestAgentScheduler
     }
 
     @Test
-    void cancellingATaskStopsOnlyThatTasksDurableTurns()
+    void cancellingATaskReleasesItsLaneWithoutAffectingSiblingTurns()
     {
-        TestHarness harness = new TestHarness(2, 4);
+        // With one CLI slot, the sibling cannot start until cancellation
+        // removes the target's queued work and its running provider exits.
+        TestHarness harness = new TestHarness(1, 4);
         Thread targetThread = thread("thread-target", CLI_AGENT);
         Thread siblingThread = thread("thread-sibling", CLI_AGENT);
         RecordingSession targetSession = harness.register(targetThread);

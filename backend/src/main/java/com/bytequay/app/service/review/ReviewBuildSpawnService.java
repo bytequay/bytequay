@@ -21,7 +21,6 @@ import com.bytequay.app.domain.ReviewFindingSeverity;
 import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.ReviewPhase;
-import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.WatchedRepo;
@@ -32,6 +31,8 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.service.workspaces.WorkspaceRelationService;
+import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,11 +44,13 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static java.util.Objects.requireNonNull;
@@ -61,14 +64,14 @@ import static java.util.Objects.requireNonNull;
  *   <li><b>author-is-reviewer</b> (you authored the PR) — the build
  *       thread fetches {@code pr.head} locally and edits it; pushes go
  *       through the standard parked-publish gate.</li>
- *   <li><b>suggested-change</b> (someone else's PR) — no checkout; the
- *       build thread proposes GitHub suggested-change comments, still
- *       through {@code PublishService}.</li>
+ *   <li><b>suggested-change</b> (someone else's PR) — the immutable mode is
+ *       retained, but writable V2 Task materialization fails closed until a
+ *       dedicated comment-only execution owner exists.</li>
  * </ul>
  *
- * <p>The pass is never auto-closed: it stays TERMINATE until every
- * AGREED finding is resolved (by the {@code ReviewPassResolver} when the
- * spawned work ships) or dropped by the user. One spawn per pass.
+ * <p>The pass is never auto-closed. A completed V2 TaskOutcome resolves only
+ * the exact frozen findings through {@link ReviewBuildOutcomeService}; publish
+ * text and commit-message references are deliberately not lifecycle proof.
  */
 @Service
 public class ReviewBuildSpawnService
@@ -86,6 +89,8 @@ public class ReviewBuildSpawnService
     private final PullRequestRepository pullRequests;
     private final PatResolver patResolver;
     private final WorkspaceService workspaceService;
+    private final WorkspaceRepositoryResolver repositories;
+    private final WorkspaceRelationService relations;
     private final WatchedRepoStore watchedRepos;
     private final GitRunner git;
     private final ReviewBuildSpawnCommitter committer;
@@ -95,6 +100,8 @@ public class ReviewBuildSpawnService
             PullRequestRepository pullRequests,
             PatResolver patResolver,
             WorkspaceService workspaceService,
+            WorkspaceRepositoryResolver repositories,
+            WorkspaceRelationService relations,
             WatchedRepoStore watchedRepos,
             GitRunner git,
             ReviewBuildSpawnCommitter committer)
@@ -103,6 +110,8 @@ public class ReviewBuildSpawnService
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
+        this.repositories = requireNonNull(repositories, "repositories is null");
+        this.relations = requireNonNull(relations, "relations is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.git = requireNonNull(git, "git is null");
         this.committer = requireNonNull(committer, "committer is null");
@@ -130,8 +139,7 @@ public class ReviewBuildSpawnService
             throw status(409, "pass " + passId + " is not TERMINATE (phase " + pass.phase() + ")");
         }
         if (pass.spawnedBuildThreadId() != null) {
-            throw status(409, "pass " + passId + " already spawned build thread "
-                    + pass.spawnedBuildThreadId());
+            return replay(pass, workspaceId, openingTitle, selectedFindingIds);
         }
 
         // Gate: at least one AGREED finding at severity >= MAJOR.
@@ -157,7 +165,9 @@ public class ReviewBuildSpawnService
         PrRawDetail raw = pullRequests.fetchPrDetail(pat, ref);
         if (pass.headSha() == null || pass.headSha().isBlank()
                 || raw.headSha() == null
-                || !pass.headSha().equals(raw.headSha())) {
+                || !pass.headSha().equals(raw.headSha())
+                || raw.baseRepo() == null
+                || !repo.equalsIgnoreCase(raw.baseRepo())) {
             throw status(409, "review_head_moved");
         }
         String currentLogin = pullRequests.fetchUserProfile(pat).login();
@@ -165,12 +175,14 @@ public class ReviewBuildSpawnService
                 && pr.author().equalsIgnoreCase(currentLogin);
         String mode = authorIsReviewer ? MODE_AUTHOR : MODE_SUGGESTED;
 
-        String ws = resolveWorkspace(workspaceId, repo);
+        String headRepo = requireText(raw.headRepo(), "PR head repository");
+        String ws = resolveWorkspace(
+                workspaceId, repo, headRepo, authorIsReviewer);
 
         // author-mode: best-effort pre-fetch of pr.head so the branch is
         // available locally for the trunk to cut a task worktree off.
         if (authorIsReviewer) {
-            Path clone = resolveClonePath(repo);
+            Path clone = resolveClonePath(headRepo);
             if (clone != null) {
                 try {
                     git.fetchPrRefs(clone, prNumber, raw.baseRef());
@@ -187,7 +199,8 @@ public class ReviewBuildSpawnService
         String title = openingTitle == null || openingTitle.isBlank()
                 ? "Fix review findings on PR #" + prNumber
                 : openingTitle.strip();
-        Path clonePath = resolveClonePath(repo);
+        Path clonePath = resolveClonePath(
+                authorIsReviewer ? headRepo : repo);
 
         ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT,
@@ -204,14 +217,94 @@ public class ReviewBuildSpawnService
                 ThreadFlow.BUILD,
                 ws,
                 /* workModel */ null);
-        Thread thread = committer.commit(request, pass, selected, Instant.now());
+        ReviewBuildSelectionStore.SpawnInput spawn =
+                new ReviewBuildSelectionStore.SpawnInput(
+                        ws, title,
+                        selectedFindingIds == null
+                                ? ReviewBuildSelectionStore.SelectionPolicy.ALL_ELIGIBLE
+                                : ReviewBuildSelectionStore.SelectionPolicy.EXPLICIT,
+                        mode, requireText(raw.baseRepo(), "PR base repository"),
+                        headRepo, requireText(raw.baseRef(), "PR base ref"),
+                        requireText(raw.headRef(), "PR head ref"));
+        ReviewBuildSpawnCommitter.CommittedSpawn committed;
+        try {
+            committed = committer.commit(
+                    request, pass, spawn, selected, Instant.now());
+        }
+        catch (ReviewBuildSelectionStore.SelectionConflict
+                | ReviewBuildSpawnCommitter.SpawnAttachConflict conflict) {
+            return replayCommitted(
+                    passId, null, workspaceId, openingTitle,
+                    selectedFindingIds);
+        }
 
         // A freshly spawned build thread is 0-task — its first task
         // materialises later — so there's no task id to report yet.
         String taskId = null;
         log.info("Spawned build thread {} ({}) from review pass {} on PR {}#{}",
-                thread.id(), mode, passId, repo, prNumber);
-        return new BuildSpawn(thread.id(), taskId, mode);
+                committed.thread().id(), mode, passId, repo, prNumber);
+        return new BuildSpawn(committed.thread().id(), taskId, mode);
+    }
+
+    private BuildSpawn replay(
+            ReviewPass pass,
+            String workspaceId,
+            String openingTitle,
+            List<String> selectedFindingIds)
+    {
+        return replayCommitted(
+                pass.id(), pass.spawnedBuildThreadId(), workspaceId,
+                openingTitle, selectedFindingIds);
+    }
+
+    private BuildSpawn replayCommitted(
+            String passId,
+            String expectedThreadId,
+            String workspaceId,
+            String openingTitle,
+            List<String> selectedFindingIds)
+    {
+        ReviewBuildSpawnCommitter.CommittedSpawn committed = committer
+                .findCommitted(passId)
+                .orElseThrow(() -> status(409,
+                        "review pass has an incomplete build Trunk attachment"));
+        ReviewBuildSelectionStore.Selection selection = committed.selection();
+        if (expectedThreadId != null
+                && !committed.thread().id().equals(expectedThreadId)) {
+            throw status(409, "review build attachment changed");
+        }
+        String title = openingTitle == null || openingTitle.isBlank()
+                ? "Fix review findings on PR #" + selection.prNumber()
+                : openingTitle.strip();
+        if ((workspaceId != null && !workspaceId.isBlank()
+                && !workspaceId.equals(selection.spawn().workspaceId()))
+                || !title.equals(selection.spawn().openingTitle())
+                || !sameSelectionRequest(selection, selectedFindingIds)) {
+            throw status(409,
+                    "review build already spawned with different frozen input");
+        }
+        return new BuildSpawn(
+                committed.thread().id(), null, selection.spawn().mode());
+    }
+
+    private static boolean sameSelectionRequest(
+            ReviewBuildSelectionStore.Selection selection,
+            List<String> selectedFindingIds)
+    {
+        if (selectedFindingIds == null) {
+            return selection.spawn().selectionPolicy()
+                    == ReviewBuildSelectionStore.SelectionPolicy.ALL_ELIGIBLE;
+        }
+        if (selection.spawn().selectionPolicy()
+                != ReviewBuildSelectionStore.SelectionPolicy.EXPLICIT) {
+            return false;
+        }
+        Set<String> requested = new LinkedHashSet<>(selectedFindingIds);
+        return requested.size() == selectedFindingIds.size()
+                && requested.equals(selection.findings().stream()
+                .map(ReviewBuildSelectionStore.Finding::findingId)
+                .collect(Collectors.toCollection(
+                        LinkedHashSet::new)));
     }
 
     private static List<ReviewFinding> select(
@@ -294,13 +387,20 @@ public class ReviewBuildSpawnService
         return (m.matches() ? m.group(2) : body).strip();
     }
 
-    private String resolveWorkspace(String workspaceId, String repo)
+    private String resolveWorkspace(
+            String workspaceId,
+            String baseRepo,
+            String headRepo,
+            boolean authorIsReviewer)
     {
-        if (workspaceId != null && !workspaceId.isBlank() && workspaceWatches(workspaceId, repo)) {
+        if (workspaceId != null && !workspaceId.isBlank()
+                && workspaceMatches(
+                workspaceId, baseRepo, headRepo, authorIsReviewer)) {
             return workspaceId;
         }
         List<Workspace> candidates = workspaceService.list().stream()
-                .filter(w -> workspaceWatches(w.id(), repo))
+                .filter(w -> workspaceMatches(
+                        w.id(), baseRepo, headRepo, authorIsReviewer))
                 .toList();
         if (candidates.isEmpty()) {
             throw status(422, "no_workspace_for_repo");
@@ -309,6 +409,38 @@ public class ReviewBuildSpawnService
             throw status(422, "ambiguous_workspace_picker_required");
         }
         return candidates.get(0).id();
+    }
+
+    private boolean workspaceMatches(
+            String workspaceId,
+            String baseRepo,
+            String headRepo,
+            boolean authorIsReviewer)
+    {
+        if (!authorIsReviewer) {
+            return workspaceWatches(workspaceId, baseRepo);
+        }
+        WorkspaceRepositoryResolver.RepositoryIdentity target;
+        try {
+            target = repositories.resolve(workspaceId);
+        }
+        catch (RuntimeException ignored) {
+            return false;
+        }
+        if (target == null) {
+            return false;
+        }
+        if (baseRepo.equalsIgnoreCase(headRepo)) {
+            return target.fullName().equalsIgnoreCase(baseRepo)
+                    && relations.find(workspaceId).isEmpty();
+        }
+        return relations.find(workspaceId)
+                .map(ignored -> relations.requireResolved(workspaceId))
+                .filter(route -> route.upstream().fullName()
+                        .equalsIgnoreCase(baseRepo))
+                .filter(route -> route.target().fullName()
+                        .equalsIgnoreCase(headRepo))
+                .isPresent();
     }
 
     private boolean workspaceWatches(String workspaceId, String repo)
@@ -343,5 +475,14 @@ public class ReviewBuildSpawnService
     private static ResponseStatusException status(int code, String message)
     {
         return new ResponseStatusException(HttpStatusCode.valueOf(code), message);
+    }
+
+    private static String requireText(String value, String name)
+    {
+        requireNonNull(value, name + " is null");
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(name + " is blank");
+        }
+        return value;
     }
 }

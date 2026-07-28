@@ -741,6 +741,7 @@ const bridge: Bridge = {
   spawnBuildFromReview: (passId: string, opts?: {
     workspaceId?: string;
     openingTitle?: string;
+    /** Omitted deliberately means every currently eligible finding. */
     selectedFindingIds?: string[];
   }) =>
     ipcRenderer.invoke('reviews:spawnBuild', { passId, ...(opts ?? {}) }),

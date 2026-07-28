@@ -71,6 +71,11 @@ class TestV2TaskCreationHandoff
         assertThat(count(jdbc, "tasks")).isEqualTo(7);
         assertThat(count(jdbc, "task_assignment")).isEqualTo(7);
         assertThat(jdbc.queryForList("""
+                SELECT linked_pr_ref FROM tasks
+                WHERE linked_pr_ref IS NOT NULL ORDER BY linked_pr_ref
+                """, String.class))
+                .containsExactly("acme/widget#42", "acme/widget#43");
+        assertThat(jdbc.queryForList("""
                 SELECT finding_id FROM task_assignment_review_finding
                 ORDER BY position
                 """, String.class)).containsExactly("finding-1", "finding-2");
@@ -469,7 +474,7 @@ class TestV2TaskCreationHandoff
     private static List<TaskCreationInput> allInputs()
     {
         TaskAssignment.PullRequestRef existingPr = pullRequest("existing");
-        TaskAssignment.PullRequestRef reviewedPr = pullRequest("review");
+        TaskAssignment.PullRequestRef reviewedPr = pullRequest("review", 43);
         return List.of(
                 input(
                         new TaskAssignment.NewFromTrunk(
@@ -546,8 +551,14 @@ class TestV2TaskCreationHandoff
 
     private static TaskAssignment.PullRequestRef pullRequest(String suffix)
     {
+        return pullRequest(suffix, 42);
+    }
+
+    private static TaskAssignment.PullRequestRef pullRequest(
+            String suffix, int number)
+    {
         return new TaskAssignment.PullRequestRef(
-                direct(), 42, "main", "feature/" + suffix,
+                direct(), number, "main", "feature/" + suffix,
                 "base-" + suffix, "head-" + suffix);
     }
 

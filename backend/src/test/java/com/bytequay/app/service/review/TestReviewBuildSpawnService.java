@@ -31,11 +31,12 @@ import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.ReviewStore;
-import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.service.workspaces.WorkspaceRelationService;
+import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,12 +63,12 @@ class TestReviewBuildSpawnService
     private ReviewStore reviewStore;
     private PullRequestRepository pullRequests;
     private PatResolver patResolver;
-    private ThreadStore threadStore;
-    private ThreadService threadService;
     private WorkspaceService workspaceService;
+    private WorkspaceRepositoryResolver repositories;
+    private WorkspaceRelationService relations;
     private WatchedRepoStore watchedRepos;
     private GitRunner git;
-    private ReviewBuildSelectionStore selections;
+    private ReviewBuildSpawnCommitter committer;
     private ReviewBuildSpawnService service;
 
     private static final String REPO = "acme/widget";
@@ -79,23 +80,30 @@ class TestReviewBuildSpawnService
         reviewStore = mock(ReviewStore.class);
         pullRequests = mock(PullRequestRepository.class);
         patResolver = mock(PatResolver.class);
-        threadStore = mock(ThreadStore.class);
-        threadService = mock(ThreadService.class);
         workspaceService = mock(WorkspaceService.class);
+        repositories = mock(WorkspaceRepositoryResolver.class);
+        relations = mock(WorkspaceRelationService.class);
         watchedRepos = mock(WatchedRepoStore.class);
         git = mock(GitRunner.class);
-        selections = mock(ReviewBuildSelectionStore.class);
-        ReviewBuildSpawnCommitter committer = new ReviewBuildSpawnCommitter(
-                threadService, threadStore, reviewStore, selections);
+        committer = mock(ReviewBuildSpawnCommitter.class);
         service = new ReviewBuildSpawnService(reviewStore, pullRequests, patResolver,
-                workspaceService, watchedRepos, git, committer);
+                workspaceService, repositories, relations, watchedRepos, git,
+                committer);
 
         when(patResolver.resolve(REPO)).thenReturn("pat");
         when(pullRequests.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(rawDetail());
         when(pullRequests.fetchUserProfile("pat")).thenReturn(profile("alice"));
         when(watchedRepos.find("acme", "widget"))
                 .thenReturn(Optional.of(new WatchedRepo(1, "acme", "widget", 0, "/clones/widget", null, null)));
-        when(threadService.create(any())).thenReturn(buildThread("thread-new"));
+        when(repositories.resolve("ws-1")).thenReturn(
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "widget", REPO, "main"));
+        when(relations.find("ws-1")).thenReturn(Optional.empty());
+        ReviewBuildSpawnCommitter.CommittedSpawn committed = mock(
+                ReviewBuildSpawnCommitter.CommittedSpawn.class);
+        when(committed.thread()).thenReturn(buildThread("thread-new"));
+        when(committer.commit(any(), any(), any(), any(), any()))
+                .thenReturn(committed);
         when(workspaceService.listRepos("ws-1")).thenReturn(List.of(
                 new WorkspaceRepo("ws-1", REPO, "main", false, Instant.EPOCH)));
         when(pullRequests.getPullRequest(eq("pat"), any(PullRequestRef.class))).thenReturn(pr("alice"));
@@ -113,12 +121,20 @@ class TestReviewBuildSpawnService
     }
 
     @Test
-    void rejectsWhenAlreadySpawned()
+    void replaysAnAlreadySpawnedSelectAllRequest()
     {
         when(reviewStore.findPassById("p")).thenReturn(Optional.of(pass(ReviewPhase.TERMINATE, "thread-old")));
-        assertThatThrownBy(() -> service.spawn("p", "ws-1", null))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("already spawned");
+        when(committer.findCommitted("p")).thenReturn(Optional.of(
+                committed("thread-old",
+                        ReviewBuildSelectionStore.SelectionPolicy.ALL_ELIGIBLE,
+                        ReviewBuildSpawnService.MODE_AUTHOR, "f1")));
+
+        ReviewBuildSpawnService.BuildSpawn replay =
+                service.spawn("p", "ws-1", null);
+
+        assertThat(replay.threadId()).isEqualTo("thread-old");
+        assertThat(replay.mode()).isEqualTo(ReviewBuildSpawnService.MODE_AUTHOR);
+        verify(committer, never()).commit(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -151,6 +167,10 @@ class TestReviewBuildSpawnService
         when(workspaceService.list()).thenReturn(List.of(ws("ws-1"), ws("ws-2")));
         when(workspaceService.listRepos("ws-2")).thenReturn(List.of(
                 new WorkspaceRepo("ws-2", REPO, "main", false, Instant.EPOCH)));
+        when(repositories.resolve("ws-2")).thenReturn(
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "widget", REPO, "main"));
+        when(relations.find("ws-2")).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.spawn("p", null, null))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("ambiguous_workspace_picker_required");
@@ -171,24 +191,22 @@ class TestReviewBuildSpawnService
         assertThat(out.threadId()).isEqualTo("thread-new");
         // author mode pre-fetches pr.head locally.
         verify(git).fetchPrRefs(any(), eq(PR), anyString());
-        // The created thread is a BUILD thread.
+        // The committed request is a BUILD Trunk with an exact route.
         ArgumentCaptor<ThreadService.NewTaskRequest> req =
                 ArgumentCaptor.forClass(ThreadService.NewTaskRequest.class);
-        verify(threadService).create(req.capture());
-        assertThat(req.getValue().flow()).isEqualTo(ThreadFlow.BUILD);
-        assertThat(req.getValue().linkedPrNumber()).isEqualTo(PR);
-        // Back-links: thread -> pass, pass -> thread.
-        ArgumentCaptor<Thread> savedThread = ArgumentCaptor.forClass(Thread.class);
-        verify(threadStore).saveThread(savedThread.capture());
-        assertThat(savedThread.getValue().parentReviewPassId()).isEqualTo("p");
-        ArgumentCaptor<ReviewPass> savedPass = ArgumentCaptor.forClass(ReviewPass.class);
-        verify(reviewStore).savePass(savedPass.capture());
-        assertThat(savedPass.getValue().spawnedBuildThreadId()).isEqualTo("thread-new");
+        ArgumentCaptor<ReviewBuildSelectionStore.SpawnInput> spawn =
+                ArgumentCaptor.forClass(ReviewBuildSelectionStore.SpawnInput.class);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<ReviewFinding>> frozen = ArgumentCaptor.forClass(List.class);
-        verify(selections).freeze(
-                eq("thread-new"), eq("p"), eq(REPO), eq(PR), eq("sha"),
-                frozen.capture(), any(Instant.class));
+        verify(committer).commit(
+                req.capture(), any(), spawn.capture(), frozen.capture(),
+                any(Instant.class));
+        assertThat(req.getValue().flow()).isEqualTo(ThreadFlow.BUILD);
+        assertThat(req.getValue().linkedPrNumber()).isEqualTo(PR);
+        assertThat(spawn.getValue().mode())
+                .isEqualTo(ReviewBuildSpawnService.MODE_AUTHOR);
+        assertThat(spawn.getValue().baseRepositoryId()).isEqualTo(REPO);
+        assertThat(spawn.getValue().headRepositoryId()).isEqualTo(REPO);
         assertThat(frozen.getValue())
                 .extracting(ReviewFinding::id)
                 .containsExactly("f1");
@@ -209,9 +227,8 @@ class TestReviewBuildSpawnService
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<ReviewFinding>> frozen = ArgumentCaptor.forClass(List.class);
-        verify(selections).freeze(
-                eq("thread-new"), eq("p"), eq(REPO), eq(PR), eq("sha"),
-                frozen.capture(), any(Instant.class));
+        verify(committer).commit(
+                any(), any(), any(), frozen.capture(), any(Instant.class));
         assertThat(frozen.getValue())
                 .extracting(ReviewFinding::id)
                 .containsExactly("f-major");
@@ -236,7 +253,7 @@ class TestReviewBuildSpawnService
         assertThatThrownBy(() -> service.spawn("p", "ws-1", null))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("review_head_moved");
-        verify(threadService, never()).create(any());
+        verify(committer, never()).commit(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -332,6 +349,27 @@ class TestReviewBuildSpawnService
     private static Workspace ws(String id)
     {
         return new Workspace(id, "name", null, false, null, Instant.EPOCH, Instant.EPOCH);
+    }
+
+    private static ReviewBuildSpawnCommitter.CommittedSpawn committed(
+            String threadId,
+            ReviewBuildSelectionStore.SelectionPolicy policy,
+            String mode,
+            String findingId)
+    {
+        ReviewBuildSelectionStore.Selection selection =
+                new ReviewBuildSelectionStore.Selection(
+                        threadId, "p", REPO, PR, "sha",
+                        new ReviewBuildSelectionStore.SpawnInput(
+                                "ws-1", "Fix review findings on PR #" + PR,
+                                policy, mode, REPO, REPO, "main",
+                                "feature/" + PR),
+                        "selection-digest",
+                        List.of(new ReviewBuildSelectionStore.Finding(
+                                "p", findingId, 1, "{}", "digest")),
+                        Instant.EPOCH);
+        return new ReviewBuildSpawnCommitter.CommittedSpawn(
+                buildThread(threadId), selection);
     }
 
     private static Thread buildThread(String id)

@@ -16,49 +16,70 @@ package com.bytequay.app.service.review;
 import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.Thread;
-import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.threads.ThreadService;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/** Commits the local review-to-build handoff after remote facts are resolved. */
+/** Commits one exact local review-to-build handoff after remote facts resolve. */
 @Component
 public final class ReviewBuildSpawnCommitter
 {
     private final ThreadService threads;
     private final ThreadStore threadStore;
-    private final ReviewStore reviews;
     private final ReviewBuildSelectionStore selections;
+    private final JdbcTemplate jdbc;
+    private final TransactionTemplate transactions;
 
     public ReviewBuildSpawnCommitter(
             ThreadService threads,
             ThreadStore threadStore,
-            ReviewStore reviews,
-            ReviewBuildSelectionStore selections)
+            ReviewBuildSelectionStore selections,
+            JdbcTemplate jdbc,
+            PlatformTransactionManager transactionManager)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
-        this.reviews = requireNonNull(reviews, "reviews is null");
         this.selections = requireNonNull(selections, "selections is null");
+        this.jdbc = requireNonNull(jdbc, "jdbc is null");
+        this.transactions = new TransactionTemplate(requireNonNull(
+                transactionManager, "transactionManager is null"));
     }
 
-    @Transactional
-    public Thread commit(
+    /** Thread creation, immutable freeze, and pass attachment share one transaction. */
+    public CommittedSpawn commit(
             ThreadService.NewTaskRequest request,
             ReviewPass pass,
+            ReviewBuildSelectionStore.SpawnInput spawn,
             List<ReviewFinding> selected,
             Instant frozenAt)
     {
         requireNonNull(request, "request is null");
         requireNonNull(pass, "pass is null");
+        requireNonNull(spawn, "spawn is null");
         requireNonNull(selected, "selected is null");
         requireNonNull(frozenAt, "frozenAt is null");
+
+        return requireNonNull(transactions.execute(ignored -> commitInTransaction(
+                request, pass, spawn, selected, frozenAt)),
+                "review build transaction returned no result");
+    }
+
+    private CommittedSpawn commitInTransaction(
+            ThreadService.NewTaskRequest request,
+            ReviewPass pass,
+            ReviewBuildSelectionStore.SpawnInput spawn,
+            List<ReviewFinding> selected,
+            Instant frozenAt)
+    {
         Thread created = threads.create(request);
         Thread linked = new Thread(
                 created.id(), created.kind(), created.provider(),
@@ -70,15 +91,69 @@ public final class ReviewBuildSpawnCommitter
                 created.parallelSlots(), created.parentTaskId(), created.prRef(),
                 created.description());
         threadStore.saveThread(linked);
-        selections.freeze(
+        ReviewBuildSelectionStore.Selection selection = selections.freeze(
                 linked.id(), pass.id(), pass.repoFullName(), pass.prNumber(),
-                pass.headSha(), selected, frozenAt);
-        reviews.savePass(new ReviewPass(
-                pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(),
-                pass.headSha(), pass.phase(), pass.round(), pass.roundCap(),
-                pass.costCapMilli(), pass.costUsdMilli(), pass.verdict(),
-                pass.createdAt(), pass.endedAt(), linked.id(), pass.agendaJson(),
-                pass.hostKind(), pass.hostId(), pass.kind(), pass.taskStageId()));
-        return linked;
+                pass.headSha(), spawn, selected, frozenAt);
+
+        int attached = jdbc.update("""
+                UPDATE review_passes
+                SET spawned_build_thread_id = ?
+                WHERE id = ? AND thread_id = ? AND repo_full_name = ?
+                  AND pr_number = ? AND head_sha = ? AND phase = 'TERMINATE'
+                  AND round = ? AND spawned_build_thread_id IS NULL
+                """,
+                linked.id(), pass.id(), pass.threadId(), pass.repoFullName(),
+                pass.prNumber(), pass.headSha(), pass.round());
+        if (attached != 1) {
+            throw new SpawnAttachConflict(pass.id());
+        }
+        return new CommittedSpawn(linked, selection);
+    }
+
+    public Optional<CommittedSpawn> findCommitted(String reviewPassId)
+    {
+        ReviewBuildSelectionStore.Selection selection = selections
+                .findByReviewPass(reviewPassId).orElse(null);
+        if (selection == null) {
+            return Optional.empty();
+        }
+        Thread thread = threadStore.findThreadById(selection.threadId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "review build selection names a missing Trunk"));
+        List<String> attached = jdbc.query("""
+                SELECT spawned_build_thread_id FROM review_passes WHERE id = ?
+                """, (rs, row) -> rs.getString("spawned_build_thread_id"),
+                reviewPassId);
+        if (attached.size() != 1
+                || !selection.threadId().equals(attached.getFirst())
+                || !reviewPassId.equals(thread.parentReviewPassId())) {
+            throw new IllegalStateException(
+                    "review build pass, selection, and Trunk links disagree");
+        }
+        return Optional.of(new CommittedSpawn(thread, selection));
+    }
+
+    public record CommittedSpawn(
+            Thread thread,
+            ReviewBuildSelectionStore.Selection selection)
+    {
+        public CommittedSpawn
+        {
+            requireNonNull(thread, "thread is null");
+            requireNonNull(selection, "selection is null");
+            if (!thread.id().equals(selection.threadId())) {
+                throw new IllegalArgumentException(
+                        "committed review build spans two Trunks");
+            }
+        }
+    }
+
+    public static final class SpawnAttachConflict
+            extends IllegalStateException
+    {
+        SpawnAttachConflict(String passId)
+        {
+            super("review pass changed before build Trunk attachment: " + passId);
+        }
     }
 }

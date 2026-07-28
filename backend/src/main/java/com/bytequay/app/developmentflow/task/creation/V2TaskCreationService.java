@@ -27,6 +27,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.review.ReviewBuildSelectionStore;
+import com.bytequay.app.service.review.ReviewBuildSpawnService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
@@ -287,16 +288,6 @@ public final class V2TaskCreationService
         WorkspaceRepositoryResolver.RepositoryIdentity workspace =
                 repositories.resolve(trunk.workspaceId());
         int number = requirePositive(request.linkedPrNumber(), "linkedPrNumber");
-        PullRequestRef ref = PullRequestRef.of(
-                workspace.owner(), workspace.repo(), number);
-        PrRawDetail raw = pullRequests.fetchPrDetail(
-                pats.resolve(workspace.fullName()), ref);
-        requireText(raw.headSha(), "PR head SHA");
-        requireText(raw.baseSha(), "PR base SHA");
-        requireText(raw.headRef(), "PR head ref");
-        requireText(raw.baseRef(), "PR base ref");
-        String headRepo = requireText(raw.headRepo(), "PR head repository");
-        String baseRepo = requireText(raw.baseRepo(), "PR base repository");
         ReviewBuildSelectionStore.Selection reviewSelection =
                 reviewSelections.find(trunk.id()).orElse(null);
         if (trunk.parentReviewPassId() == null && reviewSelection != null) {
@@ -307,14 +298,50 @@ public final class V2TaskCreationService
             throw new IllegalStateException(
                     "review build Task is missing its frozen finding selection");
         }
+        if (reviewSelection != null
+                && ReviewBuildSpawnService.MODE_SUGGESTED.equals(
+                reviewSelection.spawn().mode())) {
+            throw new IllegalStateException(
+                    "suggested-change review builds are comment-only and cannot "
+                            + "materialize a writable V2 Task");
+        }
+        String prRepository = reviewSelection == null
+                ? workspace.fullName()
+                : reviewSelection.spawn().baseRepositoryId();
+        String[] prParts = repositoryParts(prRepository);
+        PullRequestRef ref = PullRequestRef.of(
+                prParts[0], prParts[1], number);
+        PrRawDetail raw = pullRequests.fetchPrDetail(
+                pats.resolve(prRepository), ref);
+        requireText(raw.headSha(), "PR head SHA");
+        requireText(raw.baseSha(), "PR base SHA");
+        requireText(raw.headRef(), "PR head ref");
+        requireText(raw.baseRef(), "PR base ref");
+        String headRepo = requireText(raw.headRepo(), "PR head repository");
+        String baseRepo = requireText(raw.baseRepo(), "PR base repository");
         if (reviewSelection == null
                 && !workspace.fullName().equalsIgnoreCase(headRepo)) {
             throw new IllegalStateException(
                     "V2 existing-PR Task requires the Workspace-owned head repository");
         }
-        TaskAssignment.RepositoryRouting routing = baseRepo.equalsIgnoreCase(headRepo)
-                ? new TaskAssignment.Direct(headRepo)
-                : new TaskAssignment.Fork(baseRepo, headRepo);
+        TaskAssignment.RepositoryRouting routing;
+        if (reviewSelection == null) {
+            routing = baseRepo.equalsIgnoreCase(headRepo)
+                    ? new TaskAssignment.Direct(headRepo)
+                    : new TaskAssignment.Fork(baseRepo, headRepo);
+        }
+        else {
+            routing = workspaceRouting(trunk.workspaceId());
+            if (!ReviewBuildSpawnService.MODE_AUTHOR.equals(
+                    reviewSelection.spawn().mode())
+                    || !routing.baseRepositoryId().equalsIgnoreCase(
+                    reviewSelection.spawn().baseRepositoryId())
+                    || !routing.publishRepositoryId().equalsIgnoreCase(
+                    reviewSelection.spawn().headRepositoryId())) {
+                throw new IllegalStateException(
+                        "review build Workspace route cannot write the frozen PR head");
+            }
+        }
         TaskAssignment.PullRequestRef exact = new TaskAssignment.PullRequestRef(
                 routing, number, raw.baseRef(), raw.headRef(),
                 raw.baseSha(), raw.headSha());
@@ -327,7 +354,13 @@ public final class V2TaskCreationService
                     reviewSelection.reviewPassId())
                     || reviewSelection.prNumber() != number
                     || !reviewSelection.repoFullName().equalsIgnoreCase(baseRepo)
-                    || !reviewSelection.reviewedHeadSha().equals(raw.headSha())) {
+                    || !reviewSelection.reviewedHeadSha().equals(raw.headSha())
+                    || !reviewSelection.spawn().baseRepositoryId()
+                    .equalsIgnoreCase(baseRepo)
+                    || !reviewSelection.spawn().headRepositoryId()
+                    .equalsIgnoreCase(headRepo)
+                    || !reviewSelection.spawn().baseRef().equals(raw.baseRef())
+                    || !reviewSelection.spawn().headRef().equals(raw.headRef())) {
                 throw new IllegalStateException(
                         "review build selection is stale or names another PR");
             }
@@ -364,6 +397,16 @@ public final class V2TaskCreationService
                         .upstream().defaultBaseBranch())
                 .orElseGet(() -> repositories.resolve(workspaceId)
                         .defaultBaseBranch());
+    }
+
+    private static String[] repositoryParts(String repository)
+    {
+        String[] parts = requireText(repository, "repository").split("/", 2);
+        if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
+            throw new IllegalStateException(
+                    "review build repository identity is invalid: " + repository);
+        }
+        return parts;
     }
 
     private long requireTrunkVersion(String trunkId)

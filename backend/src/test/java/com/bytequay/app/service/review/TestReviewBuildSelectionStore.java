@@ -46,13 +46,14 @@ class TestReviewBuildSelectionStore
                 "finding-1", "review-pass", "src/Main.java", 17,
                 ReviewFindingSeverity.BLOCKER, ReviewFindingStatus.AGREED,
                 "Fix the exact race", null, null, Instant.ofEpochMilli(3));
+        ReviewBuildSelectionStore.SpawnInput spawn = spawn();
 
         ReviewBuildSelectionStore.Selection first = store.freeze(
                 "build-thread", "review-pass", "acme/widget", 42,
-                "head-1", List.of(finding), Instant.ofEpochMilli(4));
+                "head-1", spawn, List.of(finding), Instant.ofEpochMilli(4));
         ReviewBuildSelectionStore.Selection replay = store.freeze(
                 "build-thread", "review-pass", "acme/widget", 42,
-                "head-1", List.of(finding), Instant.ofEpochMilli(99));
+                "head-1", spawn, List.of(finding), Instant.ofEpochMilli(99));
 
         assertThat(replay).isEqualTo(first);
         assertThat(store.find("build-thread")).contains(first);
@@ -64,7 +65,7 @@ class TestReviewBuildSelectionStore
         });
         assertThatThrownBy(() -> store.freeze(
                 "build-thread", "review-pass", "acme/widget", 42,
-                "head-2", List.of(finding), Instant.ofEpochMilli(5)))
+                "head-2", spawn, List.of(finding), Instant.ofEpochMilli(5)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("different input");
         assertThatThrownBy(() -> jdbc.update("""
@@ -80,6 +81,85 @@ class TestReviewBuildSelectionStore
                 """))
                 .isInstanceOf(DataAccessException.class)
                 .hasMessageContaining("cannot be deleted");
+
+        jdbc.update("""
+                UPDATE review_findings SET body = 'mutated then frozen'
+                WHERE id = 'finding-1'
+                """);
+        assertThat(jdbc.queryForObject("""
+                SELECT revision FROM review_findings WHERE id = 'finding-1'
+                """, Integer.class)).isEqualTo(2);
+        assertThatThrownBy(() -> store.freeze(
+                "another-thread", "review-pass", "acme/widget", 42,
+                "head-1", spawn, List.of(finding), Instant.ofEpochMilli(6)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("changed before freeze");
+    }
+
+    @Test
+    void mixedLegacyAndV2TasksShareOneCaseInsensitiveActivePrFence()
+    {
+        JdbcTemplate jdbc = database();
+        for (String trigger : List.of(
+                "v2_task_insert_shape", "v2_task_creation_authority_insert",
+                "v2_task_update_shape", "v2_task_version_monotonic",
+                "task_terminalize_after_cleanup")) {
+            jdbc.execute("DROP TRIGGER " + trigger);
+        }
+        jdbc.update("""
+                INSERT INTO tasks(
+                    id, thread_id, seq, status, phase, linked_pr_ref,
+                    created_at_ms, workflow_version)
+                VALUES ('legacy-task', 'build-thread', 1, 'IDLE',
+                    'IMPLEMENTING', 'Acme/Widget#42', 5, 'LEGACY')
+                """);
+
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO tasks(
+                    id, thread_id, seq, status, phase, linked_pr_ref,
+                    created_at_ms, workflow_version, lifecycle_state,
+                    epoch, aggregate_version)
+                VALUES ('v2-task', 'build-thread', 2, 'PENDING', 'PLANNING',
+                    'acme/widget#42', 6, 'V2', 'PROVISIONING', 1, 0)
+                """))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("UNIQUE");
+
+        jdbc.update("""
+                UPDATE tasks SET phase = 'COMPLETED' WHERE id = 'legacy-task'
+                """);
+        jdbc.update("""
+                INSERT INTO tasks(
+                    id, thread_id, seq, status, phase, linked_pr_ref,
+                    created_at_ms, workflow_version, lifecycle_state,
+                    epoch, aggregate_version)
+                VALUES ('v2-task', 'build-thread', 2, 'PENDING', 'PLANNING',
+                    'acme/widget#42', 6, 'V2', 'PROVISIONING', 1, 0)
+                """);
+        jdbc.update("""
+                UPDATE tasks SET lifecycle_state = 'COMPLETED'
+                WHERE id = 'v2-task'
+                """);
+        jdbc.update("""
+                INSERT INTO tasks(
+                    id, thread_id, seq, status, phase, linked_pr_ref,
+                    created_at_ms, workflow_version)
+                VALUES ('legacy-next', 'build-thread', 3, 'IDLE',
+                    'IMPLEMENTING', 'ACME/WIDGET#42', 7, 'LEGACY')
+                """);
+
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM tasks WHERE linked_pr_ref IS NOT NULL
+                """, Integer.class)).isEqualTo(3);
+    }
+
+    private static ReviewBuildSelectionStore.SpawnInput spawn()
+    {
+        return new ReviewBuildSelectionStore.SpawnInput(
+                "workspace", "Fix review findings on PR #42",
+                ReviewBuildSelectionStore.SelectionPolicy.ALL_ELIGIBLE,
+                ReviewBuildSpawnService.MODE_AUTHOR,
+                "acme/widget", "acme/widget", "main", "feature/review");
     }
 
     private JdbcTemplate database()

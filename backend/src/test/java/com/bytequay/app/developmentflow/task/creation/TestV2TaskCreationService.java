@@ -35,6 +35,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.review.ReviewBuildSelectionStore;
+import com.bytequay.app.service.review.ReviewBuildSpawnService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
@@ -56,8 +57,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.STALE_VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -177,7 +180,7 @@ class TestV2TaskCreationService
         when(pats.resolve("acme/widget")).thenReturn("pat");
         when(pullRequests.fetchPrDetail(any(), any())).thenReturn(new PrRawDetail(
                 "body", List.of(), false, true, "clean", 1, 1, 1, 0,
-                List.of(), "reviewed-head", "feature/review", "author/widget",
+                List.of(), "reviewed-head", "feature/review", "acme/widget",
                 "main", "acme/widget", "open", false, "base-head", null));
         ReviewBuildSelectionStore.Finding selected =
                 new ReviewBuildSelectionStore.Finding(
@@ -186,7 +189,14 @@ class TestV2TaskCreationService
         when(selections.find(TRUNK)).thenReturn(Optional.of(
                 new ReviewBuildSelectionStore.Selection(
                         TRUNK, "review-pass", "acme/widget", 42,
-                        "reviewed-head", "selection-digest",
+                        "reviewed-head",
+                        new ReviewBuildSelectionStore.SpawnInput(
+                                WORKSPACE, "Fix finding",
+                                ReviewBuildSelectionStore.SelectionPolicy.EXPLICIT,
+                                ReviewBuildSpawnService.MODE_AUTHOR,
+                                "acme/widget", "acme/widget", "main",
+                                "feature/review"),
+                        "selection-digest",
                         List.of(selected), Instant.ofEpochMilli(2))));
         when(handoff.create(any())).thenReturn(creationResult(repositoryRoot));
         when(tasks.findTaskById(TASK)).thenReturn(Optional.of(raw));
@@ -219,6 +229,55 @@ class TestV2TaskCreationService
                                     .extracting(TaskAssignment.ReviewFindingRef::findingId)
                                     .containsExactly("finding-1");
                         });
+    }
+
+    @Test
+    void suggestedChangeSelectionCannotMaterializeAWritableV2Task()
+    {
+        Path repositoryRoot = tempDir.resolve("suggested-repo").toAbsolutePath();
+        JdbcTemplate jdbc = database("suggested-creation.db", repositoryRoot);
+        TaskCreationHandoff handoff = mock(TaskCreationHandoff.class);
+        WorkspaceRepositoryResolver repositories =
+                mock(WorkspaceRepositoryResolver.class);
+        ReviewBuildSelectionStore selections = mock(
+                ReviewBuildSelectionStore.class);
+        PullRequestRepository pullRequests = mock(PullRequestRepository.class);
+        when(repositories.resolve(WORKSPACE)).thenReturn(
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "widget", "acme/widget", "main"));
+        when(selections.find(TRUNK)).thenReturn(Optional.of(
+                new ReviewBuildSelectionStore.Selection(
+                        TRUNK, "review-pass", "acme/widget", 42,
+                        "reviewed-head",
+                        new ReviewBuildSelectionStore.SpawnInput(
+                                WORKSPACE, "Fix finding",
+                                ReviewBuildSelectionStore.SelectionPolicy.EXPLICIT,
+                                ReviewBuildSpawnService.MODE_SUGGESTED,
+                                "acme/widget", "other/widget", "main",
+                                "feature/review"),
+                        "selection-digest",
+                        List.of(new ReviewBuildSelectionStore.Finding(
+                                "review-pass", "finding-1", 1, "{}", "digest")),
+                        Instant.ofEpochMilli(2))));
+        V2TaskCreationService service = new V2TaskCreationService(
+                new DevelopmentFlowCanaryRoute(true, true, WORKSPACE),
+                handoff, jdbc, mock(ThreadStore.class), mock(TaskStore.class),
+                mock(ThreadEngineOverrides.class), repositories,
+                mock(WorkspaceRelationService.class), pullRequests,
+                mock(PatResolver.class), selections, new ObjectMapper(),
+                mock(V2DevelopmentFlowProjection.class));
+        ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT, "codex", "gpt-test", "Fix finding",
+                repositoryRoot.toString(), null, "Address #finding-finding-1",
+                List.of(), "DEVELOP", 42, null, ThreadFlow.BUILD, WORKSPACE,
+                PLAN_MODEL);
+
+        assertThatThrownBy(() -> service.create(reviewTrunk(), request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("comment-only")
+                .hasMessageContaining("cannot materialize a writable V2 Task");
+        verify(pullRequests, never()).fetchPrDetail(any(), any());
+        verify(handoff, never()).create(any());
     }
 
     private JdbcTemplate database(String name, Path repositoryRoot)

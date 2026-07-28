@@ -3951,14 +3951,16 @@ export type Bridge = {
   ) => Promise<ReviewPassDetailDto>;
   /** Spawn a build thread from a TERMINATE-d pass to apply its AGREED
    *  findings. {@code mode} is "author_is_reviewer" (forked off
-   *  pr.head) or "suggested_change" (comment-only). Throws on the
-   *  backend's 409 / 422 gates (not TERMINATE, already spawned, no
+   *  pr.head) or "suggested_change" (non-writable; V2 Task materialization
+   *  currently fails closed until it has a comment-only owner). Throws on the
+   *  backend's 409 / 422 gates (not TERMINATE, conflicting replay, no
    *  eligible findings, no / ambiguous workspace). */
   spawnBuildFromReview: (
     passId: string,
     opts?: {
       workspaceId?: string;
       openingTitle?: string;
+      /** Omitted means all eligible; when present this is the exact subset. */
       selectedFindingIds?: string[];
     },
   ) => Promise<{ threadId: string; taskId: string | null; mode: string }>;

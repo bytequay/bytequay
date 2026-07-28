@@ -725,6 +725,78 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
     }
 
     @Test
+    void v239RequiresTheExactLocalStagePublishCallback()
+            throws Exception
+    {
+        String url = migrated("exact-publish-callback.db");
+        try (Connection connection = connect(url)) {
+            seedApprovedLocalSubject(connection);
+        }
+        migrate(url, "239");
+
+        try (Connection connection = connect(url)) {
+            execute(connection, manifestSql("manifest-1", 1, 1));
+            insertStandingPublishAuthorization(connection);
+            execute(connection, """
+                    UPDATE stage SET version = 1, checkpoint = 'PUBLISHING'
+                    WHERE id = 'local-stage-1'
+                    """);
+            execute(connection, """
+                    INSERT INTO stage_transition(
+                        id, stage_id, command_id, generation, from_checkpoint,
+                        to_checkpoint, stage_version, cause, actor, occurred_at_ms)
+                    VALUES ('publish-transition-1', 'local-stage-1',
+                        'approve-and-ship-command-1', 1, 'LOCAL_REVIEW',
+                        'PUBLISHING', 1, 'AUTHORIZE_PUBLISH', 'policy', 31)
+                    """);
+            execute(connection, authorizePublishReceiptSql(
+                    "publish-receipt-1", "authorization-1"));
+            execute(connection, """
+                    INSERT INTO publish_operation(
+                        id, publish_authorization_id, local_development_stage_id,
+                        task_id, task_epoch, stage_generation, operation_id,
+                        semantic_attempt, code_fingerprint, expected_head_sha,
+                        expected_base_sha, status, requested_at_ms)
+                    VALUES ('publish-operation-1', 'authorization-1',
+                        'local-stage-1', 'task-1', 1, 1,
+                        'publish-operation-id-1', 1, 'fp-1', 'head-1',
+                        'base-1', 'REQUESTED', 32)
+                    """);
+            insertPublishSteps(connection);
+            execute(connection, """
+                    INSERT INTO dispatch_ticket(
+                        id, operation_id, operation_kind, async_family,
+                        owner_kind, owner_id, callback_route, lane_mask,
+                        exclusive_task, writer_required, workspace_id, trunk_id,
+                        task_id, task_epoch, stage_id, stage_generation, attempt,
+                        expected_code_fingerprint, expected_head_sha,
+                        expected_base_sha, status, created_at_ms)
+                    VALUES ('publish-ticket-wrong', 'publish-operation-id-1',
+                        'PUBLISH_LOCAL_DEVELOPMENT', 'GITHUB_EFFECT', 'STAGE',
+                        'local-stage-1', 'WRONG_ROUTE', 48, 1, 1,
+                        'workspace-1', 'trunk-1', 'task-1', 1,
+                        'local-stage-1', 1, 1, 'fp-1', 'head-1', 'base-1',
+                        'REQUESTED', 32)
+                    """);
+            assertFails(connection, """
+                    UPDATE publish_operation SET status = 'DISPATCHED'
+                    WHERE id = 'publish-operation-1'
+                    """);
+
+            execute(connection, "DELETE FROM dispatch_ticket WHERE id = 'publish-ticket-wrong'");
+            insertPublishTicket(connection);
+            execute(connection, """
+                    UPDATE publish_operation SET status = 'DISPATCHED'
+                    WHERE id = 'publish-operation-1'
+                    """);
+            assertThat(text(connection, """
+                    SELECT status FROM publish_operation
+                    WHERE id = 'publish-operation-1'
+                    """)).isEqualTo("DISPATCHED");
+        }
+    }
+
+    @Test
     void canceledAndSupersededAuthorizationsRequireMatchingTerminalOperations()
             throws Exception
     {

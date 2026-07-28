@@ -151,6 +151,25 @@ class TestV2LocalReviewControl
     }
 
     @Test
+    void agentRootWithoutAnExactCurrentReviewRequestFailsClosed()
+            throws Exception
+    {
+        Fixture fixture = fixture("agent-root-without-request.db");
+
+        assertThatThrownBy(() -> fixture.control().addComment(
+                localPr(), PRComment.ORIGIN_LOCAL, PRComment.SCOPE_PR,
+                null, null, null, null, null,
+                PRTimelineEntry.ACTOR_AGENT, "Unowned agent finding", null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("exact active AgentReview request");
+        assertThat(fixture.jdbc().queryForObject(
+                "SELECT COUNT(*) FROM local_review_thread", Integer.class))
+                .isZero();
+        assertThat(fixture.jdbc().queryForObject(
+                "SELECT COUNT(*) FROM pr_comment", Integer.class)).isZero();
+    }
+
+    @Test
     void successfulBatchAcceptsAnExplicitlyDismissedSubmittedRevision()
             throws Exception
     {
@@ -314,6 +333,57 @@ class TestV2LocalReviewControl
                 WHERE blocker_type = 'LOCAL_AGENT_REVIEW_BLOCKING'
                   AND status = 'OPEN'
                 """, Integer.class)).isOne();
+
+        V2LocalReviewControl.AgentReviewRequest replay =
+                fixture.control().continueAgentReview(
+                        "task-1", "review-continued",
+                        "round-review-continued-2");
+        assertThat(replay.id()).isEqualTo(continued.id());
+        assertThat(fixture.jdbc().queryForObject("""
+                SELECT COUNT(*) FROM local_review_agent_request
+                WHERE review_id = 'review-continued'
+                """, Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    void continuationRequiresAPriorRequestOwnedByTheSameTask()
+            throws Exception
+    {
+        Fixture missing = fixture("continued-review-missing-prior.db");
+        seedReviewSession(missing.jdbc(), "review-missing-prior");
+        seedQueuedRound(
+                missing.jdbc(), "review-missing-prior",
+                "round-review-missing-prior-2",
+                "run-review-missing-prior-2", 23);
+
+        assertThatThrownBy(() -> missing.control().continueAgentReview(
+                "task-1", "review-missing-prior",
+                "round-review-missing-prior-2"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no exact prior");
+        assertThat(missing.jdbc().queryForObject(
+                "SELECT COUNT(*) FROM local_review_agent_request", Integer.class))
+                .isZero();
+
+        Fixture mismatched = fixture("continued-review-wrong-task.db");
+        seedReviewSession(mismatched.jdbc(), "review-wrong-task");
+        mismatched.control().requestAgentReview(
+                "task-1", "review-wrong-task",
+                roundId("review-wrong-task"), true);
+        seedQueuedRound(
+                mismatched.jdbc(), "review-wrong-task",
+                "round-review-wrong-task-2",
+                "run-review-wrong-task-2", 23);
+
+        assertThatThrownBy(() -> mismatched.control().continueAgentReview(
+                "another-task", "review-wrong-task",
+                "round-review-wrong-task-2"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no exact prior");
+        assertThat(mismatched.jdbc().queryForObject("""
+                SELECT COUNT(*) FROM local_review_agent_request
+                WHERE review_id = 'review-wrong-task'
+                """, Integer.class)).isOne();
     }
 
     @Test
@@ -368,6 +438,54 @@ class TestV2LocalReviewControl
         assertThat(sibling.jdbc().queryForObject(
                 "SELECT COUNT(*) FROM local_review_agent_request",
                 Integer.class)).isZero();
+    }
+
+    @Test
+    void findingImportRequiresTheExactRequestedReviewRound()
+            throws Exception
+    {
+        Fixture fixture = fixture("review-round-finding-fence.db");
+        String reviewId = "review-round-fence";
+        String requestedRoundId = roundId(reviewId);
+        String siblingRoundId = "round-review-round-fence-2";
+        seedReviewSession(fixture.jdbc(), reviewId);
+        V2LocalReviewControl.AgentReviewRequest request =
+                fixture.control().requestAgentReview(
+                        "task-1", reviewId, requestedRoundId, false);
+        seedCompletedFinding(
+                fixture.jdbc(), reviewId, requestedRoundId,
+                "run-" + reviewId, "finding-requested-round");
+        seedQueuedRound(
+                fixture.jdbc(), reviewId, siblingRoundId,
+                "run-review-round-fence-2", 23);
+        seedCompletedFinding(
+                fixture.jdbc(), reviewId, siblingRoundId,
+                "run-review-round-fence-2", "finding-sibling-round");
+
+        assertThatThrownBy(() -> fixture.control().importSelectedFindings(
+                reviewId, requestedRoundId, List.of("finding-sibling-round")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("exact completed review round");
+        assertThat(fixture.jdbc().queryForObject(
+                "SELECT COUNT(*) FROM local_review_imported_finding",
+                Integer.class)).isZero();
+
+        PRComment comment = fixture.control().addComment(
+                localPr(), PRComment.ORIGIN_LOCAL, PRComment.SCOPE_FILE_LINE,
+                "src/Main.java", 12, "RIGHT", null, null,
+                PRTimelineEntry.ACTOR_AGENT, "Sibling-round finding", null);
+        String revisionId = fixture.jdbc().queryForObject("""
+                SELECT id FROM local_review_comment_revision
+                WHERE thread_id = ?
+                """, String.class, comment.id());
+        assertThatThrownBy(() -> fixture.jdbc().update("""
+                INSERT INTO local_review_imported_finding(
+                    request_id, finding_id, thread_id, comment_revision_id,
+                    imported_by, imported_at_ms)
+                VALUES (?, 'finding-sibling-round', ?, ?, 'user', 30)
+                """, request.id(), comment.id(), revisionId))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("exact completed review");
     }
 
     private Fixture fixture(String name)
@@ -450,9 +568,18 @@ class TestV2LocalReviewControl
     private static void seedCompletedFinding(
             JdbcTemplate jdbc, String reviewId, String findingId)
     {
-        String runId = "run-" + reviewId;
-        String roundId = roundId(reviewId);
-        String objectiveId = "objective-" + reviewId;
+        seedCompletedFinding(
+                jdbc, reviewId, roundId(reviewId), "run-" + reviewId, findingId);
+    }
+
+    private static void seedCompletedFinding(
+            JdbcTemplate jdbc,
+            String reviewId,
+            String roundId,
+            String runId,
+            String findingId)
+    {
+        String objectiveId = "objective-" + findingId;
         jdbc.update("""
                 UPDATE agent_run
                 SET status = 'SUCCEEDED', iterations = 1, finished_at_ms = 22

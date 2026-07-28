@@ -183,6 +183,7 @@ WHEN NOT EXISTS (
       AND requested_round.status LIKE 'COMPLETED%'
       AND requested_round.end_commit = request.head_sha
       AND finding.session_id = request.review_id
+      AND finding.round_id = request.review_round_id
       AND lower(finding.lifecycle_status) <> 'dropped'
       AND finding.last_checked_commit = request.head_sha
       AND round.session_id = request.review_id

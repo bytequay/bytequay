@@ -38,6 +38,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -141,7 +142,7 @@ public final class ThreadTurnOperationHandler
         try (AgentTurnProviderSession.Session session = provider.open(request, observer)) {
             String agentKey = mcpAgentKey(turn.turnId(), turn.operationId());
             activeContexts.put(
-                    turn.trunkId(), agentKey, trunkContext(),
+                    turn.trunkId(), agentKey, context(turn),
                     new PermissionResolver.RunningScope(
                             ThreadScope.TRUNK,
                             null, null, turn.turnId()),
@@ -221,13 +222,18 @@ public final class ThreadTurnOperationHandler
         return null;
     }
 
-    private ResolvedAgentContext trunkContext()
+    private ResolvedAgentContext context(ExactTurn turn)
     {
-        RoleDefinition role = RoleRegistry.definition(ByteQuayRole.TRUNK);
+        boolean completionSummary =
+                "TASK_COMPLETION_SUMMARY".equals(turn.purpose());
+        RoleDefinition role = RoleRegistry.definition(
+                completionSummary ? ByteQuayRole.BRAIN : ByteQuayRole.TRUNK);
         return new ResolvedAgentContext(
                 role.role(), role.version(), role.permissionRole(), null,
                 role.capabilities(), List.of(), List.of(),
-                role.resources(), tools.activeTools(ByteQuayRole.TRUNK, null));
+                role.resources(), completionSummary
+                        ? tools.completionSummaryTools()
+                        : tools.activeTools(ByteQuayRole.TRUNK, null));
     }
 
     private DispatchTicket.DispatchResult providerResult(
@@ -382,7 +388,10 @@ public final class ThreadTurnOperationHandler
             String operationId,
             int attempt,
             String launchInput,
-            String trunkLifecycle)
+            String trunkLifecycle,
+            String planningOperationId,
+            String expectedBaseSha,
+            String currentBaseSha)
     {
         public ExactTurn
         {
@@ -397,6 +406,26 @@ public final class ThreadTurnOperationHandler
             if (attempt < 1) {
                 throw new IllegalArgumentException("attempt must be positive");
             }
+            if ((planningOperationId == null) != (expectedBaseSha == null)) {
+                throw new IllegalArgumentException(
+                        "ThreadTurn planning fence is incomplete");
+            }
+        }
+
+        public ExactTurn(
+                String turnId,
+                String trunkId,
+                String workspaceId,
+                String purpose,
+                String turnStatus,
+                String operationId,
+                int attempt,
+                String launchInput,
+                String trunkLifecycle)
+        {
+            this(turnId, trunkId, workspaceId, purpose, turnStatus,
+                    operationId, attempt, launchInput, trunkLifecycle,
+                    null, null, null);
         }
 
         private String validate(DispatchTicket.DispatchEnvelope envelope)
@@ -417,8 +446,13 @@ public final class ThreadTurnOperationHandler
                     || fence.stageGeneration() != null
                     || fence.expectedCodeFingerprint() != null
                     || fence.expectedHeadSha() != null
-                    || fence.expectedBaseSha() != null) {
+                    || !Objects.equals(
+                    expectedBaseSha, fence.expectedBaseSha())) {
                 return "DispatchTicket fence differs from the immutable ThreadTurn";
+            }
+            if (planningOperationId != null
+                    && !Objects.equals(expectedBaseSha, currentBaseSha)) {
+                return "ThreadTurn planning snapshot is no longer current";
             }
             if (!workspaceId.equals(capacity.scope().workspaceId())
                     || !trunkId.equals(capacity.scope().trunkId())

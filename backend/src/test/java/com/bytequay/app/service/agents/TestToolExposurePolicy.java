@@ -61,4 +61,14 @@ class TestToolExposurePolicy
         assertThat(policy.activeTools(ByteQuayRole.TASK, StageType.BRANCH_GUARD_STAGE))
                 .doesNotContain("reply_review_thread", "resolve_review_thread");
     }
+
+    @Test
+    void completionSummaryCannotMutateWorkflowOrRequestApproval()
+    {
+        assertThat(policy.completionSummaryTools())
+                .contains("read_commit_summary", "read_diff_summary")
+                .doesNotContain(
+                        "create_task", "record_plan", "record_review_verdict",
+                        "approval_prompt", "ask_user_question", "push");
+    }
 }

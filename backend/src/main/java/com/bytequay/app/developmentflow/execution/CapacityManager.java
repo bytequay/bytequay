@@ -635,9 +635,14 @@ public final class CapacityManager
                 throw new IllegalArgumentException(
                         "REMOTE_OBSERVATION capacity is a read-only lane");
             }
-            if (lanes.contains(CapacityLane.LOCAL_GIT) && !writerRequired) {
+            boolean trunkPlanningGit = lanes.equals(Set.of(CapacityLane.LOCAL_GIT))
+                    && trunkControl
+                    && scope.taskId() == null;
+            if (lanes.contains(CapacityLane.LOCAL_GIT)
+                    && !writerRequired
+                    && !trunkPlanningGit) {
                 throw new IllegalArgumentException(
-                        "LOCAL_GIT work requires an exclusive writer lease");
+                        "LOCAL_GIT work requires a Task writer or Trunk control lease");
             }
             if (lanes.contains(CapacityLane.VALIDATION) && !exclusiveTask) {
                 throw new IllegalArgumentException(

@@ -54,6 +54,35 @@ public class SqliteDispatchTicketStore
     {
         requireNonNull(now, "now is null");
         positiveLimit(limit);
+        String planningGate = hasTable("planning_base_refresh_operation")
+                ? """
+                      AND (d.operation_kind <> 'REFRESH_PLANNING_BASE'
+                        OR d.status = 'RESULT_PENDING'
+                        OR EXISTS (
+                            SELECT 1
+                            FROM planning_base_refresh_operation planning
+                            WHERE planning.dispatch_ticket_id = d.id
+                              AND planning.operation_id = d.operation_id
+                              AND planning.status = 'REQUESTED'
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM thread_turn turn
+                                  WHERE turn.trunk_id = planning.trunk_id
+                                    AND turn.status IN (
+                                      'REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING'))
+                              AND NOT EXISTS (
+                                  SELECT 1
+                                  FROM planning_base_refresh_operation preceding
+                                  WHERE preceding.trunk_id = planning.trunk_id
+                                    AND preceding.id <> planning.id
+                                    AND preceding.status IN ('REQUESTED', 'SUCCEEDED')
+                                    AND preceding.launched_thread_turn_id IS NULL
+                                    AND (preceding.requested_at_ms
+                                           < planning.requested_at_ms
+                                      OR (preceding.requested_at_ms
+                                            = planning.requested_at_ms
+                                        AND preceding.id < planning.id)))))
+                  """
+                : "";
         String cursorClause = cursor == null ? "" : """
                 WHERE (candidate_round, trunk_round, workspace_order_key,
                     trunk_order_key, created_at_ms, id) > (?, ?, ?, ?, ?, ?)
@@ -90,6 +119,7 @@ public class SqliteDispatchTicketStore
                             AND (preceding.created_at_ms < d.created_at_ms
                               OR (preceding.created_at_ms = d.created_at_ms
                                 AND preceding.id < d.id))))
+                      %s
                 ),
                 class_ranked AS (
                     SELECT eligible.*,
@@ -124,7 +154,7 @@ public class SqliteDispatchTicketStore
                 ORDER BY candidate_round, trunk_round, workspace_order_key,
                     trunk_order_key, created_at_ms, id
                 LIMIT ?
-                """.formatted(cursorClause);
+                """.formatted(planningGate, cursorClause);
 
         return SqliteTransactions.withConnection(
                 dataSource, transactionConnection, connection -> {
@@ -155,6 +185,23 @@ public class SqliteDispatchTicketStore
                                         result.getString("id"));
                             }
                             return new ExecutionPorts.TicketScanPage(tickets, next);
+                        }
+                    }
+                });
+    }
+
+    private boolean hasTable(String table)
+    {
+        return SqliteTransactions.withConnection(
+                dataSource, transactionConnection, connection -> {
+                    try (PreparedStatement statement = connection.prepareStatement("""
+                            SELECT EXISTS (
+                                SELECT 1 FROM sqlite_master
+                                WHERE type = 'table' AND name = ?)
+                            """)) {
+                        statement.setString(1, table);
+                        try (ResultSet result = statement.executeQuery()) {
+                            return result.next() && result.getBoolean(1);
                         }
                     }
                 });

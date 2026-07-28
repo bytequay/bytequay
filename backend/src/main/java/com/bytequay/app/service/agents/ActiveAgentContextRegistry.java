@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Shares the scheduler's resolved turn contract with the task-bound MCP endpoint. */
 @Component
@@ -71,6 +72,33 @@ public class ActiveAgentContextRegistry
                 .map(Entry::typedOwner);
     }
 
+    /** Attaches the live provider stop hook after its session is open. */
+    public boolean attachStop(String threadId, String agentKey, Runnable stop)
+    {
+        if (stop == null) {
+            throw new IllegalArgumentException("stop is null");
+        }
+        Entry entry = active.get(new Key(threadId, agentKey));
+        return entry != null && entry.attachStop(stop);
+    }
+
+    /** Records a durable-wait reason before interrupting the exact provider. */
+    public boolean requestStop(
+            String threadId, String agentKey, String reason)
+    {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("reason is blank");
+        }
+        Entry entry = active.get(new Key(threadId, agentKey));
+        return entry != null && entry.requestStop(reason);
+    }
+
+    public Optional<String> stopReason(String threadId, String agentKey)
+    {
+        Entry entry = active.get(new Key(threadId, agentKey));
+        return entry == null ? Optional.empty() : entry.stopReason();
+    }
+
     public void remove(String threadId, String agentKey)
     {
         active.remove(new Key(threadId, agentKey));
@@ -83,10 +111,59 @@ public class ActiveAgentContextRegistry
 
     private record Key(String threadId, String agentKey) {}
 
-    private record Entry(
-            ResolvedAgentContext context,
-            PermissionResolver.RunningScope scope,
-            TypedOwner typedOwner) {}
+    private static final class Entry
+    {
+        private final ResolvedAgentContext context;
+        private final PermissionResolver.RunningScope scope;
+        private final TypedOwner typedOwner;
+        private final AtomicReference<Runnable> stop = new AtomicReference<>();
+        private final AtomicReference<String> stopReason = new AtomicReference<>();
+
+        private Entry(
+                ResolvedAgentContext context,
+                PermissionResolver.RunningScope scope,
+                TypedOwner typedOwner)
+        {
+            this.context = context;
+            this.scope = scope;
+            this.typedOwner = typedOwner;
+        }
+
+        private ResolvedAgentContext context()
+        {
+            return context;
+        }
+
+        private PermissionResolver.RunningScope scope()
+        {
+            return scope;
+        }
+
+        private TypedOwner typedOwner()
+        {
+            return typedOwner;
+        }
+
+        private boolean attachStop(Runnable callback)
+        {
+            return stop.compareAndSet(null, callback);
+        }
+
+        private boolean requestStop(String reason)
+        {
+            Runnable callback = stop.get();
+            if (callback == null || !stopReason.compareAndSet(null, reason)) {
+                return false;
+            }
+            callback.run();
+            return true;
+        }
+
+        private Optional<String> stopReason()
+        {
+            return Optional.ofNullable(stopReason.get());
+        }
+    }
 
     public record TypedOwner(
             DispatchTicket.OwnerKind kind,

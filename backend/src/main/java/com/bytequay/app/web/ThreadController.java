@@ -14,6 +14,9 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.beans.workmodel.ResolvedWorkModelResponse;
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
+import com.bytequay.app.developmentflow.userwait.V2UserWaitService;
 import com.bytequay.app.domain.ConvIndexPage;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.Task;
@@ -48,6 +51,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -111,6 +115,7 @@ public class ThreadController
     private final TaskStore taskStore;
     private final ChatAttachmentStore attachmentStore;
     private final ObjectMapper mapper;
+    private V2UserWaitService v2Waits;
 
     public ThreadController(
             ThreadService threads,
@@ -134,6 +139,12 @@ public class ThreadController
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.attachmentStore = requireNonNull(attachmentStore, "attachmentStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+    }
+
+    @Autowired(required = false)
+    void setV2Waits(V2UserWaitService v2Waits)
+    {
+        this.v2Waits = requireNonNull(v2Waits, "v2Waits is null");
     }
 
     /** GET /api/threads?status=RUNNING&limit=50&groupId=...&workspaceId=... */
@@ -717,6 +728,22 @@ public class ThreadController
         if (body.decision() == null) {
             throw new IllegalArgumentException("decision is required");
         }
+        if (v2Waits != null
+                && v2Waits.findPermissionForTrunk(id, body.callId()).isPresent()) {
+            int expectedRevision = body.expectedRevision() == null
+                    ? 0 : body.expectedRevision();
+            V2UserWaitStore.PermissionRequest request = v2Waits
+                    .findPermissionForTrunk(id, body.callId()).orElseThrow();
+            V2UserWaitStore.PermissionChoice choice =
+                    permissionChoice(body, request.owner().kind());
+            V2UserWaitStore.PermissionResolution resolved =
+                    v2Waits.answerPermission(
+                            id, body.callId(), expectedRevision, choice,
+                            "local-user");
+            return ImmutableMap.of(
+                    "status", resolved.accepted()
+                            ? "recorded" : "already_resolved");
+        }
         // Optional pre-approval rider — when the user clicks "Allow next
         // 5 / 10 / 50 / Always", the service captures the issuing agent
         // before resolving the gate, then stores the budget on that same
@@ -728,6 +755,51 @@ public class ThreadController
         // out (or was already decided) before the click landed — the
         // frontend surfaces this distinctly instead of a silent no-op.
         return ImmutableMap.of("status", resolved ? "recorded" : "already_resolved");
+    }
+
+    @GetMapping("/{id}/permissions")
+    public List<PermissionRequestDto> openPermissions(@PathVariable String id)
+    {
+        if (v2Waits == null) {
+            return List.of();
+        }
+        return v2Waits.listOpenPermissions(id).stream()
+                .map(PermissionRequestDto::from)
+                .toList();
+    }
+
+    private V2UserWaitStore.PermissionChoice permissionChoice(
+            DecisionBody body, DispatchTicket.OwnerKind ownerKind)
+    {
+        var answer = mapper.createObjectNode();
+        answer.put("decision", body.decision().name());
+        if (body.preApproveCount() != null) {
+            answer.put("count", body.preApproveCount());
+        }
+        if (body.permissionScope() != null) {
+            answer.put("scope", body.permissionScope());
+        }
+        String evidence = answer.toString();
+        if (body.decision() == PermissionDecision.DENY) {
+            return V2UserWaitStore.PermissionChoice.deny(evidence);
+        }
+        Integer count = body.preApproveCount();
+        if (count == null) {
+            return V2UserWaitStore.PermissionChoice.allowOnce(evidence);
+        }
+        if (count > 0) {
+            return V2UserWaitStore.PermissionChoice.allowNext(count, evidence);
+        }
+        if (count != -1) {
+            throw new IllegalArgumentException(
+                    "preApproveCount must be positive or -1");
+        }
+        boolean repository = "REPOSITORY".equalsIgnoreCase(body.permissionScope())
+                || ownerKind == DispatchTicket.OwnerKind.THREAD_TURN
+                || ownerKind == DispatchTicket.OwnerKind.REVIEW_ASSIGNMENT_TURN;
+        return repository
+                ? V2UserWaitStore.PermissionChoice.alwaysRepository(evidence)
+                : V2UserWaitStore.PermissionChoice.alwaysTask(evidence);
     }
 
     /**
@@ -811,7 +883,35 @@ public class ThreadController
             String callId,
             PermissionDecision decision,
             String preApproveToolName,
-            Integer preApproveCount) {}
+            Integer preApproveCount,
+            Integer expectedRevision,
+            String permissionScope) {}
+
+    public record PermissionRequestDto(
+            String id,
+            String callId,
+            String ownerKind,
+            String turnId,
+            String operationId,
+            String capability,
+            String toolName,
+            String parametersJson,
+            String state,
+            int answerRevision,
+            long requestedAt)
+    {
+        static PermissionRequestDto from(
+                V2UserWaitStore.PermissionRequest request)
+        {
+            return new PermissionRequestDto(
+                    request.id(), request.callId(),
+                    request.owner().kind().name(), request.owner().turnId(),
+                    request.owner().operationId(), request.capability(),
+                    request.toolName(), request.parametersJson(), request.state(),
+                    request.answerRevision(),
+                    request.requestedAt().toEpochMilli());
+        }
+    }
 
     public record PatchTaskBody(String title) {}
 }

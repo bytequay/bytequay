@@ -28,6 +28,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.async.DeferredResult;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 
@@ -109,14 +110,25 @@ public class ApprovalPromptHandler
 
         ApprovalContext approvalCtx = new ApprovalContext(
                 threadId, ctx.taskId(), ctx.agentKey(), id, toolName, callId, toolInput, ctx.grants());
+        Optional<JsonNode> policy = evaluatePolicy(approvalCtx);
+        if (policy.isPresent()) {
+            deferred.setResult(policy.orElseThrow());
+            return;
+        }
+        registerUserPrompt(approvalCtx, deferred);
+    }
+
+    /** Applies every hard-deny and auto-approval rule without parking a call. */
+    public Optional<JsonNode> evaluatePolicy(ApprovalContext approvalCtx)
+    {
+        requireNonNull(approvalCtx, "approvalCtx is null");
         for (ApprovalStep step : steps) {
             ApprovalStepResult result = step.apply(approvalCtx);
             if (result instanceof ApprovalStepResult.Resolve resolve) {
-                deferred.setResult(resolve.response());
-                return;
+                return Optional.of(resolve.response());
             }
         }
-        registerUserPrompt(approvalCtx, deferred);
+        return Optional.empty();
     }
 
     /**

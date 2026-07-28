@@ -37,7 +37,9 @@ public record AgentQuestion(
         String answerOptionId,
         String answerFreeForm,
         Instant createdAt,
-        Instant answeredAt)
+        Instant answeredAt,
+        int answerRevision,
+        String answerActor)
 {
     public static final String STATUS_OPEN = "open";
     public static final String STATUS_ANSWERED = "answered";
@@ -51,6 +53,30 @@ public record AgentQuestion(
     public AgentQuestion
     {
         options = options == null ? List.of() : ImmutableList.copyOf(options);
+        if (answerRevision < 0) {
+            throw new IllegalArgumentException("answerRevision is negative");
+        }
+    }
+
+    public AgentQuestion(
+            String id,
+            String threadId,
+            String taskId,
+            String toolCallId,
+            String question,
+            String context,
+            List<Option> options,
+            boolean allowFreeForm,
+            String status,
+            String answerOptionId,
+            String answerFreeForm,
+            Instant createdAt,
+            Instant answeredAt)
+    {
+        this(id, threadId, taskId, toolCallId, question, context, options,
+                allowFreeForm, status, answerOptionId, answerFreeForm,
+                createdAt, answeredAt,
+                STATUS_ANSWERED.equals(status) ? 1 : 0, null);
     }
 
     /** Record the user's answer (an option id and/or free-form text). */
@@ -58,6 +84,7 @@ public record AgentQuestion(
     {
         return new AgentQuestion(
                 id, threadId, taskId, toolCallId, question, context, options, allowFreeForm,
-                STATUS_ANSWERED, answerOptionId, answerFreeForm, createdAt, when);
+                STATUS_ANSWERED, answerOptionId, answerFreeForm, createdAt, when,
+                answerRevision + 1, "user");
     }
 }

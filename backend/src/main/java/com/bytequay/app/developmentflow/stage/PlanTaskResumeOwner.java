@@ -56,9 +56,8 @@ final class PlanTaskResumeOwner
                 commands.executeVoid(intent.taskId(), () -> {
                     switch (intent.restoreCheckpoint()) {
                         case DRAFTING -> store.materializePlanDraft(intent, now);
-                        case AWAITING_APPROVAL -> store.diagnose(
-                                intent, "USER_WAIT_OWNER_NOT_FROZEN",
-                                "Plan approval wait has no exact typed question owner in V257",
+                        case AWAITING_APPROVAL -> store.materializePassiveWait(
+                                intent, kind(), StageCheckpoint.AWAITING_APPROVAL,
                                 now);
                         default -> store.diagnose(
                                 intent, "PLAN_RESUME_CURSOR_UNSUPPORTED",

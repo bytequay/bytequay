@@ -13,14 +13,17 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.developmentflow.userwait.V2UserWaitService;
 import com.bytequay.app.domain.AgentQuestion;
 import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.question.AgentQuestionService;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -39,10 +42,21 @@ public class QuestionToolHandlers
             + "apologize or summarise. The user's reply will arrive as the next message.";
 
     private final AgentQuestionService questions;
+    private final V2UserWaitService v2Waits;
 
+    @Autowired
+    public QuestionToolHandlers(
+            AgentQuestionService questions, V2UserWaitService v2Waits)
+    {
+        this.questions = requireNonNull(questions, "questions is null");
+        this.v2Waits = requireNonNull(v2Waits, "v2Waits is null");
+    }
+
+    /** Compatibility constructor for focused legacy tool tests. */
     public QuestionToolHandlers(AgentQuestionService questions)
     {
         this.questions = requireNonNull(questions, "questions is null");
+        this.v2Waits = null;
     }
 
     /** Args for {@code ask_user_question}. {@code options} is a raw JSON array
@@ -71,7 +85,7 @@ public class QuestionToolHandlers
                     + "message. Use during exploration / planning whenever you'd otherwise guess.",
             security = SecurityType.TASK_READ,
             gating = Gating.AUTO,
-            roles = {AgentRole.TRUNK, AgentRole.TASK})
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
     public ToolOutcome askUserQuestion(AskUserQuestionArgs args, ToolCall call)
     {
         String threadId = call.threadId();
@@ -82,14 +96,25 @@ public class QuestionToolHandlers
             return ToolOutcome.Completed.error("question is required");
         }
         boolean allowFreeForm = args.allowFreeForm() == null || args.allowFreeForm();
+        List<AgentQuestion.Option> options = readOptions(args.options());
         try {
+            Optional<String> v2Wait = v2Waits == null
+                    ? Optional.empty()
+                    : v2Waits.askQuestion(
+                            threadId, call.runtimeAgentKey(), call.callId(),
+                            args.question(),
+                            args.context(), options, allowFreeForm);
+            if (v2Wait.isPresent()) {
+                return new ToolOutcome.WaitForUser(
+                        SHOWN_MESSAGE, "QUESTION:" + v2Wait.orElseThrow());
+            }
             questions.ask(
                     threadId,
                     call.scope() == ThreadScope.TRUNK ? null : call.requireTaskId(),
                     /* toolCallId */ null,
                     args.question(),
                     args.context(),
-                    readOptions(args.options()),
+                    options,
                     allowFreeForm);
         }
         catch (RuntimeException e) {

@@ -78,6 +78,7 @@ import type {
   ThreadStreamEvent,
   ThreadTurnEventDto,
   ThreadTurnDto,
+  TypedPermissionRequestDto,
   TeamDto,
   TeamSummaryDto,
   UpdateTeamRequest,
@@ -928,6 +929,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:checkpoints:status', id),
   getTaskTurns: (id: string): Promise<ThreadTurnDto[]> =>
     ipcRenderer.invoke('threads:turns', id),
+  getTypedPermissions: (id: string): Promise<TypedPermissionRequestDto[]> =>
+    ipcRenderer.invoke('threads:permissions', id),
   getTaskTurnEvents: (id: string): Promise<ThreadTurnEventDto[]> =>
     ipcRenderer.invoke('threads:turnEvents', id),
   getTaskFiles: (id: string): Promise<ThreadFileDto[]> =>
@@ -941,8 +944,11 @@ const bridge: Bridge = {
     callId: string,
     decision: 'ALLOW' | 'DENY',
     preApprove?: { toolName: string; count: number },
+    expectedRevision?: number,
   ): Promise<{ status: 'recorded' | 'already_resolved' }> =>
-    ipcRenderer.invoke('threads:decide', { id, callId, decision, preApprove }),
+    ipcRenderer.invoke('threads:decide', {
+      id, callId, decision, preApprove, expectedRevision,
+    }),
   interruptTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:interrupt', id),
   interruptStage: (id: string): Promise<void> => ipcRenderer.invoke('stages:interrupt', id),
   stopTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:stop', id),

@@ -47,6 +47,7 @@ import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteMarkReadyOp
 import com.bytequay.app.developmentflow.persistence.SqliteAgentTurnOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteReviewAssignmentTurnStore;
 import com.bytequay.app.developmentflow.persistence.SqliteThreadTurnOperationStore;
+import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.stage.BranchSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
@@ -81,6 +82,7 @@ import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
+import com.bytequay.app.developmentflow.userwait.V2UserWaitResultDeliveryPort;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadSettings;
 import com.bytequay.app.repository.TaskStore;
@@ -320,16 +322,20 @@ class TestDevelopmentFlowExecutionConfig
                 mock(SqliteMergeOperationStore.class),
                 reviewTurns,
                 mock(SqliteTaskOutcomeSummaryStore.class),
+                mock(V2UserWaitStore.class),
                 mock(TaskOutcomeSummaryRuntime.class),
                 mock(ObjectProvider.class),
                 mock(JdbcTemplate.class),
                 new ObjectMapper());
 
-        assertThat(delivery).isInstanceOf(ResultDeliveryRouter.class);
+        ExecutionPorts.ResultDeliveryPort router =
+                (ExecutionPorts.ResultDeliveryPort)
+                        ReflectionTestUtils.getField(delivery, "delegate");
+        assertThat(router).isInstanceOf(ResultDeliveryRouter.class);
         @SuppressWarnings("unchecked")
         Map<String, ExecutionPorts.ResultDeliveryPort> routes =
                 (Map<String, ExecutionPorts.ResultDeliveryPort>)
-                        ReflectionTestUtils.getField(delivery, "routes");
+                        ReflectionTestUtils.getField(router, "routes");
         assertThat(routes).isNotNull();
         assertThat(routes.keySet()).containsExactlyInAnyOrder(
                 PlanningBaseRefreshOperationHandler.CALLBACK_ROUTE,
@@ -410,7 +416,7 @@ class TestDevelopmentFlowExecutionConfig
                     assertThat(context).hasBean("v2ResultDelivery");
                     assertThat(context.getBean(
                             ExecutionPorts.ResultDeliveryPort.class))
-                            .isInstanceOf(ResultDeliveryRouter.class);
+                            .isInstanceOf(V2UserWaitResultDeliveryPort.class);
                     assertThat(context).hasSingleBean(AgentTurnProviderSession.class);
                     assertThat(context).hasSingleBean(V2TaskControlService.class);
                     assertThat(context).hasSingleBean(PlanningBaseTurnRuntime.class);
@@ -578,6 +584,8 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(BranchSyncRuntimeCoordinator.class))
                 .withBean(RemoteRepairTurnRuntime.class,
                         () -> mock(RemoteRepairTurnRuntime.class))
+                .withBean(V2UserWaitStore.class,
+                        () -> mock(V2UserWaitStore.class))
                 .withBean(TaskCommandExecutor.class,
                         () -> mock(TaskCommandExecutor.class))
                 .withBean(LocalDevelopmentStageManager.class,

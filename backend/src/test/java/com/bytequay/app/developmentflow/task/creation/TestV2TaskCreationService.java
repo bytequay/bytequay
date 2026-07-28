@@ -204,7 +204,7 @@ class TestV2TaskCreationService
         when(projection.project(raw)).thenReturn(raw);
 
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(true, true, WORKSPACE),
+                new DevelopmentFlowCanaryRoute(true, WORKSPACE),
                 handoff, jdbc, threads, tasks, engines, repositories, relations,
                 pullRequests, pats, selections, new ObjectMapper(), projection);
         ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
@@ -263,7 +263,7 @@ class TestV2TaskCreationService
         when(selections.find(TRUNK)).thenReturn(Optional.of(selection));
         when(selections.matchesCurrent(selection)).thenReturn(false);
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(true, true, WORKSPACE),
+                new DevelopmentFlowCanaryRoute(true, WORKSPACE),
                 handoff, jdbc, mock(ThreadStore.class), mock(TaskStore.class),
                 mock(ThreadEngineOverrides.class), repositories,
                 mock(WorkspaceRelationService.class), pullRequests,
@@ -311,7 +311,7 @@ class TestV2TaskCreationService
                                 "review-pass", "finding-1", 1, "{}", "digest")),
                         Instant.ofEpochMilli(2))));
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(true, true, WORKSPACE),
+                new DevelopmentFlowCanaryRoute(true, WORKSPACE),
                 handoff, jdbc, mock(ThreadStore.class), mock(TaskStore.class),
                 mock(ThreadEngineOverrides.class), repositories,
                 mock(WorkspaceRelationService.class), pullRequests,

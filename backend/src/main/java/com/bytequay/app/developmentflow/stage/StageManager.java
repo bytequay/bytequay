@@ -182,7 +182,19 @@ public abstract class StageManager
             StageCheckpoint source,
             StageCheckpoint target)
     {
-        return resolveResultInCommand(command, cause, source, target).result();
+        return resolveResultInCommand(command, cause, null, source, target).result();
+    }
+
+    /** Accepts a result only with one exact immutable owner proof. */
+    protected final CommandResult<State> acceptResultWithProofInCommand(
+            ResultCommand command,
+            String proofId,
+            String cause,
+            StageCheckpoint source,
+            StageCheckpoint target)
+    {
+        requireText(proofId, "proofId");
+        return resolveResultInCommand(command, cause, proofId, source, target).result();
     }
 
     protected final ResultResolution acceptResultForHandoffInCommand(
@@ -191,12 +203,13 @@ public abstract class StageManager
             StageCheckpoint source,
             StageCheckpoint target)
     {
-        return resolveResultInCommand(command, cause, source, target);
+        return resolveResultInCommand(command, cause, null, source, target);
     }
 
     private ResultResolution resolveResultInCommand(
             ResultCommand command,
             String cause,
+            String proofId,
             StageCheckpoint source,
             StageCheckpoint target)
     {
@@ -210,7 +223,7 @@ public abstract class StageManager
                     command.resultFence().stageId(),
                     command.resultFence().stageGeneration(),
                     null, null, null, null, cause,
-                    command.resultFence(), null);
+                    command.resultFence(), proofId);
             return new ResultResolution(
                     CommandResult.duplicate(receipt.state()), receipt.disposition());
         }
@@ -223,13 +236,13 @@ public abstract class StageManager
                 || !source.allowsStructuralTransition(target)) {
             return new ResultResolution(CommandResult.superseded(store.recordSuperseded(
                     command.commandId(), cause, command.actor(),
-                    null, null, null, null, result, null, current)),
+                    null, null, null, null, result, proofId, current)),
                     CommandResult.Disposition.SUPERSEDED);
         }
         return new ResultResolution(applied(
                 command.commandId(), cause, command.actor(),
                 null, null, null, null,
-                current, target, null, result, null),
+                current, target, null, result, proofId),
                 CommandResult.Disposition.APPLIED);
     }
 
@@ -382,6 +395,126 @@ public abstract class StageManager
                 command.expectedTaskEpoch(), command.expectedStageGeneration(),
                 command.expectedStageVersion(), source,
                 current, target, pendingResult, pendingResult, proofId);
+    }
+
+    /** Arms owner-specific work without inventing another Stage checkpoint. */
+    protected final CommandResult<State> armPendingResultInCommand(
+            Command command,
+            ResultFence pendingResult,
+            String proofId,
+            String cause,
+            StageCheckpoint checkpoint)
+    {
+        requireNonNull(command, "command is null");
+        requireNonNull(pendingResult, "pendingResult is null");
+        requireText(proofId, "proofId");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        if (pendingResult.taskEpoch() != command.expectedTaskEpoch()
+                || !command.stageId().equals(pendingResult.stageId())
+                || pendingResult.stageGeneration() != command.expectedStageGeneration()) {
+            throw rejected(INVALID_STATE, "Pending result targets another Stage owner");
+        }
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), command.stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            return CommandResult.duplicate(requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(),
+                    command.stageId(), command.expectedStageGeneration(),
+                    command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                    command.expectedStageVersion(), checkpoint, cause,
+                    pendingResult, proofId).state());
+        }
+
+        OwnerState owner = loadOwner(command.taskId(), command.stageId());
+        validate(command, owner);
+        State current = owner.stage();
+        if (!accepts(owner.taskLifecycle())
+                || current.checkpoint() != checkpoint
+                || current.pendingResult() != null) {
+            throw rejected(INVALID_STATE,
+                    "Cannot arm " + kind + " Stage at " + current.checkpoint());
+        }
+        State updated = new State(
+                current.id(), current.taskId(), current.kind(), current.generation(),
+                current.version() + 1, current.checkpoint(), null, pendingResult);
+        return CommandResult.applied(store.commit(
+                command.commandId(), cause, command.actor(),
+                command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                command.expectedStageVersion(), checkpoint, pendingResult, proofId,
+                current, updated));
+    }
+
+    /** Replaces one exact pending result after its predecessor is superseded. */
+    protected final CommandResult<State> replacePendingResultInCommand(
+            ResultCommand command,
+            ResultFence replacement,
+            String proofId,
+            String cause,
+            StageCheckpoint checkpoint)
+    {
+        requireNonNull(replacement, "replacement is null");
+        if (replacement.equals(command.resultFence())) {
+            throw rejected(INVALID_STATE, "Replacement result must name new work");
+        }
+        if (replacement.taskEpoch() != command.resultFence().taskEpoch()
+                || !replacement.stageId().equals(command.resultFence().stageId())
+                || replacement.stageGeneration()
+                    != command.resultFence().stageGeneration()) {
+            throw rejected(INVALID_STATE, "Replacement result targets another owner");
+        }
+        return finishPendingResultInCommand(
+                command, replacement, proofId, cause, checkpoint);
+    }
+
+    /** Clears one exact failed/canceled result while preserving its checkpoint. */
+    protected final CommandResult<State> clearPendingResultInCommand(
+            ResultCommand command,
+            String proofId,
+            String cause,
+            StageCheckpoint checkpoint)
+    {
+        return finishPendingResultInCommand(command, null, proofId, cause, checkpoint);
+    }
+
+    private CommandResult<State> finishPendingResultInCommand(
+            ResultCommand command,
+            ResultFence replacement,
+            String proofId,
+            String cause,
+            StageCheckpoint checkpoint)
+    {
+        requireNonNull(command, "command is null");
+        requireText(proofId, "proofId");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        ResultFence completed = command.resultFence();
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), completed.stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            CommandReceipt receipt = requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(),
+                    completed.stageId(), completed.stageGeneration(), null, null,
+                    null, null, cause, completed, proofId);
+            if (receipt.disposition() == CommandResult.Disposition.APPLIED
+                    && !same(receipt.state().pendingResult(), replacement)) {
+                throw rejected(COMMAND_ID_CONFLICT,
+                        "Command id was already used with another replacement result");
+            }
+            return CommandResult.duplicate(receipt.state());
+        }
+
+        OwnerState owner = loadOwner(command.taskId(), completed.stageId());
+        State current = owner.stage();
+        if (!matchesResult(owner, completed) || current.checkpoint() != checkpoint) {
+            return CommandResult.superseded(store.recordSuperseded(
+                    command.commandId(), cause, command.actor(), null, null, null,
+                    null, completed, proofId, current));
+        }
+        State updated = new State(
+                current.id(), current.taskId(), current.kind(), current.generation(),
+                current.version() + 1, current.checkpoint(), null, replacement);
+        return CommandResult.applied(store.commit(
+                command.commandId(), cause, command.actor(), null, null, null,
+                null, completed, proofId, current, updated));
     }
 
     protected final CommandResult<State> sealRemoteObservationInCommand(

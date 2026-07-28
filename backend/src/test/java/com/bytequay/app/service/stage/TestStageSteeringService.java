@@ -174,6 +174,51 @@ class TestStageSteeringService
     }
 
     @Test
+    void v2ReplacementModeReachesTheExactTypedControl()
+    {
+        UUID stageId = UUID.randomUUID();
+        V2ControlRouteStore routes = mock(V2ControlRouteStore.class);
+        V2StageSteeringControl typed = mock(V2StageSteeringControl.class);
+        when(routes.taskForStage(stageId.toString()))
+                .thenReturn(Optional.of("task-v2"));
+        when(typed.steer(
+                "task-v2", stageId.toString(), "replace it", List.of(),
+                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE))
+                .thenReturn("replacement-turn");
+        service.setV2Routes(routes);
+        service.setV2Steering(typed);
+
+        StageSteeringService.SteerResult result = service.steer(
+                stageId, "replace it", List.of(),
+                StageSteeringService.Mode.CANCEL_AND_REPLACE);
+
+        assertThat(result.turnId()).isEqualTo("replacement-turn");
+        verify(typed).steer(
+                "task-v2", stageId.toString(), "replace it", List.of(),
+                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE);
+        verify(stageStore, never()).findStageById(any());
+        verify(scheduler, never()).enqueueStageTurn(
+                any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void legacyStageRejectsReplacementItCannotFence()
+    {
+        UUID stageId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> service.steer(
+                stageId, "replace it", List.of(),
+                StageSteeringService.Mode.CANCEL_AND_REPLACE))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(e -> assertThat(
+                        ((ResponseStatusException) e).getStatusCode().value())
+                        .isEqualTo(422));
+        verify(stageStore, never()).findStageById(any());
+        verify(scheduler, never()).enqueueStageTurn(
+                any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void enqueuesATaskBoundSteeringTurnAndOpensAnIteration()
     {
         UUID stageId = UUID.randomUUID();

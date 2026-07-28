@@ -54,6 +54,7 @@ import java.sql.Connection;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -68,6 +69,9 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 class TestV2DevelopmentFlowCompatibilityApi
 {
+    private static final String V2_DETAIL_STAGE =
+            "00000000-0000-0000-0000-000000000257";
+
     @TempDir
     private Path tempDir;
 
@@ -93,10 +97,12 @@ class TestV2DevelopmentFlowCompatibilityApi
         try (Connection connection = DevelopmentFlowRemoteProtocolFixture.connect(url)) {
             DevelopmentFlowRemoteProtocolFixture.seedWorkspaceAndTrunk(connection);
             DevelopmentFlowRemoteProtocolFixture.seedPublishedRemoteTask(connection, 1);
+            DevelopmentFlowRemoteProtocolFixture.seedPublishedRemoteTask(connection, 2);
         }
         DevelopmentFlowRemoteProtocolFixture.migrate(url, "257");
         try (Connection connection = DevelopmentFlowRemoteProtocolFixture.connect(url)) {
             DevelopmentFlowRemoteProtocolFixture.insertRemoteOwner(connection, 1);
+            DevelopmentFlowRemoteProtocolFixture.insertRemoteOwner(connection, 2);
             DevelopmentFlowRemoteProtocolFixture.insertSnapshot(
                     connection, 1, 1, "head-1", "base-1", "OPEN", "MERGEABLE");
             DevelopmentFlowRemoteProtocolFixture.acceptSnapshot(
@@ -116,10 +122,26 @@ class TestV2DevelopmentFlowCompatibilityApi
                          NULL, 'WAITING_CI', 0, 'published', 'SYSTEM', 52)
                     """);
             DevelopmentFlowRemoteProtocolFixture.execute(connection, """
+                    INSERT INTO stage(
+                        id, task_id, kind, generation, version, checkpoint,
+                        opened_at_ms, completed_at_ms, end_reason)
+                    VALUES ('%s', 'task-2', 'PLAN', 1, 0, 'COMPLETED',
+                        3, 4, 'NORMAL')
+                    """.formatted(V2_DETAIL_STAGE));
+            DevelopmentFlowRemoteProtocolFixture.execute(connection, """
+                    INSERT INTO stage_transition(
+                        id, stage_id, command_id, generation,
+                        from_checkpoint, to_checkpoint, stage_version,
+                        cause, actor, occurred_at_ms)
+                    VALUES ('detail-stage-transition', '%s',
+                        'detail-stage-command', 1, 'AWAITING_APPROVAL',
+                        'COMPLETED', 0, 'plan_approved', 'USER', 4)
+                    """.formatted(V2_DETAIL_STAGE));
+            DevelopmentFlowRemoteProtocolFixture.execute(connection, """
                     INSERT INTO tasks(
                         id, thread_id, seq, status, phase, created_at_ms,
                         workflow_version)
-                    VALUES ('legacy-task', 'trunk-1', 2, 'IDLE',
+                    VALUES ('legacy-task', 'trunk-1', 3, 'IDLE',
                         'IMPLEMENTING', 53, 'LEGACY')
                     """);
         }
@@ -133,7 +155,7 @@ class TestV2DevelopmentFlowCompatibilityApi
         tasks = mock(TaskStore.class);
         when(tasks.findTaskById(anyString())).thenAnswer(invocation -> switch ((String) invocation.getArgument(0)) {
             case "task-1" -> Optional.of(task("task-1", 1));
-            case "legacy-task" -> Optional.of(task("legacy-task", 2));
+            case "legacy-task" -> Optional.of(task("legacy-task", 3));
             default -> Optional.empty();
         });
         when(tasks.listPhaseEvents("legacy-task")).thenReturn(List.of(new TaskPhaseEvent(
@@ -197,6 +219,15 @@ class TestV2DevelopmentFlowCompatibilityApi
         assertThat(activeStages).hasSize(1);
         assertThat(activeStages.get(0).path("id").asText())
                 .isEqualTo("remote-stage-1");
+        JsonNode stage = body(stageApi.perform(
+                        get("/api/stages/" + V2_DETAIL_STAGE))
+                .andExpect(status().isOk()).andReturn().getResponse()
+                .getContentAsString());
+        assertThat(stage.path("stage").path("id").asText())
+                .isEqualTo(V2_DETAIL_STAGE);
+        assertThat(mapper.readTree(stage.path("events").get(0)
+                .path("payloadJson").asText()).path("cause").asText())
+                .isEqualTo("plan_approved");
 
         JsonNode trace = body(traceApi.perform(get("/api/tasks/task-1/trace"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
@@ -211,6 +242,8 @@ class TestV2DevelopmentFlowCompatibilityApi
 
         verify(tasks, never()).listPhaseEvents("task-1");
         verify(legacyStages, never()).findStagesByTask("task-1");
+        verify(legacyStages, never()).findStageById(
+                UUID.fromString(V2_DETAIL_STAGE));
         verifyNoInteractions(legacyRuns, legacyRounds, legacyGuard, github);
     }
 

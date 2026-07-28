@@ -19,8 +19,10 @@ import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
 import com.bytequay.app.beans.workmodel.ResolvedWorkModelResponse;
 import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
+import com.bytequay.app.developmentflow.compatibility.V2StageApiService;
 import com.bytequay.app.developmentflow.stage.V2PlanControlService;
 import com.bytequay.app.domain.StageInstance;
+import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.StageStore;
@@ -48,6 +50,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -72,6 +75,7 @@ public class StageController
     private final WorkModelResolver workModelResolver;
     private V2ControlRouteStore v2Routes;
     private V2PlanControlService v2PlanControls;
+    private V2StageApiService v2Stages;
 
     public StageController(
             StageService service,
@@ -105,6 +109,15 @@ public class StageController
                 v2PlanControls, "v2PlanControls is null");
     }
 
+    @Autowired
+    void setV2Stages(
+            V2ControlRouteStore v2Routes,
+            V2StageApiService v2Stages)
+    {
+        this.v2Routes = requireNonNull(v2Routes, "v2Routes is null");
+        this.v2Stages = requireNonNull(v2Stages, "v2Stages is null");
+    }
+
     @GetMapping("/api/tasks/{taskId}/brain")
     public TaskBrainViewData brain(@PathVariable String taskId)
     {
@@ -132,14 +145,21 @@ public class StageController
     @GetMapping("/api/stages/{stageId}/detail")
     public StageDetailData stageDetail(@PathVariable String stageId)
     {
-        return detailService.getDetail(parseStageId(stageId));
+        UUID id = parseStageId(stageId);
+        String v2TaskId = v2TaskForStage(id);
+        if (v2TaskId != null) {
+            return requireV2Stages().detail(v2TaskId, id.toString());
+        }
+        return detailService.getDetail(id);
     }
 
     @GetMapping(value = "/api/stages/{stageId}/stream", produces = "text/event-stream")
     public SseEmitter stream(@PathVariable String stageId)
     {
+        UUID id = parseStageId(stageId);
         SseEmitter emitter = new SseEmitter(30L * 60L * 1000L);
-        Runnable unsubscribe = runtimeService.subscribe(parseStageId(stageId), event -> {
+        String v2TaskId = v2TaskForStage(id);
+        Consumer<StreamEvent> listener = event -> {
             try {
                 emitter.send(SseEmitter.event()
                         .name(event.getClass().getSimpleName())
@@ -148,7 +168,10 @@ public class StageController
             catch (IOException e) {
                 throw new IllegalStateException("SSE channel closed", e);
             }
-        });
+        };
+        Runnable unsubscribe = v2TaskId == null
+                ? runtimeService.subscribe(id, listener)
+                : requireV2Stages().subscribe(v2TaskId, id.toString(), listener);
         emitter.onCompletion(unsubscribe);
         emitter.onTimeout(() -> {
             unsubscribe.run();
@@ -161,17 +184,27 @@ public class StageController
     @PostMapping("/api/stages/{stageId}/interrupt")
     public void interrupt(@PathVariable String stageId)
     {
-        runtimeService.interrupt(parseStageId(stageId));
+        UUID id = parseStageId(stageId);
+        String v2TaskId = v2TaskForStage(id);
+        if (v2TaskId != null) {
+            requireV2Stages().interrupt(v2TaskId, id.toString());
+            return;
+        }
+        runtimeService.interrupt(id);
     }
 
-    public record SteerRequest(String text, List<String> images) {}
+    public record SteerRequest(
+            String text, List<String> images, StageSteeringService.Mode mode) {}
 
     @PostMapping("/api/stages/{stageId}/steer")
     public StageSteeringService.SteerResult steer(
             @PathVariable String stageId, @RequestBody SteerRequest req)
     {
         return steeringService.steer(
-                parseStageId(stageId), req == null ? null : req.text(), req == null ? null : req.images());
+                parseStageId(stageId), req == null ? null : req.text(),
+                req == null ? null : req.images(),
+                req == null || req.mode() == null
+                        ? StageSteeringService.Mode.APPEND : req.mode());
     }
 
     @PostMapping("/api/stages/{planStageId}/approve")
@@ -240,6 +273,16 @@ public class StageController
                     "V2 Plan controls are not configured");
         }
         return v2PlanControls;
+    }
+
+    private V2StageApiService requireV2Stages()
+    {
+        if (v2Stages == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(503),
+                    "V2 Stage APIs are not configured");
+        }
+        return v2Stages;
     }
 
     /** GET /api/stages/{stageId}/work-model — resolve the effective work

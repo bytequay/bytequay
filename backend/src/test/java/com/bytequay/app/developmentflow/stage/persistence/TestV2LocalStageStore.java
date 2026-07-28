@@ -34,6 +34,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
@@ -347,6 +348,72 @@ class TestV2LocalStageStore
                 Integer.class)).isZero();
     }
 
+    @Test
+    void cancelAndReplaceSupersedesTheLateSuccessfulStageTurn()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database();
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedLocalOwner(jdbc);
+        Flyway.configure().dataSource(dataSource).target("257").load().migrate();
+        ResultFence fence = new ResultFence(
+                1, "local-stage", 1, "implementation-operation", 1,
+                "fingerprint-old", "head-old", "head-old");
+        seedImplementationRequest(jdbc);
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
+        V2StageStore stageStore = new V2StageStore(jdbc);
+        LocalDevelopmentStageManager local = new LocalDevelopmentStageManager(
+                commands, stageStore, stageStore);
+        commands.execute("task-1", () -> local.requestImplementationInCommand(
+                new StageManager.Command(
+                        "request-implementation", "runtime", "task-1",
+                        1, "local-stage", 1, 0),
+                fence, "implementation-request"));
+        markSucceededResultPending(jdbc, "implementation-ticket", fence);
+        long stageVersion = jdbc.queryForObject(
+                "SELECT version FROM stage WHERE id = 'local-stage'", Long.class);
+        jdbc.update("""
+                INSERT INTO stage_steering_request_v257(
+                    id, command_id, task_id, task_epoch, stage_id, stage_kind,
+                    stage_generation, accepted_stage_version,
+                    accepted_checkpoint, mode, body, content_digest,
+                    predecessor_owner_kind, predecessor_owner_id,
+                    predecessor_purpose, predecessor_operation_id,
+                    predecessor_ticket_id, predecessor_attempt,
+                    predecessor_code_fingerprint, predecessor_head_sha,
+                    predecessor_base_sha, cancel_intent_at_ms, status,
+                    requested_by, requested_at_ms)
+                VALUES ('replacement', 'replacement-command', 'task-1', 1,
+                    'local-stage', 'LOCAL_DEVELOPMENT', 1, ?, 'IMPLEMENTING',
+                    'CANCEL_AND_REPLACE', 'replace it', ?, 'STAGE_TURN',
+                    'implementation-turn', 'IMPLEMENT_LOCAL_PLAN',
+                    'implementation-operation', 'implementation-ticket', 1,
+                    'fingerprint-old', 'head-old', 'head-old', 9,
+                    'PENDING', 'user', 9)
+                """, stageVersion, "a".repeat(64));
+
+        ObjectMapper mapper = new ObjectMapper();
+        LocalDevelopmentRuntimeCoordinator runtime = runtime(
+                commands,
+                new TaskManager(commands, taskStore(jdbc, transactions)),
+                local, new SqliteLocalDevelopmentRuntimeStore(jdbc), mapper);
+        ReflectionTestUtils.setField(
+                runtime, "steering", new SqliteStageSteeringStore(jdbc));
+        DispatchTicket.DeliveryReceipt receipt = runtime.deliverStageTurn(
+                stageDelivery(mapper, fence));
+
+        assertThat(receipt.acceptance())
+                .isEqualTo(DispatchTicket.Acceptance.SUPERSEDED);
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM stage_turn WHERE id = 'implementation-turn'",
+                String.class)).isEqualTo("SUPERSEDED");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM dev_report WHERE stage_turn_id = "
+                        + "'implementation-turn'", Integer.class)).isZero();
+    }
+
     private static LocalDevelopmentRuntimeCoordinator runtime(
             TaskCommandExecutor commands,
             TaskManager tasks,
@@ -386,6 +453,35 @@ class TestV2LocalStageStore
         DispatchTicket.DispatchResult raw = new DispatchTicket.DispatchResult(
                 operationFence, outcome, mapper.writeValueAsString(payload),
                 "{}", error);
+        return new AgentTurnOwnerResultCodec(mapper).decode(
+                owner, operationFence, raw);
+    }
+
+    private static AgentTurnOwnerResultCodec.OwnerResult stageDelivery(
+            ObjectMapper mapper, ResultFence fence)
+            throws Exception
+    {
+        DispatchTicket.OperationFence operationFence =
+                new DispatchTicket.OperationFence(
+                        fence.taskEpoch(), fence.stageId(), fence.stageGeneration(),
+                        fence.operationId(), fence.attempt(),
+                        fence.expectedCodeFingerprint(), fence.expectedHeadSha(),
+                        fence.expectedBaseSha());
+        DispatchTicket.OwnerReference owner = new DispatchTicket.OwnerReference(
+                DispatchTicket.OwnerKind.STAGE_TURN,
+                "implementation-turn", "STAGE_TURN_RESULT");
+        AgentTurnOperationHandler.RawResult payload =
+                new AgentTurnOperationHandler.RawResult(
+                        1, "implementation-turn",
+                        DispatchTicket.OwnerKind.STAGE_TURN,
+                        "IMPLEMENT_LOCAL_PLAN",
+                        AgentTurnProviderSession.Transport.API, "openai", "session",
+                        "late success", 1, 1, 1, null,
+                        AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
+                        null);
+        DispatchTicket.DispatchResult raw = new DispatchTicket.DispatchResult(
+                operationFence, DispatchTicket.Outcome.SUCCEEDED,
+                mapper.writeValueAsString(payload), "{}", null);
         return new AgentTurnOwnerResultCodec(mapper).decode(
                 owner, operationFence, raw);
     }

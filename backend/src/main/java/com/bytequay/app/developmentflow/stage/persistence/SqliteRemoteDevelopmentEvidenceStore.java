@@ -16,15 +16,13 @@ package com.bytequay.app.developmentflow.stage.persistence;
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
 /** Read-only exact evidence boundary used by the Remote Stage manager. */
-@Repository
-public class SqliteRemoteDevelopmentEvidenceStore
+public abstract class SqliteRemoteDevelopmentEvidenceStore
         implements RemoteDevelopmentStageManager.EvidenceStore
 {
     private final JdbcTemplate jdbc;

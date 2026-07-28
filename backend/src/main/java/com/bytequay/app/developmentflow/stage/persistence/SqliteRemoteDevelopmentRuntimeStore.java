@@ -16,10 +16,8 @@ package com.bytequay.app.developmentflow.stage.persistence;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager.FeedbackCompletionEvidence;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager.FeedbackEvidence;
-import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager.MergeAuthorizationEvidence;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager.RemoteGateEvidence;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager.RemoteSubjectEvidence;
-import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager.TerminalObservationEvidence;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -41,12 +39,14 @@ import static java.util.Objects.requireNonNull;
 /** SQLite boundary for exact-head Remote feedback and readiness work. */
 @Repository
 public class SqliteRemoteDevelopmentRuntimeStore
+        extends SqliteRemoteDevelopmentEvidenceStore
         implements RemoteDevelopmentStageManager.EvidenceStore
 {
     private final JdbcTemplate jdbc;
 
     public SqliteRemoteDevelopmentRuntimeStore(JdbcTemplate jdbc)
     {
+        super(jdbc);
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
     }
 
@@ -873,20 +873,6 @@ public class SqliteRemoteDevelopmentRuntimeStore
                         rs.getString("head_sha"), rs.getString("base_sha")),
                 taskId, stageId, stageGeneration, evidenceId)
                 .stream().findFirst();
-    }
-
-    @Override
-    public Optional<MergeAuthorizationEvidence> findMergeAuthorization(
-            String taskId, String stageId, long stageGeneration, String authorizationId)
-    {
-        return Optional.empty();
-    }
-
-    @Override
-    public Optional<TerminalObservationEvidence> findTerminalObservation(
-            String taskId, String stageId, long stageGeneration, String observationId)
-    {
-        return Optional.empty();
     }
 
     private ReadinessInputs requireReadinessInputs(

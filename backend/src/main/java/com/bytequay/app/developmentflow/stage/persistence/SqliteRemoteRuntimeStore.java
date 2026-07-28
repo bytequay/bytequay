@@ -906,8 +906,23 @@ public class SqliteRemoteRuntimeStore
                         THEN NULL ELSE terminal_ci_evaluation_id END,
                     stop_reason = CASE WHEN status = 'EXHAUSTED'
                         THEN NULL ELSE stop_reason END
-                WHERE id = ? AND task_id = ?
-                  AND status NOT IN ('SUCCEEDED', 'STOPPED')
+                WHERE id = ? AND task_id = ? AND status = 'EXHAUSTED'
+                  AND EXISTS (
+                      SELECT 1
+                        FROM tasks task
+                        JOIN task_current_stage current
+                          ON current.task_id = task.id
+                        JOIN stage owner ON owner.id = current.stage_id
+                       WHERE task.id = ci_repair_episode.task_id
+                         AND task.workflow_version = 'V2'
+                         AND task.lifecycle_state = 'ACTIVE'
+                         AND task.epoch = ci_repair_episode.task_epoch
+                         AND current.stage_id =
+                             ci_repair_episode.remote_development_stage_id
+                         AND current.stage_generation =
+                             ci_repair_episode.stage_generation
+                         AND owner.kind = 'REMOTE_DEVELOPMENT'
+                         AND owner.completed_at_ms IS NULL)
                 """, "CI repair Episode cannot accept this budget",
                 rerunDelta, fixDelta, pushDelta, episodeId, taskId);
         updateOne("""
@@ -957,6 +972,22 @@ public class SqliteRemoteRuntimeStore
                         completed_at_ms, ?), stop_reason = ?
                 WHERE id = ? AND task_id = ?
                   AND status NOT IN ('SUCCEEDED', 'STOPPED')
+                  AND EXISTS (
+                      SELECT 1
+                        FROM tasks task
+                        JOIN task_current_stage current
+                          ON current.task_id = task.id
+                        JOIN stage owner ON owner.id = current.stage_id
+                       WHERE task.id = ci_repair_episode.task_id
+                         AND task.workflow_version = 'V2'
+                         AND task.lifecycle_state = 'ACTIVE'
+                         AND task.epoch = ci_repair_episode.task_epoch
+                         AND current.stage_id =
+                             ci_repair_episode.remote_development_stage_id
+                         AND current.stage_generation =
+                             ci_repair_episode.stage_generation
+                         AND owner.kind = 'REMOTE_DEVELOPMENT'
+                         AND owner.completed_at_ms IS NULL)
                 """, "CI repair Episode cannot be stopped",
                 at.toEpochMilli(), kind + ": " + reason, episodeId, taskId);
         updateOne("""

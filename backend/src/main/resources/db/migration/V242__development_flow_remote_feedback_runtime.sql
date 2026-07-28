@@ -49,16 +49,19 @@ WHEN NOT EXISTS (
       AND turn.task_epoch = NEW.task_epoch
       AND turn.purpose = 'ADDRESS_REMOTE_FEEDBACK'
       AND turn.attempt = NEW.semantic_attempt
-      AND turn.expected_head_sha = batch.head_sha
       AND turn.expected_base_sha = batch.base_sha
       AND turn.status = 'QUEUED'
-      AND ((NEW.semantic_attempt = 1 AND NEW.predecessor_turn_id IS NULL)
+      AND ((NEW.semantic_attempt = 1 AND NEW.predecessor_turn_id IS NULL
+            AND turn.expected_head_sha = batch.head_sha)
         OR (NEW.semantic_attempt > 1 AND EXISTS (
             SELECT 1 FROM remote_feedback_stage_turn_request previous
             JOIN stage_turn previous_turn ON previous_turn.id = previous.stage_turn_id
+            JOIN remote_feedback_repair_result previous_repair
+              ON previous_repair.repair_stage_turn_id = previous.stage_turn_id
             WHERE previous.remote_feedback_batch_id = batch.id
               AND previous.semantic_attempt = NEW.semantic_attempt - 1
               AND previous.stage_turn_id = NEW.predecessor_turn_id
+              AND turn.expected_head_sha = previous_repair.proposed_head_sha
               AND previous_turn.status IN ('SUCCEEDED', 'FAILED', 'CANCELED'))))
 )
 BEGIN SELECT RAISE(ABORT, 'Remote feedback StageTurn lacks its exact batch and owner'); END;
@@ -146,7 +149,6 @@ WHEN NOT EXISTS (
       AND remote.current_head_sha = NEW.subject_head_sha
       AND remote.current_base_sha = NEW.base_sha
       AND task.epoch = NEW.task_epoch
-      AND turn.expected_head_sha = NEW.subject_head_sha
       AND turn.expected_base_sha = NEW.base_sha)
 BEGIN SELECT RAISE(ABORT, 'Remote feedback repair result is stale or unowned'); END;
 
@@ -977,3 +979,54 @@ BEGIN SELECT RAISE(ABORT, 'Remote feedback completion receipt lacks exact owner 
 CREATE TRIGGER remote_stage_runtime_receipt_immutable
 BEFORE UPDATE ON remote_stage_runtime_receipt
 BEGIN SELECT RAISE(ABORT, 'Remote Stage runtime receipt is immutable'); END;
+
+-- V233 could only prove no-op repairs because it compared the StageTurn input
+-- fence with the output code subject. Link the final gate to V242's immutable
+-- repair result so a real code-changing feedback turn remains exact.
+DROP TRIGGER remote_feedback_validation_evidence_insert;
+CREATE TRIGGER remote_feedback_validation_evidence_insert
+BEFORE INSERT ON remote_feedback_validation_evidence
+WHEN NOT EXISTS (
+    SELECT 1 FROM remote_feedback_batch batch
+    JOIN remote_development_stage remote
+      ON remote.stage_id = batch.remote_development_stage_id
+    JOIN tasks task ON task.id = batch.task_id
+    JOIN remote_feedback_repair_result repair
+      ON repair.remote_feedback_batch_id = batch.id
+    JOIN stage_turn turn ON turn.id = repair.repair_stage_turn_id
+    JOIN validation_pass validation ON validation.id = NEW.validation_pass_id
+    WHERE batch.id = NEW.remote_feedback_batch_id
+      AND batch.status IN ('ADDRESSING', 'AWAITING_APPROVAL')
+      AND batch.remote_development_stage_id = NEW.remote_development_stage_id
+      AND batch.task_id = NEW.task_id
+      AND batch.task_epoch = NEW.task_epoch
+      AND batch.stage_generation = NEW.stage_generation
+      AND batch.head_sha = NEW.subject_head_sha
+      AND batch.base_sha = NEW.base_sha
+      AND remote.current_head_sha = NEW.subject_head_sha
+      AND remote.current_base_sha = NEW.base_sha
+      AND task.epoch = NEW.task_epoch
+      AND repair.repair_stage_turn_id = NEW.repair_stage_turn_id
+      AND repair.subject_head_sha = NEW.subject_head_sha
+      AND repair.proposed_head_sha = NEW.proposed_head_sha
+      AND repair.base_sha = NEW.base_sha
+      AND repair.code_fingerprint = NEW.code_fingerprint
+      AND turn.stage_id = NEW.remote_development_stage_id
+      AND turn.stage_generation = NEW.stage_generation
+      AND turn.task_epoch = NEW.task_epoch
+      AND turn.purpose = 'ADDRESS_REMOTE_FEEDBACK'
+      AND turn.status = 'SUCCEEDED'
+      AND turn.expected_base_sha = NEW.base_sha
+      AND validation.task_id = NEW.task_id
+      AND validation.workflow_version = 'V2'
+      AND validation.task_epoch = NEW.task_epoch
+      AND validation.stage_id = NEW.remote_development_stage_id
+      AND validation.stage_generation = NEW.stage_generation
+      AND validation.operation_id = NEW.validation_operation_id
+      AND validation.semantic_attempt = NEW.validation_attempt
+      AND validation.code_fingerprint = NEW.code_fingerprint
+      AND validation.expected_head_sha = NEW.proposed_head_sha
+      AND validation.expected_base_sha = NEW.base_sha
+      AND validation.ended_at_ms = NEW.completed_at_ms
+      AND validation.passed = NEW.passed)
+BEGIN SELECT RAISE(ABORT, 'Remote feedback validation lacks exact repair evidence'); END;

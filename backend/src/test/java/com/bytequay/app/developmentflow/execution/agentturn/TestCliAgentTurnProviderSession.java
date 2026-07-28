@@ -22,11 +22,13 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Stream;
 
+import static com.bytequay.app.developmentflow.execution.DispatchTicket.OwnerKind.REVIEW_ASSIGNMENT_TURN;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.OwnerKind.STAGE_TURN;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.OwnerKind.TASK_TURN;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession.Access.READ_ONLY;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession.Access.WORKTREE_WRITE;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession.Completion.CANCELED;
+import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession.ToolProfile.REVIEW_ASSIGNMENT_READ_ONLY;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession.ToolProfile.STAGE_DEVELOPMENT;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession.ToolProfile.TASK_BRAIN_READ_ONLY;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession.Transport.CLI;
@@ -148,6 +150,38 @@ class TestCliAgentTurnProviderSession
                 "mcp__bytequay__approval_prompt"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("exact typed Turn");
+    }
+
+    @Test
+    void reviewProfileKeepsBuiltinsReadOnlyAndPreapprovesOnlyReviewMcpTools()
+    {
+        AgentTurnProviderSession.OwnerToolEndpoint endpoint =
+                new AgentTurnProviderSession.OwnerToolEndpoint(
+                        "bytequay",
+                        "http://127.0.0.1:53123/api/v2/review-assignment-turns/"
+                                + "review-turn-1/operations/operation-1/mcp",
+                        REVIEW_ASSIGNMENT_TURN,
+                        "review-turn-1",
+                        "operation-1",
+                        REVIEW_ASSIGNMENT_READ_ONLY,
+                        "mcp__bytequay__approval_prompt");
+        AgentTurnProviderSession.Request request = new AgentTurnProviderSession.Request(
+                CLI, "claude-code", null, "claude-opus-4-8", null,
+                WORKTREE, "system", "prompt", endpoint, READ_ONLY);
+
+        List<String> argv = CliAgentTurnProviderSession.buildArgv(
+                request, CLAUDE_CODE, "claude", Path.of("/tmp/review-mcp.json"));
+
+        assertThat(argv).containsSubsequence(
+                "--tools", "Read,Glob,Grep,WebFetch,WebSearch");
+        assertThat(argv).containsSubsequence(
+                "--allowedTools",
+                "mcp__bytequay__record_assignment,mcp__bytequay__record_hypothesis,"
+                        + "mcp__bytequay__record_step,mcp__bytequay__read_diff,"
+                        + "mcp__bytequay__read_file,mcp__bytequay__search_diff,"
+                        + "mcp__bytequay__record_evidence,mcp__bytequay__record_finding,"
+                        + "mcp__bytequay__record_verification");
+        assertThat(argv).doesNotContain("Bash", "Edit", "Write", "Task");
     }
 
     private static AgentTurnProviderSession.Request request(

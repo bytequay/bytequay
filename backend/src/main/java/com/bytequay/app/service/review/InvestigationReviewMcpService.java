@@ -31,7 +31,15 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+
+import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.BLIND_RECONSTRUCTION;
+import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.INDEPENDENT_VERIFICATION;
+import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.INVESTIGATE;
+import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.ROUND_GUIDANCE;
+import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.SELF_REFUTATION;
+import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.guidanceTarget;
 
 /** MCP bridge exposing the same frozen tools to a read-only CLI investigator. */
 @Component
@@ -50,6 +58,17 @@ public class InvestigationReviewMcpService
 
     public JsonNode handle(String reviewId, String assignmentId, JsonNode request)
     {
+        return handle(reviewId, assignmentId, "legacy", "legacy", null, request);
+    }
+
+    public JsonNode handle(
+            String reviewId,
+            String assignmentId,
+            String purpose,
+            String subjectKey,
+            String verifierRunId,
+            JsonNode request)
+    {
         JsonNode rawId = request.path("id");
         try {
             JsonRpcRequest rpc = responses.mapper().treeToValue(request, JsonRpcRequest.class);
@@ -58,8 +77,10 @@ public class InvestigationReviewMcpService
                 case "initialize" -> responses.ok(id, new InitializeResult(
                         protocolVersion(rpc.params()), Capabilities.empty(),
                         new ServerInfo("bytequay-investigation-review", "1.0.0")));
-                case "tools/list" -> listTools(id);
-                case "tools/call" -> call(reviewId, assignmentId, id, rpc.params());
+                case "tools/list" -> listTools(id, purpose, subjectKey);
+                case "tools/call" -> call(
+                        reviewId, assignmentId, purpose, subjectKey,
+                        verifierRunId, id, rpc.params());
                 case "notifications/initialized", "notifications/cancelled" -> null;
                 default -> responses.error(id, -32601, "method not found: " + rpc.method());
             };
@@ -72,13 +93,16 @@ public class InvestigationReviewMcpService
         }
     }
 
-    private JsonNode listTools(JsonNode id)
+    private JsonNode listTools(JsonNode id, String purpose, String subjectKey)
     {
         ArrayNode catalog = responses.mapper().createArrayNode();
         catalog.addAll(tools.tools(TurnSpec.Transport.ANTHROPIC, false));
         catalog.addAll(tools.tools(TurnSpec.Transport.ANTHROPIC, true));
         List<ToolDescriptor> descriptors = new ArrayList<>();
         for (JsonNode node : catalog) {
+            if (!allowedTools(purpose, subjectKey).contains(node.path("name").asText())) {
+                continue;
+            }
             descriptors.add(new ToolDescriptor(
                     node.path("name").asText(), node.path("description").asText(),
                     node.path("input_schema")));
@@ -87,7 +111,13 @@ public class InvestigationReviewMcpService
     }
 
     private JsonNode call(
-            String reviewId, String assignmentId, JsonNode id, JsonNode paramsNode)
+            String reviewId,
+            String assignmentId,
+            String purpose,
+            String subjectKey,
+            String verifierRunId,
+            JsonNode id,
+            JsonNode paramsNode)
     {
         ToolCallParams params;
         try {
@@ -97,6 +127,27 @@ public class InvestigationReviewMcpService
             return responses.error(id, -32602, "invalid tools/call params: " + e.getMessage());
         }
         JsonNode arguments = params.arguments();
+        if (!allowedTools(purpose, subjectKey).contains(params.name())) {
+            return responses.toolResponse(id, responses.deny(
+                    "tool is not allowed for ReviewAssignmentTurn purpose " + purpose));
+        }
+        if (INDEPENDENT_VERIFICATION.equals(purpose)
+                && (arguments == null
+                || !subjectKey.equals(arguments.path("finding_id").asText())
+                || verifierRunId == null
+                || !verifierRunId.equals(arguments.path("verifier_run_id").asText()))) {
+            return responses.toolResponse(id, responses.deny(
+                    "verification does not match the frozen finding and verifier run"));
+        }
+        if (SELF_REFUTATION.equals(purpose)
+                && "record_evidence".equals(params.name())
+                && (arguments == null
+                || !"REFUTES".equals(arguments.path("relation").asText())
+                || !Set.of(subjectKey.split("\\|")).contains(
+                        arguments.path("finding_id").asText()))) {
+            return responses.toolResponse(id, responses.deny(
+                    "self-refutation evidence is outside the frozen finding set"));
+        }
         ToolExecutor.ToolCallResult result = tools.executor(reviewId, assignmentId).execute(new ToolCall(
                 UUID.randomUUID().toString(), params.name(),
                 arguments == null ? "{}" : arguments.toString(),
@@ -104,6 +155,33 @@ public class InvestigationReviewMcpService
         return result.isError()
                 ? responses.toolResponse(id, responses.deny(result.text()))
                 : responses.plainText(id, result.text());
+    }
+
+    private static Set<String> allowedTools(String purpose, String subjectKey)
+    {
+        return switch (purpose) {
+            case INVESTIGATE -> Set.of(
+                    "record_assignment", "record_hypothesis", "record_step",
+                    "read_diff", "read_file", "search_diff",
+                    "record_finding", "record_evidence");
+            case ROUND_GUIDANCE -> Set.of("planner", "independent-verifier")
+                    .contains(guidanceTarget(subjectKey))
+                    ? Set.of()
+                    : Set.of(
+                            "record_assignment", "record_hypothesis", "record_step",
+                            "read_diff", "read_file", "search_diff",
+                            "record_finding", "record_evidence");
+            case SELF_REFUTATION -> Set.of(
+                    "record_step", "read_diff", "read_file", "search_diff",
+                    "record_evidence");
+            case INDEPENDENT_VERIFICATION -> Set.of("record_verification");
+            case BLIND_RECONSTRUCTION -> Set.of();
+            case "legacy" -> Set.of(
+                    "record_assignment", "record_hypothesis", "record_step",
+                    "read_diff", "read_file", "search_diff", "record_finding",
+                    "record_evidence", "record_verification");
+            default -> Set.of();
+        };
     }
 
     private static String protocolVersion(JsonNode params)

@@ -222,7 +222,18 @@ public class InvestigationReviewRunner
             ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives, String guidance, int costCapCents)
     {
-        return guidanceTurn(provider, snapshot, objectives, guidance, costCapCents, """
+        return guidanceTurn(
+                provider, snapshot,
+                planGuidancePrompt(snapshot, objectives, guidance), costCapCents);
+    }
+
+    @Override
+    public ReviewTurnPrompt planGuidancePrompt(
+            InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewObjectiveRow> objectives,
+            String guidance)
+    {
+        return guidancePrompt(snapshot, objectives, guidance, """
                 You are the bounded review planner for an active, frozen review round.
                 Re-evaluate the objectives, coverage, and investigation order in response to the user's guidance.
                 Return a concise planning response: what should be prioritized, narrowed, or explicitly checked next.
@@ -235,7 +246,18 @@ public class InvestigationReviewRunner
             ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
             List<ReviewObjectiveRow> objectives, String guidance, int costCapCents)
     {
-        return guidanceTurn(provider, snapshot, objectives, guidance, costCapCents, """
+        return guidanceTurn(
+                provider, snapshot,
+                verifyGuidancePrompt(snapshot, objectives, guidance), costCapCents);
+    }
+
+    @Override
+    public ReviewTurnPrompt verifyGuidancePrompt(
+            InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewObjectiveRow> objectives,
+            String guidance)
+    {
+        return guidancePrompt(snapshot, objectives, guidance, """
                 You are the independent evidence critic for an active, frozen review round.
                 Respond to the user's guidance by identifying what evidence, counter-evidence, scope, or severity
                 must be challenged during verification. Do not create findings, claim a verdict, or impersonate
@@ -245,12 +267,10 @@ public class InvestigationReviewRunner
 
     private RunOutcome guidanceTurn(
             ProviderChoice provider, InvestigationReviewContext.Snapshot snapshot,
-            List<ReviewObjectiveRow> objectives, String guidance, int costCapCents,
-            String rolePrompt, String heading)
+            ReviewTurnPrompt prepared, int costCapCents)
     {
-        String system = CavemanPrompt.wrap(rolePrompt);
-        String prompt = contextPrompt(snapshot, objectives)
-                + "\n\n" + heading + ":\n" + guidance;
+        String system = prepared.systemPrompt();
+        String prompt = prepared.prompt();
         if ("cli".equals(provider.runner())) {
             Path workingDir = snapshot.localRoot() == null
                     ? Path.of(System.getProperty("java.io.tmpdir")) : snapshot.localRoot();
@@ -281,11 +301,34 @@ public class InvestigationReviewRunner
                 result.tokensIn(), result.tokensOut(), result.rounds(), result.end().name());
     }
 
+    private ReviewTurnPrompt guidancePrompt(
+            InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewObjectiveRow> objectives,
+            String guidance,
+            String rolePrompt,
+            String heading)
+    {
+        return new ReviewTurnPrompt(
+                CavemanPrompt.wrap(rolePrompt),
+                contextPrompt(snapshot, objectives)
+                        + "\n\n" + heading + ":\n" + guidance);
+    }
+
     @Override
     public RunOutcome selfRefute(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String findingBundles,
             int costCapCents)
+    {
+        ReviewTurnPrompt prepared = selfRefutationPrompt(snapshot, findingBundles);
+        return runPrepared(
+                provider, reviewId, assignmentId, snapshot,
+                prepared.systemPrompt(), prepared.prompt(), false, costCapCents);
+    }
+
+    @Override
+    public ReviewTurnPrompt selfRefutationPrompt(
+            InvestigationReviewContext.Snapshot snapshot, String findingBundles)
     {
         String system = """
                 You are performing the mandatory bounded self-refutation pass over surviving findings.
@@ -295,7 +338,7 @@ public class InvestigationReviewRunner
                 """;
         String prompt = "Reviewed head: " + snapshot.headCommit()
                 + "\nFindings requiring an explicit counter-evidence pass:\n" + findingBundles;
-        return run(provider, reviewId, assignmentId, snapshot, system, prompt, false, costCapCents);
+        return new ReviewTurnPrompt(CavemanPrompt.wrap(system), prompt);
     }
 
     @Override
@@ -303,6 +346,17 @@ public class InvestigationReviewRunner
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot, String locations,
             String persona, int costCapCents)
+    {
+        ReviewTurnPrompt prepared = reconstructionPrompt(snapshot, locations, persona);
+        return runPrepared(
+                provider, reviewId, assignmentId, snapshot,
+                prepared.systemPrompt(), prepared.prompt(), true, costCapCents);
+    }
+
+    @Override
+    public ReviewTurnPrompt reconstructionPrompt(
+            InvestigationReviewContext.Snapshot snapshot, String locations,
+            String persona)
     {
         String system = """
                 You are an independent verifier doing blind reconstruction. The original finding is hidden.
@@ -315,7 +369,7 @@ public class InvestigationReviewRunner
                     + persona.strip();
         }
         String prompt = "Reviewed head: " + snapshot.headCommit() + "\nLocations/evidence:\n" + locations;
-        return run(provider, reviewId, assignmentId, snapshot, system, prompt, true, costCapCents);
+        return new ReviewTurnPrompt(CavemanPrompt.wrap(system), prompt);
     }
 
     @Override
@@ -324,6 +378,18 @@ public class InvestigationReviewRunner
             InvestigationReviewContext.Snapshot snapshot, String verifierRunId,
             String findingBundle, String blindReconstruction,
             String persona, int costCapCents)
+    {
+        ReviewTurnPrompt prepared = verificationPrompt(
+                snapshot, verifierRunId, findingBundle, blindReconstruction, persona);
+        return runPrepared(
+                provider, reviewId, assignmentId, snapshot,
+                prepared.systemPrompt(), prepared.prompt(), true, costCapCents);
+    }
+
+    @Override
+    public ReviewTurnPrompt verificationPrompt(
+            InvestigationReviewContext.Snapshot snapshot, String verifierRunId,
+            String findingBundle, String blindReconstruction, String persona)
     {
         String system = """
                 You are an independent evidence verifier. Audit whether the evidence says what is claimed,
@@ -344,7 +410,7 @@ public class InvestigationReviewRunner
         String prompt = "Verifier run id (pass verbatim): " + verifierRunId
                 + "\n\nFinding bundle:\n" + findingBundle
                 + (blindReconstruction == null ? "" : "\n\nBlind reconstruction:\n" + blindReconstruction);
-        return run(provider, reviewId, assignmentId, snapshot, system, prompt, true, costCapCents);
+        return new ReviewTurnPrompt(CavemanPrompt.wrap(system), prompt);
     }
 
     /** One cheap, non-blocking planning pass. Its output is presentation-only:

@@ -116,6 +116,7 @@ import com.bytequay.app.service.checks.ValidationCheck;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.review.ReviewAssignmentTurnContinuation;
 import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
@@ -126,6 +127,7 @@ import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -186,6 +188,7 @@ public class DevelopmentFlowExecutionConfig
             SqliteReviewAssignmentTurnStore reviewAssignmentTurns,
             SqliteTaskOutcomeSummaryStore outcomeSummaries,
             TaskOutcomeSummaryRuntime outcomeSummaryRuntime,
+            ObjectProvider<ReviewAssignmentTurnContinuation> reviewContinuation,
             JdbcTemplate jdbc,
             ObjectMapper json)
     {
@@ -241,7 +244,8 @@ public class DevelopmentFlowExecutionConfig
                 commands, remoteManager, mergeOperations, json);
         ReviewAssignmentTurnResultDeliveryPort reviews =
                 new ReviewAssignmentTurnResultDeliveryPort(
-                        reviewAssignmentTurns, json, Clock.systemUTC());
+                        reviewAssignmentTurns, json, Clock.systemUTC(),
+                        reviewContinuation::getObject);
         return new ResultDeliveryRouter(Map.ofEntries(
                 Map.entry(PlanningBaseRefreshOperationHandler.CALLBACK_ROUTE,
                         planningBase),

@@ -78,6 +78,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestTaskLifecycleDriver
@@ -149,6 +150,27 @@ class TestTaskLifecycleDriver
         driver.sweepOrphanedWorktrees();
 
         verify(worktrees, never()).reap(any());
+    }
+
+    @Test
+    void legacyLifecycleAndReaperNeverWriteAV2Task()
+            throws Exception
+    {
+        Path worktree = Files.createDirectory(tempDir.resolve("v2-wt"));
+        Task task = task("trinodb/trino#29897", TaskPhase.PUSHED_AWAITING_CI)
+                .withStatus(TaskStatus.CANCELED)
+                .withWorktreePath(worktree.toString());
+        when(taskStore.isV2Task(task.id())).thenReturn(true);
+        when(taskStore.listByStatus(eq(TaskStatus.CANCELED), anyInt()))
+                .thenReturn(List.of(task));
+
+        driver.reconcileTask(task);
+        driver.reconcileLocalTask(task);
+        driver.sweepOrphanedWorktrees();
+
+        verify(pullRequests, never()).refreshPullRequestDetail(anyString(), anyInt());
+        verify(worktrees, never()).reap(any());
+        verifyNoInteractions(phaseMachine);
     }
 
     @Test

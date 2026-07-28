@@ -387,6 +387,9 @@ public class TaskLifecycleDriver
     {
         for (TaskStatus status : REAPABLE_TERMINAL) {
             for (Task task : taskStore.listByStatus(status, ORPHAN_SWEEP_LIMIT)) {
+                if (taskStore.isV2Task(task.id())) {
+                    continue;
+                }
                 String worktreePath = task.worktreePath();
                 if (worktreePath == null || worktreePath.isBlank()) {
                     continue;
@@ -411,6 +414,9 @@ public class TaskLifecycleDriver
      *  phase to match. */
     void reconcileTask(Task task)
     {
+        if (taskStore.isV2Task(task.id())) {
+            return;
+        }
         Optional<PullRequestRef> parsed = PullRequestRef.parse(task.linkedPrRef());
         if (parsed.isEmpty()) {
             return;
@@ -530,6 +536,9 @@ public class TaskLifecycleDriver
      *  Development and back through Brain review. */
     void reconcileLocalTask(Task task)
     {
+        if (taskStore.isV2Task(task.id())) {
+            return;
+        }
         if (isParkedOrTerminal(task)) {
             return; // A real human gate owns the task; never churn agent turns behind it.
         }
@@ -562,6 +571,9 @@ public class TaskLifecycleDriver
      */
     void driveLocalReviewQueue(String taskId, String prId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            return;
+        }
         Runnable rootsClosed = TaskPhaseMachine.withTaskLock(taskId, () -> {
             Task current = taskStore.findTaskById(taskId).orElse(null);
             if (isParkedOrTerminal(current)
@@ -719,6 +731,9 @@ public class TaskLifecycleDriver
 
     private void acceptLocalReviewValidation(LocalReviewValidationFinishedEvent event)
     {
+        if (taskStore.isV2Task(event.taskId())) {
+            return;
+        }
         boolean deliver = TaskPhaseMachine.withTaskLock(event.taskId(), () -> {
             Task current = taskStore.findTaskById(event.taskId()).orElse(null);
             if (isParkedOrTerminal(current)

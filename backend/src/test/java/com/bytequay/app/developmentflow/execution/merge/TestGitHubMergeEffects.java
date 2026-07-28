@@ -38,6 +38,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -128,6 +130,25 @@ class TestGitHubMergeEffects
     }
 
     @Test
+    void directMutationUsesTheFrozenMergeMethodAndHeadFence()
+    {
+        MergeRequest request = request(MergeMode.DIRECT, "rebase");
+        PrRawDetail detail = openExactDetail(request);
+        when(pullRequests.fetchPrDetail(anyString(), any()))
+                .thenReturn(detail);
+        when(pullRequests.fetchMergeQueueInfo(anyString(), any()))
+                .thenReturn(new PullRequestRepository.MergeQueueInfo(false, null));
+        when(pullRequests.mergePullRequest(anyString(), any(), any()))
+                .thenReturn(new MergeResult("merge-sha", true, "merged"));
+
+        effects.execute(request, claim(EffectKind.DIRECT_MERGE));
+
+        verify(pullRequests).mergePullRequest(eq("pat"), any(), argThat(command ->
+                command.mergeMethod().equals("rebase")
+                        && command.sha().orElseThrow().equals("head")));
+    }
+
+    @Test
     void rateLimitIsNotMisclassifiedAsPermanentPermissionDenial()
     {
         MergeRequest request = request(MergeMode.DIRECT);
@@ -174,10 +195,15 @@ class TestGitHubMergeEffects
 
     private static MergeRequest request(MergeMode mode)
     {
+        return request(mode, "squash");
+    }
+
+    private static MergeRequest request(MergeMode mode, String mergeMethod)
+    {
         return new MergeRequest(
                 "merge-row", "authorization", "readiness", "operation",
                 "remote-stage", "task", "trunk", "workspace", 1, 1, 1,
-                mode, OperationStatus.REQUESTED, 0, 4, 0,
+                mode, mergeMethod, OperationStatus.REQUESTED, 0, 4, 0,
                 mode == MergeMode.MERGE_QUEUE ? 2 : 0,
                 "head", "base", "owner/repo", 17, "readiness", "V2",
                 "ACTIVE", 1, "remote-stage", 1, "MERGING", null);

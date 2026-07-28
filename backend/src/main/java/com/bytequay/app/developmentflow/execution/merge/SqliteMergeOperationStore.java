@@ -28,6 +28,7 @@ import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.Op
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.QueueEntry;
 import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler.QueueEntryStatus;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -74,7 +75,8 @@ public class SqliteMergeOperationStore
                     operation.task_id, task.thread_id AS trunk_id,
                     trunk.workspace_id, operation.task_epoch,
                     operation.stage_generation, operation.semantic_attempt,
-                    operation.mode, operation.status, operation.attempt_count,
+                    operation.mode, operation.merge_method,
+                    operation.status, operation.attempt_count,
                     operation.attempt_limit, operation.queue_bounce_count,
                     operation.max_queue_reenqueues, operation.head_sha,
                     operation.base_sha, binding.remote_repository_id,
@@ -186,6 +188,14 @@ public class SqliteMergeOperationStore
         }
         catch (ConcurrentClaimException | DataIntegrityViolationException ignored) {
             return Optional.empty();
+        }
+        catch (UncategorizedSQLException failure) {
+            String message = failure.getSQLException().getMessage();
+            if (message != null && message.contains(
+                    "Merge execution claim lacks current Task and Stage authority")) {
+                return Optional.empty();
+            }
+            throw failure;
         }
     }
 
@@ -724,6 +734,7 @@ public class SqliteMergeOperationStore
                 rs.getString("workspace_id"), rs.getLong("task_epoch"),
                 rs.getLong("stage_generation"), rs.getInt("semantic_attempt"),
                 MergeMode.valueOf(rs.getString("mode")),
+                rs.getString("merge_method"),
                 OperationStatus.valueOf(rs.getString("status")),
                 rs.getInt("attempt_count"), rs.getInt("attempt_limit"),
                 rs.getInt("queue_bounce_count"),

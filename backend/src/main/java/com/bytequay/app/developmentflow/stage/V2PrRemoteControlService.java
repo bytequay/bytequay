@@ -128,10 +128,6 @@ public final class V2PrRemoteControlService
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "unknown merge method " + method);
         }
-        if ("UNSUPPORTED".equals(candidate.queueCapability())
-                && !"squash".equals(normalized)) {
-            throw conflict("V2 direct merge currently supports the squash method only");
-        }
         String operationId = UUID.randomUUID().toString();
         try {
             merges.start(new RemoteMergeRuntimeCoordinator.Command(
@@ -139,7 +135,7 @@ public final class V2PrRemoteControlService
                     taskId, candidate.stageId(), candidate.readinessEvidenceId(),
                     id("manual-merge-authorization", operationId), operationId,
                     id("manual-merge-ticket", operationId), AuthorityKind.MANUAL,
-                    EFFECT_ATTEMPT_LIMIT));
+                    normalized, EFFECT_ATTEMPT_LIMIT));
         }
         catch (IllegalStateException failure) {
             throw conflict("manual merge requires fresh accepted exact-head readiness");
@@ -460,6 +456,8 @@ public final class V2PrRemoteControlService
                  AND readiness.remote_pr_snapshot_id = remote.accepted_snapshot_id
                  AND readiness.head_sha = remote.current_head_sha
                  AND readiness.base_sha = remote.current_base_sha
+                JOIN task_automation_policy policy
+                  ON policy.id = readiness.automation_policy_id
                 WHERE task.id = ? AND task.workflow_version = 'V2'
                   AND task.lifecycle_state = 'ACTIVE'
                   AND stage.kind = 'REMOTE_DEVELOPMENT'
@@ -467,9 +465,16 @@ public final class V2PrRemoteControlService
                   AND stage.completed_at_ms IS NULL
                   AND current.stage_generation = stage.generation
                   AND remote.generation = stage.generation
+                  AND readiness.task_id = task.id
                   AND readiness.task_epoch = task.epoch
+                  AND readiness.stage_generation = stage.generation
                   AND readiness.ready = 1
                   AND readiness.merge_queue_capability <> 'UNKNOWN'
+                  AND policy.task_id = task.id
+                  AND policy.revision = (
+                      SELECT MAX(current_policy.revision)
+                      FROM task_automation_policy current_policy
+                      WHERE current_policy.task_id = task.id)
                 """, (rs, row) -> new MergeCandidate(
                         rs.getString("stage_id"), rs.getString("readiness_id"),
                         rs.getString("merge_queue_capability")), taskId);

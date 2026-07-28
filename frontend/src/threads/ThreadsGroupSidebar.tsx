@@ -237,7 +237,7 @@ type StatusCounts = { running: number; awaiting: number; idle: number };
 
 function deriveStatusCounts(threads: ThreadDto[]): StatusCounts {
   let running = 0;
-  let awaiting = 0;
+  const awaiting = 0;
   let idle = 0;
   for (const t of threads) {
     if (t.status === 'RUNNING') running++;

@@ -2,7 +2,7 @@
 
 Status: **LOCKED**
 
-Version: **1.2**
+Version: **1.4**
 
 Decision date: **2026-07-28**
 
@@ -172,6 +172,20 @@ compatibility matrix below; no ignored document is needed to implement them.
 26. **C26** — During mixed LEGACY/V2 operation, both paths acquire from the
     same CapacityManager ceilings through a thin legacy admission bridge.
     Normal Task work cannot consume reserved Trunk-control capacity.
+27. **C27** — Manual direct-merge consent freezes exactly one merge method
+    (`merge`, `squash`, or `rebase`) with the exact-head MergeAuthorization.
+    Recovery uses that frozen method and never substitutes another strategy.
+    Historical V2 operations created before method capture retain the former
+    `squash` behavior. Merge-queue execution remains queue-owned.
+28. **C28** — Every explicit user-authorized GitHub write carries one stable
+    client command id. The Task stores that id with the exact PR subject and
+    immutable payload; an identical retry replays the same durable action and
+    terminal result, while reuse for different input is rejected. Before the
+    first remote effect, execution freezes the matching remote-effect ids that
+    already exist, and recovery may adopt only an id outside that baseline.
+    A top-level comment may be authorized against an exact terminal PR after
+    merge or close; reviews, queue changes, and other Stage-bound writes still
+    require their live owner and current open-head fence.
 
 ## Owners and boundaries
 
@@ -1034,6 +1048,11 @@ Manual merge consent creates one-head MergeAuthorization.
 AutoMerge is standing policy that may create a fresh authorization only after
 all readiness facts are re-proved for the current head.
 
+For a direct merge, the authorization and MergeOperation also freeze the
+user-selected `merge`, `squash`, or `rebase` method. Probe/restart recovery
+cannot change it. Queue entry has no client-selected direct-merge method; the
+repository's merge-queue policy remains authoritative.
+
 MergeOperation:
 
 - re-fetches remote truth before the effect
@@ -1193,6 +1212,12 @@ may be renamed or extended when their semantics match.
 
 - Claims commit before external I/O.
 - Effects have stable idempotency keys.
+- Explicit user GitHub writes retain their client command id across a lost
+  transport response. Repeating the command replays its durable result rather
+  than creating a second authorization.
+- Recovery records the matching remote-id baseline before first execution.
+  Timestamp and payload equality alone never prove that a later command owns
+  an already-existing comment or review.
 - Unknown outcomes are probed before retry.
 - Leases expire and can be reclaimed, but expired does not mean the external
   effect did not happen.
@@ -1389,6 +1414,18 @@ duplicate-delivery variants where applicable.
 55. In a fresh checkout containing no ignored `docs/mockups/` files, derive
     the hierarchy, grouped rail, product journey, role boundaries, gates, and
     migration order solely from this contract and its tracked migration plan.
+56. Select each direct merge method, restart before the remote effect, and
+    prove that execution uses the exact frozen method and head SHA; upgrading
+    an older V2 merge operation preserves its prior squash behavior.
+57. Lose the HTTP response after a user comment or review command commits,
+    retry with the same command id, and prove one durable action and one remote
+    effect while the same terminal result is replayed.
+58. Authorize two intentional identical comments within one GitHub timestamp
+    second and prove the second command does not adopt the first command's
+    remote id; each command produces its own exact effect.
+59. After an exact Task-owned PR merges and its Remote Stage completes, post a
+    top-level comment successfully; reject a review or queue mutation through
+    the same terminal-owner exception.
 
 ## Patterns to preserve
 
@@ -1439,6 +1476,22 @@ reconciliation; they are never reassigned using latest/active inference.
   promised extension until separately designed and implemented.
 
 ## Change log
+
+### 1.4 — 2026-07-29
+
+- Added C28 to lock client-command replay and pre-effect remote-id baselines
+  for explicit GitHub writes.
+- Preserved exact-identity top-level comments after merge or close without
+  relaxing the live Stage fence for reviews and other remote actions.
+- Added acceptance scenarios 57-59 for lost responses, same-second duplicate
+  payloads, and terminal-PR action boundaries.
+
+### 1.3 — 2026-07-29
+
+- Added C27 to preserve all existing direct merge methods as immutable,
+  exact-head authorization input across restart and upgrade.
+- Added acceptance scenario 56 for method fencing and historical squash
+  compatibility.
 
 ### 1.2 — 2026-07-28
 

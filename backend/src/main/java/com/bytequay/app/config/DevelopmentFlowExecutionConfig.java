@@ -47,10 +47,14 @@ import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandle
 import com.bytequay.app.developmentflow.execution.publish.SqlitePublishOperationStore;
 import com.bytequay.app.developmentflow.execution.remote.GitHubRemoteEffects;
 import com.bytequay.app.developmentflow.execution.remote.GitHubRemoteObserver;
+import com.bytequay.app.developmentflow.execution.remote.GitHubUserRemoteActionGateway;
 import com.bytequay.app.developmentflow.execution.remote.RemoteFeedbackEffectOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.RemoteMarkReadyOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteFeedbackEffectOperationStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteMarkReadyOperationStore;
+import com.bytequay.app.developmentflow.execution.remote.SqliteUserRemoteActionStore;
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler;
+import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
 import com.bytequay.app.developmentflow.persistence.SqliteAgentTurnOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteReviewAssignmentTurnStore;
 import com.bytequay.app.developmentflow.persistence.SqliteThreadTurnOperationStore;
@@ -88,11 +92,16 @@ import com.bytequay.app.developmentflow.stage.RemoteObservationResultDeliveryPor
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
+import com.bytequay.app.developmentflow.stage.V2ReadinessAssistanceRuntime;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteReadinessAssistanceStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
+import com.bytequay.app.developmentflow.task.TaskBrainConversationResultDeliveryPort;
+import com.bytequay.app.developmentflow.task.TaskBrainConversationRuntime;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.TaskPolicyRevisionRedriver;
 import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseRefreshOperationHandler;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseTurnRuntime;
@@ -105,6 +114,7 @@ import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnResultDeliveryPort;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
+import com.bytequay.app.developmentflow.trunk.V2TrunkPurge;
 import com.bytequay.app.developmentflow.userwait.V2UserWaitResultDeliveryPort;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadSettingsStore;
@@ -119,6 +129,7 @@ import com.bytequay.app.service.checks.ValidationCheck;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.review.ReviewAssignmentTurnContinuation;
 import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
@@ -163,7 +174,6 @@ public class DevelopmentFlowExecutionConfig
 {
     @Bean
     @Primary
-    @ConditionalOnMissingBean(ExecutionPorts.ResultDeliveryPort.class)
     @ConditionalOnProperty(
             name = "bytequay.development-flow.v2-dispatch-enabled",
             havingValue = "true")
@@ -192,6 +202,9 @@ public class DevelopmentFlowExecutionConfig
             SqliteTaskOutcomeSummaryStore outcomeSummaries,
             V2UserWaitStore userWaits,
             TaskOutcomeSummaryRuntime outcomeSummaryRuntime,
+            TaskBrainConversationRuntime taskBrainConversation,
+            V2UserRemoteActionRuntime userRemoteActions,
+            V2ReadinessAssistanceRuntime readinessAssistance,
             ObjectProvider<ReviewAssignmentTurnContinuation> reviewContinuation,
             JdbcTemplate jdbc,
             ObjectMapper json)
@@ -210,6 +223,9 @@ public class DevelopmentFlowExecutionConfig
                         "PLAN_DRAFT", plan,
                         "PLAN_SELF_REVIEW", plan,
                         "DEVELOPMENT_BRAIN_REVIEW", brainDelivery,
+                        "TASK_BRAIN_CONVERSATION",
+                        new TaskBrainConversationResultDeliveryPort(
+                                codec, taskBrainConversation),
                         "TASK_COMPLETION_SUMMARY",
                         new TaskOutcomeSummaryResultDeliveryPort(
                                 outcomeSummaries, outcomeSummaryRuntime,
@@ -289,9 +305,24 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry("BRANCH_SYNC_PUSH_RESULT", branches),
                 Map.entry(ReviewAssignmentTurnOperationHandler.CALLBACK_ROUTE,
                         reviews),
+                Map.entry(UserRemoteActionOperationHandler.CALLBACK_ROUTE,
+                        userRemoteActions),
+                Map.entry(RemoteFeedbackEffectOperationHandler
+                                .READINESS_ASSISTANCE_CALLBACK_ROUTE,
+                        readinessAssistance),
                 Map.entry(MergeOperationHandler.CALLBACK_ROUTE, merge)));
         return new V2UserWaitResultDeliveryPort(
                 userWaits, routes, json, Clock.systemUTC());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(V2ReadinessAssistanceRuntime.class)
+    public V2ReadinessAssistanceRuntime v2ReadinessAssistanceRuntime(
+            SqliteReadinessAssistanceStore store,
+            TaskCommandExecutor commands,
+            ObjectMapper json)
+    {
+        return new V2ReadinessAssistanceRuntime(store, commands, json);
     }
 
     @Bean
@@ -512,6 +543,32 @@ public class DevelopmentFlowExecutionConfig
     }
 
     @Bean
+    @ConditionalOnMissingBean(UserRemoteActionOperationHandler.class)
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
+    public UserRemoteActionOperationHandler v2UserRemoteActionOperationHandler(
+            SqliteUserRemoteActionStore operations,
+            GitHubUserRemoteActionGateway github,
+            ObjectMapper json)
+    {
+        return new UserRemoteActionOperationHandler(
+                operations, github, json, Clock.systemUTC());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(V2UserRemoteActionRuntime.class)
+    public V2UserRemoteActionRuntime v2UserRemoteActionRuntime(
+            SqliteUserRemoteActionStore operations,
+            PRService prs,
+            ObjectMapper json,
+            InvestigationReviewService investigationReviews)
+    {
+        return new V2UserRemoteActionRuntime(
+                operations, prs, json, investigationReviews);
+    }
+
+    @Bean
     @ConditionalOnMissingBean(RemoteMarkReadyOperationHandler.class)
     @ConditionalOnProperty(
             name = "bytequay.development-flow.v2-dispatch-enabled",
@@ -541,6 +598,7 @@ public class DevelopmentFlowExecutionConfig
             CleanupOperationHandler cleanup,
             RemoteFeedbackValidationOperationHandler remoteValidation,
             RemoteFeedbackEffectOperationHandler remoteEffects,
+            UserRemoteActionOperationHandler userRemoteActions,
             RemoteMarkReadyOperationHandler markReady,
             RemoteObservationOperationHandler observations,
             RemoteEffectOperationHandler remoteFiniteEffects,
@@ -566,6 +624,11 @@ public class DevelopmentFlowExecutionConfig
                         remoteValidation),
                 Map.entry(RemoteFeedbackEffectOperationHandler.OPERATION_KIND,
                         remoteEffects),
+                Map.entry(RemoteFeedbackEffectOperationHandler
+                                .READINESS_ASSISTANCE_OPERATION_KIND,
+                        remoteEffects),
+                Map.entry(UserRemoteActionOperationHandler.OPERATION_KIND,
+                        userRemoteActions),
                 Map.entry(RemoteMarkReadyOperationHandler.OPERATION_KIND, markReady),
                 Map.entry(RemoteObservationOperationHandler.OPERATION_KIND,
                         observations),
@@ -678,10 +741,12 @@ public class DevelopmentFlowExecutionConfig
             DispatchTicketControl tickets,
             RemoteCiRepairRuntimeCoordinator ciRepair,
             JdbcTemplate jdbc,
-            V2UserWaitStore userWaits)
+            V2UserWaitStore userWaits,
+            TaskPolicyRevisionRedriver policyRedriver)
     {
         return new V2TaskControlService(
-                tasks, store, tickets, ciRepair, jdbc, userWaits);
+                tasks, store, tickets, ciRepair, jdbc, userWaits,
+                policyRedriver);
     }
 
     @Bean
@@ -706,12 +771,15 @@ public class DevelopmentFlowExecutionConfig
             PlanningBaseTurnRuntime planning,
             ThreadTurnProjection projection,
             DispatchTicketControl tickets,
+            TrunkManager trunks,
+            V2TrunkPurge purge,
             ThreadEngineOverrides engines,
             RoleRegistry roles,
             SessionKnowledgeProvider knowledge)
     {
         return new V2ThreadControlService(
-                planning, projection, tickets, engines, roles, knowledge);
+                planning, projection, tickets, trunks, purge,
+                engines, roles, knowledge);
     }
 
     @Bean

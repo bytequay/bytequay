@@ -14,7 +14,9 @@
 package com.bytequay.app.developmentflow.task.persistence;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
+import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.stage.CancellationToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
@@ -27,6 +29,7 @@ import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.TaskResumeOwner;
 import com.bytequay.app.developmentflow.task.V2TaskControlService;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -72,7 +75,7 @@ class TestSqliteTaskStore
         seedLegacySibling(
                 jdbc, "task-legacy", 3,
                 now.minus(3, ChronoUnit.DAYS).toEpochMilli());
-        migrate(file, "257");
+        migrate(file, "263");
 
         ControlFixture fixture = controls(dataSource);
         assertThat(fixture.controls().idleArchiveCandidates(cutoff, now, 10))
@@ -110,7 +113,7 @@ class TestSqliteTaskStore
         seedActiveTaskWithCode(
                 jdbc, "task-race", "plan-race", 1,
                 now.minus(2, ChronoUnit.DAYS).toEpochMilli());
-        migrate(file, "257");
+        migrate(file, "263");
 
         ControlFixture fixture = controls(dataSource);
         assertThat(fixture.controls().idleArchiveCandidates(cutoff, now, 10))
@@ -127,6 +130,60 @@ class TestSqliteTaskStore
     }
 
     @Test
+    void idleArchiveBlocksOpenAndReadyTypedWaitsInsideSerializedCommand()
+    {
+        Path file = tempDir.resolve("idle-archive-user-wait.db");
+        SQLiteDataSource dataSource = database(file);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Instant cutoff = now.minus(1, ChronoUnit.DAYS);
+        long old = now.minus(2, ChronoUnit.DAYS).toEpochMilli();
+        seedTrunk(jdbc);
+        seedActiveTaskWithCode(jdbc, "task-wait", "plan-wait", 1, old);
+        migrate(file, "263");
+        seedLivePlanTurn(jdbc, "task-wait", "plan-wait", "wait");
+        jdbc.update("""
+                UPDATE task_turn SET status = 'RUNNING', started_at_ms = ?
+                WHERE id = 'plan-turn-wait'
+                """, old + 5);
+        V2UserWaitStore waits = new V2UserWaitStore(jdbc);
+        ActiveAgentContextRegistry.TypedOwner owner =
+                new ActiveAgentContextRegistry.TypedOwner(
+                        DispatchTicket.OwnerKind.TASK_TURN,
+                        "plan-turn-wait", "plan-operation-wait");
+        waits.insertQuestion(
+                owner, "question-wait", "call-wait", "Choose", null,
+                "[]", true, Instant.ofEpochMilli(old + 6));
+        waits.recordUserWait(
+                owner, "QUESTION", "question-wait", "digest", "evidence",
+                Instant.ofEpochMilli(old + 7));
+        jdbc.update("""
+                UPDATE task_turn
+                SET status = 'SUCCEEDED', finished_at_ms = ?
+                WHERE id = 'plan-turn-wait'
+                """, old + 7);
+        jdbc.update("DELETE FROM dispatch_ticket WHERE id = 'plan-ticket-wait'");
+
+        ControlFixture fixture = controls(dataSource);
+        assertThat(fixture.controls().idleArchiveCandidates(cutoff, now, 10))
+                .doesNotContain("task-wait");
+        assertThat(fixture.controls().archiveIfIdle("task-wait", cutoff, now))
+                .isFalse();
+
+        waits.answerQuestion(
+                "question-wait", 0, null, "continue", "user",
+                Instant.ofEpochMilli(old + 8));
+        assertThat(fixture.controls().archiveIfIdle("task-wait", cutoff, now))
+                .isFalse();
+
+        waits.cancelOpenWaitsForTask(
+                "task-wait", "user", "Task canceled",
+                Instant.ofEpochMilli(old + 9));
+        assertThat(fixture.controls().archiveIfIdle("task-wait", cutoff, now))
+                .isTrue();
+    }
+
+    @Test
     void idleArchiveCompletesAfterRestartAndRevivesThroughExactStageOwner()
     {
         Path file = tempDir.resolve("idle-archive-restart.db");
@@ -139,7 +196,7 @@ class TestSqliteTaskStore
         seedActiveTaskWithCode(
                 jdbc, "task-revive", "plan-revive", 1,
                 now.minus(2, ChronoUnit.DAYS).toEpochMilli());
-        migrate(file, "257");
+        migrate(file, "263");
 
         ControlFixture beforeRestart = controls(dataSource);
         assertThat(beforeRestart.controls().archiveIfIdle(

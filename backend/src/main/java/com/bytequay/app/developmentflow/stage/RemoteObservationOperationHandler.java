@@ -180,12 +180,14 @@ public final class RemoteObservationOperationHandler
             int unresolvedCommentCount,
             List<RemoteCiPolicy.Check> checks,
             List<FeedbackFact> feedback,
+            String viewerLogin,
+            Boolean viewerCanMerge,
             String rawEvidence,
             long observedAtMs)
     {
         public Observation
         {
-            if (schemaVersion != 1) {
+            if (schemaVersion < 1 || schemaVersion > 2) {
                 throw new IllegalArgumentException(
                         "Unsupported Remote observation schema");
             }
@@ -197,6 +199,10 @@ public final class RemoteObservationOperationHandler
             requireNonNull(mergeQueueState, "mergeQueueState is null");
             checks = List.copyOf(requireNonNull(checks, "checks is null"));
             feedback = feedback == null ? List.of() : List.copyOf(feedback);
+            if (schemaVersion == 2) {
+                requireText(viewerLogin, "viewerLogin");
+                requireNonNull(viewerCanMerge, "viewerCanMerge is null");
+            }
             if (effectiveApprovalCount < 0 || writeApprovalCount < 0
                     || changesRequestedCount < 0 || requestedReviewerCount < 0
                     || unresolvedThreadCount < 0 || unresolvedCommentCount < 0
@@ -204,6 +210,34 @@ public final class RemoteObservationOperationHandler
                 throw new IllegalArgumentException(
                         "Remote observation counts are invalid");
             }
+        }
+
+        /** Compatibility constructor for version-one results already in flight. */
+        public Observation(
+                int schemaVersion,
+                String observationKey,
+                String headSha,
+                String baseSha,
+                PrState prState,
+                Mergeability mergeability,
+                MergeQueueState mergeQueueState,
+                int effectiveApprovalCount,
+                int writeApprovalCount,
+                int changesRequestedCount,
+                int requestedReviewerCount,
+                int unresolvedThreadCount,
+                int unresolvedCommentCount,
+                List<RemoteCiPolicy.Check> checks,
+                List<FeedbackFact> feedback,
+                String rawEvidence,
+                long observedAtMs)
+        {
+            this(schemaVersion, observationKey, headSha, baseSha, prState,
+                    mergeability, mergeQueueState, effectiveApprovalCount,
+                    writeApprovalCount, changesRequestedCount,
+                    requestedReviewerCount, unresolvedThreadCount,
+                    unresolvedCommentCount, checks, feedback, null, null,
+                    rawEvidence, observedAtMs);
         }
 
         /** Compatibility constructor for observations produced before feedback identities. */
@@ -229,8 +263,8 @@ public final class RemoteObservationOperationHandler
                     mergeability, mergeQueueState, effectiveApprovalCount,
                     writeApprovalCount, changesRequestedCount,
                     requestedReviewerCount, unresolvedThreadCount,
-                    unresolvedCommentCount, checks, List.of(), rawEvidence,
-                    observedAtMs);
+                    unresolvedCommentCount, checks, List.of(), null, null,
+                    rawEvidence, observedAtMs);
         }
     }
 

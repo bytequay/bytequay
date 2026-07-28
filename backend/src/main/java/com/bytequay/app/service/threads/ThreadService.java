@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
 import com.bytequay.app.developmentflow.task.creation.V2TaskCreationService;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.domain.DiffFile;
@@ -73,6 +74,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -152,6 +154,8 @@ public class ThreadService
     private V2TaskCreationService v2TaskCreation;
     /** Typed Trunk runtime, supplied only when the V2 dispatcher graph exists. */
     private V2ThreadControlService v2ThreadControls;
+    /** Read-only adapter for V2-owned branch/worktree/PR facts. */
+    private V2DevelopmentFlowProjection v2TaskProjection;
     private TransactionTemplate legacyTaskTransactions;
     /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
      *  null in POJO unit tests that construct this service directly, where
@@ -229,6 +233,13 @@ public class ThreadService
     {
         this.v2ThreadControls = requireNonNull(
                 v2ThreadControls, "v2ThreadControls is null");
+    }
+
+    @Autowired(required = false)
+    void setV2TaskProjection(V2DevelopmentFlowProjection v2TaskProjection)
+    {
+        this.v2TaskProjection = requireNonNull(
+                v2TaskProjection, "v2TaskProjection is null");
     }
 
     @Override
@@ -914,9 +925,17 @@ public class ThreadService
         if (limit <= 0) {
             return List.of();
         }
-        return turnStore.listTurnsByStatuses(
+        int capped = Math.min(limit, ACTIVE_TURN_LIMIT);
+        List<ThreadTurn> legacy = turnStore.listTurnsByStatuses(
                 List.of(ThreadTurnStatus.RUNNING, ThreadTurnStatus.QUEUED),
-                Math.min(limit, ACTIVE_TURN_LIMIT));
+                capped);
+        List<ThreadTurn> typed = v2ThreadControls == null
+                ? List.of() : v2ThreadControls.activeTurns(capped);
+        return Stream.concat(legacy.stream(), typed.stream())
+                .sorted(Comparator.comparing(ThreadTurn::createdAt)
+                        .thenComparing(ThreadTurn::id))
+                .limit(capped)
+                .toList();
     }
 
     /** Send a task-scoped follow-up. The task id is mandatory and its
@@ -1098,10 +1117,7 @@ public class ThreadService
         if (existing.isEmpty()) {
             return;
         }
-        if (isV2Trunk(threadId)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "V2 Trunk deletion requires typed Cleanup completion");
-        }
+        boolean v2 = isV2Trunk(threadId);
         // Refuse while any task is still in flight — running / queued
         // tasks hold worktrees and live agent processes, and deleting
         // out from under them would strand both. A zero-task
@@ -1109,6 +1125,7 @@ public class ThreadService
         // COMPLETED the user can clean up the thread.
         List<Task> allTasks = taskStore.listTasksByThread(threadId);
         long unfinished = allTasks.stream()
+                .filter(task -> !v2 || !taskStore.isV2Task(task.id()))
                 .filter(t -> t.status() != TaskStatus.COMPLETED && t.status() != TaskStatus.ARCHIVED
                         && t.status() != TaskStatus.REMOTE_CLOSED)
                 .count();
@@ -1119,7 +1136,9 @@ public class ThreadService
                             + " that haven't completed — finish or stop them"
                             + " before deleting the thread.");
         }
-        teardownAndDelete(threadId, allTasks);
+        V2ThreadControlService.DeletionPermit permit = v2
+                ? prepareV2Deletion(threadId) : null;
+        teardownAndDelete(threadId, allTasks, permit);
     }
 
     /**
@@ -1141,11 +1160,11 @@ public class ThreadService
         if (store.findThreadById(threadId).isEmpty()) {
             return;
         }
-        if (isV2Trunk(threadId)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "V2 Trunk purge requires typed Cleanup quiescence");
-        }
-        teardownAndDelete(threadId, taskStore.listTasksByThread(threadId));
+        boolean v2 = isV2Trunk(threadId);
+        V2ThreadControlService.DeletionPermit permit = v2
+                ? prepareV2Deletion(threadId) : null;
+        teardownAndDelete(
+                threadId, taskStore.listTasksByThread(threadId), permit);
     }
 
     /**
@@ -1153,7 +1172,10 @@ public class ThreadService
      * every agent session (so no subprocess outlives the row), drain queued
      * turns, reap each task's worktree, then delete the thread row.
      */
-    private void teardownAndDelete(String threadId, List<Task> allTasks)
+    private void teardownAndDelete(
+            String threadId,
+            List<Task> allTasks,
+            V2ThreadControlService.DeletionPermit permit)
     {
         // Stop the live agents + drop any queued turns so we don't leave a
         // subprocess running against a deleted row. A thread may have
@@ -1189,11 +1211,32 @@ public class ThreadService
                 .distinct()
                 .forEach(root -> worktreeService.removePlanningWorktree(
                         Path.of(root), threadId));
-        if (investigationReviews != null) {
-            investigationReviews.purgeByOwnerThread(threadId);
+        Runnable deleteRows = () -> {
+            if (investigationReviews != null) {
+                investigationReviews.purgeByOwnerThread(threadId);
+            }
+            dataPurger.purgeThreadScoped(
+                    threadId, allTasks.stream().map(Task::id).toList());
+            store.deleteThread(threadId);
+        };
+        if (permit == null) {
+            deleteRows.run();
         }
-        dataPurger.purgeThreadScoped(threadId, allTasks.stream().map(Task::id).toList());
-        store.deleteThread(threadId);
+        else {
+            requireV2ThreadControls().delete(permit, deleteRows);
+        }
+    }
+
+    private V2ThreadControlService.DeletionPermit prepareV2Deletion(
+            String threadId)
+    {
+        try {
+            return requireV2ThreadControls().prepareDeletion(threadId);
+        }
+        catch (RuntimeException failure) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409), failure.getMessage(), failure);
+        }
     }
 
     private boolean isV2Trunk(String threadId)
@@ -1233,13 +1276,18 @@ public class ThreadService
         // task it owns has reached COMPLETED. Anything else — RUNNING,
         // PENDING, AWAITING, IDLE, AWAITING_REVIEW, NEEDS_ATTENTION,
         // ERRORED — counts as still in flight and blocks the button.
+        boolean v2 = isV2Trunk(threadId);
         long unfinished = taskStore.listTasksByThread(threadId).stream()
+                .filter(task -> !v2 || !taskStore.isV2Task(task.id()))
                 .filter(t -> t.status() != TaskStatus.COMPLETED && t.status() != TaskStatus.ARCHIVED
                         && t.status() != TaskStatus.REMOTE_CLOSED)
                 .count();
         if (unfinished > 0) {
             return Optional.of(unfinished + " task" + (unfinished == 1 ? " is" : "s are")
                     + " still in flight — finish or stop them before deleting.");
+        }
+        if (v2) {
+            return requireV2ThreadControls().deletionBlocker(threadId);
         }
         return Optional.empty();
     }
@@ -1596,10 +1644,32 @@ public class ThreadService
      *  tasks per thread the surface knows which one it means. */
     private Optional<Task> resolveSurfaceTask(String threadId, String taskId)
     {
+        Optional<Task> selected;
         if (taskId != null && !taskId.isBlank()) {
-            return taskStore.findTaskById(taskId);
+            selected = taskStore.findTaskById(taskId);
         }
-        return taskStore.findLatestTaskForThread(threadId);
+        else {
+            selected = taskStore.findLatestTaskForThread(threadId);
+        }
+        if (selected.isEmpty()) {
+            return Optional.empty();
+        }
+        Task task = selected.orElseThrow();
+        if (!threadId.equals(task.threadId())) {
+            // Do not disclose or read a sibling Trunk's worktree merely
+            // because its Task id was supplied to a thread-scoped endpoint.
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(404), "no task: " + task.id());
+        }
+        if (!taskStore.isV2Task(task.id())) {
+            return Optional.of(task);
+        }
+        if (v2TaskProjection == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(503),
+                    "V2 Task read projection is not configured");
+        }
+        return Optional.of(v2TaskProjection.project(task));
     }
 
     private Path agentCwd(Thread thread, String taskId)
@@ -1713,8 +1783,7 @@ public class ThreadService
         Thread thread = requireTask(threadId);
         requireTrunkThread(thread);
         if (isV2Trunk(thread.id())) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "V2 Trunk live events use the durable turn projection");
+            return requireV2ThreadControls().subscribe(thread.id(), listener);
         }
         return registry.getOrCreateTrunkAgent(thread).subscribeToEvents(listener);
     }

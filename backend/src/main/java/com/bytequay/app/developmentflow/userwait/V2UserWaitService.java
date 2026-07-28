@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.developmentflow.userwait;
 
-import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.domain.AgentQuestion;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
@@ -45,6 +44,16 @@ public final class V2UserWaitService
     private final ObjectMapper json;
     private final Clock clock;
     private TrunkUserWaitContinuation trunkContinuations;
+    private TypedUserWaitContinuation typedContinuations;
+
+    @Autowired
+    public V2UserWaitService(
+            V2UserWaitStore waits,
+            ActiveAgentContextRegistry activeContexts,
+            ObjectMapper json)
+    {
+        this(waits, activeContexts, json, Clock.systemUTC());
+    }
 
     public V2UserWaitService(
             V2UserWaitStore waits,
@@ -147,11 +156,8 @@ public final class V2UserWaitService
                 // the grant intended for its successor Turn.
                 return PermissionPrompt.waiting(request.id());
             }
-            if (waits.wasGrantConsumed(owner, toolName, digest)) {
-                return PermissionPrompt.allowed(-1);
-            }
             OptionalInt remaining = waits.consumeGrant(
-                    owner, toolName, digest, clock.instant());
+                    owner, callId, toolName, digest, clock.instant());
             if (remaining.isPresent()) {
                 return PermissionPrompt.allowed(remaining.orElseThrow());
             }
@@ -188,8 +194,13 @@ public final class V2UserWaitService
         V2UserWaitStore.QuestionResolution result = waits.answerQuestion(
                 questionId, expectedRevision, answerOptionId, answerFreeForm,
                 actor, clock.instant());
-        if (result.accepted() && trunkContinuations != null) {
-            trunkContinuations.resumeQuestion(result.question().id());
+        if (result.accepted()) {
+            if (typedContinuations != null) {
+                typedContinuations.resumeQuestion(result.question().id());
+            }
+            else if (trunkContinuations != null) {
+                trunkContinuations.resumeQuestion(result.question().id());
+            }
         }
         return result;
     }
@@ -207,8 +218,13 @@ public final class V2UserWaitService
         }
         V2UserWaitStore.PermissionResolution result = waits.resolvePermission(
                 callId, expectedRevision, choice, actor, clock.instant());
-        if (result.accepted() && trunkContinuations != null) {
-            trunkContinuations.resumePermission(result.request().id());
+        if (result.accepted()) {
+            if (typedContinuations != null) {
+                typedContinuations.resumePermission(result.request().id());
+            }
+            else if (trunkContinuations != null) {
+                trunkContinuations.resumePermission(result.request().id());
+            }
         }
         return result;
     }
@@ -220,6 +236,13 @@ public final class V2UserWaitService
                 trunkContinuations, "trunkContinuations is null");
     }
 
+    @Autowired
+    void setTypedContinuations(TypedUserWaitContinuation typedContinuations)
+    {
+        this.typedContinuations = requireNonNull(
+                typedContinuations, "typedContinuations is null");
+    }
+
     public Optional<V2UserWaitStore.Question> findQuestion(String id)
     {
         return waits.findQuestion(id);
@@ -229,6 +252,12 @@ public final class V2UserWaitService
             String trunkId, String callId)
     {
         return waits.findPermissionForTrunk(trunkId, callId);
+    }
+
+    public Optional<V2UserWaitStore.PermissionRequest> findPermission(
+            String callId)
+    {
+        return waits.findPermission(callId);
     }
 
     public List<AgentQuestion> listOpen(String trunkId)
@@ -287,8 +316,12 @@ public final class V2UserWaitService
     private static void requireSupportedContinuation(
             ActiveAgentContextRegistry.TypedOwner owner)
     {
-        if (owner.kind() != DispatchTicket.OwnerKind.THREAD_TURN) {
-            throw new IllegalStateException(
+        switch (owner.kind()) {
+            case THREAD_TURN, TASK_TURN, STAGE_TURN,
+                    REVIEW_ASSIGNMENT_TURN -> {
+                return;
+            }
+            default -> throw new IllegalStateException(
                     "typed user waits require an owner-specific continuation");
         }
     }

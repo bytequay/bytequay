@@ -303,6 +303,27 @@ class TestTaskServiceShipAndContinue
     }
 
     @Test
+    void v2NextReturnsToTrunkWithoutMutatingOrCreatingATask()
+            throws Exception
+    {
+        Task current = task(
+                "task-v2", "thread-1", 1L, "dev/task-v2",
+                "/tmp/wt/task-v2", "/tmp/repo");
+        when(taskStore.isV2Task("task-v2")).thenReturn(true);
+        when(taskStore.findTaskById("task-v2")).thenReturn(Optional.of(current));
+
+        Task result = service.parkAndStartNext(
+                "thread-1", "task-v2",
+                new TaskService.ShipRequest(null, TaskService.BaseMode.MAIN));
+
+        assertThat(result).isSameAs(current);
+        verify(taskStore, never()).saveTask(any());
+        verify(git, never()).push(any(Path.class));
+        verify(worktreeService, never()).create(any(Path.class), anyString(), anyString());
+        verify(pullRequests, never()).createPullRequest(anyString(), any(), any());
+    }
+
+    @Test
     void shipOpeningAPrPublishesAPrPushedEventSoItsPrRowLearnsAboutIt()
             throws Exception
     {

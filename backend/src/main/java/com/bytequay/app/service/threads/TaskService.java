@@ -414,12 +414,9 @@ public class TaskService
     }
 
     /**
-     * Next → park & advance. Same flow as {@link #shipAndContinue} but
-     * parks the current task at {@code AWAITING_REVIEW} (not closed)
-     * with its worktree preserved, so jump-back keeps the branch +
-     * worktree + agent session id alive. Per the workspace/thread/task
-     * design's "Next / Ship / jump-back" section, Next is the common
-     * day-to-day move; Ship is the terminal move when the PR merges.
+     * Return control to Trunk planning. LEGACY keeps its park-and-cut
+     * compatibility flow; V2 leaves the current Task at its exact owner
+     * checkpoint so only a typed Trunk assignment can create a sibling.
      */
     public Task parkAndStartNext(String threadId, String taskId, ShipRequest request)
     {
@@ -438,7 +435,13 @@ public class TaskService
             String threadId, String taskId, ShipRequest request, ParkMode mode, boolean approvedParked)
     {
         if (taskStore.isV2Task(taskId)) {
-            requireTask(threadId, taskId);
+            Task current = requireTask(threadId, taskId);
+            if (mode == ParkMode.NEXT && !approvedParked) {
+                // V2 Next is a navigation handoff back to Trunk planning.
+                // The Task remains at its exact owner checkpoint; only a
+                // subsequent typed Trunk assignment may create a sibling.
+                return v2Projection == null ? current : v2Projection.project(current);
+            }
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "V2 Task promotion is owned by Local Development");
         }

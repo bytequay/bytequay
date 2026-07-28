@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
@@ -36,6 +38,7 @@ import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.TaskResumeOwner;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -158,6 +161,95 @@ class TestDevelopmentFlowStageSteeringMigration
                 SELECT status FROM stage_turn WHERE id = ?
                 """, String.class, feedback.predecessor().ownerId()))
                 .isEqualTo("SUPERSEDED");
+        assertThat(fixture.jdbc().queryForObject("""
+                SELECT COUNT(*) FROM remote_feedback_stage_turn_request
+                WHERE remote_feedback_batch_id = 'batch-3'
+                  AND semantic_attempt = 2
+                """, Integer.class)).isOne();
+    }
+
+    @Test
+    void answeredRemoteFeedbackWaitAdmitsOnlyItsExactSuccessorAcrossRestart()
+            throws Exception
+    {
+        Fixture fixture = fixture();
+        seedFeedbackPredecessor(fixture);
+        V2UserWaitStore waits = new V2UserWaitStore(fixture.jdbc());
+        ActiveAgentContextRegistry.TypedOwner owner =
+                new ActiveAgentContextRegistry.TypedOwner(
+                        DispatchTicket.OwnerKind.STAGE_TURN,
+                        "feedback-turn-1", "feedback-operation-1");
+        fixture.commands().executeVoid("task-3", () -> {
+            fixture.jdbc().update("""
+                    UPDATE stage_turn
+                    SET status = 'RUNNING', started_at_ms = 1000
+                    WHERE id = 'feedback-turn-1' AND status = 'QUEUED'
+                    """);
+            waits.insertQuestion(
+                    owner, "feedback-question", "feedback-question-call",
+                    "Continue addressing this feedback?", null, "[]", true,
+                    NOW.plusMillis(1));
+            waits.answerQuestion(
+                    "feedback-question", 0, null, "Continue", "user",
+                    NOW.plusMillis(2));
+            markTicketResultPending(fixture.jdbc(), "feedback-ticket-1");
+            waits.recordUserWait(
+                    owner, "QUESTION", "feedback-question", "payload-digest",
+                    "{\"schema\":\"TYPED_USER_WAIT_DELIVERY_V1\"}",
+                    NOW.plusMillis(3));
+            finishTicket(fixture.jdbc(), "feedback-ticket-1");
+        });
+
+        Predecessor predecessor = fixture.steering().findUserWaitPredecessor(
+                "feedback-turn-1", "feedback-operation-1", "QUESTION",
+                "feedback-question").orElseThrow();
+        long stageVersion = fixture.jdbc().queryForObject(
+                "SELECT version FROM stage WHERE id = 'remote-stage-3'",
+                Long.class);
+        Request request = new Request(
+                "feedback-wait-steering", "feedback-wait-command", "task-3", 1,
+                "remote-stage-3", StageKind.REMOTE_DEVELOPMENT, 1,
+                stageVersion, StageCheckpoint.ADDRESSING_REMOTE_FEEDBACK,
+                V2StageSteeringControl.Mode.CANCEL_AND_REPLACE,
+                "Continue", "b".repeat(64), predecessor, "PENDING",
+                null, null, null, "user", NOW.plusMillis(4));
+        fixture.commands().executeVoid("task-3", () -> {
+            fixture.steering().insert(request, List.of());
+            fixture.steering().insertUserWaitLink(
+                    request.id(), "QUESTION", "feedback-question", predecessor);
+        });
+
+        assertThatThrownBy(() -> fixture.commands().executeVoid("task-3", () ->
+                fixture.feedback().insertTurn(feedbackContinuation(
+                        "stale-head", predecessor.ownerId()))))
+                .isInstanceOf(DataAccessException.class);
+        fixture.commands().executeVoid("task-3", () -> {
+            var next = fixture.feedback().insertTurn(feedbackContinuation(
+                    "head-3", predecessor.ownerId()));
+            fixture.steering().markAdmitted(
+                    request.id(), "STAGE_TURN", next.turnId(),
+                    next.operationId(), NOW.plusMillis(5));
+        });
+
+        SqliteStageSteeringStore restarted = new SqliteStageSteeringStore(
+                new JdbcTemplate(fixture.dataSource()));
+        assertThat(restarted.userWaitSuccessor(
+                "QUESTION", "feedback-question"))
+                .contains("feedback-wait-successor-turn");
+        assertThat(fixture.jdbc().queryForMap("""
+                SELECT request.status, handoff.status AS handoff_status,
+                       continuation.successor_turn_id
+                FROM stage_steering_request_v257 request
+                JOIN remote_stage_steering_handoff_v257 handoff
+                  ON handoff.request_id = request.id
+                JOIN stage_turn_user_wait_continuation_v265 continuation
+                  ON continuation.request_id = request.id
+                WHERE request.id = 'feedback-wait-steering'
+                """))
+                .containsEntry("status", "ADMITTED")
+                .containsEntry("handoff_status", "CONSUMED")
+                .containsEntry(
+                        "successor_turn_id", "feedback-wait-successor-turn");
         assertThat(fixture.jdbc().queryForObject("""
                 SELECT COUNT(*) FROM remote_feedback_stage_turn_request
                 WHERE remote_feedback_batch_id = 'batch-3'
@@ -407,6 +499,63 @@ class TestDevelopmentFlowStageSteeringMigration
         });
     }
 
+    private static NewTurn feedbackContinuation(
+            String headSha, String predecessorTurnId)
+    {
+        return new NewTurn(
+                "feedback-wait-successor-request", "batch-3",
+                "feedback-wait-successor-turn",
+                "feedback-wait-successor-operation",
+                "feedback-wait-successor-ticket", 2, predecessorTurnId,
+                "workspace-1", "trunk-1", "task-3", 1,
+                "remote-stage-3", 1, "fingerprint-3", headSha, "base-3",
+                "API", 2, "{}", "d".repeat(64), "test", NOW.plusMillis(5));
+    }
+
+    private static void markTicketResultPending(JdbcTemplate jdbc, String ticketId)
+    {
+        jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'RESULT_PENDING',
+                    pending_result_outcome = 'SUCCEEDED',
+                    pending_result_payload = '{}',
+                    pending_result_evidence = '{}',
+                    pending_result_task_epoch = task_epoch,
+                    pending_result_stage_id = stage_id,
+                    pending_result_stage_generation = stage_generation,
+                    pending_result_operation_id = operation_id,
+                    pending_result_attempt = attempt,
+                    pending_result_expected_code_fingerprint =
+                        expected_code_fingerprint,
+                    pending_result_expected_head_sha = expected_head_sha,
+                    pending_result_expected_base_sha = expected_base_sha
+                WHERE id = ? AND status = 'REQUESTED'
+                """, ticketId);
+    }
+
+    private static void finishTicket(JdbcTemplate jdbc, String ticketId)
+    {
+        jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'SUCCEEDED',
+                    pending_result_outcome = NULL,
+                    pending_result_payload = NULL,
+                    pending_result_evidence = NULL,
+                    pending_result_error = NULL,
+                    pending_result_task_epoch = NULL,
+                    pending_result_stage_id = NULL,
+                    pending_result_stage_generation = NULL,
+                    pending_result_operation_id = NULL,
+                    pending_result_attempt = NULL,
+                    pending_result_expected_code_fingerprint = NULL,
+                    pending_result_expected_head_sha = NULL,
+                    pending_result_expected_base_sha = NULL,
+                    delivery_acceptance = 'ACCEPTED',
+                    delivery_evidence = '{}', completed_at_ms = 1004
+                WHERE id = ? AND status = 'RESULT_PENDING'
+                """, ticketId);
+    }
+
     private static void cancelTicket(JdbcTemplate jdbc, String ticketId)
     {
         jdbc.update("""
@@ -533,7 +682,7 @@ class TestDevelopmentFlowStageSteeringMigration
             }
             insertFailedCi(connection, 1, 1, "head-1", "base-1");
         }
-        migrate(url, "264");
+        migrate(url, "265");
 
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url + "?foreign_keys=ON&busy_timeout=30000");

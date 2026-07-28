@@ -47,12 +47,58 @@ class TestDevelopmentFlowUserWaitMigration
                         'Choose a strategy', 'The build is ambiguous',
                         '[{"id":"safe","label":"Safe"}]', 0, 'OPEN', 10)
                     """);
+            assertFails(connection, """
+                    UPDATE thread_question
+                    SET answer = 'poisoned', answer_revision = 1,
+                        answer_actor = 'intruder', answered_at_ms = 11
+                    WHERE id = 'question-1'
+                    """);
+            assertFails(connection, """
+                    UPDATE thread_question SET options_json = '[]'
+                    WHERE id = 'question-1'
+                    """);
             execute(connection, """
                     UPDATE thread_question
                     SET state = 'ANSWERED', answer = 'Safe', answer_revision = 1,
                         answer_option_id = 'safe', answer_actor = 'user',
                         answered_at_ms = 20, continuation_state = 'READY'
                     WHERE id = 'question-1' AND state = 'OPEN'
+                    """);
+            execute(connection, """
+                    INSERT INTO threads(
+                        id, kind, provider, title, status, model,
+                        cost_usd_milli, tokens_in, tokens_out,
+                        created_at_ms, updated_at_ms, workspace_id, flow,
+                        parallel_slots, turn_version, lifecycle_state)
+                    VALUES ('trunk-2', 'CLI_AGENT', 'claude-code', 'Other', 'IDLE',
+                        'claude-sonnet-4.6', 0, 0, 0, 1, 1, 'workspace-1',
+                        'build', 2, 'V2', 'ACTIVE')
+                    """);
+            execute(connection, """
+                    INSERT INTO thread_turn(
+                        id, trunk_id, purpose, status, operation_id, attempt,
+                        delivery_lane, launch_input, requested_at_ms)
+                    VALUES ('wrong-successor', 'trunk-2', 'CONVERSATION',
+                        'REQUESTED', 'wrong-operation', 1, 'CLI', '{}', 21)
+                    """);
+            assertFails(connection, """
+                    UPDATE thread_question
+                    SET continuation_state = 'DISPATCHED',
+                        successor_turn_id = 'wrong-successor'
+                    WHERE id = 'question-1'
+                    """);
+            execute(connection, """
+                    INSERT INTO thread_turn(
+                        id, trunk_id, purpose, status, operation_id, attempt,
+                        delivery_lane, launch_input, requested_at_ms)
+                    VALUES ('right-successor', 'trunk-1', 'CONVERSATION',
+                        'REQUESTED', 'right-operation', 2, 'CLI', '{}', 22)
+                    """);
+            execute(connection, """
+                    UPDATE thread_question
+                    SET continuation_state = 'DISPATCHED',
+                        successor_turn_id = 'right-successor'
+                    WHERE id = 'question-1'
                     """);
             assertThat(text(connection, """
                     SELECT context || ':' || options_json || ':' || allow_free_form
@@ -62,6 +108,10 @@ class TestDevelopmentFlowUserWaitMigration
             assertThat(text(connection,
                     "SELECT state FROM thread_question WHERE id = 'question-1'"))
                     .isEqualTo("ANSWERED");
+            assertThat(text(connection, """
+                    SELECT successor_turn_id FROM thread_question
+                    WHERE id = 'question-1'
+                    """)).isEqualTo("right-successor");
         }
 
         migrate(url);
@@ -90,6 +140,18 @@ class TestDevelopmentFlowUserWaitMigration
                     VALUES ('permission-1', 'tool-call-1', 'THREAD', 'thread-turn-1',
                         'thread-operation-1', 'CODE_WRITE', 'run_shell',
                         '{"command":"make test"}', 'digest-1', '{}', 'OPEN', 10)
+                    """);
+            assertFails(connection, """
+                    UPDATE permission_request
+                    SET answer = 'poisoned', answer_revision = 1,
+                        answer_actor = 'intruder', answered_at_ms = 11,
+                        grant_scope_kind = 'TRUNK', grant_scope_id = 'trunk-1',
+                        granted_uses = 1, remaining_uses = 1
+                    WHERE id = 'permission-1'
+                    """);
+            assertFails(connection, """
+                    UPDATE permission_request SET parameters_json = '{}'
+                    WHERE id = 'permission-1'
                     """);
             execute(connection, """
                     UPDATE permission_request
@@ -132,6 +194,83 @@ class TestDevelopmentFlowUserWaitMigration
         }
     }
 
+    @Test
+    void originalV263ConsumptionUpgradesWithStableLegacyCallIdentity()
+            throws Exception
+    {
+        String url = database("permission-upgrade.db");
+        migrate(url, "263");
+        try (Connection connection = connect(url)) {
+            seedThreadTurn(connection);
+            execute(connection, """
+                    INSERT INTO permission_request(
+                        id, call_id, turn_kind, turn_id, operation_id,
+                        capability, tool_name, parameters_json,
+                        parameters_digest, policy_snapshot, state, answer,
+                        answer_revision, requested_at_ms, answered_at_ms,
+                        grant_scope_kind, grant_scope_id, granted_uses,
+                        remaining_uses, consumed_uses, answer_actor,
+                        last_consumed_at_ms, continuation_state)
+                    VALUES ('permission-upgrade', 'original-call', 'THREAD',
+                        'thread-turn-1', 'thread-operation-1', 'CODE_WRITE',
+                        'run_shell', '{"command":"make test"}', 'digest-1',
+                        '{}', 'ALLOWED_NEXT', '{"decision":"allow"}', 1,
+                        10, 20, 'TRUNK', 'trunk-1', 2, 1, 1, 'user', 21,
+                        'READY')
+                    """);
+            execute(connection, """
+                    INSERT INTO permission_grant_consumption(
+                        id, permission_id, turn_kind, turn_id, operation_id,
+                        parameters_digest, remaining_after, consumed_at_ms)
+                    VALUES ('legacy-consumption', 'permission-upgrade',
+                        'THREAD', 'thread-turn-1', 'thread-operation-1',
+                        'digest-1', 1, 21)
+                    """);
+        }
+
+        migrate(url, "265");
+        try (Connection connection = connect(url)) {
+            assertThat(text(connection, """
+                    SELECT call_id FROM permission_grant_consumption
+                    WHERE id = 'legacy-consumption'
+                    """)).isEqualTo(
+                            "__legacy_v263_consumption__:legacy-consumption");
+            execute(connection, """
+                    INSERT INTO permission_grant_consumption(
+                        id, permission_id, turn_kind, turn_id, operation_id,
+                        call_id, parameters_digest, remaining_after,
+                        consumed_at_ms)
+                    VALUES ('exact-consumption', 'permission-upgrade',
+                        'THREAD', 'thread-turn-1', 'thread-operation-1',
+                        'future-call', 'digest-1', 0, 22)
+                    """);
+            assertFails(connection, """
+                    INSERT INTO permission_grant_consumption(
+                        id, permission_id, turn_kind, turn_id, operation_id,
+                        call_id, parameters_digest, remaining_after,
+                        consumed_at_ms)
+                    VALUES ('duplicate-consumption', 'permission-upgrade',
+                        'THREAD', 'thread-turn-1', 'thread-operation-1',
+                        'future-call', 'digest-1', 0, 23)
+                    """);
+            execute(connection, """
+                    INSERT INTO permission_grant_consumption(
+                        id, permission_id, turn_kind, turn_id, operation_id,
+                        call_id, parameters_digest, remaining_after,
+                        consumed_at_ms)
+                    VALUES ('other-call-consumption', 'permission-upgrade',
+                        'THREAD', 'thread-turn-1', 'thread-operation-1',
+                        'other-call', 'digest-1', 0, 24)
+                    """);
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM permission_grant_consumption
+                    WHERE permission_id = 'permission-upgrade'
+                    """)).isEqualTo(3);
+            assertThat(number(connection,
+                    "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
+        }
+    }
+
     private String database(String name)
     {
         return "jdbc:sqlite:" + tempDir.resolve(name) + "?foreign_keys=ON";
@@ -140,6 +279,11 @@ class TestDevelopmentFlowUserWaitMigration
     private static void migrate(String url)
     {
         Flyway.configure().dataSource(url, "", "").load().migrate();
+    }
+
+    private static void migrate(String url, String target)
+    {
+        Flyway.configure().dataSource(url, "", "").target(target).load().migrate();
     }
 
     private static void seedThreadTurn(Connection connection)

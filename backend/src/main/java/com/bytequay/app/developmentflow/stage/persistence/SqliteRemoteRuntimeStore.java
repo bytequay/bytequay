@@ -24,6 +24,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -346,34 +347,7 @@ public class SqliteRemoteRuntimeStore
                 """, Integer.class, context.stageId());
         String snapshotId = id("remote-snapshot", context.operationId());
         String evaluationId = id("remote-ci-evaluation", context.operationId());
-        jdbc.update("""
-                INSERT INTO remote_pr_snapshot(
-                    id, remote_development_stage_id, task_id, task_epoch,
-                    stage_generation, remote_pr_binding_id,
-                    observation_revision, observation_key,
-                    remote_repository_id, remote_pr_number, head_sha, base_sha,
-                    pr_state, mergeability, merge_queue_state,
-                    effective_approval_count, write_approval_count,
-                    changes_requested_count, requested_reviewer_count,
-                    unresolved_thread_count, unresolved_comment_count,
-                    observed_at_ms, raw_evidence)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?)
-                """, snapshotId, context.stageId(), context.taskId(),
-                context.taskEpoch(), context.stageGeneration(),
-                context.remotePrBindingId(), revision,
-                observation.observationKey(), context.repositoryId(),
-                context.pullRequestNumber(), observation.headSha(),
-                observation.baseSha(), observation.prState().name(),
-                observation.mergeability().name(),
-                observation.mergeQueueState().name(),
-                observation.effectiveApprovalCount(),
-                observation.writeApprovalCount(),
-                observation.changesRequestedCount(),
-                observation.requestedReviewerCount(),
-                observation.unresolvedThreadCount(),
-                observation.unresolvedCommentCount(), observation.observedAtMs(),
-                observation.rawEvidence());
+        insertSnapshot(context, observation, revision, snapshotId);
         int index = 0;
         for (RemoteCiPolicy.Check check : evaluation.checks()) {
             jdbc.update("""
@@ -410,6 +384,51 @@ public class SqliteRemoteRuntimeStore
                 snapshotId, evaluationId, revision, observation.headSha(),
                 observation.baseSha(), evaluation.outcome(),
                 observation.observedAtMs());
+    }
+
+    private void insertSnapshot(
+            ObservationDelivery context,
+            RemoteObservationOperationHandler.Observation observation,
+            int revision,
+            String snapshotId)
+    {
+        String columns = observation.schemaVersion() == 1 ? "" :
+                ", viewer_login, viewer_can_merge";
+        String values = observation.schemaVersion() == 1 ? "" : ", ?, ?";
+        List<Object> arguments = new ArrayList<>(List.of(
+                snapshotId, context.stageId(), context.taskId(),
+                context.taskEpoch(), context.stageGeneration(),
+                context.remotePrBindingId(), revision,
+                observation.observationKey(), context.repositoryId(),
+                context.pullRequestNumber(), observation.headSha(),
+                observation.baseSha(), observation.prState().name(),
+                observation.mergeability().name(),
+                observation.mergeQueueState().name(),
+                observation.effectiveApprovalCount(),
+                observation.writeApprovalCount(),
+                observation.changesRequestedCount(),
+                observation.requestedReviewerCount(),
+                observation.unresolvedThreadCount(),
+                observation.unresolvedCommentCount(), observation.observedAtMs(),
+                observation.rawEvidence()));
+        if (observation.schemaVersion() == 2) {
+            arguments.add(observation.viewerLogin());
+            arguments.add(observation.viewerCanMerge() ? 1 : 0);
+        }
+        jdbc.update("""
+                INSERT INTO remote_pr_snapshot(
+                    id, remote_development_stage_id, task_id, task_epoch,
+                    stage_generation, remote_pr_binding_id,
+                    observation_revision, observation_key,
+                    remote_repository_id, remote_pr_number, head_sha, base_sha,
+                    pr_state, mergeability, merge_queue_state,
+                    effective_approval_count, write_approval_count,
+                    changes_requested_count, requested_reviewer_count,
+                    unresolved_thread_count, unresolved_comment_count,
+                    observed_at_ms, raw_evidence%s)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?%s)
+                """.formatted(columns, values), arguments.toArray());
     }
 
     public void acceptObservation(

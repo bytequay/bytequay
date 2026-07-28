@@ -153,7 +153,8 @@ public final class AgentTurnOperationHandler
             case CLI -> CapacityManager.CapacityLane.CLI;
             case API -> CapacityManager.CapacityLane.API;
         };
-        Set<CapacityManager.CapacityLane> requiredLanes = completionSummary(turn)
+        Set<CapacityManager.CapacityLane> requiredLanes =
+                completionSummary(turn) || terminalTaskBrainConversation(turn)
                 ? Set.of(CapacityManager.CapacityLane.REVIEW, requiredLane)
                 : Set.of(requiredLane);
         if (!envelope.capacityRequest().lanes().equals(requiredLanes)) {
@@ -650,6 +651,7 @@ public final class AgentTurnOperationHandler
             CapacityManager.CapacityRequest capacity = envelope.capacityRequest();
             boolean stageTurn = ownerKind == DispatchTicket.OwnerKind.STAGE_TURN;
             boolean completionSummary = completionSummary(this);
+            boolean terminalConversation = terminalTaskBrainConversation(this);
             String expectedKind = stageTurn ? STAGE_OPERATION_KIND
                     : completionSummary ? TASK_OUTCOME_SUMMARY_OPERATION_KIND
                     : TASK_OPERATION_KIND;
@@ -675,12 +677,13 @@ public final class AgentTurnOperationHandler
             }
             if (!taskId.equals(capacity.scope().taskId())
                     || taskEpoch != value(capacity.scope().taskEpoch())
-                    || capacity.exclusiveTask() == completionSummary
+                    || capacity.exclusiveTask()
+                        != !(completionSummary || terminalConversation)
                     || capacity.trunkControl()
                     || stageTurn != capacity.writerRequired()) {
                 return "Agent Turn capacity scope or writer mode is invalid";
             }
-            boolean lifecycleAllows = completionSummary
+            boolean lifecycleAllows = completionSummary || terminalConversation
                     ? Set.of("COMPLETED", "CANCELED", "REMOTE_CLOSED")
                             .contains(taskLifecycle)
                     : "ACTIVE".equals(taskLifecycle);
@@ -719,6 +722,20 @@ public final class AgentTurnOperationHandler
     {
         return turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
                 && "TASK_COMPLETION_SUMMARY".equals(turn.purpose());
+    }
+
+    private static boolean terminalTaskBrainConversation(ExactTurn turn)
+    {
+        return taskBrainConversation(turn)
+                && turn.stageId() == null
+                && Set.of("COMPLETED", "CANCELED", "REMOTE_CLOSED")
+                        .contains(turn.taskLifecycle());
+    }
+
+    private static boolean taskBrainConversation(ExactTurn turn)
+    {
+        return turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
+                && "TASK_BRAIN_CONVERSATION".equals(turn.purpose());
     }
 
     public record LaunchInput(

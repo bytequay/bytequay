@@ -437,6 +437,29 @@ export type StageDetailData = {
   liveRound: ReviewRoundDto | null;
   /** Same field and rationale as {@link TaskBrainViewData.devPhases}. */
   devPhases: DevPhaseDto[];
+  /** Exact V2 owner-scoped recovery targets. Null members mean there is no
+   *  eligible action; the renderer must never guess a latest episode/step. */
+  recovery?: {
+    ci: {
+      episodeId: string;
+      rerunCount: number;
+      rerunLimit: number;
+      fixAttemptCount: number;
+      fixAttemptLimit: number;
+      pushCount: number;
+      pushLimit: number;
+      actions: Array<'EXTEND_BUDGET' | 'CONTINUE_WITH_PER_PUSH_APPROVAL' | 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION'>;
+    } | null;
+    cleanup: {
+      stepId: string;
+      kind: string;
+      requirement: 'REQUIRED' | 'OPTIONAL';
+      attemptCount: number;
+      attemptLimit: number;
+      error: string | null;
+      actions: Array<'RETRY' | 'WAIVE_OPTIONAL'>;
+    } | null;
+  };
 };
 
 /** The PR-tab payload surfaced on the stage detail (frames 6/7). */

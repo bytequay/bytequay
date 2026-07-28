@@ -81,10 +81,6 @@ public final class V2UserWaitResultDeliveryPort
                 || owner.kind() != result.ownerKind()) {
             throw new IllegalArgumentException("typed USER_WAIT result fence is stale");
         }
-        if (owner.kind() != DispatchTicket.OwnerKind.THREAD_TURN) {
-            throw new IllegalStateException(
-                    "typed user wait has no owner-specific continuation");
-        }
         AgentTurnOperationHandler.UserWaitRef wait = result.userWait();
         ActiveAgentContextRegistry.TypedOwner typedOwner =
                 new ActiveAgentContextRegistry.TypedOwner(

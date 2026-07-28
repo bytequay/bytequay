@@ -636,9 +636,14 @@ public class SqliteRemoteFeedbackLoopStore
     {
         return requireOneText("""
                 SELECT episode.task_id
-                FROM remote_feedback_brain_episode episode
-                JOIN task_turn turn ON turn.id = episode.task_turn_id
+                FROM task_turn turn
+                LEFT JOIN task_turn_user_wait_continuation_v266 continuation
+                  ON continuation.successor_turn_id = turn.id
+                JOIN remote_feedback_brain_episode episode
+                  ON episode.task_turn_id = COALESCE(
+                      continuation.logical_turn_id, turn.id)
                 WHERE turn.id = ? AND turn.operation_id = ?
+                  AND turn.purpose = 'REMOTE_FEEDBACK_BRAIN_REVIEW'
                 """, new Object[] {turnId, operationId},
                 "Remote feedback Brain owner is missing");
     }
@@ -649,7 +654,10 @@ public class SqliteRemoteFeedbackLoopStore
                 SELECT episode.id AS episode_id,
                        episode.remote_feedback_batch_id AS batch_id,
                        episode.validation_attempt_evidence_id,
-                       episode.task_turn_id AS turn_id, turn.operation_id,
+                       turn.id AS turn_id, turn.operation_id, turn.attempt,
+                       logical.id AS logical_turn_id,
+                       logical.operation_id AS logical_operation_id,
+                       logical.attempt AS logical_attempt,
                        episode.semantic_attempt, episode.task_id,
                        episode.task_epoch,
                        episode.remote_development_stage_id AS stage_id,
@@ -671,7 +679,11 @@ public class SqliteRemoteFeedbackLoopStore
                               AND remote.current_base_sha = episode.expected_base_sha
                             THEN 1 ELSE 0 END AS is_current
                 FROM remote_feedback_brain_episode episode
-                JOIN task_turn turn ON turn.id = episode.task_turn_id
+                JOIN task_turn logical ON logical.id = episode.task_turn_id
+                LEFT JOIN task_turn_user_wait_continuation_v266 continuation
+                  ON continuation.logical_turn_id = logical.id
+                JOIN task_turn turn ON turn.id = COALESCE(
+                    continuation.successor_turn_id, logical.id)
                 JOIN remote_feedback_validation_attempt_evidence validation
                   ON validation.id = episode.validation_attempt_evidence_id
                 JOIN remote_feedback_batch batch
@@ -683,6 +695,7 @@ public class SqliteRemoteFeedbackLoopStore
                   ON remote.stage_id = episode.remote_development_stage_id
                 JOIN dispatch_ticket ticket ON ticket.operation_id = turn.operation_id
                 WHERE turn.id = ? AND turn.operation_id = ?
+                  AND turn.purpose = 'REMOTE_FEEDBACK_BRAIN_REVIEW'
                   AND ticket.callback_route = 'REMOTE_FEEDBACK_BRAIN_RESULT'
                 """, (rs, row) -> brainContext(rs), turnId, operationId);
         if (rows.size() != 1) {
@@ -871,7 +884,10 @@ public class SqliteRemoteFeedbackLoopStore
                 rs.getString("episode_id"), rs.getString("batch_id"),
                 rs.getString("validation_attempt_evidence_id"),
                 rs.getString("turn_id"), rs.getString("operation_id"),
-                rs.getInt("semantic_attempt"), rs.getString("task_id"),
+                rs.getInt("attempt"), rs.getString("logical_turn_id"),
+                rs.getString("logical_operation_id"),
+                rs.getInt("logical_attempt"), rs.getInt("semantic_attempt"),
+                rs.getString("task_id"),
                 rs.getLong("task_epoch"), rs.getLong("task_version"),
                 rs.getString("stage_id"), rs.getLong("stage_generation"),
                 rs.getLong("stage_version"), rs.getString("code_fingerprint"),
@@ -986,18 +1002,28 @@ public class SqliteRemoteFeedbackLoopStore
 
     public record BrainContext(
             String episodeId, String batchId, String validationAttemptEvidenceId,
-            String turnId, String operationId, int semanticAttempt,
+            String turnId, String operationId, int attempt,
+            String logicalTurnId, String logicalOperationId, int logicalAttempt,
+            int semanticAttempt,
             String taskId, long taskEpoch, long taskVersion, String stageId,
             long stageGeneration, long stageVersion, String codeFingerprint,
             String headSha, String baseSha, String subjectHeadSha,
             String repairResultId, long validationPassId,
             String repairStageTurnId, boolean current)
     {
-        public ResultFence fence()
+        public ResultFence deliveryFence()
         {
             return new ResultFence(
-                    taskEpoch, stageId, stageGeneration, operationId,
-                    semanticAttempt, codeFingerprint, headSha, baseSha);
+                    taskEpoch, stageId, stageGeneration, operationId, attempt,
+                    codeFingerprint, headSha, baseSha);
+        }
+
+        public ResultFence ownerFence()
+        {
+            return new ResultFence(
+                    taskEpoch, stageId, stageGeneration,
+                    logicalOperationId, logicalAttempt,
+                    codeFingerprint, headSha, baseSha);
         }
     }
 }

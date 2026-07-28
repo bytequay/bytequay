@@ -16,6 +16,7 @@ package com.bytequay.app.developmentflow.stage.persistence;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager.FeedbackCompletionEvidence;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager.FeedbackEvidence;
+import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager.PolicyReadinessEvidence;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager.RemoteGateEvidence;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager.RemoteSubjectEvidence;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -869,6 +870,72 @@ public class SqliteRemoteDevelopmentRuntimeStore
         return rows.getFirst();
     }
 
+    /** Finds only the passive Remote checkpoints affected by a policy revision. */
+    public Optional<RemoteContext> findPolicyRedriveContext(String taskId)
+    {
+        return jdbc.query("""
+                SELECT task.id AS task_id, task.thread_id AS trunk_id,
+                       trunk.workspace_id, task.epoch AS task_epoch,
+                       task.aggregate_version AS task_version,
+                       remote.stage_id, remote.generation AS stage_generation,
+                       owner.version AS stage_version, owner.checkpoint,
+                       remote.remote_pr_binding_id, remote.accepted_snapshot_id,
+                       remote.accepted_observation_revision,
+                       remote.current_head_sha, remote.current_base_sha,
+                       code.code_fingerprint, identity.worktree_path
+                FROM tasks task
+                JOIN threads trunk ON trunk.id = task.thread_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage owner ON owner.id = current.stage_id
+                JOIN remote_development_stage remote ON remote.stage_id = owner.id
+                JOIN task_current_code_subject_v230 code ON code.task_id = task.id
+                JOIN task_code_identity identity ON identity.task_id = task.id
+                WHERE task.id = ? AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND current.stage_generation = owner.generation
+                  AND owner.kind = 'REMOTE_DEVELOPMENT'
+                  AND owner.checkpoint IN (
+                      'WAITING_REMOTE_REVIEW', 'READY_TO_MERGE')
+                  AND owner.completed_at_ms IS NULL
+                  AND remote.generation = owner.generation
+                  AND remote.accepted_snapshot_id IS NOT NULL
+                """, (rs, row) -> remoteContext(rs), taskId)
+                .stream().findFirst();
+    }
+
+    /** Returns an exact current-snapshot proof for the latest policy only. */
+    public Optional<ReadinessEvidence> findCurrentReadiness(
+            String snapshotId, String automationPolicyId)
+    {
+        return jdbc.query("""
+                SELECT readiness.id, readiness.remote_pr_snapshot_id,
+                       readiness.ci_evaluation_id,
+                       readiness.automation_policy_id,
+                       readiness.head_sha, readiness.base_sha, readiness.ready
+                FROM remote_readiness_evidence readiness
+                JOIN remote_development_stage remote
+                  ON remote.stage_id = readiness.remote_development_stage_id
+                JOIN task_automation_policy policy
+                  ON policy.id = readiness.automation_policy_id
+                WHERE readiness.remote_pr_snapshot_id = ?
+                  AND readiness.automation_policy_id = ?
+                  AND remote.accepted_snapshot_id = readiness.remote_pr_snapshot_id
+                  AND remote.current_head_sha = readiness.head_sha
+                  AND remote.current_base_sha = readiness.base_sha
+                  AND policy.revision = (
+                      SELECT MAX(current.revision)
+                      FROM task_automation_policy current
+                      WHERE current.task_id = readiness.task_id)
+                """, (rs, row) -> new ReadinessEvidence(
+                        rs.getString("id"),
+                        rs.getString("remote_pr_snapshot_id"),
+                        rs.getString("ci_evaluation_id"),
+                        rs.getString("automation_policy_id"),
+                        rs.getString("head_sha"), rs.getString("base_sha"),
+                        rs.getInt("ready") == 1),
+                snapshotId, automationPolicyId).stream().findFirst();
+    }
+
     @Override
     public Optional<FeedbackEvidence> findRemoteFeedback(
             String taskId, String stageId, long stageGeneration, String batchId)
@@ -1085,6 +1152,57 @@ public class SqliteRemoteDevelopmentRuntimeStore
                         rs.getLong("stage_generation"), rs.getString("id"),
                         rs.getString("head_sha"), rs.getString("base_sha")),
                 taskId, stageId, stageGeneration, evidenceId)
+                .stream().findFirst();
+    }
+
+    @Override
+    public Optional<PolicyReadinessEvidence> findPolicyReadiness(
+            String taskId,
+            String stageId,
+            long stageGeneration,
+            String readinessEvidenceId)
+    {
+        return jdbc.query("""
+                SELECT readiness.task_id, readiness.task_epoch,
+                       readiness.remote_development_stage_id,
+                       readiness.stage_generation, readiness.id,
+                       readiness.automation_policy_id,
+                       readiness.head_sha, readiness.base_sha, readiness.ready
+                FROM remote_readiness_evidence readiness
+                JOIN remote_development_stage remote
+                  ON remote.stage_id = readiness.remote_development_stage_id
+                JOIN task_automation_policy policy
+                  ON policy.id = readiness.automation_policy_id
+                JOIN tasks task ON task.id = readiness.task_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage owner ON owner.id = current.stage_id
+                WHERE readiness.task_id = ?
+                  AND readiness.remote_development_stage_id = ?
+                  AND readiness.stage_generation = ? AND readiness.id = ?
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND task.epoch = readiness.task_epoch
+                  AND current.stage_id = remote.stage_id
+                  AND current.stage_generation = remote.generation
+                  AND owner.kind = 'REMOTE_DEVELOPMENT'
+                  AND owner.checkpoint = 'READY_TO_MERGE'
+                  AND owner.completed_at_ms IS NULL
+                  AND remote.generation = readiness.stage_generation
+                  AND remote.accepted_snapshot_id = readiness.remote_pr_snapshot_id
+                  AND remote.current_head_sha = readiness.head_sha
+                  AND remote.current_base_sha = readiness.base_sha
+                  AND policy.revision = (
+                      SELECT MAX(current_policy.revision)
+                      FROM task_automation_policy current_policy
+                      WHERE current_policy.task_id = readiness.task_id)
+                """, (rs, row) -> new PolicyReadinessEvidence(
+                        rs.getString("task_id"), rs.getLong("task_epoch"),
+                        rs.getString("remote_development_stage_id"),
+                        rs.getLong("stage_generation"), rs.getString("id"),
+                        rs.getString("automation_policy_id"),
+                        rs.getString("head_sha"), rs.getString("base_sha"),
+                        rs.getInt("ready") == 1),
+                taskId, stageId, stageGeneration, readinessEvidenceId)
                 .stream().findFirst();
     }
 

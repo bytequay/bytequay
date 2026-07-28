@@ -402,14 +402,14 @@ public final class RemoteFeedbackRuntimeCoordinator
         }
         BrainContext context = store.requireBrainContext(
                 raw.owner().id(), raw.fence().operationId());
-        if (!context.fence().equals(toFence(raw.fence()))) {
+        if (!context.deliveryFence().equals(toFence(raw.fence()))) {
             throw new IllegalArgumentException(
                     "Remote Brain result differs from its persisted fence");
         }
         Instant now = clock.instant();
         TaskManager.ResultCommand taskCommand = new TaskManager.ResultCommand(
                 id("accept-remote-feedback-brain", context.operationId()),
-                ACTOR, context.taskId(), context.fence());
+                ACTOR, context.taskId(), context.ownerFence());
         if (!context.current() || !tasks.isCurrentBrainResultInCommand(taskCommand)) {
             store.supersedeBrain(context, "stale Remote Brain subject", now);
             return record(context.operationId(), BRAIN_CALLBACK, rawDigest,

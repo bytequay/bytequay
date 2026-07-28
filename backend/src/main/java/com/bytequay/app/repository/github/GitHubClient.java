@@ -1161,6 +1161,36 @@ public class GitHubClient
     }
 
     @Override
+    public Optional<String> fetchBranchHeadSha(
+            String pat, PullRequestRef repository, String branchName)
+    {
+        try {
+            GitRefResponse response = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}/git/ref/heads/{branch}",
+                            repository.owner(), repository.repo(), branchName)
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(GitRefResponse.class);
+            return Optional.ofNullable(response)
+                    .map(GitRefResponse::object)
+                    .map(GitRefObject::sha)
+                    .filter(sha -> !sha.isBlank());
+        }
+        catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() == 404) {
+                return Optional.empty();
+            }
+            throw toReadableException(e);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitRefResponse(GitRefObject object) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitRefObject(String sha) {}
+
+    @Override
     public PullRequest updatePullRequest(String pat, PullRequestRef pr, UpdatePullRequestCommand command)
     {
         Map<String, Object> body = Maps.newHashMap();
@@ -2453,19 +2483,51 @@ public class GitHubClient
             body.put("comments", serialized);
         }
         try {
-            gitHubRestClient.post()
+            GitHubReview created = gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/reviews",
                             pr.owner(), pr.repo(), pr.number())
                     .header("Authorization", authorization(pat))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
-                    .toBodilessEntity();
-            return new PullRequestReview(0, "", "", command.event(), "", null, "");
+                    .body(GitHubReview.class);
+            if (created == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502),
+                        "GitHub create review returned no review");
+            }
+            return toPullRequestReview(created);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);
         }
+    }
+
+    @Override
+    public List<PullRequestReview> listReviews(String pat, PullRequestRef pr)
+    {
+        try {
+            List<GitHubReview> reviews = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}/pulls/{number}/reviews",
+                            pr.owner(), pr.repo(), pr.number())
+                    .header("Authorization", authorization(pat))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            return reviews == null ? List.of()
+                    : reviews.stream().map(GitHubClient::toPullRequestReview)
+                            .toList();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    private static PullRequestReview toPullRequestReview(GitHubReview review)
+    {
+        String author = review.user() == null ? null : review.user().login();
+        return new PullRequestReview(
+                review.id(), author, review.body(), review.state(),
+                review.commitId(), review.submittedAt(), review.htmlUrl());
     }
 
     // ── Repos and Users ───────────────────────────────────────────────────────

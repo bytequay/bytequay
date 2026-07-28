@@ -1,6 +1,6 @@
 # Development flow migration plan
 
-Status: **WORKING EXECUTION PLAN**
+Status: **V2 CUTOVER IMPLEMENTED; LEGACY DRAIN IN PROGRESS**
 
 Created: **2026-07-28**
 
@@ -798,6 +798,62 @@ That first change should:
 Do not start by renaming AgentScheduler or rewriting TaskPhaseMachine. Without
 the executable baseline and immutable workflow routing, either change creates
 another cross-cutting migration with no safe rollback.
+
+## Cutover record and operator runbook
+
+The V2 creation cutover is complete. The shipped defaults route every new
+Workspace Task to V2 and enable V2 dispatch:
+
+~~~properties
+bytequay.development-flow.v2-workspace-allow-list=*
+bytequay.development-flow.v2-dispatch-enabled=true
+~~~
+
+The implementation now has separate typed Trunk, Task, Stage, review, and
+user-wait Turns; owner-only aggregate transitions; durable dispatch and exact
+result fences; Workspace/Trunk/Task capacity admission; restart-safe local,
+Brain, validation, publish, CI, remote review, merge, and Cleanup operations;
+exact-head policy freshness; explicit human-authorized GitHub effects;
+readiness notification/assistance; and LEGACY/V2 compatibility projections.
+Existing LEGACY Tasks keep their immutable route and continue to drain through
+their original runtime.
+
+All V2 user-authorized PR write endpoints require an `Idempotency-Key` header.
+The Electron client retains one key across transport or server failure and
+clears it only after success or a definitive client rejection. Identical
+retries replay the stored command; changing the action, target, or payload
+under the same key is rejected. Comment/review execution also freezes a
+pre-effect remote-id baseline so recovery cannot adopt an older same-body
+GitHub item merely because GitHub timestamps have one-second precision.
+
+The two properties are startup controls, so change them and restart the local
+sidecar when an operator action is required:
+
+1. Inspect `GET /api/development-flow/route`; the normal cutover state is
+   dispatch enabled with `*` in the Workspace allow-list.
+2. Inspect `GET /api/development-flow/diagnostics`; do not expand or declare a
+   canary healthy unless `healthy` is true and `findings` is empty.
+3. Inspect `GET /api/development-flow/legacy-drain`; legacy retirement requires
+   `drained=true` and all four counters to be zero.
+4. To stop creating additional V2 Tasks, clear
+   `bytequay.development-flow.v2-workspace-allow-list` and restart. Existing V2
+   Tasks remain V2 and must be fixed forward; they are never downgraded.
+5. To pause new V2 operation claims, set
+   `bytequay.development-flow.v2-dispatch-enabled=false` and restart. Durable
+   requests and committed evidence remain in storage. Restore the property and
+   restart to resume recovery and dispatch.
+6. Do not delete an active Task, truncate operation tables, or change a Task's
+   `workflow_version` as rollback. Use the typed pause, resume, retry, stop,
+   budget-extension, takeover, or Cleanup controls.
+7. Retire `AgentScheduler`, the legacy lifecycle writers, and their dedicated
+   workflow pools only after the drain endpoint is zero, the retention window
+   is complete, historical reads are proven, and the scheduler-removal suite
+   passes. Until then they are drain-only compatibility code.
+
+Physical V2 Trunk deletion is transactionally authorized and is rejected while
+any typed child operation can still execute or still has an undelivered
+terminal result. This purge is a product deletion primitive, not an operational
+shortcut for completing the legacy drain.
 
 ## Definition of migration complete
 

@@ -728,12 +728,18 @@ public class ThreadController
         if (body.decision() == null) {
             throw new IllegalArgumentException("decision is required");
         }
-        if (v2Waits != null
-                && v2Waits.findPermissionForTrunk(id, body.callId()).isPresent()) {
+        Optional<V2UserWaitStore.PermissionRequest> typedPermission =
+                v2Waits == null
+                        ? Optional.empty()
+                        : v2Waits.findPermission(body.callId());
+        if (typedPermission.isPresent()) {
             int expectedRevision = body.expectedRevision() == null
                     ? 0 : body.expectedRevision();
             V2UserWaitStore.PermissionRequest request = v2Waits
-                    .findPermissionForTrunk(id, body.callId()).orElseThrow();
+                    .findPermissionForTrunk(id, body.callId())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(404),
+                            "permission request does not belong to thread"));
             V2UserWaitStore.PermissionChoice choice =
                     permissionChoice(body, request.owner().kind());
             V2UserWaitStore.PermissionResolution resolved =

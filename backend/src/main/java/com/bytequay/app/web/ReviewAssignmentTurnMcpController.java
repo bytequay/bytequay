@@ -18,6 +18,7 @@ import com.bytequay.app.developmentflow.execution.agentturn.ReviewAssignmentTurn
 import com.bytequay.app.service.review.InvestigationReviewMcpService;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -45,6 +46,7 @@ public final class ReviewAssignmentTurnMcpController
     private final ReviewAssignmentTurnOperationHandler.Store turns;
     private final Clock clock;
 
+    @Autowired
     public ReviewAssignmentTurnMcpController(
             InvestigationReviewMcpService service,
             ReviewAssignmentTurnOperationHandler.Store turns)

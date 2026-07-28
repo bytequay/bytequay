@@ -22,10 +22,12 @@ import com.bytequay.app.service.review.ReviewProviderEndpoints.AgentLaunch;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -145,6 +147,59 @@ public final class ReviewAssignmentTurnRuntime
                 oldLaunch.transport(), encode(launch));
         store.retry(admission, clock.instant());
         return turnId;
+    }
+
+    /** Re-enters the same logical review seat after an exact durable user wait. */
+    public String continueUserWait(
+            String predecessorTurnId,
+            String predecessorOperationId,
+            String waitKind,
+            String waitId,
+            String answer)
+    {
+        requireText(predecessorTurnId, "predecessorTurnId");
+        requireText(predecessorOperationId, "predecessorOperationId");
+        requireText(waitKind, "waitKind");
+        requireText(waitId, "waitId");
+        requireText(answer, "answer");
+        Optional<String> existing = store.userWaitSuccessor(waitKind, waitId);
+        if (existing.isPresent()) {
+            return existing.orElseThrow();
+        }
+        ContinuationCandidate candidate = store.userWaitCandidate(
+                        predecessorTurnId, predecessorOperationId,
+                        waitKind, waitId)
+                .orElse(null);
+        if (candidate == null) {
+            return null;
+        }
+        AgentTurnOperationHandler.LaunchInput oldLaunch;
+        try {
+            oldLaunch = json.readValue(
+                    candidate.launchInput(),
+                    AgentTurnOperationHandler.LaunchInput.class);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("stored review launch input is invalid", e);
+        }
+        String turnId = stableId("review-wait-turn", waitKind, waitId);
+        String operationId = stableId("review-wait-operation", waitKind, waitId);
+        String ticketId = stableId("review-wait-ticket", waitKind, waitId);
+        AgentTurnOperationHandler.LaunchInput launch =
+                new AgentTurnOperationHandler.LaunchInput(
+                        PAYLOAD_VERSION, oldLaunch.transport(), oldLaunch.provider(),
+                        oldLaunch.credentialAccount(), oldLaunch.model(),
+                        oldLaunch.reasoningEffort(), oldLaunch.workingDirectory(),
+                        oldLaunch.systemPrompt(), continuationPrompt(
+                                oldLaunch.prompt(), waitKind, answer),
+                        endpoint(turnId, operationId));
+        Admission admission = new Admission(
+                turnId, operationId, ticketId, candidate.assignmentId(),
+                candidate.purpose(), candidate.subjectKey(),
+                candidate.verifierRunId(), candidate.attempt() + 1,
+                candidate.startCommit(), oldLaunch.transport(), encode(launch));
+        return store.continueUserWait(
+                candidate, waitKind, waitId, admission, clock.instant());
     }
 
     public void cancelRound(String roundId)
@@ -301,6 +356,21 @@ public final class ReviewAssignmentTurnRuntime
         return prefix + ":" + requireText(ids.get(), "generated id");
     }
 
+    private static String stableId(String prefix, String waitKind, String waitId)
+    {
+        return prefix + ":" + UUID.nameUUIDFromBytes(
+                (waitKind + ":" + waitId)
+                        .getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String continuationPrompt(
+            String previousPrompt, String waitKind, String answer)
+    {
+        return previousPrompt + "\n\nUser resolved the "
+                + waitKind.toLowerCase(Locale.ROOT).replace('_', ' ') + ": " + answer
+                + "\nContinue the same review assignment from this answer.";
+    }
+
     public interface Store
     {
         void admitRound(
@@ -318,6 +388,31 @@ public final class ReviewAssignmentTurnRuntime
         Optional<RetryCandidate> retryCandidate(String assignmentId);
 
         void retry(Admission admission, Instant requestedAt);
+
+        default Optional<String> userWaitSuccessor(String waitKind, String waitId)
+        {
+            return Optional.empty();
+        }
+
+        default Optional<ContinuationCandidate> userWaitCandidate(
+                String predecessorTurnId,
+                String predecessorOperationId,
+                String waitKind,
+                String waitId)
+        {
+            return Optional.empty();
+        }
+
+        default String continueUserWait(
+                ContinuationCandidate predecessor,
+                String waitKind,
+                String waitId,
+                Admission admission,
+                Instant requestedAt)
+        {
+            throw new UnsupportedOperationException(
+                    "review user-wait continuation store is not configured");
+        }
 
         List<String> ticketIds(String roundId);
 
@@ -438,6 +533,37 @@ public final class ReviewAssignmentTurnRuntime
                 requireText(verifierRunId, "verifierRunId");
             }
             validatePurpose(purpose, verifierRunId, false);
+            requireText(launchInput, "launchInput");
+            if (attempt < 1) {
+                throw new IllegalArgumentException("attempt must be positive");
+            }
+        }
+    }
+
+    public record ContinuationCandidate(
+            String turnId,
+            String operationId,
+            String roundId,
+            String assignmentId,
+            String startCommit,
+            String purpose,
+            String subjectKey,
+            String verifierRunId,
+            int attempt,
+            String launchInput)
+    {
+        public ContinuationCandidate
+        {
+            requireText(turnId, "turnId");
+            requireText(operationId, "operationId");
+            requireText(roundId, "roundId");
+            requireText(assignmentId, "assignmentId");
+            requireText(startCommit, "startCommit");
+            requireText(purpose, "purpose");
+            requireText(subjectKey, "subjectKey");
+            if (verifierRunId != null) {
+                requireText(verifierRunId, "verifierRunId");
+            }
             requireText(launchInput, "launchInput");
             if (attempt < 1) {
                 throw new IllegalArgumentException("attempt must be positive");

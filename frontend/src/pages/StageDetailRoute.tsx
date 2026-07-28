@@ -54,6 +54,8 @@ import PublishGatePane from '../PublishGatePane';
 import { PushDialog } from '../pr/localpr/PushDialog';
 import { deriveLocalReviewApproval, deriveLocalReviewGate } from '../pr/localpr/localReviewGate';
 import { activelySubmittedCommentIds } from '../pr/localpr/localReviewSubmission';
+import { StageRecoveryPrompt } from './StageRecoveryPrompt';
+import { StageReadinessAssistancePrompt } from './StageReadinessAssistancePrompt';
 
 /** Last-known cumulative diff per thread+task, so switching stages within a
  *  task paints the diff at once (the diff is task-wide, identical across the
@@ -618,6 +620,21 @@ export function StageDetailRoute({
           />
         )}
         {liveText.length > 0 && <EventRow kind="agent" who="Agent" markdown={liveText} />}
+        {data?.recovery !== undefined
+          && (data.recovery.ci !== null || data.recovery.cleanup !== null) && (
+          <StageRecoveryPrompt
+            taskId={taskId}
+            recovery={data.recovery}
+            onComplete={() => { pollFast(); refresh(); }}
+            onError={setActionError}
+          />
+        )}
+        <StageReadinessAssistancePrompt
+          taskId={taskId}
+          stageId={stageId}
+          onComplete={() => { pollFast(); refresh(); }}
+          onError={setActionError}
+        />
         {shipGatePrompt}
         {pendingSteer !== null && (
           <UserMsg
@@ -783,7 +800,7 @@ export function StageDetailRoute({
     ?? data?.stage.metrics.wallTimeSec
     ?? (data === null ? 0 : Math.max(0, Math.round((Date.parse(data.stage.closedAt ?? new Date().toISOString())
       - Date.parse(data.stage.openedAt)) / 1000)));
-  const retryingExhaustedCi = brain.task.paused
+  const retryingExhaustedCi = data?.recovery?.ci == null && brain.task.paused
     && brain.task.currentPhase === 'NEEDS_ATTENTION'
     && ['ci fix attempts exhausted', 'ci fix no changes'].some(
       reason => brain.task.statusLabel.toLowerCase().startsWith(reason));
@@ -883,7 +900,7 @@ export function StageDetailRoute({
             .catch((reason: unknown) => setActionError(
               reason instanceof Error ? reason.message : 'Could not pause the task'));
         },
-        onResume: () => {
+        onResume: data?.recovery?.ci != null || data?.recovery?.cleanup != null ? undefined : () => {
           setActionError(null);
           const action = retryingExhaustedCi
             ? window.bridge.retryFailedCi(threadId, taskId)

@@ -852,6 +852,29 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:tasks:resume', { threadId, taskId }),
   retryFailedCi: (threadId: string, taskId: string): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:retry-ci', { threadId, taskId }),
+  recoverV2Ci: (
+    taskId: string,
+    episodeId: string,
+    command: {
+      commandId: string;
+      action: 'EXTEND_BUDGET' | 'CONTINUE_WITH_PER_PUSH_APPROVAL' | 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION';
+      rerunDelta: number;
+      fixDelta: number;
+      pushDelta: number;
+      reason: string;
+    },
+  ): Promise<unknown> => ipcRenderer.invoke(
+    'development-flow:ci:recover', { taskId, episodeId, command }),
+  recoverV2Cleanup: (
+    taskId: string,
+    stepId: string,
+    command: {
+      commandId: string;
+      action: 'RETRY' | 'WAIVE_OPTIONAL';
+      reason: string;
+    },
+  ): Promise<unknown> => ipcRenderer.invoke(
+    'development-flow:cleanup:recover', { taskId, stepId, command }),
   parkAndStartNext: (
     threadId: string,
     taskId: string,
@@ -1016,6 +1039,15 @@ const bridge: Bridge = {
     mode: 'APPEND' | 'CANCEL_AND_REPLACE' = 'APPEND',
   ): Promise<{ turnId: string }> =>
     ipcRenderer.invoke('stages:steer', stageId, text, images, mode),
+  getV2ReadinessAssistance: (taskId: string, stageId: string) =>
+    ipcRenderer.invoke('stages:getReadinessAssistance', taskId, stageId),
+  authorizeV2ReadinessAssistance: (
+    taskId: string,
+    stageId: string,
+    body: import('./types').ReadinessAssistanceRequest,
+  ) => ipcRenderer.invoke(
+    'stages:authorizeReadinessAssistance', taskId, stageId, body,
+  ),
   approvePlan: (planStageId: string) => ipcRenderer.invoke('plans:approve', planStageId),
   replan: (taskId: string) => ipcRenderer.invoke('plans:replan', taskId),
   updateFollowup: (planStageId: string, followupEventId: string, status: 'addressed' | 'dismissed') =>

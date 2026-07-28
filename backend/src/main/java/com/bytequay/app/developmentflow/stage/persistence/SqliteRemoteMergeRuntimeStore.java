@@ -74,12 +74,18 @@ public class SqliteRemoteMergeRuntimeStore
                   AND stage.kind = 'REMOTE_DEVELOPMENT'
                   AND stage.checkpoint = 'READY_TO_MERGE'
                   AND stage.completed_at_ms IS NULL
+                  AND readiness.task_id = task.id
                   AND remote.generation = readiness.stage_generation
                   AND remote.accepted_snapshot_id = readiness.remote_pr_snapshot_id
                   AND remote.current_head_sha = readiness.head_sha
                   AND remote.current_base_sha = readiness.base_sha
+                  AND policy.task_id = task.id
                   AND readiness.ready = 1
                   AND readiness.merge_queue_capability <> 'UNKNOWN'
+                  AND policy.revision = (
+                      SELECT MAX(current_policy.revision)
+                      FROM task_automation_policy current_policy
+                      WHERE current_policy.task_id = task.id)
                 """, (rs, row) -> mapStartContext(rs),
                 taskId, stageId, readinessEvidenceId);
         if (found.size() != 1) {
@@ -101,7 +107,7 @@ public class SqliteRemoteMergeRuntimeStore
                     operation.task_id, operation.remote_development_stage_id AS stage_id,
                     operation.task_epoch, operation.stage_generation,
                     operation.semantic_attempt, operation.attempt_limit,
-                    operation.head_sha,
+                    operation.head_sha, operation.merge_method,
                     operation.base_sha, operation.mode
                 FROM remote_merge_authorization authorization
                 JOIN remote_merge_operation operation
@@ -129,28 +135,28 @@ public class SqliteRemoteMergeRuntimeStore
                     id, remote_development_stage_id, task_id, task_epoch,
                     stage_generation, readiness_evidence_id,
                     automation_policy_id, head_sha, base_sha, authority_kind,
-                    actor_id, status, authorized_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
+                    actor_id, status, authorized_at_ms, merge_method)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)
                 """, request.authorizationId(), context.stageId(),
                 context.taskId(), context.taskEpoch(), context.stageGeneration(),
                 context.readinessEvidenceId(), context.automationPolicyId(),
                 context.headSha(), context.baseSha(), request.authorityKind().name(),
-                actor, at);
+                actor, at, request.mergeMethod());
         jdbc.update("""
                 INSERT INTO remote_merge_operation(
                     id, merge_authorization_id, remote_development_stage_id,
                     task_id, task_epoch, stage_generation, operation_id,
                     semantic_attempt, head_sha, base_sha, mode,
                     merge_queue_capability, status, attempt_limit,
-                    max_queue_reenqueues, requested_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 'REQUESTED', ?, ?, ?)
+                    max_queue_reenqueues, requested_at_ms, merge_method)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 'REQUESTED', ?, ?, ?, ?)
                 """, mergeOperationId, request.authorizationId(), context.stageId(),
                 context.taskId(), context.taskEpoch(), context.stageGeneration(),
                 request.operationId(), context.headSha(), context.baseSha(),
                 mode.name(), context.mergeQueueCapability(), request.attemptLimit(),
                 mode == MergeMode.MERGE_QUEUE
                         ? context.maxMergeQueueReenqueues() : 0,
-                at);
+                at, request.mergeMethod());
         jdbc.update("""
                 UPDATE remote_merge_authorization
                 SET status = 'CONSUMED', terminal_at_ms = ?
@@ -177,7 +183,7 @@ public class SqliteRemoteMergeRuntimeStore
                 mergeOperationId, request.operationId(), request.ticketId(),
                 context.taskId(), context.stageId(), context.taskEpoch(),
                 context.stageGeneration(), 1, request.attemptLimit(), context.headSha(),
-                context.baseSha(), mode);
+                context.baseSha(), mode, request.mergeMethod());
     }
 
     public Optional<TerminalContext> findTerminalContext(String snapshotId)
@@ -276,7 +282,8 @@ public class SqliteRemoteMergeRuntimeStore
                 rs.getInt("semantic_attempt"), rs.getInt("attempt_limit"),
                 rs.getString("head_sha"),
                 rs.getString("base_sha"),
-                MergeMode.valueOf(rs.getString("mode")));
+                MergeMode.valueOf(rs.getString("mode")),
+                rs.getString("merge_method"));
     }
 
     private static void requireTransaction()
@@ -334,6 +341,7 @@ public class SqliteRemoteMergeRuntimeStore
             String ticketId,
             AuthorityKind authorityKind,
             String actor,
+            String mergeMethod,
             int attemptLimit,
             Instant requestedAt)
     {
@@ -344,6 +352,10 @@ public class SqliteRemoteMergeRuntimeStore
             requireText(ticketId, "ticketId");
             requireNonNull(authorityKind, "authorityKind is null");
             requireText(actor, "actor");
+            requireText(mergeMethod, "mergeMethod");
+            if (!List.of("merge", "squash", "rebase").contains(mergeMethod)) {
+                throw new IllegalArgumentException("unsupported mergeMethod");
+            }
             requireNonNull(requestedAt, "requestedAt is null");
             if (attemptLimit < 1) {
                 throw new IllegalArgumentException("attemptLimit must be positive");
@@ -367,7 +379,8 @@ public class SqliteRemoteMergeRuntimeStore
             int attemptLimit,
             String headSha,
             String baseSha,
-            MergeMode mode) {}
+            MergeMode mode,
+            String mergeMethod) {}
 
     public record TerminalContext(
             String snapshotId,

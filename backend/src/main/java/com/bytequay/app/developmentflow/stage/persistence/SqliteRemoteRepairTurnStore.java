@@ -14,9 +14,12 @@
 package com.bytequay.app.developmentflow.stage.persistence;
 
 import com.bytequay.app.developmentflow.ResultFence;
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.BranchEpisode;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.BranchStep;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.CiEpisode;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.EffectDeliveryReceipt;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Request;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -26,6 +29,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 import static com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator.id;
 import static java.util.Objects.requireNonNull;
@@ -236,6 +240,134 @@ public class SqliteRemoteRepairTurnStore
                 operationId, ticketId, attempt);
     }
 
+    /** Materializes one already-persisted CI/branch steering handoff. */
+    public TurnRequest insertSteeringTurn(
+            Request request,
+            String launchInput,
+            String deliveryLane,
+            int laneMask,
+            Instant at)
+    {
+        requireTransaction();
+        SteeringOwner owner = requireSteeringOwner(request);
+        supersedeUndeliveredPredecessor(request, at);
+        RepairContext context = requireContext(request.taskId(), request.stageId());
+        int attempt = request.predecessor().attempt() + 1;
+        String turnId = id("remote-repair-steering-turn", request.id());
+        String operationId = id("remote-repair-steering-operation", request.id());
+        String ticketId = id("remote-repair-steering-ticket", request.id());
+        insertStageTurn(
+                turnId, operationId, request.predecessor().purpose(), attempt,
+                context, launchInput, deliveryLane, at);
+        jdbc.update("""
+                INSERT INTO remote_repair_steering_turn_v257(
+                    request_id, owner_family, ci_repair_episode_id,
+                    branch_sync_episode_id, branch_sync_step_id, stage_turn_id,
+                    operation_id, dispatch_ticket_id, semantic_attempt,
+                    status, requested_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'REQUESTED', ?)
+                """, request.id(), owner.ownerFamily(), owner.ciEpisodeId(),
+                owner.branchEpisodeId(), owner.branchStepId(), turnId,
+                operationId, ticketId, attempt, at.toEpochMilli());
+        insertTicket(
+                ticketId, operationId, "EXECUTE_STAGE_TURN", "AGENT_TURN",
+                "STAGE_TURN", turnId, "REMOTE_REPAIR_STEERING_RESULT",
+                laneMask, true, true, context, attempt, at);
+        return new TurnRequest(
+                owner.family(), request.id(),
+                owner.ciEpisodeId() == null
+                        ? owner.branchEpisodeId() : owner.ciEpisodeId(),
+                owner.branchStepId(), turnId, operationId, ticketId, attempt);
+    }
+
+    public String requireSteeringTaskId(String turnId, String operationId)
+    {
+        List<String> rows = jdbc.query("""
+                SELECT request.task_id
+                FROM remote_repair_steering_turn_v257 steering
+                JOIN stage_steering_request_v257 request
+                  ON request.id = steering.request_id
+                WHERE steering.stage_turn_id = ? AND steering.operation_id = ?
+                """, (rs, row) -> rs.getString(1), turnId, operationId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException("Remote repair steering Turn is missing");
+        }
+        return rows.getFirst();
+    }
+
+    public TurnDelivery requireSteeringDelivery(String turnId, String operationId)
+    {
+        List<TurnDelivery> rows = jdbc.query("""
+                SELECT CASE steering.owner_family
+                         WHEN 'CI_REPAIR' THEN 'CI' ELSE 'BRANCH' END AS family,
+                       steering.request_id AS row_id,
+                       COALESCE(steering.ci_repair_episode_id,
+                                steering.branch_sync_episode_id) AS episode_id,
+                       steering.branch_sync_step_id AS step_id,
+                       'STEERING' AS kind, steering.operation_id,
+                       request.task_id, request.task_epoch,
+                       request.stage_id, request.stage_generation,
+                       steering.semantic_attempt, steering.stage_turn_id AS turn_id,
+                       turn.expected_code_fingerprint,
+                       turn.expected_head_sha, turn.expected_base_sha,
+                       identity.worktree_path,
+                       task.aggregate_version AS task_version,
+                       owner.version AS stage_version,
+                       CASE WHEN task.lifecycle_state = 'ACTIVE'
+                              AND task.epoch = request.task_epoch
+                              AND current.stage_id = request.stage_id
+                              AND current.stage_generation = request.stage_generation
+                              AND owner.kind = 'REMOTE_DEVELOPMENT'
+                              AND owner.completed_at_ms IS NULL
+                              AND code.code_fingerprint =
+                                  turn.expected_code_fingerprint
+                              AND code.head_sha = turn.expected_head_sha
+                              AND code.base_sha = turn.expected_base_sha
+                            THEN 1 ELSE 0 END AS is_current
+                FROM remote_repair_steering_turn_v257 steering
+                JOIN stage_steering_request_v257 request
+                  ON request.id = steering.request_id
+                JOIN stage_turn turn ON turn.id = steering.stage_turn_id
+                JOIN tasks task ON task.id = request.task_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage owner ON owner.id = current.stage_id
+                JOIN task_code_identity identity ON identity.task_id = task.id
+                JOIN task_current_code_subject_v230 code ON code.task_id = task.id
+                JOIN dispatch_ticket ticket
+                  ON ticket.id = steering.dispatch_ticket_id
+                WHERE steering.stage_turn_id = ? AND steering.operation_id = ?
+                  AND steering.status = 'REQUESTED'
+                  AND ticket.status = 'RESULT_PENDING'
+                """, (rs, row) -> turnDelivery(rs), turnId, operationId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "Expected one exact Remote steering delivery, found "
+                            + rows.size());
+        }
+        return rows.getFirst();
+    }
+
+    public Optional<EffectDeliveryReceipt> findSteeringReceipt(String operationId)
+    {
+        return jdbc.query("""
+                SELECT delivery.request_id AS row_id, delivery.operation_id,
+                       request.task_id, delivery.raw_outcome,
+                       delivery.raw_result_digest,
+                       delivery.acceptance, delivery.recorded_at_ms
+                FROM remote_repair_steering_delivery_v257 delivery
+                JOIN stage_steering_request_v257 request
+                  ON request.id = delivery.request_id
+                WHERE delivery.operation_id = ?
+                """, (rs, row) -> new EffectDeliveryReceipt(
+                        rs.getString("row_id"), rs.getString("operation_id"),
+                        rs.getString("task_id"), rs.getString("raw_outcome"),
+                        rs.getString("raw_result_digest"),
+                        DispatchTicket.Acceptance.valueOf(
+                                rs.getString("acceptance")),
+                        Instant.ofEpochMilli(rs.getLong("recorded_at_ms"))),
+                operationId).stream().findFirst();
+    }
+
     public BrainRequest insertBranchBrain(
             RepairContext context,
             BranchEpisode episode,
@@ -442,6 +574,88 @@ public class SqliteRemoteRepairTurnStore
         insertReceipt(context, rawOutcome, rawDigest, acceptance, at);
     }
 
+    /** Finishes the predecessor while leaving its repair loop open for steering. */
+    public void finishPredecessorForSteering(
+            TurnDelivery context,
+            String rawOutcome,
+            String rawDigest,
+            String acceptance,
+            String status,
+            CodeSubject output,
+            String evidence,
+            String error,
+            Instant at)
+    {
+        requireTransaction();
+        finishTurn("stage_turn", context, status, error, at);
+        finishOperation(context, status, output, evidence, error, at);
+        if ("SUCCEEDED".equals(status)) {
+            insertRemoteCodeSubject(context, output, at);
+            insertWorktreeSubject(context, output, at);
+        }
+        insertReceipt(context, rawOutcome, rawDigest, acceptance, at);
+    }
+
+    public void finishSteeringTurn(
+            TurnDelivery context,
+            String rawOutcome,
+            String rawDigest,
+            String acceptance,
+            String status,
+            CodeSubject output,
+            String summary,
+            String error,
+            Instant at)
+    {
+        requireTransaction();
+        finishTurn("stage_turn", context, status, error, at);
+        updateOne("""
+                UPDATE remote_repair_steering_turn_v257
+                SET status = ?, result_code_fingerprint = ?,
+                    result_head_sha = ?, result_summary = ?,
+                    completed_at_ms = ?, error_message = ?
+                WHERE request_id = ? AND operation_id = ?
+                  AND status = 'REQUESTED'
+                """, "Remote steering Operation changed before delivery",
+                status, output == null ? null : output.codeFingerprint(),
+                output == null ? null : output.headSha(), summary,
+                at.toEpochMilli(), error, context.rowId(), context.operationId());
+        if ("BRANCH".equals(context.family())) {
+            boolean succeeded = "SUCCEEDED".equals(status);
+            updateOne("""
+                    UPDATE branch_sync_effect_step
+                    SET status = ?, claim_mode = NULL, claim_owner = NULL,
+                        claimed_at_ms = NULL, lease_until_ms = NULL,
+                        evidence = ?, last_error = ?, completed_at_ms = ?
+                    WHERE id = ? AND status = 'CLAIMED'
+                    """, "Branch steering step changed before delivery",
+                    succeeded ? "SUCCEEDED" : "FAILED",
+                    succeeded ? summary : null, succeeded ? null : error,
+                    at.toEpochMilli(), context.stepId());
+        }
+        if ("SUCCEEDED".equals(status)) {
+            jdbc.update("""
+                    INSERT INTO remote_steering_code_subject_v257(
+                        request_id, task_id, task_epoch, remote_stage_id,
+                        stage_generation, stage_turn_id,
+                        source_code_fingerprint, source_head_sha, source_base_sha,
+                        code_fingerprint, head_sha, base_sha, recorded_at_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, context.rowId(), context.taskId(), context.taskEpoch(),
+                    context.stageId(), context.stageGeneration(), context.turnId(),
+                    context.codeFingerprint(), context.headSha(), context.baseSha(),
+                    output.codeFingerprint(), output.headSha(), output.baseSha(),
+                    at.toEpochMilli());
+        }
+        jdbc.update("""
+                INSERT INTO remote_repair_steering_delivery_v257(
+                    request_id, operation_id, raw_outcome, raw_result_digest,
+                    acceptance, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, context.rowId(), context.operationId(), rawOutcome,
+                rawDigest, acceptance, at.toEpochMilli());
+    }
+
     public void finishBrain(
             TurnDelivery context,
             String rawOutcome,
@@ -547,6 +761,78 @@ public class SqliteRemoteRepairTurnStore
         }
         return new EffectRequest(
                 rowId, episode.id(), operationId, ticketId, kind, attempt);
+    }
+
+    private SteeringOwner requireSteeringOwner(Request request)
+    {
+        List<SteeringOwner> rows = jdbc.query("""
+                SELECT 'CI' AS family, 'CI_REPAIR' AS owner_family,
+                       operation.ci_repair_episode_id AS ci_episode_id,
+                       NULL AS branch_episode_id, NULL AS branch_step_id
+                FROM ci_repair_operation operation
+                WHERE operation.operation_id = ?
+                  AND operation.stage_turn_id = ?
+                  AND operation.task_id = ? AND operation.task_epoch = ?
+                  AND operation.remote_development_stage_id = ?
+                  AND operation.stage_generation = ?
+                  AND operation.kind = 'FIX_STAGE_TURN'
+                UNION ALL
+                SELECT 'BRANCH', 'BRANCH_REPAIR', NULL,
+                       operation.branch_sync_episode_id,
+                       operation.branch_sync_effect_step_id
+                FROM branch_sync_dispatch_operation operation
+                WHERE operation.operation_id = ?
+                  AND operation.stage_turn_id = ?
+                  AND operation.task_id = ? AND operation.task_epoch = ?
+                  AND operation.remote_development_stage_id = ?
+                  AND operation.stage_generation = ?
+                  AND operation.kind = 'CONFLICT_REPAIR'
+                """, (rs, row) -> new SteeringOwner(
+                        rs.getString("family"), rs.getString("owner_family"),
+                        rs.getString("ci_episode_id"),
+                        rs.getString("branch_episode_id"),
+                        rs.getString("branch_step_id")),
+                request.predecessor().operationId(),
+                request.predecessor().ownerId(), request.taskId(),
+                request.taskEpoch(), request.stageId(), request.stageGeneration(),
+                request.predecessor().operationId(),
+                request.predecessor().ownerId(), request.taskId(),
+                request.taskEpoch(), request.stageId(), request.stageGeneration());
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "Remote repair steering predecessor is not exact");
+        }
+        return rows.getFirst();
+    }
+
+    private void supersedeUndeliveredPredecessor(Request request, Instant at)
+    {
+        jdbc.update("""
+                UPDATE stage_turn
+                SET status = 'SUPERSEDED',
+                    started_at_ms = COALESCE(started_at_ms, requested_at_ms),
+                    finished_at_ms = ?,
+                    error_message = 'replaced by durable user steering'
+                WHERE id = ? AND operation_id = ?
+                  AND status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
+                """, at.toEpochMilli(), request.predecessor().ownerId(),
+                request.predecessor().operationId());
+        jdbc.update("""
+                UPDATE ci_repair_operation
+                SET status = 'SUPERSEDED', completed_at_ms = ?,
+                    error_message = 'replaced by durable user steering'
+                WHERE operation_id = ? AND stage_turn_id = ?
+                  AND status = 'DISPATCHED'
+                """, at.toEpochMilli(), request.predecessor().operationId(),
+                request.predecessor().ownerId());
+        jdbc.update("""
+                UPDATE branch_sync_dispatch_operation
+                SET status = 'SUPERSEDED', completed_at_ms = ?,
+                    error_message = 'replaced by durable user steering'
+                WHERE operation_id = ? AND stage_turn_id = ?
+                  AND status = 'DISPATCHED'
+                """, at.toEpochMilli(), request.predecessor().operationId(),
+                request.predecessor().ownerId());
     }
 
     private void insertStageTurn(
@@ -935,4 +1221,8 @@ public class SqliteRemoteRepairTurnStore
 
     public record CodeSubject(
             String codeFingerprint, String headSha, String baseSha) {}
+
+    private record SteeringOwner(
+            String family, String ownerFamily, String ciEpisodeId,
+            String branchEpisodeId, String branchStepId) {}
 }

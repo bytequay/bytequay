@@ -34,6 +34,10 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopment
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.ValidationDeliveryReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.ValidationEvidence;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.ValidationRequest;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.LocalContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.LocalTurn;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Request;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
@@ -45,6 +49,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -80,6 +85,7 @@ public final class LocalDevelopmentRuntimeCoordinator
     private final ObjectReader brainResultReader;
     private final Clock clock;
     private final int serverPort;
+    private SqliteStageSteeringStore steering;
 
     public LocalDevelopmentRuntimeCoordinator(
             TaskCommandExecutor commands,
@@ -113,6 +119,61 @@ public final class LocalDevelopmentRuntimeCoordinator
             throw new IllegalArgumentException("serverPort is invalid");
         }
         this.serverPort = serverPort;
+    }
+
+    @Autowired
+    void setSteeringStore(SqliteStageSteeringStore steering)
+    {
+        this.steering = requireNonNull(steering, "steering is null");
+    }
+
+    /** Materializes one already-durable steering request under its Task stripe. */
+    public SteeringAdmission admitSteeringInCommand(Request request, long stageVersion)
+    {
+        requireNonNull(request, "request is null");
+        TaskCommandExecutor.requireCurrent(request.taskId());
+        SqliteStageSteeringStore ownerStore = requireNonNull(
+                steering, "Stage steering store is not configured");
+        LocalContext context = ownerStore.requireLocalContext(request, stageVersion);
+        String localRequestId = id("local-steering-request", request.id());
+        String localCommandId = id("persist-local-steering", request.id());
+        String turnId = id("local-steering-turn", request.id());
+        String operationId = id("local-steering-operation", request.id());
+        String ticketId = id("local-steering-ticket", request.id());
+        String prompt = steeringPrompt(request, ownerStore.attachments(request.id()));
+        WorkModel workModel = decodeWorkModel(context.workModelSnapshot());
+        int laneMask = workModel.kind() == WorkModelKind.CLI ? 1 : 2;
+        ObjectNode launch = writerLaunch(
+                context.provider(), context.model(), context.roleSkill(), workModel,
+                context.worktreePath(), turnId, operationId, prompt);
+        LocalTurn turn = new LocalTurn(
+                localRequestId, localCommandId, turnId, operationId, ticketId,
+                context.workspaceId(), context.trunkId(), context.taskId(),
+                context.taskEpoch(), context.stageId(), context.stageGeneration(),
+                context.codeFingerprint(), context.headSha(), context.baseSha(),
+                workModel.kind().name(), laneMask, write(launch), digest(prompt),
+                "user", clock.instant());
+        ownerStore.insertLocalTurn(turn);
+        StageManager.Command command = new StageManager.Command(
+                id("admit-local-steering", request.id()), ACTOR,
+                context.taskId(), context.taskEpoch(), context.stageId(),
+                context.stageGeneration(), context.stageVersion());
+        CommandResult<StageManager.State> admitted = switch (context.checkpoint()) {
+            case IMPLEMENTING -> local.requestImplementationInCommand(
+                    command, turn.fence(), localRequestId);
+            case ADDRESSING_BRAIN_FINDINGS -> local.requestBrainFixInCommand(
+                    command, turn.fence(), localRequestId);
+            case ADDRESSING_LOCAL_FEEDBACK -> local.requestLocalFeedbackFixInCommand(
+                    command, turn.fence(), localRequestId);
+            case LOCAL_REVIEW -> local.admitSteeringFromReviewInCommand(
+                    command, turn.fence(), localRequestId);
+            default -> throw new IllegalStateException(
+                    "Local Stage is not ready for steering at " + context.checkpoint());
+        };
+        if (admitted.disposition() == CommandResult.Disposition.SUPERSEDED) {
+            throw new IllegalStateException("Current Local steering was superseded");
+        }
+        return new SteeringAdmission(turnId, operationId, ticketId);
     }
 
     public InitialImplementationReceipt startInitialImplementation(
@@ -241,6 +302,17 @@ public final class LocalDevelopmentRuntimeCoordinator
                     "Local StageTurn result differs from its persisted fence");
         }
         Instant now = clock.instant();
+        if (steering != null
+                && steering.cancellationRequestedFor(context.operationId())) {
+            store.finishStageTurn(
+                    context, "SUPERSEDED", "replaced by durable user steering", now);
+            clearResult(context);
+            StageTurnDeliveryReceipt recorded = new StageTurnDeliveryReceipt(
+                    turnId, context.operationId(), result.outcome().name(), rawDigest,
+                    SUPERSEDED.name(), null, null, now);
+            store.insertStageTurnReceipt(recorded);
+            return receipt(SUPERSEDED, deliveryResult(recorded));
+        }
         if (result.outcome() != SUCCEEDED) {
             String terminal = result.outcome() == CANCELED ? "CANCELED" : "FAILED";
             store.finishStageTurn(context, terminal, result.payload().error(), now);
@@ -873,8 +945,18 @@ public final class LocalDevelopmentRuntimeCoordinator
         StageManager.ResultCommand command = resultCommand(
                 context, id("accept-local-code", context.operationId()));
         return switch (context.requestKind()) {
-            case "IMPLEMENTATION", "STEERING" ->
+            case "IMPLEMENTATION" ->
                     local.acceptImplementationResultInCommand(command, reportId);
+            case "STEERING" -> switch (context.checkpoint()) {
+                case IMPLEMENTING ->
+                        local.acceptImplementationResultInCommand(command, reportId);
+                case ADDRESSING_BRAIN_FINDINGS ->
+                        local.acceptBrainFixResultInCommand(command, reportId);
+                case ADDRESSING_LOCAL_FEEDBACK ->
+                        local.acceptLocalFeedbackResultInCommand(command, reportId);
+                default -> throw new IllegalStateException(
+                        "Steering result is not owned at " + context.checkpoint());
+            };
             case "BRAIN_FINDINGS" ->
                     local.acceptBrainFixResultInCommand(command, reportId);
             case "LOCAL_FEEDBACK" ->
@@ -889,8 +971,20 @@ public final class LocalDevelopmentRuntimeCoordinator
         StageManager.ResultCommand command = resultCommand(
                 context, id("clear-local-code", context.operationId()));
         return switch (context.requestKind()) {
-            case "IMPLEMENTATION", "STEERING" ->
+            case "IMPLEMENTATION" ->
                     local.clearImplementationTurnInCommand(command, context.requestId());
+            case "STEERING" -> switch (context.checkpoint()) {
+                case IMPLEMENTING ->
+                        local.clearImplementationTurnInCommand(
+                                command, context.requestId());
+                case ADDRESSING_BRAIN_FINDINGS ->
+                        local.clearBrainFixTurnInCommand(command, context.requestId());
+                case ADDRESSING_LOCAL_FEEDBACK ->
+                        local.clearLocalFeedbackTurnInCommand(
+                                command, context.requestId());
+                default -> throw new IllegalStateException(
+                        "Steering result is not owned at " + context.checkpoint());
+            };
             case "BRAIN_FINDINGS" ->
                     local.clearBrainFixTurnInCommand(command, context.requestId());
             case "LOCAL_FEEDBACK" ->
@@ -915,6 +1009,25 @@ public final class LocalDevelopmentRuntimeCoordinator
                 context.stageId(), context.stageGeneration(), stageVersion);
     }
 
+    private static String steeringPrompt(
+            Request request,
+            List<SqliteStageSteeringStore.Attachment> attachments)
+    {
+        StringBuilder prompt = new StringBuilder(
+                "Apply this user steering to the current exact Local Development "
+                        + "subject:\n\n").append(request.body());
+        if (!attachments.isEmpty()) {
+            prompt.append("\n\nRead these durable image attachments:\n");
+            attachments.forEach(attachment -> prompt
+                    .append("- ").append(attachment.contentRef()).append('\n'));
+        }
+        return prompt.append(
+                "\nDo not push or create remote effects. Return only strict JSON "
+                        + "with schemaVersion=1 and string fields implementedIntent, "
+                        + "commitSummary, fileSummary, validationSummary, knownRisks, "
+                        + "unresolvedConcerns, contextRefs.").toString();
+    }
+
     private DispatchTicket.DeliveryReceipt receipt(
             DispatchTicket.Acceptance acceptance, String result)
     {
@@ -923,6 +1036,9 @@ public final class LocalDevelopmentRuntimeCoordinator
         node.put("result", result);
         return new DispatchTicket.DeliveryReceipt(acceptance, write(node));
     }
+
+    public record SteeringAdmission(
+            String turnId, String operationId, String ticketId) {}
 
     private static String deliveryResult(StageTurnDeliveryReceipt receipt)
     {

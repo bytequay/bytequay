@@ -31,6 +31,9 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLo
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore.ValidationAttempt;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore.ValidationContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore.ValidationRequest;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Attachment;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Request;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
@@ -42,6 +45,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -82,6 +86,7 @@ public final class RemoteFeedbackRuntimeCoordinator
     private final ObjectReader workModelReader;
     private final Clock clock;
     private final int serverPort;
+    private SqliteStageSteeringStore steering;
 
     public RemoteFeedbackRuntimeCoordinator(
             TaskCommandExecutor commands,
@@ -113,6 +118,38 @@ public final class RemoteFeedbackRuntimeCoordinator
             throw new IllegalArgumentException("serverPort is invalid");
         }
         this.serverPort = serverPort;
+    }
+
+    @Autowired
+    void setSteeringStore(SqliteStageSteeringStore steering)
+    {
+        this.steering = requireNonNull(steering, "steering is null");
+    }
+
+    public TurnRequest admitSteeringInCommand(Request request)
+    {
+        requireNonNull(request, "request is null");
+        TaskCommandExecutor.requireCurrent(request.taskId());
+        SqliteStageSteeringStore ownerStore = requireNonNull(
+                steering, "Stage steering store is not configured");
+        var handoff = ownerStore.requireRemoteHandoff(request.id());
+        if (!handoff.status().equals("PARKED")
+                || !handoff.ownerFamily().equals("REMOTE_FEEDBACK")
+                || !request.predecessor().purpose()
+                        .equals("ADDRESS_REMOTE_FEEDBACK")) {
+            throw new IllegalStateException(
+                    "Remote feedback steering handoff is not exact");
+        }
+        StageTurnContext predecessor = store.requireStageTurnContext(
+                request.predecessor().ownerId(),
+                request.predecessor().operationId());
+        store.supersedeUndeliveredStageTurn(predecessor, clock.instant());
+        FeedbackContext context = store.requireFeedbackContext(
+                predecessor.batchId());
+        return createTurn(
+                context, predecessor.semanticAttempt() + 1,
+                predecessor.turnId(), steeringPrompt(
+                        request, ownerStore.attachments(request.id())));
     }
 
     public TurnRequest start(String taskId, String batchId)
@@ -206,6 +243,13 @@ public final class RemoteFeedbackRuntimeCoordinator
                     "Remote StageTurn result differs from its persisted fence");
         }
         Instant now = clock.instant();
+        Request pendingSteering = steering == null ? null
+                : steering.findPendingByPredecessor(context.operationId())
+                        .orElse(null);
+        if (pendingSteering != null) {
+            return finishForPendingSteering(
+                    result, context, rawDigest, pendingSteering, now);
+        }
         if (result.outcome() != SUCCEEDED) {
             store.finishStageTurn(
                     context, result.outcome() == CANCELED ? "CANCELED" : "FAILED",
@@ -235,6 +279,39 @@ public final class RemoteFeedbackRuntimeCoordinator
                 validationId, validationTicket, now);
         return record(context.operationId(), TURN_CALLBACK, rawDigest, ACCEPTED,
                 "validation-requested:" + validation.operationId(), now);
+    }
+
+    private DispatchTicket.DeliveryReceipt finishForPendingSteering(
+            AgentTurnOwnerResultCodec.OwnerResult raw,
+            StageTurnContext context,
+            String rawDigest,
+            Request request,
+            Instant now)
+    {
+        boolean acceptOutput = request.mode() == V2StageSteeringControl.Mode.APPEND
+                && raw.outcome() == SUCCEEDED && context.current();
+        if (!acceptOutput) {
+            store.finishStageTurn(
+                    context, "SUPERSEDED",
+                    "replaced by durable user steering", now);
+            return record(context.operationId(), TURN_CALLBACK, rawDigest,
+                    SUPERSEDED, "Remote feedback predecessor was superseded", now);
+        }
+        RepairResult result = decodeRepair(raw.payload().finalText());
+        CodeSubject output = observe(
+                Path.of(context.worktreePath()), context.baseSha());
+        store.finishStageTurn(context, "SUCCEEDED", null, now);
+        String repairId = id("remote-feedback-repair", context.operationId());
+        List<ReplyDraft> drafts = result.replies().stream()
+                .map(reply -> replyDraft(repairId, reply))
+                .toList();
+        store.insertRepairForSteering(
+                context, repairId, output.headSha(), output.fingerprint(),
+                required(result.summary(), "summary"),
+                digest(raw.payload().finalText()), drafts, now);
+        return record(context.operationId(), TURN_CALLBACK, rawDigest,
+                ACCEPTED, "Remote feedback predecessor completed before steering",
+                now);
     }
 
     private DispatchTicket.DeliveryReceipt deliverValidationInCommand(
@@ -496,6 +573,23 @@ public final class RemoteFeedbackRuntimeCoordinator
                 .append("replies:[{batchItemOrdinal,kind,body,externalTarget}]}. ")
                 .append("kind is POST_INLINE_REPLY, POST_TOP_LEVEL_REPLY, or ")
                 .append("RESOLVE_THREAD; RESOLVE_THREAD has null body.");
+        return prompt.toString();
+    }
+
+    private static String steeringPrompt(
+            Request request, List<Attachment> attachments)
+    {
+        StringBuilder prompt = new StringBuilder(
+                "Continue the same exact frozen Remote feedback batch and apply "
+                        + "this user steering before validation. Do not push or "
+                        + "post to GitHub.\n\n")
+                .append(request.body());
+        if (!attachments.isEmpty()) {
+            prompt.append("\n\nDurable attachments:\n");
+            attachments.forEach(attachment -> prompt
+                    .append("- ").append(attachment.contentRef()).append('\n'));
+        }
+        prompt.append("\n\nReturn the normal strict Remote feedback repair JSON.");
         return prompt.toString();
     }
 

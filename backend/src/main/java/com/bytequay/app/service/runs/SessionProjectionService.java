@@ -14,10 +14,12 @@
 package com.bytequay.app.service.runs;
 
 import com.bytequay.app.beans.session.SessionDto;
+import com.bytequay.app.developmentflow.compatibility.V2AgentRunProjection;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.InvestigationReviewData.AgentReviewRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
 import com.bytequay.app.repository.sqlite.InvestigationReviewStore;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -35,6 +37,7 @@ public class SessionProjectionService
 {
     private final AgentRunService runs;
     private final InvestigationReviewStore reviews;
+    private V2AgentRunProjection v2Runs;
 
     public SessionProjectionService(
             AgentRunService runs,
@@ -42,6 +45,12 @@ public class SessionProjectionService
     {
         this.runs = requireNonNull(runs, "runs is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
+    }
+
+    @Autowired(required = false)
+    void setV2Runs(V2AgentRunProjection v2Runs)
+    {
+        this.v2Runs = requireNonNull(v2Runs, "v2Runs is null");
     }
 
     public List<SessionProjection> list(String workspaceId)
@@ -67,6 +76,17 @@ public class SessionProjectionService
         }
         latestReviewByPr.values().forEach(review -> sessions.add(
                 new SessionProjection(review.review().id(), review.run(), true)));
+        if (v2Runs != null) {
+            v2Runs.listByWorkspace(workspaceId).stream()
+                    .filter(SessionDto::isPublic)
+                    // PR review seats remain children of one stable
+                    // ReviewSession; do not leak each typed seat Turn as a
+                    // second workspace Session.
+                    .filter(run -> !AgentRun.KIND_PANEL_REVIEW.equals(run.kind()))
+                    .map(run -> new SessionProjection(
+                            run.id(), run, false, true))
+                    .forEach(sessions::add);
+        }
         return List.copyOf(sessions);
     }
 
@@ -79,6 +99,18 @@ public class SessionProjectionService
 
     public SessionProjection require(String id)
     {
+        if (V2AgentRunProjection.isV2Id(id)) {
+            if (v2Runs == null) {
+                throw new NoSuchElementException("no session: " + id);
+            }
+            AgentRun run = v2Runs.findById(id)
+                    .filter(SessionDto::isPublic)
+                    .filter(candidate -> !AgentRun.KIND_PANEL_REVIEW.equals(
+                            candidate.kind()))
+                    .orElseThrow(() -> new NoSuchElementException(
+                            "no session: " + id));
+            return new SessionProjection(run.id(), run, false, true);
+        }
         Optional<SessionProjection> review = reviewSession(id);
         if (review.isPresent()) {
             return review.get();
@@ -139,8 +171,14 @@ public class SessionProjectionService
         return new ReviewLink(review, false);
     }
 
-    public record SessionProjection(String id, AgentRun run, boolean durableReview)
+    public record SessionProjection(
+            String id, AgentRun run, boolean durableReview, boolean typedV2)
     {
+        public SessionProjection(String id, AgentRun run, boolean durableReview)
+        {
+            this(id, run, durableReview, false);
+        }
+
         public SessionProjection
         {
             requireNonNull(id, "id is null");

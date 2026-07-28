@@ -18,6 +18,7 @@ import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityLeaseMaintainer;
+import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.springframework.beans.factory.annotation.Value;
@@ -101,6 +102,14 @@ public class DevelopmentFlowExecutionConfig
             LegacyCapacityBridge bridge)
     {
         return new LegacyCapacityLeaseMaintainer(bridge);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(WorktreeWriterLeaseManager.class)
+    public WorktreeWriterLeaseManager worktreeWriterLeaseManager(
+            WorktreeWriterLeaseManager.Store store)
+    {
+        return new WorktreeWriterLeaseManager(store, Clock.systemUTC());
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")

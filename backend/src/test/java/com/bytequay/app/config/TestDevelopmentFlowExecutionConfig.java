@@ -19,6 +19,7 @@ import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityLeaseMaintainer;
 import com.bytequay.app.developmentflow.execution.LegacySagaCapacity;
+import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadSettings;
 import com.bytequay.app.repository.TaskStore;
@@ -50,6 +51,7 @@ class TestDevelopmentFlowExecutionConfig
                     assertThat(context).hasSingleBean(CapacityManager.class);
                     assertThat(context).hasSingleBean(LegacyCapacityBridge.class);
                     assertThat(context).hasSingleBean(LegacyCapacityLeaseMaintainer.class);
+                    assertThat(context).hasSingleBean(WorktreeWriterLeaseManager.class);
                     assertThat(context).doesNotHaveBean(ExecutionDispatcher.class);
                 });
     }
@@ -165,6 +167,9 @@ class TestDevelopmentFlowExecutionConfig
                 .withBean(ThreadSettingsStore.class, () -> mock(ThreadSettingsStore.class))
                 .withBean(
                         CapacityManager.CapacityLeaseStore.class,
-                        () -> mock(CapacityManager.CapacityLeaseStore.class));
+                        () -> mock(CapacityManager.CapacityLeaseStore.class))
+                .withBean(
+                        WorktreeWriterLeaseManager.Store.class,
+                        () -> mock(WorktreeWriterLeaseManager.Store.class));
     }
 }

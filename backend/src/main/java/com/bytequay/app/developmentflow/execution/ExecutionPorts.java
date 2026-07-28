@@ -212,6 +212,18 @@ public final class ExecutionPorts
     }
 
     /**
+     * Durable domain backstops run on the dispatcher's sole scheduled
+     * facility. Implementations may request work but never perform the
+     * asynchronous effect themselves.
+     */
+    @FunctionalInterface
+    public interface MaintenanceWork
+    {
+        void maintain(Instant now)
+                throws Exception;
+    }
+
+    /**
      * The Operation deliberately parked without holding capacity. A durable
      * owner decision or the supplied retry time must re-arm its ticket.
      */

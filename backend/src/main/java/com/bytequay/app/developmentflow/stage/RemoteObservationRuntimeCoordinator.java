@@ -69,20 +69,28 @@ public final class RemoteObservationRuntimeCoordinator
     {
         requireText(taskId, "taskId");
         requireText(stageId, "stageId");
-        return commands.execute(taskId, () -> {
-            TaskCommandExecutor.requireCurrent(taskId);
-            ObservationRequest duplicate = store.findLiveObservation(stageId)
-                    .orElse(null);
-            if (duplicate != null) {
-                if (!taskId.equals(duplicate.taskId())) {
-                    throw new IllegalArgumentException(
-                            "Remote Stage belongs to another Task");
-                }
-                return duplicate;
+        return commands.execute(taskId,
+                () -> requestObservationInCommand(taskId, stageId));
+    }
+
+    /** Opens the observation in the same transaction that made Remote current. */
+    public ObservationRequest requestObservationInCommand(
+            String taskId, String stageId)
+    {
+        requireText(taskId, "taskId");
+        requireText(stageId, "stageId");
+        TaskCommandExecutor.requireCurrent(taskId);
+        ObservationRequest duplicate = store.findLiveObservation(stageId)
+                .orElse(null);
+        if (duplicate != null) {
+            if (!taskId.equals(duplicate.taskId())) {
+                throw new IllegalArgumentException(
+                        "Remote Stage belongs to another Task");
             }
-            RemoteContext context = store.requireRemoteContext(taskId, stageId);
-            return store.insertObservation(context, clock.instant());
-        });
+            return duplicate;
+        }
+        RemoteContext context = store.requireRemoteContext(taskId, stageId);
+        return store.insertObservation(context, clock.instant());
     }
 
     public DispatchTicket.DeliveryReceipt deliver(

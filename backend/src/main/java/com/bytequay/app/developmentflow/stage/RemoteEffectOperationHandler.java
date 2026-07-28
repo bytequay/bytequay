@@ -16,6 +16,7 @@ package com.bytequay.app.developmentflow.stage;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
+import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -62,13 +63,18 @@ public final class RemoteEffectOperationHandler
 
     private final Store store;
     private final EffectPort effects;
+    private final WorktreeWriterLeaseManager writers;
     private final ObjectMapper json;
 
     public RemoteEffectOperationHandler(
-            Store store, EffectPort effects, ObjectMapper json)
+            Store store,
+            EffectPort effects,
+            WorktreeWriterLeaseManager writers,
+            ObjectMapper json)
     {
         this.store = requireNonNull(store, "store is null");
         this.effects = requireNonNull(effects, "effects is null");
+        this.writers = requireNonNull(writers, "writers is null");
         this.json = requireNonNull(json, "json is null");
     }
 
@@ -98,7 +104,28 @@ public final class RemoteEffectOperationHandler
             throw new ExecutionPorts.OperationCanceledException(
                     "Remote effect was canceled");
         }
-        Result result = effects.perform(context.request(), mode, execution);
+        Result result;
+        if (execution.envelope().capacityRequest().writerRequired()) {
+            WorktreeWriterLeaseManager.Lease writer = writers.acquire(
+                    execution, context.request().worktreePath());
+            try {
+                result = writers.authorizeMutation(execution, writer).run(fence -> {
+                    try {
+                        return effects.perform(
+                                context.request(), mode, execution, fence);
+                    }
+                    catch (Exception failure) {
+                        throw new EffectFailure(failure);
+                    }
+                });
+            }
+            catch (EffectFailure failure) {
+                throw failure.cause();
+            }
+        }
+        else {
+            result = effects.perform(context.request(), mode, execution, null);
+        }
         if (!context.operationId().equals(result.operationId())) {
             throw new IllegalArgumentException(
                     "Remote effect result belongs to another Operation");
@@ -157,7 +184,11 @@ public final class RemoteEffectOperationHandler
     @FunctionalInterface
     public interface EffectPort
     {
-        Result perform(Request request, Mode mode, ExecutionContext execution)
+        Result perform(
+                Request request,
+                Mode mode,
+                ExecutionContext execution,
+                WorktreeWriterLeaseManager.MutationFence writerFence)
                 throws Exception;
     }
 
@@ -213,6 +244,7 @@ public final class RemoteEffectOperationHandler
             String expectedHeadSha,
             String expectedBaseSha,
             String targetBaseSha,
+            String forceWithLeaseExpectedSha,
             String idempotencyKey)
     {
         public Request
@@ -227,6 +259,11 @@ public final class RemoteEffectOperationHandler
             requireText(expectedHeadSha, "expectedHeadSha");
             requireText(expectedBaseSha, "expectedBaseSha");
             requireText(idempotencyKey, "idempotencyKey");
+            if ((PUSH_BRANCH.equals(operationKind)
+                    || PUSH_CI_REPAIR.equals(operationKind))) {
+                requireText(forceWithLeaseExpectedSha,
+                        "forceWithLeaseExpectedSha");
+            }
             if (pullRequestNumber < 1) {
                 throw new IllegalArgumentException(
                         "pullRequestNumber must be positive");
@@ -260,6 +297,23 @@ public final class RemoteEffectOperationHandler
 
     private record Shape(
             DispatchTicket.AsyncFamily family, String callbackRoute) {}
+
+    private static final class EffectFailure
+            extends RuntimeException
+    {
+        private final Exception cause;
+
+        private EffectFailure(Exception cause)
+        {
+            super(cause);
+            this.cause = cause;
+        }
+
+        private Exception cause()
+        {
+            return cause;
+        }
+    }
 
     private static void requireText(String value, String name)
     {

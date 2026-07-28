@@ -47,6 +47,7 @@ import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationOperationHandler;
+import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
@@ -220,6 +221,7 @@ class TestDevelopmentFlowExecutionConfig
                 mock(TaskCommandExecutor.class),
                 mock(LocalDevelopmentStageManager.class),
                 mock(LocalToRemoteHandoff.class),
+                mock(RemoteObservationRuntimeCoordinator.class),
                 mock(SqlitePublishResultStore.class),
                 cleanupStore,
                 mock(CleanupCompletionHandoff.class),
@@ -413,6 +415,8 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(RemoteFeedbackRuntimeCoordinator.class))
                 .withBean(RemoteDevelopmentRuntimeCoordinator.class,
                         () -> mock(RemoteDevelopmentRuntimeCoordinator.class))
+                .withBean(RemoteObservationRuntimeCoordinator.class,
+                        () -> mock(RemoteObservationRuntimeCoordinator.class))
                 .withBean(TaskCommandExecutor.class,
                         () -> mock(TaskCommandExecutor.class))
                 .withBean(LocalDevelopmentStageManager.class,

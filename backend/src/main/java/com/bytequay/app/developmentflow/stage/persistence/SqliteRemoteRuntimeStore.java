@@ -118,6 +118,44 @@ public class SqliteRemoteRuntimeStore
                 .stream().findFirst();
     }
 
+    /** Current V2 Remote owners whose last observation is old and has no live ticket. */
+    public List<ObservationTarget> findDueObservations(
+            Instant requestedNotAfter, int limit)
+    {
+        requireNonNull(requestedNotAfter, "requestedNotAfter is null");
+        if (limit < 1) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        return jdbc.query("""
+                SELECT remote.task_id, remote.stage_id,
+                       COALESCE(MAX(operation.requested_at_ms), 0) AS last_requested_at_ms
+                FROM remote_development_stage remote
+                JOIN stage owner ON owner.id = remote.stage_id
+                JOIN tasks task ON task.id = remote.task_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                LEFT JOIN remote_observation_operation operation
+                  ON operation.remote_development_stage_id = remote.stage_id
+                WHERE task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND task.epoch > 0
+                  AND owner.completed_at_ms IS NULL
+                  AND current.stage_id = remote.stage_id
+                  AND current.stage_generation = remote.generation
+                  AND NOT EXISTS (
+                      SELECT 1 FROM remote_observation_operation live
+                      WHERE live.remote_development_stage_id = remote.stage_id
+                        AND live.status IN ('REQUESTED', 'DISPATCHED'))
+                GROUP BY remote.task_id, remote.stage_id
+                HAVING COALESCE(MAX(operation.requested_at_ms), 0) <= ?
+                ORDER BY last_requested_at_ms, remote.task_id, remote.stage_id
+                LIMIT ?
+                """, (rs, row) -> new ObservationTarget(
+                        rs.getString("task_id"),
+                        rs.getString("stage_id"),
+                        Instant.ofEpochMilli(rs.getLong("last_requested_at_ms"))),
+                requestedNotAfter.toEpochMilli(), limit);
+    }
+
     public ObservationRequest insertObservation(RemoteContext context, Instant at)
     {
         requireTransaction();
@@ -1619,6 +1657,21 @@ public class SqliteRemoteRuntimeStore
         }
     }
 
+    public record ObservationTarget(
+            String taskId, String stageId, Instant lastRequestedAt)
+    {
+        public ObservationTarget
+        {
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(stageId, "stageId is null");
+            requireNonNull(lastRequestedAt, "lastRequestedAt is null");
+            if (taskId.isBlank() || stageId.isBlank()) {
+                throw new IllegalArgumentException(
+                        "Observation target identity must not be blank");
+            }
+        }
+    }
+
     public record ObservationEvidence(
             String snapshotId,
             String ciEvaluationId,
@@ -1797,6 +1850,7 @@ public class SqliteRemoteRuntimeStore
                        operation.expected_code_fingerprint,
                        operation.expected_head_sha,
                        operation.expected_base_sha,
+                       episode.subject_head_sha AS force_with_lease_expected_sha,
                        binding.remote_repository_id,
                        binding.remote_pr_number, binding.remote_head_ref,
                        identity.worktree_path
@@ -1822,6 +1876,7 @@ public class SqliteRemoteRuntimeStore
                            operation.expected_head_sha,
                            operation.expected_base_sha,
                            operation.target_base_sha,
+                           episode.old_head_sha AS force_with_lease_expected_sha,
                            step.idempotency_key,
                            binding.remote_repository_id,
                            binding.remote_pr_number, binding.remote_head_ref,
@@ -1877,7 +1932,9 @@ public class SqliteRemoteRuntimeStore
                         rs.getString("worktree_path"),
                         rs.getString("remote_head_ref"),
                         rs.getString("expected_code_fingerprint"), expectedHead,
-                        expectedBase, targetBaseSha, operationId));
+                        expectedBase, targetBaseSha,
+                        rs.getString("force_with_lease_expected_sha"),
+                        operationId));
     }
 
     private static RemoteEffectOperationHandler.OperationContext
@@ -1909,6 +1966,7 @@ public class SqliteRemoteRuntimeStore
                         rs.getString("remote_head_ref"),
                         rs.getString("expected_code_fingerprint"), expectedHead,
                         expectedBase, rs.getString("target_base_sha"),
+                        rs.getString("force_with_lease_expected_sha"),
                         rs.getString("idempotency_key")));
     }
 }

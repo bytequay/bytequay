@@ -71,6 +71,7 @@ public final class ExecutionDispatcher
     private final ExecutionPorts.OperationHandlerRegistry handlers;
     private final ExecutionPorts.ResultDeliveryPort resultDelivery;
     private final ExecutionPorts.ExecutionEvidencePort evidence;
+    private List<ExecutionPorts.MaintenanceWork> maintenanceWork = List.of();
     private final Clock clock;
     private final Config config;
     private final Supplier<String> claimOwnerSupplier;
@@ -119,6 +120,22 @@ public final class ExecutionDispatcher
             Config config)
     {
         this(
+                capacityManager, tickets, wakes, handlers, resultDelivery,
+                evidence, clock, config, List.of());
+    }
+
+    public ExecutionDispatcher(
+            CapacityManager capacityManager,
+            ExecutionPorts.DispatchTicketStore tickets,
+            ExecutionPorts.DispatchWakeStore wakes,
+            ExecutionPorts.OperationHandlerRegistry handlers,
+            ExecutionPorts.ResultDeliveryPort resultDelivery,
+            ExecutionPorts.ExecutionEvidencePort evidence,
+            Clock clock,
+            Config config,
+            List<ExecutionPorts.MaintenanceWork> maintenanceWork)
+    {
+        this(
                 capacityManager,
                 tickets,
                 wakes,
@@ -133,6 +150,8 @@ public final class ExecutionDispatcher
                                 .name("v2-dispatch-maintenance-", 0)
                                 .factory()),
                 () -> config.dispatcherId() + ":" + UUID.randomUUID());
+        this.maintenanceWork = List.copyOf(requireNonNull(
+                maintenanceWork, "maintenanceWork is null"));
     }
 
     ExecutionDispatcher(
@@ -276,6 +295,7 @@ public final class ExecutionDispatcher
             capacityManager.expireLeases();
             recoverExpiredClaims();
             recoverExpiredDeliveryClaims();
+            runDomainMaintenance();
             drainDispatchWakes();
             dispatchEligibleTickets();
         }
@@ -332,6 +352,21 @@ public final class ExecutionDispatcher
             // The next durable sweep retries. A maintenance exception must not
             // kill the sole scheduled facility.
             recordInfrastructureFailure(null, ignored);
+        }
+    }
+
+    private void runDomainMaintenance()
+    {
+        Instant now = clock.instant();
+        for (ExecutionPorts.MaintenanceWork work : maintenanceWork) {
+            try {
+                work.maintain(now);
+            }
+            catch (Exception failure) {
+                recordInfrastructureFailure(
+                        null, new RuntimeException(
+                                "V2 domain maintenance failed", failure));
+            }
         }
     }
 

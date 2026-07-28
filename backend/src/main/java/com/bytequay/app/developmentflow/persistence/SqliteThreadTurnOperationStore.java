@@ -38,21 +38,46 @@ public class SqliteThreadTurnOperationStore
     public Optional<ThreadTurnOperationHandler.ExactTurn> find(String turnId)
     {
         requireText(turnId, "turnId");
-        return jdbc.query("""
+        String sql = planningRuntimeExists() ? """
                 SELECT turn.id, turn.trunk_id, trunk.workspace_id,
                        turn.purpose, turn.status, turn.operation_id,
-                       turn.attempt, turn.launch_input, trunk.lifecycle_state
+                       turn.attempt, turn.launch_input, trunk.lifecycle_state,
+                       turn.planning_operation_id, turn.expected_base_sha,
+                       trunk.planning_base_sha
                 FROM thread_turn turn
                 JOIN threads trunk ON trunk.id = turn.trunk_id
                 WHERE turn.id = ? AND trunk.turn_version = 'V2'
-                """,
+                """ : """
+                SELECT turn.id, turn.trunk_id, trunk.workspace_id,
+                       turn.purpose, turn.status, turn.operation_id,
+                       turn.attempt, turn.launch_input, trunk.lifecycle_state,
+                       NULL AS planning_operation_id,
+                       NULL AS expected_base_sha,
+                       NULL AS planning_base_sha
+                FROM thread_turn turn
+                JOIN threads trunk ON trunk.id = turn.trunk_id
+                WHERE turn.id = ? AND trunk.turn_version = 'V2'
+                """;
+        return jdbc.query(sql,
                 (rs, row) -> new ThreadTurnOperationHandler.ExactTurn(
                         rs.getString("id"), rs.getString("trunk_id"),
                         rs.getString("workspace_id"), rs.getString("purpose"),
                         rs.getString("status"), rs.getString("operation_id"),
                         rs.getInt("attempt"), rs.getString("launch_input"),
-                        rs.getString("lifecycle_state")),
+                        rs.getString("lifecycle_state"),
+                        rs.getString("planning_operation_id"),
+                        rs.getString("expected_base_sha"),
+                        rs.getString("planning_base_sha")),
                 turnId).stream().findFirst();
+    }
+
+    private boolean planningRuntimeExists()
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM pragma_table_info('thread_turn')
+                WHERE name = 'planning_operation_id'
+                """, Integer.class);
+        return count != null && count == 1;
     }
 
     @Override

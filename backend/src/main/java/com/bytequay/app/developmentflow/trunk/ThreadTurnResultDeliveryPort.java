@@ -74,7 +74,6 @@ public final class ThreadTurnResultDeliveryPort
                 || expectedFence.stageGeneration() != null
                 || expectedFence.expectedCodeFingerprint() != null
                 || expectedFence.expectedHeadSha() != null
-                || expectedFence.expectedBaseSha() != null
                 || !expectedFence.equals(rawResult.fence())) {
             return receipt(SUPERSEDED, "ThreadTurn result fence is stale", null);
         }

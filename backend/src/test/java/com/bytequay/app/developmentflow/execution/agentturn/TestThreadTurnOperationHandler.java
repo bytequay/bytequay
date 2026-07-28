@@ -18,7 +18,9 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.agents.ToolExposurePolicy;
+import com.bytequay.app.service.skills.ByteQuayRole;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -112,6 +114,26 @@ class TestThreadTurnOperationHandler
         assertThat(provider.opens).isZero();
     }
 
+    @Test
+    void completionSummaryRunsAsTheReadOnlyBrainRole()
+            throws Exception
+    {
+        store = new FakeStore(turn("TASK_COMPLETION_SUMMARY"));
+        provider = new FakeProvider(contexts);
+        handler = new ThreadTurnOperationHandler(
+                store, provider, contexts, new ToolExposurePolicy(), JSON,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(handler.execute(context(envelope(true), false)).outcome())
+                .isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+        assertThat(provider.resolved.role()).isEqualTo(ByteQuayRole.BRAIN);
+        assertThat(provider.resolved.toolNames())
+                .isEqualTo(new ToolExposurePolicy().completionSummaryTools())
+                .doesNotContain(
+                        "create_task", "record_plan", "record_review_verdict",
+                        "approval_prompt", "ask_user_question");
+    }
+
     private static ExecutionContext context(
             DispatchTicket.DispatchEnvelope envelope, boolean canceled)
     {
@@ -146,6 +168,12 @@ class TestThreadTurnOperationHandler
     private static ThreadTurnOperationHandler.ExactTurn turn()
             throws Exception
     {
+        return turn("PLANNING");
+    }
+
+    private static ThreadTurnOperationHandler.ExactTurn turn(String purpose)
+            throws Exception
+    {
         AgentTurnProviderSession.OwnerToolEndpoint endpoint =
                 new AgentTurnProviderSession.OwnerToolEndpoint(
                         "bytequay",
@@ -160,7 +188,7 @@ class TestThreadTurnOperationHandler
                         "gpt-5.6", "high", "/tmp", "trunk role",
                         "propose the next task", endpoint));
         return new ThreadTurnOperationHandler.ExactTurn(
-                "thread-turn-1", "trunk-1", "workspace-1", "PLANNING",
+                "thread-turn-1", "trunk-1", "workspace-1", purpose,
                 "REQUESTED", "operation-1", 1, input, "ACTIVE");
     }
 
@@ -215,6 +243,7 @@ class TestThreadTurnOperationHandler
         private int opens;
         private int starts;
         private boolean contextWasActive;
+        private ResolvedAgentContext resolved;
 
         private FakeProvider(ActiveAgentContextRegistry contexts)
         {
@@ -232,9 +261,11 @@ class TestThreadTurnOperationHandler
                 public Result startAndAwait(WriterFence writerFence)
                 {
                     starts++;
-                    contextWasActive = contexts.find(
+                    resolved = contexts.find(
                             "trunk-1", ThreadTurnOperationHandler.mcpAgentKey(
-                                    "thread-turn-1", "operation-1")).isPresent();
+                                    "thread-turn-1", "operation-1"))
+                            .orElse(null);
+                    contextWasActive = resolved != null;
                     observer.providerSession("codex", "session-1");
                     return new Result(
                             Completion.SUCCEEDED, "session-1",

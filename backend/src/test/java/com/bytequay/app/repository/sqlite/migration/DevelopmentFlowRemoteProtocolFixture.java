@@ -532,6 +532,40 @@ final class DevelopmentFlowRemoteProtocolFixture
                 """.formatted(taskNumber, revision, head, base, state, mergeability));
     }
 
+    static void insertSnapshot(
+            Connection connection,
+            int taskNumber,
+            int revision,
+            String head,
+            String base,
+            String state,
+            String mergeability,
+            String queueState,
+            String queueCapability,
+            int writeApprovals,
+            int changesRequested,
+            int unresolvedThreads,
+            int unresolvedComments)
+            throws SQLException
+    {
+        execute(connection, """
+                INSERT INTO remote_pr_snapshot(
+                    id, remote_development_stage_id, task_id, task_epoch,
+                    stage_generation, remote_pr_binding_id, observation_revision,
+                    observation_key, remote_repository_id, remote_pr_number,
+                    head_sha, base_sha, pr_state, mergeability, merge_queue_state,
+                    write_approval_count, changes_requested_count,
+                    unresolved_thread_count, unresolved_comment_count,
+                    observed_at_ms, merge_queue_capability)
+                VALUES ('snapshot-%1$s-%2$s', 'remote-stage-%1$s', 'task-%1$s',
+                    1, 1, 'binding-%1$s', %2$s, 'observation-%1$s-%2$s',
+                    'acme/widget', 40 + %1$s, '%3$s', '%4$s', '%5$s', '%6$s',
+                    '%7$s', %9$s, %10$s, %11$s, %12$s, 60 + %2$s, '%8$s')
+                """.formatted(taskNumber, revision, head, base, state, mergeability,
+                queueState, queueCapability, writeApprovals, changesRequested,
+                unresolvedThreads, unresolvedComments));
+    }
+
     static void acceptSnapshot(Connection connection, int taskNumber, int revision,
             String head, String base)
             throws SQLException
@@ -583,6 +617,32 @@ final class DevelopmentFlowRemoteProtocolFixture
                 VALUES ('ci-evaluation-%1$s-%2$s', 'remote-stage-%1$s',
                     'snapshot-%1$s-%2$s', 'ci-policy-%1$s', 'task-%1$s', 1, 1,
                     '%3$s', '%4$s', 'FAILED', 'FAILED', 1, 0, 'build failed',
+                    71 + %2$s)
+                """.formatted(taskNumber, revision, head, base));
+    }
+
+    static void insertGreenCi(
+            Connection connection, int taskNumber, int revision, String head, String base)
+            throws SQLException
+    {
+        execute(connection, """
+                INSERT INTO remote_ci_check_snapshot(
+                    id, remote_pr_snapshot_id, check_kind, external_check_id,
+                    check_name, normalized_state, provider_status,
+                    provider_conclusion, observed_at_ms)
+                VALUES ('green-check-%1$s-%2$s', 'snapshot-%1$s-%2$s', 'CHECK_RUN',
+                    'green-check-%1$s-%2$s', 'build', 'PASSED', 'COMPLETED',
+                    'SUCCESS', 70 + %2$s)
+                """.formatted(taskNumber, revision));
+        execute(connection, """
+                INSERT INTO remote_ci_evaluation(
+                    id, remote_development_stage_id, remote_pr_snapshot_id,
+                    ci_policy_revision_id, task_id, task_epoch, stage_generation,
+                    head_sha, base_sha, normalized_status, policy_outcome,
+                    check_count, missing_required_count, evidence, evaluated_at_ms)
+                VALUES ('green-ci-%1$s-%2$s', 'remote-stage-%1$s',
+                    'snapshot-%1$s-%2$s', 'ci-policy-%1$s', 'task-%1$s', 1, 1,
+                    '%3$s', '%4$s', 'PASSED', 'ACCEPTED', 1, 0, 'build passed',
                     71 + %2$s)
                 """.formatted(taskNumber, revision, head, base));
     }

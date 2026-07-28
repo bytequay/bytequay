@@ -27,6 +27,7 @@ import java.time.Instant;
 import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -492,6 +493,18 @@ public class SqliteRemoteRuntimeStore
                 .stream().findFirst();
     }
 
+    public boolean hasExhaustedCiSubject(
+            String stageId, String headSha, String baseSha)
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM ci_repair_episode
+                WHERE remote_development_stage_id = ?
+                  AND subject_head_sha = ? AND subject_base_sha = ?
+                  AND status = 'EXHAUSTED'
+                """, Integer.class, stageId, headSha, baseSha);
+        return count != null && count > 0;
+    }
+
     public CiEpisode openCiEpisode(
             ObservationDelivery context,
             ObservationEvidence evidence,
@@ -622,7 +635,14 @@ public class SqliteRemoteRuntimeStore
                        episode.status AS episode_status,
                        episode.subject_head_sha, episode.subject_base_sha,
                        episode.rerun_count, episode.rerun_limit,
+                       episode.fix_attempt_count, episode.fix_attempt_limit,
+                       episode.push_count, episode.push_limit,
+                       episode.last_pushed_head_sha,
+                       episode.last_push_result_evaluation_id,
                        remote.current_head_sha, remote.current_base_sha,
+                       code.code_fingerprint AS current_code_fingerprint,
+                       code.head_sha AS current_code_head_sha,
+                       code.base_sha AS current_code_base_sha,
                        task.lifecycle_state,
                        task.epoch AS current_task_epoch,
                        current.stage_id AS current_stage_id,
@@ -633,6 +653,8 @@ public class SqliteRemoteRuntimeStore
                 JOIN remote_development_stage remote
                   ON remote.stage_id = operation.remote_development_stage_id
                 JOIN tasks task ON task.id = operation.task_id
+                JOIN task_current_code_subject_v230 code
+                  ON code.task_id = operation.task_id
                 LEFT JOIN task_current_stage current ON current.task_id = task.id
                 JOIN dispatch_ticket ticket
                   ON ticket.operation_id = operation.operation_id
@@ -685,6 +707,91 @@ public class SqliteRemoteRuntimeStore
                 VALUES (?, ?, ?, ?, ?, ?)
                 """, context.rowId(), context.operationId(), rawOutcome,
                 rawDigest, acceptance, at.toEpochMilli());
+    }
+
+    public void finishCiEffect(
+            CiEffectDelivery context,
+            String rawOutcome,
+            String rawDigest,
+            String acceptance,
+            RemoteEffectOperationHandler.Result result,
+            Instant at)
+    {
+        requireTransaction();
+        boolean succeeded = "ACCEPTED".equals(acceptance)
+                && "SUCCEEDED".equals(rawOutcome)
+                && result != null
+                && result.disposition()
+                    == RemoteEffectOperationHandler.Disposition.SUCCEEDED;
+        String status = "SUPERSEDED".equals(acceptance) ? "SUPERSEDED"
+                : succeeded ? "SUCCEEDED"
+                : "CANCELED".equals(rawOutcome) ? "CANCELED" : "FAILED";
+        updateOne("""
+                UPDATE ci_repair_operation
+                SET status = ?, result_code_fingerprint = ?,
+                    result_head_sha = ?, result_evidence = ?,
+                    completed_at_ms = ?, error_message = ?
+                WHERE id = ? AND status = 'DISPATCHED'
+                """, "CI effect changed before delivery", status,
+                result == null ? null : result.codeFingerprint(),
+                result == null ? null : result.headSha(),
+                result == null ? null : result.evidence(), at.toEpochMilli(),
+                result == null ? null : result.error(), context.rowId());
+        if (succeeded && "PUSH_HEAD".equals(context.kind())) {
+            updateOne("""
+                    UPDATE ci_repair_episode
+                    SET push_count = push_count + 1,
+                        last_pushed_head_sha = ?,
+                        last_push_result_evaluation_id = NULL,
+                        status = 'AWAITING_PUSH_CI'
+                    WHERE id = ? AND push_count = ?
+                      AND status = 'AWAITING_PUSH_CI'
+                    """, "CI push counter changed before delivery",
+                    result.headSha(), context.episodeId(), context.pushCount());
+        }
+        jdbc.update("""
+                INSERT INTO ci_repair_delivery_receipt(
+                    ci_repair_operation_id, operation_id, raw_outcome,
+                    raw_result_digest, acceptance, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, context.rowId(), context.operationId(), rawOutcome,
+                rawDigest, acceptance, at.toEpochMilli());
+    }
+
+    public void recordCiPushResult(
+            CiEpisode episode, String evaluationId)
+    {
+        requireTransaction();
+        updateOne("""
+                UPDATE ci_repair_episode
+                SET last_push_result_evaluation_id = ?
+                WHERE id = ? AND last_pushed_head_sha IS NOT NULL
+                  AND last_push_result_evaluation_id IS NULL
+                  AND status = 'AWAITING_PUSH_CI'
+                """, "CI push result changed before observation",
+                evaluationId, episode.id());
+    }
+
+    public void blockCiEpisode(
+            CiEpisode episode,
+            String blockerType,
+            String reason,
+            String payload,
+            Instant at)
+    {
+        requireTransaction();
+        stopCiEpisode(episode, reason, at);
+        jdbc.update("""
+                INSERT INTO task_blocker(
+                    id, task_id, stage_id, owner_kind, owner_id,
+                    subject_revision, blocker_type, status, payload_json,
+                    opened_at_ms)
+                VALUES (?, ?, ?, 'EPISODE', ?, ?, ?, 'OPEN', ?, ?)
+                ON CONFLICT(id) DO NOTHING
+                """, id("ci-repair-blocker", episode.id() + ":" + blockerType),
+                episode.taskId(), episode.stageId(), episode.id(),
+                episode.subjectHeadSha(), blockerType, payload,
+                at.toEpochMilli());
     }
 
     public void succeedCiEpisode(
@@ -1175,6 +1282,13 @@ public class SqliteRemoteRuntimeStore
                     WHERE id = ? AND status = 'CLAIMED'
                     """, "Branch sync step changed before completion",
                     result.evidence(), at.toEpochMilli(), context.stepId());
+            if (context.ordinal() != 1) {
+                insertWorktreeSubject(
+                        "BRANCH_EFFECT", context.operationId(), context.taskId(),
+                        context.taskEpoch(), context.stageId(),
+                        context.stageGeneration(), result.codeFingerprint(),
+                        result.headSha(), context.targetBaseSha(), at);
+            }
         }
         else {
             updateOne("""
@@ -1393,16 +1507,32 @@ public class SqliteRemoteRuntimeStore
     private static CiEffectDelivery ciEffectDelivery(ResultSet rs)
             throws SQLException
     {
+        String kind = rs.getString("kind");
+        boolean remoteCurrent = rs.getString("current_head_sha").equals(
+                        rs.getString("last_pushed_head_sha") == null
+                                ? rs.getString("subject_head_sha")
+                                : rs.getString("last_pushed_head_sha"))
+                && rs.getString("subject_base_sha").equals(
+                        rs.getString("current_base_sha"));
+        boolean codeCurrent = "RERUN".equals(kind)
+                ? rs.getString("expected_head_sha").equals(
+                        rs.getString("current_head_sha"))
+                    && rs.getString("expected_base_sha").equals(
+                        rs.getString("current_base_sha"))
+                : Objects.equals(
+                        rs.getString("expected_code_fingerprint"),
+                        rs.getString("current_code_fingerprint"))
+                    && rs.getString("expected_head_sha").equals(
+                        rs.getString("current_code_head_sha"))
+                    && rs.getString("expected_base_sha").equals(
+                        rs.getString("current_code_base_sha"));
         boolean current = "ACTIVE".equals(rs.getString("lifecycle_state"))
                 && rs.getLong("task_epoch") == rs.getLong("current_task_epoch")
                 && rs.getString("stage_id").equals(
                         rs.getString("current_stage_id"))
                 && rs.getLong("stage_generation")
                         == rs.getLong("current_stage_generation")
-                && rs.getString("expected_head_sha").equals(
-                        rs.getString("current_head_sha"))
-                && rs.getString("expected_base_sha").equals(
-                        rs.getString("current_base_sha"));
+                && remoteCurrent && codeCurrent;
         return new CiEffectDelivery(
                 rs.getString("row_id"), rs.getString("operation_id"),
                 rs.getString("ci_repair_episode_id"), rs.getString("kind"),
@@ -1415,7 +1545,12 @@ public class SqliteRemoteRuntimeStore
                 rs.getString("episode_status"),
                 rs.getString("subject_head_sha"),
                 rs.getString("subject_base_sha"),
-                rs.getInt("rerun_count"), rs.getInt("rerun_limit"), current);
+                rs.getInt("rerun_count"), rs.getInt("rerun_limit"),
+                rs.getInt("fix_attempt_count"),
+                rs.getInt("fix_attempt_limit"),
+                rs.getInt("push_count"), rs.getInt("push_limit"),
+                rs.getString("last_pushed_head_sha"),
+                rs.getString("last_push_result_evaluation_id"), current);
     }
 
     private static BranchEpisode branchEpisode(ResultSet rs)
@@ -1547,6 +1682,36 @@ public class SqliteRemoteRuntimeStore
             throw new IllegalStateException(message);
         }
         return rows.getFirst();
+    }
+
+    private void insertWorktreeSubject(
+            String sourceKind,
+            String operationId,
+            String taskId,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            String codeFingerprint,
+            String headSha,
+            String baseSha,
+            Instant at)
+    {
+        int revision = jdbc.queryForObject("""
+                SELECT COALESCE(MAX(revision), 0) + 1
+                FROM remote_worktree_subject
+                WHERE task_id = ? AND task_epoch = ?
+                """, Integer.class, taskId, taskEpoch);
+        jdbc.update("""
+                INSERT INTO remote_worktree_subject(
+                    id, task_id, task_epoch, remote_development_stage_id,
+                    stage_generation, revision, source_kind,
+                    source_operation_id, code_fingerprint, head_sha,
+                    base_sha, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id("remote-worktree-subject", operationId), taskId,
+                taskEpoch, stageId, stageGeneration, revision, sourceKind,
+                operationId, codeFingerprint, headSha, baseSha,
+                at.toEpochMilli());
     }
 
     private static Instant instant(ResultSet rs, String column)
@@ -1773,6 +1938,12 @@ public class SqliteRemoteRuntimeStore
             String subjectBaseSha,
             int rerunCount,
             int rerunLimit,
+            int fixAttemptCount,
+            int fixAttemptLimit,
+            int pushCount,
+            int pushLimit,
+            String lastPushedHeadSha,
+            String lastPushResultEvaluationId,
             boolean current) {}
 
     public record BranchEpisode(
@@ -1850,7 +2021,9 @@ public class SqliteRemoteRuntimeStore
                        operation.expected_code_fingerprint,
                        operation.expected_head_sha,
                        operation.expected_base_sha,
-                       episode.subject_head_sha AS force_with_lease_expected_sha,
+                       COALESCE(episode.last_pushed_head_sha,
+                           episode.subject_head_sha)
+                           AS force_with_lease_expected_sha,
                        binding.remote_repository_id,
                        binding.remote_pr_number, binding.remote_head_ref,
                        identity.worktree_path

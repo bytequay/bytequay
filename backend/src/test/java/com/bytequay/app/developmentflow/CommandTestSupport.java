@@ -122,6 +122,61 @@ final class CommandTestSupport
         }
 
         @Override
+        public Optional<TrunkManager.ThreadTurnRequestReceipt>
+                findThreadTurnRequest(String trunkId, String commandId)
+        {
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean matchesThreadTurnRequest(
+                TrunkManager.ThreadTurnCommand command)
+        {
+            return false;
+        }
+
+        @Override
+        public TrunkManager.ThreadTurnRequestReceipt requestThreadTurn(
+                TrunkManager.ThreadTurnCommand command,
+                TrunkManager.State expected,
+                TrunkManager.State updated)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<String> findThreadTurnTrunk(
+                String turnId, String operationId)
+        {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<TrunkManager.ThreadTurnResultReceipt>
+                findThreadTurnResult(String turnId, String operationId)
+        {
+            return Optional.empty();
+        }
+
+        @Override
+        public TrunkManager.ThreadTurnResultContext requireThreadTurnResult(
+                String turnId, String operationId)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public TrunkManager.ThreadTurnResultReceipt acceptThreadTurnResult(
+                TrunkManager.ThreadTurnResultFact fact,
+                TrunkManager.ThreadTurnResultContext context,
+                TrunkManager.State updated,
+                String acceptance,
+                String terminalStatus)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public TrunkManager.State authorizeTaskCreation(
                 TrunkManager.TaskCreationCommand command,
                 TrunkManager.State expected,

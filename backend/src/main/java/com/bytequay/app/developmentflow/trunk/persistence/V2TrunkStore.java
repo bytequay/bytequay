@@ -24,6 +24,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -117,6 +118,348 @@ final class V2TrunkStore
                   AND name = 'trunk_task_creation_authorization'
                 """, Integer.class);
         return count != null && count == 1;
+    }
+
+    @Override
+    public Optional<TrunkManager.ThreadTurnRequestReceipt> findThreadTurnRequest(
+            String trunkId, String commandId)
+    {
+        return jdbc.query("""
+                SELECT actor, expected_trunk_version, returned_trunk_version,
+                       returned_lifecycle, turn_id, operation_id,
+                       dispatch_ticket_id, purpose, delivery_lane,
+                       launch_input_digest, user_message_digest, recorded_at_ms
+                FROM trunk_thread_turn_request_receipt
+                WHERE trunk_id = ? AND command_id = ?
+                """,
+                (rs, row) -> new TrunkManager.ThreadTurnRequestReceipt(
+                        new TrunkManager.State(
+                                trunkId,
+                                TrunkLifecycle.valueOf(
+                                        rs.getString("returned_lifecycle")),
+                                rs.getLong("returned_trunk_version")),
+                        commandId, rs.getString("actor"),
+                        rs.getLong("expected_trunk_version"),
+                        rs.getString("turn_id"),
+                        rs.getString("operation_id"),
+                        rs.getString("dispatch_ticket_id"),
+                        rs.getString("purpose"),
+                        rs.getString("delivery_lane"),
+                        rs.getString("launch_input_digest"),
+                        rs.getString("user_message_digest"),
+                        Instant.ofEpochMilli(
+                                rs.getLong("recorded_at_ms"))),
+                trunkId, commandId).stream().findFirst();
+    }
+
+    @Override
+    public boolean matchesThreadTurnRequest(
+            TrunkManager.ThreadTurnCommand command)
+    {
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT receipt.actor, receipt.expected_trunk_version,
+                       receipt.returned_trunk_version,
+                       receipt.turn_id, receipt.operation_id,
+                       receipt.dispatch_ticket_id, receipt.purpose,
+                       receipt.delivery_lane, receipt.launch_input_digest,
+                       receipt.user_message_digest, receipt.recorded_at_ms,
+                       turn.launch_input, message.id AS user_message_id,
+                       message.body AS user_message,
+                       ticket.workspace_id, ticket.lane_mask
+                FROM trunk_thread_turn_request_receipt receipt
+                JOIN thread_turn turn ON turn.id = receipt.turn_id
+                JOIN thread_message message
+                  ON message.turn_id = turn.id AND message.seq = 1
+                JOIN dispatch_ticket ticket
+                  ON ticket.id = receipt.dispatch_ticket_id
+                WHERE receipt.trunk_id = ? AND receipt.command_id = ?
+                """, command.trunkId(), command.commandId());
+        if (rows.size() != 1) {
+            return false;
+        }
+        Map<String, Object> row = rows.getFirst();
+        return same(row, "actor", command.actor())
+                && number(row, "expected_trunk_version")
+                        == command.expectedTrunkVersion()
+                && number(row, "returned_trunk_version")
+                        == command.expectedTrunkVersion() + 1
+                && same(row, "turn_id", command.turnId())
+                && same(row, "operation_id", command.operationId())
+                && same(row, "dispatch_ticket_id", command.ticketId())
+                && same(row, "purpose", command.purpose())
+                && same(row, "delivery_lane", command.deliveryLane())
+                && same(row, "launch_input_digest", command.launchInputDigest())
+                && same(row, "user_message_digest", command.userMessageDigest())
+                && same(row, "launch_input", command.launchInput())
+                && same(row, "user_message_id", command.userMessageId())
+                && same(row, "user_message", command.userMessage())
+                && same(row, "workspace_id", command.workspaceId())
+                && number(row, "lane_mask") == command.laneMask();
+    }
+
+    @Override
+    public TrunkManager.ThreadTurnRequestReceipt requestThreadTurn(
+            TrunkManager.ThreadTurnCommand command,
+            TrunkManager.State expected,
+            TrunkManager.State updated)
+    {
+        requireTransaction();
+        if (!expected.id().equals(command.trunkId())
+                || !expected.id().equals(updated.id())
+                || expected.version() != command.expectedTrunkVersion()
+                || updated.version() != expected.version() + 1
+                || updated.lifecycle() != TrunkLifecycle.ACTIVE) {
+            throw new IllegalArgumentException(
+                    "ThreadTurn request Trunk fence is inconsistent");
+        }
+        long now = command.requestedAt().toEpochMilli();
+        jdbc.update("""
+                INSERT INTO thread_turn(
+                    id, trunk_id, purpose, status, operation_id, attempt,
+                    delivery_lane, launch_input, requested_at_ms)
+                VALUES (?, ?, ?, 'REQUESTED', ?, 1, ?, ?, ?)
+                """,
+                command.turnId(), command.trunkId(), command.purpose(),
+                command.operationId(), command.deliveryLane(),
+                command.launchInput(), now);
+        jdbc.update("""
+                INSERT INTO thread_message(
+                    id, turn_id, seq, role, body, created_at_ms)
+                VALUES (?, ?, 1, 'user', ?, ?)
+                """,
+                command.userMessageId(), command.turnId(),
+                command.userMessage(), now);
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    trunk_control, exclusive_task, writer_required,
+                    workspace_id, trunk_id, task_id, task_epoch,
+                    stage_id, stage_generation, attempt, status,
+                    next_attempt_at_ms, created_at_ms)
+                VALUES (?, ?, 'EXECUTE_THREAD_TURN', 'AGENT_TURN',
+                    'THREAD_TURN', ?, 'THREAD_TURN_RESULT', ?,
+                    1, 0, 0, ?, ?, NULL, NULL, NULL, NULL, 1,
+                    'REQUESTED', ?, ?)
+                """,
+                command.ticketId(), command.operationId(), command.turnId(),
+                command.laneMask(), command.workspaceId(), command.trunkId(),
+                now, now);
+
+        updateTrunk(expected, updated, "ThreadTurn request");
+        jdbc.update("""
+                INSERT INTO trunk_transition(
+                    id, trunk_id, command_id, from_state, to_state,
+                    aggregate_version, cause, actor, occurred_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, 'REQUEST_THREAD_TURN', ?, ?)
+                """,
+                id(), command.trunkId(), command.commandId(),
+                expected.lifecycle().name(), updated.lifecycle().name(),
+                updated.version(), command.actor(), now);
+        jdbc.update("""
+                INSERT INTO trunk_thread_turn_request_receipt(
+                    id, trunk_id, command_id, actor,
+                    expected_trunk_version, returned_trunk_version,
+                    returned_lifecycle, turn_id, operation_id,
+                    dispatch_ticket_id, purpose, delivery_lane,
+                    launch_input_digest, user_message_digest, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                id(), command.trunkId(), command.commandId(), command.actor(),
+                expected.version(), updated.version(), updated.lifecycle().name(),
+                command.turnId(), command.operationId(), command.ticketId(),
+                command.purpose(), command.deliveryLane(),
+                command.launchInputDigest(), command.userMessageDigest(), now);
+        return new TrunkManager.ThreadTurnRequestReceipt(
+                updated, command.commandId(), command.actor(), expected.version(),
+                command.turnId(), command.operationId(), command.ticketId(),
+                command.purpose(), command.deliveryLane(),
+                command.launchInputDigest(), command.userMessageDigest(),
+                command.requestedAt());
+    }
+
+    @Override
+    public Optional<String> findThreadTurnTrunk(
+            String turnId, String operationId)
+    {
+        return jdbc.query("""
+                SELECT turn.trunk_id
+                FROM thread_turn turn
+                JOIN threads trunk ON trunk.id = turn.trunk_id
+                WHERE turn.id = ? AND turn.operation_id = ?
+                  AND trunk.turn_version = 'V2'
+                """, (rs, row) -> rs.getString("trunk_id"),
+                turnId, operationId).stream().findFirst();
+    }
+
+    @Override
+    public Optional<TrunkManager.ThreadTurnResultReceipt> findThreadTurnResult(
+            String turnId, String operationId)
+    {
+        return jdbc.query("""
+                SELECT receipt.trunk_id, receipt.command_id, receipt.actor,
+                       receipt.attempt, receipt.raw_result_digest,
+                       receipt.raw_outcome, receipt.acceptance,
+                       receipt.terminal_status, receipt.assistant_message_id,
+                       receipt.returned_trunk_version,
+                       receipt.returned_lifecycle, receipt.recorded_at_ms
+                FROM trunk_thread_turn_result_receipt receipt
+                WHERE receipt.turn_id = ? AND receipt.operation_id = ?
+                """,
+                (rs, row) -> new TrunkManager.ThreadTurnResultReceipt(
+                        new TrunkManager.State(
+                                rs.getString("trunk_id"),
+                                TrunkLifecycle.valueOf(
+                                        rs.getString("returned_lifecycle")),
+                                rs.getLong("returned_trunk_version")),
+                        rs.getString("command_id"), rs.getString("actor"),
+                        turnId, operationId, rs.getInt("attempt"),
+                        rs.getString("raw_result_digest"),
+                        rs.getString("raw_outcome"),
+                        rs.getString("acceptance"),
+                        rs.getString("terminal_status"),
+                        rs.getString("assistant_message_id"),
+                        Instant.ofEpochMilli(
+                                rs.getLong("recorded_at_ms"))),
+                turnId, operationId).stream().findFirst();
+    }
+
+    @Override
+    public boolean isThreadTurnCommandUsed(String trunkId, String commandId)
+    {
+        if (!threadTurnRuntimeExists()) {
+            return false;
+        }
+        Integer used = jdbc.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1 FROM trunk_thread_turn_request_receipt
+                    WHERE trunk_id = ? AND command_id = ?
+                    UNION ALL
+                    SELECT 1 FROM trunk_thread_turn_result_receipt
+                    WHERE trunk_id = ? AND command_id = ?)
+                """, Integer.class,
+                trunkId, commandId, trunkId, commandId);
+        return used != null && used == 1;
+    }
+
+    private boolean threadTurnRuntimeExists()
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type = 'table'
+                  AND name = 'trunk_thread_turn_request_receipt'
+                """, Integer.class);
+        return count != null && count == 1;
+    }
+
+    @Override
+    public TrunkManager.ThreadTurnResultContext requireThreadTurnResult(
+            String turnId, String operationId)
+    {
+        return jdbc.query("""
+                SELECT trunk.id AS trunk_id, trunk.lifecycle_state,
+                       trunk.aggregate_version, turn.status, turn.operation_id,
+                       turn.attempt,
+                       EXISTS (
+                           SELECT 1 FROM thread_turn other
+                           WHERE other.trunk_id = turn.trunk_id
+                             AND other.id <> turn.id
+                             AND other.status IN (
+                                 'REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING'))
+                           AS other_live_turns
+                FROM thread_turn turn
+                JOIN threads trunk ON trunk.id = turn.trunk_id
+                WHERE turn.id = ? AND turn.operation_id = ?
+                  AND trunk.turn_version = 'V2'
+                """,
+                (rs, row) -> new TrunkManager.ThreadTurnResultContext(
+                        new TrunkManager.State(
+                                rs.getString("trunk_id"),
+                                TrunkLifecycle.valueOf(
+                                        rs.getString("lifecycle_state")),
+                                rs.getLong("aggregate_version")),
+                        rs.getString("status"),
+                        rs.getString("operation_id"),
+                        rs.getInt("attempt"),
+                        rs.getBoolean("other_live_turns")),
+                turnId, operationId).stream().findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "ThreadTurn delivery owner disappeared: " + turnId));
+    }
+
+    @Override
+    public TrunkManager.ThreadTurnResultReceipt acceptThreadTurnResult(
+            TrunkManager.ThreadTurnResultFact fact,
+            TrunkManager.ThreadTurnResultContext context,
+            TrunkManager.State updated,
+            String acceptance,
+            String terminalStatus)
+    {
+        requireTransaction();
+        TrunkManager.State expected = context.trunkState();
+        if (!expected.id().equals(updated.id())
+                || updated.version() != expected.version() + 1
+                || !context.operationId().equals(fact.operationId())
+                || context.attempt() != fact.attempt()) {
+            throw new IllegalArgumentException(
+                    "ThreadTurn result Trunk fence is inconsistent");
+        }
+        int turnChanged = jdbc.update("""
+                UPDATE thread_turn
+                SET status = ?, finished_at_ms = ?, error_message = ?
+                WHERE id = ? AND operation_id = ? AND attempt = ?
+                  AND status = ?
+                """,
+                terminalStatus, fact.finishedAt().toEpochMilli(), fact.error(),
+                fact.turnId(), fact.operationId(), fact.attempt(),
+                context.turnStatus());
+        if (turnChanged != 1) {
+            throw concurrent(
+                    "ThreadTurn changed before result acceptance: " + fact.turnId());
+        }
+
+        String assistantMessageId = null;
+        if ("ACCEPTED".equals(acceptance)
+                && "SUCCEEDED".equals(terminalStatus)
+                && fact.finalText() != null) {
+            assistantMessageId = id();
+            jdbc.update("""
+                    INSERT INTO thread_message(
+                        id, turn_id, seq, role, body, created_at_ms)
+                    VALUES (?, ?, 2, 'assistant', ?, ?)
+                    """,
+                    assistantMessageId, fact.turnId(), fact.finalText(),
+                    fact.finishedAt().toEpochMilli());
+        }
+
+        updateTrunk(expected, updated, "ThreadTurn result");
+        jdbc.update("""
+                INSERT INTO trunk_transition(
+                    id, trunk_id, command_id, from_state, to_state,
+                    aggregate_version, cause, actor, occurred_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, 'ACCEPT_THREAD_TURN_RESULT', ?, ?)
+                """,
+                id(), expected.id(), fact.commandId(),
+                expected.lifecycle().name(), updated.lifecycle().name(),
+                updated.version(), fact.actor(), fact.finishedAt().toEpochMilli());
+        jdbc.update("""
+                INSERT INTO trunk_thread_turn_result_receipt(
+                    id, trunk_id, command_id, actor, turn_id, operation_id,
+                    attempt, raw_result_digest, raw_outcome, acceptance,
+                    terminal_status, assistant_message_id,
+                    returned_trunk_version, returned_lifecycle, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                id(), expected.id(), fact.commandId(), fact.actor(),
+                fact.turnId(), fact.operationId(), fact.attempt(),
+                fact.rawResultDigest(), fact.rawOutcome(), acceptance,
+                terminalStatus, assistantMessageId, updated.version(),
+                updated.lifecycle().name(), fact.finishedAt().toEpochMilli());
+        return new TrunkManager.ThreadTurnResultReceipt(
+                updated, fact.commandId(), fact.actor(), fact.turnId(),
+                fact.operationId(), fact.attempt(), fact.rawResultDigest(),
+                fact.rawOutcome(), acceptance, terminalStatus,
+                assistantMessageId, fact.finishedAt());
     }
 
     @Override
@@ -356,6 +699,25 @@ final class V2TrunkStore
                 id(), expected.id(), commandId, cause, actor, expectedVersion,
                 updated.lifecycle().name(), updated.version(), now);
         return updated;
+    }
+
+    private void updateTrunk(
+            TrunkManager.State expected,
+            TrunkManager.State updated,
+            String action)
+    {
+        int changed = jdbc.update("""
+                UPDATE threads
+                SET lifecycle_state = ?, aggregate_version = ?
+                WHERE id = ? AND turn_version = 'V2'
+                  AND lifecycle_state = ? AND aggregate_version = ?
+                """,
+                updated.lifecycle().name(), updated.version(), expected.id(),
+                expected.lifecycle().name(), expected.version());
+        if (changed != 1) {
+            throw concurrent(
+                    "Trunk changed before " + action + ": " + expected.id());
+        }
     }
 
     private static void requireTransaction()

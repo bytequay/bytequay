@@ -1972,9 +1972,29 @@ const visualHarnessSnapshot: CiHarnessWatchSnapshotDto = {
   failures: [{
     id: 'visual-failure', cycleId: 'visual-cycle-2', status: 'verified',
     bucket: 'resource:plan_mismatch', jobName: 'Maven tests', module: 'backend',
+    testClass: 'TestPlanShape', testMethod: 'matchesResource',
     signature: 'Test plan differs from generated plan',
     logExcerpt: 'Expected the generated plan to match the checked-in resource.',
     targetSubject: 'Update plan', ruleId: null,
+    diagnosis: {
+      rootCause: 'The checked-in plan resource is stale after the pushdown change',
+      culpritCommit: null, targetSubject: 'Update plan', edits: [],
+      signaturePattern: 'plan differs from generated plan', bucket: 'resource:plan_mismatch',
+      binding: 'recipe:regen_plans', verifyHint: ['regen'], confidence: 0.92,
+      needsHuman: false, rationale: 'Regeneration reproduces the expected resource exactly.',
+    },
+    fix: {
+      filesChanged: ['backend/src/test/resources/plan.txt'],
+      targetSubject: 'Update plan', verifyCommands: ['./mvnw -pl backend -am test'], source: 'recipe',
+    },
+    verification: {
+      passed: true, reproducible: true, reason: null,
+      commands: [{
+        command: './mvnw -pl backend -am test', exitCode: 0, timedOut: false,
+        outputTail: 'BUILD SUCCESS',
+      }],
+    },
+    updatedAtMs: agoMs(4 * minute),
   }],
   stats: {
     failuresByState: { verified: 1 }, activeRules: 3, candidateRules: 1,

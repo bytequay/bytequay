@@ -20,13 +20,14 @@ import { Composer, Main, Shell, usePaneWidth } from '../ui/shell';
 import type { WsNavKey } from '../ui/workspace';
 import {
   workspaceApi,
+  type CiHarnessCycleDetailDto,
   type CiHarnessWatchDto,
   type CiHarnessWatchSnapshotDto,
   type CiHarnessRuleDto,
   type WorkspaceRepositoryDto,
 } from './workspaceApi';
 import { HarnessHeader, HarnessIdle, HarnessSidebar } from './WorkspaceHarnessChrome';
-import { HarnessDashboard } from './WorkspaceHarnessDashboard';
+import { HarnessDashboard, type HarnessActions } from './WorkspaceHarnessDashboard';
 
 const ACTIVE_REFRESH_MS = 3_000;
 
@@ -61,6 +62,8 @@ export default function WorkspaceHarnessPage({
   const [error, setError] = useState<string | null>(null);
   const [prRow, setPrRow] = useState<PullRow | null>(null);
   const [rules, setRules] = useState<CiHarnessRuleDto[]>([]);
+  const [cycleId, setCycleId] = useState<string | null>(null);
+  const [cycleDetail, setCycleDetail] = useState<CiHarnessCycleDetailDto | null>(null);
   const [prOpen, setPrOpen] = useState(true);
   const { paneWidth, bodyRef, onResize } = usePaneWidth();
   const currentWatchId = snapshot?.watchId;
@@ -115,6 +118,12 @@ export default function WorkspaceHarnessPage({
     return () => { cancelled = true; };
   }, [watchId, workspaceId]);
 
+  const loadCycle = useCallback(async (id: string, selectedCycleId: string) => {
+    const next = await workspaceApi.harnessCycle(workspaceId, id, selectedCycleId);
+    setCycleDetail(next);
+    return next;
+  }, [workspaceId]);
+
   useEffect(() => {
     if (currentWatchId === undefined || currentWatchStatus === undefined || !isPollableHarnessStatus(currentWatchStatus)) {
       return undefined;
@@ -124,10 +133,27 @@ export default function WorkspaceHarnessPage({
         loadSnapshot(currentWatchId),
         loadWatches(),
         loadRules(currentWatchId),
+        cycleId === null ? Promise.resolve(null) : loadCycle(currentWatchId, cycleId),
       ]).catch(() => { /* keep the last complete dashboard */ });
     }, ACTIVE_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [currentWatchId, currentWatchStatus, loadRules, loadSnapshot, loadWatches]);
+  }, [currentWatchId, currentWatchStatus, cycleId, loadCycle, loadRules, loadSnapshot, loadWatches]);
+
+  useEffect(() => {
+    if (currentWatchId === undefined || cycleId === null) {
+      setCycleDetail(null);
+      return undefined;
+    }
+    let cancelled = false;
+    void loadCycle(currentWatchId, cycleId)
+      .catch(reason => {
+        if (!cancelled) {
+          setError(errorMessage(reason));
+          setCycleId(null);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [currentWatchId, cycleId, loadCycle]);
 
   useEffect(() => {
     setPrRow(null);
@@ -171,6 +197,37 @@ export default function WorkspaceHarnessPage({
   const showPr = prOpen && prRow !== null;
   const currentRepository = workspaceRepository ?? repository?.fullName ?? workspaceName ?? 'Workspace';
 
+  const run = useCallback(<T,>(
+    call: () => Promise<T>,
+    apply: (result: T) => void,
+  ) => {
+    setBusy(true);
+    setError(null);
+    void call().then(apply)
+      .catch(reason => setError(errorMessage(reason)))
+      .finally(() => setBusy(false));
+  }, []);
+
+  const harnessActions = (watchId: string): HarnessActions => ({
+    busy,
+    onApproveRule: ruleId => run(
+      () => workspaceApi.approveHarnessRule(workspaceId, watchId, ruleId),
+      approved => setRules(current => current.map(rule => rule.id === approved.id ? approved : rule)),
+    ),
+    onRetireRule: ruleId => run(
+      () => workspaceApi.retireHarnessRule(workspaceId, watchId, ruleId),
+      retired => setRules(current => current.map(rule => rule.id === retired.id ? retired : rule)),
+    ),
+    onResolve: (failureId, note) => run(
+      () => workspaceApi.resolveHarnessFailure(workspaceId, watchId, failureId, note),
+      setSnapshot,
+    ),
+    onRetry: (failureId, note) => run(
+      () => workspaceApi.retryHarnessFailure(workspaceId, watchId, failureId, note),
+      setSnapshot,
+    ),
+  });
+
   if (loading) return <div className="ci-harness-loading" role="status">Loading CI Harness…</div>;
 
   return (
@@ -182,10 +239,13 @@ export default function WorkspaceHarnessPage({
           watches={watches}
           selectedId={snapshot?.watchId}
           snapshot={snapshot}
-          onSelect={id => { onOpenWatch?.(id); void loadSnapshot(id); }}
+          selectedCycleId={cycleId}
+          onSelect={id => { setCycleId(null); onOpenWatch?.(id); void loadSnapshot(id); }}
+          onOpenCycle={id => setCycleId(current => current === id ? null : id)}
           onNew={() => {
             setSnapshot(null);
             setPrRow(null);
+            setCycleId(null);
             onNewWatch?.();
           }}
           onNavigateGlobal={onNavigateGlobal}
@@ -258,15 +318,9 @@ export default function WorkspaceHarnessPage({
                   }}
                 />
               ) : (
-                <HarnessDashboard snapshot={snapshot} rules={rules} busy={busy}
-                  onApproveRule={ruleId => {
-                    setBusy(true);
-                    setError(null);
-                    void workspaceApi.approveHarnessRule(workspaceId, snapshot.watchId, ruleId)
-                      .then(approved => setRules(current => current.map(rule => rule.id === approved.id ? approved : rule)))
-                      .catch(reason => setError(errorMessage(reason)))
-                      .finally(() => setBusy(false));
-                  }} />
+                <HarnessDashboard snapshot={snapshot} rules={rules}
+                  actions={harnessActions(snapshot.watchId)}
+                  cycleDetail={cycleDetail} onCloseCycle={() => setCycleId(null)} />
               )}
               {snapshot === null ? <Composer
                 variant="workspace-v2"
@@ -281,24 +335,23 @@ export default function WorkspaceHarnessPage({
                 value={message}
                 onChange={setMessage}
                 onSubmit={() => {
-                  if (snapshot === null) return;
+                  const question = message.trim();
+                  if (question.length === 0) return;
                   setBusy(true);
                   setError(null);
-                  void workspaceApi.runHarnessWatch(workspaceId, snapshot.watchId, message)
-                    .then(next => { setSnapshot(next); setMessage(''); })
-                    .catch(reason => setError(errorMessage(reason)))
-                    .finally(() => setBusy(false));
-                }}
-                busy={busy || snapshot?.status === 'running'}
-                disabled={message.trim().length === 0 || snapshot.status === 'bootstrap' || snapshot.status === 'stopped'}
-                onStop={() => {
-                  setBusy(true);
-                  void workspaceApi.stopHarnessWatch(workspaceId, snapshot.watchId)
+                  setMessage('');
+                  void workspaceApi.askHarnessWatch(workspaceId, snapshot.watchId, question)
                     .then(setSnapshot)
-                    .catch(reason => setError(errorMessage(reason)))
+                    .catch(reason => {
+                      setError(errorMessage(reason));
+                      setMessage(question);
+                    })
                     .finally(() => setBusy(false));
                 }}
-                placeholder="Give the next diagnosis cycle optional guidance…"
+                busy={busy}
+                disabled={message.trim().length === 0 || snapshot.status === 'bootstrap'
+                  || snapshot.status === 'stopped'}
+                placeholder="Ask about a failure, a fixup, or what the harness derived…"
                 meta={money(snapshot.budget.spentMilliUsd)}
               />}
             </div>

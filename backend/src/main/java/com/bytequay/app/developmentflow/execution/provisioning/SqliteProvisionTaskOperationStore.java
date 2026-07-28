@@ -25,7 +25,7 @@ import static java.util.Objects.requireNonNull;
 
 /** Exact SQLite loader for the immutable V2 Task provisioning graph. */
 @Repository
-public final class SqliteProvisionTaskOperationStore
+public class SqliteProvisionTaskOperationStore
         implements ProvisionTaskOperationHandler.OperationStore
 {
     private final JdbcTemplate jdbc;

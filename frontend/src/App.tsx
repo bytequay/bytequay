@@ -908,7 +908,7 @@ function App() {
       case 'workspaces-landing': return 'workspaces';
       case 'workspace': return workspaceSectionNav(nav.section ?? 'today');
       case 'thread-detail': case 'task-brain': case 'stage-detail': return 'trunks';
-      case 'ci-harness': return 'commits';
+      case 'ci-harness': return 'ci-harness';
       case 'pulls': return 'pulls';
       case 'repos': case 'repository': case 'local-repo': return 'repos';
       case 'email': return 'email';
@@ -955,6 +955,7 @@ function App() {
       case 'backlog': setNav({ view: 'workspace', section: 'backlog' }); break;
       case 'branches': setNav({ view: 'workspace', section: 'branches' }); break;
       case 'commits': setNav({ view: 'workspace', section: 'commits' }); break;
+      case 'ci-harness': setNav({ view: 'ci-harness' }); break;
       case 'sessions': setNav({ view: 'workspace', section: 'sessions' }); break;
       case 'memory': setNav({ view: 'workspace', section: 'memory' }); break;
       case 'insights': setNav({ view: 'workspace', section: 'insights' }); break;
@@ -1017,9 +1018,7 @@ function App() {
           onOpenTask={(threadId, taskId) => setNav(lastTaskNav(threadId, taskId))}
           onSwitchWorkspace={openSidebarWorkspaceToday}
           onNewThread={() => setNewThreadDialogOpen(true)}
-          onOpenRelation={() => setNav({
-            view: 'workspace', section: 'settings', settingsSection: 'relations',
-          })}
+          onOpenRelation={() => setNav({ view: 'workspace', section: 'commits' })}
         />
       )}
       <div className="app-content">

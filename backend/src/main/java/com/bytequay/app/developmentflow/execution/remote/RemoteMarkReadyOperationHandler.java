@@ -29,6 +29,9 @@ import static java.util.Objects.requireNonNull;
 public final class RemoteMarkReadyOperationHandler
         implements ExecutionPorts.OperationHandler
 {
+    public static final String OPERATION_KIND = "MARK_REMOTE_PR_READY";
+    public static final String CALLBACK_ROUTE = "REMOTE_MARK_READY_RESULT";
+
     private final OperationStore store;
     private final MarkReadyGateway github;
     private final ObjectMapper json;
@@ -126,9 +129,9 @@ public final class RemoteMarkReadyOperationHandler
     {
         DispatchTicket.DispatchEnvelope envelope = context.envelope();
         DispatchTicket.OperationFence fence = envelope.fence();
-        if (!"MARK_REMOTE_PR_READY".equals(envelope.operationKind())
+        if (!OPERATION_KIND.equals(envelope.operationKind())
                 || envelope.owner().kind() != DispatchTicket.OwnerKind.STAGE
-                || !"REMOTE_MARK_READY_RESULT".equals(
+                || !CALLBACK_ROUTE.equals(
                         envelope.owner().callbackRoute())
                 || !operation.stageId().equals(envelope.owner().id())
                 || !operation.operationId().equals(fence.operationId())

@@ -30,6 +30,9 @@ import static java.util.Objects.requireNonNull;
 public final class RemoteFeedbackEffectOperationHandler
         implements ExecutionPorts.OperationHandler
 {
+    public static final String OPERATION_KIND = "APPLY_REMOTE_FEEDBACK_EFFECT";
+    public static final String CALLBACK_ROUTE = "REMOTE_FEEDBACK_EFFECT_RESULT";
+
     private final OperationStore store;
     private final EffectGateway effects;
     private final ObjectMapper json;
@@ -122,9 +125,9 @@ public final class RemoteFeedbackEffectOperationHandler
     {
         DispatchTicket.DispatchEnvelope envelope = context.envelope();
         DispatchTicket.OperationFence fence = envelope.fence();
-        if (!"APPLY_REMOTE_FEEDBACK_EFFECT".equals(envelope.operationKind())
+        if (!OPERATION_KIND.equals(envelope.operationKind())
                 || envelope.owner().kind() != DispatchTicket.OwnerKind.STAGE
-                || !"REMOTE_FEEDBACK_EFFECT_RESULT".equals(
+                || !CALLBACK_ROUTE.equals(
                         envelope.owner().callbackRoute())
                 || !effect.stageId().equals(envelope.owner().id())
                 || !Objects.equals(effect.taskEpoch(), fence.taskEpoch())

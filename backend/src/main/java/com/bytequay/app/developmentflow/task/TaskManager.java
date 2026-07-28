@@ -891,10 +891,7 @@ public final class TaskManager
 
         State current = load(command.taskId());
         ResultFence result = command.resultFence();
-        if (current.lifecycle() != TaskLifecycle.ACTIVE
-                || current.epoch() != result.taskEpoch()
-                || !same(current.currentStageId(), result.stageId())
-                || !same(current.pendingBrainResult(), result)) {
+        if (!ownsBrainResult(current, result)) {
             return BrainVerdictResult.superseded(store.recordSuperseded(
                     command.commandId(), "ACCEPT_BRAIN_VERDICT", command.actor(),
                     null, null,
@@ -945,10 +942,7 @@ public final class TaskManager
 
         State current = load(command.taskId());
         ResultFence result = command.resultFence();
-        if (current.lifecycle() != TaskLifecycle.ACTIVE
-                || current.epoch() != result.taskEpoch()
-                || !same(current.currentStageId(), result.stageId())
-                || !same(current.pendingBrainResult(), result)) {
+        if (!ownsBrainResult(current, result)) {
             return CommandResult.superseded(store.recordSuperseded(
                     command.commandId(), "ACCEPT_BRAIN_BUDGET_EXHAUSTION",
                     command.actor(), null, null, result, null, blockerId,
@@ -964,6 +958,22 @@ public final class TaskManager
                 command.commandId(), "ACCEPT_BRAIN_BUDGET_EXHAUSTION",
                 command.actor(), null, null, result, null, blockerId,
                 null, null, null, current, updated));
+    }
+
+    /** Read-only preflight for an owner delivery already holding the Task stripe. */
+    public boolean isCurrentBrainResultInCommand(ResultCommand command)
+    {
+        requireNonNull(command, "command is null");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        return ownsBrainResult(load(command.taskId()), command.resultFence());
+    }
+
+    private static boolean ownsBrainResult(State current, ResultFence result)
+    {
+        return current.lifecycle() == TaskLifecycle.ACTIVE
+                && current.epoch() == result.taskEpoch()
+                && same(current.currentStageId(), result.stageId())
+                && same(current.pendingBrainResult(), result);
     }
 
     /** Only CleanupCompletionHandoff can obtain the proof required by this command. */

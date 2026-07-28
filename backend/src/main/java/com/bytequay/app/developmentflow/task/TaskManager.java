@@ -720,7 +720,8 @@ public final class TaskManager
         if (duplicate.isPresent()) {
             State state = requireReceipt(
                     duplicate.orElseThrow(), cause, command.actor(),
-                    command.expectedTaskEpoch(), command.expectedTaskVersion(), null, null,
+                    command.expectedTaskEpoch(), command.expectedTaskVersion(),
+                    terminal.resultFence(), null,
                     terminal.observationId(), command.cleanupStageId(), StageKind.CLEANUP,
                     command.cleanupStageGeneration()).state();
             if (state.lifecycle() != TaskLifecycle.CLEANING
@@ -750,7 +751,8 @@ public final class TaskManager
                 null, current.lastBrainVerdict(), current.lastBrainResult(), intent);
         State state = store.commit(
                 command.commandId(), cause, command.actor(),
-                command.expectedTaskEpoch(), command.expectedTaskVersion(), null, null,
+                command.expectedTaskEpoch(), command.expectedTaskVersion(),
+                terminal.resultFence(), null,
                 terminal.observationId(), command.cleanupStageId(), StageKind.CLEANUP,
                 command.cleanupStageGeneration(), current, updated);
         return openingForTerminal(command, terminal, CommandResult.Disposition.APPLIED, state);

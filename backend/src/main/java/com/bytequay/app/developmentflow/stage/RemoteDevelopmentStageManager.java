@@ -214,20 +214,35 @@ public final class RemoteDevelopmentStageManager
     public CommandResult<State> authorizeMerge(MergeAuthorizationCommand command)
     {
         requireNonNull(command, "command is null");
-        return execute(command.stage(), () -> {
-            String proofIdentity = mergeProofIdentity(command);
-            Optional<CommandResult<State>> replay = replayStructuralInCommand(
-                    command.stage(), "AUTHORIZE_MERGE", command.resultFence(),
-                    proofIdentity, StageCheckpoint.READY_TO_MERGE);
-            if (replay.isPresent()) {
-                return replay.orElseThrow();
-            }
-            AcceptedMergeAuthorization accepted = requireMergeAuthorization(command);
-            return moveWithProofAndPendingResultInCommand(
-                    accepted.command.stage(), accepted.command.resultFence(),
-                    proofIdentity, "AUTHORIZE_MERGE",
-                    StageCheckpoint.READY_TO_MERGE, StageCheckpoint.MERGING);
-        });
+        return execute(command.stage(), () -> authorizeMergeInCommand(command));
+    }
+
+    /** Starts an exact merge while a Remote runtime coordinator owns the Task command. */
+    public CommandResult<State> authorizeMergeInCommand(MergeAuthorizationCommand command)
+    {
+        requireNonNull(command, "command is null");
+        String proofIdentity = mergeProofIdentity(command);
+        Optional<CommandResult<State>> replay = replayStructuralInCommand(
+                command.stage(), "AUTHORIZE_MERGE", command.resultFence(),
+                proofIdentity, StageCheckpoint.READY_TO_MERGE);
+        if (replay.isPresent()) {
+            return replay.orElseThrow();
+        }
+        AcceptedMergeAuthorization accepted = requireMergeAuthorization(command);
+        return moveWithProofAndPendingResultInCommand(
+                accepted.command.stage(), accepted.command.resultFence(),
+                proofIdentity, "AUTHORIZE_MERGE",
+                StageCheckpoint.READY_TO_MERGE, StageCheckpoint.MERGING);
+    }
+
+    /** Consumes one exact terminal merge failure and re-arms readiness recovery. */
+    MergeFailureResult acceptMergeFailureInCommand(ResultCommand command)
+    {
+        ResultResolution resolution = acceptDrainingResultForHandoffInCommand(
+                command, "ACCEPT_MERGE_FAILURE",
+                StageCheckpoint.MERGING, StageCheckpoint.READY_TO_MERGE);
+        return new MergeFailureResult(
+                resolution.result(), resolution.wasAccepted());
     }
 
     AcceptedTerminal acceptTerminalObservationInCommand(TerminalObservationCommand command)
@@ -449,6 +464,14 @@ public final class RemoteDevelopmentStageManager
         }
     }
 
+    record MergeFailureResult(CommandResult<State> stage, boolean accepted)
+    {
+        MergeFailureResult
+        {
+            requireNonNull(stage, "stage is null");
+        }
+    }
+
     public record MergeAuthorizationEvidence(
             String taskId,
             long taskEpoch,
@@ -635,8 +658,19 @@ public final class RemoteDevelopmentStageManager
         public String stageId() { return command.stage().stageId(); }
         public long stageGeneration() { return command.stage().expectedStageGeneration(); }
         public String observationId() { return command.observationId(); }
+        public long observationRevision() { return command.observationRevision(); }
+        public String remoteHeadSha() { return command.remoteHeadSha(); }
+        public String baseSha() { return command.baseSha(); }
         public StageEndReason reason() { return reason; }
         public CommandResult<State> stage() { return stage; }
+
+        public ResultFence resultFence()
+        {
+            return new ResultFence(
+                    taskEpoch(), stageId(), stageGeneration(),
+                    "remote-observation:" + observationId(), 1, null,
+                    remoteHeadSha(), baseSha());
+        }
     }
 
     public interface EvidenceStore

@@ -317,6 +317,18 @@ public abstract class StageManager
         return resolveResultInCommand(command, cause, null, source, target);
     }
 
+    /** Consumes terminal child work while pause/archive is draining it. */
+    protected final ResultResolution acceptDrainingResultForHandoffInCommand(
+            ResultCommand command,
+            String cause,
+            StageCheckpoint source,
+            StageCheckpoint target)
+    {
+        return resolveResultInCommand(
+                command, cause, null, source, target,
+                TaskLifecycle.PAUSING, TaskLifecycle.ARCHIVING);
+    }
+
     /**
      * Accepts an exact externally persisted operation fact without requiring
      * the Stage to duplicate that operation as pending state. Cleanup uses
@@ -363,7 +375,8 @@ public abstract class StageManager
             String cause,
             String proofId,
             StageCheckpoint source,
-            StageCheckpoint target)
+            StageCheckpoint target,
+            TaskLifecycle... drainingLifecycles)
     {
         requireNonNull(command, "command is null");
         TaskCommandExecutor.requireCurrent(command.taskId());
@@ -383,7 +396,7 @@ public abstract class StageManager
         ResultFence result = command.resultFence();
         OwnerState owner = loadOwner(command.taskId(), result.stageId());
         State current = owner.stage();
-        if (!matchesResult(owner, result)
+        if (!matchesResult(owner, result, drainingLifecycles)
                 || current.checkpoint() != source
                 || !source.allowsStructuralTransition(target)) {
             return new ResultResolution(CommandResult.superseded(store.recordSuperseded(
@@ -940,10 +953,19 @@ public abstract class StageManager
 
     private boolean matchesResult(OwnerState owner, ResultFence result)
     {
+        return matchesResult(owner, result, new TaskLifecycle[0]);
+    }
+
+    private boolean matchesResult(
+            OwnerState owner,
+            ResultFence result,
+            TaskLifecycle... additionalLifecycles)
+    {
         State current = owner.stage();
         return current.kind() == kind
                 && current.endReason() == null
-                && accepts(owner.taskLifecycle())
+                && (accepts(owner.taskLifecycle())
+                    || isOneOf(owner.taskLifecycle(), additionalLifecycles))
                 && owner.taskEpoch() == result.taskEpoch()
                 && result.stageId().equals(owner.currentStageId())
                 && current.generation() == result.stageGeneration()

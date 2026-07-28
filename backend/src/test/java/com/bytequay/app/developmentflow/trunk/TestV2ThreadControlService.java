@@ -70,7 +70,8 @@ class TestV2ThreadControlService
 
         V2ThreadControlService service = new V2ThreadControlService(
                 planning, mock(ThreadTurnProjection.class),
-                mock(DispatchTicketControl.class), engines, roles, knowledge);
+                mock(DispatchTicketControl.class), mock(TrunkManager.class),
+                mock(V2TrunkPurge.class), engines, roles, knowledge);
 
         assertThat(service.send(thread, "plan the next task", TurnInitiator.user()))
                 .isEqualTo("turn-1");
@@ -96,7 +97,8 @@ class TestV2ThreadControlService
         when(projection.cancelableTicketIds("trunk-1"))
                 .thenReturn(List.of("ticket-1"));
         V2ThreadControlService service = new V2ThreadControlService(
-                planning, projection, tickets,
+                planning, projection, tickets, mock(TrunkManager.class),
+                mock(V2TrunkPurge.class),
                 mock(ThreadEngineOverrides.class), mock(RoleRegistry.class),
                 mock(SessionKnowledgeProvider.class));
 

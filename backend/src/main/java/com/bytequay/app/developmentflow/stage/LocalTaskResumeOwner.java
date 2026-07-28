@@ -13,8 +13,10 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageResumeRearmStore;
+import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.TaskResumeOwner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.springframework.stereotype.Component;
@@ -31,12 +33,16 @@ final class LocalTaskResumeOwner
 
     private final SqliteStageResumeRearmStore store;
     private final TaskCommandExecutor commands;
+    private final TaskManager tasks;
 
     LocalTaskResumeOwner(
-            SqliteStageResumeRearmStore store, TaskCommandExecutor commands)
+            SqliteStageResumeRearmStore store,
+            TaskCommandExecutor commands,
+            TaskManager tasks)
     {
         this.store = requireNonNull(store, "store is null");
         this.commands = requireNonNull(commands, "commands is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
     }
 
     @Override
@@ -58,9 +64,12 @@ final class LocalTaskResumeOwner
                         case IMPLEMENTING, ADDRESSING_BRAIN_FINDINGS,
                                 ADDRESSING_LOCAL_FEEDBACK ->
                                 store.materializeLocalTurn(intent, now);
+                        case VALIDATING -> store.materializeValidation(intent, now);
+                        case BRAIN_REVIEW -> materializeBrainReview(intent, now);
                         case LOCAL_REVIEW -> store.materializePassiveWait(
                                 intent, kind(), StageCheckpoint.LOCAL_REVIEW,
                                 now);
+                        case PUBLISHING -> store.recoverPublish(intent, now);
                         default -> store.diagnose(
                                 intent, "LOCAL_RESUME_CURSOR_UNSUPPORTED",
                                 "No exact Local continuation is frozen for "
@@ -75,5 +84,22 @@ final class LocalTaskResumeOwner
                                 ambiguous.getMessage(), now));
             }
         }
+    }
+
+    private void materializeBrainReview(
+            SqliteStageResumeRearmStore.Intent intent, Instant now)
+    {
+        SqliteStageResumeRearmStore.BrainResume resume =
+                store.prepareBrainReview(intent, now);
+        var requested = tasks.requestBrainReviewInCommand(
+                new TaskManager.BrainReviewRequestCommand(
+                        resume.commandId(), "stage-resume-owner",
+                        intent.taskId(), intent.taskEpoch(),
+                        intent.currentTaskVersion(), resume.episodeId(),
+                        resume.fence()));
+        if (requested.disposition() == CommandResult.Disposition.SUPERSEDED) {
+            throw new IllegalStateException("Brain resume request was superseded");
+        }
+        store.completeBrainReview(intent, resume, now);
     }
 }

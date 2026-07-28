@@ -150,6 +150,12 @@ public abstract class StageManager
         return commands.execute(taskId, work);
     }
 
+    protected final OwnerState requireOwnerInCommand(String taskId, String stageId)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        return loadOwner(taskId, stageId);
+    }
+
     protected final CommandResult<State> moveInCommand(
             Command command,
             String cause,

@@ -517,6 +517,131 @@ public class SqlitePlanRuntimeStore
         return rows.getFirst();
     }
 
+    public PlanUserWaitContext requireUserWaitContext(
+            String turnId,
+            String operationId,
+            String waitKind,
+            String waitId)
+    {
+        return findUserWaitContext(turnId, operationId, waitKind, waitId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Plan user-wait owner is stale or unavailable"));
+    }
+
+    public Optional<PlanUserWaitContext> findUserWaitContext(
+            String turnId,
+            String operationId,
+            String waitKind,
+            String waitId)
+    {
+        List<PlanUserWaitContext> rows = jdbc.query("""
+                SELECT turn.id AS turn_id, turn.operation_id, turn.purpose,
+                    turn.status AS turn_status, turn.task_id, turn.task_epoch,
+                    turn.trigger_stage_id, turn.trigger_stage_generation,
+                    turn.expected_code_fingerprint, turn.expected_head_sha,
+                    turn.expected_base_sha, turn.requested_at_ms,
+                    turn.launch_input, task.lifecycle_state,
+                    task.epoch AS current_task_epoch,
+                    task.aggregate_version AS task_version,
+                    current.stage_id AS current_stage_id,
+                    current.stage_generation AS current_stage_generation,
+                    stage.checkpoint, stage.version AS stage_version,
+                    ticket.id AS ticket_id, ticket.status AS ticket_status,
+                    ticket.pending_result_outcome,
+                    ticket.pending_result_evidence,
+                    policy.id AS policy_revision_id, policy.auto_approve,
+                    policy.auto_merge,
+                    review_attempt.self_review_id AS self_review_id,
+                    review_attempt.semantic_attempt AS review_attempt
+                FROM task_turn turn
+                JOIN tasks task ON task.id = turn.task_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage ON stage.id = turn.trigger_stage_id
+                JOIN task_current_code_subject_v230 code ON code.task_id = task.id
+                JOIN dispatch_ticket ticket
+                  ON ticket.operation_id = turn.operation_id
+                JOIN task_policy_revision policy
+                  ON policy.id = task.policy_revision_id
+                JOIN typed_user_wait_result result
+                  ON result.operation_id = turn.operation_id
+                LEFT JOIN plan_self_review_all_attempt_v265 review_attempt
+                  ON review_attempt.task_turn_id = turn.id
+                WHERE turn.id = ? AND turn.operation_id = ?
+                  AND turn.purpose IN ('PLAN_DRAFT', 'PLAN_SELF_REVIEW')
+                  AND turn.status = 'SUCCEEDED'
+                  AND ticket.owner_kind = 'TASK_TURN'
+                  AND ticket.owner_id = turn.id
+                  AND ticket.callback_route = 'TASK_TURN_RESULT'
+                  AND ticket.status = 'SUCCEEDED'
+                  AND result.owner_kind = 'TASK_TURN'
+                  AND result.turn_id = turn.id
+                  AND result.wait_kind = ? AND result.wait_id = ?
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND task.epoch = turn.task_epoch
+                  AND current.stage_id = turn.trigger_stage_id
+                  AND current.stage_generation = turn.trigger_stage_generation
+                  AND stage.kind = 'PLAN' AND stage.completed_at_ms IS NULL
+                  AND code.code_fingerprint IS turn.expected_code_fingerprint
+                  AND code.head_sha IS turn.expected_head_sha
+                  AND code.base_sha IS turn.expected_base_sha
+                  AND ((? = 'QUESTION' AND EXISTS (
+                        SELECT 1 FROM task_question question
+                        WHERE question.id = ? AND question.turn_id = turn.id
+                          AND question.state = 'ANSWERED'
+                          AND question.continuation_state = 'READY'))
+                    OR (? = 'PERMISSION' AND EXISTS (
+                        SELECT 1 FROM permission_request permission
+                        WHERE permission.id = ? AND permission.turn_kind = 'TASK'
+                          AND permission.turn_id = turn.id
+                          AND permission.operation_id = turn.operation_id
+                          AND permission.state <> 'OPEN'
+                          AND permission.continuation_state = 'READY')))
+                """, (rs, row) -> new PlanUserWaitContext(
+                        turnDeliveryContext(rs), rs.getString("launch_input"),
+                        rs.getString("self_review_id"),
+                        nullableInt(rs, "review_attempt")),
+                turnId, operationId, waitKind, waitId,
+                waitKind, waitId, waitKind, waitId);
+        if (rows.size() > 1) {
+            throw new IllegalStateException(
+                    "Plan user-wait owner is ambiguous");
+        }
+        return rows.stream().findFirst();
+    }
+
+    public Optional<String> findUserWaitSuccessor(String waitKind, String waitId)
+    {
+        return jdbc.query("""
+                SELECT successor_turn_id
+                FROM plan_turn_user_wait_continuation_v265
+                WHERE wait_kind = ? AND wait_id = ?
+                """, (rs, row) -> rs.getString("successor_turn_id"),
+                waitKind, waitId).stream().findFirst();
+    }
+
+    public void insertSelfReviewUserWaitAttempt(
+            String selfReviewId,
+            int semanticAttempt,
+            String turnId,
+            String operationId,
+            String predecessorTurnId,
+            String waitKind,
+            String waitId,
+            Instant requestedAt)
+    {
+        requireTransaction();
+        jdbc.update("""
+                INSERT INTO plan_self_review_user_wait_attempt_v265(
+                    self_review_id, semantic_attempt, task_turn_id,
+                    operation_id, predecessor_turn_id, wait_kind, wait_id,
+                    requested_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, selfReviewId, semanticAttempt, turnId, operationId,
+                predecessorTurnId, waitKind, waitId,
+                requestedAt.toEpochMilli());
+    }
+
     public Optional<String> findTurnDeliveryTaskId(
             String turnId, String operationId)
     {
@@ -649,7 +774,7 @@ public class SqlitePlanRuntimeStore
                   AND reviewed_digest = ?
                   AND status = 'REQUESTED'
                   AND EXISTS (
-                      SELECT 1 FROM plan_self_review_attempt attempt
+                      SELECT 1 FROM plan_self_review_all_attempt_v265 attempt
                       WHERE attempt.self_review_id = plan_self_review.id
                         AND attempt.task_turn_id = ?)
                 """,
@@ -671,7 +796,7 @@ public class SqlitePlanRuntimeStore
                 SET status = 'FAILED', completed_at_ms = ?, error_message = ?
                 WHERE status = 'REQUESTED'
                   AND EXISTS (
-                      SELECT 1 FROM plan_self_review_attempt attempt
+                      SELECT 1 FROM plan_self_review_all_attempt_v265 attempt
                       WHERE attempt.self_review_id = plan_self_review.id
                         AND attempt.task_turn_id = ?)
                 """,
@@ -687,10 +812,15 @@ public class SqlitePlanRuntimeStore
         List<ReviewOwner> rows = jdbc.query("""
                 SELECT review.id AS self_review_id,
                     review.plan_revision_id AS revision_id,
-                    review.reviewed_digest, attempt.attempt,
+                    review.reviewed_digest,
+                    attempt.semantic_attempt AS execution_attempt,
+                    (SELECT MAX(infrastructure.attempt)
+                     FROM plan_self_review_attempt infrastructure
+                     WHERE infrastructure.self_review_id = review.id)
+                        AS failure_attempt,
                     attempt.predecessor_turn_id
                 FROM plan_self_review review
-                JOIN plan_self_review_attempt attempt
+                JOIN plan_self_review_all_attempt_v265 attempt
                   ON attempt.self_review_id = review.id
                 JOIN task_turn turn ON turn.id = attempt.task_turn_id
                 WHERE attempt.task_turn_id = ?
@@ -699,7 +829,9 @@ public class SqlitePlanRuntimeStore
                 """, (rs, row) -> new ReviewOwner(
                         rs.getString("self_review_id"),
                         rs.getString("revision_id"),
-                        rs.getString("reviewed_digest"), rs.getInt("attempt"),
+                        rs.getString("reviewed_digest"),
+                        rs.getInt("execution_attempt"),
+                        rs.getInt("failure_attempt"),
                         rs.getString("predecessor_turn_id")), turnId);
         if (rows.size() != 1) {
             throw new IllegalStateException(
@@ -1502,7 +1634,8 @@ public class SqlitePlanRuntimeStore
             String selfReviewId,
             String revisionId,
             String reviewedDigest,
-            int attempt,
+            int executionAttempt,
+            int failureAttempt,
             String predecessorTurnId) {}
 
     public record PlanCandidate(
@@ -1586,6 +1719,24 @@ public class SqlitePlanRuntimeStore
             String acceptance,
             String domainResult,
             Instant recordedAt) {}
+
+    public record PlanUserWaitContext(
+            TurnDeliveryContext turn,
+            String launchInput,
+            String selfReviewId,
+            Integer selfReviewAttempt)
+    {
+        public PlanUserWaitContext
+        {
+            requireNonNull(turn, "turn is null");
+            required(launchInput, "launchInput");
+            if (turn.purpose().equals("PLAN_SELF_REVIEW")
+                    && (selfReviewId == null || selfReviewAttempt == null)) {
+                throw new IllegalArgumentException(
+                        "Plan self-review continuation owner is incomplete");
+            }
+        }
+    }
 
     public record ApprovalContext(
             String taskId,

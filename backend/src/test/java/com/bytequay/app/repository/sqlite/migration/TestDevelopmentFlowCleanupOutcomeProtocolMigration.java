@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.developmentflow.compatibility.DevelopmentFlowInvariantAuditor;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
@@ -22,6 +23,7 @@ import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSes
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationResultDelivery;
 import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteDispatchTicketStore;
+import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupStageManager;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
@@ -44,6 +46,7 @@ import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
@@ -289,12 +292,8 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     SET status = 'DISMISSED', read_at_ms = 224
                     WHERE id = 'cleanup-notification-1'
                     """);
-            execute(connection, """
-                    UPDATE permission_request
-                    SET state = 'CANCELED', answer = 'cleanup canceled request',
-                        answer_revision = 1, answered_at_ms = 224
-                    WHERE id = 'cleanup-permission-1'
-                    """);
+            cancelCleanupPermission(
+                    connection, "cleanup canceled request", 224);
             execute(connection, """
                     INSERT INTO cleanup_interaction_dismissal_evidence(
                         id, cleanup_step_id, cleanup_operation_id, task_id,
@@ -762,16 +761,18 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
     void runtimeDeliveryCompletesCleanupThenTerminalizesTaskAfterTicketCommit()
             throws Exception
     {
-        String url = remoteUrl("cleanup-delivery.db", false);
-        migrate(url, "261");
+        String url = remoteUrl("cleanup-delivery.db", true);
+        Flyway.configure().dataSource(url, "", "").load().migrate();
+        SQLiteDataSource dataSource = dataSource(url);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        assertThat(new V2UserWaitStore(jdbc).cancelOpenWaitsForTask(
+                "task-1", "cleanup-worker", "Cleanup canceled request",
+                Instant.ofEpochMilli(159))).isOne();
         try (Connection connection = connect(url)) {
             settleSuccessfulRuntimeCleanup(connection);
             moveCleanupTicketToResultPending(connection);
         }
 
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl(url + "?foreign_keys=ON&busy_timeout=30000");
-        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
         DataSourceTransactionManager transactionManager =
                 new DataSourceTransactionManager(dataSource);
         TaskCommandExecutor commands = new TaskCommandExecutor(transactionManager);
@@ -787,26 +788,27 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
         TrunkManager trunks = new TrunkManager(commands, trunkStore);
         SqliteCleanupOperationStore operations =
                 new SqliteCleanupOperationStore(jdbc, transactionManager);
+        CleanupCompletionHandoff cleanupHandoff = new CleanupCompletionHandoff(
+                commands, cleanup, tasks,
+                List.of(
+                        completion -> {
+                            String outcomeId = "TASK_OUTCOME:"
+                                    + completion.taskId();
+                            trunks.acceptTaskOutcome(
+                                    new TrunkManager.TaskOutcomeFact(
+                                            outcomeId,
+                                            "TRUNK_OUTCOME:" + outcomeId,
+                                            "v2-task-outcome",
+                                            completion.completedAt()));
+                        },
+                        completion -> {
+                            throw new IllegalStateException(
+                                    "simulated post-commit observer failure");
+                        }),
+                Clock.systemUTC());
         CleanupOperationResultDelivery delivery = new CleanupOperationResultDelivery(
                 operations,
-                new CleanupCompletionHandoff(
-                        commands, cleanup, tasks,
-                        List.of(
-                                completion -> {
-                                    String outcomeId = "TASK_OUTCOME:"
-                                            + completion.taskId();
-                                    trunks.acceptTaskOutcome(
-                                            new TrunkManager.TaskOutcomeFact(
-                                                    outcomeId,
-                                                    "TRUNK_OUTCOME:" + outcomeId,
-                                                    "v2-task-outcome",
-                                                    completion.completedAt()));
-                                },
-                                completion -> {
-                                    throw new IllegalStateException(
-                                            "simulated post-commit observer failure");
-                                }),
-                        Clock.systemUTC()),
+                cleanupHandoff,
                 Clock.fixed(Instant.ofEpochMilli(500), ZoneOffset.UTC));
         DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
                 1L, "cleanup-stage-1", 1L,
@@ -830,11 +832,26 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
 
         commitAcceptedCleanupTicket(jdbc, receipt);
-        assertThatThrownBy(() -> delivery.afterDeliveryCommitted(
-                owner, fence, result, receipt))
+        SQLiteDataSource restartedDataSource = dataSource(url);
+        DataSourceTransactionManager restartedTransactions =
+                new DataSourceTransactionManager(restartedDataSource);
+        CleanupOperationResultDelivery restartedDelivery =
+                new CleanupOperationResultDelivery(
+                        new SqliteCleanupOperationStore(
+                                new JdbcTemplate(restartedDataSource),
+                                restartedTransactions),
+                        cleanupHandoff,
+                        Clock.fixed(Instant.ofEpochMilli(500), ZoneOffset.UTC));
+        assertThatThrownBy(() -> restartedDelivery.recoverCommittedDeliveries(10))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("simulated post-commit observer failure");
-        delivery.recoverCommittedDeliveries(10);
+        new CleanupOperationResultDelivery(
+                new SqliteCleanupOperationStore(
+                        new JdbcTemplate(restartedDataSource),
+                        restartedTransactions),
+                cleanupHandoff,
+                Clock.fixed(Instant.ofEpochMilli(500), ZoneOffset.UTC))
+                .recoverCommittedDeliveries(10);
 
         assertThat(jdbcText(jdbc, "SELECT lifecycle_state FROM tasks WHERE id = 'task-1'"))
                 .isEqualTo("COMPLETED");
@@ -856,6 +873,62 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 SELECT COUNT(*) FROM trunk_transition
                 WHERE cause = 'ACCEPT_TASK_OUTCOME'
                 """)).isOne();
+        assertThat(jdbcNumber(jdbc, """
+                SELECT COUNT(*)
+                  FROM tasks task
+                  JOIN stage local
+                    ON local.task_id = task.id
+                   AND local.kind = 'LOCAL_DEVELOPMENT'
+                  JOIN stage_turn development
+                    ON development.stage_id = local.id
+                   AND development.purpose = 'IMPLEMENT_LOCAL_DEVELOPMENT'
+                  JOIN dev_report report
+                    ON report.stage_turn_id = development.id
+                  JOIN validation_evidence validation
+                    ON validation.task_id = task.id
+                   AND validation.code_fingerprint = report.code_fingerprint
+                  JOIN brain_review_episode brain
+                    ON brain.task_id = task.id
+                   AND brain.dev_report_id = report.id
+                  JOIN publish_operation publish
+                    ON publish.task_id = task.id
+                  JOIN remote_pr_binding binding
+                    ON binding.publish_operation_id = publish.id
+                  JOIN remote_pr_snapshot snapshot
+                    ON snapshot.remote_pr_binding_id = binding.id
+                   AND snapshot.pr_state = 'MERGED'
+                  JOIN cleanup_operation cleanup
+                    ON cleanup.task_id = task.id
+                  JOIN task_outcome outcome
+                    ON outcome.cleanup_operation_id = cleanup.id
+                  JOIN trunk_outcome_inbox inbox
+                    ON inbox.task_outcome_id = outcome.id
+                 WHERE task.id = 'task-1'
+                   AND task.lifecycle_state = 'COMPLETED'
+                   AND local.checkpoint = 'COMPLETED'
+                   AND development.status = 'SUCCEEDED'
+                   AND validation.passed = 1
+                   AND brain.verdict = 'APPROVED'
+                   AND publish.status = 'SUCCEEDED'
+                   AND cleanup.status = 'COMPLETED'
+                   AND inbox.status = 'DELIVERED'
+                """)).isOne();
+        assertThat(jdbcText(jdbc, """
+                SELECT task.lifecycle_state || '|' || current.stage_id || '|'
+                    || stage.checkpoint
+                  FROM tasks task
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN stage ON stage.id = current.stage_id
+                 WHERE task.id = 'task-2'
+                """)).isEqualTo("ACTIVE|remote-stage-2|WAITING_CI");
+        assertThat(jdbcNumber(jdbc, """
+                SELECT COUNT(*) FROM task_outcome WHERE task_id = 'task-2'
+                """)).isZero();
+        DevelopmentFlowInvariantAuditor.Audit audit =
+                new DevelopmentFlowInvariantAuditor(
+                        new JdbcTemplate(dataSource(url))).audit();
+        assertThat(audit.findings()).isEmpty();
+        assertThat(audit.healthy()).isTrue();
         assertThat(jdbcNumber(jdbc, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
                 .isZero();
         assertThat(delivery.deliver(owner, fence, result).acceptance())
@@ -1170,11 +1243,14 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
         migrate(url, "234");
         try (Connection connection = connect(url)) {
             prepareMergedCleanup(connection);
+            if (sibling) {
+                settleHistoricalTickets(connection, 2);
+            }
         }
         return url;
     }
 
-    private static void prepareMergedCleanup(Connection connection)
+    static void prepareMergedCleanup(Connection connection)
             throws Exception
     {
         prepareMergedCleanup(connection, true);
@@ -1184,38 +1260,69 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
             Connection connection, boolean startCleanup)
             throws Exception
     {
-        insertRemoteOwner(connection, 1);
-        insertSnapshot(connection, 1, 1, "head-1", "base-1", "MERGED",
+        if (number(connection, """
+                SELECT COUNT(*) FROM remote_development_stage
+                WHERE stage_id = 'remote-stage-1'
+                """) == 0) {
+            insertRemoteOwner(connection, 1);
+        }
+        int snapshotRevision = (int) number(connection, """
+                SELECT COALESCE(MAX(observation_revision), 0) + 1
+                FROM remote_pr_snapshot WHERE task_id = 'task-1'
+                """);
+        String remoteCheckpoint = text(connection, """
+                SELECT checkpoint FROM stage WHERE id = 'remote-stage-1'
+                """);
+        int completedStageVersion = (int) number(connection, """
+                SELECT version + 1 FROM stage WHERE id = 'remote-stage-1'
+                """);
+        insertSnapshot(connection, 1, snapshotRevision,
+                "head-1", "base-1", "MERGED",
                 "MERGEABLE");
-        acceptSnapshot(connection, 1, 1, "head-1", "base-1");
+        acceptSnapshot(connection, 1, snapshotRevision,
+                "head-1", "base-1");
         execute(connection, """
                 INSERT INTO task_terminal_intent(
                     id, task_id, kind, source, source_id, observed_head_sha,
                     evidence_json, accepted, recorded_at_ms)
                 VALUES ('terminal-intent-1', 'task-1', 'COMPLETED',
-                    'REMOTE_OBSERVATION', 'snapshot-1-1', 'head-1',
+                    'REMOTE_OBSERVATION', 'snapshot-1-%1$s', 'head-1',
                     '{"remote":"merged"}', 1, 70)
-                """);
-        execute(connection, """
-                INSERT INTO remote_terminal_observation(
-                    id, remote_development_stage_id, task_id, task_epoch,
-                    stage_generation, remote_pr_binding_id,
-                    remote_pr_snapshot_id, task_terminal_intent_id, kind,
-                    head_sha, base_sha, observed_at_ms, evidence)
-                VALUES ('terminal-observation-1', 'remote-stage-1', 'task-1', 1,
-                    1, 'binding-1', 'snapshot-1-1', 'terminal-intent-1',
-                    'MERGED', 'head-1', 'base-1', 61, 'remote reports merged')
-                """);
+                """.formatted(snapshotRevision));
+        String terminalObservationId;
+        if (number(connection, """
+                SELECT COUNT(*) FROM remote_terminal_observation
+                WHERE task_terminal_intent_id = 'terminal-intent-1'
+                """) == 0) {
+            terminalObservationId = "terminal-observation-1";
+            execute(connection, """
+                    INSERT INTO remote_terminal_observation(
+                        id, remote_development_stage_id, task_id, task_epoch,
+                        stage_generation, remote_pr_binding_id,
+                        remote_pr_snapshot_id, task_terminal_intent_id, kind,
+                        head_sha, base_sha, observed_at_ms, evidence)
+                    VALUES ('terminal-observation-1', 'remote-stage-1',
+                        'task-1', 1, 1, 'binding-1', 'snapshot-1-%1$s',
+                        'terminal-intent-1', 'MERGED', 'head-1', 'base-1',
+                        60 + %1$s, 'remote reports merged')
+                    """.formatted(snapshotRevision));
+        }
+        else {
+            terminalObservationId = text(connection, """
+                    SELECT id FROM remote_terminal_observation
+                    WHERE task_terminal_intent_id = 'terminal-intent-1'
+                    """);
+        }
         execute(connection, """
                 INSERT INTO task_terminal_acceptance(
                     id, task_terminal_intent_id, task_id, task_epoch, kind,
                     source_kind, source_id, remote_terminal_observation_id,
                     observed_head_sha, accepted_by, accepted_at_ms, evidence)
                 VALUES ('terminal-acceptance-1', 'terminal-intent-1', 'task-1',
-                    1, 'COMPLETED', 'REMOTE_OBSERVATION', 'snapshot-1-1',
-                    'terminal-observation-1', 'head-1', 'TaskManager', 71,
+                    1, 'COMPLETED', 'REMOTE_OBSERVATION', 'snapshot-1-%1$s',
+                    '%2$s', 'head-1', 'TaskManager', 71,
                     'accepted exact merged observation')
-                """);
+                """.formatted(snapshotRevision, terminalObservationId));
         execute(connection, """
                 INSERT INTO notifications(
                     id, kind, thread_id, task_id, status, payload_json,
@@ -1255,14 +1362,14 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                         id, stage_id, command_id, generation, from_checkpoint,
                         to_checkpoint, stage_version, cause, actor, occurred_at_ms)
                     VALUES ('remote-complete-transition-1', 'remote-stage-1',
-                        'open-cleanup-1', 1, 'WAITING_CI', 'COMPLETED', 1,
+                        'open-cleanup-1', 1, '%1$s', 'COMPLETED', %2$s,
                         'OBSERVE_REMOTE_MERGED', 'RemoteDevelopmentManager', 72)
-                    """);
+                    """.formatted(remoteCheckpoint, completedStageVersion));
             execute(connection, """
-                    UPDATE stage SET version = 1, checkpoint = 'COMPLETED',
+                    UPDATE stage SET version = %1$s, checkpoint = 'COMPLETED',
                         completed_at_ms = 72, end_reason = 'REMOTE_MERGED'
                     WHERE id = 'remote-stage-1'
-                    """);
+                    """.formatted(completedStageVersion));
             execute(connection, """
                     INSERT INTO stage(
                         id, task_id, kind, generation, version, checkpoint,
@@ -1355,8 +1462,10 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     to_checkpoint, stage_version, cause, actor, occurred_at_ms)
                 VALUES ('cleanup-start-transition-1', 'cleanup-stage-1',
                     'start-cleanup-1', 1, 'WAITING_QUIESCENCE', 'CLEANING', 1,
-                    'START_CLEANUP', 'CleanupStageManager', 91)
-                """);
+                    '%s', 'CleanupStageManager', 91)
+                """.formatted(hasMigration(connection, "240")
+                        ? "ACCEPT_CLEANUP_QUIESCENCE"
+                        : "START_CLEANUP"));
         execute(connection, """
                 UPDATE stage SET version = 1, checkpoint = 'CLEANING'
                 WHERE id = 'cleanup-stage-1'
@@ -1366,16 +1475,24 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
     private static void settleHistoricalTickets(Connection connection)
             throws Exception
     {
-        execute(connection, terminalTicketSql("provision-ticket-1", 2, 73));
-        execute(connection, terminalTicketSql("publish-ticket-1", 2, 74));
+        settleHistoricalTickets(connection, 1);
+    }
+
+    private static void settleHistoricalTickets(Connection connection, int task)
+            throws Exception
+    {
+        execute(connection, terminalTicketSql(
+                "provision-ticket-" + task, 2, 73));
+        execute(connection, terminalTicketSql(
+                "publish-ticket-" + task, 2, 74));
         execute(connection, """
                 UPDATE dispatch_ticket
                 SET version = 1, status = 'CANCELED',
                     delivery_acceptance = 'SUPERSEDED',
                     delivery_evidence = 'cleanup reconciled request',
                     completed_at_ms = 75
-                WHERE id = 'validation-ticket-1'
-                """);
+                WHERE id = 'validation-ticket-%s'
+                """.formatted(task));
     }
 
     private static String terminalTicketSql(String id, int version, int completedAt)
@@ -1627,13 +1744,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                    SET status = 'DISMISSED', read_at_ms = 171
                  WHERE id = 'cleanup-notification-1'
                 """);
-        execute(connection, """
-                UPDATE permission_request
-                   SET state = 'CANCELED', answer = 'Cleanup canceled request',
-                       answer_revision = answer_revision + 1,
-                       answered_at_ms = 171
-                 WHERE id = 'cleanup-permission-1'
-                """);
+        cancelCleanupPermission(connection, "Cleanup canceled request", 171);
         execute(connection, """
                 INSERT INTO cleanup_interaction_dismissal_evidence(
                     id, cleanup_step_id, cleanup_operation_id, task_id,
@@ -1665,7 +1776,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
         finishSuccess(connection, 9, 202);
     }
 
-    private static void settleSuccessfulRuntimeCleanup(Connection connection)
+    static void settleSuccessfulRuntimeCleanup(Connection connection)
             throws Exception
     {
         for (int ordinal = 1; ordinal <= 11; ordinal++) {
@@ -1677,13 +1788,8 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                            SET status = 'DISMISSED', read_at_ms = 159
                          WHERE task_id = 'task-1' AND status = 'UNREAD'
                         """);
-                execute(connection, """
-                        UPDATE permission_request
-                           SET state = 'CANCELED', answer = 'Cleanup canceled request',
-                               answer_revision = answer_revision + 1,
-                               answered_at_ms = 159
-                         WHERE id = 'cleanup-permission-1'
-                        """);
+                cancelCleanupPermission(
+                        connection, "Cleanup canceled request", 159);
                 execute(connection, """
                         INSERT INTO cleanup_interaction_dismissal_evidence(
                             id, cleanup_step_id, cleanup_operation_id, task_id,
@@ -1705,6 +1811,45 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     externalEffectId, "step complete", digest, null, claimedAt + 1);
             finishSuccess(connection, ordinal, claimedAt + 2);
         }
+    }
+
+    private static void cancelCleanupPermission(
+            Connection connection, String answer, int answeredAt)
+            throws Exception
+    {
+        if (number(connection, """
+                SELECT COUNT(*)
+                FROM pragma_table_info('permission_request')
+                WHERE name = 'answer_actor'
+                """) == 0) {
+            execute(connection, """
+                    UPDATE permission_request
+                    SET state = 'CANCELED', answer = '%1$s',
+                        answer_revision = answer_revision + 1,
+                        answered_at_ms = %2$s
+                    WHERE id = 'cleanup-permission-1' AND state = 'OPEN'
+                    """.formatted(answer, answeredAt));
+            return;
+        }
+        execute(connection, """
+                INSERT INTO permission_answer_attempt(
+                    id, permission_id, expected_revision, proposed_state,
+                    actor, answer, outcome, attempted_at_ms)
+                SELECT 'cleanup-answer-attempt-' || id || '-'
+                           || answer_revision,
+                       id, answer_revision, 'CANCELED', 'cleanup-worker',
+                       '%1$s', 'ACCEPTED', %2$s
+                FROM permission_request
+                WHERE id = 'cleanup-permission-1' AND state = 'OPEN'
+                """.formatted(answer, answeredAt));
+        execute(connection, """
+                UPDATE permission_request
+                SET state = 'CANCELED', answer = '%1$s',
+                    answer_revision = answer_revision + 1,
+                    answered_at_ms = %2$s, answer_actor = 'cleanup-worker',
+                    continuation_state = 'CANCELED'
+                WHERE id = 'cleanup-permission-1' AND state = 'OPEN'
+                """.formatted(answer, answeredAt));
     }
 
     private static void moveCleanupTicketToResultPending(Connection connection)
@@ -1845,7 +1990,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 """;
     }
 
-    private static void completeCleanup(Connection connection)
+    static void completeCleanup(Connection connection)
             throws Exception
     {
         execute(connection, """
@@ -1871,7 +2016,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
         execute(connection, completeCleanupSql());
     }
 
-    private static void terminalizeTask(Connection connection)
+    static void terminalizeTask(Connection connection)
             throws Exception
     {
         connection.setAutoCommit(false);
@@ -1882,8 +2027,10 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                         to_checkpoint, stage_version, cause, actor, occurred_at_ms)
                     VALUES ('cleanup-complete-transition-1', 'cleanup-stage-1',
                         'accept-cleanup-1', 1, 'CLEANING', 'COMPLETED', 2,
-                        'ACCEPT_CLEANUP_COMPLETION', 'CleanupStageManager', 501)
-                    """);
+                        '%s', 'CleanupStageManager', 501)
+                    """.formatted(hasMigration(connection, "240")
+                            ? "ACCEPT_CLEANUP_COMPLETE"
+                            : "ACCEPT_CLEANUP_COMPLETION"));
             execute(connection, """
                     UPDATE stage
                     SET version = 2, checkpoint = 'COMPLETED',
@@ -1968,11 +2115,22 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 VALUES ('%1$s', 'task-1', 'trunk-1', 1,
                     'terminal-acceptance-1', 'cleanup-operation-1',
                     'cleanup-stage-1', 'COMPLETED', 'pr-1', 'binding-1',
-                    'terminal-observation-1', 'head-1', 'cleanup-summary',
+                    (SELECT id FROM remote_terminal_observation
+                     WHERE task_terminal_intent_id = 'terminal-intent-1'),
+                    'head-1', 'cleanup-summary',
                     'FALLBACK',
                     'TaskOutcome:task-1:COMPLETED:cleanup-summary',
                     'cleanup-summary', '[]', '[]', 503)
                 """.formatted(id);
+    }
+
+    private static boolean hasMigration(Connection connection, String version)
+            throws Exception
+    {
+        return number(connection, """
+                SELECT COUNT(*) FROM flyway_schema_history
+                WHERE version = '%s' AND success = 1
+                """.formatted(version)) == 1;
     }
 
     private static void enrichSummary(Connection connection)

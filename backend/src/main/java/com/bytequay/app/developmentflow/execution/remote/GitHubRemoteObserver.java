@@ -112,6 +112,8 @@ public final class GitHubRemoteObserver
         String viewer = requireText(
                 pullRequests.fetchUserProfile(pat).login(), "GitHub viewer login");
         requireActive(execution);
+        boolean viewerCanMerge = pullRequests.fetchViewerCanWrite(pat, repository);
+        requireActive(execution);
         PrRawDetail detail = requireNonNull(
                 pullRequests.fetchPrDetail(pat, pullRequest),
                 "GitHub returned no pull request detail");
@@ -185,6 +187,7 @@ public final class GitHubRemoteObserver
         raw.put("timeline", timeline);
         raw.put("issueComments", issueComments);
         raw.put("viewer", viewer);
+        raw.put("viewerCanMerge", viewerCanMerge);
         raw.put("mergeQueue", queue);
         raw.put("observedAtMs", observedAt);
         String rawEvidence = write(raw);
@@ -192,7 +195,7 @@ public final class GitHubRemoteObserver
                 + request.pullRequestNumber() + ":" + detail.headSha() + ":"
                 + detail.baseSha() + ":" + observedAt + ":" + digest(rawEvidence));
         return new RemoteObservationOperationHandler.Observation(
-                1,
+                2,
                 key,
                 detail.headSha(),
                 detail.baseSha(),
@@ -207,6 +210,8 @@ public final class GitHubRemoteObserver
                 unresolvedComments,
                 normalizeChecks(checks, json),
                 feedback,
+                viewer,
+                viewerCanMerge,
                 rawEvidence,
                 observedAt);
     }

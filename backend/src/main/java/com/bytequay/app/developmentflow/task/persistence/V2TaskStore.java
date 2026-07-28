@@ -148,6 +148,53 @@ final class V2TaskStore
                AND NOT EXISTS (
                    SELECT 1 FROM stage_resume_rearm_intent_v257 resume
                     WHERE resume.task_id = task.id AND resume.status = 'PENDING')
+               AND NOT EXISTS (
+                   SELECT 1 FROM task_question question
+                   JOIN task_turn turn ON turn.id = question.turn_id
+                    WHERE turn.task_id = task.id
+                      AND (question.state = 'OPEN'
+                        OR question.continuation_state = 'READY'))
+               AND NOT EXISTS (
+                   SELECT 1 FROM stage_question question
+                   JOIN stage_turn turn ON turn.id = question.turn_id
+                   JOIN stage wait_owner ON wait_owner.id = turn.stage_id
+                    WHERE wait_owner.task_id = task.id
+                      AND (question.state = 'OPEN'
+                        OR question.continuation_state = 'READY'))
+               AND NOT EXISTS (
+                   SELECT 1 FROM review_assignment_question question
+                   JOIN review_assignment_turn turn ON turn.id = question.turn_id
+                   JOIN review_assignment assignment
+                     ON assignment.id = turn.assignment_id
+                   JOIN review_round round ON round.id = assignment.round_id
+                   JOIN review_session session ON session.id = round.session_id
+                    WHERE session.owner_task_id = task.id
+                      AND (question.state = 'OPEN'
+                        OR question.continuation_state = 'READY'))
+               AND NOT EXISTS (
+                   SELECT 1 FROM permission_request permission
+                    WHERE (permission.state = 'OPEN'
+                        OR permission.continuation_state = 'READY')
+                      AND ((permission.turn_kind = 'TASK' AND EXISTS (
+                          SELECT 1 FROM task_turn turn
+                           WHERE turn.id = permission.turn_id
+                             AND turn.task_id = task.id))
+                        OR (permission.turn_kind = 'STAGE' AND EXISTS (
+                          SELECT 1 FROM stage_turn turn
+                          JOIN stage wait_owner ON wait_owner.id = turn.stage_id
+                           WHERE turn.id = permission.turn_id
+                             AND wait_owner.task_id = task.id))
+                        OR (permission.turn_kind = 'REVIEW_ASSIGNMENT'
+                          AND EXISTS (
+                          SELECT 1 FROM review_assignment_turn turn
+                          JOIN review_assignment assignment
+                            ON assignment.id = turn.assignment_id
+                          JOIN review_round round
+                            ON round.id = assignment.round_id
+                          JOIN review_session session
+                            ON session.id = round.session_id
+                           WHERE turn.id = permission.turn_id
+                             AND session.owner_task_id = task.id))))
                AND (live.active_task_turn_count
                   + live.active_stage_turn_count
                   + live.active_review_turn_count

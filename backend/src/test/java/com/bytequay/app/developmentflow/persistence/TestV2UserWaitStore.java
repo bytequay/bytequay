@@ -100,16 +100,21 @@ class TestV2UserWaitStore
 
         finishTurn("turn-1", 22);
         insertRunningTurn("turn-2", "operation-2", 23);
+        waits.markContinuationDispatched(
+                "PERMISSION", "permission-1", "turn-2");
         V2UserWaitStore reopened = new V2UserWaitStore(jdbc);
         assertThat(reopened.consumeGrant(
-                owner("turn-2", "operation-2"), "run_shell", "other-digest",
+                owner("turn-2", "operation-2"), "call-other", "run_shell", "other-digest",
                 Instant.ofEpochMilli(24))).isEmpty();
         assertThat(reopened.consumeGrant(
-                owner("turn-2", "operation-2"), "run_shell", "digest-1",
+                owner("turn-2", "operation-2"), "call-successor", "run_shell", "digest-1",
                 Instant.ofEpochMilli(25))).hasValue(0);
         assertThat(reopened.consumeGrant(
-                owner("turn-2", "operation-2"), "run_shell", "digest-1",
-                Instant.ofEpochMilli(26))).isEmpty();
+                owner("turn-2", "operation-2"), "call-successor", "run_shell", "digest-1",
+                Instant.ofEpochMilli(26))).hasValue(0);
+        assertThat(reopened.consumeGrant(
+                owner("turn-2", "operation-2"), "call-second", "run_shell", "digest-1",
+                Instant.ofEpochMilli(27))).isEmpty();
     }
 
     @Test
@@ -127,6 +132,30 @@ class TestV2UserWaitStore
                 "question", null, "[]", true, Instant.ofEpochMilli(12)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("not current");
+    }
+
+    @Test
+    void reservedMigrationCallIdsCannotEnterTheRuntimeProtocol()
+    {
+        ActiveAgentContextRegistry.TypedOwner owner = owner(
+                "turn-1", "operation-1");
+        String reserved = "__legacy_v263_consumption__:evidence";
+
+        assertThatThrownBy(() -> waits.insertQuestion(
+                owner, "question-1", reserved, "question", null, "[]", true,
+                Instant.ofEpochMilli(10)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("reserved V263 migration prefix");
+        assertThatThrownBy(() -> waits.insertPermission(
+                owner, "permission-1", reserved, "CODE_WRITE", "run_shell",
+                "{}", "digest", "{}", Instant.ofEpochMilli(10)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("reserved V263 migration prefix");
+        assertThatThrownBy(() -> waits.consumeGrant(
+                owner, reserved, "run_shell", "digest",
+                Instant.ofEpochMilli(11)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("reserved V263 migration prefix");
     }
 
     @Test
@@ -153,6 +182,11 @@ class TestV2UserWaitStore
         assertThatThrownBy(() -> waits.recordUserWait(
                 owner, "QUESTION", "question-1", "different-digest",
                 "{\"evidence\":true}", Instant.ofEpochMilli(22)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("different user-wait evidence");
+        assertThatThrownBy(() -> waits.recordUserWait(
+                owner, "QUESTION", "question-1", "payload-digest",
+                "{\"evidence\":false}", Instant.ofEpochMilli(23)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("different user-wait evidence");
     }

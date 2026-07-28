@@ -27,6 +27,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -35,8 +36,10 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -112,12 +115,15 @@ public final class V2DevelopmentFlowProjection
         List<StageDto> stages = stages(task.id());
         BrainAggregate aggregate = brainAggregate(task.id());
         List<BrainFeedRow> feed = brainFeed(task.id());
-        List<ScrubberDash> scrubber = new ArrayList<>(feed.size());
-        for (int index = 0; index < feed.size(); index++) {
-            BrainFeedRow event = feed.get(index);
-            scrubber.add(new ScrubberDash(
-                    event.id(), event.ts(), index == feed.size() - 1));
-        }
+        List<BrainFeedRow> stageRows = feed.stream()
+                .filter(event -> !"USER_MESSAGE".equals(event.type())
+                        && !"BRAIN_AGENT_RESPONSE".equals(event.type()))
+                .toList();
+        List<BrainFeedRow> userRows = feed.stream()
+                .filter(event -> "USER_MESSAGE".equals(event.type()))
+                .toList();
+        List<ScrubberDash> stageScrubber = scrubber(stageRows);
+        List<ScrubberDash> userScrubber = scrubber(userRows);
 
         TaskBrainViewData.CostBreakdown costs = costBreakdown(
                 task.id(), aggregate.costUsdMilli(), aggregate.pushes());
@@ -138,7 +144,7 @@ public final class V2DevelopmentFlowProjection
                         first(row.agentModel(), ""), paused, terminal),
                 new TaskBrainViewData.Aggregate(
                         aggregate.pushes(), aggregate.activeTimeMs() / 1000,
-                        0, 0, aggregate.turns(), 0, 0,
+                        0, 0, aggregate.turns(), aggregate.messages(), 0,
                         (int) Math.min(Integer.MAX_VALUE,
                                 aggregate.costUsdMilli() / 10), budget),
                 stages,
@@ -157,7 +163,7 @@ public final class V2DevelopmentFlowProjection
                         null,
                         costs,
                         null),
-                new TaskBrainViewData.Scrubbers(List.copyOf(scrubber), List.of()),
+                new TaskBrainViewData.Scrubbers(stageScrubber, userScrubber),
                 List.of(),
                 branchGuards.project(task.id()),
                 null,
@@ -399,19 +405,42 @@ public final class V2DevelopmentFlowProjection
                      + (SELECT COUNT(*) FROM stage_turn turn
                         JOIN stage owner ON owner.id = turn.stage_id
                         WHERE owner.task_id = ?)) AS turns,
+                    (SELECT COUNT(*) FROM task_message message
+                     JOIN task_turn turn ON turn.id = message.turn_id
+                     WHERE turn.task_id = ?
+                       AND turn.purpose = 'TASK_BRAIN_CONVERSATION') AS messages,
                     COALESCE((SELECT SUM(execution.cost_usd_milli)
                         FROM agent_execution execution
                         JOIN dispatch_ticket ticket ON ticket.id = execution.ticket_id
                         WHERE ticket.task_id = ?), 0) AS cost_usd_milli
                 """, (rs, ignored) -> new BrainAggregate(
                         rs.getInt("pushes"), rs.getLong("active_time_ms"),
-                        rs.getInt("turns"), rs.getLong("cost_usd_milli")),
-                taskId, taskId, taskId, taskId, taskId, taskId, taskId);
+                        rs.getInt("turns"), rs.getInt("messages"),
+                        rs.getLong("cost_usd_milli")),
+                taskId, taskId, taskId, taskId, taskId, taskId, taskId,
+                taskId);
     }
 
     private List<BrainFeedRow> brainFeed(String taskId)
     {
-        return jdbc.query("""
+        Map<String, List<String>> attachments = new HashMap<>();
+        RowMapper<AttachmentRef> attachmentMapper = (result, row) ->
+                new AttachmentRef(result.getString("turn_id"),
+                        result.getString("content_ref"));
+        List<AttachmentRef> attachmentRows = jdbc.query("""
+                SELECT attachment.turn_id, attachment.content_ref
+                FROM task_attachment attachment
+                JOIN task_turn turn ON turn.id = attachment.turn_id
+                WHERE turn.task_id = ?
+                  AND turn.purpose = 'TASK_BRAIN_CONVERSATION'
+                ORDER BY attachment.created_at_ms, attachment.id
+                """, attachmentMapper, taskId);
+        for (AttachmentRef attachment : attachmentRows) {
+            attachments.computeIfAbsent(
+                            attachment.turnId(), ignored -> new ArrayList<>())
+                    .add(attachment.contentRef());
+        }
+        List<BrainFeedRow> rows = new ArrayList<>(jdbc.query("""
                 SELECT transition.id, transition.stage_id, owner.kind,
                        transition.from_checkpoint, transition.to_checkpoint,
                        transition.cause, transition.actor,
@@ -433,7 +462,50 @@ public final class V2DevelopmentFlowProjection
                             rs.getString("stage_id"), legacyStageType(rs.getString("kind")),
                             instant(rs.getLong("occurred_at_ms")).toString(),
                             body, null, List.of(), List.of(), null);
-                }, taskId);
+                }, taskId));
+        rows.addAll(jdbc.query("""
+                SELECT message.id, message.turn_id, message.role, message.body,
+                       message.created_at_ms, turn.trigger_stage_id,
+                       owner.kind,
+                       ROW_NUMBER() OVER (
+                           ORDER BY message.created_at_ms,
+                                    turn.requested_at_ms,
+                                    message.turn_id, message.seq) AS message_seq
+                FROM task_message message
+                JOIN task_turn turn ON turn.id = message.turn_id
+                LEFT JOIN stage owner ON owner.id = turn.trigger_stage_id
+                WHERE turn.task_id = ?
+                  AND turn.purpose = 'TASK_BRAIN_CONVERSATION'
+                ORDER BY message.created_at_ms, turn.requested_at_ms,
+                         message.turn_id, message.seq
+                """, (rs, ignored) -> new BrainFeedRow(
+                        rs.getString("id"), rs.getLong("message_seq"),
+                        "USER".equals(rs.getString("role"))
+                                ? "USER_MESSAGE" : "BRAIN_AGENT_RESPONSE",
+                        rs.getString("trigger_stage_id"),
+                        rs.getString("kind") == null ? null
+                                : legacyStageType(rs.getString("kind")),
+                        instant(rs.getLong("created_at_ms")).toString(),
+                        rs.getString("body"), null,
+                        "USER".equals(rs.getString("role"))
+                                ? List.copyOf(attachments.getOrDefault(
+                                        rs.getString("turn_id"), List.of()))
+                                : List.of(),
+                        List.of(), null), taskId));
+        rows.sort(Comparator.comparing(BrainFeedRow::ts)
+                .thenComparing(BrainFeedRow::id));
+        return List.copyOf(rows);
+    }
+
+    private static List<ScrubberDash> scrubber(List<BrainFeedRow> rows)
+    {
+        List<ScrubberDash> result = new ArrayList<>(rows.size());
+        for (int index = 0; index < rows.size(); index++) {
+            BrainFeedRow event = rows.get(index);
+            result.add(new ScrubberDash(
+                    event.id(), event.ts(), index == rows.size() - 1));
+        }
+        return List.copyOf(result);
     }
 
     private TaskBrainViewData.CostBreakdown costBreakdown(
@@ -973,7 +1045,10 @@ public final class V2DevelopmentFlowProjection
             long tokensOut) {}
 
     private record BrainAggregate(
-            int pushes, long activeTimeMs, int turns, long costUsdMilli) {}
+            int pushes, long activeTimeMs, int turns, int messages,
+            long costUsdMilli) {}
+
+    private record AttachmentRef(String turnId, String contentRef) {}
 
     private record LocalFacts(
             String validationStatus,

@@ -16,9 +16,12 @@ package com.bytequay.app.developmentflow.compatibility;
 import com.bytequay.app.beans.stage.ContextWindowDto;
 import com.bytequay.app.beans.stage.ScrubberDash;
 import com.bytequay.app.beans.stage.StageDetailData;
+import com.bytequay.app.beans.stage.StageDetailData.CiRecovery;
+import com.bytequay.app.beans.stage.StageDetailData.CleanupRecovery;
 import com.bytequay.app.beans.stage.StageDetailData.ConversationRow;
 import com.bytequay.app.beans.stage.StageDetailData.DetailTask;
 import com.bytequay.app.beans.stage.StageDetailData.IterationDetail;
+import com.bytequay.app.beans.stage.StageDetailData.RecoveryOptions;
 import com.bytequay.app.beans.stage.StageDetailData.Scrubber;
 import com.bytequay.app.beans.stage.StageDetailData.StageConfig;
 import com.bytequay.app.beans.stage.StageDetailData.StageInfo;
@@ -156,7 +159,118 @@ public final class V2StageApiService
                 List.of(),
                 branchGuards.project(stage.taskId()),
                 null,
-                List.of());
+                List.of(),
+                recovery(stage));
+    }
+
+    private RecoveryOptions recovery(StageFacts stage)
+    {
+        CiRecovery ci = jdbc.query("""
+                SELECT episode.id, episode.rerun_count, episode.rerun_limit,
+                       episode.fix_attempt_count, episode.fix_attempt_limit,
+                       episode.push_count, episode.push_limit
+                  FROM ci_repair_episode episode
+                  JOIN tasks task ON task.id = episode.task_id
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN stage owner ON owner.id = current.stage_id
+                 WHERE episode.task_id = ?
+                   AND episode.remote_development_stage_id = ?
+                   AND episode.status = 'EXHAUSTED'
+                   AND task.workflow_version = 'V2'
+                   AND task.lifecycle_state = 'ACTIVE'
+                   AND task.epoch = episode.task_epoch
+                   AND current.stage_id = episode.remote_development_stage_id
+                   AND current.stage_generation = episode.stage_generation
+                   AND owner.task_id = task.id
+                   AND owner.kind = 'REMOTE_DEVELOPMENT'
+                   AND owner.generation = episode.stage_generation
+                   AND owner.completed_at_ms IS NULL
+                 ORDER BY episode.completed_at_ms DESC, episode.id
+                """, (rs, row) -> new CiRecovery(
+                        rs.getString("id"),
+                        rs.getInt("rerun_count"), rs.getInt("rerun_limit"),
+                        rs.getInt("fix_attempt_count"),
+                        rs.getInt("fix_attempt_limit"),
+                        rs.getInt("push_count"), rs.getInt("push_limit"),
+                        List.of("EXTEND_BUDGET",
+                                "CONTINUE_WITH_PER_PUSH_APPROVAL",
+                                "MANUAL_TAKEOVER", "STOP_AUTOMATION")),
+                stage.taskId(), stage.id()).stream().findFirst().orElse(null);
+
+        CleanupRecovery cleanup = jdbc.query("""
+                SELECT step.id, step.kind, step.requirement,
+                       step.attempt_count, step.attempt_limit, step.last_error,
+                       step.failure_kind, step.execute_attempt_count,
+                       EXISTS (
+                           SELECT 1 FROM cleanup_step_retry_request retry
+                            WHERE retry.cleanup_step_id = step.id
+                              AND retry.status = 'PENDING') AS retry_requested
+                  FROM cleanup_step step
+                  JOIN cleanup_operation operation
+                    ON operation.id = step.cleanup_operation_id
+                  JOIN dispatch_ticket ticket
+                    ON ticket.id = operation.dispatch_ticket_id
+                  JOIN tasks task ON task.id = operation.task_id
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN stage owner ON owner.id = current.stage_id
+                 WHERE step.task_id = ? AND step.cleanup_stage_id = ?
+                   AND step.status = 'FAILED'
+                   AND task.workflow_version = 'V2'
+                   AND task.lifecycle_state = 'CLEANING'
+                   AND task.epoch = operation.task_epoch
+                   AND operation.status = 'ACTIVE'
+                   AND current.stage_id = operation.cleanup_stage_id
+                   AND current.stage_generation = operation.stage_generation
+                   AND owner.task_id = task.id AND owner.kind = 'CLEANUP'
+                   AND owner.generation = operation.stage_generation
+                   AND owner.checkpoint = 'CLEANING'
+                   AND owner.completed_at_ms IS NULL
+                   AND ticket.operation_id = operation.operation_id
+                   AND ticket.status = 'RECONCILE_WAIT'
+                   AND ticket.next_attempt_at_ms IS NULL
+                   AND ticket.cancel_requested_at_ms IS NULL
+                   AND NOT EXISTS (
+                       SELECT 1 FROM cleanup_step earlier
+                        WHERE earlier.cleanup_operation_id = operation.id
+                          AND earlier.ordinal < step.ordinal
+                          AND earlier.status NOT IN (
+                              'SUCCEEDED', 'SKIPPED', 'WAIVED'))
+                   AND EXISTS (
+                       SELECT 1 FROM task_blocker blocker
+                        WHERE blocker.task_id = task.id
+                          AND blocker.stage_id = owner.id
+                          AND blocker.owner_kind = 'OPERATION'
+                          AND blocker.owner_id = operation.id
+                          AND blocker.subject_revision = CAST(step.ordinal AS TEXT)
+                          AND blocker.blocker_type = 'CLEANUP_STEP_FAILED'
+                          AND blocker.status = 'OPEN')
+                 ORDER BY step.ordinal
+                """, (rs, row) -> {
+                    boolean retry = "DETERMINATE".equals(
+                            rs.getString("failure_kind"))
+                            && rs.getInt("execute_attempt_count")
+                                    < rs.getInt("attempt_limit")
+                            && !rs.getBoolean("retry_requested");
+                    boolean waive = "OPTIONAL".equals(
+                            rs.getString("requirement"))
+                            && !rs.getBoolean("retry_requested");
+                    List<String> actions = new ArrayList<>(2);
+                    if (retry) {
+                        actions.add("RETRY");
+                    }
+                    if (waive) {
+                        actions.add("WAIVE_OPTIONAL");
+                    }
+                    return new CleanupRecovery(
+                            rs.getString("id"), rs.getString("kind"),
+                            rs.getString("requirement"),
+                            rs.getInt("attempt_count"),
+                            rs.getInt("attempt_limit"),
+                            rs.getString("last_error"), List.copyOf(actions));
+                }, stage.taskId(), stage.id()).stream()
+                .filter(value -> !value.actions().isEmpty())
+                .findFirst().orElse(null);
+        return new RecoveryOptions(ci, cleanup);
     }
 
     /** Cancels only live AgentTurn tickets for the exact current Stage fence. */

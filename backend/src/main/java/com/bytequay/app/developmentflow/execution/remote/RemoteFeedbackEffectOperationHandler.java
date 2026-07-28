@@ -32,6 +32,10 @@ public final class RemoteFeedbackEffectOperationHandler
 {
     public static final String OPERATION_KIND = "APPLY_REMOTE_FEEDBACK_EFFECT";
     public static final String CALLBACK_ROUTE = "REMOTE_FEEDBACK_EFFECT_RESULT";
+    public static final String READINESS_ASSISTANCE_OPERATION_KIND =
+            "APPLY_READINESS_ASSISTANCE";
+    public static final String READINESS_ASSISTANCE_CALLBACK_ROUTE =
+            "READINESS_ASSISTANCE_RESULT";
 
     private final OperationStore store;
     private final EffectGateway effects;
@@ -73,6 +77,11 @@ public final class RemoteFeedbackEffectOperationHandler
         requireExactFence(context, effect);
         if (effect.status() == EffectStatus.SUCCEEDED) {
             return succeeded(fence, effect.externalEffectId(), effect.evidence());
+        }
+        if (effect.status() == EffectStatus.ABANDONED) {
+            return new DispatchTicket.DispatchResult(
+                    fence, DispatchTicket.Outcome.FAILED, null, "{}",
+                    "Remote feedback effect exhausted its durable attempts");
         }
         if (context.isCancellationRequested()) {
             throw new ExecutionPorts.OperationCanceledException(
@@ -125,9 +134,9 @@ public final class RemoteFeedbackEffectOperationHandler
     {
         DispatchTicket.DispatchEnvelope envelope = context.envelope();
         DispatchTicket.OperationFence fence = envelope.fence();
-        if (!OPERATION_KIND.equals(envelope.operationKind())
+        if (!effect.operationKind().equals(envelope.operationKind())
                 || envelope.owner().kind() != DispatchTicket.OwnerKind.STAGE
-                || !CALLBACK_ROUTE.equals(
+                || !effect.callbackRoute().equals(
                         envelope.owner().callbackRoute())
                 || !effect.stageId().equals(envelope.owner().id())
                 || !Objects.equals(effect.taskEpoch(), fence.taskEpoch())
@@ -206,7 +215,15 @@ public final class RemoteFeedbackEffectOperationHandler
 
     public enum ClaimMode { EXECUTE, PROBE }
 
-    public enum EffectStatus { REQUESTED, CLAIMED, SUCCEEDED, FAILED, INDETERMINATE }
+    public enum EffectStatus
+    {
+        REQUESTED,
+        CLAIMED,
+        SUCCEEDED,
+        FAILED,
+        INDETERMINATE,
+        ABANDONED
+    }
 
     public enum EffectKind
     {
@@ -250,7 +267,9 @@ public final class RemoteFeedbackEffectOperationHandler
             String headRef,
             Instant authorizedAt,
             String externalEffectId,
-            String evidence)
+            String evidence,
+            String operationKind,
+            String callbackRoute)
     {
         public Effect
         {
@@ -261,10 +280,56 @@ public final class RemoteFeedbackEffectOperationHandler
             requireText(worktreePath, "worktreePath");
             requireText(headRef, "headRef");
             requireNonNull(authorizedAt, "authorizedAt is null");
+            requireText(operationKind, "operationKind");
+            requireText(callbackRoute, "callbackRoute");
             if (pullRequestNumber < 1) {
                 throw new IllegalArgumentException(
                         "pullRequestNumber must be positive");
             }
+        }
+
+        /** Existing feedback-batch effects retain their original route. */
+        public Effect(
+                String id,
+                String operationId,
+                String authorizationId,
+                String batchId,
+                int ordinal,
+                EffectKind kind,
+                String remoteInboxItemId,
+                String externalTarget,
+                String targetThreadId,
+                String targetCommentId,
+                String reviewAction,
+                String payload,
+                String payloadDigest,
+                String idempotencyKey,
+                EffectStatus status,
+                int attemptCount,
+                int attemptLimit,
+                String taskId,
+                long taskEpoch,
+                String stageId,
+                long stageGeneration,
+                String headSha,
+                String baseSha,
+                String repositoryId,
+                String headRepositoryId,
+                int pullRequestNumber,
+                String worktreePath,
+                String headRef,
+                Instant authorizedAt,
+                String externalEffectId,
+                String evidence)
+        {
+            this(id, operationId, authorizationId, batchId, ordinal, kind,
+                    remoteInboxItemId, externalTarget, targetThreadId,
+                    targetCommentId, reviewAction, payload, payloadDigest,
+                    idempotencyKey, status, attemptCount, attemptLimit, taskId,
+                    taskEpoch, stageId, stageGeneration, headSha, baseSha,
+                    repositoryId, headRepositoryId, pullRequestNumber,
+                    worktreePath, headRef, authorizedAt, externalEffectId,
+                    evidence, OPERATION_KIND, CALLBACK_ROUTE);
         }
     }
 

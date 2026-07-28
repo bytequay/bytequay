@@ -479,12 +479,12 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
 
   const onAdvance = useCallback(async (mode: 'next' | 'ship') => {
     if (foreground === null || advancing !== null) return;
-    const verb = mode === 'next' ? 'Park & start next' : 'Ship';
+    const verb = mode === 'next' ? 'Return to trunk planning' : 'Ship';
     const ok = window.confirm(
       `${verb}: task ${foreground.seq}`
       + (foreground.branchName !== null ? ` (${foreground.branchName})` : '')
       + (mode === 'next'
-        ? ' — parked at AWAITING_REVIEW; new task cut from main.'
+        ? '. Current work remains available while you plan the next assignment.'
         : ' — closes the task and reaps the worktree.'));
     if (!ok) return;
     setAdvancing(mode);
@@ -687,7 +687,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                       style={nextBtnStyle(noTarget || advancing !== null)}
                       title={noTarget
                         ? noTargetReason
-                        : `Next: park task ${foreground!.seq} at AWAITING_REVIEW and start the next from main`}
+                        : `Next: return to trunk planning from task ${foreground!.seq}`}
                     >
                       {advancing === 'next' ? 'Parking…' : 'Next →'}
                     </button>
@@ -704,7 +704,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                     </button>
                   </div>
                   <div style={advanceHintStyle}>
-                    Next parks &amp; starts next · Ship finalises this task
+                    Next returns to trunk planning · Ship finalises this task
                   </div>
                 </>
                 );

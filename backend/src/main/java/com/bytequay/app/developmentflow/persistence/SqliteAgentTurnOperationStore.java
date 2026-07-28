@@ -63,6 +63,9 @@ public class SqliteAgentTurnOperationStore
                        turn.expected_code_fingerprint, turn.expected_head_sha,
                        turn.expected_base_sha, turn.launch_input,
                        CASE WHEN turn.purpose = 'TASK_COMPLETION_SUMMARY'
+                         OR (turn.purpose = 'TASK_BRAIN_CONVERSATION'
+                           AND task.lifecycle_state IN (
+                             'COMPLETED', 'CANCELED', 'REMOTE_CLOSED'))
                          THEN json_extract(turn.launch_input, '$.workingDirectory')
                          ELSE identity.worktree_path END AS worktree_path,
                        task.lifecycle_state,
@@ -162,6 +165,10 @@ public class SqliteAgentTurnOperationStore
                             AND task.lifecycle_state IN (
                               'COMPLETED', 'CANCELED', 'REMOTE_CLOSED')
                             AND task_turn.trigger_stage_id IS NULL)
+                        OR (task_turn.purpose = 'TASK_BRAIN_CONVERSATION'
+                            AND task.lifecycle_state IN (
+                              'COMPLETED', 'CANCELED', 'REMOTE_CLOSED')
+                            AND task_turn.trigger_stage_id IS NULL)
                         OR (task_turn.purpose <> 'TASK_COMPLETION_SUMMARY'
                             AND task.lifecycle_state = 'ACTIVE'
                             AND (task_turn.trigger_stage_id IS NULL OR (
@@ -218,6 +225,10 @@ public class SqliteAgentTurnOperationStore
                   AND task.workflow_version = 'V2'
                   AND task.epoch = turn.task_epoch
                   AND ((turn.purpose = 'TASK_COMPLETION_SUMMARY'
+                        AND task.lifecycle_state IN (
+                          'COMPLETED', 'CANCELED', 'REMOTE_CLOSED')
+                        AND turn.trigger_stage_id IS NULL)
+                    OR (turn.purpose = 'TASK_BRAIN_CONVERSATION'
                         AND task.lifecycle_state IN (
                           'COMPLETED', 'CANCELED', 'REMOTE_CLOSED')
                         AND turn.trigger_stage_id IS NULL)

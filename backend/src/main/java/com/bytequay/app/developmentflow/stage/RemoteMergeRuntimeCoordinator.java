@@ -83,7 +83,7 @@ public final class RemoteMergeRuntimeCoordinator
                 new StartRequest(
                         command.authorizationId(), command.operationId(),
                         command.ticketId(), command.authorityKind(), command.actor(),
-                        command.attemptLimit(), clock.instant()),
+                        command.mergeMethod(), command.attemptLimit(), clock.instant()),
                 context);
         ResultFence fence = new ResultFence(
                 context.taskEpoch(), context.stageId(), context.stageGeneration(),
@@ -118,6 +118,7 @@ public final class RemoteMergeRuntimeCoordinator
                 && command.ticketId().equals(receipt.ticketId())
                 && command.taskId().equals(receipt.taskId())
                 && command.stageId().equals(receipt.stageId())
+                && command.mergeMethod().equals(receipt.mergeMethod())
                 && command.attemptLimit() == receipt.attemptLimit();
         if (!same) {
             throw new IllegalArgumentException(
@@ -135,6 +136,7 @@ public final class RemoteMergeRuntimeCoordinator
             String operationId,
             String ticketId,
             AuthorityKind authorityKind,
+            String mergeMethod,
             int attemptLimit)
     {
         public Command
@@ -148,6 +150,13 @@ public final class RemoteMergeRuntimeCoordinator
             requireText(operationId, "operationId");
             requireText(ticketId, "ticketId");
             requireNonNull(authorityKind, "authorityKind is null");
+            requireText(mergeMethod, "mergeMethod");
+            if (!mergeMethod.equals("merge")
+                    && !mergeMethod.equals("squash")
+                    && !mergeMethod.equals("rebase")) {
+                throw new IllegalArgumentException(
+                        "mergeMethod must be merge, squash, or rebase");
+            }
             if (attemptLimit < 1) {
                 throw new IllegalArgumentException("attemptLimit must be positive");
             }

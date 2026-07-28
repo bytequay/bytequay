@@ -123,7 +123,7 @@ public final class RemoteObservationDomainHooks
                 readiness.id(), id("auto-merge-authorization", subject),
                 id("auto-merge-operation", subject),
                 id("auto-merge-ticket", subject), AuthorityKind.AUTO_MERGE_POLICY,
-                3));
+                "squash", 3));
     }
 
     private static RemoteDevelopmentStageManager.RemoteGateCommand gate(

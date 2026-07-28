@@ -22,8 +22,11 @@ import java.time.Instant;
 public record GitHubReview(
         long id,
         User user,
+        String body,
         String state,
-        @JsonProperty("submitted_at") Instant submittedAt)
+        @JsonProperty("commit_id") String commitId,
+        @JsonProperty("submitted_at") Instant submittedAt,
+        @JsonProperty("html_url") String htmlUrl)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String login) {}

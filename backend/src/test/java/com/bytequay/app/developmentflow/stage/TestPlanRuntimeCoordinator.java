@@ -15,15 +15,23 @@ package com.bytequay.app.developmentflow.stage;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler;
+import com.bytequay.app.developmentflow.persistence.SqliteDispatchWakeStore;
+import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageResumeRearmStore;
+import com.bytequay.app.developmentflow.task.TaskControlHandoff;
+import com.bytequay.app.developmentflow.task.TaskControlMaintainer;
+import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.TaskReplanMaintainer;
+import com.bytequay.app.developmentflow.task.TaskResumeOwner;
 import com.bytequay.app.developmentflow.task.creation.TaskAssignment;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
@@ -35,6 +43,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 import org.sqlite.SQLiteDataSource;
 
@@ -149,6 +158,215 @@ class TestPlanRuntimeCoordinator
                                 stale, SUCCEEDED, evidenceJson, evidenceJson, null));
         assertThat(superseded.acceptance()).isEqualTo(SUPERSEDED);
         assertThat(count(jdbc, "task_turn")).isOne();
+    }
+
+    @Test
+    void answeredPlanWaitAtomicallyAdmitsOneStableSuccessorAcrossRestart()
+            throws Exception
+    {
+        Bootstrapped bootstrap = bootstrap("plan-user-wait.db");
+        Flyway.configure().dataSource(bootstrap.dataSource()).target("265")
+                .load().migrate();
+        Runtime first = runtime(bootstrap.dataSource());
+        RunningTurn predecessor = startCurrentTurn(
+                bootstrap.jdbc(), bootstrap.taskId());
+        bootstrap.jdbc().update("""
+                UPDATE task_turn
+                SET status = 'RUNNING', started_at_ms = ?
+                WHERE id = ? AND operation_id = ? AND status = 'REQUESTED'
+                """, NOW.toEpochMilli(), predecessor.turnId(),
+                predecessor.operationId());
+        ActiveAgentContextRegistry.TypedOwner owner =
+                new ActiveAgentContextRegistry.TypedOwner(
+                        DispatchTicket.OwnerKind.TASK_TURN,
+                        predecessor.turnId(), predecessor.operationId());
+        V2UserWaitStore waits = new V2UserWaitStore(bootstrap.jdbc());
+        waits.insertQuestion(
+                owner, "plan-question", "plan-question-call",
+                "Continue with this Plan?", null, "[]", true,
+                NOW.plusSeconds(1));
+        waits.answerQuestion(
+                "plan-question", 0, null, "Proceed", "user",
+                NOW.plusSeconds(2));
+        finishAsUserWait(bootstrap.jdbc(), predecessor);
+        waits.recordUserWait(
+                owner, "QUESTION", "plan-question", "payload-digest",
+                "{\"schema\":\"TYPED_USER_WAIT_DELIVERY_V1\"}",
+                NOW.plusSeconds(4));
+        finalizePendingTickets(bootstrap.jdbc());
+
+        String successor = first.plan().continueUserWait(
+                predecessor.turnId(), predecessor.operationId(),
+                "QUESTION", "plan-question", "Proceed");
+        assertThat(successor).isNotEqualTo(predecessor.turnId());
+        assertThat(bootstrap.jdbc().queryForMap("""
+                SELECT predecessor.status AS predecessor_status,
+                       successor.status AS successor_status,
+                       successor.purpose, continuation.returned_stage_version,
+                       stage.checkpoint
+                FROM plan_turn_user_wait_continuation_v265 continuation
+                JOIN task_turn predecessor
+                  ON predecessor.id = continuation.predecessor_turn_id
+                JOIN task_turn successor
+                  ON successor.id = continuation.successor_turn_id
+                JOIN stage ON stage.id = continuation.stage_id
+                WHERE continuation.wait_kind = 'QUESTION'
+                  AND continuation.wait_id = 'plan-question'
+                """))
+                .containsEntry("predecessor_status", "SUCCEEDED")
+                .containsEntry("successor_status", "REQUESTED")
+                .containsEntry("purpose", "PLAN_DRAFT")
+                .containsEntry("returned_stage_version", 2)
+                .containsEntry("checkpoint", "DRAFTING");
+
+        String replay = runtime(bootstrap.dataSource()).plan().continueUserWait(
+                predecessor.turnId(), predecessor.operationId(),
+                "QUESTION", "plan-question", "Proceed");
+        assertThat(replay).isEqualTo(successor);
+        assertThat(countWhere(bootstrap.jdbc(), "task_turn",
+                "purpose = 'PLAN_DRAFT'")).isEqualTo(2);
+        assertThat(count(bootstrap.jdbc(),
+                "plan_turn_user_wait_continuation_v265")).isOne();
+    }
+
+    @Test
+    void resumedSelfReviewFailureStillReceivesItsOrdinaryRetryAcrossRestart()
+            throws Exception
+    {
+        Bootstrapped bootstrap = bootstrap("plan-resume-review.db");
+        Flyway.configure().dataSource(bootstrap.dataSource()).target("272")
+                .load().migrate();
+        Runtime first = runtime(bootstrap.dataSource());
+        JdbcTemplate jdbc = bootstrap.jdbc();
+
+        RunningTurn draft = startCurrentTurn(jdbc, bootstrap.taskId());
+        first.plan().recordPlan(
+                draft.turnId(), draft.operationId(), bootstrap.taskId(),
+                "1. Implement safely.\n2. Verify the result.");
+        deliverSucceeded(first.plan(), jdbc, draft);
+        finalizePendingTickets(jdbc);
+
+        Map<String, Object> predecessor = jdbc.queryForMap("""
+                SELECT turn.id AS turn_id, turn.operation_id,
+                       ticket.id AS ticket_id
+                FROM task_turn turn
+                JOIN dispatch_ticket ticket
+                  ON ticket.operation_id = turn.operation_id
+                WHERE turn.task_id = ? AND turn.purpose = 'PLAN_SELF_REVIEW'
+                  AND turn.status = 'REQUESTED' AND ticket.status = 'REQUESTED'
+                """, bootstrap.taskId());
+        jdbc.update("""
+                UPDATE task_turn
+                   SET status = 'CANCELED', started_at_ms = ?,
+                       finished_at_ms = ?, error_message = 'paused'
+                 WHERE id = ? AND status = 'REQUESTED'
+                """, NOW.plusSeconds(2).toEpochMilli(),
+                NOW.plusSeconds(3).toEpochMilli(), predecessor.get("turn_id"));
+        jdbc.update("""
+                UPDATE dispatch_ticket
+                   SET version = version + 1, status = 'CANCELED',
+                       cancel_requested_at_ms = ?,
+                       delivery_acceptance = 'ACCEPTED',
+                       delivery_evidence = 'paused', completed_at_ms = ?
+                 WHERE id = ? AND status = 'REQUESTED'
+                """, NOW.plusSeconds(2).toEpochMilli(),
+                NOW.plusSeconds(3).toEpochMilli(), predecessor.get("ticket_id"));
+
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(bootstrap.dataSource());
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
+        TaskControlHandoff controls = new TaskControlHandoff(
+                commands, first.tasks());
+        SqliteStageResumeRearmStore rearms =
+                new SqliteStageResumeRearmStore(jdbc);
+        TaskResumeOwner owner = new TaskResumeOwner()
+        {
+            @Override
+            public StageKind kind()
+            {
+                return StageKind.PLAN;
+            }
+
+            @Override
+            public Acceptance accept(Request request)
+            {
+                return rearms.accept(request, kind());
+            }
+        };
+        TaskControlMaintainer withoutOwner = new TaskControlMaintainer(
+                first.controlStore(), controls, List.of(), List.of(), ignored -> {});
+        TaskControlMaintainer withOwner = new TaskControlMaintainer(
+                first.controlStore(), controls, List.of(owner), List.of(), ignored -> {});
+
+        first.tasks().requestPause(new TaskManager.Command(
+                "pause-plan-review", "user", bootstrap.taskId(), 1,
+                taskVersion(jdbc, bootstrap.taskId())));
+        withoutOwner.maintain(NOW.plusSeconds(4));
+        first.tasks().requestResume(new TaskManager.Command(
+                "resume-plan-review", "user", bootstrap.taskId(), 1,
+                taskVersion(jdbc, bootstrap.taskId())));
+        withoutOwner.maintain(NOW.plusSeconds(5));
+        withOwner.maintain(NOW.plusSeconds(6));
+        assertThat(jdbc.queryForObject(
+                "SELECT lifecycle_state FROM tasks WHERE id = ?",
+                String.class, bootstrap.taskId()))
+                .isEqualTo(TaskLifecycle.ACTIVE.name());
+
+        new PlanTaskResumeOwner(rearms, commands).maintain(NOW.plusSeconds(7));
+        new PlanTaskResumeOwner(
+                new SqliteStageResumeRearmStore(
+                        new JdbcTemplate(bootstrap.dataSource())),
+                new TaskCommandExecutor(
+                        new DataSourceTransactionManager(bootstrap.dataSource())))
+                .maintain(NOW.plusSeconds(8));
+
+        assertThat(jdbc.queryForMap("""
+                SELECT intent.status, successor.status AS successor_status,
+                       successor.domain_attempt, successor.dispatch_attempt
+                FROM stage_resume_rearm_intent_v257 intent
+                JOIN stage_resume_async_successor_v272 successor
+                  ON successor.handoff_id = intent.handoff_id
+                WHERE intent.task_id = ?
+                """, bootstrap.taskId()))
+                .containsEntry("status", "MATERIALIZED")
+                .containsEntry("successor_status", "ARMED")
+                .containsEntry("domain_attempt", 2)
+                .containsEntry("dispatch_attempt", 1);
+        assertThat(countWhere(jdbc, "plan_self_review_resume_attempt_v272",
+                "semantic_attempt = 2")).isOne();
+        assertThat(countWhere(jdbc, "task_turn",
+                "purpose = 'PLAN_SELF_REVIEW' AND status = 'REQUESTED'"))
+                .isOne();
+
+        RunningTurn resumed = startCurrentTurn(jdbc, bootstrap.taskId());
+        DispatchTicket.DeliveryReceipt failed = deliverFailed(
+                runtime(bootstrap.dataSource()).plan(), jdbc, resumed,
+                "provider failed after resume");
+        assertThat(failed.acceptance()).isEqualTo(ACCEPTED);
+        assertThat(jdbc.queryForMap("""
+                SELECT COUNT(*) AS attempts, MAX(semantic_attempt) AS latest
+                FROM plan_self_review_all_attempt_v265
+                WHERE self_review_id = (
+                    SELECT id FROM plan_self_review LIMIT 1)
+                """))
+                .containsEntry("attempts", 3)
+                .containsEntry("latest", 3);
+        assertThat(jdbc.queryForMap("""
+                SELECT infrastructure_attempt, execution_attempt
+                FROM plan_self_review_failure_execution_v272
+                """))
+                .containsEntry("infrastructure_attempt", 2)
+                .containsEntry("execution_attempt", 3);
+        assertThat(countWhere(jdbc, "task_turn",
+                "purpose = 'PLAN_SELF_REVIEW' AND status = 'REQUESTED'"))
+                .isOne();
+
+        DispatchTicket.DeliveryReceipt replay = runtime(bootstrap.dataSource())
+                .plan().deliverTaskTurn(
+                        resumed.owner(), resumed.fence(), resumed.result());
+        assertThat(replay).isEqualTo(failed);
+        assertThat(countWhere(jdbc, "plan_self_review_attempt", "attempt = 2"))
+                .isOne();
     }
 
     @Test
@@ -1022,7 +1240,7 @@ class TestPlanRuntimeCoordinator
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("249").load().migrate();
+        Flyway.configure().dataSource(url, "", "").target("265").load().migrate();
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;
@@ -1038,12 +1256,19 @@ class TestPlanRuntimeCoordinator
         StageManager.Store stageStore;
         PlanStageManager.ApprovalStore approvalStore;
         PlanStageManager.RevisionStore revisionStore;
+        PlanStageManager.UserWaitStore userWaitStore;
         LocalDevelopmentStageManager.EvidenceStore localEvidence;
         try (AnnotationConfigApplicationContext context =
                 new AnnotationConfigApplicationContext()) {
             context.registerBean(JdbcTemplate.class, () -> jdbc);
             context.registerBean(
                     DataSourceTransactionManager.class, () -> transactionManager);
+            context.registerBean(
+                    TransactionTemplate.class,
+                    () -> new TransactionTemplate(transactionManager));
+            context.registerBean(
+                    SqliteDispatchWakeStore.class,
+                    () -> new SqliteDispatchWakeStore(jdbc));
             context.scan(
                     "com.bytequay.app.developmentflow.trunk.persistence",
                     "com.bytequay.app.developmentflow.task.persistence",
@@ -1054,6 +1279,7 @@ class TestPlanRuntimeCoordinator
             stageStore = context.getBean(StageManager.Store.class);
             approvalStore = context.getBean(PlanStageManager.ApprovalStore.class);
             revisionStore = context.getBean(PlanStageManager.RevisionStore.class);
+            userWaitStore = context.getBean(PlanStageManager.UserWaitStore.class);
             localEvidence = context.getBean(
                     LocalDevelopmentStageManager.EvidenceStore.class);
         }
@@ -1063,7 +1289,7 @@ class TestPlanRuntimeCoordinator
         SqlitePlanRuntimeStore planRuntimeStore = new SqlitePlanRuntimeStore(jdbc);
         PlanStageManager plan = new PlanStageManager(
                 commands, stageStore, approvalStore, revisionStore,
-                planRuntimeStore);
+                planRuntimeStore, userWaitStore);
         LocalDevelopmentStageManager local = new LocalDevelopmentStageManager(
                 commands, stageStore, localEvidence);
         PlanToLocalHandoff planToLocal = new PlanToLocalHandoff(
@@ -1221,9 +1447,50 @@ class TestPlanRuntimeCoordinator
                 """, NOW.plusSeconds(5).toEpochMilli());
     }
 
+    private static void finishAsUserWait(
+            JdbcTemplate jdbc, RunningTurn running)
+    {
+        jdbc.update("""
+                UPDATE agent_execution
+                SET status = 'SUCCEEDED', finished_at_ms = ?, raw_result = '{}'
+                WHERE ticket_id = ? AND infrastructure_attempt = 1
+                """, NOW.plusSeconds(3).toEpochMilli(), running.ticketId());
+        jdbc.update("""
+                UPDATE capacity_lease
+                SET released_at_ms = ?, release_reason = 'user_wait'
+                WHERE id = ? AND released_at_ms IS NULL
+                """, NOW.plusSeconds(3).toEpochMilli(), running.leaseId());
+        jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'RESULT_PENDING',
+                    claim_purpose = NULL, claim_owner = NULL,
+                    capacity_lease_id = NULL, claim_expires_at_ms = NULL,
+                    pending_result_outcome = 'SUCCEEDED',
+                    pending_result_payload = '{}',
+                    pending_result_evidence = '{}',
+                    pending_result_error = NULL,
+                    pending_result_task_epoch = task_epoch,
+                    pending_result_stage_id = stage_id,
+                    pending_result_stage_generation = stage_generation,
+                    pending_result_operation_id = operation_id,
+                    pending_result_attempt = attempt,
+                    pending_result_expected_code_fingerprint = expected_code_fingerprint,
+                    pending_result_expected_head_sha = expected_head_sha,
+                    pending_result_expected_base_sha = expected_base_sha
+                WHERE id = ? AND status = 'RUNNING'
+                """, running.ticketId());
+    }
+
     private static int count(JdbcTemplate jdbc, String table)
     {
         return jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class);
+    }
+
+    private static long taskVersion(JdbcTemplate jdbc, String taskId)
+    {
+        return jdbc.queryForObject(
+                "SELECT aggregate_version FROM tasks WHERE id = ?",
+                Long.class, taskId);
     }
 
     private static int countWhere(JdbcTemplate jdbc, String table, String predicate)

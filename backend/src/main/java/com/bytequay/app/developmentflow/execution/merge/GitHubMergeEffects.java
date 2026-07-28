@@ -134,7 +134,7 @@ public final class GitHubMergeEffects
         MergeResult result = pullRequests.mergePullRequest(
                 subject.pat(), subject.ref(),
                 new MergePullRequestCommand(
-                        "squash", Optional.empty(), Optional.empty(),
+                        request.mergeMethod(), Optional.empty(), Optional.empty(),
                         Optional.of(request.headSha())));
         if (!result.merged() || result.queued()) {
             throw new SubjectRejectedException(

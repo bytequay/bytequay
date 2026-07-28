@@ -15,6 +15,7 @@ package com.bytequay.app.developmentflow.trunk;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
+import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadResourceLane;
@@ -33,7 +34,10 @@ import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -44,9 +48,13 @@ import static java.util.Objects.requireNonNull;
  */
 public final class V2ThreadControlService
 {
+    private static final long STREAM_POLL_MS = 100;
+
     private final PlanningBaseTurnRuntime planning;
     private final ThreadTurnProjection projection;
     private final DispatchTicketControl tickets;
+    private final TrunkManager trunks;
+    private final V2TrunkPurge purge;
     private final ThreadEngineOverrides engines;
     private final RoleRegistry roles;
     private final SessionKnowledgeProvider knowledge;
@@ -55,6 +63,8 @@ public final class V2ThreadControlService
             PlanningBaseTurnRuntime planning,
             ThreadTurnProjection projection,
             DispatchTicketControl tickets,
+            TrunkManager trunks,
+            V2TrunkPurge purge,
             ThreadEngineOverrides engines,
             RoleRegistry roles,
             SessionKnowledgeProvider knowledge)
@@ -62,6 +72,8 @@ public final class V2ThreadControlService
         this.planning = requireNonNull(planning, "planning is null");
         this.projection = requireNonNull(projection, "projection is null");
         this.tickets = requireNonNull(tickets, "tickets is null");
+        this.trunks = requireNonNull(trunks, "trunks is null");
+        this.purge = requireNonNull(purge, "purge is null");
         this.engines = requireNonNull(engines, "engines is null");
         this.roles = requireNonNull(roles, "roles is null");
         this.knowledge = requireNonNull(knowledge, "knowledge is null");
@@ -119,15 +131,73 @@ public final class V2ThreadControlService
     public List<ThreadTurn> turns(String trunkId, int limit)
     {
         return projection.turns(trunkId, limit).stream()
-                .map(turn -> projectedTurn(trunkId, turn))
+                .map(V2ThreadControlService::projectedTurn)
                 .toList();
     }
 
-    /** V2 exposes typed Turn state directly; legacy scheduler events do not apply. */
+    public List<ThreadTurn> activeTurns(int limit)
+    {
+        return projection.activeTurns(limit).stream()
+                .map(V2ThreadControlService::projectedTurn)
+                .toList();
+    }
+
+    /** V2 exposes deterministic typed Turn/ticket facts, never scheduler events. */
     public List<ThreadTurnEvent> turnEvents(String trunkId)
     {
+        return projection.turnEvents(trunkId);
+    }
+
+    /** Poll newly committed exact ThreadTurn execution logs for one Trunk. */
+    public Runnable subscribe(
+            String trunkId, Consumer<StreamEvent> listener)
+    {
         requireText(trunkId, "trunkId");
-        return List.of();
+        requireNonNull(listener, "listener is null");
+        AtomicBoolean stopped = new AtomicBoolean();
+        long cursor = projection.latestLogRow(trunkId);
+        java.lang.Thread worker = java.lang.Thread.startVirtualThread(
+                () -> stream(trunkId, cursor, listener, stopped));
+        return () -> {
+            if (stopped.compareAndSet(false, true)) {
+                worker.interrupt();
+            }
+        };
+    }
+
+    public Optional<String> deletionBlocker(String trunkId)
+    {
+        return projection.deletionState(trunkId).blocker();
+    }
+
+    /** Archive through the sole Trunk owner before authorizing physical purge. */
+    public DeletionPermit prepareDeletion(String trunkId)
+    {
+        ThreadTurnProjection.DeletionState state = projection.deletionState(trunkId);
+        state.blocker().ifPresent(reason -> {
+            throw new IllegalStateException(reason);
+        });
+        if (!"ARCHIVED".equals(state.lifecycle())) {
+            trunks.archive(new TrunkManager.Command(
+                    "physical-delete/" + trunkId + "/" + state.version(),
+                    "user:delete", trunkId, state.version()));
+        }
+        ThreadTurnProjection.DeletionState archived =
+                projection.deletionState(trunkId);
+        archived.blocker().ifPresent(reason -> {
+            throw new IllegalStateException(reason);
+        });
+        if (!"ARCHIVED".equals(archived.lifecycle())) {
+            throw new IllegalStateException(
+                    "V2 Trunk was not archived before deletion: " + trunkId);
+        }
+        return new DeletionPermit(trunkId, archived.version());
+    }
+
+    public void delete(DeletionPermit permit, Runnable deleteRows)
+    {
+        requireNonNull(permit, "permit is null");
+        purge.delete(permit.trunkId(), permit.archivedVersion(), deleteRows);
     }
 
     /** Persist cancellation first, then signal the exact active provider attempt. */
@@ -139,13 +209,37 @@ public final class V2ThreadControlService
                 .forEach(tickets::requestCancel);
     }
 
-    private static ThreadTurn projectedTurn(
-            String trunkId, ThreadTurnProjection.TurnView view)
+    private void stream(
+            String trunkId,
+            long initialCursor,
+            Consumer<StreamEvent> listener,
+            AtomicBoolean stopped)
+    {
+        long cursor = initialCursor;
+        try {
+            while (!stopped.get()) {
+                for (ThreadTurnProjection.LogEvent row :
+                        projection.logEventsAfter(trunkId, cursor)) {
+                    cursor = row.cursor();
+                    row.events().forEach(listener);
+                }
+                java.lang.Thread.sleep(STREAM_POLL_MS);
+            }
+        }
+        catch (InterruptedException ignored) {
+            java.lang.Thread.currentThread().interrupt();
+        }
+        catch (RuntimeException ignored) {
+            // A disconnected subscriber cannot affect durable execution.
+        }
+    }
+
+    private static ThreadTurn projectedTurn(ThreadTurnProjection.TurnView view)
     {
         Instant updated = view.finishedAt() != null ? view.finishedAt()
                 : view.startedAt() != null ? view.startedAt() : view.requestedAt();
         return new ThreadTurn(
-                view.turnId(), trunkId, null,
+                view.turnId(), view.trunkId(), null,
                 ThreadResourceLane.valueOf(view.deliveryLane()), status(view.status()),
                 view.userMessage(), view.requestedAt(), updated,
                 view.startedAt(), view.finishedAt(), view.error(),
@@ -200,6 +294,17 @@ public final class V2ThreadControlService
         requireNonNull(value, name + " is null");
         if (value.isBlank()) {
             throw new IllegalArgumentException(name + " is blank");
+        }
+    }
+
+    public record DeletionPermit(String trunkId, long archivedVersion)
+    {
+        public DeletionPermit
+        {
+            requireText(trunkId, "trunkId");
+            if (archivedVersion < 0) {
+                throw new IllegalArgumentException("archivedVersion is negative");
+            }
         }
     }
 }

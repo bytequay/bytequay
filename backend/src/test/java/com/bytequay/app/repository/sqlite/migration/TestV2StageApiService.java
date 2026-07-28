@@ -34,6 +34,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.acceptSnapshot;
+import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.insertCiPolicy;
+import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.insertFailedCi;
+import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.insertSnapshot;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -101,6 +105,50 @@ class TestV2StageApiService
         assertThat(detail.guard().taskId()).isEqualTo("task-1");
         assertThat(detail.guard().enabled()).isTrue();
         assertThat(detail.guard().schedule()).isEqualTo("nightly");
+        assertThat(detail.recovery().ci()).isNull();
+        assertThat(detail.recovery().cleanup()).isNull();
+    }
+
+    @Test
+    void detailProjectsOnlyTheExactCurrentExhaustedCiEpisode()
+            throws Exception
+    {
+        try (Connection connection = jdbc.getDataSource().getConnection()) {
+            insertCiPolicy(connection, 1);
+            insertSnapshot(connection, 1, 1, "head-1", "base-1",
+                    "OPEN", "UNKNOWN");
+            acceptSnapshot(connection, 1, 1, "head-1", "base-1");
+            insertFailedCi(connection, 1, 1, "head-1", "base-1");
+        }
+        jdbc.update("""
+                INSERT INTO ci_repair_episode(
+                    id, remote_development_stage_id, task_id, task_epoch,
+                    stage_generation, remote_pr_binding_id,
+                    failed_ci_evaluation_id, subject_head_sha,
+                    subject_base_sha, classification, status,
+                    rerun_limit, fix_attempt_limit, delivery_retry_limit,
+                    push_limit, opened_at_ms)
+                VALUES ('episode-exact', 'remote-stage-1', 'task-1', 1, 1,
+                    'binding-1', 'ci-evaluation-1-1', 'head-1', 'base-1',
+                    'TASK_DETERMINISTIC', 'OPEN', 0, 0, 1, 0, 95)
+                """);
+        jdbc.update("""
+                UPDATE ci_repair_episode
+                   SET status = 'EXHAUSTED',
+                       terminal_ci_evaluation_id = 'ci-evaluation-1-1',
+                       completed_at_ms = 96
+                 WHERE id = 'episode-exact'
+                """);
+
+        StageDetailData detail = service.detail("task-1", "remote-stage-1");
+
+        assertThat(detail.recovery().ci().episodeId())
+                .isEqualTo("episode-exact");
+        assertThat(detail.recovery().ci().actions()).containsExactly(
+                "EXTEND_BUDGET", "CONTINUE_WITH_PER_PUSH_APPROVAL",
+                "MANUAL_TAKEOVER", "STOP_AUTOMATION");
+        assertThat(service.detail("task-2", "remote-stage-2")
+                .recovery().ci()).isNull();
     }
 
     @Test

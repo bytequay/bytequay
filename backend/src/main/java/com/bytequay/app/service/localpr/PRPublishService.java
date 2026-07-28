@@ -14,6 +14,7 @@
 package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.config.AsyncConfig;
+import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
 import com.bytequay.app.developmentflow.stage.V2PrRemoteControlService;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
@@ -48,6 +49,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
@@ -70,6 +72,7 @@ public class PRPublishService
     private final TaskService taskService;
     private final TaskPushSaga pushSaga;
     private final V2PrRemoteControlService v2Controls;
+    private final V2UserRemoteActionRuntime v2UserRemoteActions;
     private final Executor executor;
 
     public PRPublishService(
@@ -83,6 +86,7 @@ public class PRPublishService
             TaskService taskService,
             TaskPushSaga pushSaga,
             V2PrRemoteControlService v2Controls,
+            V2UserRemoteActionRuntime v2UserRemoteActions,
             @Qualifier(AsyncConfig.APPLICATION_EXECUTOR) Executor executor)
     {
         this.prService = requireNonNull(prService, "prService is null");
@@ -95,6 +99,8 @@ public class PRPublishService
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.pushSaga = requireNonNull(pushSaga, "pushSaga is null");
         this.v2Controls = requireNonNull(v2Controls, "v2Controls is null");
+        this.v2UserRemoteActions = requireNonNull(
+                v2UserRemoteActions, "v2UserRemoteActions is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -332,12 +338,20 @@ public class PRPublishService
      *  side when the PR isn't queued. */
     public PR dequeue(String prId)
     {
+        return dequeue(UUID.randomUUID().toString(), prId);
+    }
+
+    public PR dequeue(String commandId, String prId)
+    {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
-        rejectUnsupportedV2(pr,
-                "merge-queue removal requires a typed durable V2 merge control");
         if (pr.remotePrNumber() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " has not been pushed");
+        }
+        if (isV2(pr)) {
+            v2UserRemoteActions.dequeue(
+                    requireV2CommandId(commandId), pr.taskId(), prId);
+            return prService.findById(prId).orElse(pr);
         }
         RemoteTarget target = resolveRemoteTarget(pr);
         pullRequests.dequeuePullRequest(target.pat(), target.ref());
@@ -349,12 +363,21 @@ public class PRPublishService
      *  branchDeletedAt} so the button disappears afterward. */
     public PR deleteBranch(String prId)
     {
+        return deleteBranch(UUID.randomUUID().toString(), prId);
+    }
+
+    public PR deleteBranch(String commandId, String prId)
+    {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
-        rejectUnsupportedV2(pr,
-                "remote branch deletion is owned by the typed V2 Cleanup operation");
         if (!PR.STATUS_MERGED.equals(pr.status())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " is not merged");
+        }
+        if (isV2(pr)) {
+            v2UserRemoteActions.deleteRemoteBranch(
+                    requireV2CommandId(commandId), pr.taskId(), prId,
+                    pr.branchName());
+            return prService.findById(prId).orElse(pr);
         }
         RemoteTarget target = resolveRemoteTarget(pr);
         pullRequests.deleteBranch(target.pat(), target.ref(), pr.branchName());
@@ -365,15 +388,24 @@ public class PRPublishService
      * top-level issue comment to the pushed PR for either origin. */
     public PR postComment(String prId, String body)
     {
+        return postComment(UUID.randomUUID().toString(), prId, body);
+    }
+
+    public PR postComment(String commandId, String prId, String body)
+    {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
-        rejectUnsupportedV2(pr,
-                "remote comments require an explicit typed V2 feedback authorization");
         if (pr.remotePrNumber() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity");
         }
         if (body == null || body.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "comment body is empty");
+        }
+        if (isV2(pr)) {
+            v2UserRemoteActions.postTopLevelComment(
+                    requireV2CommandId(commandId), pr.taskId(), prId, body.trim(),
+                    HandledAction.COMMENTED);
+            return prService.findById(prId).orElse(pr);
         }
         RemoteTarget target = resolveRemoteTarget(pr);
         pullRequests.createIssueComment(target.pat(), target.ref(), body.trim());
@@ -429,10 +461,21 @@ public class PRPublishService
     public PR publishReview(
             String prId, String verdict, List<String> findingIds, List<String> commentIds, String reviewBody)
     {
+        return publishReview(
+                UUID.randomUUID().toString(), prId, verdict,
+                findingIds, commentIds, reviewBody);
+    }
+
+    public PR publishReview(
+            String commandId,
+            String prId,
+            String verdict,
+            List<String> findingIds,
+            List<String> commentIds,
+            String reviewBody)
+    {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
-        rejectUnsupportedV2(pr,
-                "GitHub review publication requires an explicit typed V2 review authorization");
         if (pr.repo() == null || pr.remotePrNumber() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity to review");
         }
@@ -460,9 +503,6 @@ public class PRPublishService
             throw new ResponseStatusException(HttpStatus.CONFLICT, "no draft comments to publish for PR " + prId);
         }
 
-        String[] ownerRepo = pr.repo().split("/", 2);
-        PullRequestRef ref = new PullRequestRef(ownerRepo[0], ownerRepo[1], pr.remotePrNumber());
-        String pat = patResolver.resolve(pr.repo());
         String draftBody = drafts.stream()
                 .filter(c -> PRComment.SCOPE_PR.equals(c.scope()))
                 .map(PRComment::body)
@@ -476,13 +516,24 @@ public class PRPublishService
                         c.side() == null ? "RIGHT" : c.side(), c.body(),
                         Optional.ofNullable(c.startLine()), Optional.ofNullable(c.startSide())))
                 .toList();
-        pullRequests.createReview(pat, ref, new CreateReviewCommand(
-                Optional.empty(), body.isBlank() ? Optional.empty() : Optional.of(body), event, lineComments));
-        markReviewRequestHandled(pr, switch (event) {
+        HandledAction handledAction = switch (event) {
             case "APPROVE" -> HandledAction.APPROVED;
             case "REQUEST_CHANGES" -> HandledAction.CHANGES_REQUESTED;
             default -> HandledAction.COMMENTED;
-        });
+        };
+        if (isV2(pr)) {
+            v2UserRemoteActions.submitReview(
+                    requireV2CommandId(commandId), pr.taskId(), prId, event,
+                    body, drafts,
+                    handledAction);
+            return prService.findById(prId).orElse(pr);
+        }
+        String[] ownerRepo = pr.repo().split("/", 2);
+        PullRequestRef ref = new PullRequestRef(ownerRepo[0], ownerRepo[1], pr.remotePrNumber());
+        String pat = patResolver.resolve(pr.repo());
+        pullRequests.createReview(pat, ref, new CreateReviewCommand(
+                Optional.empty(), body.isBlank() ? Optional.empty() : Optional.of(body), event, lineComments));
+        markReviewRequestHandled(pr, handledAction);
 
         Instant when = Instant.now();
         for (PRComment draft : drafts) {
@@ -506,6 +557,16 @@ public class PRPublishService
                 && workflowVersion(pr.taskId());
     }
 
+    private static String requireV2CommandId(String commandId)
+    {
+        if (commandId == null || commandId.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Idempotency-Key is required for a V2 remote action");
+        }
+        return commandId;
+    }
+
     private boolean isV2Task(String taskId)
     {
         return taskId != null && !taskId.isBlank() && workflowVersion(taskId);
@@ -524,13 +585,6 @@ public class PRPublishService
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.CONFLICT,
                         "Task " + taskId + " has no immutable workflow route"));
-    }
-
-    private void rejectUnsupportedV2(PR pr, String reason)
-    {
-        if (isV2(pr)) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, reason);
-        }
     }
 
     private static MergePullRequestCommand mergeCommand(String method)

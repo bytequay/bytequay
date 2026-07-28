@@ -582,9 +582,14 @@ public class SqliteLocalDevelopmentRuntimeStore
     {
         List<String> rows = jdbc.query("""
                 SELECT episode.task_id
-                FROM brain_review_episode episode
-                JOIN task_turn turn ON turn.id = episode.task_turn_id
+                FROM task_turn turn
+                LEFT JOIN task_turn_user_wait_continuation_v266 continuation
+                  ON continuation.successor_turn_id = turn.id
+                JOIN brain_review_episode episode
+                  ON episode.task_turn_id = COALESCE(
+                      continuation.logical_turn_id, turn.id)
                 WHERE turn.id = ? AND turn.operation_id = ?
+                  AND turn.purpose = 'DEVELOPMENT_BRAIN_REVIEW'
                 """, (rs, row) -> rs.getString(1), turnId, operationId);
         if (rows.size() != 1) {
             throw new IllegalStateException("Development Brain owner is missing");
@@ -595,12 +600,15 @@ public class SqliteLocalDevelopmentRuntimeStore
     public BrainTurnContext requireBrainTurnContext(String turnId, String operationId)
     {
         List<BrainTurnContext> rows = jdbc.query("""
-                SELECT turn.id AS turn_id, turn.operation_id,
+                SELECT turn.id AS turn_id, turn.operation_id, turn.attempt,
                        turn.status AS turn_status, turn.task_id, turn.task_epoch,
                        turn.trigger_stage_id AS stage_id,
                        turn.trigger_stage_generation AS stage_generation,
                        turn.expected_code_fingerprint,
                        turn.expected_head_sha, turn.expected_base_sha,
+                       logical.id AS logical_turn_id,
+                       logical.operation_id AS logical_operation_id,
+                       logical.attempt AS logical_attempt,
                        episode.id AS episode_id, episode.status AS episode_status,
                        episode.dev_report_id, episode.validation_evidence_id,
                        episode.semantic_attempt, task.lifecycle_state,
@@ -618,7 +626,12 @@ public class SqliteLocalDevelopmentRuntimeStore
                        policy.max_brain_rounds, ticket.id AS ticket_id,
                        ticket.status AS ticket_status
                 FROM task_turn turn
-                JOIN brain_review_episode episode ON episode.task_turn_id = turn.id
+                LEFT JOIN task_turn_user_wait_continuation_v266 continuation
+                  ON continuation.successor_turn_id = turn.id
+                JOIN task_turn logical ON logical.id = COALESCE(
+                    continuation.logical_turn_id, turn.id)
+                JOIN brain_review_episode episode
+                  ON episode.task_turn_id = logical.id
                 JOIN tasks task ON task.id = turn.task_id
                 JOIN threads trunk ON trunk.id = task.thread_id
                 JOIN stage owner ON owner.id = turn.trigger_stage_id
@@ -681,7 +694,7 @@ public class SqliteLocalDevelopmentRuntimeStore
                 WHERE id = ? AND task_turn_id = ?
                   AND status IN ('REQUESTED', 'REVIEWING')
                 """, verdict, unresolvedFindingCount, summary, at.toEpochMilli(),
-                context.episodeId(), context.turnId());
+                context.episodeId(), context.logicalTurnId());
         if (turn != 1 || episode != 1) {
             throw new IllegalStateException("Development Brain changed before verdict");
         }
@@ -706,7 +719,8 @@ public class SqliteLocalDevelopmentRuntimeStore
                     error_message = ?
                 WHERE id = ? AND task_turn_id = ?
                   AND status IN ('REQUESTED', 'REVIEWING')
-                """, at.toEpochMilli(), detail, context.episodeId(), context.turnId());
+                """, at.toEpochMilli(), detail, context.episodeId(),
+                context.logicalTurnId());
         if (turn != 1 || episode != 1) {
             throw new IllegalStateException(
                     "Development Brain changed before budget exhaustion");
@@ -743,7 +757,8 @@ public class SqliteLocalDevelopmentRuntimeStore
                 SET status = 'SUPERSEDED', completed_at_ms = ?, error_message = ?
                 WHERE id = ? AND task_turn_id = ?
                   AND status IN ('REQUESTED', 'REVIEWING')
-                """, at.toEpochMilli(), detail, context.episodeId(), context.turnId());
+                """, at.toEpochMilli(), detail, context.episodeId(),
+                context.logicalTurnId());
         if (turn != 1 || episode != 1) {
             throw new IllegalStateException(
                     "Development Brain changed before supersession");
@@ -930,7 +945,10 @@ public class SqliteLocalDevelopmentRuntimeStore
     {
         return new BrainTurnContext(
                 rs.getString("turn_id"), rs.getString("operation_id"),
-                rs.getString("turn_status"), rs.getString("episode_id"),
+                rs.getInt("attempt"), rs.getString("turn_status"),
+                rs.getString("logical_turn_id"),
+                rs.getString("logical_operation_id"),
+                rs.getInt("logical_attempt"), rs.getString("episode_id"),
                 rs.getString("episode_status"), rs.getString("task_id"),
                 rs.getLong("task_epoch"), rs.getString("stage_id"),
                 rs.getLong("stage_generation"),
@@ -1117,7 +1135,8 @@ public class SqliteLocalDevelopmentRuntimeStore
             String brainReviewEpisodeId, Instant recordedAt) {}
 
     public record BrainTurnContext(
-            String turnId, String operationId, String turnStatus,
+            String turnId, String operationId, int attempt, String turnStatus,
+            String logicalTurnId, String logicalOperationId, int logicalAttempt,
             String episodeId, String episodeStatus, String taskId,
             long taskEpoch, String stageId, long stageGeneration,
             String codeFingerprint, String headSha, String baseSha,
@@ -1131,10 +1150,18 @@ public class SqliteLocalDevelopmentRuntimeStore
             String model, String roleSkill, int maxBrainRounds,
             String ticketId, String ticketStatus)
     {
-        public ResultFence fence()
+        public ResultFence deliveryFence()
         {
             return new ResultFence(
-                    taskEpoch, stageId, stageGeneration, operationId, 1,
+                    taskEpoch, stageId, stageGeneration, operationId, attempt,
+                    codeFingerprint, headSha, baseSha);
+        }
+
+        public ResultFence ownerFence()
+        {
+            return new ResultFence(
+                    taskEpoch, stageId, stageGeneration,
+                    logicalOperationId, logicalAttempt,
                     codeFingerprint, headSha, baseSha);
         }
 

@@ -149,7 +149,7 @@ class TestMergeResultDeliveryPort
         return new MergeRequest(
                 "merge-row", "authorization", "readiness", "operation",
                 "remote-stage", "task", "trunk", "workspace", 1, 1, 1,
-                MergeMode.DIRECT, status, 1, 3, 0, 0,
+                MergeMode.DIRECT, "squash", status, 1, 3, 0, 0,
                 "head", "base", "owner/repo", 17, "readiness", "V2",
                 "ACTIVE", 1, "remote-stage", 1, "MERGING", error);
     }

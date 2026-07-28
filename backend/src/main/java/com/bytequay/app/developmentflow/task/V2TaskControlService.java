@@ -48,7 +48,28 @@ public final class V2TaskControlService
     private final RemoteCiRepairRuntimeCoordinator ciRepair;
     private final JdbcTemplate jdbc;
     private final V2UserWaitStore userWaits;
+    private final PolicyRevisionRedriver policyRedriver;
 
+    public V2TaskControlService(
+            TaskManager tasks,
+            TaskManager.Store store,
+            DispatchTicketControl tickets,
+            RemoteCiRepairRuntimeCoordinator ciRepair,
+            JdbcTemplate jdbc,
+            V2UserWaitStore userWaits,
+            PolicyRevisionRedriver policyRedriver)
+    {
+        this.tasks = requireNonNull(tasks, "tasks is null");
+        this.store = requireNonNull(store, "store is null");
+        this.tickets = requireNonNull(tickets, "tickets is null");
+        this.ciRepair = requireNonNull(ciRepair, "ciRepair is null");
+        this.jdbc = requireNonNull(jdbc, "jdbc is null");
+        this.userWaits = requireNonNull(userWaits, "userWaits is null");
+        this.policyRedriver = requireNonNull(
+                policyRedriver, "policyRedriver is null");
+    }
+
+    /** Compatibility constructor for focused tests outside Spring. */
     public V2TaskControlService(
             TaskManager tasks,
             TaskManager.Store store,
@@ -57,12 +78,7 @@ public final class V2TaskControlService
             JdbcTemplate jdbc,
             V2UserWaitStore userWaits)
     {
-        this.tasks = requireNonNull(tasks, "tasks is null");
-        this.store = requireNonNull(store, "store is null");
-        this.tickets = requireNonNull(tickets, "tickets is null");
-        this.ciRepair = requireNonNull(ciRepair, "ciRepair is null");
-        this.jdbc = requireNonNull(jdbc, "jdbc is null");
-        this.userWaits = requireNonNull(userWaits, "userWaits is null");
+        this(tasks, store, tickets, ciRepair, jdbc, userWaits, ignored -> {});
     }
 
     /** Compatibility constructor for focused tests outside Spring. */
@@ -98,12 +114,10 @@ public final class V2TaskControlService
         TaskManager.State current = requireTask(taskId);
         if (current.lifecycle() == TaskLifecycle.PAUSING
                 || current.lifecycle() == TaskLifecycle.PAUSED) {
-            terminateWaits(taskId, "Task paused");
             cancelLiveTickets(taskId);
             return current;
         }
         TaskManager.State requested = tasks.requestPause(command(current)).state();
-        terminateWaits(taskId, "Task paused");
         cancelLiveTickets(taskId);
         return requested;
     }
@@ -131,6 +145,9 @@ public final class V2TaskControlService
         requireNonNull(taskId, "taskId is null");
         TaskManager.State current = store.findById(taskId).orElse(null);
         if (current == null) {
+            return false;
+        }
+        if (userWaits.hasArchiveBlockingWait(taskId)) {
             return false;
         }
         try {
@@ -229,15 +246,19 @@ public final class V2TaskControlService
         if (current.autoApprove() == autoApprove
                 && current.autoMerge() == autoMerge
                 && current.minApprovals() == minApprovals) {
+            policyRedriver.redrive(current.taskId());
             return current;
         }
         TaskManager.State task = requireTask(current.taskId());
-        return tasks.revisePolicy(new TaskManager.PolicyCommand(
+        TaskManager.PolicyRevision selected = tasks.revisePolicy(
+                new TaskManager.PolicyCommand(
                 command(task), UUID.randomUUID().toString(), autoApprove,
                 autoMerge, minApprovals, current.maxBrainRounds(),
                 current.maxCiFixPushes(),
                 current.requireRemoteBranchCleanup(),
                 current.permissionPolicyRef())).state();
+        policyRedriver.redrive(selected.taskId());
+        return selected;
     }
 
     private void cancelLiveTickets(String taskId)
@@ -283,5 +304,11 @@ public final class V2TaskControlService
         return new TaskManager.Command(
                 UUID.randomUUID().toString(), actor, state.id(),
                 state.epoch(), state.version());
+    }
+
+    @FunctionalInterface
+    public interface PolicyRevisionRedriver
+    {
+        void redrive(String taskId);
     }
 }

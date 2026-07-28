@@ -268,6 +268,28 @@ public final class RemoteDevelopmentStageManager
                 StageCheckpoint.READY_TO_MERGE);
     }
 
+    /** Regresses a stale ready projection only from a fresh current-policy proof. */
+    public CommandResult<State> reconsiderReadinessPolicyInCommand(
+            PolicyReadinessCommand command)
+    {
+        requireNonNull(command, "command is null");
+        PolicyReadinessEvidence persisted = evidence.findPolicyReadiness(
+                        command.stage().taskId(), command.stage().stageId(),
+                        command.stage().expectedStageGeneration(),
+                        command.readinessEvidenceId())
+                .orElseThrow(() -> rejected(
+                        "Current-policy readiness regression proof is missing"));
+        if (!persisted.matches(command) || persisted.ready()) {
+            throw rejected(
+                    "Policy readiness regression does not match the current exact head");
+        }
+        return moveWithProofInCommand(
+                command.stage(), command.readinessEvidenceId(),
+                "RECONSIDER_REMOTE_READINESS_POLICY",
+                StageCheckpoint.READY_TO_MERGE,
+                StageCheckpoint.WAITING_REMOTE_REVIEW);
+    }
+
     public CommandResult<State> authorizeMerge(MergeAuthorizationCommand command)
     {
         requireNonNull(command, "command is null");
@@ -493,6 +515,63 @@ public final class RemoteDevelopmentStageManager
                     && stageId.equals(command.stage().stageId())
                     && stageGeneration == command.stage().expectedStageGeneration()
                     && proofId.equals(command.proofId())
+                    && headSha.equals(command.headSha())
+                    && baseSha.equals(command.baseSha());
+        }
+    }
+
+    public record PolicyReadinessCommand(
+            Command stage,
+            String readinessEvidenceId,
+            String automationPolicyId,
+            String headSha,
+            String baseSha)
+    {
+        public PolicyReadinessCommand
+        {
+            requireNonNull(stage, "stage is null");
+            requireText(readinessEvidenceId, "readinessEvidenceId");
+            requireText(automationPolicyId, "automationPolicyId");
+            requireText(headSha, "headSha");
+            requireText(baseSha, "baseSha");
+        }
+    }
+
+    public record PolicyReadinessEvidence(
+            String taskId,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            String readinessEvidenceId,
+            String automationPolicyId,
+            String headSha,
+            String baseSha,
+            boolean ready)
+    {
+        public PolicyReadinessEvidence
+        {
+            requireText(taskId, "taskId");
+            requireText(stageId, "stageId");
+            requireText(readinessEvidenceId, "readinessEvidenceId");
+            requireText(automationPolicyId, "automationPolicyId");
+            requireText(headSha, "headSha");
+            requireText(baseSha, "baseSha");
+            if (taskEpoch < 1 || stageGeneration < 1) {
+                throw new IllegalArgumentException(
+                        "Policy readiness fence is invalid");
+            }
+        }
+
+        private boolean matches(PolicyReadinessCommand command)
+        {
+            return taskId.equals(command.stage().taskId())
+                    && taskEpoch == command.stage().expectedTaskEpoch()
+                    && stageId.equals(command.stage().stageId())
+                    && stageGeneration
+                            == command.stage().expectedStageGeneration()
+                    && readinessEvidenceId.equals(
+                            command.readinessEvidenceId())
+                    && automationPolicyId.equals(command.automationPolicyId())
                     && headSha.equals(command.headSha())
                     && baseSha.equals(command.baseSha());
         }
@@ -767,6 +846,15 @@ public final class RemoteDevelopmentStageManager
 
         default Optional<RemoteGateEvidence> findReadyEvidence(
                 String taskId, String stageId, long stageGeneration, String evidenceId)
+        {
+            return Optional.empty();
+        }
+
+        default Optional<PolicyReadinessEvidence> findPolicyReadiness(
+                String taskId,
+                String stageId,
+                long stageGeneration,
+                String readinessEvidenceId)
         {
             return Optional.empty();
         }

@@ -640,6 +640,13 @@ public interface PullRequestRepository
         throw new UnsupportedOperationException("deleteBranch not implemented");
     }
 
+    /** Exact current head for a remote branch, or empty when it is absent. */
+    default Optional<String> fetchBranchHeadSha(
+            String pat, PullRequestRef repository, String branchName)
+    {
+        throw new UnsupportedOperationException("fetchBranchHeadSha not implemented");
+    }
+
     /**
      * Asks GitHub whether the PR's target branch has merge queue enabled,
      * and if so returns the PR's GraphQL node id so the caller can hand

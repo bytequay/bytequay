@@ -14,6 +14,7 @@
 package com.bytequay.app.service.brain;
 
 import com.bytequay.app.beans.brain.BrainMessageResponse;
+import com.bytequay.app.developmentflow.task.TaskBrainConversationRuntime;
 import com.bytequay.app.domain.StageEvent;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.StageInstance;
@@ -114,6 +115,26 @@ class TestBrainService
                 eq(saved.getValue()), eq("How many pushes?"), eq(TASK_ID), any(), any(), any());
         assertThat(out.turnId()).isEqualTo("turn-1");
         assertThat(out.brainThreadId()).isEqualTo("ws-default.brain-1");
+    }
+
+    @Test
+    void routesV2MessageToTypedTaskBrainWithoutLegacyScheduler()
+    {
+        TaskBrainConversationRuntime typed = mock(
+                TaskBrainConversationRuntime.class);
+        BrainMessageResponse expected = new BrainMessageResponse(
+                "typed-turn", "trunk-1");
+        when(typed.isV2Task(TASK_ID)).thenReturn(true);
+        when(typed.sendMessage(TASK_ID, "Inspect this", List.of("image")))
+                .thenReturn(expected);
+        service.setV2Brain(typed);
+
+        assertThat(service.sendMessage(
+                TASK_ID, "Inspect this", List.of("image")))
+                .isEqualTo(expected);
+        verify(scheduler, never()).enqueueTaskTurn(
+                any(), anyString(), anyString(), any(), any(), any());
+        verify(taskStore, never()).findTaskById(TASK_ID);
     }
 
     @Test

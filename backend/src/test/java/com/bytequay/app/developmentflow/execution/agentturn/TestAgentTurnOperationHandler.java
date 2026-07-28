@@ -121,6 +121,30 @@ class TestAgentTurnOperationHandler
     }
 
     @Test
+    void admitsOnlyExplicitTerminalTaskBrainConversationWithoutTaskLease()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = terminalConversationEnvelope();
+        AgentTurnOperationHandler.ExactTurn conversation = terminalTurn(
+                "TASK_BRAIN_CONVERSATION");
+
+        DispatchTicket.DispatchResult accepted = handler(conversation)
+                .execute(context(envelope));
+
+        assertThat(accepted.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+        assertThat(envelope.capacityRequest().exclusiveTask()).isFalse();
+        assertThat(provider.request.access())
+                .isEqualTo(AgentTurnProviderSession.Access.READ_ONLY);
+
+        provider = new FakeProvider();
+        DispatchTicket.DispatchResult generic = handler(terminalTurn("BRAIN_REVIEW"))
+                .execute(context(envelope));
+        assertThat(generic.outcome()).isEqualTo(DispatchTicket.Outcome.FAILED);
+        assertThat(generic.error()).contains("capacity scope or writer mode");
+        assertThat(provider.opens).isZero();
+    }
+
+    @Test
     void stageTurnAcquiresExactWriterLeaseBeforeOpeningProvider()
             throws Exception
     {
@@ -434,6 +458,26 @@ class TestAgentTurnOperationHandler
                 capacity);
     }
 
+    private static DispatchTicket.DispatchEnvelope terminalConversationEnvelope()
+    {
+        DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
+                1L, null, null, "operation-1", 1,
+                "fingerprint-1", "head-1", "base-1");
+        CapacityManager.CapacityRequest capacity = new CapacityManager.CapacityRequest(
+                "operation-1", CapacityManager.WorkflowSource.V2,
+                Set.of(
+                        CapacityManager.CapacityLane.CLI,
+                        CapacityManager.CapacityLane.REVIEW),
+                new CapacityManager.CapacityScope(
+                        "workspace-1", "trunk-1", "task-1", 1L),
+                false, false, false);
+        return new DispatchTicket.DispatchEnvelope(
+                TASK_OPERATION_KIND, DispatchTicket.AsyncFamily.AGENT_TURN,
+                new DispatchTicket.OwnerReference(
+                        TASK_TURN, "task-turn-1", "TASK_TURN_RESULT"),
+                fence, capacity);
+    }
+
     private static AgentTurnOperationHandler.ExactTurn turn(
             DispatchTicket.OwnerKind ownerKind, String launchInput)
     {
@@ -492,6 +536,16 @@ class TestAgentTurnOperationHandler
                 null,
                 "codex",
                 "gpt-5.6");
+    }
+
+    private static AgentTurnOperationHandler.ExactTurn terminalTurn(String purpose)
+    {
+        return new AgentTurnOperationHandler.ExactTurn(
+                TASK_TURN, "task-turn-1", "task-1", 1,
+                null, null, purpose, "QUEUED", "operation-1", 1,
+                "fingerprint-1", "head-1", "base-1", launchInput(),
+                WORKTREE, "COMPLETED", null, null, false,
+                "fingerprint-1", "head-1", "base-1", "codex", "gpt-5.6");
     }
 
     private static AgentTurnOperationHandler.ExactTurn withCurrentFingerprint(

@@ -19,6 +19,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /** Shares the scheduler's resolved turn contract with the task-bound MCP endpoint. */
@@ -118,6 +119,7 @@ public class ActiveAgentContextRegistry
         private final TypedOwner typedOwner;
         private final AtomicReference<Runnable> stop = new AtomicReference<>();
         private final AtomicReference<String> stopReason = new AtomicReference<>();
+        private final AtomicBoolean stopInvoked = new AtomicBoolean();
 
         private Entry(
                 ResolvedAgentContext context,
@@ -146,17 +148,29 @@ public class ActiveAgentContextRegistry
 
         private boolean attachStop(Runnable callback)
         {
-            return stop.compareAndSet(null, callback);
+            if (!stop.compareAndSet(null, callback)) {
+                return false;
+            }
+            invokeStopIfReady();
+            return true;
         }
 
         private boolean requestStop(String reason)
         {
-            Runnable callback = stop.get();
-            if (callback == null || !stopReason.compareAndSet(null, reason)) {
+            if (!stopReason.compareAndSet(null, reason)) {
                 return false;
             }
-            callback.run();
+            invokeStopIfReady();
             return true;
+        }
+
+        private void invokeStopIfReady()
+        {
+            Runnable callback = stop.get();
+            if (callback != null && stopReason.get() != null
+                    && stopInvoked.compareAndSet(false, true)) {
+                callback.run();
+            }
         }
 
         private Optional<String> stopReason()

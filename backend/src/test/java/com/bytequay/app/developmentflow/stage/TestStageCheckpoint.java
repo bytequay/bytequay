@@ -124,7 +124,8 @@ class TestStageCheckpoint
                         StageCheckpoint.WAITING_REMOTE_REVIEW));
         edges.put(StageCheckpoint.READY_TO_MERGE, Set.of(
                 StageCheckpoint.MERGING,
-                StageCheckpoint.WAITING_CI));
+                StageCheckpoint.WAITING_CI,
+                StageCheckpoint.WAITING_REMOTE_REVIEW));
         edges.put(StageCheckpoint.MERGING, Set.of(
                 StageCheckpoint.READY_TO_MERGE,
                 StageCheckpoint.COMPLETED,

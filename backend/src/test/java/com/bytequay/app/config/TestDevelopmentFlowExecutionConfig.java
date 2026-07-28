@@ -40,10 +40,14 @@ import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandle
 import com.bytequay.app.developmentflow.execution.publish.SqlitePublishOperationStore;
 import com.bytequay.app.developmentflow.execution.remote.GitHubRemoteEffects;
 import com.bytequay.app.developmentflow.execution.remote.GitHubRemoteObserver;
+import com.bytequay.app.developmentflow.execution.remote.GitHubUserRemoteActionGateway;
 import com.bytequay.app.developmentflow.execution.remote.RemoteFeedbackEffectOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.RemoteMarkReadyOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteFeedbackEffectOperationStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteMarkReadyOperationStore;
+import com.bytequay.app.developmentflow.execution.remote.SqliteUserRemoteActionStore;
+import com.bytequay.app.developmentflow.execution.remote.UserRemoteActionOperationHandler;
+import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
 import com.bytequay.app.developmentflow.persistence.SqliteAgentTurnOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteReviewAssignmentTurnStore;
 import com.bytequay.app.developmentflow.persistence.SqliteThreadTurnOperationStore;
@@ -65,12 +69,16 @@ import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationOperationH
 import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
+import com.bytequay.app.developmentflow.stage.V2ReadinessAssistanceRuntime;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteReadinessAssistanceStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore;
+import com.bytequay.app.developmentflow.task.TaskBrainConversationRuntime;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.TaskPolicyRevisionRedriver;
 import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseRefreshOperationHandler;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseTurnRuntime;
@@ -82,6 +90,7 @@ import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
+import com.bytequay.app.developmentflow.trunk.V2TrunkPurge;
 import com.bytequay.app.developmentflow.userwait.V2UserWaitResultDeliveryPort;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadSettings;
@@ -98,6 +107,7 @@ import com.bytequay.app.service.checks.ValidationCheck;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.review.InvestigationReviewService;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
 import com.bytequay.app.service.skills.RoleRegistry;
@@ -149,6 +159,10 @@ class TestDevelopmentFlowExecutionConfig
                     assertThat(context).hasSingleBean(PlanningBaseTurnRuntime.class);
                     assertThat(context).hasSingleBean(V2ThreadControlService.class);
                     assertThat(context).hasSingleBean(ReviewAssignmentTurnRuntime.class);
+                    assertThat(context).hasSingleBean(V2UserRemoteActionRuntime.class);
+                    assertThat(context).hasSingleBean(V2ReadinessAssistanceRuntime.class);
+                    assertThat(context).doesNotHaveBean(
+                            UserRemoteActionOperationHandler.class);
                     assertThat(context).doesNotHaveBean(ExecutionDispatcher.class);
                 });
     }
@@ -198,6 +212,7 @@ class TestDevelopmentFlowExecutionConfig
                 CleanupOperationHandler.class,
                 RemoteFeedbackValidationOperationHandler.class,
                 RemoteFeedbackEffectOperationHandler.class,
+                UserRemoteActionOperationHandler.class,
                 RemoteMarkReadyOperationHandler.class,
                 RemoteObservationOperationHandler.class,
                 RemoteEffectOperationHandler.class,
@@ -233,6 +248,8 @@ class TestDevelopmentFlowExecutionConfig
                 RemoteFeedbackValidationOperationHandler.class);
         RemoteFeedbackEffectOperationHandler remoteEffects = mock(
                 RemoteFeedbackEffectOperationHandler.class);
+        UserRemoteActionOperationHandler userRemoteActions = mock(
+                UserRemoteActionOperationHandler.class);
         RemoteMarkReadyOperationHandler markReady = mock(
                 RemoteMarkReadyOperationHandler.class);
         RemoteObservationOperationHandler observations = mock(
@@ -244,7 +261,8 @@ class TestDevelopmentFlowExecutionConfig
         ExecutionPorts.OperationHandlerRegistry registry = config.v2OperationHandlers(
                 provisioning, turns, threadTurns, planningBase, reviewTurns,
                 localValidation, publish, cleanup, remoteValidation,
-                remoteEffects, markReady, observations, finiteEffects, merge);
+                remoteEffects, userRemoteActions, markReady, observations,
+                finiteEffects, merge);
 
         assertThat(registry.require(ProvisionTaskOperationHandler.OPERATION_KIND))
                 .isSameAs(provisioning);
@@ -273,6 +291,10 @@ class TestDevelopmentFlowExecutionConfig
                 .isSameAs(remoteValidation);
         assertThat(registry.require(RemoteFeedbackEffectOperationHandler.OPERATION_KIND))
                 .isSameAs(remoteEffects);
+        assertThat(registry.require(RemoteFeedbackEffectOperationHandler
+                .READINESS_ASSISTANCE_OPERATION_KIND)).isSameAs(remoteEffects);
+        assertThat(registry.require(UserRemoteActionOperationHandler.OPERATION_KIND))
+                .isSameAs(userRemoteActions);
         assertThat(registry.require(RemoteMarkReadyOperationHandler.OPERATION_KIND))
                 .isSameAs(markReady);
         assertThat(registry.require(RemoteObservationOperationHandler.OPERATION_KIND))
@@ -324,6 +346,9 @@ class TestDevelopmentFlowExecutionConfig
                 mock(SqliteTaskOutcomeSummaryStore.class),
                 mock(V2UserWaitStore.class),
                 mock(TaskOutcomeSummaryRuntime.class),
+                mock(TaskBrainConversationRuntime.class),
+                mock(V2UserRemoteActionRuntime.class),
+                mock(V2ReadinessAssistanceRuntime.class),
                 mock(ObjectProvider.class),
                 mock(JdbcTemplate.class),
                 new ObjectMapper());
@@ -365,6 +390,9 @@ class TestDevelopmentFlowExecutionConfig
                 "BRANCH_SYNC_VALIDATION_RESULT",
                 "BRANCH_SYNC_PUSH_RESULT",
                 ReviewAssignmentTurnOperationHandler.CALLBACK_ROUTE,
+                UserRemoteActionOperationHandler.CALLBACK_ROUTE,
+                RemoteFeedbackEffectOperationHandler
+                        .READINESS_ASSISTANCE_CALLBACK_ROUTE,
                 MergeOperationHandler.CALLBACK_ROUTE);
 
         delivery.recoverCommittedDeliveries(7);
@@ -385,6 +413,10 @@ class TestDevelopmentFlowExecutionConfig
                 mock(SqliteRemoteMarkReadyOperationStore.class), null, json))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessageContaining("github is null");
+        assertThatThrownBy(() -> config.v2UserRemoteActionOperationHandler(
+                mock(SqliteUserRemoteActionStore.class), null, json))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("gateway is null");
     }
 
     @Test
@@ -426,6 +458,9 @@ class TestDevelopmentFlowExecutionConfig
                     assertThat(handlers.require(
                             RemoteFeedbackEffectOperationHandler.OPERATION_KIND))
                             .isInstanceOf(RemoteFeedbackEffectOperationHandler.class);
+                    assertThat(handlers.require(
+                            UserRemoteActionOperationHandler.OPERATION_KIND))
+                            .isInstanceOf(UserRemoteActionOperationHandler.class);
                     assertThat(handlers.require(
                             RemoteMarkReadyOperationHandler.OPERATION_KIND))
                             .isInstanceOf(RemoteMarkReadyOperationHandler.class);
@@ -516,12 +551,19 @@ class TestDevelopmentFlowExecutionConfig
                 .withBean(TaskManager.class, () -> mock(TaskManager.class))
                 .withBean(TaskManager.Store.class,
                         () -> mock(TaskManager.Store.class))
+                .withBean(TaskPolicyRevisionRedriver.class,
+                        () -> mock(TaskPolicyRevisionRedriver.class))
                 .withBean(RemoteCiRepairRuntimeCoordinator.class,
                         () -> mock(RemoteCiRepairRuntimeCoordinator.class))
+                .withBean(TaskCommandExecutor.class,
+                        () -> mock(TaskCommandExecutor.class))
                 .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
+                .withBean(V2UserWaitStore.class,
+                        () -> mock(V2UserWaitStore.class))
                 .withBean(TrunkManager.class, () -> mock(TrunkManager.class))
                 .withBean(TrunkManager.Store.class,
                         () -> mock(TrunkManager.Store.class))
+                .withBean(V2TrunkPurge.class, () -> mock(V2TrunkPurge.class))
                 .withBean(SqlitePlanningBaseTurnStore.class,
                         () -> mock(SqlitePlanningBaseTurnStore.class))
                 .withBean(ThreadTurnHandoff.class,
@@ -540,6 +582,13 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(SessionKnowledgeProvider.class))
                 .withBean(SqliteReviewAssignmentTurnStore.class,
                         () -> mock(SqliteReviewAssignmentTurnStore.class))
+                .withBean(SqliteReadinessAssistanceStore.class,
+                        () -> mock(SqliteReadinessAssistanceStore.class))
+                .withBean(SqliteUserRemoteActionStore.class,
+                        () -> mock(SqliteUserRemoteActionStore.class))
+                .withBean(PRService.class, () -> mock(PRService.class))
+                .withBean(InvestigationReviewService.class,
+                        () -> mock(InvestigationReviewService.class))
                 .withBean(ReviewProviderEndpoints.class,
                         () -> mock(ReviewProviderEndpoints.class));
     }
@@ -579,15 +628,10 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(RemoteDevelopmentRuntimeCoordinator.class))
                 .withBean(RemoteObservationRuntimeCoordinator.class,
                         () -> mock(RemoteObservationRuntimeCoordinator.class))
-                .withBean(PRService.class, () -> mock(PRService.class))
                 .withBean(BranchSyncRuntimeCoordinator.class,
                         () -> mock(BranchSyncRuntimeCoordinator.class))
                 .withBean(RemoteRepairTurnRuntime.class,
                         () -> mock(RemoteRepairTurnRuntime.class))
-                .withBean(V2UserWaitStore.class,
-                        () -> mock(V2UserWaitStore.class))
-                .withBean(TaskCommandExecutor.class,
-                        () -> mock(TaskCommandExecutor.class))
                 .withBean(LocalDevelopmentStageManager.class,
                         () -> mock(LocalDevelopmentStageManager.class))
                 .withBean(RemoteDevelopmentStageManager.class,
@@ -596,6 +640,8 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(SqliteTaskOutcomeSummaryStore.class))
                 .withBean(TaskOutcomeSummaryRuntime.class,
                         () -> mock(TaskOutcomeSummaryRuntime.class))
+                .withBean(TaskBrainConversationRuntime.class,
+                        () -> mock(TaskBrainConversationRuntime.class))
                 .withBean(WorktreeService.class,
                         () -> mock(WorktreeService.class))
                 .withBean(LocalToRemoteHandoff.class,
@@ -645,6 +691,8 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(SqliteRemoteFeedbackEffectOperationStore.class))
                 .withBean(SqliteRemoteMarkReadyOperationStore.class,
                         () -> mock(SqliteRemoteMarkReadyOperationStore.class))
+                .withBean(GitHubUserRemoteActionGateway.class,
+                        () -> mock(GitHubUserRemoteActionGateway.class))
                 .withBean(SqliteRemoteRuntimeStore.class,
                         () -> mock(SqliteRemoteRuntimeStore.class))
                 .withBean(GitHubRemoteObserver.class,

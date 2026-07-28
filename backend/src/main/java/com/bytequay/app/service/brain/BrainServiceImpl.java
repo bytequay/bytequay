@@ -14,6 +14,7 @@
 package com.bytequay.app.service.brain;
 
 import com.bytequay.app.beans.brain.BrainMessageResponse;
+import com.bytequay.app.developmentflow.task.TaskBrainConversationRuntime;
 import com.bytequay.app.domain.StageEventType;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -71,6 +72,7 @@ public class BrainServiceImpl
     private final ChatAttachmentStore attachmentStore;
     private final ObjectMapper mapper;
     private final TransactionTemplate planningTransactions;
+    private TaskBrainConversationRuntime v2Brain;
 
     @Autowired
     public BrainServiceImpl(
@@ -86,8 +88,7 @@ public class BrainServiceImpl
     {
         this(taskStore, threadStore, stageStore, scheduler, idGenerator,
                 workModelResolver, attachmentStore, mapper,
-                new TransactionTemplate(requireNonNull(
-                        transactionManager, "transactionManager is null")));
+                transactionTemplate(transactionManager));
     }
 
     /** Dependency-light constructor retained for focused unit tests. */
@@ -128,12 +129,30 @@ public class BrainServiceImpl
     }
 
     @Override
-    @Transactional
     public BrainMessageResponse sendMessage(String taskId, String text, List<String> images)
     {
         if (text == null || text.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "text is required");
         }
+        if (v2Brain != null && v2Brain.isV2Task(taskId)) {
+            return v2Brain.sendMessage(taskId, text, images);
+        }
+        if (planningTransactions == null) {
+            return sendLegacyMessage(taskId, text, images);
+        }
+        return planningTransactions.execute(
+                ignored -> sendLegacyMessage(taskId, text, images));
+    }
+
+    @Autowired(required = false)
+    void setV2Brain(TaskBrainConversationRuntime v2Brain)
+    {
+        this.v2Brain = requireNonNull(v2Brain, "v2Brain is null");
+    }
+
+    private BrainMessageResponse sendLegacyMessage(
+            String taskId, String text, List<String> images)
+    {
         Task task = taskStore.findTaskById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
@@ -152,6 +171,13 @@ public class BrainServiceImpl
         String turnId = scheduler.enqueueTaskTurn(
                 brain, input, task.id(), TurnInitiator.user(), null, TurnLiveness.NARRATION);
         return new BrainMessageResponse(turnId, brain.id());
+    }
+
+    private static TransactionTemplate transactionTemplate(
+            PlatformTransactionManager transactionManager)
+    {
+        requireNonNull(transactionManager, "transactionManager is null");
+        return new TransactionTemplate(transactionManager);
     }
 
     /**

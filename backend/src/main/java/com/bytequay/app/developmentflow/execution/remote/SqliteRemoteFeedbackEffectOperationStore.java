@@ -62,7 +62,9 @@ public class SqliteRemoteFeedbackEffectOperationStore
                        binding.head_repository_id,
                        binding.remote_pr_number, identity.worktree_path,
                        binding.remote_head_ref, authorization.authorized_at_ms,
-                       step.external_effect_id, step.evidence
+                       step.external_effect_id, step.evidence,
+                       'APPLY_REMOTE_FEEDBACK_EFFECT' AS operation_kind,
+                       'REMOTE_FEEDBACK_EFFECT_RESULT' AS callback_route
                 FROM remote_feedback_effect_dispatch dispatch
                 JOIN remote_feedback_effect_step step
                   ON step.id = dispatch.remote_feedback_effect_step_id
@@ -79,6 +81,47 @@ public class SqliteRemoteFeedbackEffectOperationStore
                 JOIN task_code_identity identity ON identity.task_id = batch.task_id
                 WHERE dispatch.operation_id = ?
                 """, (rs, row) -> effect(rs), operationId);
+        if (rows.isEmpty()) {
+            rows = jdbc.query("""
+                    SELECT assistance.id, dispatch.operation_id,
+                           assistance.id AS remote_feedback_authorization_id,
+                           assistance.id AS remote_feedback_batch_id,
+                           1 AS ordinal, assistance.kind,
+                           NULL AS remote_inbox_item_id,
+                           assistance.external_target,
+                           NULL AS target_thread_id,
+                           NULL AS target_comment_id,
+                           NULL AS review_action,
+                           assistance.payload, assistance.payload_digest,
+                           assistance.idempotency_key, assistance.status,
+                           assistance.attempt_count, assistance.attempt_limit,
+                           assistance.task_id, assistance.task_epoch,
+                           assistance.remote_stage_id
+                             AS remote_development_stage_id,
+                           assistance.stage_generation,
+                           assistance.expected_head_sha AS head_sha,
+                           assistance.expected_base_sha AS base_sha,
+                           assistance.remote_repository_id,
+                           assistance.head_repository_id,
+                           assistance.remote_pr_number,
+                           identity.worktree_path,
+                           binding.remote_head_ref,
+                           assistance.authorized_at_ms,
+                           assistance.external_effect_id,
+                           assistance.evidence,
+                           'APPLY_READINESS_ASSISTANCE' AS operation_kind,
+                           'READINESS_ASSISTANCE_RESULT' AS callback_route
+                    FROM remote_readiness_assistance_dispatch_v273 dispatch
+                    JOIN remote_readiness_assistance_v273 assistance
+                      ON assistance.id = dispatch.assistance_id
+                    JOIN remote_pr_binding binding
+                      ON binding.id = assistance.remote_pr_binding_id
+                    JOIN task_code_identity identity
+                      ON identity.task_id = assistance.task_id
+                    WHERE dispatch.operation_id = ?
+                      AND assistance.operation_id = dispatch.operation_id
+                    """, (rs, row) -> effect(rs), operationId);
+        }
         if (rows.size() != 1) {
             throw new IllegalStateException("Exact Remote feedback effect is missing");
         }
@@ -95,23 +138,52 @@ public class SqliteRemoteFeedbackEffectOperationStore
             Instant leaseUntil)
     {
         return requireNonNull(transactions.execute(status -> {
-            int changed = jdbc.update("""
-                    UPDATE remote_feedback_effect_step
-                    SET status = 'CLAIMED', attempt_count = attempt_count + 1,
-                        claim_mode = ?, claim_owner = ?, claimed_at_ms = ?,
-                        lease_until_ms = ?, external_effect_id = NULL,
-                        evidence = NULL, last_error = NULL,
-                        completed_at_ms = NULL
-                    WHERE id = ? AND attempt_count = ?
-                    """, mode.name(), claimOwner, claimedAt.toEpochMilli(),
-                    leaseUntil.toEpochMilli(), effectId, expectedAttemptCount);
+            boolean assistance = isAssistance(effectId);
+            int changed = assistance
+                    ? jdbc.update("""
+                            UPDATE remote_readiness_assistance_v273
+                            SET status = 'CLAIMED',
+                                attempt_count = attempt_count + CASE
+                                    WHEN status = 'CLAIMED' THEN 0 ELSE 1 END,
+                                claim_mode = ?, claim_owner = ?, claimed_at_ms = ?,
+                                lease_until_ms = ?, external_effect_id = NULL,
+                                evidence = NULL, last_error = NULL,
+                                completed_at_ms = NULL
+                            WHERE id = ? AND attempt_count = ? AND (
+                                (status = 'CLAIMED' AND lease_until_ms <= ?)
+                                OR (status IN (
+                                        'REQUESTED', 'FAILED', 'INDETERMINATE')
+                                    AND attempt_count < attempt_limit))
+                            """, mode.name(), claimOwner,
+                            claimedAt.toEpochMilli(), leaseUntil.toEpochMilli(),
+                            effectId, expectedAttemptCount,
+                            claimedAt.toEpochMilli())
+                    : jdbc.update("""
+                            UPDATE remote_feedback_effect_step
+                            SET status = 'CLAIMED',
+                                attempt_count = attempt_count + 1,
+                                claim_mode = ?, claim_owner = ?, claimed_at_ms = ?,
+                                lease_until_ms = ?, external_effect_id = NULL,
+                                evidence = NULL, last_error = NULL,
+                                completed_at_ms = NULL
+                            WHERE id = ? AND attempt_count = ?
+                            """, mode.name(), claimOwner,
+                            claimedAt.toEpochMilli(), leaseUntil.toEpochMilli(),
+                            effectId, expectedAttemptCount);
             if (changed != 1) {
                 throw new IllegalStateException("Remote feedback effect claim lost");
             }
-            String operationId = jdbc.queryForObject("""
-                    SELECT operation_id FROM remote_feedback_effect_dispatch
-                    WHERE remote_feedback_effect_step_id = ?
-                    """, String.class, effectId);
+            String operationId = assistance
+                    ? jdbc.queryForObject("""
+                            SELECT operation_id
+                            FROM remote_readiness_assistance_dispatch_v273
+                            WHERE assistance_id = ?
+                            """, String.class, effectId)
+                    : jdbc.queryForObject("""
+                            SELECT operation_id
+                            FROM remote_feedback_effect_dispatch
+                            WHERE remote_feedback_effect_step_id = ?
+                            """, String.class, effectId);
             return require(requireNonNull(operationId, "effect operation is missing"));
         }), "Remote feedback effect claim returned null");
     }
@@ -153,19 +225,44 @@ public class SqliteRemoteFeedbackEffectOperationStore
             Instant completedAt)
     {
         transactions.executeWithoutResult(ignored -> {
-            int changed = jdbc.update("""
-                    UPDATE remote_feedback_effect_step
-                    SET status = ?, claim_mode = NULL, claim_owner = NULL,
-                        claimed_at_ms = NULL, lease_until_ms = NULL,
-                        external_effect_id = ?, evidence = ?, last_error = ?,
-                        completed_at_ms = ?
-                    WHERE id = ? AND status = 'CLAIMED' AND attempt_count = ?
-                    """, status, externalEffectId, evidence, error,
-                    completedAt.toEpochMilli(), effectId, attempt);
+            int changed = isAssistance(effectId)
+                    ? jdbc.update("""
+                            UPDATE remote_readiness_assistance_v273
+                            SET status = CASE
+                                    WHEN ? IN ('FAILED', 'INDETERMINATE')
+                                      AND attempt_count >= attempt_limit
+                                    THEN 'ABANDONED' ELSE ? END,
+                                claim_mode = NULL,
+                                claim_owner = NULL, claimed_at_ms = NULL,
+                                lease_until_ms = NULL, external_effect_id = ?,
+                                evidence = ?, last_error = ?, completed_at_ms = ?
+                            WHERE id = ? AND status = 'CLAIMED'
+                              AND attempt_count = ?
+                            """, status, status, externalEffectId, evidence, error,
+                            completedAt.toEpochMilli(), effectId, attempt)
+                    : jdbc.update("""
+                            UPDATE remote_feedback_effect_step
+                            SET status = ?, claim_mode = NULL,
+                                claim_owner = NULL, claimed_at_ms = NULL,
+                                lease_until_ms = NULL, external_effect_id = ?,
+                                evidence = ?, last_error = ?, completed_at_ms = ?
+                            WHERE id = ? AND status = 'CLAIMED'
+                              AND attempt_count = ?
+                            """, status, externalEffectId, evidence, error,
+                            completedAt.toEpochMilli(), effectId, attempt);
             if (changed != 1) {
                 throw new IllegalStateException("Remote feedback effect result lost");
             }
         });
+    }
+
+    private boolean isAssistance(String effectId)
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM remote_readiness_assistance_v273
+                WHERE id = ?
+                """, Integer.class, effectId);
+        return count != null && count == 1;
     }
 
     private static Effect effect(ResultSet rs)
@@ -195,6 +292,8 @@ public class SqliteRemoteFeedbackEffectOperationStore
                 rs.getString("remote_head_ref"),
                 Instant.ofEpochMilli(rs.getLong("authorized_at_ms")),
                 rs.getString("external_effect_id"),
-                rs.getString("evidence"));
+                rs.getString("evidence"),
+                rs.getString("operation_kind"),
+                rs.getString("callback_route"));
     }
 }

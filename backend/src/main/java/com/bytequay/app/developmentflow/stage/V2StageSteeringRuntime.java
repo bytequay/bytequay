@@ -40,6 +40,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.INVALID_STATE;
@@ -169,6 +171,91 @@ public final class V2StageSteeringRuntime
         return persisted.id();
     }
 
+    /**
+     * Converts one answered StageTurn wait into the same durable owner command
+     * used by ordinary Stage steering.  The predecessor is terminal, so no
+     * scheduler wake or cancellation race participates in admission.
+     */
+    public ContinuationResult continueUserWait(
+            String predecessorTurnId,
+            String predecessorOperationId,
+            String taskId,
+            String stageId,
+            String waitKind,
+            String waitId,
+            String answer)
+    {
+        requireText(predecessorTurnId, "predecessorTurnId");
+        requireText(predecessorOperationId, "predecessorOperationId");
+        requireText(taskId, "taskId");
+        requireText(stageId, "stageId");
+        requireText(waitKind, "waitKind");
+        requireText(waitId, "waitId");
+        requireText(answer, "answer");
+        String existingSuccessor = store.userWaitSuccessor(waitKind, waitId)
+                .orElse(null);
+        if (existingSuccessor != null) {
+            return ContinuationResult.admitted(existingSuccessor);
+        }
+        String requestId = stableId("stage-wait-request", waitKind, waitId);
+        String commandId = stableId("stage-wait-command", waitKind, waitId);
+        String body = continuationBody(waitKind, answer);
+        String digest = contentDigest(body, List.of());
+        Request request = commands.execute(taskId, () -> {
+            Request duplicate = store.findByCommand(commandId).orElse(null);
+            if (duplicate != null) {
+                if (!duplicate.id().equals(requestId)
+                        || !duplicate.taskId().equals(taskId)
+                        || !duplicate.stageId().equals(stageId)
+                        || !duplicate.contentDigest().equals(digest)) {
+                    throw rejected(
+                            "Stage wait command id already names another input");
+                }
+                return duplicate;
+            }
+            Predecessor predecessor = store.findUserWaitPredecessor(
+                            predecessorTurnId, predecessorOperationId,
+                            waitKind, waitId)
+                    .orElse(null);
+            if (predecessor == null) {
+                return null;
+            }
+            StageManager.OwnerState owner = stages.findOwner(taskId, stageId)
+                    .orElse(null);
+            if (owner == null) {
+                return null;
+            }
+            validateNew(owner, stageId, Mode.CANCEL_AND_REPLACE);
+            StageManager.State stage = owner.stage();
+            if (stage.kind() == StageKind.REMOTE_DEVELOPMENT) {
+                validateRemoteTarget(predecessor, owner);
+            }
+            Request admitted = new Request(
+                    requestId, commandId, taskId, owner.taskEpoch(), stageId,
+                    stage.kind(), stage.generation(), stage.version(),
+                    stage.checkpoint(), Mode.CANCEL_AND_REPLACE, body, digest,
+                    predecessor, "PENDING", null, null, null, ACTOR,
+                    clock.instant());
+            store.insert(admitted, List.of());
+            store.insertUserWaitLink(requestId, waitKind, waitId, predecessor);
+            return admitted;
+        });
+        if (request == null) {
+            return ContinuationResult.superseded(
+                    "Stage owner or wait fence is no longer current");
+        }
+        attempt(request.id());
+        Request persisted = store.find(request.id()).orElseThrow();
+        if (persisted.status().equals("ADMITTED")) {
+            return ContinuationResult.admitted(persisted.successorOwnerId());
+        }
+        if (persisted.status().equals("SUPERSEDED")) {
+            return ContinuationResult.superseded(
+                    "Stage continuation was superseded");
+        }
+        return ContinuationResult.pending();
+    }
+
     @Override
     public void maintain(Instant now)
     {
@@ -201,11 +288,26 @@ public final class V2StageSteeringRuntime
             store.markSuperseded(request.id(), stale);
             return;
         }
+        boolean userWait = store.isUserWaitContinuation(request.id());
         if (owner.taskLifecycle() != TaskLifecycle.ACTIVE
-                || !store.predecessorQuiesced(request)
-                || request.stageKind() != StageKind.REMOTE_DEVELOPMENT
-                    && owner.stage().pendingResult() != null) {
+                || !store.predecessorQuiesced(request)) {
             return;
+        }
+        if (userWait && !store.userWaitSubjectIsCurrent(request)) {
+            store.markSuperseded(
+                    request.id(), "Stage user-wait code subject changed");
+            return;
+        }
+        if (request.stageKind() != StageKind.REMOTE_DEVELOPMENT) {
+            if (userWait && !pendingMatchesPredecessor(
+                    owner.stage().pendingResult(), request.predecessor())) {
+                store.markSuperseded(
+                        request.id(), "Stage pending result changed before continuation");
+                return;
+            }
+            if (!userWait && owner.stage().pendingResult() != null) {
+                return;
+            }
         }
         switch (request.stageKind()) {
             case LOCAL_DEVELOPMENT -> admitLocal(request, owner.stage());
@@ -224,8 +326,10 @@ public final class V2StageSteeringRuntime
                 && stage.checkpoint() != StageCheckpoint.LOCAL_REVIEW) {
             return;
         }
-        SteeringAdmission admission = local.admitSteeringInCommand(
-                request, stage.version());
+        SteeringAdmission admission = store.isUserWaitContinuation(request.id())
+                ? local.admitUserWaitContinuationInCommand(
+                        request, stage.version())
+                : local.admitSteeringInCommand(request, stage.version());
         store.markAdmitted(
                 request.id(), "STAGE_TURN", admission.turnId(),
                 admission.operationId(), clock.instant());
@@ -312,7 +416,8 @@ public final class V2StageSteeringRuntime
     private void signalCancellation(Request request)
     {
         if (request.mode() != Mode.CANCEL_AND_REPLACE
-                || request.predecessor() == null) {
+                || request.predecessor() == null
+                || store.isUserWaitContinuation(request.id())) {
             return;
         }
         tickets.requestCancel(request.predecessor().ticketId());
@@ -403,5 +508,59 @@ public final class V2StageSteeringRuntime
     private static CommandRejectedException rejected(String message)
     {
         return new CommandRejectedException(INVALID_STATE, message);
+    }
+
+    private static boolean pendingMatchesPredecessor(
+            ResultFence pending, Predecessor predecessor)
+    {
+        return pending != null && predecessor != null
+                && pending.operationId().equals(predecessor.operationId())
+                && pending.attempt() == predecessor.attempt()
+                && Objects.equals(
+                        pending.expectedCodeFingerprint(),
+                        predecessor.codeFingerprint())
+                && Objects.equals(
+                        pending.expectedHeadSha(), predecessor.headSha())
+                && Objects.equals(
+                        pending.expectedBaseSha(), predecessor.baseSha());
+    }
+
+    private static String continuationBody(String waitKind, String answer)
+    {
+        return "User resolved the "
+                + waitKind.toLowerCase(Locale.ROOT).replace('_', ' ')
+                + ": " + answer + "\nContinue the same Stage work.";
+    }
+
+    private static String stableId(String kind, String left, String right)
+    {
+        return UUID.nameUUIDFromBytes(
+                (kind + ":" + left + ":" + right).getBytes(UTF_8)).toString();
+    }
+
+    private static void requireText(String value, String name)
+    {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(name + " is blank");
+        }
+    }
+
+    public record ContinuationResult(
+            String status, String successorTurnId, String detail)
+    {
+        public static ContinuationResult admitted(String turnId)
+        {
+            return new ContinuationResult("ADMITTED", turnId, null);
+        }
+
+        public static ContinuationResult pending()
+        {
+            return new ContinuationResult("PENDING", null, null);
+        }
+
+        public static ContinuationResult superseded(String detail)
+        {
+            return new ContinuationResult("SUPERSEDED", null, detail);
+        }
     }
 }

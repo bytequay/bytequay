@@ -24,6 +24,7 @@ import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort.Re
 import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort.ResultReceipt;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.Admission;
+import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.ContinuationCandidate;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.FlowPhase;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.RetryCandidate;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.RoundFlow;
@@ -282,6 +283,139 @@ public class SqliteReviewAssignmentTurnStore
                 """, admission.purpose(), requestedAt.toEpochMilli(), state.roundId());
         Scope scope = requireScope(state.roundId(), admission.startCommit());
         insertAdmission(scope, admission, requestedAt, true);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<String> userWaitSuccessor(String waitKind, String waitId)
+    {
+        requireText(waitKind, "waitKind");
+        requireText(waitId, "waitId");
+        return jdbc.query("""
+                SELECT successor_turn_id
+                FROM review_turn_user_wait_continuation_v265
+                WHERE wait_kind = ? AND wait_id = ?
+                """, (rs, row) -> rs.getString("successor_turn_id"),
+                waitKind, waitId).stream().findFirst();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ContinuationCandidate> userWaitCandidate(
+            String predecessorTurnId,
+            String predecessorOperationId,
+            String waitKind,
+            String waitId)
+    {
+        requireText(predecessorTurnId, "predecessorTurnId");
+        requireText(predecessorOperationId, "predecessorOperationId");
+        requireText(waitKind, "waitKind");
+        requireText(waitId, "waitId");
+        return jdbc.query("""
+                SELECT turn.id AS turn_id, turn.operation_id,
+                       assignment.round_id, turn.assignment_id,
+                       turn.start_commit, turn.purpose, turn.subject_key,
+                       turn.verifier_run_id, turn.attempt, turn.launch_input
+                FROM review_assignment_turn turn
+                JOIN review_assignment assignment
+                  ON assignment.id = turn.assignment_id
+                JOIN review_round round ON round.id = assignment.round_id
+                JOIN review_session session ON session.id = round.session_id
+                JOIN typed_user_wait_result result
+                  ON result.operation_id = turn.operation_id
+                JOIN dispatch_ticket ticket
+                  ON ticket.owner_kind = 'REVIEW_ASSIGNMENT_TURN'
+                 AND ticket.owner_id = turn.id
+                 AND ticket.operation_id = turn.operation_id
+                LEFT JOIN tasks task ON task.id = session.owner_task_id
+                LEFT JOIN task_current_code_subject_v230 code
+                  ON code.task_id = session.owner_task_id
+                WHERE turn.id = ? AND turn.operation_id = ?
+                  AND turn.status = 'SUCCEEDED'
+                  AND result.owner_kind = 'REVIEW_ASSIGNMENT_TURN'
+                  AND result.turn_id = turn.id
+                  AND result.wait_kind = ? AND result.wait_id = ?
+                  AND ticket.status = 'SUCCEEDED'
+                  AND ticket.attempt = turn.attempt
+                  AND ticket.expected_head_sha = turn.start_commit
+                  AND round.status = 'RUNNING' AND session.status = 'ACTIVE'
+                  AND turn.start_commit = %s
+                  AND (session.owner_task_id IS NULL
+                    OR (task.workflow_version = 'V2'
+                      AND task.lifecycle_state = 'ACTIVE'
+                      AND ticket.task_epoch = task.epoch))
+                  AND ((? = 'QUESTION' AND EXISTS (
+                        SELECT 1 FROM review_assignment_question question
+                        WHERE question.id = ? AND question.turn_id = turn.id
+                          AND question.state = 'ANSWERED'
+                          AND question.continuation_state = 'READY'))
+                    OR (? = 'PERMISSION' AND EXISTS (
+                        SELECT 1 FROM permission_request permission
+                        WHERE permission.id = ?
+                          AND permission.turn_kind = 'REVIEW_ASSIGNMENT'
+                          AND permission.turn_id = turn.id
+                          AND permission.operation_id = turn.operation_id
+                          AND permission.state <> 'OPEN'
+                          AND permission.continuation_state = 'READY')))
+                """.formatted(CURRENT_HEAD), (rs, row) ->
+                        new ContinuationCandidate(
+                                rs.getString("turn_id"),
+                                rs.getString("operation_id"),
+                                rs.getString("round_id"),
+                                rs.getString("assignment_id"),
+                                rs.getString("start_commit"),
+                                rs.getString("purpose"),
+                                rs.getString("subject_key"),
+                                rs.getString("verifier_run_id"),
+                                rs.getInt("attempt"),
+                                rs.getString("launch_input")),
+                predecessorTurnId, predecessorOperationId, waitKind, waitId,
+                waitKind, waitId, waitKind, waitId).stream().findFirst();
+    }
+
+    @Override
+    @Transactional
+    public String continueUserWait(
+            ContinuationCandidate predecessor,
+            String waitKind,
+            String waitId,
+            Admission admission,
+            Instant requestedAt)
+    {
+        requireNonNull(predecessor, "predecessor is null");
+        requireText(waitKind, "waitKind");
+        requireText(waitId, "waitId");
+        requireNonNull(admission, "admission is null");
+        requireNonNull(requestedAt, "requestedAt is null");
+        Optional<String> existing = userWaitSuccessor(waitKind, waitId);
+        if (existing.isPresent()) {
+            if (!existing.orElseThrow().equals(admission.turnId())) {
+                throw new IllegalStateException(
+                        "review wait already names another successor");
+            }
+            return existing.orElseThrow();
+        }
+        ContinuationCandidate current = userWaitCandidate(
+                        predecessor.turnId(), predecessor.operationId(),
+                        waitKind, waitId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "review user-wait predecessor is stale"));
+        if (!current.equals(predecessor)) {
+            throw new IllegalStateException(
+                    "review user-wait predecessor changed before admission");
+        }
+        Scope scope = requireScope(predecessor.roundId(), predecessor.startCommit());
+        insertAdmission(scope, admission, requestedAt, true);
+        jdbc.update("""
+                INSERT INTO review_turn_user_wait_continuation_v265(
+                    wait_kind, wait_id, predecessor_turn_id,
+                    predecessor_operation_id, successor_turn_id,
+                    successor_operation_id, admitted_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, waitKind, waitId, predecessor.turnId(),
+                predecessor.operationId(), admission.turnId(),
+                admission.operationId(), requestedAt.toEpochMilli());
+        return admission.turnId();
     }
 
     @Override

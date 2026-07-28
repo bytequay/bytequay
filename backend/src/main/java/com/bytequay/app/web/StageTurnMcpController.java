@@ -18,6 +18,7 @@ import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHa
 import com.bytequay.app.service.mcp.McpService;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -46,6 +47,7 @@ public final class StageTurnMcpController
     private final AgentTurnOperationHandler.Store turns;
     private final Clock clock;
 
+    @Autowired
     public StageTurnMcpController(
             McpService service,
             AgentTurnOperationHandler.Store turns)

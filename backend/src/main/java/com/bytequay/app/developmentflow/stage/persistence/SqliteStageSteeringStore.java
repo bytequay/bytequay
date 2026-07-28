@@ -87,6 +87,117 @@ public final class SqliteStageSteeringStore
                 fence.expectedBaseSha()).stream().findFirst();
     }
 
+    /** Resolves only a terminal StageTurn backed by this exact ready wait. */
+    public Optional<Predecessor> findUserWaitPredecessor(
+            String turnId,
+            String operationId,
+            String waitKind,
+            String waitId)
+    {
+        requireText(turnId, "turnId");
+        requireText(operationId, "operationId");
+        requireText(waitKind, "waitKind");
+        requireText(waitId, "waitId");
+        return jdbc.query("""
+                SELECT ticket.owner_kind, ticket.owner_id,
+                       ticket.id AS ticket_id, ticket.operation_id,
+                       ticket.attempt, turn.purpose AS owner_purpose,
+                       ticket.expected_code_fingerprint,
+                       ticket.expected_head_sha, ticket.expected_base_sha
+                FROM dispatch_ticket ticket
+                JOIN stage_turn turn ON turn.id = ticket.owner_id
+                  AND turn.operation_id = ticket.operation_id
+                JOIN typed_user_wait_result result
+                  ON result.operation_id = ticket.operation_id
+                WHERE ticket.owner_kind = 'STAGE_TURN'
+                  AND ticket.owner_id = ? AND ticket.operation_id = ?
+                  AND ticket.status = 'SUCCEEDED'
+                  AND turn.status = 'SUCCEEDED'
+                  AND result.owner_kind = 'STAGE_TURN'
+                  AND result.turn_id = turn.id
+                  AND result.wait_kind = ? AND result.wait_id = ?
+                  AND ((? = 'QUESTION' AND EXISTS (
+                        SELECT 1 FROM stage_question question
+                        WHERE question.id = ? AND question.turn_id = turn.id
+                          AND question.state = 'ANSWERED'
+                          AND question.continuation_state = 'READY'))
+                    OR (? = 'PERMISSION' AND EXISTS (
+                        SELECT 1 FROM permission_request permission
+                        WHERE permission.id = ?
+                          AND permission.turn_kind = 'STAGE'
+                          AND permission.turn_id = turn.id
+                          AND permission.operation_id = turn.operation_id
+                          AND permission.state <> 'OPEN'
+                          AND permission.continuation_state = 'READY')))
+                """, (rs, row) -> predecessor(rs), turnId, operationId,
+                waitKind, waitId, waitKind, waitId, waitKind, waitId)
+                .stream().findFirst();
+    }
+
+    public void insertUserWaitLink(
+            String requestId,
+            String waitKind,
+            String waitId,
+            Predecessor predecessor)
+    {
+        requireTransaction();
+        requireNonNull(predecessor, "predecessor is null");
+        jdbc.update("""
+                INSERT INTO stage_turn_user_wait_continuation_v265(
+                    request_id, wait_kind, wait_id, predecessor_turn_id,
+                    predecessor_operation_id)
+                VALUES (?, ?, ?, ?, ?)
+                """, requestId, waitKind, waitId, predecessor.ownerId(),
+                predecessor.operationId());
+    }
+
+    public Optional<String> userWaitSuccessor(String waitKind, String waitId)
+    {
+        requireText(waitKind, "waitKind");
+        requireText(waitId, "waitId");
+        return jdbc.query("""
+                SELECT successor_turn_id
+                FROM stage_turn_user_wait_continuation_v265
+                WHERE wait_kind = ? AND wait_id = ?
+                  AND successor_turn_id IS NOT NULL
+                """, (rs, row) -> rs.getString("successor_turn_id"),
+                waitKind, waitId).stream().findFirst();
+    }
+
+    public boolean isUserWaitContinuation(String requestId)
+    {
+        requireText(requestId, "requestId");
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM stage_turn_user_wait_continuation_v265
+                WHERE request_id = ?
+                """, Integer.class, requestId);
+        return count != null && count == 1;
+    }
+
+    public boolean userWaitSubjectIsCurrent(Request request)
+    {
+        requireNonNull(request, "request is null");
+        Predecessor predecessor = requireNonNull(
+                request.predecessor(), "predecessor is null");
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM tasks task
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage owner ON owner.id = current.stage_id
+                JOIN task_current_code_subject_v230 code ON code.task_id = task.id
+                WHERE task.id = ? AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE' AND task.epoch = ?
+                  AND owner.id = ? AND owner.generation = ?
+                  AND owner.completed_at_ms IS NULL AND owner.end_reason IS NULL
+                  AND code.code_fingerprint IS ?
+                  AND code.head_sha IS ? AND code.base_sha IS ?
+                """, Integer.class, request.taskId(), request.taskEpoch(),
+                request.stageId(), request.stageGeneration(),
+                predecessor.codeFingerprint(), predecessor.headSha(),
+                predecessor.baseSha());
+        return count != null && count == 1;
+    }
+
     /** Resolves one exact live Remote writer owner; ambiguity fails closed. */
     public Optional<Predecessor> findActiveRemotePredecessor(
             String taskId, String stageId, long taskEpoch, long stageGeneration)
@@ -372,6 +483,75 @@ public final class SqliteStageSteeringStore
                 turn.requestedAt().toEpochMilli());
     }
 
+    /** Inserts a same-purpose Local successor linked to its settled wait owner. */
+    public void insertLocalContinuationTurn(
+            LocalTurn turn, Predecessor predecessor)
+    {
+        requireTransaction();
+        requireNonNull(turn, "turn is null");
+        requireNonNull(predecessor, "predecessor is null");
+        int stageTurn = jdbc.update("""
+                INSERT INTO stage_turn(
+                    id, stage_id, stage_generation, purpose, status,
+                    operation_id, attempt, task_epoch,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, delivery_lane, launch_input,
+                    requested_at_ms)
+                SELECT ?, ?, ?, previous.purpose, 'QUEUED', ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?
+                FROM stage_turn previous
+                WHERE previous.id = ? AND previous.operation_id = ?
+                  AND previous.status = 'SUCCEEDED'
+                """, turn.turnId(), turn.stageId(), turn.stageGeneration(),
+                turn.operationId(), turn.attempt(), turn.taskEpoch(),
+                turn.codeFingerprint(), turn.headSha(), turn.baseSha(),
+                turn.deliveryLane(), turn.launchInput(),
+                turn.requestedAt().toEpochMilli(), predecessor.ownerId(),
+                predecessor.operationId());
+        if (stageTurn != 1) {
+            throw new IllegalStateException(
+                    "Local user-wait predecessor changed before admission");
+        }
+        int request = jdbc.update("""
+                INSERT INTO local_stage_turn_request(
+                    id, command_id, stage_turn_id, task_id,
+                    local_development_stage_id, task_epoch, stage_generation,
+                    kind, queue_mode, predecessor_turn_id,
+                    brain_review_episode_id, local_feedback_batch_id,
+                    prompt_digest, requested_by, requested_at_ms)
+                SELECT ?, ?, ?, previous.task_id,
+                    previous.local_development_stage_id, previous.task_epoch,
+                    previous.stage_generation, previous.kind,
+                    'CANCEL_AND_REPLACE', previous.stage_turn_id,
+                    previous.brain_review_episode_id,
+                    previous.local_feedback_batch_id, ?, ?, ?
+                FROM local_stage_turn_request previous
+                WHERE previous.stage_turn_id = ?
+                """, turn.localRequestId(), turn.localCommandId(), turn.turnId(),
+                turn.promptDigest(), turn.requestedBy(),
+                turn.requestedAt().toEpochMilli(), predecessor.ownerId());
+        if (request != 1) {
+            throw new IllegalStateException(
+                    "Local user-wait request owner is missing");
+        }
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    trunk_control, exclusive_task, writer_required,
+                    workspace_id, trunk_id, task_id, task_epoch, stage_id,
+                    stage_generation, attempt, expected_code_fingerprint,
+                    expected_head_sha, expected_base_sha, status, created_at_ms)
+                VALUES (?, ?, 'EXECUTE_STAGE_TURN', 'AGENT_TURN',
+                    'STAGE_TURN', ?, 'STAGE_TURN_RESULT', ?, 0, 1, 1,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'REQUESTED', ?)
+                """, turn.ticketId(), turn.operationId(), turn.turnId(),
+                turn.laneMask(), turn.workspaceId(), turn.trunkId(), turn.taskId(),
+                turn.taskEpoch(), turn.stageId(), turn.stageGeneration(),
+                turn.attempt(), turn.codeFingerprint(), turn.headSha(),
+                turn.baseSha(), turn.requestedAt().toEpochMilli());
+    }
+
     public PlanSource requirePlanSource(Request request, long stageVersion)
     {
         List<PlanSource> rows = jdbc.query("""
@@ -418,6 +598,12 @@ public final class SqliteStageSteeringStore
         if (remote > 1) {
             throw new IllegalStateException("Remote steering handoff is ambiguous");
         }
+        jdbc.update("""
+                UPDATE stage_turn_user_wait_continuation_v265
+                SET successor_turn_id = ?, successor_operation_id = ?,
+                    admitted_at_ms = ?
+                WHERE request_id = ? AND successor_turn_id IS NULL
+                """, ownerId, operationId, admittedAt.toEpochMilli(), requestId);
         int changed = jdbc.update("""
                 UPDATE stage_steering_request_v257
                 SET status = 'ADMITTED', successor_owner_kind = ?,
@@ -527,6 +713,13 @@ public final class SqliteStageSteeringStore
         }
     }
 
+    private static void requireText(String value, String name)
+    {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(name + " is blank");
+        }
+    }
+
     public record Request(
             String id, String commandId, String taskId, long taskEpoch,
             String stageId, StageKind stageKind, long stageGeneration,
@@ -556,15 +749,45 @@ public final class SqliteStageSteeringStore
             String localRequestId, String localCommandId, String turnId,
             String operationId, String ticketId, String workspaceId,
             String trunkId, String taskId, long taskEpoch, String stageId,
-            long stageGeneration, String codeFingerprint, String headSha,
+            long stageGeneration, int attempt, String codeFingerprint, String headSha,
             String baseSha, String deliveryLane, int laneMask,
             String launchInput, String promptDigest, String requestedBy,
             Instant requestedAt)
     {
+        public LocalTurn(
+                String localRequestId,
+                String localCommandId,
+                String turnId,
+                String operationId,
+                String ticketId,
+                String workspaceId,
+                String trunkId,
+                String taskId,
+                long taskEpoch,
+                String stageId,
+                long stageGeneration,
+                String codeFingerprint,
+                String headSha,
+                String baseSha,
+                String deliveryLane,
+                int laneMask,
+                String launchInput,
+                String promptDigest,
+                String requestedBy,
+                Instant requestedAt)
+        {
+            this(
+                    localRequestId, localCommandId, turnId, operationId,
+                    ticketId, workspaceId, trunkId, taskId, taskEpoch, stageId,
+                    stageGeneration, 1, codeFingerprint, headSha, baseSha,
+                    deliveryLane, laneMask, launchInput, promptDigest,
+                    requestedBy, requestedAt);
+        }
+
         public ResultFence fence()
         {
             return new ResultFence(
-                    taskEpoch, stageId, stageGeneration, operationId, 1,
+                    taskEpoch, stageId, stageGeneration, operationId, attempt,
                     codeFingerprint, headSha, baseSha);
         }
     }

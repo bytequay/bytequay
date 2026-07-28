@@ -26,6 +26,7 @@ import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanEditContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanEditReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanSubmission;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanUserWaitContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ProvisionContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ProvisionReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ReplanDraftContext;
@@ -53,6 +54,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -202,6 +204,86 @@ public final class PlanRuntimeCoordinator
         return receipt(
                 DispatchTicket.Acceptance.valueOf(delivered.acceptance()),
                 turnReceiptJson(delivered));
+    }
+
+    /** Admits the stable same-purpose Plan TaskTurn after a durable user wait. */
+    public String continueUserWait(
+            String predecessorTurnId,
+            String predecessorOperationId,
+            String waitKind,
+            String waitId,
+            String answer)
+    {
+        required(predecessorTurnId, "predecessorTurnId");
+        required(predecessorOperationId, "predecessorOperationId");
+        required(waitKind, "waitKind");
+        required(waitId, "waitId");
+        required(answer, "answer");
+        String existing = store.findUserWaitSuccessor(waitKind, waitId)
+                .orElse(null);
+        if (existing != null) {
+            return existing;
+        }
+        PlanUserWaitContext owner = store.findUserWaitContext(
+                        predecessorTurnId, predecessorOperationId,
+                        waitKind, waitId)
+                .orElse(null);
+        if (owner == null) {
+            return null;
+        }
+        return commands.execute(owner.turn().taskId(), () -> {
+            String duplicate = store.findUserWaitSuccessor(waitKind, waitId)
+                    .orElse(null);
+            if (duplicate != null) {
+                return duplicate;
+            }
+            PlanUserWaitContext current = store.findUserWaitContext(
+                            predecessorTurnId, predecessorOperationId,
+                            waitKind, waitId)
+                    .orElse(null);
+            if (current == null) {
+                return null;
+            }
+            String previousPrompt;
+            try {
+                JsonNode launch = json.readTree(current.launchInput());
+                previousPrompt = required(
+                        launch.path("prompt").asText(), "stored prompt");
+            }
+            catch (JsonProcessingException e) {
+                throw new IllegalStateException(
+                        "stored Plan launch input is invalid", e);
+            }
+            TurnDeliveryContext predecessor = current.turn();
+            String stableSource = waitKind + ":" + waitId;
+            String turnId = id("plan-wait-turn", stableSource);
+            String operationId = id("plan-wait-operation", stableSource);
+            Instant now = clock.instant();
+            TurnRequest successor = turn(
+                    store.requireBrainLaunchContext(predecessor.taskId()),
+                    predecessor.taskEpoch(), predecessor.stageId(),
+                    predecessor.stageGeneration(), predecessor.codeFingerprint(),
+                    predecessor.headSha(), predecessor.baseSha(),
+                    predecessor.purpose(), turnId, operationId,
+                    id("plan-wait-ticket", stableSource),
+                    continuationPrompt(previousPrompt, waitKind, answer), now);
+            store.insertTurn(successor);
+            if (PLAN_SELF_REVIEW.equals(predecessor.purpose())) {
+                store.insertSelfReviewUserWaitAttempt(
+                        current.selfReviewId(), current.selfReviewAttempt() + 1,
+                        successor.turnId(), successor.operationId(),
+                        predecessor.turnId(), waitKind, waitId, now);
+            }
+            CommandResult<StageManager.State> admitted =
+                    plan.continueUserWaitInCommand(
+                            new StageManager.ResultCommand(
+                                    id("continue-plan-user-wait", stableSource),
+                                    "v2-plan-runtime", predecessor.taskId(),
+                                    predecessor.fence()),
+                            waitKind, waitId, successor.turnId(), successor.fence());
+            requireApplied(admitted, "Plan user-wait continuation");
+            return successor.turnId();
+        });
     }
 
     private TurnDeliveryReceipt acceptTaskTurnInCommand(
@@ -443,7 +525,7 @@ public final class PlanRuntimeCoordinator
         if (PLAN_SELF_REVIEW.equals(context.purpose())) {
             SqlitePlanRuntimeStore.ReviewOwner owner =
                     store.requireReviewOwner(context.turnId());
-            if (owner.attempt() == 1
+            if (owner.failureAttempt() == 1
                     && rawResult.outcome() != DispatchTicket.Outcome.CANCELED) {
                 return retrySelfReview(
                         context, owner, rawResult, rawDigest, error, now);
@@ -1194,6 +1276,14 @@ public final class PlanRuntimeCoordinator
                 + "\n\nCall record_plan_self_review exactly once with a typed "
                 + "verdict and explicit concern, follow-up, and Project "
                 + "Stewardship arrays. Do not edit files or create remote effects.";
+    }
+
+    private static String continuationPrompt(
+            String previousPrompt, String waitKind, String answer)
+    {
+        return previousPrompt + "\n\nUser resolved the "
+                + waitKind.toLowerCase(Locale.ROOT).replace('_', ' ') + ": " + answer
+                + "\nContinue the same Plan work and complete its required typed output.";
     }
 
     private static String redraftPrompt(

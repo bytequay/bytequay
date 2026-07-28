@@ -200,7 +200,8 @@ public class StageDetailServiceImpl
                 liveRound,
                 StageServiceImpl.buildDevPhases(
                         task.phase(), dev, liveRuns, reviewRounds.findByTask(task.id()),
-                        taskStore.listPhaseEvents(task.id())));
+                        taskStore.listPhaseEvents(task.id())),
+                new StageDetailData.RecoveryOptions(null, null));
     }
 
     private String conversationThreadId(StageInstance stage, Task task)

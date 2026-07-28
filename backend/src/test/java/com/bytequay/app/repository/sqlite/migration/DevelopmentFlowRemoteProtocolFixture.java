@@ -60,6 +60,15 @@ final class DevelopmentFlowRemoteProtocolFixture
     static void seedPublishedRemoteTask(Connection connection, int number)
             throws SQLException
     {
+        seedLocalDevelopmentTask(connection, number);
+        seedApprovedEvidence(connection, number);
+        seedPublishSaga(connection, number);
+        openRemoteStage(connection, number);
+    }
+
+    static void seedLocalDevelopmentTask(Connection connection, int number)
+            throws SQLException
+    {
         execute(connection, """
                 INSERT INTO task_assignment(
                     id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
@@ -207,12 +216,16 @@ final class DevelopmentFlowRemoteProtocolFixture
                     'one commit', 'two files', 'tests pending', 'none', 'none',
                     'turn:development-turn-%1$s')
                 """.formatted(number));
-        seedApprovedEvidence(connection, number);
-        seedPublishSaga(connection, number);
-        openRemoteStage(connection, number);
     }
 
-    private static void seedApprovedEvidence(Connection connection, int number)
+    static void seedApprovedEvidence(Connection connection, int number)
+            throws SQLException
+    {
+        seedGreenValidationEvidence(connection, number);
+        seedApprovedBrainEvidence(connection, number);
+    }
+
+    static void seedGreenValidationEvidence(Connection connection, int number)
             throws SQLException
     {
         execute(connection, """
@@ -274,6 +287,11 @@ final class DevelopmentFlowRemoteProtocolFixture
                 SET status = 'COMPLETED', completed_at_ms = 11
                 WHERE id = 'validation-operation-%s'
                 """.formatted(number));
+    }
+
+    private static void seedApprovedBrainEvidence(Connection connection, int number)
+            throws SQLException
+    {
         execute(connection, """
                 INSERT INTO task_turn(
                     id, task_id, purpose, status, operation_id, attempt,

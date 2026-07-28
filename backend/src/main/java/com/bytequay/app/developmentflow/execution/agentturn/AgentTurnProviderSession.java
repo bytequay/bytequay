@@ -101,7 +101,8 @@ public interface AgentTurnProviderSession
             }
             if ((access == Access.READ_ONLY
                     && toolEndpoint.profile() != ToolProfile.TASK_BRAIN_READ_ONLY
-                    && toolEndpoint.profile() != ToolProfile.TRUNK_CONTROL_READ_ONLY)
+                    && toolEndpoint.profile() != ToolProfile.TRUNK_CONTROL_READ_ONLY
+                    && toolEndpoint.profile() != ToolProfile.REVIEW_ASSIGNMENT_READ_ONLY)
                     || (access == Access.WORKTREE_WRITE
                     && toolEndpoint.profile() != ToolProfile.STAGE_DEVELOPMENT)) {
                 throw new IllegalArgumentException(
@@ -139,7 +140,8 @@ public interface AgentTurnProviderSession
             }
             if (!(ownerKind == DispatchTicket.OwnerKind.THREAD_TURN
                     || ownerKind == DispatchTicket.OwnerKind.TASK_TURN
-                    || ownerKind == DispatchTicket.OwnerKind.STAGE_TURN)) {
+                    || ownerKind == DispatchTicket.OwnerKind.STAGE_TURN
+                    || ownerKind == DispatchTicket.OwnerKind.REVIEW_ASSIGNMENT_TURN)) {
                 throw new IllegalArgumentException(
                         "Agent Turn MCP endpoint needs a typed Turn owner");
             }
@@ -172,6 +174,7 @@ public interface AgentTurnProviderSession
                 case THREAD_TURN -> "thread-turns";
                 case TASK_TURN -> "task-turns";
                 case STAGE_TURN -> "stage-turns";
+                case REVIEW_ASSIGNMENT_TURN -> "review-assignment-turns";
                 default -> throw new IllegalArgumentException(
                         "Agent Turn MCP endpoint needs a typed Turn owner");
             };
@@ -260,6 +263,7 @@ public interface AgentTurnProviderSession
     {
         TRUNK_CONTROL_READ_ONLY,
         TASK_BRAIN_READ_ONLY,
+        REVIEW_ASSIGNMENT_READ_ONLY,
         STAGE_DEVELOPMENT
     }
 

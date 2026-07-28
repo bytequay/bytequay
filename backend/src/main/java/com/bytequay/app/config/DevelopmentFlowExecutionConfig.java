@@ -28,6 +28,7 @@ import com.bytequay.app.developmentflow.execution.agentturn.ApiAgentTurnProvider
 import com.bytequay.app.developmentflow.execution.agentturn.CliAgentTurnProviderSession;
 import com.bytequay.app.developmentflow.execution.agentturn.CredentialApiProviderResolver;
 import com.bytequay.app.developmentflow.execution.agentturn.LoopbackOwnerMcpClient;
+import com.bytequay.app.developmentflow.execution.agentturn.ReviewAssignmentTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.agentturn.RoutingAgentTurnProviderSession;
 import com.bytequay.app.developmentflow.execution.agentturn.ThreadTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandler;
@@ -50,6 +51,7 @@ import com.bytequay.app.developmentflow.execution.remote.RemoteMarkReadyOperatio
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteFeedbackEffectOperationStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteMarkReadyOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteAgentTurnOperationStore;
+import com.bytequay.app.developmentflow.persistence.SqliteReviewAssignmentTurnStore;
 import com.bytequay.app.developmentflow.persistence.SqliteThreadTurnOperationStore;
 import com.bytequay.app.developmentflow.stage.BranchSyncResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.BranchSyncRuntimeCoordinator;
@@ -104,6 +106,9 @@ import com.bytequay.app.service.checks.ValidationCheck;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort;
+import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
+import com.bytequay.app.service.review.ReviewProviderEndpoints;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -160,6 +165,7 @@ public class DevelopmentFlowExecutionConfig
             RemoteRepairTurnRuntime remoteRepairTurns,
             RemoteDevelopmentStageManager remoteManager,
             SqliteMergeOperationStore mergeOperations,
+            SqliteReviewAssignmentTurnStore reviewAssignmentTurns,
             JdbcTemplate jdbc,
             ObjectMapper json)
     {
@@ -209,6 +215,9 @@ public class DevelopmentFlowExecutionConfig
                 new RemoteRepairTurnResultDeliveryPort(codec, remoteRepairTurns);
         MergeResultDeliveryPort merge = new MergeResultDeliveryPort(
                 commands, remoteManager, mergeOperations, json);
+        ReviewAssignmentTurnResultDeliveryPort reviews =
+                new ReviewAssignmentTurnResultDeliveryPort(
+                        reviewAssignmentTurns, json, Clock.systemUTC());
         return new ResultDeliveryRouter(Map.ofEntries(
                 Map.entry(PlanRuntimeCoordinator.PROVISION_CALLBACK, plan),
                 Map.entry(PlanRuntimeCoordinator.TURN_CALLBACK, taskTurns),
@@ -242,6 +251,8 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry("BRANCH_SYNC_REBASE_RESULT", branches),
                 Map.entry("BRANCH_SYNC_VALIDATION_RESULT", branches),
                 Map.entry("BRANCH_SYNC_PUSH_RESULT", branches),
+                Map.entry(ReviewAssignmentTurnOperationHandler.CALLBACK_ROUTE,
+                        reviews),
                 Map.entry(MergeOperationHandler.CALLBACK_ROUTE, merge)));
     }
 
@@ -309,6 +320,20 @@ public class DevelopmentFlowExecutionConfig
         return new ThreadTurnOperationHandler(
                 operations, provider, activeContexts, tools, json,
                 Clock.systemUTC());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(ReviewAssignmentTurnOperationHandler.class)
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
+    public ReviewAssignmentTurnOperationHandler v2ReviewAssignmentTurnOperationHandler(
+            SqliteReviewAssignmentTurnStore operations,
+            AgentTurnProviderSession provider,
+            ObjectMapper json)
+    {
+        return new ReviewAssignmentTurnOperationHandler(
+                operations, provider, json, Clock.systemUTC());
     }
 
     @Bean
@@ -456,6 +481,7 @@ public class DevelopmentFlowExecutionConfig
             ProvisionTaskOperationHandler provisioning,
             AgentTurnOperationHandler agentTurns,
             ThreadTurnOperationHandler threadTurns,
+            ReviewAssignmentTurnOperationHandler reviewTurns,
             LocalValidationOperationHandler localValidation,
             PublishOperationHandler publish,
             CleanupOperationHandler cleanup,
@@ -471,6 +497,8 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry(AgentTurnOperationHandler.TASK_OPERATION_KIND, agentTurns),
                 Map.entry(AgentTurnOperationHandler.STAGE_OPERATION_KIND, agentTurns),
                 Map.entry(ThreadTurnOperationHandler.OPERATION_KIND, threadTurns),
+                Map.entry(ReviewAssignmentTurnOperationHandler.OPERATION_KIND,
+                        reviewTurns),
                 Map.entry(LocalValidationOperationHandler.OPERATION_KIND,
                         localValidation),
                 Map.entry(PublishOperationHandler.OPERATION_KIND, publish),
@@ -587,6 +615,23 @@ public class DevelopmentFlowExecutionConfig
     {
         return new V2TaskControlService(
                 tasks, store, dispatcher, ciRepair, jdbc);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(ReviewAssignmentTurnRuntime.class)
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
+    public ReviewAssignmentTurnRuntime v2ReviewAssignmentTurnRuntime(
+            SqliteReviewAssignmentTurnStore store,
+            ReviewProviderEndpoints providers,
+            ExecutionDispatcher dispatcher,
+            ObjectMapper json,
+            @Value("${server.port:8080}") int serverPort)
+    {
+        return new ReviewAssignmentTurnRuntime(
+                store, providers, dispatcher::requestCancel,
+                json, Clock.systemUTC(), serverPort);
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")

@@ -397,6 +397,132 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
     }
 
     @Test
+    void v229RejectsSupersetLaneMasksForValidationAndPublish()
+            throws Exception
+    {
+        String url = url("exact-operation-lanes.db");
+        migrate(url, "228");
+        try (Connection connection = connect(url)) {
+            seedApprovedLocalSubject(connection);
+        }
+        migrate(url, "229");
+
+        try (Connection connection = connect(url)) {
+            execute(connection, manifestSql("manifest-1", 1, 1));
+            insertStandingPublishAuthorization(connection);
+            execute(connection, """
+                    UPDATE stage SET version = 1, checkpoint = 'PUBLISHING'
+                    WHERE id = 'local-stage-1'
+                    """);
+            execute(connection, """
+                    INSERT INTO stage_transition(
+                        id, stage_id, command_id, generation, from_checkpoint,
+                        to_checkpoint, stage_version, cause, actor, occurred_at_ms)
+                    VALUES ('publish-transition-1', 'local-stage-1',
+                        'approve-and-ship-command-1', 1, 'LOCAL_REVIEW',
+                        'PUBLISHING', 1, 'AUTHORIZE_PUBLISH', 'policy', 31)
+                    """);
+            execute(connection, authorizePublishReceiptSql(
+                    "publish-receipt-1", "authorization-1"));
+            execute(connection, """
+                    INSERT INTO publish_operation(
+                        id, publish_authorization_id, local_development_stage_id,
+                        task_id, task_epoch, stage_generation, operation_id,
+                        semantic_attempt, code_fingerprint, expected_head_sha,
+                        expected_base_sha, status, requested_at_ms)
+                    VALUES ('publish-operation-1', 'authorization-1',
+                        'local-stage-1', 'task-1', 1, 1,
+                        'publish-operation-id-1', 1, 'fp-1', 'head-1',
+                        'base-1', 'REQUESTED', 32)
+                    """);
+            insertPublishSteps(connection);
+            execute(connection, """
+                    INSERT INTO dispatch_ticket(
+                        id, operation_id, operation_kind, async_family,
+                        owner_kind, owner_id, callback_route, lane_mask,
+                        exclusive_task, writer_required, workspace_id, trunk_id,
+                        task_id, task_epoch, stage_id, stage_generation, attempt,
+                        expected_code_fingerprint, expected_head_sha,
+                        expected_base_sha, status, created_at_ms)
+                    VALUES ('publish-ticket-extra-lane', 'publish-operation-id-1',
+                        'PUBLISH_LOCAL_DEVELOPMENT', 'GITHUB_EFFECT', 'STAGE',
+                        'local-stage-1', 'STAGE_PUBLISH_RESULT', 49, 1, 1,
+                        'workspace-1', 'trunk-1', 'task-1', 1,
+                        'local-stage-1', 1, 1, 'fp-1', 'head-1', 'base-1',
+                        'REQUESTED', 32)
+                    """);
+            assertFails(connection, """
+                    UPDATE publish_operation SET status = 'DISPATCHED'
+                    WHERE id = 'publish-operation-1'
+                    """);
+
+            execute(connection, """
+                    INSERT INTO validation_operation(
+                        id, local_development_stage_id, task_id, task_epoch,
+                        stage_generation, dev_report_id, operation_id,
+                        semantic_attempt, code_fingerprint, expected_head_sha,
+                        expected_base_sha, status, requested_at_ms)
+                    VALUES ('validation-operation-extra-lane', 'local-stage-1',
+                        'task-1', 1, 1, 'report-1',
+                        'validation-operation-id-extra-lane', 2,
+                        'fp-1', 'head-1', 'base-1', 'REQUESTED', 33)
+                    """);
+            execute(connection, """
+                    INSERT INTO dispatch_ticket(
+                        id, operation_id, operation_kind, async_family,
+                        owner_kind, owner_id, callback_route, lane_mask,
+                        exclusive_task, writer_required, workspace_id, trunk_id,
+                        task_id, task_epoch, stage_id, stage_generation, attempt,
+                        expected_code_fingerprint, expected_head_sha,
+                        expected_base_sha, status, created_at_ms)
+                    VALUES ('validation-ticket-extra-lane',
+                        'validation-operation-id-extra-lane',
+                        'VALIDATE_LOCAL_DEVELOPMENT', 'VALIDATION', 'STAGE',
+                        'local-stage-1', 'STAGE_VALIDATION_RESULT', 5, 1, 0,
+                        'workspace-1', 'trunk-1', 'task-1', 1,
+                        'local-stage-1', 1, 2, 'fp-1', 'head-1', 'base-1',
+                        'REQUESTED', 33)
+                    """);
+            assertFails(connection, """
+                    UPDATE validation_operation SET status = 'DISPATCHED'
+                    WHERE id = 'validation-operation-extra-lane'
+                    """);
+
+            execute(connection, """
+                    INSERT INTO validation_operation(
+                        id, local_development_stage_id, task_id, task_epoch,
+                        stage_generation, dev_report_id, operation_id,
+                        semantic_attempt, code_fingerprint, expected_head_sha,
+                        expected_base_sha, status, requested_at_ms)
+                    VALUES ('validation-operation-writer', 'local-stage-1',
+                        'task-1', 1, 1, 'report-1',
+                        'validation-operation-id-writer', 3,
+                        'fp-1', 'head-1', 'base-1', 'REQUESTED', 34)
+                    """);
+            execute(connection, """
+                    INSERT INTO dispatch_ticket(
+                        id, operation_id, operation_kind, async_family,
+                        owner_kind, owner_id, callback_route, lane_mask,
+                        exclusive_task, writer_required, workspace_id, trunk_id,
+                        task_id, task_epoch, stage_id, stage_generation, attempt,
+                        expected_code_fingerprint, expected_head_sha,
+                        expected_base_sha, status, created_at_ms)
+                    VALUES ('validation-ticket-writer',
+                        'validation-operation-id-writer',
+                        'VALIDATE_LOCAL_DEVELOPMENT', 'VALIDATION', 'STAGE',
+                        'local-stage-1', 'STAGE_VALIDATION_RESULT', 4, 1, 1,
+                        'workspace-1', 'trunk-1', 'task-1', 1,
+                        'local-stage-1', 1, 3, 'fp-1', 'head-1', 'base-1',
+                        'REQUESTED', 34)
+                    """);
+            assertFails(connection, """
+                    UPDATE validation_operation SET status = 'DISPATCHED'
+                    WHERE id = 'validation-operation-writer'
+                    """);
+        }
+    }
+
+    @Test
     void canceledAndSupersededAuthorizationsRequireMatchingTerminalOperations()
             throws Exception
     {

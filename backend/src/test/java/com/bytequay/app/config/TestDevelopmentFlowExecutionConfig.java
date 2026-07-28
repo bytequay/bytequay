@@ -67,6 +67,7 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopment
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
@@ -543,6 +544,8 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(ToolExposurePolicy.class))
                 .withBean(SqliteLocalDevelopmentRuntimeStore.class,
                         () -> mock(SqliteLocalDevelopmentRuntimeStore.class))
+                .withBean(SqliteStageSteeringStore.class,
+                        () -> mock(SqliteStageSteeringStore.class))
                 .withBean(ValidationCheck.class,
                         () -> mock(ValidationCheck.class))
                 .withBean(CodeFingerprints.class,

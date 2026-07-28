@@ -24,6 +24,8 @@ import java.util.stream.Collectors;
 @Component
 public final class DevelopmentFlowCanaryRoute
 {
+    private static final String ALL_WORKSPACES = "*";
+
     private final boolean v2CreationEnabled;
     private final boolean v2DispatchEnabled;
     private final Set<String> workspaceAllowList;
@@ -48,7 +50,8 @@ public final class DevelopmentFlowCanaryRoute
     {
         return v2CreationEnabled
                 && workspaceId != null
-                && workspaceAllowList.contains(workspaceId);
+                && (workspaceAllowList.contains(ALL_WORKSPACES)
+                        || workspaceAllowList.contains(workspaceId));
     }
 
     public Snapshot snapshot()

@@ -14,10 +14,15 @@
 package com.bytequay.app.developmentflow.task.persistence;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
+import com.bytequay.app.developmentflow.stage.CancellationToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
+import com.bytequay.app.developmentflow.stage.StageKind;
+import com.bytequay.app.developmentflow.stage.persistence.StagePersistenceTestSupport;
 import com.bytequay.app.developmentflow.task.TaskControlHandoff;
+import com.bytequay.app.developmentflow.task.TaskControlMaintainer;
 import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.TaskResumeOwner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -29,7 +34,10 @@ import org.sqlite.SQLiteDataSource;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.List;
 
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.STALE_VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -225,6 +233,277 @@ class TestSqliteTaskStore
         assertThat(new V2TaskStore(new JdbcTemplate(dataSource))
                 .findById("task-control").orElseThrow().lifecycle())
                 .isEqualTo(TaskLifecycle.ARCHIVED);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pragma_foreign_key_check", Integer.class)).isZero();
+    }
+
+    @Test
+    void maintenanceCompletesControlsAndBuildsCancellationCleanupExactlyOnce()
+    {
+        Path file = tempDir.resolve("task-control-runtime.db");
+        SQLiteDataSource dataSource = database(file);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        seedActiveTaskWithCode(jdbc, "task-control", "plan-control", 1);
+        seedActiveTaskWithCode(jdbc, "task-sibling", "plan-sibling", 2);
+        seedActiveTaskWithCode(jdbc, "task-cancel", "plan-cancel", 3);
+        seedActiveTaskWithCode(
+                jdbc, "task-legacy-cancel", "plan-legacy-cancel", 4);
+        seedRetainedWorktreeLease(
+                jdbc, "task-cancel", "plan-cancel", 31,
+                System.currentTimeMillis() + 60_000);
+
+        DataSourceTransactionManager transactionManager =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor legacyCommands =
+                new TaskCommandExecutor(transactionManager);
+        new TaskManager(legacyCommands, new V2TaskStore(jdbc)).requestCancel(
+                new TaskManager.Command(
+                        "legacy-cancel-runtime", "user",
+                        "task-legacy-cancel", 1, 1));
+        jdbc.execute("DROP TRIGGER task_terminal_intent_immutable");
+        jdbc.update("""
+                UPDATE task_terminal_intent
+                   SET source = 'REQUEST_CANCEL', source_id = NULL
+                 WHERE task_id = 'task-legacy-cancel'
+                """);
+        jdbc.execute("""
+                CREATE TRIGGER task_terminal_intent_immutable
+                BEFORE UPDATE ON task_terminal_intent
+                BEGIN SELECT RAISE(ABORT, 'task terminal intent is immutable'); END
+                """);
+
+        migrate(file, "256");
+        assertThat(jdbc.queryForMap("""
+                SELECT source, source_id FROM task_terminal_intent
+                 WHERE task_id = 'task-legacy-cancel'
+                """))
+                .containsEntry("source", "USER_CANCEL")
+                .containsEntry("source_id", "legacy-cancel-runtime");
+
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactionManager);
+        V2TaskStore taskStore = new V2TaskStore(jdbc);
+        TaskManager tasks = new TaskManager(commands, taskStore);
+        SqliteTaskControlRuntimeStore runtimeStore =
+                new SqliteTaskControlRuntimeStore(jdbc, transactionManager);
+        TaskControlHandoff controls = new TaskControlHandoff(commands, tasks);
+        List<CancellationToCleanupHandoff> cancellationOwners = List.of(
+                StagePersistenceTestSupport.cancellationToCleanup(
+                        commands, jdbc, tasks));
+        TaskControlMaintainer maintainerWithoutResumeOwner = new TaskControlMaintainer(
+                runtimeStore,
+                controls,
+                cancellationOwners,
+                ignored -> {});
+        Instant now = Instant.now().minusSeconds(1);
+
+        jdbc.update("""
+                INSERT INTO task_turn(
+                    id, task_id, purpose, status, operation_id, attempt,
+                    task_epoch, delivery_lane, launch_input, requested_at_ms)
+                VALUES ('sibling-live-turn', 'task-sibling', 'BRAIN_REVIEW',
+                    'REQUESTED', 'sibling-live-operation', 1, 1,
+                    'API', 'review', ?)
+                """, now.toEpochMilli());
+        assertThat(tasks.requestPause(new TaskManager.Command(
+                "pause-runtime", "user", "task-control", 1, 1))
+                .state().lifecycle()).isEqualTo(TaskLifecycle.PAUSING);
+        maintainerWithoutResumeOwner.maintain(now);
+        assertThat(taskStore.findById("task-control").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.PAUSED);
+        assertThat(taskStore.findById("task-sibling").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.ACTIVE);
+
+        assertThat(tasks.requestResume(new TaskManager.Command(
+                "resume-paused-runtime", "user", "task-control", 1, 3))
+                .state().lifecycle()).isEqualTo(TaskLifecycle.RESUMING);
+        maintainerWithoutResumeOwner.maintain(now);
+        assertThat(taskStore.findById("task-control").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.RESUMING);
+        assertThat(jdbc.queryForMap("""
+                SELECT status, stage_kind, task_version
+                  FROM task_resume_handoff_v256
+                 WHERE task_id = 'task-control'
+                """))
+                .containsEntry("status", "PENDING")
+                .containsEntry("stage_kind", "PLAN")
+                .containsEntry("task_version", 4);
+
+        var resumeEvidence = jdbc.queryForMap("""
+                SELECT id, reconciliation_digest
+                  FROM task_resume_reconciliation_v256
+                 WHERE task_id = 'task-control'
+                """);
+        assertThatThrownBy(() -> controls.completeResume(
+                new TaskManager.ResumeCompletionCommand(
+                        new TaskManager.Command(
+                                "complete-resume-without-owner", "system",
+                                "task-control", 1, 4),
+                        (String) resumeEvidence.get("id"), "plan-control", 1,
+                        StageCheckpoint.DRAFTING,
+                        (String) resumeEvidence.get("reconciliation_digest"))))
+                .isInstanceOf(DataAccessException.class);
+        assertThat(taskStore.findById("task-control").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.RESUMING);
+
+        TaskResumeOwner planResumeOwner = new TaskResumeOwner()
+        {
+            @Override
+            public StageKind kind()
+            {
+                return StageKind.PLAN;
+            }
+
+            @Override
+            public Acceptance accept(Request request)
+            {
+                assertThat(request.taskId()).isEqualTo("task-control");
+                assertThat(request.stageId()).isEqualTo("plan-control");
+                assertThat(request.restoreCheckpoint())
+                        .isEqualTo(StageCheckpoint.DRAFTING);
+                return new Acceptance(
+                        request.handoffId(),
+                        "plan-rearm:" + request.handoffId(),
+                        "test-plan-runtime");
+            }
+        };
+        TaskControlMaintainer maintainer = new TaskControlMaintainer(
+                runtimeStore,
+                controls,
+                List.of(planResumeOwner),
+                cancellationOwners,
+                ignored -> {});
+        maintainer.maintain(now);
+        assertThat(taskStore.findById("task-control").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.ACTIVE);
+        assertThat(jdbc.queryForMap("""
+                SELECT status, owner_proof_id, accepted_by
+                  FROM task_resume_handoff_v256
+                 WHERE task_id = 'task-control'
+                """))
+                .containsEntry("status", "ACCEPTED")
+                .containsEntry("accepted_by", "test-plan-runtime");
+
+        assertThat(tasks.requestPause(new TaskManager.Command(
+                "pause-runtime-again", "user", "task-control", 1, 5))
+                .state().lifecycle()).isEqualTo(TaskLifecycle.PAUSING);
+        maintainer.maintain(now);
+        assertThat(tasks.requestResume(new TaskManager.Command(
+                "resume-paused-runtime-again", "user", "task-control", 1, 7))
+                .state().lifecycle()).isEqualTo(TaskLifecycle.RESUMING);
+        maintainer.maintain(now);
+        assertThat(taskStore.findById("task-control").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.ACTIVE);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM task_quiescence_barrier
+                 WHERE task_id = 'task-control' AND reason = 'PAUSE'
+                """, Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM task_resume_reconciliation_v256
+                 WHERE task_id = 'task-control' AND source_kind = 'PAUSE'
+                """, Integer.class)).isEqualTo(2);
+
+        assertThat(tasks.requestArchive(new TaskManager.Command(
+                "archive-runtime", "user", "task-control", 1, 9))
+                .state().lifecycle()).isEqualTo(TaskLifecycle.ARCHIVING);
+        maintainer.maintain(now);
+        assertThat(taskStore.findById("task-control").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.ARCHIVED);
+
+        assertThat(tasks.requestResume(new TaskManager.Command(
+                "resume-archived-runtime", "user", "task-control", 1, 11))
+                .state().lifecycle()).isEqualTo(TaskLifecycle.RESUMING);
+        maintainer.maintain(now);
+        assertThat(taskStore.findById("task-control").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.ACTIVE);
+
+        jdbc.update("""
+                INSERT INTO task_turn(
+                    id, task_id, purpose, status, operation_id, attempt,
+                    task_epoch, delivery_lane, launch_input, requested_at_ms)
+                VALUES ('cancel-old-turn', 'task-cancel', 'BRAIN_REVIEW',
+                    'REQUESTED', 'cancel-old-operation', 1, 1,
+                    'API', 'review', ?)
+                """, now.toEpochMilli());
+        assertThat(tasks.requestCancel(new TaskManager.Command(
+                "cancel-runtime", "user", "task-cancel", 1, 1))
+                .state().lifecycle()).isEqualTo(TaskLifecycle.CANCELING);
+        maintainer.maintain(now);
+        assertThat(taskStore.findById("task-cancel").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.CANCELING);
+        assertThat(jdbc.queryForMap("""
+                SELECT source, source_id FROM task_terminal_intent
+                 WHERE task_id = 'task-cancel'
+                """))
+                .containsEntry("source", "USER_CANCEL")
+                .containsEntry("source_id", "cancel-runtime");
+        assertThat(count(jdbc, "task_terminal_acceptance", "task-cancel"))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT status FROM task_quiescence_barrier
+                 WHERE task_id = 'task-cancel' AND reason = 'CANCEL'
+                """, String.class)).isEqualTo("REQUESTED");
+
+        jdbc.update("""
+                UPDATE task_turn SET status = 'CANCELED', finished_at_ms = ?
+                 WHERE id = 'cancel-old-turn'
+                """, now.toEpochMilli());
+        jdbc.update("DELETE FROM worktree_leases WHERE task_id = 'task-cancel'");
+        maintainer.maintain(now);
+        assertThat(taskStore.findById("task-cancel").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.CLEANING);
+        assertThat(jdbc.queryForMap("""
+                SELECT kind, checkpoint, end_reason FROM stage
+                 WHERE id = (SELECT stage_id FROM task_current_stage
+                              WHERE task_id = 'task-cancel')
+                """))
+                .containsEntry("kind", "CLEANUP")
+                .containsEntry("checkpoint", "WAITING_QUIESCENCE")
+                .containsEntry("end_reason", null);
+        assertThat(jdbc.queryForObject("""
+                SELECT end_reason FROM stage WHERE id = 'plan-cancel'
+                """, String.class)).isEqualTo("TASK_CANCELED");
+
+        maintainer.maintain(now);
+        assertThat(count(jdbc, "cleanup_stage", "task-cancel")).isEqualTo(1);
+        assertThat(count(jdbc, "cleanup_operation", "task-cancel")).isEqualTo(1);
+        assertThat(count(jdbc, "cleanup_step", "task-cancel")).isEqualTo(11);
+        assertThat(count(jdbc, "dispatch_ticket", "task-cancel")).isEqualTo(1);
+
+        ArrayList<String> restartedCancellations = new ArrayList<>();
+        DataSourceTransactionManager restartedTransactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor restartedCommands =
+                new TaskCommandExecutor(restartedTransactions);
+        V2TaskStore restartedStore = new V2TaskStore(new JdbcTemplate(dataSource));
+        TaskManager restartedTasks = new TaskManager(restartedCommands, restartedStore);
+        TaskControlMaintainer restartedMaintainer = new TaskControlMaintainer(
+                new SqliteTaskControlRuntimeStore(
+                        new JdbcTemplate(dataSource), restartedTransactions),
+                new TaskControlHandoff(restartedCommands, restartedTasks),
+                List.of(StagePersistenceTestSupport.cancellationToCleanup(
+                        restartedCommands,
+                        new JdbcTemplate(dataSource),
+                        restartedTasks)),
+                restartedCancellations::add);
+        restartedMaintainer.maintain(now);
+        restartedMaintainer.maintain(now);
+
+        assertThat(restartedCancellations).isEmpty();
+        assertThat(count(jdbc, "task_terminal_acceptance", "task-cancel"))
+                .isEqualTo(1);
+        assertThat(count(jdbc, "cleanup_stage", "task-cancel")).isEqualTo(1);
+        assertThat(count(jdbc, "cleanup_operation", "task-cancel")).isEqualTo(1);
+        assertThat(count(jdbc, "cleanup_step", "task-cancel")).isEqualTo(11);
+        assertThat(count(jdbc, "dispatch_ticket", "task-cancel")).isEqualTo(1);
+        jdbc.update("""
+                UPDATE task_turn SET status = 'SUCCEEDED'
+                 WHERE id = 'cancel-old-turn'
+                """);
+        restartedMaintainer.maintain(now);
+        assertThat(restartedStore.findById("task-cancel").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.CLEANING);
+        assertThat(count(jdbc, "cleanup_operation", "task-cancel")).isEqualTo(1);
         assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM pragma_foreign_key_check", Integer.class)).isZero();
     }

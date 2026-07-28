@@ -48,7 +48,6 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
 import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.threads.AgentScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -67,7 +66,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -119,7 +117,7 @@ public class ReviewPassService
     private final LeadToolset leadToolset;
     private final ReviewBudgetMeter budgetMeter;
     private final ReviewDiffCache diffCache;
-    private final AgentScheduler scheduler;
+    private final LegacyReviewAdmission reviewAdmission;
     private final ApplicationEventPublisher events;
 
     public ReviewPassService(
@@ -136,7 +134,7 @@ public class ReviewPassService
             LeadToolset leadToolset,
             ReviewBudgetMeter budgetMeter,
             ReviewDiffCache diffCache,
-            AgentScheduler scheduler,
+            LegacyReviewAdmission reviewAdmission,
             SkillStore skills,
             ApplicationEventPublisher events)
     {
@@ -147,7 +145,7 @@ public class ReviewPassService
         this.leadToolset = requireNonNull(leadToolset, "leadToolset is null");
         this.budgetMeter = requireNonNull(budgetMeter, "budgetMeter is null");
         this.diffCache = requireNonNull(diffCache, "diffCache is null");
-        this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.reviewAdmission = requireNonNull(reviewAdmission, "reviewAdmission is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -721,24 +719,31 @@ public class ReviewPassService
         String directive = leadBrief == null || leadBrief.isBlank()
                 ? INDEPENDENT_DIRECTIVE
                 : "The lead's brief on this PR:\n" + leadBrief.strip() + "\n\n" + INDEPENDENT_DIRECTIVE;
-        List<Callable<ReviewMessage>> work = new ArrayList<>();
+        List<LegacyReviewAdmission.Work<ReviewMessage>> work = new ArrayList<>();
         for (PanelSeatConfig.Seat seat : roster.reviewerSeats()) {
-            work.add(() -> {
+            String attemptId = ReviewerSeat.attemptId(
+                    seat.participantId(), directive, ReviewPhase.INDEPENDENT, 0, null);
+            LegacyReviewAdmission.ProviderLane lane =
+                    CliReviewRunner.Provider.isCliProvider(seat.providerId())
+                            ? LegacyReviewAdmission.ProviderLane.CLI
+                            : LegacyReviewAdmission.ProviderLane.API;
+            work.add(new LegacyReviewAdmission.Work<>(pass, lane, attemptId, () -> {
                 try {
-                    return reviewerSeat.runDispatchedTurn(
+                    return reviewerSeat.runDispatchedTurnAlreadyAdmitted(
                             pass, roster, seat.participantId(),
                             directive, ReviewPhase.INDEPENDENT,
-                            /* round */ 0, /* excludeMessageId */ null);
+                            /* round */ 0, /* excludeMessageId */ null,
+                            /* enforceBudget */ true);
                 }
                 catch (RuntimeException e) {
                     log.warn("Independent turn failed for seat {} ({}): {} — abstaining.",
                             seat.participantId(), seat.displayLabel(), e.getMessage());
                     return null;
                 }
-            });
+            }));
         }
         int findingsBefore = reviewStore.listFindingsForPass(passId).size();
-        List<ReviewMessage> results = scheduler.invokeAll(work);
+        List<ReviewMessage> results = reviewAdmission.invokeAll(work);
         if (!results.isEmpty() && results.stream().allMatch(Objects::isNull)) {
             throw new IllegalStateException("every reviewer seat failed its independent turn");
         }

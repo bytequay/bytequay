@@ -23,7 +23,6 @@ import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.agents.TurnSpec;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +31,7 @@ import org.mockito.ArgumentCaptor;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -81,10 +81,13 @@ class TestLeadOrchestrator
 
         ReviewDiffCache diffCache = mock(ReviewDiffCache.class);
         when(diffCache.diffFor(any())).thenReturn("diff --git a/x b/x\n+hi\n");
+        LegacyReviewAdmission admission = mock(LegacyReviewAdmission.class);
+        when(admission.invoke(any(), any(), any(), any())).thenAnswer(invocation ->
+                invocation.<Callable<TurnResult>>getArgument(3).call());
 
         toolset = new LeadToolset(
                 reviewStore, mock(SeatToolset.class), mock(ReviewerSeat.class),
-                mock(AgentScheduler.class), mapper);
+                admission, mapper);
         orchestrator = new LeadOrchestrator(
                 runner,
                 new LeadContextAssembler(reviewStore, diffCache),
@@ -92,6 +95,7 @@ class TestLeadOrchestrator
                 new ReviewProviderEndpoints(credentials, appSettings),
                 new ReviewBudgetMeter(reviewStore),
                 reviewStore,
+                admission,
                 mapper);
         roster = new PanelSeatConfig(List.of(
                 new PanelSeatConfig.Seat(LEAD_ID, "claude", null, "Lead", true)));

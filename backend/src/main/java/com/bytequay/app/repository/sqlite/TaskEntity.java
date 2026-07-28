@@ -195,8 +195,15 @@ class TaskEntity
     @Column(name = "pending_completion_summary_turn_id")
     private String pendingCompletionSummaryTurnId;
 
+    /** V2 aggregate fence. The database owns increments and creation's
+     * default; legacy full-row saves must never overwrite it. */
+    @Column(name = "epoch", nullable = false, insertable = false, updatable = false)
+    private long epoch;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
+
+    long getEpoch() { return epoch; }
 
     String getThreadId() { return threadId; }
     void setThreadId(String threadId) { this.threadId = threadId; }

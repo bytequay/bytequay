@@ -24,7 +24,6 @@ import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.service.agents.ToolCall;
 import com.bytequay.app.service.agents.ToolExecutor;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,7 +32,6 @@ import org.mockito.ArgumentCaptor;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.Callable;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -61,7 +59,7 @@ class TestLeadToolset
 
     private ReviewStore reviewStore;
     private ReviewerSeat reviewerSeat;
-    private AgentScheduler scheduler;
+    private LegacyReviewAdmission reviewAdmission;
     private LeadToolset toolset;
     private LeadToolset.Session session;
     private ReviewPass pass;
@@ -71,9 +69,9 @@ class TestLeadToolset
     {
         reviewStore = mock(ReviewStore.class);
         reviewerSeat = mock(ReviewerSeat.class);
-        scheduler = mock(AgentScheduler.class);
+        reviewAdmission = mock(LegacyReviewAdmission.class);
         toolset = new LeadToolset(
-                reviewStore, mock(SeatToolset.class), reviewerSeat, scheduler, mapper);
+                reviewStore, mock(SeatToolset.class), reviewerSeat, reviewAdmission, mapper);
 
         pass = new ReviewPass(
                 PASS_ID, "thread-1", "acme/widget", 42, "abc",
@@ -163,19 +161,19 @@ class TestLeadToolset
     void parallelDispatchFansOutThroughTheScheduler()
             throws Exception
     {
-        when(reviewerSeat.runDispatchedTurn(
-                any(), any(), eq(SEAT_1), anyString(), any(), anyInt(), anyString()))
+        when(reviewerSeat.runDispatchedTurnAlreadyAdmitted(
+                any(), any(), eq(SEAT_1), anyString(), any(), anyInt(), anyString(), eq(true)))
                 .thenReturn(seatReply(SEAT_1, "GPT's take"));
-        when(reviewerSeat.runDispatchedTurn(
-                any(), any(), eq(SEAT_2), anyString(), any(), anyInt(), anyString()))
+        when(reviewerSeat.runDispatchedTurnAlreadyAdmitted(
+                any(), any(), eq(SEAT_2), anyString(), any(), anyInt(), anyString(), eq(true)))
                 .thenReturn(seatReply(SEAT_2, "DeepSeek's take"));
-        // The scheduler runs the batch (inline here) — what matters is
-        // that the fan-out went THROUGH it.
-        when(scheduler.invokeAll(any())).thenAnswer(inv -> {
-            List<Callable<ToolExecutor.ToolCallResult>> work = inv.getArgument(0);
-            return work.stream().map(c -> {
+        // Shared admission runs the batch inline here.
+        when(reviewAdmission.invokeAll(any())).thenAnswer(inv -> {
+            List<LegacyReviewAdmission.Work<ToolExecutor.ToolCallResult>> work =
+                    inv.getArgument(0);
+            return work.stream().map(item -> {
                 try {
-                    return c.call();
+                    return item.work().call();
                 }
                 catch (Exception e) {
                     throw new IllegalStateException(e);
@@ -190,7 +188,7 @@ class TestLeadToolset
                 "{\"participant_id\":\"" + SEAT_2 + "\",\"body\":\"@DeepSeek compare notes\"}");
         executor.prefetch(List.of(first, second));
 
-        verify(scheduler).invokeAll(any());
+        verify(reviewAdmission).invokeAll(any());
         // Results come back per call, in dispatch order.
         assertEquals("GPT's take", executor.execute(first).text());
         assertEquals("DeepSeek's take", executor.execute(second).text());

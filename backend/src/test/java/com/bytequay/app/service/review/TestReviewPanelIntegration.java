@@ -28,11 +28,7 @@ import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.SkillStore;
-import com.bytequay.app.repository.StageStore;
-import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.repository.ThreadTurnEventStore;
-import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.agents.ToolCall;
 import com.bytequay.app.service.agents.ToolExecutor;
 import com.bytequay.app.service.agents.TurnHooks;
@@ -42,8 +38,6 @@ import com.bytequay.app.service.agents.TurnSpec;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
 import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.threads.AgentScheduler;
-import com.bytequay.app.service.threads.ThreadRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,6 +48,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -125,13 +121,24 @@ class TestReviewPanelIntegration
         });
         when(registry.all()).thenReturn(List.copyOf(reviewers));
 
-        // Real scheduler (mock persistence) — the independent fan-out
-        // and the Lead's parallel dispatch go through its API lane.
-        AgentScheduler scheduler = new AgentScheduler(
-                mock(ThreadStore.class), mock(ThreadTurnStore.class),
-                mock(ThreadTurnEventStore.class), mock(ThreadRegistry.class),
-                mock(StageStore.class), mock(TaskStore.class),
-                /* maxCliRunning */ 1, /* maxApiRunning */ 6);
+        LegacyReviewAdmission admission = mock(LegacyReviewAdmission.class);
+        when(admission.invoke(any(), any(), any(), any())).thenAnswer(invocation ->
+                invocation.<Callable<Object>>getArgument(3).call());
+        when(admission.invokeAll(any())).thenAnswer(invocation -> {
+            List<LegacyReviewAdmission.Work<Object>> work = invocation.getArgument(0);
+            return work.stream()
+                    .map(item -> CompletableFuture.supplyAsync(() -> {
+                        try {
+                            return item.work().call();
+                        }
+                        catch (Exception e) {
+                            throw new IllegalStateException(e);
+                        }
+                    }))
+                    .toList().stream()
+                    .map(CompletableFuture::join)
+                    .toList();
+        });
 
         // Endpoint resolution is faked (no credentials in tests); the
         // wire itself is the scripted TurnRunner below.
@@ -146,12 +153,12 @@ class TestReviewPanelIntegration
         ReviewerSeat reviewerSeat = new ReviewerSeat(
                 turnRunner, new SeatContextAssembler(reviewStore), seatToolset,
                 endpoints, budget, diffCache, reviewStore, mapper,
-                new CliReviewRunner(mapper), new CliReviewSessionRegistry());
+                new CliReviewRunner(mapper), new CliReviewSessionRegistry(), admission);
         LeadToolset leadToolset = new LeadToolset(
-                reviewStore, seatToolset, reviewerSeat, scheduler, mapper);
+                reviewStore, seatToolset, reviewerSeat, admission, mapper);
         LeadOrchestrator leadOrchestrator = new LeadOrchestrator(
                 turnRunner, new LeadContextAssembler(reviewStore, diffCache), leadToolset,
-                endpoints, budget, reviewStore, mapper);
+                endpoints, budget, reviewStore, admission, mapper);
 
         scriptTurnRunner();
 
@@ -160,7 +167,7 @@ class TestReviewPanelIntegration
                 mock(PullRequestStore.class), patResolver, registry,
                 appSettings,
                 Runnable::run,
-                leadOrchestrator, reviewerSeat, leadToolset, budget, diffCache, scheduler,
+                leadOrchestrator, reviewerSeat, leadToolset, budget, diffCache, admission,
                 mock(SkillStore.class),
                 event -> {});
     }

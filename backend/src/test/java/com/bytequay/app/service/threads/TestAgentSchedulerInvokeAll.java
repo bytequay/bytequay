@@ -22,17 +22,21 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -203,6 +207,323 @@ class TestAgentSchedulerInvokeAll
         for (CapacityManager.CapacityLease lease : v2Leases.subList(1, v2Leases.size())) {
             manager.release(lease.id(), "dispatcher");
         }
+    }
+
+    @Test
+    void reviewWorkOwnsOneExactReadOnlyReviewAndProviderLease()
+            throws Exception
+    {
+        Instant now = Instant.parse("2026-07-28T00:00:00Z");
+        InMemoryExecutionSupport.CapacityStore store =
+                new InMemoryExecutionSupport.CapacityStore();
+        CapacityManager manager = capacityManager(store, now, 2);
+        AgentScheduler scheduler = scheduler(6, new LegacyCapacityBridge(manager));
+        CapacityManager.CapacityRequest request = reviewRequest(
+                "review-seat-1", CapacityManager.CapacityLane.API);
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch finish = new CountDownLatch(1);
+
+        CompletableFuture<String> running = CompletableFuture.supplyAsync(() ->
+                scheduler.invokeReviewApi(request, () -> {
+                    started.countDown();
+                    assertTrue(finish.await(2, TimeUnit.SECONDS));
+                    return "done";
+                }));
+        assertTrue(started.await(2, TimeUnit.SECONDS));
+
+        CapacityManager.CapacityLease lease = store.listActive(now).getFirst();
+        assertEquals(request.operationId(), lease.operationId());
+        assertEquals(request.operationId(), lease.leaseOwner());
+        assertEquals(request.lanes(), lease.lanes());
+        assertEquals(request.scope(), lease.scope());
+        assertEquals(false, lease.trunkControl());
+        assertEquals(false, lease.exclusiveTask());
+        assertEquals(false, lease.writerRequired());
+
+        finish.countDown();
+        assertEquals("done", running.get(2, TimeUnit.SECONDS));
+        assertEquals(0, store.activeCount(now));
+    }
+
+    @Test
+    void reviewLaneSaturationWaitsForReleaseWithoutSpinning()
+            throws Exception
+    {
+        Instant now = Instant.parse("2026-07-28T00:00:00Z");
+        InMemoryExecutionSupport.CapacityStore store =
+                new InMemoryExecutionSupport.CapacityStore();
+        CapacityManager manager = capacityManager(store, now, 1);
+        AgentScheduler scheduler = scheduler(6, new LegacyCapacityBridge(manager));
+        AtomicInteger running = new AtomicInteger();
+        AtomicInteger peak = new AtomicInteger();
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch finishFirst = new CountDownLatch(1);
+        Callable<Integer> first = () -> {
+            int active = running.incrementAndGet();
+            peak.accumulateAndGet(active, Math::max);
+            firstStarted.countDown();
+            try {
+                assertTrue(finishFirst.await(2, TimeUnit.SECONDS));
+                return 1;
+            }
+            finally {
+                running.decrementAndGet();
+            }
+        };
+        Callable<Integer> second = () -> {
+            int active = running.incrementAndGet();
+            peak.accumulateAndGet(active, Math::max);
+            running.decrementAndGet();
+            return 2;
+        };
+
+        CompletableFuture<Integer> firstRun = CompletableFuture.supplyAsync(() ->
+                scheduler.invokeReviewApi(
+                        reviewRequest("review-1", CapacityManager.CapacityLane.API),
+                        first));
+        assertTrue(firstStarted.await(2, TimeUnit.SECONDS));
+        CompletableFuture<Integer> secondRun = CompletableFuture.supplyAsync(() ->
+                scheduler.invokeReviewApi(
+                        reviewRequest("review-2", CapacityManager.CapacityLane.API),
+                        second));
+        assertTrue(store.awaitAdmissionTransactions(2, Duration.ofSeconds(2)));
+        assertEquals(1, running.get());
+        assertEquals(2, store.admissionTransactions());
+
+        finishFirst.countDown();
+        assertEquals(1, firstRun.get(2, TimeUnit.SECONDS));
+        assertEquals(2, secondRun.get(2, TimeUnit.SECONDS));
+        assertEquals(1, peak.get());
+        assertEquals(3, store.admissionTransactions());
+        assertEquals(0, store.activeCount(now));
+    }
+
+    @Test
+    void nestedReviewTryDoesNotDeadlockWhenTheLastReviewSlotIsHeld()
+    {
+        Instant now = Instant.parse("2026-07-28T00:00:00Z");
+        InMemoryExecutionSupport.CapacityStore store =
+                new InMemoryExecutionSupport.CapacityStore();
+        CapacityManager manager = capacityManager(store, now, 1);
+        AgentScheduler scheduler = scheduler(6, new LegacyCapacityBridge(manager));
+        AtomicBoolean nestedLaunch = new AtomicBoolean();
+
+        String result = scheduler.invokeReviewApi(
+                reviewRequest("lead", CapacityManager.CapacityLane.API),
+                () -> {
+                    assertTrue(scheduler.tryInvokeReviewApi(
+                            reviewRequest("seat", CapacityManager.CapacityLane.API),
+                            () -> {
+                                nestedLaunch.set(true);
+                                return "never";
+                            }).isEmpty());
+                    return "lead-continues";
+                });
+
+        assertEquals("lead-continues", result);
+        assertEquals(false, nestedLaunch.get());
+        assertEquals(0, store.activeCount(now));
+    }
+
+    @Test
+    void nestedReviewFanOutIsAllOrNoneWhenCapacityIsUnavailable()
+    {
+        Instant now = Instant.parse("2026-07-28T00:00:00Z");
+        InMemoryExecutionSupport.CapacityStore store =
+                new InMemoryExecutionSupport.CapacityStore();
+        CapacityManager manager = capacityManager(store, now, 1);
+        AgentScheduler scheduler = scheduler(6, new LegacyCapacityBridge(manager));
+        AtomicInteger launches = new AtomicInteger();
+
+        String result = scheduler.invokeReviewApi(
+                reviewRequest("lead", CapacityManager.CapacityLane.API),
+                () -> {
+                    Optional<List<Integer>> nested = scheduler.tryInvokeReviewAll(List.of(
+                            new AgentScheduler.ReviewWork<>(reviewRequest(
+                                    "seat-1", CapacityManager.CapacityLane.API),
+                                    launches::incrementAndGet),
+                            new AgentScheduler.ReviewWork<>(reviewRequest(
+                                    "seat-2", CapacityManager.CapacityLane.API),
+                                    launches::incrementAndGet)));
+                    assertTrue(nested.isEmpty());
+                    return "lead-continues";
+                });
+
+        assertEquals("lead-continues", result);
+        assertEquals(0, launches.get());
+        assertEquals(0, store.activeCount(now));
+    }
+
+    @Test
+    void nestedFanOutProgressesWhenThePanelIsLargerThanFreeApiCapacity()
+            throws Exception
+    {
+        Instant now = Instant.parse("2026-07-28T00:00:00Z");
+        InMemoryExecutionSupport.CapacityStore store =
+                new InMemoryExecutionSupport.CapacityStore();
+        CapacityManager manager = capacityManager(store, now, 6);
+        AgentScheduler scheduler = scheduler(6, new LegacyCapacityBridge(manager));
+        AtomicInteger running = new AtomicInteger();
+        AtomicInteger peak = new AtomicInteger();
+        // API reserves one of six slots for Trunk control. The Lead consumes
+        // one ordinary slot, so four of five reviewers can run at once.
+        CountDownLatch freeCapacityFilled = new CountDownLatch(4);
+        CountDownLatch finish = new CountDownLatch(1);
+        Callable<Integer> work = () -> {
+            int active = running.incrementAndGet();
+            peak.accumulateAndGet(active, Math::max);
+            freeCapacityFilled.countDown();
+            try {
+                assertTrue(finish.await(2, TimeUnit.SECONDS));
+                return active;
+            }
+            finally {
+                running.decrementAndGet();
+            }
+        };
+        CompletableFuture<Void> releaser = CompletableFuture.runAsync(() -> {
+            try {
+                assertTrue(freeCapacityFilled.await(2, TimeUnit.SECONDS));
+            }
+            catch (InterruptedException e) {
+                throw new IllegalStateException(e);
+            }
+            finish.countDown();
+        });
+
+        List<AgentScheduler.ReviewWork<Integer>> reviewers = new ArrayList<>();
+        for (int index = 0; index < 5; index++) {
+            reviewers.add(new AgentScheduler.ReviewWork<>(reviewRequest(
+                    "seat-" + index, CapacityManager.CapacityLane.API), work));
+        }
+        List<Integer> results = scheduler.invokeReviewApi(
+                reviewRequest("lead", CapacityManager.CapacityLane.API),
+                () -> scheduler.tryInvokeReviewAll(reviewers)
+                        .orElseThrow());
+
+        releaser.get(2, TimeUnit.SECONDS);
+        assertEquals(5, results.size());
+        assertEquals(4, peak.get());
+        assertEquals(0, store.activeCount(now));
+    }
+
+    @Test
+    void lostReviewLeaseInterruptsItsExactWorkerAndRejectsNominalSuccess()
+            throws Exception
+    {
+        Instant now = Instant.parse("2026-07-28T00:00:00Z");
+        InMemoryExecutionSupport.MutableClock clock =
+                new InMemoryExecutionSupport.MutableClock(now);
+        InMemoryExecutionSupport.CapacityStore store =
+                new InMemoryExecutionSupport.CapacityStore();
+        CapacityManager manager = new CapacityManager(
+                store,
+                () -> CapacityManager.CapacityPolicy.initial(
+                        4, 4, Map.of(CapacityManager.CapacityLane.REVIEW, 1)),
+                clock,
+                Duration.ofSeconds(30));
+        LegacyCapacityBridge bridge = new LegacyCapacityBridge(manager);
+        AgentScheduler scheduler = scheduler(6, bridge);
+        CountDownLatch started = new CountDownLatch(1);
+        AtomicBoolean interrupted = new AtomicBoolean();
+
+        CompletableFuture<String> running = CompletableFuture.supplyAsync(() ->
+                scheduler.invokeReviewApi(
+                        reviewRequest("lost-review", CapacityManager.CapacityLane.API),
+                        () -> {
+                            started.countDown();
+                            try {
+                                Thread.sleep(Duration.ofMinutes(1));
+                            }
+                            catch (InterruptedException e) {
+                                interrupted.set(true);
+                            }
+                            return "must-not-commit";
+                        }));
+        assertTrue(started.await(2, TimeUnit.SECONDS));
+
+        clock.advance(Duration.ofSeconds(31));
+        bridge.maintainLeases();
+
+        CompletionException failure = assertThrows(CompletionException.class, running::join);
+        assertTrue(failure.getCause().getMessage().contains("permit is closed"));
+        assertTrue(interrupted.get());
+        assertEquals(0, store.activeCount(clock.instant()));
+    }
+
+    @Test
+    void restartedReviewReclaimsTheSameStableOperationAndReleasesIt()
+    {
+        Instant now = Instant.parse("2026-07-28T00:00:00Z");
+        InMemoryExecutionSupport.CapacityStore store =
+                new InMemoryExecutionSupport.CapacityStore();
+        CapacityManager manager = capacityManager(store, now, 1);
+        CapacityManager.CapacityRequest request = reviewRequest(
+                "restart-seat", CapacityManager.CapacityLane.CLI);
+        LegacyCapacityBridge abandonedProcess = new LegacyCapacityBridge(manager);
+        LegacyCapacityBridge.Permit abandonedPermit = abandonedProcess.tryAcquire(
+                request, request.operationId()).orElseThrow();
+        assertEquals(request.operationId(), abandonedPermit.lease().operationId());
+
+        LegacyCapacityBridge restartedBridge = new LegacyCapacityBridge(manager);
+        AgentScheduler restarted = scheduler(6, restartedBridge);
+        assertEquals("resumed", restarted.invokeReviewCli(request, () -> "resumed"));
+
+        assertEquals(2, store.admissionTransactions());
+        assertEquals(0, store.activeCount(now));
+        abandonedProcess.close();
+    }
+
+    @Test
+    void reviewAdmissionRejectsAnAmbientDatabaseTransaction()
+    {
+        Instant now = Instant.parse("2026-07-28T00:00:00Z");
+        InMemoryExecutionSupport.CapacityStore store =
+                new InMemoryExecutionSupport.CapacityStore();
+        CapacityManager manager = capacityManager(store, now, 1);
+        AgentScheduler scheduler = scheduler(6, new LegacyCapacityBridge(manager));
+
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        try {
+            IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> scheduler.invokeReviewApi(
+                            reviewRequest("transaction", CapacityManager.CapacityLane.API),
+                            () -> "never"));
+            assertTrue(failure.getMessage().contains("outside a database transaction"));
+        }
+        finally {
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
+        assertEquals(0, store.admissionTransactions());
+    }
+
+    private static CapacityManager capacityManager(
+            InMemoryExecutionSupport.CapacityStore store,
+            Instant now,
+            int reviewLimit)
+    {
+        return new CapacityManager(
+                store,
+                () -> CapacityManager.CapacityPolicy.initial(
+                        4, 4, Map.of(
+                                CapacityManager.CapacityLane.REVIEW, reviewLimit)),
+                new InMemoryExecutionSupport.MutableClock(now),
+                Duration.ofSeconds(30));
+    }
+
+    private static CapacityManager.CapacityRequest reviewRequest(
+            String operationId,
+            CapacityManager.CapacityLane providerLane)
+    {
+        return new CapacityManager.CapacityRequest(
+                operationId,
+                CapacityManager.WorkflowSource.LEGACY,
+                Set.of(CapacityManager.CapacityLane.REVIEW, providerLane),
+                new CapacityManager.CapacityScope(
+                        "workspace-1", "trunk-1", "task-1", 3L),
+                false,
+                false,
+                false);
     }
 
     private static CapacityManager.CapacityRequest v2ApiRequest(String operationId)

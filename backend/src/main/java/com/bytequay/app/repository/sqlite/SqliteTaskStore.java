@@ -30,6 +30,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.function.Consumer;
 
 import static com.bytequay.app.repository.sqlite.SqlitePageRequests.firstPage;
@@ -281,6 +282,15 @@ class SqliteTaskStore
     public Optional<Task> findTaskById(String id)
     {
         return tasks.findById(id).map(this::toTask);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public OptionalLong findTaskEpoch(String taskId)
+    {
+        return tasks.findById(taskId)
+                .map(entity -> OptionalLong.of(entity.getEpoch()))
+                .orElseGet(OptionalLong::empty);
     }
 
     @Override

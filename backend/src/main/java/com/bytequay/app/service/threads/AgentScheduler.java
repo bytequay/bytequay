@@ -88,6 +88,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -700,37 +702,261 @@ public class AgentScheduler
     public <T> List<T> invokeAll(List<Callable<T>> work)
     {
         requireNonNull(work, "work is null");
+        List<CapacityBoundWork<T>> admitted = work.stream()
+                .map(item -> new CapacityBoundWork<T>(API, null, item))
+                .toList();
+        return invokeCapacityBoundAll(admitted);
+    }
+
+    /**
+     * Run already-durable legacy review attempts under one exact shared
+     * REVIEW + provider-lane lease each. The request identity is supplied by
+     * the review protocol; this scheduler only owns admission and execution.
+     */
+    public <T> List<T> invokeReviewAll(List<ReviewWork<T>> work)
+    {
+        requireNonNull(work, "work is null");
+        List<CapacityBoundWork<T>> admitted = work.stream()
+                .map(item -> new CapacityBoundWork<>(
+                        reviewResourceLane(item.request()),
+                        item.request(),
+                        item.work()))
+                .toList();
+        return invokeCapacityBoundAll(admitted);
+    }
+
+    /**
+     * Admit a progress-making seed for a nested review fan-out without
+     * waiting, then run the rest through normal bounded admission. The seed
+     * guarantees capacity can be released while the Lead waits, avoiding a
+     * nested deadlock without serializing a normal multi-reviewer panel.
+     */
+    public <T> Optional<List<T>> tryInvokeReviewAll(List<ReviewWork<T>> work)
+    {
+        requireNonNull(work, "work is null");
+        List<CapacityBoundWork<T>> admitted = work.stream()
+                .map(item -> new CapacityBoundWork<>(
+                        reviewResourceLane(item.request()),
+                        item.request(),
+                        item.work()))
+                .toList();
+        return tryInvokeCapacityBoundAll(admitted);
+    }
+
+    public <T> T invokeReviewApi(
+            CapacityManager.CapacityRequest request,
+            Callable<T> work)
+    {
+        validateReviewRequest(request, API);
+        return invokeCapacityBound(API, request, work, "API review");
+    }
+
+    public <T> T invokeReviewCli(
+            CapacityManager.CapacityRequest request,
+            Callable<T> work)
+    {
+        validateReviewRequest(request, CLI);
+        return invokeCapacityBound(CLI, request, work, "CLI review");
+    }
+
+    /**
+     * Try one nested review launch without waiting for capacity. Review tools
+     * execute inside the Lead provider call, so blocking when the Lead owns
+     * the last REVIEW or API slot would deadlock that protocol round.
+     */
+    public <T> Optional<T> tryInvokeReviewApi(
+            CapacityManager.CapacityRequest request,
+            Callable<T> work)
+    {
+        validateReviewRequest(request, API);
+        return tryInvokeCapacityBound(API, request, work, "API review");
+    }
+
+    /** CLI counterpart of {@link #tryInvokeReviewApi}. */
+    public <T> Optional<T> tryInvokeReviewCli(
+            CapacityManager.CapacityRequest request,
+            Callable<T> work)
+    {
+        validateReviewRequest(request, CLI);
+        return tryInvokeCapacityBound(CLI, request, work, "CLI review");
+    }
+
+    private <T> List<T> invokeCapacityBoundAll(List<CapacityBoundWork<T>> work)
+    {
         List<CompletableFuture<T>> futures = new ArrayList<>();
-        for (Callable<T> item : work) {
+        for (CapacityBoundWork<T> item : work) {
             CompletableFuture<T> future = new CompletableFuture<>();
             futures.add(future);
-            java.lang.Thread.startVirtualThread(() -> {
-                LegacyCapacityBridge.Permit permit;
-                try {
-                    java.lang.Thread worker = java.lang.Thread.currentThread();
-                    permit = acquireSharedSlot(
-                            API,
-                            "legacy-api-call:" + UUID.randomUUID(),
-                            worker::interrupt);
-                }
-                catch (InterruptedException e) {
-                    java.lang.Thread.currentThread().interrupt();
-                    future.completeExceptionally(e);
-                    return;
-                }
-                try {
-                    T result = item.call();
-                    requireLivePermit(permit);
-                    future.complete(result);
-                }
-                catch (Throwable t) {
-                    future.completeExceptionally(t);
-                }
-                finally {
-                    releaseSharedSlot(API, permit);
-                }
-            });
+            java.lang.Thread.startVirtualThread(() -> runCapacityBound(item, future));
         }
+        return collectResults(futures, "invokeAll");
+    }
+
+    private <T> Optional<List<T>> tryInvokeCapacityBoundAll(
+            List<CapacityBoundWork<T>> work)
+    {
+        if (work.isEmpty()) {
+            return Optional.of(List.of());
+        }
+        int seedIndex = 0;
+        for (int index = 0; index < work.size(); index++) {
+            if (work.get(index).resourceLane() == API) {
+                seedIndex = index;
+                break;
+            }
+        }
+        CapacityBoundWork<T> seedWork = work.get(seedIndex);
+        LossGuard guard = new LossGuard();
+        Optional<SharedSlot> seedSlot = tryAcquireSharedSlot(
+                seedWork.resourceLane(), seedWork.request(), guard::stop);
+        if (seedSlot.isEmpty()) {
+            return Optional.empty();
+        }
+        PreparedWork<T> seed = new PreparedWork<>(
+                seedWork, seedSlot.orElseThrow(), guard);
+
+        List<CompletableFuture<T>> futures = new ArrayList<>(work.size());
+        for (int index = 0; index < work.size(); index++) {
+            futures.add(new CompletableFuture<>());
+        }
+        List<Integer> submitted = new ArrayList<>();
+        try {
+            int admittedIndex = seedIndex;
+            java.lang.Thread.startVirtualThread(() ->
+                    runPrepared(seed, futures.get(admittedIndex)));
+            submitted.add(seedIndex);
+            for (int index = 0; index < work.size(); index++) {
+                if (index == seedIndex) {
+                    continue;
+                }
+                int workIndex = index;
+                java.lang.Thread.startVirtualThread(() ->
+                        runCapacityBound(work.get(workIndex), futures.get(workIndex)));
+                submitted.add(index);
+            }
+        }
+        catch (RuntimeException | Error submissionFailure) {
+            if (!submitted.contains(seedIndex)) {
+                try {
+                    releasePrepared(seed);
+                }
+                catch (RuntimeException releaseFailure) {
+                    submissionFailure.addSuppressed(releaseFailure);
+                }
+            }
+            for (int index : submitted) {
+                try {
+                    futures.get(index).join();
+                }
+                catch (CompletionException ignored) {
+                    // Submission failure remains the primary failure.
+                }
+            }
+            throw submissionFailure;
+        }
+        return Optional.of(collectResults(futures, "review"));
+    }
+
+    private <T> void runCapacityBound(
+            CapacityBoundWork<T> item,
+            CompletableFuture<T> future)
+    {
+        LegacyCapacityBridge.Permit permit = null;
+        boolean acquired = false;
+        T result = null;
+        Throwable failure = null;
+        try {
+            java.lang.Thread worker = java.lang.Thread.currentThread();
+            permit = item.request() == null
+                    ? acquireSharedSlot(
+                            item.resourceLane(),
+                            "legacy-api-call:" + UUID.randomUUID(),
+                            worker::interrupt)
+                    : acquireSharedSlot(
+                            item.resourceLane(), item.request(), worker::interrupt);
+            acquired = true;
+            result = item.work().call();
+            requireLivePermit(permit);
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+            failure = e;
+        }
+        catch (Throwable t) {
+            failure = t;
+        }
+        finally {
+            if (acquired) {
+                try {
+                    releaseSharedSlot(item.resourceLane(), permit);
+                }
+                catch (Throwable releaseFailure) {
+                    if (failure == null) {
+                        failure = releaseFailure;
+                    }
+                    else {
+                        failure.addSuppressed(releaseFailure);
+                    }
+                }
+            }
+        }
+        complete(future, result, failure);
+    }
+
+    private <T> void runPrepared(
+            PreparedWork<T> item,
+            CompletableFuture<T> future)
+    {
+        T result = null;
+        Throwable failure = null;
+        try {
+            item.guard().bindCurrentWorker();
+            requireLivePermit(item.slot().permit());
+            result = item.work().work().call();
+            requireLivePermit(item.slot().permit());
+        }
+        catch (Throwable t) {
+            failure = t;
+        }
+        finally {
+            item.guard().clearCurrentWorker();
+            try {
+                releasePrepared(item);
+            }
+            catch (Throwable releaseFailure) {
+                if (failure == null) {
+                    failure = releaseFailure;
+                }
+                else {
+                    failure.addSuppressed(releaseFailure);
+                }
+            }
+        }
+        complete(future, result, failure);
+    }
+
+    private void releasePrepared(PreparedWork<?> item)
+    {
+        releaseSharedSlot(item.work().resourceLane(), item.slot().permit());
+    }
+
+    private static <T> void complete(
+            CompletableFuture<T> future,
+            T result,
+            Throwable failure)
+    {
+        if (failure == null) {
+            future.complete(result);
+        }
+        else {
+            future.completeExceptionally(failure);
+        }
+    }
+
+    private static <T> List<T> collectResults(
+            List<CompletableFuture<T>> futures,
+            String label)
+    {
         List<T> results = new ArrayList<>(futures.size());
         RuntimeException failure = null;
         for (CompletableFuture<T> future : futures) {
@@ -741,14 +967,15 @@ public class AgentScheduler
                 if (failure == null) {
                     failure = e.getCause() instanceof RuntimeException re
                             ? re
-                            : new IllegalStateException("invokeAll work item failed", e.getCause());
+                            : new IllegalStateException(
+                                    label + " work item failed", e.getCause());
                 }
             }
         }
         if (failure != null) {
             throw failure;
         }
-        return results;
+        return List.copyOf(results);
     }
 
     /** Run one out-of-band CLI turn under the same CLI capacity gate used by
@@ -756,14 +983,28 @@ public class AgentScheduler
     public <T> T invokeCli(Callable<T> work)
     {
         requireNonNull(work, "work is null");
+        return invokeCapacityBound(CLI, null, work, "CLI");
+    }
+
+    private <T> T invokeCapacityBound(
+            ThreadResourceLane resourceLane,
+            CapacityManager.CapacityRequest request,
+            Callable<T> work,
+            String label)
+    {
+        requireNonNull(resourceLane, "resourceLane is null");
+        requireNonNull(work, "work is null");
         LegacyCapacityBridge.Permit permit = null;
         boolean acquired = false;
         try {
             java.lang.Thread worker = java.lang.Thread.currentThread();
-            permit = acquireSharedSlot(
-                    CLI,
-                    "legacy-cli-call:" + UUID.randomUUID(),
-                    worker::interrupt);
+            permit = request == null
+                    ? acquireSharedSlot(
+                            resourceLane,
+                            "legacy-" + resourceLane.name().toLowerCase(Locale.ROOT)
+                                    + "-call:" + UUID.randomUUID(),
+                            worker::interrupt)
+                    : acquireSharedSlot(resourceLane, request, worker::interrupt);
             acquired = true;
             T result = work.call();
             requireLivePermit(permit);
@@ -771,18 +1012,83 @@ public class AgentScheduler
         }
         catch (InterruptedException e) {
             java.lang.Thread.currentThread().interrupt();
-            throw new IllegalStateException("interrupted waiting for CLI capacity", e);
+            throw new IllegalStateException(
+                    "interrupted waiting for " + label + " capacity", e);
         }
         catch (RuntimeException e) {
             throw e;
         }
         catch (Exception e) {
-            throw new IllegalStateException("CLI work item failed", e);
+            throw new IllegalStateException(label + " work item failed", e);
         }
         finally {
             if (acquired) {
-                releaseSharedSlot(CLI, permit);
+                releaseSharedSlot(resourceLane, permit);
             }
+        }
+    }
+
+    private <T> Optional<T> tryInvokeCapacityBound(
+            ThreadResourceLane resourceLane,
+            CapacityManager.CapacityRequest request,
+            Callable<T> work,
+            String label)
+    {
+        requireNonNull(resourceLane, "resourceLane is null");
+        requireNonNull(work, "work is null");
+        Optional<SharedSlot> slot = tryAcquireSharedSlot(
+                resourceLane, request, java.lang.Thread.currentThread()::interrupt);
+        if (slot.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            T result = requireNonNull(work.call(), label + " work item returned null");
+            requireLivePermit(slot.orElseThrow().permit());
+            return Optional.of(result);
+        }
+        catch (RuntimeException e) {
+            throw e;
+        }
+        catch (Exception e) {
+            throw new IllegalStateException(label + " work item failed", e);
+        }
+        finally {
+            releaseSharedSlot(resourceLane, slot.orElseThrow().permit());
+        }
+    }
+
+    private static ThreadResourceLane reviewResourceLane(
+            CapacityManager.CapacityRequest request)
+    {
+        requireNonNull(request, "request is null");
+        if (request.lanes().contains(CapacityManager.CapacityLane.CLI)) {
+            validateReviewRequest(request, CLI);
+            return CLI;
+        }
+        validateReviewRequest(request, API);
+        return API;
+    }
+
+    private static void validateReviewRequest(
+            CapacityManager.CapacityRequest request,
+            ThreadResourceLane resourceLane)
+    {
+        requireNonNull(request, "request is null");
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                    "review capacity must be acquired outside a database transaction");
+        }
+        Set<CapacityManager.CapacityLane> expected = Set.of(
+                CapacityManager.CapacityLane.REVIEW,
+                capacityLane(resourceLane));
+        if (request.source() != CapacityManager.WorkflowSource.LEGACY
+                || !request.lanes().equals(expected)
+                || request.trunkControl()
+                || request.exclusiveTask()
+                || request.writerRequired()) {
+            throw new IllegalArgumentException(
+                    "legacy review admission requires exact read-only REVIEW + "
+                            + resourceLane + " capacity");
         }
     }
 
@@ -823,6 +1129,135 @@ public class AgentScheduler
         }
     }
 
+    private LegacyCapacityBridge.Permit acquireSharedSlot(
+            ThreadResourceLane resourceLane,
+            CapacityManager.CapacityRequest request,
+            Runnable stopOnLeaseLoss)
+            throws InterruptedException
+    {
+        if (legacyCapacity == null) {
+            acquireSlot(resourceLane);
+            return null;
+        }
+        String leaseOwner = request.operationId();
+        while (true) {
+            long observedVersion = legacyCapacity.availabilityVersion();
+            acquireSlot(resourceLane);
+            Optional<LegacyCapacityBridge.Permit> permit;
+            try {
+                permit = legacyCapacity.tryAcquire(
+                        request, leaseOwner, stopOnLeaseLoss);
+            }
+            catch (RuntimeException e) {
+                releaseSlot(resourceLane);
+                throw e;
+            }
+            if (permit.isPresent()) {
+                return permit.orElseThrow();
+            }
+            releaseSlot(resourceLane);
+            synchronized (lock) {
+                while (legacyCapacity.availabilityVersion() == observedVersion) {
+                    lock.wait();
+                }
+            }
+        }
+    }
+
+    private Optional<SharedSlot> tryAcquireSharedSlot(
+            ThreadResourceLane resourceLane,
+            CapacityManager.CapacityRequest request,
+            Runnable stopOnLeaseLoss)
+    {
+        if (!tryAcquireSlot(resourceLane)) {
+            return Optional.empty();
+        }
+        if (legacyCapacity == null) {
+            return Optional.of(new SharedSlot(null));
+        }
+        try {
+            return legacyCapacity.tryAcquire(
+                            request, request.operationId(), stopOnLeaseLoss)
+                    .map(SharedSlot::new)
+                    .or(() -> {
+                        releaseSlot(resourceLane);
+                        return Optional.empty();
+                    });
+        }
+        catch (RuntimeException e) {
+            releaseSlot(resourceLane);
+            throw e;
+        }
+    }
+
+    public record ReviewWork<T>(
+            CapacityManager.CapacityRequest request,
+            Callable<T> work)
+    {
+        public ReviewWork
+        {
+            requireNonNull(request, "request is null");
+            requireNonNull(work, "work is null");
+        }
+    }
+
+    private record CapacityBoundWork<T>(
+            ThreadResourceLane resourceLane,
+            CapacityManager.CapacityRequest request,
+            Callable<T> work)
+    {
+        private CapacityBoundWork
+        {
+            requireNonNull(resourceLane, "resourceLane is null");
+            requireNonNull(work, "work is null");
+        }
+    }
+
+    private record SharedSlot(LegacyCapacityBridge.Permit permit) {}
+
+    private record PreparedWork<T>(
+            CapacityBoundWork<T> work,
+            SharedSlot slot,
+            LossGuard guard)
+    {
+        private PreparedWork
+        {
+            requireNonNull(work, "work is null");
+            requireNonNull(slot, "slot is null");
+            requireNonNull(guard, "guard is null");
+        }
+    }
+
+    private static final class LossGuard
+    {
+        private final AtomicBoolean lost = new AtomicBoolean();
+        private final AtomicReference<java.lang.Thread> worker = new AtomicReference<>();
+
+        private void bindCurrentWorker()
+        {
+            java.lang.Thread currentWorker = java.lang.Thread.currentThread();
+            worker.set(currentWorker);
+            if (lost.get()) {
+                currentWorker.interrupt();
+                throw new IllegalStateException("legacy capacity permit was lost before launch");
+            }
+        }
+
+        private void clearCurrentWorker()
+        {
+            worker.set(null);
+        }
+
+        private void stop()
+        {
+            lost.set(true);
+            java.lang.Thread currentWorker = worker.get();
+            if (currentWorker != null) {
+                currentWorker.interrupt();
+            }
+        }
+    }
+
     private void releaseSharedSlot(
             ThreadResourceLane resourceLane,
             LegacyCapacityBridge.Permit permit)
@@ -853,6 +1288,18 @@ public class AgentScheduler
                 lock.wait();
             }
             lane.running++;
+        }
+    }
+
+    private boolean tryAcquireSlot(ThreadResourceLane resourceLane)
+    {
+        synchronized (lock) {
+            LaneState lane = lane(resourceLane);
+            if (lane.running >= lane.maxRunning) {
+                return false;
+            }
+            lane.running++;
+            return true;
         }
     }
 

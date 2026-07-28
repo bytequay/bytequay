@@ -37,7 +37,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -63,13 +62,6 @@ public class CliReviewRunner
     /** Default per-turn wall-clock ceiling — matches the API reviewer's
      *  streaming timeout so a wedged CLI can't hang the pass. */
     private static final long DEFAULT_TIMEOUT_MS = 6 * 60 * 1000;
-
-    /** Cap on concurrent CLI review subprocesses so a many-seat panel
-     *  can't spawn an unbounded number of agents at once (the panel fans
-     *  the INDEPENDENT phase out in parallel). Mirrors the spirit of the
-     *  scheduler's small CLI lane. */
-    private static final int MAX_CONCURRENT = 3;
-    private final Semaphore slots = new Semaphore(MAX_CONCURRENT);
 
     /** The local sidecar's base URL — the CLI subprocess reaches the
      *  review MCP server here. Matches server.port in application.properties. */
@@ -165,24 +157,12 @@ public class CliReviewRunner
     public Result run(
             Provider provider, String prompt, String resumeSessionId, Path workingDir, McpEndpoint mcp)
     {
-        try {
-            slots.acquire();
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new CliReviewException("interrupted waiting for a CLI review slot", e);
-        }
-        try {
-            return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, null);
-        }
-        finally {
-            slots.release();
-        }
+        return runOnce(provider, prompt, resumeSessionId, workingDir, mcp, null);
     }
 
     /** Run when {@link com.bytequay.app.service.threads.AgentScheduler} has
-     * already acquired the shared CLI lane. The ordinary {@link #run} gate
-     * remains for legacy reviewer seats that call this component directly. */
+     * already acquired the shared CLI lane. Ordinary reviewer seats acquire
+     * their exact shared review lease before calling {@link #run}. */
     public Result runWithSchedulerCapacity(
             Provider provider, String prompt, String resumeSessionId, Path workingDir, McpEndpoint mcp)
     {

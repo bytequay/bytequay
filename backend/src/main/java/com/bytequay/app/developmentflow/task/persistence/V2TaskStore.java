@@ -21,6 +21,7 @@ import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.creation.ProvisionTarget;
+import com.bytequay.app.developmentflow.task.creation.TaskAssignment;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -287,6 +288,12 @@ final class V2TaskStore
                        task.policy_revision_id AS task_policy_id,
                        task.creation_receipt_id AS task_receipt_id,
                        task.created_at_ms AS task_created_at_ms,
+                       task.name AS task_name,
+                       task.task_type AS task_type,
+                       task.linked_pr_number AS task_linked_pr_number,
+                       task.linked_issue_number AS task_linked_issue_number,
+                       task.opening_prompt AS task_opening_prompt,
+                       task.origin AS task_origin,
                        context.authorization_id AS context_authorization_id,
                        context.provenance AS context_provenance,
                        context.repository_id AS context_repository_id,
@@ -300,6 +307,11 @@ final class V2TaskStore
                        context.assignment_head_sha AS context_assignment_head_sha,
                        context.engine_snapshot AS context_engine_snapshot,
                        context.work_model_snapshot AS context_work_model_snapshot,
+                       context.task_name AS context_task_name,
+                       context.task_type AS context_task_type,
+                       context.linked_issue_number AS context_linked_issue_number,
+                       context.opening_prompt AS context_opening_prompt,
+                       context.task_origin AS context_task_origin,
                        context.created_at_ms AS context_created_at_ms,
                        brain.provider AS brain_provider,
                        brain.model AS brain_model,
@@ -400,6 +412,16 @@ final class V2TaskStore
                 && same(row, "task_policy_id", receipt.policyRevisionId())
                 && Objects.equals(row.get("task_receipt_id"), row.get("receipt_id"))
                 && number(row, "task_created_at_ms") == createdAt
+                && same(row, "task_name", input.presentation().name())
+                && same(row, "task_type", input.presentation().taskType())
+                && Objects.equals(
+                        nullableNumber(row, "task_linked_pr_number"),
+                        linkedPrNumber(input.assignment()))
+                && Objects.equals(
+                        nullableNumber(row, "task_linked_issue_number"),
+                        nullableLong(input.presentation().linkedIssueNumber()))
+                && same(row, "task_opening_prompt", input.presentation().openingPrompt())
+                && same(row, "task_origin", input.presentation().origin())
                 && same(row, "context_authorization_id", receipt.authorizationId())
                 && same(row, "context_provenance", input.provenance().name())
                 && same(row, "context_repository_id", target.repositoryId())
@@ -417,6 +439,13 @@ final class V2TaskStore
                 && same(row, "context_engine_snapshot",
                         input.engine().canonicalValue())
                 && same(row, "context_work_model_snapshot", input.workModel().value())
+                && same(row, "context_task_name", input.presentation().name())
+                && same(row, "context_task_type", input.presentation().taskType())
+                && Objects.equals(
+                        nullableNumber(row, "context_linked_issue_number"),
+                        nullableLong(input.presentation().linkedIssueNumber()))
+                && same(row, "context_opening_prompt", input.presentation().openingPrompt())
+                && same(row, "context_task_origin", input.presentation().origin())
                 && number(row, "context_created_at_ms") == createdAt
                 && same(row, "brain_provider", input.engine().provider())
                 && same(row, "brain_model", input.engine().model())
@@ -517,12 +546,18 @@ final class V2TaskStore
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
                     workflow_version, epoch, aggregate_version, lifecycle_state,
-                    assignment_id, policy_revision_id, creation_receipt_id)
+                    assignment_id, policy_revision_id, creation_receipt_id,
+                    name, task_type, linked_pr_number, linked_issue_number,
+                    opening_prompt, origin)
                 VALUES (?, ?, ?, 'PENDING', 'PLANNING', ?,
-                    'V2', 1, 0, 'PROVISIONING', ?, ?, ?)
+                    'V2', 1, 0, 'PROVISIONING', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 state.id(), state.trunkId(), taskSequence, createdAt,
-                assignmentId, input.policy().id(), receiptId);
+                assignmentId, input.policy().id(), receiptId,
+                input.presentation().name(), input.presentation().taskType(),
+                linkedPrNumber(input.assignment()),
+                input.presentation().linkedIssueNumber(),
+                input.presentation().openingPrompt(), input.presentation().origin());
         jdbc.update("""
                 INSERT INTO task_creation_context(
                     task_id, assignment_id, policy_revision_id, authorization_id,
@@ -530,8 +565,10 @@ final class V2TaskStore
                     publish_repository_id, base_source, base_repository_id,
                     base_ref, planning_base_sha, assignment_base_sha,
                     assignment_head_sha, engine_snapshot, work_model_snapshot,
+                    task_name, task_type, linked_issue_number, opening_prompt,
+                    task_origin,
                     created_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 state.id(), assignmentId, input.policy().id(), authorizationId,
                 input.provenance().name(), target.repositoryId(),
@@ -539,7 +576,11 @@ final class V2TaskStore
                 target.publishRepositoryId(), input.base().source().name(),
                 input.base().repositories().baseRepositoryId(), input.base().baseRef(),
                 planningBase(input), assignmentBase(input), assignmentHead(input),
-                input.engine().canonicalValue(), input.workModel().value(), createdAt);
+                input.engine().canonicalValue(), input.workModel().value(),
+                input.presentation().name(), input.presentation().taskType(),
+                input.presentation().linkedIssueNumber(),
+                input.presentation().openingPrompt(), input.presentation().origin(),
+                createdAt);
         jdbc.update("""
                 INSERT INTO task_brain(
                     id, task_id, provider, model, role_skill,
@@ -1640,6 +1681,22 @@ final class V2TaskStore
         return assignmentHead(input);
     }
 
+    private static Long linkedPrNumber(TaskAssignment assignment)
+    {
+        return switch (assignment) {
+            case TaskAssignment.ExistingOwnPr value ->
+                    (long) value.pullRequest().number();
+            case TaskAssignment.ReviewFindings value ->
+                    (long) value.pullRequest().number();
+            default -> null;
+        };
+    }
+
+    private static Long nullableLong(Integer value)
+    {
+        return value == null ? null : value.longValue();
+    }
+
     private static boolean same(Map<String, Object> row, String name, Object expected)
     {
         return Objects.equals(row.get(name), expected);
@@ -1648,6 +1705,12 @@ final class V2TaskStore
     private static long number(Map<String, Object> row, String name)
     {
         return ((Number) row.get(name)).longValue();
+    }
+
+    private static Long nullableNumber(Map<String, Object> row, String name)
+    {
+        Object value = row.get(name);
+        return value == null ? null : ((Number) value).longValue();
     }
 
     private static String id()

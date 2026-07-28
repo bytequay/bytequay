@@ -113,6 +113,21 @@ class TestV2TaskCreationHandoff
                 SELECT worktree_path FROM task_provision_target ORDER BY task_id
                 """, String.class))
                 .allMatch(path -> path.startsWith(repositoryRoot.toString() + "/.worktrees/"));
+        assertThat(jdbc.queryForMap("""
+                SELECT task.name, task.task_type, task.opening_prompt,
+                       authorization.task_name AS authorized_name,
+                       context.task_name AS context_name
+                FROM tasks task
+                JOIN task_creation_context context ON context.task_id = task.id
+                JOIN trunk_task_creation_authorization authorization
+                  ON authorization.id = context.authorization_id
+                WHERE task.assignment_id = 'assignment-new-direct'
+                """))
+                .containsEntry("name", "direct plan seed")
+                .containsEntry("task_type", "DEVELOP")
+                .containsEntry("opening_prompt", "implement directly")
+                .containsEntry("authorized_name", "direct plan seed")
+                .containsEntry("context_name", "direct plan seed");
     }
 
     @Test
@@ -140,8 +155,7 @@ class TestV2TaskCreationHandoff
                 """, taskId);
         jdbc.update("""
                 UPDATE tasks
-                SET lifecycle_state = 'ACTIVE', aggregate_version = 1,
-                    status = 'RUNNING'
+                SET lifecycle_state = 'ACTIVE', aggregate_version = 1
                 WHERE id = ?
                 """, taskId);
         Path relocatedRoot = tempDir.resolve("relocated-repo").toAbsolutePath();
@@ -352,7 +366,7 @@ class TestV2TaskCreationHandoff
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("231").load().migrate();
+        Flyway.configure().dataSource(url, "", "").target("246").load().migrate();
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;

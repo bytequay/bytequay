@@ -14,9 +14,11 @@
 package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageManager;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -30,6 +32,7 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -185,6 +188,11 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
             assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
                     .isZero();
         }
+
+        // V2StageStore's result-request evidence became part of the manager
+        // contract in V235; bring this real-store command fixture to that
+        // additive schema before exercising the manager.
+        migrate(url, "235");
 
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
@@ -793,6 +801,82 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     SELECT status FROM publish_operation
                     WHERE id = 'publish-operation-1'
                     """)).isEqualTo("DISPATCHED");
+        }
+    }
+
+    @Test
+    void v241AcceptsOnlyAnExactTerminalPublishDeliveryReceipt()
+            throws Exception
+    {
+        String url = migrated("publish-delivery-receipt.db");
+        try (Connection connection = connect(url)) {
+            seedApprovedLocalSubject(connection);
+        }
+        migrate(url, "241");
+
+        try (Connection connection = connect(url)) {
+            seedSuccessfulPublish(connection);
+            assertFails(connection, """
+                    INSERT INTO publish_delivery_receipt(
+                        operation_id, raw_result_digest, outcome, acceptance,
+                        remote_stage_id, delivered_at_ms)
+                    VALUES ('publish-operation-id-1', 'raw-digest',
+                        'SUCCEEDED', 'ACCEPTED', NULL, 60)
+                    """);
+            execute(connection, """
+                    INSERT INTO publish_delivery_receipt(
+                        operation_id, raw_result_digest, outcome, acceptance,
+                        remote_stage_id, delivered_at_ms)
+                    VALUES ('publish-operation-id-1', 'raw-digest',
+                        'SUCCEEDED', 'SUPERSEDED', NULL, 60)
+                    """);
+            assertFails(connection, """
+                    UPDATE publish_delivery_receipt
+                    SET raw_result_digest = 'different'
+                    WHERE operation_id = 'publish-operation-id-1'
+                    """);
+            assertThat(text(connection, """
+                    SELECT outcome || '|' || acceptance
+                    FROM publish_delivery_receipt
+                    WHERE operation_id = 'publish-operation-id-1'
+                    """)).isEqualTo("SUCCEEDED|SUPERSEDED");
+        }
+    }
+
+    @Test
+    void sqlitePublishDeliveryStoreTerminalizesTheExactFailedOperation()
+            throws Exception
+    {
+        String url = migrated("publish-delivery-store.db");
+        try (Connection connection = connect(url)) {
+            seedApprovedLocalSubject(connection);
+        }
+        migrate(url, "241");
+        try (Connection connection = connect(url)) {
+            seedDispatchedFailedPublish(connection);
+        }
+        SQLiteDataSource dataSource = new SQLiteDataSource();
+        dataSource.setUrl(url);
+        SqlitePublishResultStore store = new SqlitePublishResultStore(
+                new JdbcTemplate(dataSource));
+
+        var context = store.requireContext("publish-operation-id-1");
+        store.completeFailure(
+                context, DispatchTicket.Outcome.FAILED,
+                "definite GitHub rejection", Instant.ofEpochMilli(50));
+
+        try (Connection connection = connect(url)) {
+            assertThat(text(connection, """
+                    SELECT status || '|' || error_message
+                    FROM publish_operation
+                    WHERE id = 'publish-operation-1'
+                    """)).isEqualTo("FAILED|definite GitHub rejection");
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM publish_authorization
+                    WHERE id = 'authorization-1'
+                      AND revoked_at_ms = 50
+                      AND consumed_at_ms IS NULL
+                    """)).isEqualTo(1);
         }
     }
 
@@ -1875,6 +1959,134 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     'acme/widget', 'acme/widget', 42, 'https://example/pr/42',
                     'dev/task-1', '%s', 'base-1', 'binding proof', 51)
                 """.formatted(id, headSha);
+    }
+
+    private static void seedSuccessfulPublish(Connection connection)
+            throws SQLException
+    {
+        execute(connection, manifestSql("manifest-1", 1, 1));
+        insertStandingPublishAuthorization(connection);
+        execute(connection, """
+                UPDATE stage SET version = 1, checkpoint = 'PUBLISHING'
+                WHERE id = 'local-stage-1'
+                """);
+        execute(connection, """
+                INSERT INTO stage_transition(
+                    id, stage_id, command_id, generation, from_checkpoint,
+                    to_checkpoint, stage_version, cause, actor, occurred_at_ms)
+                VALUES ('publish-transition-1', 'local-stage-1',
+                    'approve-and-ship-command-1', 1, 'LOCAL_REVIEW',
+                    'PUBLISHING', 1, 'AUTHORIZE_PUBLISH', 'policy', 31)
+                """);
+        execute(connection, authorizePublishReceiptSql(
+                "publish-receipt-1", "authorization-1"));
+        execute(connection, """
+                INSERT INTO publish_operation(
+                    id, publish_authorization_id, local_development_stage_id,
+                    task_id, task_epoch, stage_generation, operation_id,
+                    semantic_attempt, code_fingerprint, expected_head_sha,
+                    expected_base_sha, status, requested_at_ms)
+                VALUES ('publish-operation-1', 'authorization-1',
+                    'local-stage-1', 'task-1', 1, 1,
+                    'publish-operation-id-1', 1, 'fp-1', 'head-1',
+                    'base-1', 'REQUESTED', 32)
+                """);
+        insertPublishSteps(connection);
+        insertPublishTicket(connection);
+        execute(connection, """
+                UPDATE publish_operation SET status = 'DISPATCHED'
+                WHERE id = 'publish-operation-1'
+                """);
+        for (int ordinal = 1; ordinal <= 6; ordinal++) {
+            execute(connection, claimStepSql(ordinal, ordinal));
+            execute(connection, completeStepSql(ordinal, ordinal));
+        }
+        execute(connection, """
+                UPDATE dispatch_ticket
+                SET version = 1, status = 'RESULT_PENDING',
+                    pending_result_outcome = 'SUCCEEDED',
+                    pending_result_payload = 'published',
+                    pending_result_evidence = 'remote head fetched',
+                    pending_result_task_epoch = 1,
+                    pending_result_stage_id = 'local-stage-1',
+                    pending_result_stage_generation = 1,
+                    pending_result_operation_id = 'publish-operation-id-1',
+                    pending_result_attempt = 1,
+                    pending_result_expected_code_fingerprint = 'fp-1',
+                    pending_result_expected_head_sha = 'head-1',
+                    pending_result_expected_base_sha = 'base-1'
+                WHERE id = 'publish-ticket-1'
+                """);
+        execute(connection, """
+                UPDATE publish_operation
+                SET status = 'SUCCEEDED', remote_repository_id = 'acme/widget',
+                    remote_pr_number = 42, remote_pr_url = 'https://example/pr/42',
+                    remote_head_ref = 'dev/task-1', remote_head_sha = 'head-1',
+                    remote_base_sha = 'base-1', result_evidence = 'proof',
+                    completed_at_ms = 50
+                WHERE id = 'publish-operation-1'
+                """);
+        execute(connection, remoteBindingSql("binding-1", "head-1"));
+        execute(connection, """
+                UPDATE publish_authorization
+                SET consumed_at_ms = 51, outcome = 'PUBLISHED'
+                WHERE id = 'authorization-1'
+                """);
+    }
+
+    private static void seedDispatchedFailedPublish(Connection connection)
+            throws SQLException
+    {
+        execute(connection, manifestSql("manifest-1", 1, 1));
+        insertStandingPublishAuthorization(connection);
+        execute(connection, """
+                UPDATE stage SET version = 1, checkpoint = 'PUBLISHING'
+                WHERE id = 'local-stage-1'
+                """);
+        execute(connection, """
+                INSERT INTO stage_transition(
+                    id, stage_id, command_id, generation, from_checkpoint,
+                    to_checkpoint, stage_version, cause, actor, occurred_at_ms)
+                VALUES ('publish-transition-1', 'local-stage-1',
+                    'approve-and-ship-command-1', 1, 'LOCAL_REVIEW',
+                    'PUBLISHING', 1, 'AUTHORIZE_PUBLISH', 'policy', 31)
+                """);
+        execute(connection, authorizePublishReceiptSql(
+                "publish-receipt-1", "authorization-1"));
+        execute(connection, """
+                INSERT INTO publish_operation(
+                    id, publish_authorization_id, local_development_stage_id,
+                    task_id, task_epoch, stage_generation, operation_id,
+                    semantic_attempt, code_fingerprint, expected_head_sha,
+                    expected_base_sha, status, requested_at_ms)
+                VALUES ('publish-operation-1', 'authorization-1',
+                    'local-stage-1', 'task-1', 1, 1,
+                    'publish-operation-id-1', 1, 'fp-1', 'head-1',
+                    'base-1', 'REQUESTED', 32)
+                """);
+        insertPublishSteps(connection);
+        insertPublishTicket(connection);
+        execute(connection, """
+                UPDATE publish_operation SET status = 'DISPATCHED'
+                WHERE id = 'publish-operation-1'
+                """);
+        execute(connection, """
+                UPDATE dispatch_ticket
+                SET version = 1, status = 'RESULT_PENDING',
+                    pending_result_outcome = 'FAILED',
+                    pending_result_payload = 'failed',
+                    pending_result_evidence = 'definite rejection',
+                    pending_result_task_epoch = 1,
+                    pending_result_stage_id = 'local-stage-1',
+                    pending_result_stage_generation = 1,
+                    pending_result_operation_id = 'publish-operation-id-1',
+                    pending_result_attempt = 1,
+                    pending_result_expected_code_fingerprint = 'fp-1',
+                    pending_result_expected_head_sha = 'head-1',
+                    pending_result_expected_base_sha = 'base-1',
+                    pending_result_error = 'definite GitHub rejection'
+                WHERE id = 'publish-ticket-1'
+                """);
     }
 
     private static String taskReceiptSql(String id, String commandId)

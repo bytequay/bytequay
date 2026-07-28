@@ -156,6 +156,7 @@ final class DevelopmentFlowBaselineFixture
         StageInstance local = stages.openStage(taskId, StageType.DEVELOPMENT_STAGE, null);
         stages.closeStage(local.id(), "baseline_remote_promoted");
         StageInstance remote = stages.openStage(taskId, StageType.REMOTE_DEVELOPMENT_STAGE, null);
+        String repoFullName = "acme/widget-" + scenario;
 
         PR pr = prs.createForTask(
                 taskId, inserted.branchName(), inserted.baseBranch(),
@@ -163,8 +164,8 @@ final class DevelopmentFlowBaselineFixture
         prs.recordCommit(pr.id(), scenario + "-sha", "Implement baseline", 3, 1, "agent");
         pr = prs.requestUserReview(pr.id(), "agent");
         pr = prs.recordPush(
-                pr.id(), "acme/widget", 42,
-                "https://github.com/acme/widget/pull/42");
+                pr.id(), repoFullName, 42,
+                "https://github.com/" + repoFullName + "/pull/42");
         pr = prs.transition(pr.id(), PR.STATUS_REMOTE_OPEN, "github");
         prs.recordCheck(
                 pr.id(), PRCheck.KIND_REMOTE, "build",
@@ -175,7 +176,7 @@ final class DevelopmentFlowBaselineFixture
 
         tasks.markPushed(taskId, NOW);
         tasks.linkPullRequest(taskId, 42, "open");
-        tasks.linkTaskToPr(taskId, "acme/widget#42");
+        tasks.linkTaskToPr(taskId, repoFullName + "#42");
         tasks.updateCiState(taskId, "PASSING");
         tasks.updatePhase(taskId, TaskPhase.AWAITING_REMOTE_REVIEW);
 

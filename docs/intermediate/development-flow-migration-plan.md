@@ -637,6 +637,11 @@ same pinned base commit in an isolated worktree and owns a disjoint file list.
 The integrator alone owns migration numbering, shared routing, compatibility
 adapters, and semantic conflict resolution.
 
+A clean checkout is the portability boundary. Agent prompts may require only
+these two tracked development-flow documents and tracked source/tests; files
+under `docs/mockups/` are optional history and must never be an implementation
+dependency.
+
 Start in parallel only after these two documents are committed:
 
 1. one agent owns the atomic workflow-version migration and its migration test

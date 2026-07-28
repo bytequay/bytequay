@@ -13,10 +13,13 @@
  */
 package com.bytequay.app.developmentflow.execution.provisioning;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -26,10 +29,12 @@ public final class SqliteProvisionTaskOperationStore
         implements ProvisionTaskOperationHandler.OperationStore
 {
     private final JdbcTemplate jdbc;
+    private final ObjectMapper json;
 
-    public SqliteProvisionTaskOperationStore(JdbcTemplate jdbc)
+    public SqliteProvisionTaskOperationStore(JdbcTemplate jdbc, ObjectMapper json)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
+        this.json = requireNonNull(json, "json is null");
     }
 
     @Override
@@ -152,6 +157,74 @@ public final class SqliteProvisionTaskOperationStore
         }
         return rows.getFirst();
     }
+
+    @Override
+    public Optional<ProvisionTaskOperationHandler.ProvisionSourceProof>
+            findPriorSourceProof(String operationId)
+    {
+        requireText(operationId, "operationId");
+        List<SourceLog> rows = jdbc.query("""
+                SELECT execution.id AS execution_id,
+                    execution.infrastructure_attempt,
+                    log.payload
+                FROM dispatch_ticket ticket
+                JOIN agent_execution execution
+                  ON execution.ticket_id = ticket.id
+                JOIN agent_execution_log log
+                  ON log.execution_id = execution.id
+                WHERE ticket.operation_id = ?
+                  AND ticket.operation_kind = ?
+                  AND execution.infrastructure_attempt
+                    < ticket.infrastructure_attempts
+                  AND log.seq = ?
+                ORDER BY execution.infrastructure_attempt DESC
+                """, (result, row) -> new SourceLog(
+                        result.getString("execution_id"),
+                        result.getInt("infrastructure_attempt"),
+                        result.getString("payload")),
+                operationId,
+                ProvisionTaskOperationHandler.OPERATION_KIND,
+                ProvisionTaskOperationHandler.SOURCE_PROOF_LOG_SEQUENCE);
+
+        ProvisionTaskOperationHandler.ProvisionSourceProof accepted = null;
+        for (SourceLog row : rows) {
+            ProvisionTaskOperationHandler.ProvisionSourceEvidence evidence;
+            try {
+                evidence = json.readValue(
+                        row.payload(),
+                        ProvisionTaskOperationHandler.ProvisionSourceEvidence.class);
+            }
+            catch (JsonProcessingException | RuntimeException ignored) {
+                // This log sequence predates or does not belong to the typed
+                // provisioning proof contract. It cannot authorize adoption.
+                continue;
+            }
+            if (!ProvisionTaskOperationHandler.SOURCE_PROOF_SCHEMA.equals(
+                        evidence.schema())
+                    || !row.executionId().equals(evidence.executionId())
+                    || !operationId.equals(evidence.operationId())) {
+                continue;
+            }
+            ProvisionTaskOperationHandler.ProvisionSourceProof candidate =
+                    new ProvisionTaskOperationHandler.ProvisionSourceProof(
+                            row.executionId(), row.infrastructureAttempt(), evidence);
+            if (accepted != null
+                    && !accepted.evidence().sameSourceAs(candidate.evidence())) {
+                throw new IllegalStateException(
+                        "conflicting prior provisioning source proofs for "
+                                + operationId);
+            }
+            if (accepted == null) {
+                accepted = candidate;
+            }
+        }
+        return Optional.ofNullable(accepted);
+    }
+
+    private record SourceLog(
+            String executionId,
+            int infrastructureAttempt,
+            String payload) {}
 
     private static void requireText(String value, String name)
     {

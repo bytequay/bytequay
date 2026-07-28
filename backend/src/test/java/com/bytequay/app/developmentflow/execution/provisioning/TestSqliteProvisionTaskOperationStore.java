@@ -13,6 +13,10 @@
  */
 package com.bytequay.app.developmentflow.execution.provisioning;
 
+import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.BaseSource;
+import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.ProvisionSourceEvidence;
+import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.ProvisionSourceProof;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,6 +29,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestSqliteProvisionTaskOperationStore
 {
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     @TempDir
     private Path tempDir;
 
@@ -37,10 +43,10 @@ class TestSqliteProvisionTaskOperationStore
         seedPlanningSnapshot(jdbc, tempDir.resolve("repo").toAbsolutePath().normalize());
 
         ProvisionTaskOperationHandler.ProvisionRequest first =
-                new SqliteProvisionTaskOperationStore(jdbc)
+                new SqliteProvisionTaskOperationStore(jdbc, JSON)
                         .requireByOperationId("operation-1");
         ProvisionTaskOperationHandler.ProvisionRequest restarted =
-                new SqliteProvisionTaskOperationStore(jdbc(database))
+                new SqliteProvisionTaskOperationStore(jdbc(database), JSON)
                         .requireByOperationId("operation-1");
 
         assertThat(restarted).isEqualTo(first);
@@ -65,7 +71,7 @@ class TestSqliteProvisionTaskOperationStore
                 VALUES ('ACME', 'WIDGET', ?)
                 """, root.resolve("other").toString());
         SqliteProvisionTaskOperationStore store =
-                new SqliteProvisionTaskOperationStore(jdbc);
+                new SqliteProvisionTaskOperationStore(jdbc, JSON);
 
         assertThatThrownBy(() -> store.requireByOperationId("operation-1"))
                 .isInstanceOf(IllegalStateException.class)
@@ -73,6 +79,48 @@ class TestSqliteProvisionTaskOperationStore
         assertThatThrownBy(() -> store.requireByOperationId("missing"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("found 0");
+    }
+
+    @Test
+    void loadsOnlyTypedPriorAttemptSourceProof()
+            throws Exception
+    {
+        JdbcTemplate jdbc = jdbc(tempDir.resolve("source-proof.db"));
+        createSchema(jdbc);
+        Path root = tempDir.resolve("repo").toAbsolutePath().normalize();
+        seedPlanningSnapshot(jdbc, root);
+        jdbc.update("""
+                INSERT INTO dispatch_ticket VALUES (
+                    'ticket-1', 'operation-1', 'PROVISION_TASK', 4)
+                """);
+        jdbc.update("INSERT INTO agent_execution VALUES ('execution-1', 'ticket-1', 1)");
+        jdbc.update("INSERT INTO agent_execution VALUES ('execution-2', 'ticket-1', 2)");
+        jdbc.update("INSERT INTO agent_execution VALUES ('execution-3', 'ticket-1', 3)");
+        jdbc.update("INSERT INTO agent_execution VALUES ('execution-4', 'ticket-1', 4)");
+        ProvisionSourceEvidence prior = sourceEvidence(
+                "execution-1", root, "base-sha");
+        ProvisionSourceEvidence current = sourceEvidence(
+                "execution-4", root, "different-current-sha");
+        jdbc.update(
+                "INSERT INTO agent_execution_log VALUES (?, 0, ?)",
+                "execution-1", JSON.writeValueAsString(prior));
+        jdbc.update(
+                "INSERT INTO agent_execution_log VALUES (?, 0, ?)",
+                "execution-2", "{\"event\":\"provider-output\"}");
+        jdbc.update(
+                "INSERT INTO agent_execution_log VALUES (?, 0, ?)",
+                "execution-3", "not-json");
+        jdbc.update(
+                "INSERT INTO agent_execution_log VALUES (?, 0, ?)",
+                "execution-4", JSON.writeValueAsString(current));
+
+        ProvisionSourceProof proof = new SqliteProvisionTaskOperationStore(jdbc, JSON)
+                .findPriorSourceProof("operation-1")
+                .orElseThrow();
+
+        assertThat(proof.executionId()).isEqualTo("execution-1");
+        assertThat(proof.infrastructureAttempt()).isEqualTo(1);
+        assertThat(proof.evidence()).isEqualTo(prior);
     }
 
     private static JdbcTemplate jdbc(Path file)
@@ -162,6 +210,25 @@ class TestSqliteProvisionTaskOperationStore
                     repo TEXT NOT NULL,
                     local_clone_path TEXT)
                 """);
+        jdbc.execute("""
+                CREATE TABLE dispatch_ticket(
+                    id TEXT PRIMARY KEY,
+                    operation_id TEXT NOT NULL,
+                    operation_kind TEXT NOT NULL,
+                    infrastructure_attempts INTEGER NOT NULL)
+                """);
+        jdbc.execute("""
+                CREATE TABLE agent_execution(
+                    id TEXT PRIMARY KEY,
+                    ticket_id TEXT NOT NULL,
+                    infrastructure_attempt INTEGER NOT NULL)
+                """);
+        jdbc.execute("""
+                CREATE TABLE agent_execution_log(
+                    execution_id TEXT NOT NULL,
+                    seq INTEGER NOT NULL,
+                    payload TEXT NOT NULL)
+                """);
     }
 
     private static void seedPlanningSnapshot(JdbcTemplate jdbc, Path repositoryRoot)
@@ -201,5 +268,29 @@ class TestSqliteProvisionTaskOperationStore
         jdbc.update("""
                 INSERT INTO watched_repos VALUES ('acme', 'widget', ?)
                 """, repositoryRoot.toString());
+    }
+
+    private static ProvisionSourceEvidence sourceEvidence(
+            String executionId,
+            Path repositoryRoot,
+            String sha)
+    {
+        return new ProvisionSourceEvidence(
+                ProvisionTaskOperationHandler.SOURCE_PROOF_SCHEMA,
+                executionId,
+                "operation-1",
+                1,
+                "task-1",
+                1,
+                BaseSource.PLANNING_SNAPSHOT,
+                "acme/widget",
+                "acme/widget",
+                "main",
+                null,
+                null,
+                "dev/task-1",
+                repositoryRoot.resolve(".worktrees/task-1").toString(),
+                sha,
+                sha);
     }
 }

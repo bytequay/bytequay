@@ -112,6 +112,9 @@ final class V2StageStore
         Optional<StageManager.CommandReceipt> projection = findProjection(
                 stageId, persisted.version());
         StageManager.State stage = projection
+                .or(() -> queryInitialRequest(
+                        "WHERE stage_id = ? AND returned_stage_version = ?",
+                        stageId, persisted.version()))
                 .map(StageManager.CommandReceipt::state)
                 .orElseGet(() -> persisted.withPending(null));
         if (!persisted.matchesCore(stage)) {
@@ -131,13 +134,99 @@ final class V2StageStore
                 RECEIPT_SELECT
                         + " WHERE task_id = ? AND stage_id = ? AND command_id = ?",
                 taskId, stageId, commandId);
-        if (shared.isPresent() || !localReceiptsAvailable()) {
+        if (shared.isPresent()) {
             return shared;
         }
-        return queryReceipt(
-                "SELECT * FROM local_stage_command_receipt"
-                        + " WHERE task_id = ? AND stage_id = ? AND command_id = ?",
+        if (localReceiptsAvailable()) {
+            Optional<StageManager.CommandReceipt> local = queryReceipt(
+                    "SELECT * FROM local_stage_command_receipt"
+                            + " WHERE task_id = ? AND stage_id = ? AND command_id = ?",
+                    taskId, stageId, commandId);
+            if (local.isPresent()) {
+                return local;
+            }
+        }
+        return queryInitialRequest(
+                "WHERE task_id = ? AND stage_id = ? AND command_id = ?",
                 taskId, stageId, commandId);
+    }
+
+    @Override
+    public StageManager.State requestInitialResult(
+            String commandId,
+            String cause,
+            String actor,
+            long expectedTaskEpoch,
+            long expectedStageGeneration,
+            long expectedStageVersion,
+            StageCheckpoint checkpoint,
+            StageManager.InitialResultOwner resultOwner,
+            ResultFence pendingResult,
+            StageManager.State expected,
+            StageManager.State requested)
+    {
+        requireTransaction();
+        if (expected.version() != 0
+                || requested.version() != 1
+                || expected.pendingResult() != null
+                || !expected.id().equals(requested.id())
+                || expected.checkpoint() != checkpoint
+                || requested.checkpoint() != checkpoint
+                || !pendingResult.equals(requested.pendingResult())
+                || expected.generation() != expectedStageGeneration
+                || expectedStageVersion != 0) {
+            throw new IllegalArgumentException(
+                    "Initial Stage result request is inconsistent");
+        }
+        int changed = jdbc.update("""
+                UPDATE stage
+                SET version = 1
+                WHERE id = ? AND task_id = ? AND kind = ? AND generation = ?
+                  AND version = 0 AND checkpoint = ?
+                  AND completed_at_ms IS NULL AND end_reason IS NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM tasks task
+                      JOIN task_current_stage current ON current.task_id = task.id
+                      WHERE task.id = stage.task_id
+                        AND task.workflow_version = 'V2'
+                        AND task.lifecycle_state = 'ACTIVE'
+                        AND task.epoch = ?
+                        AND current.stage_id = stage.id
+                        AND current.stage_generation = ?)
+                """,
+                requested.id(), requested.taskId(), requested.kind().name(),
+                requested.generation(), checkpoint.name(), expectedTaskEpoch,
+                expectedStageGeneration);
+        if (changed != 1) {
+            throw concurrent("Initial Stage result owner changed before commit");
+        }
+        int inserted = jdbc.update("""
+                INSERT INTO stage_initial_result_request(
+                    id, stage_id, task_id, stage_kind, command_id, cause, actor,
+                    expected_task_epoch, expected_stage_generation,
+                    expected_stage_version, returned_stage_version, checkpoint,
+                    turn_owner_kind, turn_id,
+                    pending_task_epoch, pending_stage_id,
+                    pending_stage_generation, pending_operation_id,
+                    pending_attempt, pending_code_fingerprint,
+                    pending_head_sha, pending_base_sha, requested_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                id(), requested.id(), requested.taskId(), requested.kind().name(),
+                commandId, cause, actor,
+                expectedTaskEpoch, expectedStageGeneration, expectedStageVersion,
+                requested.version(), checkpoint.name(), resultOwner.kind().name(),
+                resultOwner.id(),
+                pendingResult.taskEpoch(), pendingResult.stageId(),
+                pendingResult.stageGeneration(), pendingResult.operationId(),
+                pendingResult.attempt(), pendingResult.expectedCodeFingerprint(),
+                pendingResult.expectedHeadSha(), pendingResult.expectedBaseSha(),
+                System.currentTimeMillis());
+        if (inserted != 1) {
+            throw concurrent("Initial Stage result request was not inserted");
+        }
+        return requested;
     }
 
     @Override
@@ -582,6 +671,41 @@ final class V2StageStore
         };
     }
 
+    private Optional<StageManager.CommandReceipt> queryInitialRequest(
+            String suffix, Object... arguments)
+    {
+        return jdbc.query("""
+                SELECT * FROM stage_initial_result_request
+                """ + suffix, (rs, row) -> initialRequest(rs), arguments)
+                .stream().findFirst();
+    }
+
+    private static StageManager.CommandReceipt initialRequest(ResultSet rs)
+            throws SQLException
+    {
+        ResultFence pending = new ResultFence(
+                rs.getLong("pending_task_epoch"),
+                rs.getString("pending_stage_id"),
+                rs.getLong("pending_stage_generation"),
+                rs.getString("pending_operation_id"),
+                rs.getInt("pending_attempt"),
+                rs.getString("pending_code_fingerprint"),
+                rs.getString("pending_head_sha"),
+                rs.getString("pending_base_sha"));
+        StageManager.State state = new StageManager.State(
+                rs.getString("stage_id"), rs.getString("task_id"),
+                StageKind.valueOf(rs.getString("stage_kind")),
+                rs.getLong("expected_stage_generation"),
+                rs.getLong("returned_stage_version"),
+                StageCheckpoint.valueOf(rs.getString("checkpoint")), null, pending);
+        return new StageManager.CommandReceipt(
+                state.taskId(), state, rs.getString("cause"),
+                rs.getString("actor"), rs.getLong("expected_task_epoch"),
+                rs.getLong("expected_stage_generation"),
+                rs.getLong("expected_stage_version"), state.checkpoint(),
+                pending, null, CommandResult.Disposition.APPLIED);
+    }
+
     private static StageManager.CommandReceipt receipt(ResultSet rs)
             throws SQLException
     {
@@ -648,8 +772,6 @@ final class V2StageStore
         statement.setString(index++, fence.expectedHeadSha());
         statement.setString(index++, fence.expectedBaseSha());
         return index;
-    }
-
     private static OwnerFence validateCommit(
             Long expectedTaskEpoch,
             Long expectedStageGeneration,

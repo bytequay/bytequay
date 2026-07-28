@@ -46,7 +46,7 @@ public final class PlanToLocalHandoff
                 command.plan().stage().taskId(), () -> acceptInCommand(command));
     }
 
-    private Result acceptInCommand(Command command)
+    Result acceptInCommand(Command command)
     {
         PlanStageManager.AcceptedCompletion planCompletion =
                 plan.acceptApprovedForHandoffInCommand(command.plan());

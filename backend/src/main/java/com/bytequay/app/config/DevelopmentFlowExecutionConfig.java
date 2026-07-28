@@ -19,6 +19,8 @@ import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityLeaseMaintainer;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
+import com.bytequay.app.developmentflow.stage.PlanResultDeliveryPort;
+import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +48,17 @@ import static com.bytequay.app.developmentflow.execution.CapacityManager.Capacit
 @Configuration(proxyBeanMethods = false)
 public class DevelopmentFlowExecutionConfig
 {
+    @Bean
+    @ConditionalOnMissingBean(ExecutionPorts.ResultDeliveryPort.class)
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
+    public ExecutionPorts.ResultDeliveryPort v2PlanResultDelivery(
+            PlanRuntimeCoordinator runtime)
+    {
+        return new PlanResultDeliveryPort(runtime);
+    }
+
     @Bean
     @ConditionalOnMissingBean(CapacityManager.CapacityPolicySource.class)
     public CapacityManager.CapacityPolicySource developmentFlowCapacityPolicy(

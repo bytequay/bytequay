@@ -87,6 +87,7 @@ public final class ThreadTurnHandoff
                 turnId, operationId, ticketId, messageId, request.purpose(),
                 request.transport().name(),
                 request.transport() == AgentTurnProviderSession.Transport.CLI ? 1 : 2,
+                request.planningOperationId(), request.planningBaseSha(),
                 launchInput, digest(launchInput), request.userMessage(),
                 digest(request.userMessage()), clock.instant()));
     }
@@ -106,6 +107,14 @@ public final class ThreadTurnHandoff
         return UUID.nameUUIDFromBytes(
                 ("v2-thread-turn:" + kind + ":" + trunkId + ":" + commandId)
                         .getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    /** Stable id returned before an asynchronous planning refresh completes. */
+    public static String turnIdFor(String trunkId, String commandId)
+    {
+        requireText(trunkId, "trunkId");
+        requireText(commandId, "commandId");
+        return id("turn", trunkId, commandId);
     }
 
     static String digest(String value)
@@ -135,7 +144,9 @@ public final class ThreadTurnHandoff
             Path workingDirectory,
             String systemPrompt,
             String userMessage,
-            String compiledPrompt)
+            String compiledPrompt,
+            String planningOperationId,
+            String planningBaseSha)
     {
         public Request
         {
@@ -175,6 +186,39 @@ public final class ThreadTurnHandoff
             if (systemPrompt != null && systemPrompt.isBlank()) {
                 throw new IllegalArgumentException("systemPrompt must not be blank");
             }
+            if ((planningOperationId == null) != (planningBaseSha == null)) {
+                throw new IllegalArgumentException(
+                        "planning Operation and base SHA must be supplied together");
+            }
+            if (planningOperationId != null
+                    && (planningOperationId.isBlank() || planningBaseSha.isBlank())) {
+                throw new IllegalArgumentException(
+                        "planning Operation and base SHA must not be blank");
+            }
+        }
+
+        /** Compatibility constructor for non-planning and pre-V260 tests. */
+        public Request(
+                String commandId,
+                String actor,
+                String trunkId,
+                String workspaceId,
+                long expectedTrunkVersion,
+                String purpose,
+                AgentTurnProviderSession.Transport transport,
+                String provider,
+                String credentialAccount,
+                String model,
+                String reasoningEffort,
+                Path workingDirectory,
+                String systemPrompt,
+                String userMessage,
+                String compiledPrompt)
+        {
+            this(commandId, actor, trunkId, workspaceId, expectedTrunkVersion,
+                    purpose, transport, provider, credentialAccount, model,
+                    reasoningEffort, workingDirectory, systemPrompt, userMessage,
+                    compiledPrompt, null, null);
         }
     }
 

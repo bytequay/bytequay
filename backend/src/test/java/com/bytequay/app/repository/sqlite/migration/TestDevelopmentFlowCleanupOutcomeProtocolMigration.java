@@ -14,6 +14,9 @@
 package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationResultDelivery;
 import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupOperationStore;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
@@ -25,7 +28,14 @@ import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore.ControlContext;
+import com.bytequay.app.developmentflow.trunk.SqliteTaskOutcomeSummaryStore;
+import com.bytequay.app.developmentflow.trunk.TaskOutcomeSummaryRuntime;
+import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
+import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
+import com.bytequay.app.developmentflow.trunk.ThreadTurnResultDeliveryPort;
+import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -686,6 +696,211 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 .isEqualTo(DispatchTicket.Acceptance.SUPERSEDED);
     }
 
+    @Test
+    void typedOutcomeSummaryKeepsOneFallbackMarkerAcrossRestart()
+            throws Exception
+    {
+        String url = remoteUrl("typed-outcome.db", false);
+        migrate(url, "260");
+        try (Connection connection = connect(url)) {
+            settleSuccessfulRuntimeCleanup(connection);
+            moveCleanupTicketToResultPending(connection);
+        }
+
+        SQLiteDataSource dataSource = new SQLiteDataSource();
+        dataSource.setUrl(url + "?foreign_keys=ON&busy_timeout=30000");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
+        TaskManager tasks = new TaskManager(commands, reflectStore(
+                "com.bytequay.app.developmentflow.task.persistence.V2TaskStore",
+                TaskManager.Store.class, jdbc));
+        CleanupStageManager cleanup = new CleanupStageManager(commands, reflectStore(
+                "com.bytequay.app.developmentflow.stage.persistence.V2StageStore",
+                StageManager.Store.class, jdbc));
+        SqliteCleanupOperationStore operations =
+                new SqliteCleanupOperationStore(jdbc, transactions);
+        CleanupOperationResultDelivery cleanupDelivery =
+                new CleanupOperationResultDelivery(
+                        operations,
+                        new CleanupCompletionHandoff(commands, cleanup, tasks),
+                        Clock.fixed(Instant.ofEpochMilli(500), ZoneOffset.UTC));
+        DispatchTicket.OperationFence cleanupFence =
+                new DispatchTicket.OperationFence(
+                        1L, "cleanup-stage-1", 1L,
+                        "cleanup-operation-id-1", 1, null, null, null);
+        DispatchTicket.OwnerReference cleanupOwner =
+                new DispatchTicket.OwnerReference(
+                        DispatchTicket.OwnerKind.STAGE,
+                        "cleanup-stage-1", "CLEANUP_OPERATION_RESULT");
+        DispatchTicket.DispatchResult cleanupResult =
+                new DispatchTicket.DispatchResult(
+                        cleanupFence, DispatchTicket.Outcome.SUCCEEDED,
+                        "cleanup-summary", "all cleanup steps settled", null);
+        DispatchTicket.DeliveryReceipt cleanupReceipt = cleanupDelivery.deliver(
+                cleanupOwner, cleanupFence, cleanupResult);
+        commitAcceptedCleanupTicket(jdbc, cleanupReceipt);
+        cleanupDelivery.afterDeliveryCommitted(
+                cleanupOwner, cleanupFence, cleanupResult, cleanupReceipt);
+
+        jdbc.update("""
+                INSERT INTO task_turn(
+                    id, task_id, purpose, status, operation_id, attempt,
+                    task_epoch, delivery_lane, launch_input, requested_at_ms)
+                VALUES ('legacy-summary-turn', 'task-1',
+                    'TASK_COMPLETION_SUMMARY', 'REQUESTED',
+                    'legacy-summary-operation-id', 1, 1, 'API', '{}', 504)
+                """);
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    workspace_id, trunk_id, task_id, task_epoch, attempt,
+                    status, created_at_ms)
+                VALUES ('legacy-summary-ticket', 'legacy-summary-operation-id',
+                    'GENERATE_TASK_OUTCOME_SUMMARY', 'AGENT_TURN', 'TASK_TURN',
+                    'legacy-summary-turn', 'TASK_OUTCOME_SUMMARY_RESULT', 2,
+                    'workspace-1', 'trunk-1', 'task-1', 1, 1,
+                    'REQUESTED', 504)
+                """);
+        jdbc.update("""
+                INSERT INTO task_outcome_summary_operation(
+                    id, task_outcome_id, task_id, task_epoch, task_turn_id,
+                    dispatch_ticket_id, operation_id, semantic_attempt,
+                    status, requested_at_ms)
+                SELECT 'legacy-summary-operation', outcome.id, 'task-1', 1,
+                    'legacy-summary-turn', 'legacy-summary-ticket',
+                    'legacy-summary-operation-id', 1, 'REQUESTED', 504
+                FROM task_outcome outcome WHERE outcome.task_id = 'task-1'
+                """);
+
+        migrate(url, "261");
+
+        assertThat(jdbcText(jdbc, """
+                SELECT operation.status || '|' || turn.status || '|'
+                    || ticket.status || '|' || ticket.delivery_acceptance
+                FROM task_outcome_summary_operation operation
+                JOIN task_turn turn ON turn.id = operation.task_turn_id
+                JOIN dispatch_ticket ticket
+                  ON ticket.id = operation.dispatch_ticket_id
+                WHERE operation.id = 'legacy-summary-operation'
+                """)).isEqualTo("CANCELED|CANCELED|CANCELED|SUPERSEDED");
+
+        assertThat(jdbcText(jdbc, """
+                SELECT status || '|' || fallback_summary_text
+                FROM trunk_outcome_inbox WHERE task_id = 'task-1'
+                """))
+                .isEqualTo("PENDING|Shipped Task 1 (PR #41) — merged.");
+
+        TrunkManager.Store trunkStore = reflectStore(
+                "com.bytequay.app.developmentflow.trunk.persistence.V2TrunkStore",
+                TrunkManager.Store.class, jdbc);
+        TrunkManager trunks = new TrunkManager(commands, trunkStore);
+        ObjectMapper json = new ObjectMapper();
+        Instant summaryRequestedAt = Instant.ofEpochMilli(
+                jdbcNumber(jdbc, """
+                        SELECT created_at_ms FROM trunk_outcome_inbox
+                        WHERE task_id = 'task-1'
+                        """) + 100);
+        ThreadTurnHandoff turns = new ThreadTurnHandoff(
+                trunks, json, Clock.fixed(
+                        summaryRequestedAt, ZoneOffset.UTC), 53123);
+        SqliteTaskOutcomeSummaryStore outcomeStore =
+                new SqliteTaskOutcomeSummaryStore(jdbc);
+        TaskOutcomeSummaryRuntime runtime = new TaskOutcomeSummaryRuntime(
+                trunks, trunkStore, outcomeStore, turns,
+                outcome -> new TaskOutcomeSummaryRuntime.LaunchSpec(
+                        AgentTurnProviderSession.Transport.CLI, "codex", null,
+                        "gpt-5.6", null, Path.of("/tmp"), "brain role",
+                        "Summarize Task 1", "Summarize the frozen outcome."));
+
+        runtime.maintain(summaryRequestedAt);
+        runtime.maintain(summaryRequestedAt.plusMillis(1));
+
+        assertThat(jdbcNumber(jdbc, """
+                SELECT COUNT(*) FROM thread_turn
+                WHERE purpose = 'TASK_COMPLETION_SUMMARY'
+                """)).isOne();
+        assertThat(jdbcText(jdbc, """
+                SELECT inbox.status || '|' || outcome.summary_state || '|'
+                    || (outcome.summary_thread_turn_id IS NOT NULL)
+                FROM trunk_outcome_inbox inbox
+                JOIN task_outcome outcome ON outcome.id = inbox.task_outcome_id
+                WHERE inbox.task_id = 'task-1'
+                """)).isEqualTo("DELIVERED|FALLBACK|1");
+        try (Connection connection = connect(url)) {
+            assertFails(connection, """
+                    INSERT INTO task_turn(
+                        id, task_id, purpose, status, operation_id, attempt,
+                        task_epoch, delivery_lane, launch_input, requested_at_ms)
+                    VALUES ('retired-summary', 'task-1',
+                        'TASK_COMPLETION_SUMMARY', 'REQUESTED',
+                        'retired-summary-operation', 1, 1, 'API', '{}', 602)
+                    """);
+        }
+
+        String turnId = jdbcText(jdbc, """
+                SELECT summary_thread_turn_id FROM task_outcome
+                WHERE task_id = 'task-1'
+                """);
+        String operationId = jdbcText(jdbc, """
+                SELECT operation_id FROM thread_turn WHERE id = '%s'
+                """.formatted(turnId));
+        String ticketId = jdbcText(jdbc, """
+                SELECT id FROM dispatch_ticket
+                WHERE owner_kind = 'THREAD_TURN' AND owner_id = '%s'
+                """.formatted(turnId));
+        DispatchTicket.OperationFence turnFence =
+                new DispatchTicket.OperationFence(
+                        null, null, null, operationId, 1,
+                        null, null, null);
+        AgentTurnOperationHandler.RawResult payload =
+                new AgentTurnOperationHandler.RawResult(
+                        1, turnId, DispatchTicket.OwnerKind.THREAD_TURN,
+                        "TASK_COMPLETION_SUMMARY",
+                        AgentTurnProviderSession.Transport.CLI,
+                        "codex", "session-1", "Implemented and merged safely.",
+                        1, 2, 0, 123L,
+                        AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED,
+                        null);
+        DispatchTicket.DispatchResult turnResult =
+                new DispatchTicket.DispatchResult(
+                        turnFence, DispatchTicket.Outcome.SUCCEEDED,
+                        json.writeValueAsString(payload), "{}", null);
+        markThreadResultPending(jdbc, ticketId, turnResult);
+        ThreadTurnResultDeliveryPort turnDelivery =
+                new ThreadTurnResultDeliveryPort(
+                        trunks, new AgentTurnOwnerResultCodec(json), json,
+                        Clock.fixed(
+                                summaryRequestedAt.plusMillis(100),
+                                ZoneOffset.UTC));
+        DispatchTicket.OwnerReference turnOwner =
+                new DispatchTicket.OwnerReference(
+                        DispatchTicket.OwnerKind.THREAD_TURN, turnId,
+                        "THREAD_TURN_RESULT");
+        DispatchTicket.DeliveryReceipt turnReceipt = turnDelivery.deliver(
+                turnOwner, turnFence, turnResult);
+        markThreadResultDelivered(jdbc, ticketId, turnReceipt);
+        runtime.maintain(summaryRequestedAt.plusMillis(101));
+
+        assertThat(jdbcText(jdbc, """
+                SELECT summary_state || '|' || summary_text
+                FROM task_outcome WHERE task_id = 'task-1'
+                """))
+                .isEqualTo("BRAIN_GENERATED|Implemented and merged safely.");
+        assertThat(new ThreadTurnProjection(jdbc, json).history("trunk-1"))
+                .singleElement()
+                .satisfies(message -> {
+                    assertThat(message.type()).isEqualTo("task_summary");
+                    assertThat(message.contentJson())
+                            .contains("Implemented and merged safely.")
+                            .contains("task-1");
+                });
+        assertThat(jdbcNumber(jdbc,
+                "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
+    }
+
     private String remoteUrl(String file, boolean sibling)
             throws Exception
     {
@@ -1183,6 +1398,62 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                        completed_at_ms = 501
                  WHERE id = 'cleanup-ticket-1' AND status = 'RESULT_PENDING'
                 """, receipt.acceptance().name(), receipt.evidenceJson());
+        assertThat(changed).isOne();
+    }
+
+    private static void markThreadResultPending(
+            JdbcTemplate jdbc,
+            String ticketId,
+            DispatchTicket.DispatchResult result)
+    {
+        DispatchTicket.OperationFence fence = result.fence();
+        int changed = jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'RESULT_PENDING',
+                    pending_result_outcome = ?, pending_result_payload = ?,
+                    pending_result_evidence = ?, pending_result_error = ?,
+                    pending_result_task_epoch = ?, pending_result_stage_id = ?,
+                    pending_result_stage_generation = ?,
+                    pending_result_operation_id = ?,
+                    pending_result_attempt = ?,
+                    pending_result_expected_code_fingerprint = ?,
+                    pending_result_expected_head_sha = ?,
+                    pending_result_expected_base_sha = ?
+                WHERE id = ?
+                """, result.outcome().name(), result.payloadJson(),
+                result.evidenceJson(), result.error(), fence.taskEpoch(),
+                fence.stageId(), fence.stageGeneration(), fence.operationId(),
+                fence.attempt(), fence.expectedCodeFingerprint(),
+                fence.expectedHeadSha(), fence.expectedBaseSha(), ticketId);
+        assertThat(changed).isOne();
+    }
+
+    private static void markThreadResultDelivered(
+            JdbcTemplate jdbc,
+            String ticketId,
+            DispatchTicket.DeliveryReceipt receipt)
+    {
+        int changed = jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'SUCCEEDED',
+                    pending_result_outcome = NULL,
+                    pending_result_payload = NULL,
+                    pending_result_evidence = NULL,
+                    pending_result_error = NULL,
+                    pending_result_task_epoch = NULL,
+                    pending_result_stage_id = NULL,
+                    pending_result_stage_generation = NULL,
+                    pending_result_operation_id = NULL,
+                    pending_result_attempt = NULL,
+                    pending_result_expected_code_fingerprint = NULL,
+                    pending_result_expected_head_sha = NULL,
+                    pending_result_expected_base_sha = NULL,
+                    next_attempt_at_ms = NULL,
+                    delivery_acceptance = ?, delivery_evidence = ?,
+                    completed_at_ms = created_at_ms + 100
+                WHERE id = ?
+                """, receipt.acceptance().name(), receipt.evidenceJson(),
+                ticketId);
         assertThat(changed).isOne();
     }
 

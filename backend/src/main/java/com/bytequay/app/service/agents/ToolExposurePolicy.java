@@ -46,6 +46,15 @@ public class ToolExposurePolicy
             "record_plan", "read_plan_summary", "read_dev_report", "read_dev_conversation",
             "record_pr_comment", "record_review_verdict", "explore_project");
 
+    private static final Set<String> COMPLETION_SUMMARY = Set.of(
+            "codegraph_explore", "explore_project", "read_file",
+            "recall_memory", "lookup_memory", "read_workspace_memory",
+            "lookup_term", "count_operations", "read_commit_summary",
+            "read_diff_summary", "check_test_coverage", "read_stage_metrics",
+            "read_phase_history", "read_review_panel_findings",
+            "read_remote_pr_status", "list_unresolved_comments",
+            "read_plan_summary", "read_dev_report", "read_dev_conversation");
+
     private static final Set<String> TASK_CORE = Set.of(
             "approval_prompt", "ask_user_question", "codegraph_explore", "explore_project",
             "recall_memory", "lookup_memory", "read_workspace_memory", "lookup_term",
@@ -91,6 +100,12 @@ public class ToolExposurePolicy
                     + " entries for " + role + "/" + stageType + ": " + selected.size());
         }
         return selected;
+    }
+
+    /** Read-only Brain subset for automatic Task completion enrichment. */
+    public Set<String> completionSummaryTools()
+    {
+        return COMPLETION_SUMMARY;
     }
 
     private static Set<String> taskTools(StageType stageType)

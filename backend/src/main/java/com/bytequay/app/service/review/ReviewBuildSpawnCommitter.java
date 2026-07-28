@@ -91,9 +91,11 @@ public final class ReviewBuildSpawnCommitter
                 created.parallelSlots(), created.parentTaskId(), created.prRef(),
                 created.description());
         threadStore.saveThread(linked);
-        ReviewBuildSelectionStore.Selection selection = selections.freeze(
-                linked.id(), pass.id(), pass.repoFullName(), pass.prNumber(),
-                pass.headSha(), spawn, selected, frozenAt);
+        Optional<ReviewBuildSelectionStore.Selection> selection = isV2Trunk(linked.id())
+                ? Optional.of(selections.freeze(
+                        linked.id(), pass.id(), pass.repoFullName(), pass.prNumber(),
+                        pass.headSha(), spawn, selected, frozenAt))
+                : Optional.empty();
 
         int attached = jdbc.update("""
                 UPDATE review_passes
@@ -112,36 +114,47 @@ public final class ReviewBuildSpawnCommitter
 
     public Optional<CommittedSpawn> findCommitted(String reviewPassId)
     {
-        ReviewBuildSelectionStore.Selection selection = selections
-                .findByReviewPass(reviewPassId).orElse(null);
-        if (selection == null) {
-            return Optional.empty();
-        }
-        Thread thread = threadStore.findThreadById(selection.threadId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "review build selection names a missing Trunk"));
         List<String> attached = jdbc.query("""
                 SELECT spawned_build_thread_id FROM review_passes WHERE id = ?
                 """, (rs, row) -> rs.getString("spawned_build_thread_id"),
                 reviewPassId);
-        if (attached.size() != 1
-                || !selection.threadId().equals(attached.getFirst())
-                || !reviewPassId.equals(thread.parentReviewPassId())) {
+        if (attached.size() != 1 || attached.getFirst() == null) {
+            return Optional.empty();
+        }
+        String threadId = attached.getFirst();
+        Thread thread = threadStore.findThreadById(threadId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "review build attachment names a missing Trunk"));
+        Optional<ReviewBuildSelectionStore.Selection> selection = selections
+                .findByReviewPass(reviewPassId);
+        if (!reviewPassId.equals(thread.parentReviewPassId())
+                || (selection.isPresent()
+                    && !threadId.equals(selection.orElseThrow().threadId()))
+                || isV2Trunk(threadId) != selection.isPresent()) {
             throw new IllegalStateException(
                     "review build pass, selection, and Trunk links disagree");
         }
         return Optional.of(new CommittedSpawn(thread, selection));
     }
 
+    private boolean isV2Trunk(String threadId)
+    {
+        String turnVersion = jdbc.queryForObject("""
+                SELECT turn_version FROM threads WHERE id = ?
+                """, String.class, threadId);
+        return "V2".equals(turnVersion);
+    }
+
     public record CommittedSpawn(
             Thread thread,
-            ReviewBuildSelectionStore.Selection selection)
+            Optional<ReviewBuildSelectionStore.Selection> selection)
     {
         public CommittedSpawn
         {
             requireNonNull(thread, "thread is null");
             requireNonNull(selection, "selection is null");
-            if (!thread.id().equals(selection.threadId())) {
+            if (selection.isPresent()
+                    && !thread.id().equals(selection.orElseThrow().threadId())) {
                 throw new IllegalArgumentException(
                         "committed review build spans two Trunks");
             }

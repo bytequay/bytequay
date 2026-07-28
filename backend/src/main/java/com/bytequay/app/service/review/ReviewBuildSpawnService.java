@@ -268,7 +268,9 @@ public class ReviewBuildSpawnService
                 .findCommitted(passId)
                 .orElseThrow(() -> status(409,
                         "review pass has an incomplete build Trunk attachment"));
-        ReviewBuildSelectionStore.Selection selection = committed.selection();
+        ReviewBuildSelectionStore.Selection selection = committed.selection()
+                .orElseThrow(() -> status(409,
+                        "review pass already spawned a LEGACY build Trunk"));
         if (expectedThreadId != null
                 && !committed.thread().id().equals(expectedThreadId)) {
             throw status(409, "review build attachment changed");

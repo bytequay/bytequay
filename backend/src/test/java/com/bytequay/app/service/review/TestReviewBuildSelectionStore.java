@@ -153,6 +153,69 @@ class TestReviewBuildSelectionStore
                 """, Integer.class)).isEqualTo(3);
     }
 
+    @Test
+    void taskMaterializationRechecksASelectionChangedAfterAuthorization()
+    {
+        JdbcTemplate jdbc = database();
+        ReviewBuildSelectionStore store = new ReviewBuildSelectionStore(
+                jdbc, new ObjectMapper().findAndRegisterModules());
+        ReviewFinding finding = new ReviewFinding(
+                "finding-1", "review-pass", "src/Main.java", 17,
+                ReviewFindingSeverity.BLOCKER, ReviewFindingStatus.AGREED,
+                "Fix the exact race", null, null, Instant.ofEpochMilli(3));
+        ReviewBuildSelectionStore.Selection selection = store.freeze(
+                "build-thread", "review-pass", "acme/widget", 42,
+                "head-1", spawn(), List.of(finding), Instant.ofEpochMilli(4));
+        jdbc.update("""
+                UPDATE threads SET parent_review_pass_id = 'review-pass'
+                WHERE id = 'build-thread'
+                """);
+        for (String trigger : List.of(
+                "task_assignment_v2_exact_insert",
+                "v2_task_insert_shape",
+                "v2_task_creation_authority_insert")) {
+            jdbc.execute("DROP TRIGGER " + trigger);
+        }
+        jdbc.update("""
+                INSERT INTO task_assignment(
+                    id, trunk_id, kind, source_id, repository_id, pr_number,
+                    remote_head_sha, selected_findings_json, created_by,
+                    created_at_ms, base_repository_id, head_repository_id,
+                    base_ref, head_ref, remote_base_sha, repository_route)
+                VALUES ('assignment-1', 'build-thread', 'REVIEW_FINDINGS',
+                    'review-pass', 'acme/widget', 42, 'head-1', '[]', 'test', 5,
+                    'acme/widget', 'acme/widget', 'main', 'feature/review',
+                    'base-1', 'DIRECT')
+                """);
+        ReviewBuildSelectionStore.Finding frozen = selection.findings().getFirst();
+        jdbc.update("""
+                INSERT INTO task_assignment_review_finding(
+                    assignment_id, position, source_review_id, finding_id,
+                    finding_revision, content_digest)
+                VALUES ('assignment-1', 1, 'review-pass', 'finding-1', ?, ?)
+                """, frozen.findingRevision(), frozen.contentDigest());
+
+        jdbc.update("""
+                UPDATE review_findings SET body = 'changed after authorization'
+                WHERE id = 'finding-1'
+                """);
+
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO tasks(
+                    id, thread_id, seq, status, phase, linked_pr_ref,
+                    created_at_ms, workflow_version, lifecycle_state,
+                    epoch, aggregate_version, assignment_id)
+                VALUES ('stale-task', 'build-thread', 1, 'PENDING', 'PLANNING',
+                    'acme/widget#42', 6, 'V2', 'PROVISIONING', 1, 0,
+                    'assignment-1')
+                """))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("stale or mismatched review build selection");
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM tasks WHERE id = 'stale-task'
+                """, Integer.class)).isZero();
+    }
+
     private static ReviewBuildSelectionStore.SpawnInput spawn()
     {
         return new ReviewBuildSelectionStore.SpawnInput(

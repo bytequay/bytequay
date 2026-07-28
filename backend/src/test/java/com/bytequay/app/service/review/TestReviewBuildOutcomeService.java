@@ -157,6 +157,10 @@ class TestReviewBuildOutcomeService
                     'THREAD', 'review-thread', 'FRESH', 'build-thread')
                 """);
         jdbc.update("""
+                UPDATE threads SET parent_review_pass_id = 'review-pass'
+                WHERE id = 'build-thread'
+                """);
+        jdbc.update("""
                 INSERT INTO review_findings(
                     id, review_pass_id, path, line, severity, status, body,
                     created_at_ms)

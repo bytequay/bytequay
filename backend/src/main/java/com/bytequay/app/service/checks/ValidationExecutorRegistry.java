@@ -13,8 +13,13 @@
  */
 package com.bytequay.app.service.checks;
 
+import com.bytequay.app.developmentflow.execution.CapacityManager;
+import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -35,6 +40,7 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class ValidationExecutorRegistry
 {
+    private final LegacyCapacityBridge capacity;
     private final ConcurrentHashMap<String, InFlightWork> inFlight = new ConcurrentHashMap<>();
     private final ExecutorService pool =
             Executors.newCachedThreadPool(runnable -> {
@@ -55,36 +61,75 @@ public class ValidationExecutorRegistry
     {
         final CompletableFuture<Void> done = new CompletableFuture<>();
         volatile Thread worker;
+        volatile boolean capacityLost;
+    }
+
+    public ValidationExecutorRegistry(LegacyCapacityBridge capacity)
+    {
+        this.capacity = requireNonNull(capacity, "capacity is null");
     }
 
     /**
      * Run {@code work} for {@code claimKey} unless this JVM already has
      * it in flight. Returns true when this call admitted the work.
      */
-    public boolean submitIfAbsent(String claimKey, Runnable work)
+    public boolean submitIfAbsent(
+            String claimKey,
+            CapacityManager.CapacityRequest request,
+            Runnable work)
     {
         requireNonNull(claimKey, "claimKey is null");
+        requireNonNull(request, "request is null");
         requireNonNull(work, "work is null");
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            throw new IllegalStateException(
+                    "validation capacity must be acquired outside a database transaction");
+        }
+        if (!request.operationId().equals(operationId(claimKey))
+                || request.source() != CapacityManager.WorkflowSource.LEGACY
+                || !request.lanes().equals(Set.of(CapacityManager.CapacityLane.VALIDATION))) {
+            throw new IllegalArgumentException(
+                    "validation request does not match its exact claim identity");
+        }
         InFlightWork mine = new InFlightWork();
         InFlightWork existing = inFlight.putIfAbsent(claimKey, mine);
         if (existing != null) {
             return false;
         }
-        pool.execute(() -> {
-            mine.worker = Thread.currentThread();
-            try {
-                work.run();
-                mine.done.complete(null);
-            }
-            catch (Throwable t) {
-                mine.done.completeExceptionally(t);
-            }
-            finally {
-                mine.worker = null;
-                inFlight.remove(claimKey, mine);
-            }
-        });
+        Optional<LegacyCapacityBridge.Permit> admitted;
+        try {
+            admitted = capacity.tryAcquire(
+                    request,
+                    request.operationId(),
+                    () -> stopForCapacityLoss(mine));
+        }
+        catch (RuntimeException e) {
+            inFlight.remove(claimKey, mine);
+            throw e;
+        }
+        if (admitted.isEmpty()) {
+            inFlight.remove(claimKey, mine);
+            return false;
+        }
+        LegacyCapacityBridge.Permit permit = admitted.orElseThrow();
+        try {
+            pool.execute(() -> runAdmitted(claimKey, mine, permit, work));
+        }
+        catch (RuntimeException e) {
+            inFlight.remove(claimKey, mine);
+            closeAfterSubmissionFailure(permit, e);
+            throw e;
+        }
         return true;
+    }
+
+    public static String operationId(String claimKey)
+    {
+        requireNonNull(claimKey, "claimKey is null");
+        if (claimKey.isBlank()) {
+            throw new IllegalArgumentException("claimKey must not be blank");
+        }
+        return "legacy-validation:" + claimKey;
     }
 
     public boolean isInFlight(String claimKey)
@@ -117,5 +162,56 @@ public class ValidationExecutorRegistry
     {
         requireNonNull(renew, "renew is null");
         return leaseRenewer.scheduleAtFixedRate(renew, periodMillis, periodMillis, TimeUnit.MILLISECONDS);
+    }
+
+    private void runAdmitted(
+            String claimKey,
+            InFlightWork mine,
+            LegacyCapacityBridge.Permit permit,
+            Runnable work)
+    {
+        mine.worker = Thread.currentThread();
+        try {
+            if (mine.capacityLost) {
+                throw new IllegalStateException("validation capacity lease was lost before launch");
+            }
+            permit.lease();
+            work.run();
+            mine.done.complete(null);
+        }
+        catch (Throwable t) {
+            mine.done.completeExceptionally(t);
+        }
+        finally {
+            mine.worker = null;
+            try {
+                permit.close();
+            }
+            catch (RuntimeException e) {
+                mine.done.completeExceptionally(e);
+            }
+            inFlight.remove(claimKey, mine);
+        }
+    }
+
+    private static void stopForCapacityLoss(InFlightWork work)
+    {
+        work.capacityLost = true;
+        Thread worker = work.worker;
+        if (worker != null) {
+            worker.interrupt();
+        }
+    }
+
+    private static void closeAfterSubmissionFailure(
+            LegacyCapacityBridge.Permit permit,
+            RuntimeException submissionFailure)
+    {
+        try {
+            permit.close();
+        }
+        catch (RuntimeException releaseFailure) {
+            submissionFailure.addSuppressed(releaseFailure);
+        }
     }
 }

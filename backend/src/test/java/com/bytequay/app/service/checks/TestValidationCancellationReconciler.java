@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.service.checks;
 
+import com.bytequay.app.developmentflow.execution.CapacityManager;
+import com.bytequay.app.developmentflow.execution.InMemoryExecutionSupport;
+import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
@@ -24,9 +27,12 @@ import org.junit.jupiter.api.Test;
 
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -43,7 +49,13 @@ class TestValidationCancellationReconciler
     private static final Instant NOW = Instant.parse("2026-06-15T12:00:00Z");
 
     private final ValidationPassStore store = mock(ValidationPassStore.class);
-    private final ValidationExecutorRegistry registry = new ValidationExecutorRegistry();
+    private final ValidationExecutorRegistry registry = new ValidationExecutorRegistry(
+            new LegacyCapacityBridge(new CapacityManager(
+                    new InMemoryExecutionSupport.CapacityStore(),
+                    () -> CapacityManager.CapacityPolicy.initial(
+                            4, 4, Map.of(CapacityManager.CapacityLane.VALIDATION, 4)),
+                    new InMemoryExecutionSupport.MutableClock(Instant.now()),
+                    Duration.ofSeconds(30))));
     private final TaskStore taskStore = mock(TaskStore.class);
     private final TaskPhaseMachine machine = mock(TaskPhaseMachine.class);
     private final ValidationCancellationReconciler reconciler =
@@ -68,7 +80,7 @@ class TestValidationCancellationReconciler
     {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch interrupted = new CountDownLatch(1);
-        registry.submitIfAbsent("claim-1", () -> {
+        registry.submitIfAbsent("claim-1", validationRequest("claim-1"), () -> {
             started.countDown();
             try {
                 Thread.sleep(30_000);
@@ -86,6 +98,18 @@ class TestValidationCancellationReconciler
         assertThat(interrupted.await(5, TimeUnit.SECONDS)).isTrue();
         verify(store).incrementCancelAttempts("claim-1");
         verify(store, never()).markSuperseded(any(), any());
+    }
+
+    private static CapacityManager.CapacityRequest validationRequest(String claimKey)
+    {
+        return new CapacityManager.CapacityRequest(
+                ValidationExecutorRegistry.operationId(claimKey),
+                CapacityManager.WorkflowSource.LEGACY,
+                Set.of(CapacityManager.CapacityLane.VALIDATION),
+                new CapacityManager.CapacityScope("workspace", "trunk", "t1", 1L),
+                false,
+                true,
+                false);
     }
 
     @Test

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.checks;
 
+import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
@@ -53,6 +54,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -81,6 +83,8 @@ class TestValidationClaimService
     private TaskCommandExecutor commands;
     @Autowired
     private ObjectMapper mapper;
+    @Autowired
+    private LegacyCapacityBridge capacity;
 
     @Test
     void claimsRunsAndPublishesExactlyOnce()
@@ -95,9 +99,9 @@ class TestValidationClaimService
         ApplicationEventPublisher events = published::add;
 
         ValidationClaimService service = new ValidationClaimService(
-                store, taskStore, mock(ReviewRoundStore.class),
+                store, taskStore, threadStore, mock(ReviewRoundStore.class),
                 checks, fingerprints,
-                new ValidationExecutorRegistry(), commands, events, mapper);
+                new ValidationExecutorRegistry(capacity), commands, events, mapper);
 
         service.claimAndRunDevRound(taskId);
 
@@ -125,9 +129,9 @@ class TestValidationClaimService
         ValidationPassService checks = mock(ValidationPassService.class);
         CodeFingerprints fingerprints = mock(CodeFingerprints.class);
         ValidationClaimService service = new ValidationClaimService(
-                store, taskStore, mock(ReviewRoundStore.class),
+                store, taskStore, threadStore, mock(ReviewRoundStore.class),
                 checks, fingerprints,
-                new ValidationExecutorRegistry(), commands, ignored -> {}, mapper);
+                new ValidationExecutorRegistry(capacity), commands, ignored -> {}, mapper);
 
         service.claimAndRunDevRound(taskId);
 
@@ -162,12 +166,12 @@ class TestValidationClaimService
         CodeFingerprints fingerprints = mock(CodeFingerprints.class);
         ValidationExecutorRegistry registry = mock(ValidationExecutorRegistry.class);
         ValidationClaimService service = new ValidationClaimService(
-                store, taskStore, rounds, checks, fingerprints,
+                store, taskStore, threadStore, rounds, checks, fingerprints,
                 registry, commands, ignored -> {}, mapper);
 
         assertThat(service.claimAndRunGateRevalidation(roundId)).isTrue();
 
-        verify(registry, never()).submitIfAbsent(any(), any());
+        verify(registry, never()).submitIfAbsent(any(), any(), any());
         verify(fingerprints, never()).fingerprint(any(Path.class));
         verify(checks, never()).runChecks(taskId);
     }
@@ -189,8 +193,8 @@ class TestValidationClaimService
         when(fingerprints.fingerprint(any(Path.class))).thenReturn("fp-" + taskId);
         List<Object> published = new CopyOnWriteArrayList<>();
         ValidationClaimService service = new ValidationClaimService(
-                store, taskStore, mock(ReviewRoundStore.class),
-                checks, fingerprints, new ValidationExecutorRegistry(), commands,
+                store, taskStore, threadStore, mock(ReviewRoundStore.class),
+                checks, fingerprints, new ValidationExecutorRegistry(capacity), commands,
                 published::add, mapper);
 
         service.claimAndRunDevRound(taskId);
@@ -239,14 +243,15 @@ class TestValidationClaimService
         ScheduledFuture<?> renewal = mock(ScheduledFuture.class);
         doReturn(renewal).when(restartedRegistry)
                 .scheduleLeaseRenewal(any(Runnable.class), anyLong());
-        when(restartedRegistry.submitIfAbsent(eq(claimKey), any(Runnable.class)))
+        when(restartedRegistry.submitIfAbsent(
+                eq(claimKey), any(), any(Runnable.class)))
                 .thenAnswer(invocation -> {
-                    invocation.<Runnable>getArgument(1).run();
+                    invocation.<Runnable>getArgument(2).run();
                     return true;
                 });
         List<Object> published = new CopyOnWriteArrayList<>();
         ValidationClaimService restarted = new ValidationClaimService(
-                store, restartedTasks, mock(ReviewRoundStore.class),
+                store, restartedTasks, threadStore, mock(ReviewRoundStore.class),
                 checks, fingerprints, restartedRegistry, commands,
                 published::add, mapper);
 
@@ -258,6 +263,45 @@ class TestValidationClaimService
         assertThat(published)
                 .filteredOn(ValidationPassFinishedEvent.class::isInstance)
                 .hasSize(1);
+    }
+
+    @Test
+    void capacityDenialLeavesTheStartedClaimForDurableRecovery()
+    {
+        String taskId = seedTask("/tmp/capacity-denied-validation-worktree");
+        String fingerprint = "fp-" + taskId;
+        ValidationPassService checks = mock(ValidationPassService.class);
+        when(checks.runChecks(taskId)).thenReturn(List.of());
+        CodeFingerprints fingerprints = mock(CodeFingerprints.class);
+        when(fingerprints.fingerprint(any(Path.class))).thenReturn(fingerprint);
+        ValidationExecutorRegistry registry = mock(ValidationExecutorRegistry.class);
+        ScheduledFuture<?> renewal = mock(ScheduledFuture.class);
+        doReturn(renewal).when(registry)
+                .scheduleLeaseRenewal(any(Runnable.class), anyLong());
+        when(registry.submitIfAbsent(any(), any(), any(Runnable.class)))
+                .thenReturn(false)
+                .thenAnswer(invocation -> {
+                    invocation.<Runnable>getArgument(2).run();
+                    return true;
+                });
+        ValidationClaimService service = new ValidationClaimService(
+                store, taskStore, threadStore, mock(ReviewRoundStore.class),
+                checks, fingerprints, registry, commands, ignored -> {}, mapper);
+
+        service.claimAndRunDevRound(taskId);
+
+        String claimKey = "dev-round:" + taskId + ":0:" + fingerprint;
+        ValidationClaim waiting = store.findByClaimKey(claimKey).orElseThrow();
+        assertThat(waiting.endedAt()).isNull();
+        assertThat(waiting.ownerId()).isNull();
+
+        service.reconcileClaims();
+
+        assertThat(store.findByClaimKey(claimKey).orElseThrow().isTerminalGreen()).isTrue();
+        verify(registry, times(2))
+                .submitIfAbsent(eq(claimKey), any(), any(Runnable.class));
+        verify(checks).runChecks(taskId);
+        verify(renewal).cancel(false);
     }
 
     private ValidationClaim awaitTerminal(String claimKey)

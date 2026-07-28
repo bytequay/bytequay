@@ -13,12 +13,14 @@
  */
 package com.bytequay.app.service.checks;
 
+import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.ValidationClaim;
 import com.bytequay.app.repository.ReviewRoundStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.service.review.ReviewRoundGateValidationFinishedEvent;
 import com.bytequay.app.service.review.ReviewRoundValidationFinishedEvent;
@@ -41,6 +43,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ScheduledFuture;
 
@@ -76,6 +79,7 @@ public class ValidationClaimService
 
     private final ValidationPassStore store;
     private final TaskStore taskStore;
+    private final ThreadStore threadStore;
     private final ReviewRoundStore roundStore;
     private final ValidationPassService validation;
     private final CodeFingerprints fingerprints;
@@ -89,6 +93,7 @@ public class ValidationClaimService
     public ValidationClaimService(
             ValidationPassStore store,
             TaskStore taskStore,
+            ThreadStore threadStore,
             ReviewRoundStore roundStore,
             ValidationPassService validation,
             CodeFingerprints fingerprints,
@@ -99,6 +104,7 @@ public class ValidationClaimService
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.roundStore = requireNonNull(roundStore, "roundStore is null");
         this.validation = requireNonNull(validation, "validation is null");
         this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
@@ -152,7 +158,7 @@ public class ValidationClaimService
         if (!claim.isLive()) {
             return; // cancelled or superseded — nothing to run
         }
-        registry.submitIfAbsent(claim.claimKey(),
+        submit(taskId, claim.claimKey(),
                 () -> runOwned(taskId, claim.claimKey(), fingerprint, admission.epoch()));
     }
 
@@ -209,7 +215,7 @@ public class ValidationClaimService
         if (!claim.isLive()) {
             return;
         }
-        registry.submitIfAbsent(claim.claimKey(),
+        submit(taskId, claim.claimKey(),
                 () -> runOwnedLocalReview(
                         taskId, claim.claimKey(), throughSequence, rootSetDigest, fingerprint));
     }
@@ -251,7 +257,7 @@ public class ValidationClaimService
         if (!claim.isLive()) {
             return;
         }
-        registry.submitIfAbsent(claim.claimKey(), () -> runOwnedReviewRound(
+        submit(taskId, claim.claimKey(), () -> runOwnedReviewRound(
                 taskId, roundId, attemptId, claim.claimKey(), fingerprint));
     }
 
@@ -305,7 +311,7 @@ public class ValidationClaimService
         if (!claim.isLive()) {
             return true;
         }
-        registry.submitIfAbsent(claim.claimKey(), () -> runOwnedGateRevalidation(
+        submit(claim.taskId(), claim.claimKey(), () -> runOwnedGateRevalidation(
                 claim.taskId(), roundId, claim.claimKey(), claim.codeFingerprint()));
         return true;
     }
@@ -368,7 +374,7 @@ public class ValidationClaimService
                     task.id(), claim.throughSequence(), claim.rootSetDigest());
             return;
         }
-        registry.submitIfAbsent(claim.claimKey(), () -> runOwnedLocalReview(
+        submit(task.id(), claim.claimKey(), () -> runOwnedLocalReview(
                 task.id(), claim.claimKey(), claim.throughSequence(),
                 claim.rootSetDigest(), claim.codeFingerprint()));
     }
@@ -388,9 +394,38 @@ public class ValidationClaimService
             claimAndRunReviewRound(task.id(), claim.roundId(), attemptId);
             return;
         }
-        registry.submitIfAbsent(claim.claimKey(), () -> runOwnedReviewRound(
+        submit(task.id(), claim.claimKey(), () -> runOwnedReviewRound(
                 task.id(), claim.roundId(), attemptId,
                 claim.claimKey(), claim.codeFingerprint()));
+    }
+
+    /**
+     * Shared admission happens after the short claim-creation command has
+     * committed and before the validator submits a worker or claims durable
+     * ownership. A denial therefore leaves only the STARTED claim for the
+     * existing recovery sweep.
+     */
+    private boolean submit(String taskId, String claimKey, Runnable work)
+    {
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "validation task disappeared before admission: " + taskId));
+        com.bytequay.app.domain.Thread trunk = threadStore.findThreadById(task.threadId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "validation Trunk disappeared before admission: " + task.threadId()));
+        String operationId = ValidationExecutorRegistry.operationId(claimKey);
+        return registry.submitIfAbsent(
+                claimKey,
+                new CapacityManager.CapacityRequest(
+                        operationId,
+                        CapacityManager.WorkflowSource.LEGACY,
+                        Set.of(CapacityManager.CapacityLane.VALIDATION),
+                        new CapacityManager.CapacityScope(
+                                trunk.workspaceId(), trunk.id(), task.id(), 1L),
+                        false,
+                        true,
+                        false),
+                work);
     }
 
     private static String reviewAttemptId(ValidationClaim claim)

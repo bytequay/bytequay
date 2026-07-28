@@ -19,12 +19,12 @@ import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityLeaseMaintainer;
 import com.bytequay.app.developmentflow.execution.LegacySagaCapacity;
-import com.bytequay.app.developmentflow.execution.LegacyTaskScopeResolver;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadSettings;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.threads.LegacyTaskScopeResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 

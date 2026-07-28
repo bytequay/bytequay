@@ -16,6 +16,7 @@ package com.bytequay.app.developmentflow.execution;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.threads.LegacyTaskScopeResolver;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.support.TransactionSynchronizationManager;

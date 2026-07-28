@@ -14,6 +14,8 @@
 package com.bytequay.app.service.review;
 
 import com.bytequay.app.config.AsyncConfig;
+import com.bytequay.app.developmentflow.execution.CapacityManager;
+import com.bytequay.app.developmentflow.execution.LegacySagaCapacity;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
@@ -66,6 +68,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
@@ -101,6 +104,7 @@ public class RoundGateSaga
     private final PullRequestService pullRequests;
     private final GitRunner git;
     private final CodeFingerprints fingerprints;
+    private final LegacySagaCapacity capacity;
     private final ObjectMapper mapper;
     private final Executor executor;
 
@@ -116,6 +120,7 @@ public class RoundGateSaga
             PullRequestService pullRequests,
             GitRunner git,
             CodeFingerprints fingerprints,
+            LegacySagaCapacity capacity,
             ObjectMapper mapper,
             @Qualifier(AsyncConfig.APPLICATION_EXECUTOR) Executor executor)
     {
@@ -130,6 +135,7 @@ public class RoundGateSaga
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.git = requireNonNull(git, "git is null");
         this.fingerprints = requireNonNull(fingerprints, "fingerprints is null");
+        this.capacity = requireNonNull(capacity, "capacity is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
@@ -377,60 +383,126 @@ public class RoundGateSaga
                     && !leaseExpired(effect)) {
                 return;
             }
-            if ((effect.status() == RoundGateEffect.Status.IN_FLIGHT
-                    && leaseExpired(effect))
-                    || effect.status() == RoundGateEffect.Status.RETRYABLE_FAILED) {
-                ProbeResult probe;
-                try {
-                    probe = probeApplied(authorization, payload, effectKey);
+
+            // The application executor only delivers the durable wake. Shared
+            // admission starts here, before any effect claim or adapter I/O;
+            // denial leaves this row for reconcileActive().
+            Optional<LegacySagaCapacity.Attempt> admitted = capacity.tryAcquire(
+                    authorization.taskId(), capacityOperationId(effect),
+                    Set.of(CapacityManager.CapacityLane.GITHUB));
+            if (admitted.isEmpty()) {
+                return;
+            }
+            try (LegacySagaCapacity.Attempt attempt = admitted.orElseThrow()) {
+                if ((effect.status() == RoundGateEffect.Status.IN_FLIGHT
+                        && leaseExpired(effect))
+                        || effect.status() == RoundGateEffect.Status.RETRYABLE_FAILED) {
+                    ProbeResult probe;
+                    try {
+                        attempt.requireLive();
+                        probe = probeApplied(authorization, payload, effectKey);
+                        attempt.requireLive();
+                    }
+                    catch (RuntimeException e) {
+                        if (attempt.leaseLost()) {
+                            return;
+                        }
+                        if (effect.status() == RoundGateEffect.Status.IN_FLIGHT) {
+                            failEffect(authorization, effectKey, effect.claimOwner(), e);
+                        }
+                        else {
+                            failRetryableProbe(authorization, effectKey, e);
+                        }
+                        return;
+                    }
+                    if (probe == ProbeResult.APPLIED
+                            && recoverCompletedEffect(authorization, payload, effect)) {
+                        continue;
+                    }
                 }
-                catch (RuntimeException e) {
-                    if (effect.status() == RoundGateEffect.Status.IN_FLIGHT) {
-                        failEffect(authorization, effectKey, effect.claimOwner(), e);
-                    }
-                    else {
-                        failRetryableProbe(authorization, effectKey, e);
-                    }
+                if (effect.exhausted()) {
+                    parkExhausted(authorization, effect);
                     return;
                 }
-                if (probe == ProbeResult.APPLIED
-                        && recoverCompletedEffect(authorization, payload, effect)) {
-                    continue;
+
+                String owner = UUID.randomUUID().toString();
+                boolean claimed = false;
+                try {
+                    attempt.requireLive();
+                    ObservedCode observed = observeCode(payload);
+                    if (!authorizedCodeMatches(authorization, payload, observed)) {
+                        invalidateOrParkMismatch(authorization, observed.fingerprint());
+                        return;
+                    }
+                    attempt.requireLive();
+                    claimed = commands.execute(authorization.taskId(), () ->
+                            claimInCommand(authorization, effectKey, owner, observed));
+                    if (!claimed) {
+                        return;
+                    }
+                    attempt.requireLive();
+                    String evidence = performEffect(authorization, payload, effectKey);
+                    attempt.requireLive();
+                    commands.executeVoid(authorization.taskId(), () ->
+                            completeEffectInCommand(
+                                    authorization, payload, effectKey, owner, evidence));
+                }
+                catch (RuntimeException e) {
+                    if (attempt.leaseLost()) {
+                        // Preserve an ambiguous owned claim for the existing
+                        // probe-before-retry recovery path.
+                        return;
+                    }
+                    if (claimed) {
+                        failEffect(authorization, effectKey, owner, e);
+                    }
+                    throw e;
                 }
             }
-            if (effect.exhausted()) {
-                parkExhausted(authorization, effect);
-                return;
-            }
-            ObservedCode observed = observeCode(payload);
-            if (!authorizedCodeMatches(authorization, payload, observed)) {
-                invalidateOrParkMismatch(authorization, observed.fingerprint());
-                return;
-            }
-            String owner = UUID.randomUUID().toString();
-            boolean claimed = commands.execute(authorization.taskId(), () ->
-                    claimInCommand(authorization, effectKey, owner, observed));
-            if (!claimed) {
-                return;
-            }
-            try {
-                String evidence = performEffect(authorization, payload, effectKey);
-                commands.executeVoid(authorization.taskId(), () ->
-                        completeEffectInCommand(
-                                authorization, payload, effectKey, owner, evidence));
-            }
-            catch (RuntimeException e) {
-                failEffect(authorization, effectKey, owner, e);
-                throw e;
-            }
         }
-        ObservedCode finalCode = observeCode(payload);
-        if (!authorizedCodeMatches(authorization, payload, finalCode)) {
-            invalidateOrParkMismatch(authorization, finalCode.fingerprint());
+        finalizeUnderCapacity(authorization, payload);
+    }
+
+    private void finalizeUnderCapacity(
+            RoundGateAuthorization authorization, GatePayload payload)
+    {
+        Optional<LegacySagaCapacity.Attempt> admitted = capacity.tryAcquire(
+                authorization.taskId(),
+                authorizationCapacityOperationId(authorization.token(), "finalize"),
+                Set.of(CapacityManager.CapacityLane.GITHUB));
+        if (admitted.isEmpty()) {
             return;
         }
-        commands.executeVoid(authorization.taskId(), () ->
-                finalizeInCommand(authorization, finalCode));
+        ObservedCode finalCode;
+        try (LegacySagaCapacity.Attempt attempt = admitted.orElseThrow()) {
+            try {
+                attempt.requireLive();
+                finalCode = observeCode(payload);
+                if (!authorizedCodeMatches(authorization, payload, finalCode)) {
+                    invalidateOrParkMismatch(authorization, finalCode.fingerprint());
+                    return;
+                }
+                attempt.requireLive();
+                commands.executeVoid(authorization.taskId(), () ->
+                        finalizeInCommand(authorization, finalCode));
+            }
+            catch (RuntimeException e) {
+                if (!attempt.leaseLost()) {
+                    throw e;
+                }
+                return;
+            }
+        }
+    }
+
+    static String capacityOperationId(RoundGateEffect effect)
+    {
+        return "legacy-round-gate-effect:" + effect.id();
+    }
+
+    private static String authorizationCapacityOperationId(String token, String action)
+    {
+        return "legacy-round-gate-authorization:" + token + ":" + action;
     }
 
     private boolean claimInCommand(

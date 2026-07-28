@@ -18,8 +18,11 @@ import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityLeaseMaintainer;
+import com.bytequay.app.developmentflow.execution.LegacySagaCapacity;
+import com.bytequay.app.developmentflow.execution.LegacyTaskScopeResolver;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadSettings;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
@@ -48,6 +51,20 @@ class TestDevelopmentFlowExecutionConfig
                     assertThat(context).hasSingleBean(LegacyCapacityBridge.class);
                     assertThat(context).hasSingleBean(LegacyCapacityLeaseMaintainer.class);
                     assertThat(context).doesNotHaveBean(ExecutionDispatcher.class);
+                });
+    }
+
+    @Test
+    void legacySagaAdmissionAndExactScopeResolverAreProductionBeans()
+    {
+        contextRunner()
+                .withUserConfiguration(
+                        DevelopmentFlowExecutionConfig.class,
+                        LegacyTaskScopeResolver.class,
+                        LegacySagaCapacity.class)
+                .run(context -> {
+                    assertThat(context).hasSingleBean(LegacyTaskScopeResolver.class);
+                    assertThat(context).hasSingleBean(LegacySagaCapacity.class);
                 });
     }
 
@@ -141,6 +158,7 @@ class TestDevelopmentFlowExecutionConfig
     private static ApplicationContextRunner contextRunner()
     {
         return new ApplicationContextRunner()
+                .withBean(TaskStore.class, () -> mock(TaskStore.class))
                 .withBean(ThreadStore.class, () -> mock(ThreadStore.class))
                 .withBean(ThreadSettingsStore.class, () -> mock(ThreadSettingsStore.class))
                 .withBean(

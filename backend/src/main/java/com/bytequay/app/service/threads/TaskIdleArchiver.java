@@ -102,6 +102,9 @@ public class TaskIdleArchiver
         }
         Instant cutoff = now.minus(cadence);
         for (Task task : taskStore.listByStatuses(Set.of(TaskStatus.IDLE), PAGE)) {
+            if (taskStore.isV2Task(task.id())) {
+                continue;
+            }
             if (!lastActivity(task).isBefore(cutoff)) {
                 continue;
             }

@@ -20,6 +20,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.TurnLiveness;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.checks.ValidationFailure;
 import com.bytequay.app.service.runs.AgentRunService;
@@ -55,19 +56,22 @@ public class LocalCiFixExecutor
     private final AgentRunService agentRuns;
     private final ThreadTurnScheduler scheduler;
     private final WorktreeLeaseService leaseService;
+    private final TaskStore taskStore;
 
     public LocalCiFixExecutor(
             ThreadStore threadStore,
             StageStore stageStore,
             AgentRunService agentRuns,
             ThreadTurnScheduler scheduler,
-            WorktreeLeaseService leaseService)
+            WorktreeLeaseService leaseService,
+            TaskStore taskStore)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.agentRuns = requireNonNull(agentRuns, "agentRuns is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
     }
 
     /**
@@ -81,12 +85,18 @@ public class LocalCiFixExecutor
      */
     public boolean tryFix(Task task, List<ValidationFailure> failures)
     {
+        if (taskStore.isV2Task(task.id())) {
+            return false;
+        }
         return tryFix(task, failures, false);
     }
 
     /** Same-transaction form used by validation acceptance. */
     public boolean tryFixInCommand(Task task, List<ValidationFailure> failures)
     {
+        if (taskStore.isV2Task(task.id())) {
+            return false;
+        }
         TaskCommandExecutor.requireCurrent(task.id());
         return tryFix(task, failures, true);
     }
@@ -153,12 +163,18 @@ public class LocalCiFixExecutor
     /** Local checks passed — close any live local CI-fix run for the task. */
     public void closeIfGreen(String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            return;
+        }
         closeIfGreen(taskId, false);
     }
 
     /** Same-transaction form used by validation acceptance. */
     public void closeIfGreenInCommand(String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            return;
+        }
         TaskCommandExecutor.requireCurrent(taskId);
         closeIfGreen(taskId, true);
     }

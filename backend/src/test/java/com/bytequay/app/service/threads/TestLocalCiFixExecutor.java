@@ -24,6 +24,7 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.StageStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.checks.ValidationFailure;
 import com.bytequay.app.service.runs.AgentRunService;
@@ -55,9 +56,10 @@ class TestLocalCiFixExecutor
     private final AgentRunService agentRuns = mock(AgentRunService.class);
     private final ThreadTurnScheduler scheduler = mock(ThreadTurnScheduler.class);
     private final WorktreeLeaseService leaseService = mock(WorktreeLeaseService.class);
+    private final TaskStore taskStore = mock(TaskStore.class);
 
     private final LocalCiFixExecutor executor = new LocalCiFixExecutor(
-            threadStore, stageStore, agentRuns, scheduler, leaseService);
+            threadStore, stageStore, agentRuns, scheduler, leaseService, taskStore);
 
     @Test
     void queuesAFixTurnWhenAnIdleTaskFailsLocalCi()
@@ -90,6 +92,18 @@ class TestLocalCiFixExecutor
         boolean queued = executor.tryFix(newTask("task-1", "thread-1", null), FAILURES);
 
         assertThat(queued).isFalse();
+        verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void legacyLocalFixExecutorNeverClaimsAV2Task()
+    {
+        Task task = newTask("v2-task", "thread-1", WORKTREE);
+        when(taskStore.isV2Task(task.id())).thenReturn(true);
+
+        assertThat(executor.tryFix(task, FAILURES)).isFalse();
+
+        verify(threadStore, never()).findThreadById(any());
         verify(scheduler, never()).enqueueStageTurn(any(), any(), any(), any(), any(), any(), any());
     }
 

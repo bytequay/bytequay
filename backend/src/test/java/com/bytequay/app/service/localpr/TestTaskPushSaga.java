@@ -139,6 +139,19 @@ class TestTaskPushSaga
     }
 
     @Test
+    void legacyPushSagaNeverClaimsAV2Task()
+    {
+        when(tasks.isV2Task("task-1")).thenReturn(true);
+
+        assertThatThrownBy(() -> saga.push("pr-1", false))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("typed publish runtime");
+
+        verifyNoInteractions(git);
+        assertThat(pushes.findActiveByTask("task-1")).isEmpty();
+    }
+
+    @Test
     void pushClaimsBeforeExternalIoAndFinalizesAfterDurableEvidence()
             throws Exception
     {

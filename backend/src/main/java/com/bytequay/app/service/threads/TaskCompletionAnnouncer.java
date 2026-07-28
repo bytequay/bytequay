@@ -96,7 +96,7 @@ public class TaskCompletionAnnouncer
     public void onTurnFinished(TaskTurnFinishedEvent event)
     {
         Task task = taskStore.findTaskByPendingCompletionSummaryTurnId(event.turnId()).orElse(null);
-        if (task == null) {
+        if (task == null || taskStore.isV2Task(task.id())) {
             return;
         }
         try {
@@ -126,6 +126,9 @@ public class TaskCompletionAnnouncer
     public void sweepStaleCompletions()
     {
         for (Task task : taskStore.listByPhases(Set.of(TaskPhase.COMPLETED), SWEEP_LIMIT)) {
+            if (taskStore.isV2Task(task.id())) {
+                continue;
+            }
             try {
                 if (task.endedAt() != null
                         && Duration.between(task.endedAt(), Instant.now()).compareTo(GRACE_PERIOD) < 0) {

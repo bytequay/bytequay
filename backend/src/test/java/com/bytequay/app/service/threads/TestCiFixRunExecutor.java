@@ -123,6 +123,19 @@ class TestCiFixRunExecutor
                 StageState.OPEN, NOW, null, null);
     }
 
+    @Test
+    void legacyCiExecutorNeverClaimsAV2Task()
+    {
+        Task task = newTask("v2-task", "thread-1");
+        when(taskStore.isV2Task(task.id())).thenReturn(true);
+
+        newExecutor().tryAutoFix(task, REPO, List.of("backend-tests"), List.of());
+
+        verify(remoteStages, never()).ensureOpen(anyString());
+        verify(scheduler, never()).enqueueStageTurn(
+                any(), any(), any(), any(), any(), any(), any());
+    }
+
     /** Stubs {@code agentRuns.openInStage(...)} to return a run already at {@code
      *  iterations}, and {@code recordIteration} to return it bumped by one —
      *  the mocked equivalent of the old {@code seedCiFixAttemptsForTest}. */

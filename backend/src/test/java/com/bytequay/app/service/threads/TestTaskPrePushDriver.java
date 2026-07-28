@@ -137,6 +137,19 @@ class TestTaskPrePushDriver
         verify(prSync).syncFromTask("t1.k1");
     }
 
+    @Test
+    void reconcileLeavesV2TaskToItsTypedStageRuntime()
+    {
+        Task task = task(TaskPhase.VALIDATING);
+        when(taskStore.listByStatus(TaskStatus.IDLE, 200)).thenReturn(List.of(task));
+        when(taskStore.isV2Task(task.id())).thenReturn(true);
+
+        driver.reconcile();
+
+        verify(validation, never()).run(anyString());
+        verify(prSync, never()).syncFromTask(anyString());
+    }
+
     private static Task task()
     {
         return task(TaskPhase.VALIDATING);

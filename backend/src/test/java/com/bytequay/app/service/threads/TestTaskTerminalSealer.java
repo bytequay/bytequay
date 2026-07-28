@@ -21,6 +21,7 @@ import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.RoundGateStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskPushStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.StageStateMachine;
@@ -54,10 +55,11 @@ class TestTaskTerminalSealer
     private final RoundGateStore roundGates = mock(RoundGateStore.class);
     private final PlatformTransactionManager transactionManager = new TestTransactionManager();
     private final TaskCommandExecutor commands = new TaskCommandExecutor(transactionManager);
+    private final TaskStore tasks = mock(TaskStore.class);
     private final TaskTerminalSealer sealer =
             new TaskTerminalSealer(
                     stageStore, stageMachine, reviewRounds, agentRuns, submissions, pushes,
-                    roundGates, commands);
+                    roundGates, commands, tasks);
 
     @Test
     void closesTheOpenRoundAndEveryStillOpenStage()
@@ -104,6 +106,17 @@ class TestTaskTerminalSealer
 
         verify(reviewRounds).closeOpenRoundsInCommand(TASK_ID, "task_cancelled");
         verify(submissions).cancelOpenForTask(eq(TASK_ID), eq("task_cancelled"), any());
+    }
+
+    @Test
+    void legacyTerminalSealerNeverClaimsAV2Task()
+    {
+        when(tasks.isV2Task(TASK_ID)).thenReturn(true);
+
+        sealer.seal(TASK_ID, "task_cancelled");
+
+        verify(reviewRounds, never()).closeOpenRoundsInCommand(any(), any());
+        verify(stageStore, never()).findStagesByTask(any());
     }
 
     private static StageInstance stage(StageState state)

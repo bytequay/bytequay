@@ -154,6 +154,9 @@ public class TaskPushSaga
         if (pr.taskId() == null || pr.taskId().isBlank()) {
             throw conflict("local PR " + prId + " has no task");
         }
+        if (tasks.isV2Task(pr.taskId())) {
+            throw conflict("V2 task publish is owned by the typed publish runtime");
+        }
         return TaskExternalEffectGate.withEffectGate(pr.taskId(), () -> {
             TaskPushAuthorization authorization = authorize(prId, humanOverride);
             driveLocked(authorization.token());
@@ -174,6 +177,9 @@ public class TaskPushSaga
         if (authorization == null) {
             return;
         }
+        if (tasks.isV2Task(authorization.taskId())) {
+            return;
+        }
         TaskExternalEffectGate.withEffectGate(authorization.taskId(), () -> {
             driveLocked(token);
             return null;
@@ -185,6 +191,9 @@ public class TaskPushSaga
      * runtime, and drives the token only after the task command commits. */
     public Optional<String> activeToken(String taskId)
     {
+        if (tasks.isV2Task(taskId)) {
+            return Optional.empty();
+        }
         return pushes.findActiveByTask(taskId).map(TaskPushAuthorization::token);
     }
 
@@ -194,6 +203,9 @@ public class TaskPushSaga
     public boolean adoptRemotePullRequest(
             String taskId, String repo, int number, String url)
     {
+        if (tasks.isV2Task(taskId)) {
+            return false;
+        }
         if (pushes.findActiveByTask(taskId).isEmpty()) {
             return false;
         }
@@ -468,6 +480,9 @@ public class TaskPushSaga
     {
         for (TaskPushAuthorization authorization : pushes.findRecoverable(
                 Instant.now(), RECOVERY_BATCH)) {
+            if (tasks.isV2Task(authorization.taskId())) {
+                continue;
+            }
             try {
                 drive(authorization.token());
             }
@@ -486,7 +501,9 @@ public class TaskPushSaga
     private void reconcileAutomaticPushes()
     {
         for (Task task : tasks.listByPhases(List.of(TaskPhase.AWAITING_PUSH), RECOVERY_BATCH)) {
-            if (!tasks.isAutoMerge(task.id()) || pushes.findActiveByTask(task.id()).isPresent()) {
+            if (tasks.isV2Task(task.id())
+                    || !tasks.isAutoMerge(task.id())
+                    || pushes.findActiveByTask(task.id()).isPresent()) {
                 continue;
             }
             PR pr = prs.findByTask(task.id()).orElse(null);
@@ -510,6 +527,9 @@ public class TaskPushSaga
     private void reconcileOrphanedRemotePullRequests()
     {
         for (String taskId : pushes.findOrphanedRemotePullRequestTaskIds(RECOVERY_BATCH)) {
+            if (tasks.isV2Task(taskId)) {
+                continue;
+            }
             Task candidate = tasks.findTaskById(taskId).orElse(null);
             if (candidate == null) {
                 continue;

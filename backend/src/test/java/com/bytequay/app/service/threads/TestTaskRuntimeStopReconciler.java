@@ -97,6 +97,18 @@ class TestTaskRuntimeStopReconciler
     }
 
     @Test
+    void legacyStopReconcilerNeverClaimsAV2Task()
+    {
+        when(taskStore.isV2Task("v2-task")).thenReturn(true);
+
+        reconciler.reconcileStoppedTask("v2-task");
+
+        verify(taskStore, never()).findTaskById("v2-task");
+        verify(scheduler, never()).cancelTaskTurns("v2-task");
+        verify(registry, never()).evictTaskAgent(anyString(), anyString());
+    }
+
+    @Test
     void barrierHoldsWhileTurnsAgentsOrValidatorsAreLive()
     {
         when(turnStore.listTurnsByExactTaskIdAndStatus("t1", ThreadTurnStatus.QUEUED, 1))

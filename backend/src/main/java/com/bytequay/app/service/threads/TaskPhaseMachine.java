@@ -158,6 +158,7 @@ public class TaskPhaseMachine
     {
         requireNonNull(actor, "actor is null");
         TaskCommandExecutor.requireCurrent(taskId);
+        legacyTask(taskId);
         if (!actor.isAuto()) {
             return true;
         }
@@ -181,7 +182,7 @@ public class TaskPhaseMachine
     {
         requireNonNull(actor, "actor is null");
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.phase() == TaskPhase.PUSHED_AWAITING_CI
@@ -214,7 +215,7 @@ public class TaskPhaseMachine
     {
         requireNonNull(actor, "actor is null");
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.phase() == TaskPhase.VALIDATING) {
@@ -245,7 +246,7 @@ public class TaskPhaseMachine
     {
         requireNonNull(actor, "actor is null");
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.status() == TaskStatus.AWAITING_REVIEW) {
@@ -270,7 +271,7 @@ public class TaskPhaseMachine
     {
         requireNonNull(actor, "actor is null");
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.status() != TaskStatus.AWAITING_REVIEW) {
@@ -298,7 +299,7 @@ public class TaskPhaseMachine
     {
         requireNonNull(actor, "actor is null");
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.status() == TaskStatus.IN_REVIEW) {
@@ -337,7 +338,7 @@ public class TaskPhaseMachine
     {
         requireNonNull(actor, "actor is null");
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId).orElse(null);
+        Task task = legacyTask(taskId).orElse(null);
         if (task == null || task.status().isDone() || task.phase() == TaskPhase.COMPLETED) {
             return;
         }
@@ -377,7 +378,7 @@ public class TaskPhaseMachine
             throw new IllegalArgumentException("unsupported recovery kind: " + kind);
         }
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.status().isDone()
@@ -417,7 +418,7 @@ public class TaskPhaseMachine
         requireNonNull(requestId, "requestId is null");
         requireNonNull(reason, "reason is null");
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId).orElse(null);
+        Task task = legacyTask(taskId).orElse(null);
         if (task == null
                 || task.phase() != TaskPhase.NEEDS_ATTENTION
                 || task.status() != TaskStatus.NEEDS_ATTENTION) {
@@ -487,7 +488,7 @@ public class TaskPhaseMachine
         if (fallbackPhase == TaskPhase.NEEDS_ATTENTION || fallbackPhase == TaskPhase.COMPLETED) {
             throw new IllegalArgumentException("invalid recovery phase: " + fallbackPhase);
         }
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.status().isDone()
@@ -560,7 +561,7 @@ public class TaskPhaseMachine
     {
         requireNonNull(actor, "actor is null");
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         TaskRecoveryRequest request = taskStore.recoveryRequest(taskId)
@@ -616,7 +617,7 @@ public class TaskPhaseMachine
     {
         requireNonNull(failedTurnId, "failedTurnId is null");
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.status() != TaskStatus.ERRORED) {
@@ -663,7 +664,7 @@ public class TaskPhaseMachine
     public void archiveIdleInCommand(String taskId)
     {
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId).orElse(null);
+        Task task = legacyTask(taskId).orElse(null);
         if (task == null || task.status() != TaskStatus.IDLE) {
             return;
         }
@@ -689,7 +690,7 @@ public class TaskPhaseMachine
     public Task reviveArchivedInCommand(String taskId)
     {
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.status() != TaskStatus.ARCHIVED) {
@@ -715,7 +716,7 @@ public class TaskPhaseMachine
     public Task resumeIdleRuntimeInCommand(String taskId)
     {
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.status() != TaskStatus.IDLE
@@ -749,7 +750,7 @@ public class TaskPhaseMachine
 
     private void transitionLocked(String taskId, TaskPhase to, String reason, Actor actor)
     {
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         TaskPhase from = task.phase();
@@ -884,7 +885,7 @@ public class TaskPhaseMachine
     public void observeRemoteOpenedInCommand(String taskId, String reason)
     {
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId).orElse(null);
+        Task task = legacyTask(taskId).orElse(null);
         if (task == null || task.status().isDone() || task.phase() == TaskPhase.COMPLETED) {
             return;
         }
@@ -921,7 +922,7 @@ public class TaskPhaseMachine
     public void observeRemoteCiGreenInCommand(String taskId, boolean draft, String reason)
     {
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId).orElse(null);
+        Task task = legacyTask(taskId).orElse(null);
         if (task == null || !acceptsForwardResult(task.status())
                 || task.phase() != TaskPhase.PUSHED_AWAITING_CI) {
             return;
@@ -940,7 +941,7 @@ public class TaskPhaseMachine
     public void observeReadyInCommand(String taskId, String reason)
     {
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId).orElse(null);
+        Task task = legacyTask(taskId).orElse(null);
         if (task == null || !acceptsForwardResult(task.status())
                 || task.phase() != TaskPhase.AWAITING_READY) {
             return;
@@ -958,7 +959,7 @@ public class TaskPhaseMachine
 
     private void observeLocked(String taskId, TaskPhase to, String reason)
     {
-        Task task = taskStore.findTaskById(taskId).orElse(null);
+        Task task = legacyTask(taskId).orElse(null);
         if (task == null) {
             return;
         }
@@ -1062,7 +1063,7 @@ public class TaskPhaseMachine
         }
         requireNonNull(actor, "actor is null");
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId).orElse(null);
+        Task task = legacyTask(taskId).orElse(null);
         if (task == null) {
             return;
         }
@@ -1102,7 +1103,7 @@ public class TaskPhaseMachine
     {
         requireNonNull(actor, "actor is null");
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.status() == TaskStatus.PAUSED) {
@@ -1145,7 +1146,7 @@ public class TaskPhaseMachine
     public void requestResumeInCommand(String taskId)
     {
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.status() != TaskStatus.PAUSED) {
@@ -1172,7 +1173,7 @@ public class TaskPhaseMachine
     {
         requireNonNull(actor, "actor is null");
         TaskCommandExecutor.requireCurrent(taskId);
-        Task task = taskStore.findTaskById(taskId)
+        Task task = legacyTask(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
         if (task.status() != TaskStatus.PAUSED) {
@@ -1241,6 +1242,18 @@ public class TaskPhaseMachine
                         "task " + taskId + " still has live validation " + claim.claimKey());
             }
         }
+    }
+
+    /** Fail closed at the legacy writer boundary. Routing mistakes must not
+     *  let this state machine compete with the V2 TaskManager. */
+    private Optional<Task> legacyTask(String taskId)
+    {
+        if (taskStore.isV2Task(taskId)) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "V2 task lifecycle is owned by TaskManager: " + taskId);
+        }
+        return taskStore.findTaskById(taskId);
     }
 
     private static boolean supportedRecoveryKind(String kind)

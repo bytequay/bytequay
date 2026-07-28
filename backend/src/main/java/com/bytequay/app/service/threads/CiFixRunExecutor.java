@@ -159,7 +159,7 @@ public class CiFixRunExecutor
     @EventListener
     public void autoPushAfterCiFix(TaskTurnFinishedEvent event)
     {
-        if (event.failed()) {
+        if (event.failed() || taskStore.isV2Task(event.taskId())) {
             return;
         }
         ThreadTurn turn = turnStore.findTurnById(event.turnId()).orElse(null);
@@ -188,6 +188,9 @@ public class CiFixRunExecutor
     private void pushCiFixLocked(
             String taskId, String agentRunId, boolean shippedEpisode, boolean codeChanged)
     {
+        if (taskStore.isV2Task(taskId)) {
+            return;
+        }
         Task task = taskStore.findTaskById(taskId).orElse(null);
         AgentRun run = agentRunId == null ? null : agentRuns.findById(agentRunId).orElse(null);
         if (task == null
@@ -261,6 +264,9 @@ public class CiFixRunExecutor
     void tryAutoFix(Task task, String repoFullName, List<String> failingChecks,
             List<PrCheckRunState> failingRuns)
     {
+        if (taskStore.isV2Task(task.id())) {
+            return;
+        }
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return;
         }
@@ -380,6 +386,9 @@ public class CiFixRunExecutor
      */
     boolean driveShippedCiFix(Task task, String repoFullName, AutomationCoordinator.CiAggregate ci)
     {
+        if (taskStore.isV2Task(task.id())) {
+            return false;
+        }
         Instant now = Instant.now();
         Instant eligibleAt = ciFixCooldown.get(task.id());
         if (eligibleAt != null && now.isBefore(eligibleAt)) {
@@ -407,6 +416,9 @@ public class CiFixRunExecutor
      *  it done instead of stuck "running" forever. */
     void closeIfGreen(Task task)
     {
+        if (taskStore.isV2Task(task.id())) {
+            return;
+        }
         agentRuns.findByTask(task.id(), AgentRun.KIND_CI_FIX, null).stream()
                 .filter(AgentRun::isLive)
                 .findFirst()

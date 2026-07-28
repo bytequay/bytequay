@@ -18,16 +18,26 @@ import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityLeaseMaintainer;
+import com.bytequay.app.developmentflow.execution.ResultDeliveryRouter;
+import com.bytequay.app.developmentflow.execution.TaskTurnResultDeliveryRouter;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
+import com.bytequay.app.developmentflow.stage.LocalBrainResultDeliveryPort;
+import com.bytequay.app.developmentflow.stage.LocalDevelopmentResultDeliveryPort;
+import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.LocalValidationOperationHandler;
+import com.bytequay.app.developmentflow.stage.LocalValidationResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -53,10 +63,33 @@ public class DevelopmentFlowExecutionConfig
     @ConditionalOnProperty(
             name = "bytequay.development-flow.v2-dispatch-enabled",
             havingValue = "true")
-    public ExecutionPorts.ResultDeliveryPort v2PlanResultDelivery(
-            PlanRuntimeCoordinator runtime)
+    public ExecutionPorts.ResultDeliveryPort v2ResultDelivery(
+            PlanRuntimeCoordinator planRuntime,
+            LocalDevelopmentRuntimeCoordinator localRuntime,
+            JdbcTemplate jdbc,
+            ObjectMapper json)
     {
-        return new PlanResultDeliveryPort(runtime);
+        PlanResultDeliveryPort plan = new PlanResultDeliveryPort(planRuntime);
+        AgentTurnOwnerResultCodec codec = new AgentTurnOwnerResultCodec(json);
+        LocalDevelopmentResultDeliveryPort local =
+                new LocalDevelopmentResultDeliveryPort(codec, localRuntime);
+        LocalBrainResultDeliveryPort brain =
+                new LocalBrainResultDeliveryPort(localRuntime);
+        ExecutionPorts.ResultDeliveryPort brainDelivery =
+                (owner, fence, result) -> brain.deliver(
+                        codec.decode(owner, fence, result));
+        ExecutionPorts.ResultDeliveryPort taskTurns =
+                new TaskTurnResultDeliveryRouter(jdbc, Map.of(
+                        "PLAN_DRAFT", plan,
+                        "PLAN_SELF_REVIEW", plan,
+                        "DEVELOPMENT_BRAIN_REVIEW", brainDelivery));
+        LocalValidationResultDeliveryPort validation =
+                new LocalValidationResultDeliveryPort(localRuntime);
+        return new ResultDeliveryRouter(Map.of(
+                PlanRuntimeCoordinator.PROVISION_CALLBACK, plan,
+                PlanRuntimeCoordinator.TURN_CALLBACK, taskTurns,
+                LocalDevelopmentRuntimeCoordinator.TURN_CALLBACK, local,
+                LocalValidationOperationHandler.CALLBACK_ROUTE, validation));
     }
 
     @Bean

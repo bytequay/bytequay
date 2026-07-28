@@ -97,7 +97,7 @@ BEGIN
               AND turn.expected_code_fingerprint IS NEW.pending_code_fingerprint
               AND turn.expected_head_sha IS NEW.pending_head_sha
               AND turn.expected_base_sha IS NEW.pending_base_sha
-              AND turn.status = 'REQUESTED'
+              AND turn.status = 'QUEUED'
               AND NEW.cause = 'REQUEST_LOCAL_RESULT'
               AND turn.purpose = 'IMPLEMENT_LOCAL_PLAN')
             THEN RAISE(ABORT, 'initial result request lacks its exact StageTurn')
@@ -916,3 +916,66 @@ BEGIN SELECT RAISE(ABORT, 'Plan user edit receipt is not exact'); END;
 CREATE TRIGGER plan_user_edit_receipt_immutable
 BEFORE UPDATE ON plan_user_edit_receipt
 BEGIN SELECT RAISE(ABORT, 'Plan user edit receipt is immutable'); END;
+
+-- Replan completion opens a new Plan generation and immediately arms its
+-- first draft. The receipt makes restart replay exact without reusing any
+-- Turn from the superseded Task epoch.
+CREATE TABLE task_replan_plan_receipt (
+    replan_request_id      TEXT    NOT NULL PRIMARY KEY
+        REFERENCES task_replan_request(id),
+    task_id                TEXT    NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    task_epoch             INTEGER NOT NULL CHECK (task_epoch > 1),
+    plan_stage_id          TEXT    NOT NULL UNIQUE REFERENCES plan_stage(stage_id),
+    plan_stage_generation  INTEGER NOT NULL CHECK (plan_stage_generation > 0),
+    draft_turn_id          TEXT    NOT NULL UNIQUE REFERENCES task_turn(id),
+    draft_operation_id     TEXT    NOT NULL UNIQUE,
+    draft_ticket_id        TEXT    NOT NULL UNIQUE REFERENCES dispatch_ticket(id),
+    recorded_at_ms         INTEGER NOT NULL
+);
+
+CREATE TRIGGER task_replan_plan_receipt_insert
+BEFORE INSERT ON task_replan_plan_receipt
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM task_replan_request replan
+    JOIN tasks task ON task.id = replan.task_id
+    JOIN task_current_stage current ON current.task_id = task.id
+    JOIN stage stage ON stage.id = current.stage_id
+    JOIN plan_stage plan ON plan.stage_id = stage.id
+    JOIN stage_initial_result_request request
+      ON request.stage_id = stage.id
+    JOIN task_turn turn ON turn.id = request.turn_id
+    JOIN dispatch_ticket ticket ON ticket.id = NEW.draft_ticket_id
+    WHERE replan.id = NEW.replan_request_id
+      AND replan.task_id = NEW.task_id
+      AND replan.status = 'APPLIED'
+      AND replan.target_task_epoch = NEW.task_epoch
+      AND replan.new_plan_stage_id = NEW.plan_stage_id
+      AND replan.new_plan_generation = NEW.plan_stage_generation
+      AND task.workflow_version = 'V2'
+      AND task.lifecycle_state = 'ACTIVE'
+      AND task.epoch = NEW.task_epoch
+      AND current.stage_id = NEW.plan_stage_id
+      AND current.stage_generation = NEW.plan_stage_generation
+      AND stage.kind = 'PLAN' AND stage.checkpoint = 'DRAFTING'
+      AND stage.version = 1 AND stage.completed_at_ms IS NULL
+      AND plan.generation = NEW.plan_stage_generation
+      AND plan.opened_for_epoch = NEW.task_epoch
+      AND request.cause = 'REQUEST_PLAN_DRAFT'
+      AND request.turn_owner_kind = 'TASK_TURN'
+      AND request.turn_id = NEW.draft_turn_id
+      AND request.pending_operation_id = NEW.draft_operation_id
+      AND turn.task_id = NEW.task_id AND turn.task_epoch = NEW.task_epoch
+      AND turn.trigger_stage_id = NEW.plan_stage_id
+      AND turn.trigger_stage_generation = NEW.plan_stage_generation
+      AND turn.purpose = 'PLAN_DRAFT' AND turn.status = 'REQUESTED'
+      AND turn.operation_id = NEW.draft_operation_id
+      AND ticket.operation_id = NEW.draft_operation_id
+      AND ticket.owner_kind = 'TASK_TURN' AND ticket.owner_id = turn.id
+      AND ticket.callback_route = 'TASK_TURN_RESULT'
+      AND ticket.status = 'REQUESTED')
+BEGIN SELECT RAISE(ABORT, 'replan-to-Plan receipt is not exact'); END;
+
+CREATE TRIGGER task_replan_plan_receipt_immutable
+BEFORE UPDATE ON task_replan_plan_receipt
+BEGIN SELECT RAISE(ABORT, 'replan-to-Plan receipt is immutable'); END;

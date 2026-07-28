@@ -26,6 +26,7 @@ public final class ReplanHandoff
     private final StageManager source;
     private final TaskManager tasks;
     private final PlanStageManager plan;
+    private final PlanStarter starter;
 
     public ReplanHandoff(
             TaskCommandExecutor commands,
@@ -33,10 +34,21 @@ public final class ReplanHandoff
             TaskManager tasks,
             PlanStageManager plan)
     {
+        this(commands, source, tasks, plan, (accepted, opened) -> {});
+    }
+
+    public ReplanHandoff(
+            TaskCommandExecutor commands,
+            StageManager source,
+            TaskManager tasks,
+            PlanStageManager plan,
+            PlanStarter starter)
+    {
         this.commands = requireNonNull(commands, "commands is null");
         this.source = requireNonNull(source, "source is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.plan = requireNonNull(plan, "plan is null");
+        this.starter = requireNonNull(starter, "starter is null");
     }
 
     public Result accept(TaskManager.ReplanCommand command)
@@ -56,7 +68,16 @@ public final class ReplanHandoff
         PlanStageManager.AcceptedOpening newPlan =
                 plan.openFromTaskInCommand(opening);
         tasks.finishReplanInCommand(accepted, newPlan);
+        starter.startInCommand(accepted, newPlan);
         return new Result(sealed.stage(), opening.taskState(), newPlan.stage());
+    }
+
+    @FunctionalInterface
+    public interface PlanStarter
+    {
+        void startInCommand(
+                TaskManager.AcceptedReplan accepted,
+                PlanStageManager.AcceptedOpening opened);
     }
 
     public record Result(

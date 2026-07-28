@@ -96,11 +96,13 @@ public class DevelopmentFlowDomainConfig
             TaskManager tasks,
             PlanStageManager plan,
             SqlitePlanRuntimeStore store,
+            PlanToLocalHandoff planToLocal,
+            LocalDevelopmentRuntimeCoordinator localRuntime,
             ObjectMapper json,
             @Value("${server.port:53123}") int serverPort)
     {
         return new PlanRuntimeCoordinator(
-                commands, tasks, plan, store, json,
+                commands, tasks, plan, store, planToLocal, localRuntime, json,
                 Clock.systemUTC(), serverPort);
     }
 
@@ -230,9 +232,11 @@ public class DevelopmentFlowDomainConfig
             TaskCommandExecutor commands,
             PlanStageManager source,
             TaskManager tasks,
-            PlanStageManager plan)
+            PlanStageManager plan,
+            PlanRuntimeCoordinator runtime)
     {
-        return new ReplanHandoff(commands, source, tasks, plan);
+        return new ReplanHandoff(
+                commands, source, tasks, plan, runtime::startReplanDraftInCommand);
     }
 
     @Bean
@@ -240,9 +244,11 @@ public class DevelopmentFlowDomainConfig
             TaskCommandExecutor commands,
             LocalDevelopmentStageManager source,
             TaskManager tasks,
-            PlanStageManager plan)
+            PlanStageManager plan,
+            PlanRuntimeCoordinator runtime)
     {
-        return new ReplanHandoff(commands, source, tasks, plan);
+        return new ReplanHandoff(
+                commands, source, tasks, plan, runtime::startReplanDraftInCommand);
     }
 
     @Bean
@@ -250,9 +256,11 @@ public class DevelopmentFlowDomainConfig
             TaskCommandExecutor commands,
             RemoteDevelopmentStageManager source,
             TaskManager tasks,
-            PlanStageManager plan)
+            PlanStageManager plan,
+            PlanRuntimeCoordinator runtime)
     {
-        return new ReplanHandoff(commands, source, tasks, plan);
+        return new ReplanHandoff(
+                commands, source, tasks, plan, runtime::startReplanDraftInCommand);
     }
 
     @Bean

@@ -202,3 +202,77 @@ CREATE UNIQUE INDEX task_active_pr_idx
       AND ((workflow_version = 'V2'
               AND lifecycle_state NOT IN ('CANCELED', 'COMPLETED', 'REMOTE_CLOSED'))
         OR (workflow_version = 'LEGACY' AND phase <> 'COMPLETED'));
+
+-- The Trunk authorization and Task materialization are separate committed
+-- commands. Recheck the frozen review handoff at the latter boundary so an
+-- edit/drop between those commands cannot create stale writable work.
+CREATE TRIGGER review_build_task_materialization
+BEFORE INSERT ON tasks
+WHEN NEW.workflow_version = 'V2'
+  AND EXISTS (
+      SELECT 1
+      FROM task_assignment assignment
+      JOIN threads trunk ON trunk.id = NEW.thread_id
+      WHERE assignment.id = NEW.assignment_id
+        AND assignment.trunk_id = trunk.id
+        AND assignment.kind = 'REVIEW_FINDINGS'
+        AND (trunk.parent_review_pass_id IS NOT NULL OR EXISTS (
+            SELECT 1 FROM review_build_selection selection
+            WHERE selection.thread_id = NEW.thread_id)))
+  AND NOT EXISTS (
+      SELECT 1
+      FROM task_assignment assignment
+      JOIN threads trunk ON trunk.id = NEW.thread_id
+      JOIN review_build_selection selection
+        ON selection.thread_id = trunk.id
+       AND selection.review_pass_id = assignment.source_id
+      WHERE assignment.id = NEW.assignment_id
+        AND assignment.trunk_id = trunk.id
+        AND assignment.kind = 'REVIEW_FINDINGS'
+        AND trunk.parent_review_pass_id = selection.review_pass_id
+        AND trunk.workspace_id = selection.workspace_id
+        AND selection.spawn_mode = 'author_is_reviewer'
+        AND assignment.pr_number = selection.pr_number
+        AND assignment.remote_head_sha = selection.reviewed_head_sha
+        AND lower(assignment.base_repository_id)
+              = lower(selection.base_repository_id)
+        AND lower(assignment.head_repository_id)
+              = lower(selection.head_repository_id)
+        AND lower(assignment.repository_id)
+              = lower(selection.head_repository_id)
+        AND lower(selection.repo_full_name)
+              = lower(selection.base_repository_id)
+        AND ((lower(selection.base_repository_id)
+                  = lower(selection.head_repository_id)
+                AND assignment.repository_route = 'DIRECT')
+          OR (lower(selection.base_repository_id)
+                  <> lower(selection.head_repository_id)
+                AND assignment.repository_route = 'FORK'))
+        AND assignment.base_ref = selection.base_ref
+        AND assignment.head_ref = selection.head_ref
+        AND (SELECT COUNT(*)
+             FROM task_assignment_review_finding assigned
+             WHERE assigned.assignment_id = assignment.id)
+            = (SELECT COUNT(*)
+               FROM review_build_selection_item frozen
+               WHERE frozen.thread_id = selection.thread_id)
+        AND NOT EXISTS (
+            SELECT 1
+            FROM review_build_selection_item frozen
+            LEFT JOIN task_assignment_review_finding assigned
+              ON assigned.assignment_id = assignment.id
+             AND assigned.source_review_id = frozen.review_pass_id
+             AND assigned.finding_id = frozen.finding_id
+             AND assigned.finding_revision = frozen.finding_revision
+             AND assigned.content_digest = frozen.content_digest
+            JOIN review_findings current ON current.id = frozen.finding_id
+            WHERE frozen.thread_id = selection.thread_id
+              AND (assigned.finding_id IS NULL
+                OR current.review_pass_id <> frozen.review_pass_id
+                OR current.revision <> frozen.finding_revision
+                OR current.status <> 'agreed'))
+  )
+BEGIN
+    SELECT RAISE(ABORT,
+        'V2 Task materialization has a stale or mismatched review build selection');
+END;

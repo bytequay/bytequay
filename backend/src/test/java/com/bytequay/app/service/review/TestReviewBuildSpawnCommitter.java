@@ -77,12 +77,37 @@ class TestReviewBuildSpawnCommitter
     }
 
     @Test
+    void legacySpawnKeepsLegacyResolutionAuthorityAcrossRestart()
+    {
+        Fixture fixture = fixture("legacy.db", "LEGACY");
+
+        ReviewBuildSpawnCommitter.CommittedSpawn committed =
+                fixture.committer().commit(
+                        request(), pass(0), spawn(), List.of(finding()),
+                        Instant.EPOCH);
+
+        assertThat(committed.selection()).isEmpty();
+        assertThat(fixture.count("review_build_selection")).isZero();
+        assertThat(fixture.jdbc().queryForObject("""
+                SELECT spawned_build_thread_id FROM review_passes
+                WHERE id = 'review-pass'
+                """, String.class)).isEqualTo(committed.thread().id());
+        assertThat(fixture.restartedCommitter().findCommitted("review-pass"))
+                .get().satisfies(restarted -> {
+                    assertThat(restarted.thread().id())
+                            .isEqualTo(committed.thread().id());
+                    assertThat(restarted.selection()).isEmpty();
+                });
+    }
+
+    @Test
     void duplicateAndConcurrentCommitsLeaveOneExactAttachment()
             throws Exception
     {
         Fixture fixture = fixture("concurrent.db");
         ReviewBuildSpawnCommitter.CommittedSpawn first = fixture.committer().commit(
                 request(), pass(0), spawn(), List.of(finding()), Instant.EPOCH);
+        assertThat(first.selection()).isPresent();
 
         assertThatThrownBy(() -> fixture.committer().commit(
                 request(), pass(0), spawn(), List.of(finding()), Instant.EPOCH))
@@ -131,6 +156,11 @@ class TestReviewBuildSpawnCommitter
 
     private Fixture fixture(String file)
     {
+        return fixture(file, "V2");
+    }
+
+    private Fixture fixture(String file, String createdTurnVersion)
+    {
         String url = "jdbc:sqlite:" + tempDir.resolve(file)
                 + "?foreign_keys=ON&busy_timeout=30000";
         Flyway.configure().dataSource(url, "", "").target("258").load().migrate();
@@ -142,7 +172,7 @@ class TestReviewBuildSpawnCommitter
                     id, name, memory_md, is_scratch, created_at_ms, updated_at_ms)
                 VALUES ('workspace', 'Workspace', '', 0, 1, 1)
                 """);
-        insertThread(jdbc, "review-thread", "review", null);
+        insertThread(jdbc, "review-thread", "review", null, "V2");
         jdbc.update("""
                 INSERT INTO review_passes(
                     id, thread_id, repo_full_name, pr_number, head_sha, phase,
@@ -165,7 +195,7 @@ class TestReviewBuildSpawnCommitter
         AtomicInteger ids = new AtomicInteger();
         when(threads.create(any())).thenAnswer(ignored -> {
             String id = "build-" + ids.incrementAndGet();
-            insertThread(jdbc, id, "build", null);
+            insertThread(jdbc, id, "build", null, createdTurnVersion);
             return buildThread(id);
         });
         doAnswer(invocation -> {
@@ -190,11 +220,16 @@ class TestReviewBuildSpawnCommitter
         ReviewBuildSpawnCommitter committer = new ReviewBuildSpawnCommitter(
                 threads, threadStore, selections, jdbc,
                 new DataSourceTransactionManager(source));
-        return new Fixture(jdbc, committer);
+        return new Fixture(
+                jdbc, source, threads, threadStore, committer);
     }
 
     private static void insertThread(
-            JdbcTemplate jdbc, String id, String flow, String parentPass)
+            JdbcTemplate jdbc,
+            String id,
+            String flow,
+            String parentPass,
+            String turnVersion)
     {
         jdbc.update("""
                 INSERT INTO threads(
@@ -204,8 +239,9 @@ class TestReviewBuildSpawnCommitter
                     parallel_slots, turn_version, lifecycle_state,
                     aggregate_version, parent_review_pass_id)
                 VALUES (?, 'CLI_AGENT', 'codex', ?, 'IDLE', 'gpt-test',
-                    0, 0, 0, 1, 1, 'workspace', ?, 1, 'V2', 'IDLE', 0, ?)
-                """, id, id, flow, parentPass);
+                    0, 0, 0, 1, 1, 'workspace', ?, 1, ?,
+                    CASE WHEN ? = 'V2' THEN 'IDLE' ELSE NULL END, 0, ?)
+                """, id, id, flow, turnVersion, turnVersion, parentPass);
     }
 
     private static ThreadService.NewTaskRequest request()
@@ -264,12 +300,24 @@ class TestReviewBuildSpawnCommitter
 
     private record Fixture(
             JdbcTemplate jdbc,
+            SQLiteDataSource dataSource,
+            ThreadService threads,
+            ThreadStore threadStore,
             ReviewBuildSpawnCommitter committer)
     {
         int count(String tableAndPredicate)
         {
             return jdbc.queryForObject(
                     "SELECT COUNT(*) FROM " + tableAndPredicate, Integer.class);
+        }
+
+        ReviewBuildSpawnCommitter restartedCommitter()
+        {
+            return new ReviewBuildSpawnCommitter(
+                    threads, threadStore,
+                    new ReviewBuildSelectionStore(
+                            jdbc, new ObjectMapper().findAndRegisterModules()),
+                    jdbc, new DataSourceTransactionManager(dataSource));
         }
     }
 }

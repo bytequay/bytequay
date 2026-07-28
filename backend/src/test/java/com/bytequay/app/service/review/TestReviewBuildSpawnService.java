@@ -369,7 +369,7 @@ class TestReviewBuildSpawnService
                                 "p", findingId, 1, "{}", "digest")),
                         Instant.EPOCH);
         return new ReviewBuildSpawnCommitter.CommittedSpawn(
-                buildThread(threadId), selection);
+                buildThread(threadId), Optional.of(selection));
     }
 
     private static Thread buildThread(String id)

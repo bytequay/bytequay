@@ -18,6 +18,7 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmen
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.EffectKind;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.InboxItem;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.InboxKind;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.ObservedInboxItem;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.PayloadKind;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.Provenance;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
@@ -163,6 +164,25 @@ class TestDevelopmentFlowRemoteFeedbackRuntime
                 now.plusMillis(5)).orElseThrow());
         assertThat(next.items()).extracting(item -> item.externalRevision())
                 .containsExactly(2L);
+
+        transaction.executeWithoutResult(ignored -> {
+            var inserted = remote.ingestObserved(observed(
+                    "stable", "snapshot-1-1", "head-1", "raw-1", now));
+            var replayed = remote.ingestObserved(observed(
+                    "stable", "snapshot-1-1", "head-2", "raw-2",
+                    now.plusMillis(1)));
+            var revised = remote.ingestObserved(observed(
+                    "changed", "snapshot-1-1", "head-1", "raw-3",
+                    now.plusMillis(2)));
+            assertThat(inserted.inserted()).isTrue();
+            assertThat(replayed.inserted()).isFalse();
+            assertThat(replayed.itemId()).isEqualTo(inserted.itemId());
+            assertThat(revised.inserted()).isTrue();
+        });
+        assertThat(jdbc.queryForObject("""
+                SELECT MAX(external_revision) FROM remote_inbox_item
+                WHERE external_key = 'observed-key'
+                """, Long.class)).isEqualTo(2L);
     }
 
     private static InboxItem inbox(
@@ -175,5 +195,19 @@ class TestDevelopmentFlowRemoteFeedbackRuntime
                 Provenance.EXTERNAL, false, null, "comment-1", null, null,
                 body, SqliteRemoteDevelopmentRuntimeStore.digest(body), null,
                 null, null, observedAt, "raw:" + body);
+    }
+
+    private static ObservedInboxItem observed(
+            String body,
+            String snapshotId,
+            String headSha,
+            String raw,
+            Instant observedAt)
+    {
+        return new ObservedInboxItem(
+                "task-1", 1, "remote-stage-1", 1, "binding-1", snapshotId,
+                InboxKind.TOP_LEVEL_COMMENT, "observed-key", headSha, "base-1",
+                "reviewer", Provenance.EXTERNAL, false, null, "comment-2",
+                null, null, body, null, null, null, observedAt, raw);
     }
 }

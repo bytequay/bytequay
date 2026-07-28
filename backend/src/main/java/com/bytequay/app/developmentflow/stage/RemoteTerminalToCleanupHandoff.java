@@ -42,14 +42,22 @@ public final class RemoteTerminalToCleanupHandoff
     public Result accept(Command command)
     {
         requireNonNull(command, "command is null");
-        return commands.execute(command.task().taskId(), () -> {
-            RemoteDevelopmentStageManager.AcceptedTerminal terminal =
-                    remote.acceptTerminalObservationInCommand(command.observation());
-            TaskManager.StageOpening opening =
-                    tasks.acceptRemoteTerminalInCommand(command.task(), terminal);
-            CommandResult<StageManager.State> opened = cleanup.openFromTerminalInCommand(opening);
-            return new Result(terminal.stage(), opening.taskState(), opened);
-        });
+        return commands.execute(command.task().taskId(),
+                () -> acceptInCommand(command));
+    }
+
+    /** Same atomic handoff for callers already folding accepted Remote truth. */
+    public Result acceptInCommand(Command command)
+    {
+        requireNonNull(command, "command is null");
+        TaskCommandExecutor.requireCurrent(command.task().taskId());
+        RemoteDevelopmentStageManager.AcceptedTerminal terminal =
+                remote.acceptTerminalObservationInCommand(command.observation());
+        TaskManager.StageOpening opening =
+                tasks.acceptRemoteTerminalInCommand(command.task(), terminal);
+        CommandResult<StageManager.State> opened =
+                cleanup.openFromTerminalInCommand(opening);
+        return new Result(terminal.stage(), opening.taskState(), opened);
     }
 
     public record Command(

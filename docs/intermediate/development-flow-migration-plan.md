@@ -113,6 +113,44 @@ CI, GitHub and review work behind the dispatcher. Slices 10 and 11 remove the
 domain-writing runtime projector and legacy workflow pools. CodeGraph,
 checkpoint, ds4 and unrelated application/I/O work remain independent.
 
+The baseline count alone is not an admission guarantee. The current ownership
+and bypasses are:
+
+| Facility | Current bound | Current authority and migration disposition |
+| --- | --- | --- |
+| General application executor (`AsyncConfig`) | 4 core, 16 max, queue 100 | No workflow admission. Publish, round-gate, AI review and Task-producing work are Slice 3–8 bridge targets; read-only observation may remain application work. |
+| GitHub I/O executor | virtual thread per submission | No workflow admission. It may remain only for read-only repository fan-out; accepted observations enter a synchronous owner command. |
+| Legacy review executor | 2 running, queue 50 | Independent from Task capacity. Drain under the legacy bridge, then retire. |
+| Shared agent runner | unbounded cached pool | `AgentScheduler` limits ordinary calls to CLI 4 and API 6, but has no durable lease. Bridge both lanes to CapacityManager before V2 creation. |
+| Validation runner and renewer | unbounded cached pool plus one timer | One claim-key guard is not a Workspace/Trunk/Task ceiling. Move V2 validation to DispatchTicket; drain the legacy pair. |
+| Planning-base refresher | 1 | Performs planning Git work outside common admission. Route V2 refresh through a typed operation. |
+| Task runtime projector | 1 plus scheduled sweep | Writes lifecycle state and wakes the scheduler. Stop its V2 writes, then retire it when legacy Tasks drain. |
+| CodeGraph, checkpoint and ds4 | 2, 2 and 1 | Separate subsystem or hardware work; not V2 workflow executors. |
+
+Additional admission paths must be migrated explicitly; replacing only
+`AgentScheduler` would leave them live:
+
+- `CliReviewRunner` owns a separate three-process semaphore. Ordinary legacy
+  reviewer seats can therefore run outside the scheduler's CLI=4 count.
+- `InvestigationReviewService` launches one raw virtual worker per review
+  round with no global ceiling.
+- Task pause teardown and the post-CI-fix commit/push path launch raw virtual
+  threads from `TaskService` and `CiFixRunExecutor`.
+- `AgentScheduler` and `TaskCommandExecutor` both use raw post-commit virtual
+  thread trampolines. V2 replaces these with a committed outbox wake.
+- Spring's 33 scheduled methods share its default single worker. Several
+  scheduled methods then launch validation, review, Git/GitHub or Task work in
+  independent pools; the single scheduler thread is neither an overall cap
+  nor the target state owner.
+- The only workflow-adjacent common-pool submission is an email-triggered PR
+  refresh. It remains observation only; any accepted lifecycle fact must pass
+  through RemoteObserver and the exact owner command.
+
+Process-pipe drains, servlet/SSE plumbing, model catalog probes, CodeGraph,
+project-learning, workspace maintenance and ds4 threads are not independent
+Task admissions. The SQLite Hikari pool of one serializes database writes but
+is likewise not a fairness or workflow-capacity authority.
+
 ## Slice map
 
 ~~~mermaid
@@ -212,9 +250,38 @@ work, not accepted V2 behavior:
   durable Cleanup Stage. Late merge observation after cancellation must not
   silently delete the remote branch.
 
-Slice 0 remains open until the shared end-to-end fixture, restart and ambiguous
-effect helpers, compatibility snapshots, complete regression-to-scenario map,
-and full executor/admission inventory are also checked in.
+The latest-50 regression audit maps the substantive lifecycle fixes to the
+locked scenarios below. A mapping means current characterization or partial
+support, not that the V2 scenario is complete.
+
+| Regression area and commits | Locked scenarios |
+| --- | --- |
+| Explicit Turn scope and exact interrupt/permission/Plan owner (`9c8dc7a1`) | 1, 4, 6, 9, 10, 43, 50 |
+| CI-fix completion accepting the coordinator's queued state (`610f946a`) | 32 |
+| Atomic Stage steering persistence and failed-holder recovery (`489ed358`, `4c89bf57`) | 6, 30, 32 |
+| Paused/active Task remote-close cleanup and agent release (`0e9d894b`, `4e2f7fc5`) | 45 |
+| CI/merge-queue/timeline idempotence (`7ca60244`) | 30, 41 |
+| Plan review evidence and preserved auto policy (`888b640e`, `d686d94e`) | 14, 15, 40 |
+| Durable publish failure and exact push effects (`03732f71`, `284baae9`) | 27, 35–38 |
+| Typed local-review batch, fix, validation and Brain handoff (`1cffc5ef`, `a6aa1768`, `d117cfaf`, `103640d1`) | 16, 20, 21, 49 |
+| Validation cancellation and restart recovery (`440ad538`, `f75af39e`) | 11, 13, 52, 53 |
+| Pause/recovery barriers and exact resume (`997ad58b`, `947ab285`, `581aa51f`) | 10, 12 |
+| One durable terminal command and Task-local liveness (`2fcf8e4f`, `db16be63`, `ac23023f`) | 4, 8, 45, 48, 51 |
+| Exact Brain/gate/push ownership and stale/duplicate rejection (`cebb86b4`, `284baae9`) | 10, 11, 13, 16, 31, 35–38, 45, 48 |
+| Immutable LEGACY/V2 routing (`90e7f0b2`) | 50 |
+| Independent Task stripes, exact steering target and canceled late-result isolation (`1d7d90f6`) | 4, 6, 11, 45 |
+
+No commit in that audit closes scenarios 2, 3, 5, 7, 17–19, 22, 24, 26,
+29, 33, 34, 39, 42, 44, 46, 47, 49 or 54. Scenarios 51–53 have only
+LEGACY characterization, and scenario 54 has no implementation until
+CapacityManager exists. UI-only, learning, documentation and migration-number
+changes were intentionally excluded from this lifecycle map.
+
+The shared real-store fixture, same-database service recreation, deterministic
+duplicate/out-of-order delivery, ambiguous Git/GitHub probes, and strict API
+compatibility snapshots are now checked in. Slice 0 remains open only for a
+single executable current canonical journey through its existing terminal
+cleanup behavior; durable V2 Cleanup is correctly deferred to Slice 9.
 
 ## Slice 1 — additive persistence spine
 

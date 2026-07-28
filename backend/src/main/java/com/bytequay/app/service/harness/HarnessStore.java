@@ -402,6 +402,19 @@ public class HarnessStore
                 fixJson, verificationJson, nowMs, id);
     }
 
+    public void updateFailureStatus(String id, FailureStatus status, long nowMs)
+    {
+        jdbc.update("""
+                UPDATE ci_harness_failure SET status = ?, updated_at_ms = ? WHERE id = ?
+                """, status.wire(), nowMs, id);
+    }
+
+    public Optional<Failure> findFailure(String id)
+    {
+        return jdbc.query("SELECT * FROM ci_harness_failure WHERE id = ?", FAILURE_MAPPER, id)
+                .stream().findFirst();
+    }
+
     public List<Failure> listFailuresForCycle(String cycleId)
     {
         return jdbc.query("""
@@ -560,6 +573,17 @@ public class HarnessStore
                     approved_at_ms = ?, updated_at_ms = ?
                 WHERE id = ? AND status != 'retired'
                 """, nowMs, nowMs, id);
+        return findRule(id).orElseThrow();
+    }
+
+    /** Retires a rule so the classifier stops routing on it. Retirement is
+     * terminal on purpose: re-learning writes a fresh candidate row. */
+    public Rule retireRule(String id, long nowMs)
+    {
+        jdbc.update("""
+                UPDATE ci_harness_rule SET status = 'retired', updated_at_ms = ?
+                WHERE id = ?
+                """, nowMs, id);
         return findRule(id).orElseThrow();
     }
 

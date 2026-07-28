@@ -117,6 +117,50 @@ public class HarnessController
         return harness.approveRule(workspaceId, watchId, ruleId);
     }
 
+    @PostMapping("/watches/{watchId}/rules/{ruleId}/retire")
+    public RuleDto retireRule(
+            @PathVariable String workspaceId,
+            @PathVariable String watchId,
+            @PathVariable String ruleId)
+    {
+        return harness.retireRule(workspaceId, watchId, ruleId);
+    }
+
+    @PostMapping("/watches/{watchId}/failures/{failureId}/resolve")
+    public HarnessDashboard resolveFailure(
+            @PathVariable String workspaceId,
+            @PathVariable String watchId,
+            @PathVariable String failureId,
+            @RequestBody(required = false) FailureNoteBody body)
+    {
+        harness.resolveFailure(
+                workspaceId, watchId, failureId, body == null ? null : body.note());
+        return harness.get(workspaceId, watchId);
+    }
+
+    @PostMapping("/watches/{watchId}/failures/{failureId}/retry")
+    public HarnessDashboard retryFailure(
+            @PathVariable String workspaceId,
+            @PathVariable String watchId,
+            @PathVariable String failureId,
+            @RequestBody(required = false) FailureNoteBody body)
+    {
+        String note = harness.resolveFailure(
+                workspaceId, watchId, failureId, body == null ? null : body.note());
+        orchestrator.requestRun(watchId, "escalation_retry", note);
+        return harness.get(workspaceId, watchId);
+    }
+
+    @PostMapping("/watches/{watchId}/ask")
+    public HarnessDashboard ask(
+            @PathVariable String workspaceId,
+            @PathVariable String watchId,
+            @RequestBody AskBody body)
+    {
+        requireNonNull(body, "body is null");
+        return harness.ask(workspaceId, watchId, body.question());
+    }
+
     public record CreateWatchBody(
             String owner,
             String repo,
@@ -129,4 +173,9 @@ public class HarnessController
 
     /** Optional run body: {@code {"steeringText":"advisory context"}}. */
     public record RunWatchBody(String steeringText) {}
+
+    /** Optional escalation body: {@code {"note":"what you decided"}}. */
+    public record FailureNoteBody(String note) {}
+
+    public record AskBody(String question) {}
 }

@@ -215,6 +215,17 @@ public record TaskCreationInput(
             requireText(model, "model");
             requireText(value, "value");
         }
+
+        /** Unambiguous storage value for the complete frozen engine identity. */
+        public String canonicalValue()
+        {
+            return encode(provider) + encode(model) + encode(value);
+        }
+
+        private static String encode(String part)
+        {
+            return part.length() + ":" + part;
+        }
     }
 
     public record WorkModelSnapshot(String value)

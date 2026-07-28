@@ -29,6 +29,7 @@ import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.task.BrainVerdictHandoff;
 import com.bytequay.app.developmentflow.task.TaskControlHandoff;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import org.junit.jupiter.api.Test;
 
@@ -72,7 +73,8 @@ class TestDevelopmentFlowWriterBoundary
                 CleanupCompletionHandoff.class,
                 CleanupQuiescenceHandoff.class,
                 RemoteTerminalToCleanupHandoff.class,
-                TaskControlHandoff.class)) {
+                TaskControlHandoff.class,
+                TaskCreationHandoff.class)) {
             assertThat(Arrays.stream(useCase.getDeclaredFields()).map(Field::getType))
                     .doesNotContain(
                             TrunkManager.Store.class,
@@ -150,6 +152,9 @@ class TestDevelopmentFlowWriterBoundary
                 .allMatch(constructor -> Modifier.isPrivate(constructor.getModifiers()));
         assertThat(Arrays.stream(
                         TaskManager.AcceptedCleanupQuiescence.class.getDeclaredConstructors()))
+                .allMatch(constructor -> Modifier.isPrivate(constructor.getModifiers()));
+        assertThat(Arrays.stream(
+                        TrunkManager.AuthorizedTaskCreation.class.getDeclaredConstructors()))
                 .allMatch(constructor -> Modifier.isPrivate(constructor.getModifiers()));
         assertThat(Arrays.stream(
                         LocalDevelopmentStageManager.AcceptedPublishAuthorization.class
@@ -294,11 +299,12 @@ class TestDevelopmentFlowWriterBoundary
     }
 
     @Test
-    void initialV2TaskCreationRemainsDeferredToTaskManager()
+    void initialV2TaskCreationEntersThroughTaskManager()
     {
         assertThat(Arrays.stream(TaskManager.class.getDeclaredMethods())
                 .filter(method -> Modifier.isPublic(method.getModifiers()))
                 .map(Method::getName))
+                .contains("createTaskInCommand")
                 .doesNotContain("create", "createTask", "startTask");
     }
 

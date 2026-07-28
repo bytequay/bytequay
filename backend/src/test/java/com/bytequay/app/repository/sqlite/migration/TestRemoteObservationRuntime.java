@@ -296,6 +296,53 @@ class TestRemoteObservationRuntime
     }
 
     @Test
+    void acceptedPureBaseAdvanceStartsTheTypedBranchSyncEpisode()
+            throws Exception
+    {
+        Runtime runtime = runtime();
+        deliverObservation(
+                runtime, "initial-before-base-advance", "head-1", "base-1",
+                RemoteCiPolicy.CheckState.PASSED, 800);
+
+        deliverObservation(
+                runtime, "base-advanced", "head-1", "base-2",
+                RemoteCiPolicy.CheckState.PASSED, 900);
+
+        assertThat(runtime.jdbc().queryForMap("""
+                SELECT source_snapshot_id, old_head_sha, observed_base_sha,
+                       target_base_sha, policy_source, status
+                FROM branch_sync_episode
+                """))
+                .containsEntry("old_head_sha", "head-1")
+                .containsEntry("observed_base_sha", "base-2")
+                .containsEntry("target_base_sha", "base-2")
+                .containsEntry("policy_source", "REMOTE_BASE_ADVANCED")
+                .containsEntry("status", "OPEN");
+        assertThat(runtime.jdbc().queryForMap("""
+                SELECT kind, expected_head_sha, expected_base_sha,
+                       target_base_sha, status
+                FROM branch_sync_dispatch_operation
+                """))
+                .containsEntry("kind", "FETCH_COMPARE")
+                .containsEntry("expected_head_sha", "head-1")
+                .containsEntry("expected_base_sha", "base-1")
+                .containsEntry("target_base_sha", "base-2")
+                .containsEntry("status", "DISPATCHED");
+        assertThat(runtime.jdbc().queryForObject("""
+                SELECT COUNT(*) FROM branch_sync_episode
+                """, Integer.class)).isOne();
+
+        // A repeated observation sees the live Episode and cannot create a
+        // second owner for the same Task/Stage subject.
+        deliverObservation(
+                runtime, "base-advanced-repeat", "head-1", "base-2",
+                RemoteCiPolicy.CheckState.PASSED, 950);
+        assertThat(runtime.jdbc().queryForObject("""
+                SELECT COUNT(*) FROM branch_sync_episode
+                """, Integer.class)).isOne();
+    }
+
+    @Test
     void oldHeadObservationIsHistoryOnlyAfterSubjectAdvances()
             throws Exception
     {

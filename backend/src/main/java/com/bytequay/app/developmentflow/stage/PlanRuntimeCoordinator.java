@@ -18,7 +18,11 @@ import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.BrainLaunchContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.EditedRevision;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.McpContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanCandidate;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanEditContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanEditReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanSubmission;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ProvisionContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ProvisionReceipt;
@@ -115,11 +119,18 @@ public final class PlanRuntimeCoordinator
             return receipt(SUPERSEDED, "raw provision fence is stale");
         }
         if (rawResult.outcome() != SUCCEEDED) {
-            // Task-owned terminal provisioning recovery is a separate command.
-            // Until that command is installed, do not finalize the ticket and
-            // strand a PROVISIONING Task with no retry/recovery evidence.
-            return receipt(REJECTED, "provision operation requires explicit recovery: "
-                    + rawResult.outcome().name());
+            String rawDigest = dispatchResultDigest(rawResult);
+            String error = rawResult.error() == null || rawResult.error().isBlank()
+                    ? "Provisioning ended " + rawResult.outcome()
+                    : rawResult.error();
+            TaskManager.ProvisioningFailureResult failure = commands.execute(
+                    owner.id(), () -> tasks.acceptProvisioningFailureInCommand(
+                            new TaskManager.ProvisioningFailure(
+                                    owner.id(), expectedFence.taskEpoch(),
+                                    expectedFence.operationId(), expectedFence.attempt(),
+                                    rawResult.outcome().name(), rawDigest, error,
+                                    clock.instant().toEpochMilli())));
+            return receipt(ACCEPTED, provisionFailureReceiptJson(failure));
         }
 
         ProvisionTaskOperationHandler.ProvisionEvidence evidence =
@@ -194,11 +205,34 @@ public final class PlanRuntimeCoordinator
                     "Dispatcher expected fence differs from persisted Plan TaskTurn");
         }
         Instant now = clock.instant();
-        if (!expectedFence.equals(rawResult.fence()) || !context.isCurrentPlan()) {
+        if (!context.isCurrentPlan()) {
             store.finishTurn(context, "SUPERSEDED", "stale Plan result", now);
             return recordTurnDelivery(
                     context, rawResult, rawDigest, SUPERSEDED,
                     "SUPERSEDED", now);
+        }
+        if (!expectedFence.equals(rawResult.fence())) {
+            String error = "TaskTurn returned a result with another operation fence";
+            store.finishTurn(context, "FAILED", error, now);
+            if (PLAN_SELF_REVIEW.equals(context.purpose())) {
+                SqlitePlanRuntimeStore.ReviewOwner review =
+                        store.requireReviewOwner(context.turnId());
+                store.failSelfReview(context, error, now);
+                store.openReviewFailure(
+                        context, review.selfReviewId(), review.revisionId(),
+                        review.reviewedDigest(), error, now);
+                clearTerminalFence(
+                        context, "PLAN_SELF_REVIEW_FAILED",
+                        review.selfReviewId());
+            }
+            else {
+                store.openTurnFailure(context, "OPERATION_FAILED", error, now);
+                clearTerminalFence(
+                        context, "PLAN_DRAFT_FAILED", context.turnId());
+            }
+            return recordTurnDelivery(
+                    context, rawResult, rawDigest, ACCEPTED,
+                    "PROTOCOL_BLOCKED", now);
         }
         return switch (rawResult.outcome()) {
             case SUCCEEDED -> acceptSuccessfulTurn(
@@ -239,6 +273,8 @@ public final class PlanRuntimeCoordinator
             store.openTurnFailure(
                     context, "OPERATION_FAILED",
                     "Plan TaskTurn succeeded without record_plan", now);
+            clearTerminalFence(
+                    context, "PLAN_DRAFT_FAILED", context.turnId());
             return recordTurnDelivery(
                     context, rawResult, rawDigest, ACCEPTED,
                     "PROTOCOL_BLOCKED", now);
@@ -292,6 +328,9 @@ public final class PlanRuntimeCoordinator
                     context, owner.selfReviewId(), owner.revisionId(),
                     owner.reviewedDigest(),
                     "Plan self-review completed without a typed verdict", now);
+            clearTerminalFence(
+                    context, "PLAN_SELF_REVIEW_NO_VERDICT",
+                    owner.selfReviewId());
             return recordTurnDelivery(
                     context, rawResult, rawDigest, ACCEPTED,
                     "REVIEW_BLOCKED", now);
@@ -344,6 +383,9 @@ public final class PlanRuntimeCoordinator
                         context, submission.selfReviewId(),
                         submission.revisionId(), submission.reviewedDigest(),
                         "Plan self-review reported a blocking condition", now);
+                clearTerminalFence(
+                        context, "PLAN_SELF_REVIEW_BLOCKED",
+                        submission.selfReviewId());
                 yield recordTurnDelivery(
                         context, rawResult, rawDigest, ACCEPTED,
                         "REVIEW_BLOCKED", now);
@@ -369,16 +411,75 @@ public final class PlanRuntimeCoordinator
         if (PLAN_SELF_REVIEW.equals(context.purpose())) {
             SqlitePlanRuntimeStore.ReviewOwner owner =
                     store.requireReviewOwner(context.turnId());
+            if (owner.attempt() == 1
+                    && rawResult.outcome() != DispatchTicket.Outcome.CANCELED) {
+                return retrySelfReview(
+                        context, owner, rawResult, rawDigest, error, now);
+            }
             store.failSelfReview(context, error, now);
             store.openReviewFailure(
                     context, owner.selfReviewId(), owner.revisionId(),
                     owner.reviewedDigest(), error, now);
+            clearTerminalFence(
+                    context, "PLAN_SELF_REVIEW_FAILED", owner.selfReviewId());
+            domainResult = "REVIEW_BLOCKED";
         }
         else {
             store.openTurnFailure(context, "OPERATION_FAILED", error, now);
+            clearTerminalFence(
+                    context, "PLAN_DRAFT_FAILED", context.turnId());
         }
         return recordTurnDelivery(
                 context, rawResult, rawDigest, ACCEPTED, domainResult, now);
+    }
+
+    private TurnDeliveryReceipt retrySelfReview(
+            TurnDeliveryContext context,
+            SqlitePlanRuntimeStore.ReviewOwner owner,
+            DispatchTicket.DispatchResult rawResult,
+            String rawDigest,
+            String error,
+            Instant now)
+    {
+        BrainLaunchContext brain = store.requireBrainLaunchContext(context.taskId());
+        PlanCandidate candidate = store.requirePlanCandidate(owner.revisionId());
+        String retryTurnId = id("plan-review-retry-turn", owner.selfReviewId());
+        String retryOperationId = id(
+                "plan-review-retry-operation", owner.selfReviewId());
+        TurnRequest retry = turn(
+                brain, context.taskEpoch(), context.stageId(),
+                context.stageGeneration(), context.codeFingerprint(),
+                context.headSha(), context.baseSha(), PLAN_SELF_REVIEW,
+                retryTurnId, retryOperationId,
+                id("plan-review-retry-ticket", owner.selfReviewId()),
+                reviewRetryPrompt(context.taskId(), candidate, error), now);
+        store.insertTurn(retry);
+        store.insertReviewRetryAttempt(
+                owner.selfReviewId(), retry.turnId(), retry.operationId(),
+                context.turnId(), now);
+        CommandResult<StageManager.State> requested = plan.retrySelfReviewInCommand(
+                new StageManager.ResultCommand(
+                        id("retry-plan-review", context.turnId()),
+                        "v2-plan-runtime", context.taskId(), context.fence()),
+                owner.selfReviewId(), retry.turnId(), retry.fence());
+        requireApplied(requested, "Plan self-review retry");
+        return recordTurnDelivery(
+                context, rawResult, rawDigest, ACCEPTED,
+                "REVIEW_RETRY_REQUESTED", now);
+    }
+
+    private void clearTerminalFence(
+            TurnDeliveryContext context, String cause, String proofId)
+    {
+        CommandResult<StageManager.State> cleared = plan.acceptTerminalTurnInCommand(
+                new StageManager.ResultCommand(
+                        id("clear-plan-terminal", context.turnId()),
+                        "v2-plan-runtime", context.taskId(), context.fence()),
+                cause, proofId,
+                PLAN_DRAFT.equals(context.purpose())
+                        ? StageCheckpoint.DRAFTING
+                        : StageCheckpoint.SELF_REVIEW);
+        requireApplied(cleared, "Plan terminal result");
     }
 
     private TurnDeliveryReceipt recordTurnDelivery(
@@ -510,6 +611,120 @@ public final class PlanRuntimeCoordinator
                     context, normalizedVerdict, concernsJson, followUpsJson,
                     stewardshipJson, clock.instant());
         });
+    }
+
+    /** Material user edit followed by a new mandatory review Turn. */
+    public PlanEditReceipt editPlan(PlanEditCommand command)
+    {
+        requireNonNull(command, "command is null");
+        String normalized = required(command.content(), "content").strip();
+        String contentDigest = digest(normalized);
+        return commands.execute(command.taskId(), () -> {
+            TaskCommandExecutor.requireCurrent(command.taskId());
+            PlanEditReceipt duplicate = store.findPlanEditReceipt(
+                            command.requestId())
+                    .orElse(null);
+            if (duplicate != null) {
+                requireSameEdit(command, normalized, contentDigest, duplicate);
+                return duplicate;
+            }
+
+            PlanEditContext context = store.requirePlanEditContext(
+                    command.taskId(), command.stageId(), command.stageGeneration(),
+                    command.previousRevisionId(), command.previousSelfReviewId());
+            if (context.stageVersion() != command.expectedStageVersion()) {
+                throw new IllegalArgumentException("Plan edit has a stale Stage version");
+            }
+            if (context.previousDigest().equals(contentDigest)) {
+                throw new IllegalArgumentException(
+                        "Plan edit must materially change the latest revision");
+            }
+            Instant now = clock.instant();
+            String revisionId = id("plan-user-revision", command.requestId());
+            EditedRevision revision = store.insertUserRevision(
+                    context, revisionId, normalized, contentDigest,
+                    command.actor(), now);
+            String reviseCommandId = id(
+                    "plan-user-edit-revise", command.requestId());
+            PlanStageManager.RevisionCommand revise =
+                    new PlanStageManager.RevisionCommand(
+                            new StageManager.Command(
+                                    reviseCommandId, command.actor(), context.taskId(),
+                                    context.taskEpoch(), context.stageId(),
+                                    context.stageGeneration(), context.stageVersion()),
+                            revision.revisionId(), context.previousRevisionId(),
+                            revision.contentDigest());
+            CommandResult<StageManager.State> revised =
+                    plan.reviseBeforeApprovalInCommand(revise);
+            requireApplied(revised, "Plan user edit");
+
+            String reviewTurnId = id(
+                    "plan-user-edit-review-turn", command.requestId());
+            String reviewOperationId = id(
+                    "plan-user-edit-review-operation", command.requestId());
+            String reviewTicketId = id(
+                    "plan-user-edit-review-ticket", command.requestId());
+            TurnRequest review = turn(
+                    context.brain(), context.taskEpoch(), context.stageId(),
+                    context.stageGeneration(), context.codeFingerprint(),
+                    context.headSha(), context.baseSha(), PLAN_SELF_REVIEW,
+                    reviewTurnId, reviewOperationId, reviewTicketId,
+                    reviewPrompt(context.taskId(), new PlanSubmission(
+                            command.requestId(), reviewOperationId,
+                            revision.revisionId(), revision.revision(),
+                            revision.content(), revision.contentDigest(),
+                            "USER_EDIT", now)), now);
+            store.insertTurn(review);
+            String selfReviewId = id(
+                    "plan-user-edit-self-review", command.requestId());
+            store.insertSelfReview(
+                    selfReviewId, revision.revisionId(), review.turnId(),
+                    context.taskEpoch(), revision.contentDigest(), now);
+            String reviewCommandId = id(
+                    "plan-user-edit-request-review", command.requestId());
+            PlanStageManager.RevisionCommand requestReview =
+                    new PlanStageManager.RevisionCommand(
+                            new StageManager.Command(
+                                    reviewCommandId, command.actor(), context.taskId(),
+                                    context.taskEpoch(), context.stageId(),
+                                    context.stageGeneration(), revised.state().version()),
+                            revision.revisionId(), context.previousRevisionId(),
+                            revision.contentDigest());
+            CommandResult<StageManager.State> requested =
+                    plan.requestEditedRevisionReviewInCommand(
+                            requestReview, review.fence());
+            requireApplied(requested, "Edited Plan self-review request");
+
+            PlanEditReceipt receipt = new PlanEditReceipt(
+                    command.requestId(), context.taskId(), context.taskEpoch(),
+                    context.stageId(), context.stageGeneration(),
+                    context.stageVersion(), command.actor(),
+                    context.previousRevisionId(), revision.revisionId(),
+                    revision.revision(), revision.content(),
+                    revision.contentDigest(), selfReviewId, review.turnId(),
+                    review.operationId(), review.ticketId(), reviewCommandId, now);
+            store.insertPlanEditReceipt(receipt);
+            return receipt;
+        });
+    }
+
+    private static void requireSameEdit(
+            PlanEditCommand command,
+            String normalized,
+            String contentDigest,
+            PlanEditReceipt receipt)
+    {
+        if (!command.taskId().equals(receipt.taskId())
+                || !command.stageId().equals(receipt.stageId())
+                || command.stageGeneration() != receipt.stageGeneration()
+                || command.expectedStageVersion() != receipt.expectedStageVersion()
+                || !command.actor().equals(receipt.actor())
+                || !command.previousRevisionId().equals(receipt.previousRevisionId())
+                || !normalized.equals(receipt.content())
+                || !contentDigest.equals(receipt.contentDigest())) {
+            throw new IllegalArgumentException(
+                    "Plan edit request id was used for different content or owner");
+        }
     }
 
     private ProvisionReceipt acceptProvisioningInCommand(
@@ -695,6 +910,18 @@ public final class PlanRuntimeCoordinator
                 + "Stewardship arrays. Do not edit files or create remote effects.";
     }
 
+    private static String reviewRetryPrompt(
+            String taskId, PlanCandidate candidate, String predecessorError)
+    {
+        return "Retry the mandatory self-review for Plan revision "
+                + candidate.revision() + " of Task " + taskId + " with digest "
+                + candidate.contentDigest() + ". The first execution failed: "
+                + predecessorError + ".\n\n" + candidate.content()
+                + "\n\nCall record_plan_self_review exactly once with a typed "
+                + "verdict and explicit concern, follow-up, and Project "
+                + "Stewardship arrays. Do not edit files or create remote effects.";
+    }
+
     private static String redraftPrompt(
             String taskId, ReviewSubmission submission)
     {
@@ -874,6 +1101,18 @@ public final class PlanRuntimeCoordinator
         return write(node);
     }
 
+    private String provisionFailureReceiptJson(
+            TaskManager.ProvisioningFailureResult failure)
+    {
+        ObjectNode node = json.createObjectNode();
+        node.put("schema", "PROVISION_FAILURE_V1");
+        node.put("taskId", failure.taskId());
+        node.put("operationId", failure.operationId());
+        node.put("outcome", failure.rawOutcome());
+        node.put("blockerId", failure.blockerId());
+        return write(node);
+    }
+
     private DispatchTicket.DeliveryReceipt receipt(
             DispatchTicket.Acceptance acceptance, String value)
     {
@@ -953,4 +1192,30 @@ public final class PlanRuntimeCoordinator
     }
 
     public record McpAuthorization(String taskId, String purpose) {}
+
+    public record PlanEditCommand(
+            String requestId,
+            String actor,
+            String taskId,
+            String stageId,
+            long stageGeneration,
+            long expectedStageVersion,
+            String previousRevisionId,
+            String previousSelfReviewId,
+            String content)
+    {
+        public PlanEditCommand
+        {
+            required(requestId, "requestId");
+            required(actor, "actor");
+            required(taskId, "taskId");
+            required(stageId, "stageId");
+            required(previousRevisionId, "previousRevisionId");
+            required(previousSelfReviewId, "previousSelfReviewId");
+            required(content, "content");
+            if (stageGeneration < 1 || expectedStageVersion < 0) {
+                throw new IllegalArgumentException("Plan edit fence is invalid");
+            }
+        }
+    }
 }

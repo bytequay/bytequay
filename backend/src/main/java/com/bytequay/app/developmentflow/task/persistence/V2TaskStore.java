@@ -28,6 +28,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -665,6 +666,71 @@ final class V2TaskStore
         return findAcceptedProvisioningResult(code.taskId(), code.operationId())
                 .orElseThrow(() -> concurrent(
                         "Accepted provisioning result disappeared"));
+    }
+
+    @Override
+    public Optional<TaskManager.ProvisioningFailureResult> findProvisioningFailure(
+            String taskId, String operationId)
+    {
+        return jdbc.query("""
+                SELECT receipt.task_id, receipt.task_epoch,
+                    receipt.operation_id, operation.semantic_attempt,
+                    receipt.raw_outcome, receipt.raw_digest,
+                    receipt.error_message, receipt.blocker_id,
+                    receipt.recorded_at_ms
+                FROM task_provision_failure_receipt receipt
+                JOIN provision_task_operation operation
+                  ON operation.operation_id = receipt.operation_id
+                WHERE receipt.task_id = ? AND receipt.operation_id = ?
+                """, (rs, row) -> new TaskManager.ProvisioningFailureResult(
+                        rs.getString("task_id"), rs.getLong("task_epoch"),
+                        rs.getString("operation_id"), rs.getInt("semantic_attempt"),
+                        rs.getString("raw_outcome"), rs.getString("raw_digest"),
+                        rs.getString("error_message"), rs.getString("blocker_id"),
+                        rs.getLong("recorded_at_ms")), taskId, operationId)
+                .stream().findFirst();
+    }
+
+    @Override
+    public TaskManager.ProvisioningFailureResult acceptProvisioningFailure(
+            TaskManager.ProvisioningFailure failure)
+    {
+        requireTransaction();
+        String operationStatus = "CANCELED".equals(failure.rawOutcome())
+                ? "CANCELED" : "FAILED";
+        int changed = jdbc.update("""
+                UPDATE provision_task_operation
+                SET status = ?, completed_at_ms = ?, error_message = ?
+                WHERE task_id = ? AND task_epoch = ? AND operation_id = ?
+                  AND semantic_attempt = ? AND status = 'DISPATCHED'
+                """, operationStatus, failure.recordedAtMillis(),
+                failure.errorMessage(), failure.taskId(), failure.taskEpoch(),
+                failure.operationId(), failure.attempt());
+        if (changed != 1) {
+            throw concurrent("Provisioning operation changed before failure acceptance");
+        }
+        String blockerId = UUID.nameUUIDFromBytes(
+                ("bytequay-v2:provision-blocker:" + failure.operationId())
+                        .getBytes(StandardCharsets.UTF_8)).toString();
+        jdbc.update("""
+                INSERT INTO task_blocker(
+                    id, task_id, owner_kind, owner_id, blocker_type,
+                    status, payload_json, opened_at_ms)
+                VALUES (?, ?, 'TASK', ?, 'PROVISIONING_FAILED', 'OPEN', ?, ?)
+                """, blockerId, failure.taskId(), failure.taskId(),
+                "{\"message\":\"" + escape(failure.errorMessage()) + "\"}",
+                failure.recordedAtMillis());
+        jdbc.update("""
+                INSERT INTO task_provision_failure_receipt(
+                    operation_id, task_id, task_epoch, raw_outcome, raw_digest,
+                    error_message, blocker_id, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, failure.operationId(), failure.taskId(), failure.taskEpoch(),
+                failure.rawOutcome(), failure.rawDigest(), failure.errorMessage(),
+                blockerId, failure.recordedAtMillis());
+        return findProvisioningFailure(failure.taskId(), failure.operationId())
+                .orElseThrow(() -> concurrent(
+                        "Accepted provisioning failure disappeared"));
     }
 
     @Override
@@ -1430,6 +1496,11 @@ final class V2TaskStore
     private static String id()
     {
         return UUID.randomUUID().toString();
+    }
+
+    private static String escape(String value)
+    {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private record BaseState(

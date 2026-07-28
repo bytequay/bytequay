@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { WorkspaceApiRequest } from '../types';
 import WorkspaceCommitsPage from './WorkspaceCommitsPage';
@@ -20,6 +20,7 @@ import type { WorkspaceRelationDto, WorkspaceRepositoryDto } from './workspaceAp
 afterEach(() => {
   cleanup();
   Reflect.deleteProperty(window, 'bridge');
+  window.location.hash = '';
 });
 
 const linked: WorkspaceRelationDto = {
@@ -35,8 +36,16 @@ const repo = {
 } as unknown as WorkspaceRepositoryDto;
 
 function installBridge(relation: WorkspaceRelationDto | null) {
+  let current = relation;
   const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
-    if (request.path === '/api/workspaces/fork/relation') return relation;
+    if (request.path === '/api/workspaces/fork/relation' && request.method === undefined) return current;
+    if (request.path === '/api/workspaces/fork/relation' && request.method === 'PUT') {
+      current = linked;
+      return current;
+    }
+    if (request.path === '/api/workspaces/fork/relation/candidates') {
+      return [{ workspaceId: 'upstream', name: 'Trino', repoFullName: 'trinodb/trino', suggested: true }];
+    }
     if (request.path.startsWith('/api/workspaces/fork/branches')) return [];
     if (request.path.startsWith('/api/workspaces/fork/commits')) return [];
     if (request.path.startsWith('/api/workspaces/fork/upstream/commits')) {
@@ -52,30 +61,29 @@ function installBridge(relation: WorkspaceRelationDto | null) {
 }
 
 describe('WorkspaceCommitsPage', () => {
-  it('sends an unlinked workspace to the Relations tab instead of a dead upstream picker', async () => {
+  it('links the first upstream in place instead of offering a dead picker', async () => {
     installBridge(null);
     render(<WorkspaceCommitsPage workspaceId="fork" repo={repo} />);
 
     const upstream = await screen.findByRole('button', { name: /Link upstream/ });
     expect(upstream.hasAttribute('disabled')).toBe(false);
-
     fireEvent.click(upstream);
 
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'No upstream linked' })).toBeTruthy());
-    expect(screen.getByRole('tab', { name: 'Relations' }).getAttribute('aria-selected')).toBe('true');
-    expect(screen.queryByLabelText('Commit source')).toBeNull();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Link upstream' }));
+
+    await waitFor(() => expect(screen.getByText(/3,481 not in widget/)).toBeTruthy());
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('keeps the upstream source reachable once a relation exists', async () => {
+  it('sends relation management to workspace settings', async () => {
     installBridge(linked);
     render(<WorkspaceCommitsPage workspaceId="fork" repo={repo} />);
 
     fireEvent.click(await screen.findByRole('button', { name: /Trino/ }));
-
     await waitFor(() => expect(screen.getByText(/3,481 not in widget/)).toBeTruthy());
-    expect(screen.getByRole('tab', { name: 'Commits' }).getAttribute('aria-selected')).toBe('true');
 
     fireEvent.click(screen.getByRole('button', { name: 'Manage relation' }));
-    await waitFor(() => expect(screen.getByText('READS FROM')).toBeTruthy());
+    expect(window.location.hash).toBe('#/workspace/fork/settings/relations');
   });
 });

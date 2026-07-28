@@ -227,6 +227,20 @@ public class PRController
     {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
+        if (pr.taskId() != null) {
+            String workflowVersion = taskStore.findWorkflowVersion(pr.taskId())
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.CONFLICT,
+                            "Task " + pr.taskId() + " has no immutable workflow route"));
+            if ("V2".equals(workflowVersion)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "GitHub approval requires an explicit typed V2 review authorization");
+            }
+            if (!"LEGACY".equals(workflowVersion)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "unsupported Task workflow version " + workflowVersion);
+            }
+        }
         if (pr.repo() == null || pr.remotePrNumber() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity yet");
         }

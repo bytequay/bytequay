@@ -147,7 +147,8 @@ BEGIN
               AND snapshot.observation_revision =
                     NEW.accepted_observation_revision
               AND snapshot.head_sha = NEW.current_head_sha
-              AND snapshot.base_sha = NEW.current_base_sha)
+              AND snapshot.base_sha = NEW.current_base_sha
+              AND snapshot.observed_at_ms = NEW.subject_changed_at_ms)
             THEN RAISE(ABORT, 'Accepted remote subject lacks exact snapshot proof')
     END;
 END;
@@ -322,6 +323,13 @@ BEGIN
                     NEW.remote_pr_snapshot_id
               AND check_snapshot.normalized_state <> 'PASSED')
             THEN RAISE(ABORT, 'Green CI evaluation contains a non-passing check')
+        WHEN NEW.normalized_status NOT IN ('NONE', 'PASSED')
+          AND NOT EXISTS (
+            SELECT 1 FROM remote_ci_check_snapshot check_snapshot
+            WHERE check_snapshot.remote_pr_snapshot_id =
+                    NEW.remote_pr_snapshot_id
+              AND check_snapshot.normalized_state = NEW.normalized_status)
+            THEN RAISE(ABORT, 'CI aggregate status lacks constituent check evidence')
     END;
 END;
 
@@ -356,6 +364,7 @@ CREATE TABLE ci_repair_episode (
     push_limit                  INTEGER NOT NULL CHECK (push_limit >= 0),
     last_pushed_head_sha        TEXT,
     last_push_result_evaluation_id TEXT REFERENCES remote_ci_evaluation(id),
+    terminal_ci_evaluation_id   TEXT REFERENCES remote_ci_evaluation(id),
     opened_at_ms                INTEGER NOT NULL,
     completed_at_ms             INTEGER,
     stop_reason                 TEXT,
@@ -460,6 +469,31 @@ WHEN NEW.status = 'EXHAUSTED'
                   AND evaluation.policy_outcome = 'FAILED'))))
 BEGIN SELECT RAISE(ABORT, 'CI repair cannot exhaust before its final result and budget'); END;
 
+CREATE TRIGGER ci_repair_episode_terminal_result
+BEFORE UPDATE OF status ON ci_repair_episode
+WHEN NEW.status IN ('SUCCEEDED', 'EXHAUSTED')
+  AND NOT EXISTS (
+      SELECT 1 FROM remote_ci_evaluation evaluation
+      JOIN remote_development_stage remote
+        ON remote.stage_id = evaluation.remote_development_stage_id
+      WHERE evaluation.id = NEW.terminal_ci_evaluation_id
+        AND evaluation.remote_development_stage_id =
+            NEW.remote_development_stage_id
+        AND evaluation.task_id = NEW.task_id
+        AND evaluation.task_epoch = NEW.task_epoch
+        AND evaluation.stage_generation = NEW.stage_generation
+        AND evaluation.head_sha = COALESCE(
+            NEW.last_pushed_head_sha, NEW.subject_head_sha)
+        AND evaluation.base_sha = NEW.subject_base_sha
+        AND evaluation.policy_outcome = CASE NEW.status
+            WHEN 'SUCCEEDED' THEN 'ACCEPTED' ELSE 'FAILED' END
+        AND remote.accepted_snapshot_id = evaluation.remote_pr_snapshot_id
+        AND remote.current_head_sha = evaluation.head_sha
+        AND remote.current_base_sha = evaluation.base_sha
+        AND (NEW.last_pushed_head_sha IS NULL
+            OR NEW.last_push_result_evaluation_id = evaluation.id))
+BEGIN SELECT RAISE(ABORT, 'CI repair terminal state lacks accepted exact-head CI result'); END;
+
 CREATE TRIGGER ci_repair_episode_terminal_immutable
 BEFORE UPDATE ON ci_repair_episode
 WHEN OLD.status IN ('SUCCEEDED', 'EXHAUSTED', 'STOPPED')
@@ -484,13 +518,15 @@ CREATE TABLE branch_sync_episode (
     attempt_count               INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
     attempt_limit               INTEGER NOT NULL CHECK (attempt_limit > 0),
     result_head_sha             TEXT,
+    result_snapshot_id          TEXT REFERENCES remote_pr_snapshot(id),
     opened_at_ms                INTEGER NOT NULL,
     completed_at_ms             INTEGER,
     error_message               TEXT,
     CHECK (attempt_count <= attempt_limit),
     CHECK ((status IN ('SUCCEEDED', 'FAILED', 'STOPPED'))
         = (completed_at_ms IS NOT NULL)),
-    CHECK (status <> 'SUCCEEDED' OR result_head_sha IS NOT NULL)
+    CHECK (status <> 'SUCCEEDED'
+        OR (result_head_sha IS NOT NULL AND result_snapshot_id IS NOT NULL))
 );
 
 CREATE UNIQUE INDEX idx_branch_sync_one_live_subject
@@ -665,7 +701,22 @@ WHEN NEW.status = 'SUCCEEDED'
     OR NOT EXISTS (
         SELECT 1 FROM branch_sync_push_proof proof
         WHERE proof.branch_sync_episode_id = NEW.id
-          AND proof.pushed_head_sha = NEW.result_head_sha))
+          AND proof.pushed_head_sha = NEW.result_head_sha)
+    OR NOT EXISTS (
+        SELECT 1 FROM remote_pr_snapshot snapshot
+        JOIN remote_development_stage remote
+          ON remote.stage_id = snapshot.remote_development_stage_id
+        WHERE snapshot.id = NEW.result_snapshot_id
+          AND snapshot.remote_development_stage_id =
+                NEW.remote_development_stage_id
+          AND snapshot.task_id = NEW.task_id
+          AND snapshot.stage_generation = NEW.stage_generation
+          AND snapshot.remote_pr_binding_id = NEW.remote_pr_binding_id
+          AND snapshot.head_sha = NEW.result_head_sha
+          AND snapshot.base_sha = NEW.target_base_sha
+          AND remote.accepted_snapshot_id = snapshot.id
+          AND remote.current_head_sha = NEW.result_head_sha
+          AND remote.current_base_sha = NEW.target_base_sha))
 BEGIN SELECT RAISE(ABORT, 'Branch sync success lacks complete ordered effect proof'); END;
 
 CREATE TRIGGER branch_sync_episode_terminal_immutable

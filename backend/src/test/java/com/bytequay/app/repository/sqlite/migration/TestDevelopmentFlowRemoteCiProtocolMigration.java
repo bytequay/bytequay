@@ -74,6 +74,13 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
             insertRemoteOwner(connection, 1);
             insertCiPolicy(connection, 1);
             insertSnapshot(connection, 1, 1, "head-1", "base-1", "OPEN", "UNKNOWN");
+            assertFails(connection, """
+                    UPDATE remote_development_stage
+                    SET accepted_snapshot_id = 'snapshot-1-1',
+                        accepted_observation_revision = 1,
+                        subject_changed_at_ms = 999
+                    WHERE stage_id = 'remote-stage-1'
+                    """);
             acceptSnapshot(connection, 1, 1, "head-1", "base-1");
             insertFailedCi(connection, 1, 1, "head-1", "base-1");
 
@@ -145,6 +152,18 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
                         "head-1", state, wrong, 1,
                         state.equals("MISSING") ? 1 : 0));
             }
+
+            insertSnapshot(connection, 1, 6, "head-1", "base-1", "OPEN", "UNKNOWN");
+            execute(connection, """
+                    INSERT INTO remote_ci_check_snapshot(
+                        id, remote_pr_snapshot_id, check_kind, external_check_id,
+                        check_name, normalized_state, observed_at_ms)
+                    VALUES ('only-passed-check', 'snapshot-1-6', 'CHECK_RUN',
+                        'only-passed-check', 'build', 'PASSED', 100)
+                    """);
+            assertFails(connection, evaluationSql(
+                    "unsupported-failure", "snapshot-1-6", "head-1",
+                    "FAILED", "FAILED", 1, 0));
         }
     }
 
@@ -185,9 +204,11 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
 
             insertSnapshot(connection, 1, 2, "head-after-fix", "base-1", "OPEN", "UNKNOWN");
             insertFailedCi(connection, 1, 2, "head-after-fix", "base-1");
+            acceptSnapshot(connection, 1, 2, "head-after-fix", "base-1");
             execute(connection, """
                     UPDATE ci_repair_episode
-                    SET last_push_result_evaluation_id = 'ci-evaluation-1-2'
+                    SET last_push_result_evaluation_id = 'ci-evaluation-1-2',
+                        terminal_ci_evaluation_id = 'ci-evaluation-1-2'
                     WHERE id = 'repair-1'
                     """);
             execute(connection, """
@@ -200,6 +221,47 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
                     """)).isEqualTo("EXHAUSTED");
             assertFails(connection, """
                     UPDATE ci_repair_episode SET rerun_count = 0 WHERE id = 'repair-1'
+                    """);
+
+            execute(connection, """
+                    INSERT INTO ci_repair_episode(
+                        id, remote_development_stage_id, task_id, task_epoch,
+                        stage_generation, remote_pr_binding_id,
+                        failed_ci_evaluation_id, subject_head_sha, subject_base_sha,
+                        classification, status, rerun_limit, fix_attempt_limit,
+                        delivery_retry_limit, push_limit, opened_at_ms)
+                    VALUES ('rerun-only', 'remote-stage-1', 'task-1', 1, 1,
+                        'binding-1', 'ci-evaluation-1-2', 'head-after-fix',
+                        'base-1', 'FLAKY', 'OPEN', 1, 0, 2, 0, 91)
+                    """);
+            execute(connection, """
+                    UPDATE ci_repair_episode
+                    SET rerun_count = 1, status = 'AWAITING_RERUN'
+                    WHERE id = 'rerun-only'
+                    """);
+            insertSnapshot(connection, 1, 3, "head-after-fix", "base-1", "OPEN", "UNKNOWN");
+            execute(connection, """
+                    INSERT INTO remote_ci_check_snapshot(
+                        id, remote_pr_snapshot_id, check_kind, external_check_id,
+                        check_name, normalized_state, observed_at_ms)
+                    VALUES ('rerun-green-check', 'snapshot-1-3', 'CHECK_RUN',
+                        'rerun-green-check', 'build', 'PASSED', 95)
+                    """);
+            execute(connection, evaluationSql(
+                    "rerun-green", "snapshot-1-3", "head-after-fix",
+                    "PASSED", "ACCEPTED", 1, 0));
+            acceptSnapshot(connection, 1, 3, "head-after-fix", "base-1");
+            assertFails(connection, """
+                    UPDATE ci_repair_episode
+                    SET status = 'SUCCEEDED', completed_at_ms = 96
+                    WHERE id = 'rerun-only'
+                    """);
+            execute(connection, """
+                    UPDATE ci_repair_episode
+                    SET status = 'SUCCEEDED',
+                        terminal_ci_evaluation_id = 'rerun-green',
+                        completed_at_ms = 96
+                    WHERE id = 'rerun-only'
                     """);
         }
     }
@@ -260,9 +322,19 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
                         'probe-1', 'remote ref now points at head-rebased', 91)
                     """);
             execute(connection, completeBranchStepSql(6, 92));
+            assertFails(connection, """
+                    UPDATE branch_sync_episode
+                    SET status = 'SUCCEEDED', result_head_sha = 'head-rebased',
+                        completed_at_ms = 93
+                    WHERE id = 'branch-1'
+                    """);
+            insertSnapshot(connection, 1, 2, "head-rebased", "base-target",
+                    "OPEN", "UNKNOWN");
+            acceptSnapshot(connection, 1, 2, "head-rebased", "base-target");
             execute(connection, """
                     UPDATE branch_sync_episode
                     SET status = 'SUCCEEDED', result_head_sha = 'head-rebased',
+                        result_snapshot_id = 'snapshot-1-2',
                         completed_at_ms = 93
                     WHERE id = 'branch-1'
                     """);

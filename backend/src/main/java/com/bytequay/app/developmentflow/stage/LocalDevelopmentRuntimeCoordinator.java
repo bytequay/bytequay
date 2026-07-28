@@ -18,7 +18,10 @@ import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.BrainFixTurn;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.BrainReviewRequest;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.BrainTurnContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.BrainTurnDeliveryReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.CodeSubject;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.DevReport;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore.DevelopmentReport;
@@ -47,6 +50,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.ACCEPTED;
@@ -73,6 +77,7 @@ public final class LocalDevelopmentRuntimeCoordinator
     private final ObjectReader workModelReader;
     private final ObjectReader developmentResultReader;
     private final ObjectReader validationResultReader;
+    private final ObjectReader brainResultReader;
     private final Clock clock;
     private final int serverPort;
 
@@ -100,6 +105,8 @@ public final class LocalDevelopmentRuntimeCoordinator
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         this.validationResultReader = json.readerFor(
                         LocalValidationOperationHandler.ValidationResult.class)
+                .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        this.brainResultReader = json.readerFor(BrainResult.class)
                 .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         this.clock = requireNonNull(clock, "clock is null");
         if (serverPort < 1 || serverPort > 65535) {
@@ -196,11 +203,25 @@ public final class LocalDevelopmentRuntimeCoordinator
                 owner, expectedFence, rawResult));
     }
 
+    public DispatchTicket.DeliveryReceipt deliverBrainTurn(
+            AgentTurnOwnerResultCodec.OwnerResult result)
+    {
+        requireNonNull(result, "result is null");
+        if (result.owner().kind() != DispatchTicket.OwnerKind.TASK_TURN
+                || !PlanRuntimeCoordinator.TURN_CALLBACK.equals(
+                        result.owner().callbackRoute())) {
+            return receipt(SUPERSEDED, "Development Brain owner mismatch");
+        }
+        String taskId = store.requireBrainTurnTaskId(
+                result.owner().id(), result.fence().operationId());
+        return commands.execute(taskId, () -> deliverBrainTurnInCommand(result));
+    }
+
     private DispatchTicket.DeliveryReceipt deliverStageTurnInCommand(
             AgentTurnOwnerResultCodec.OwnerResult result)
     {
         String turnId = result.owner().id();
-        String rawDigest = digest(write(result.payload()));
+        String rawDigest = digest(write(result));
         StageTurnDeliveryReceipt duplicate = store.findStageTurnReceipt(turnId)
                 .orElse(null);
         if (duplicate != null) {
@@ -388,6 +409,245 @@ public final class LocalDevelopmentRuntimeCoordinator
                 evidence.id(), brain.episodeId(), now);
         store.insertValidationReceipt(recorded);
         return receipt(ACCEPTED, ACCEPTED.name() + ":" + context.operationId());
+    }
+
+    private DispatchTicket.DeliveryReceipt deliverBrainTurnInCommand(
+            AgentTurnOwnerResultCodec.OwnerResult result)
+    {
+        String turnId = result.owner().id();
+        String rawDigest = digest(write(result));
+        BrainTurnDeliveryReceipt duplicate = store.findBrainTurnReceipt(turnId)
+                .orElse(null);
+        if (duplicate != null) {
+            if (!rawDigest.equals(duplicate.rawResultDigest())) {
+                throw new IllegalStateException(
+                        "Development Brain was delivered with different evidence");
+            }
+            DispatchTicket.Acceptance acceptance =
+                    DispatchTicket.Acceptance.valueOf(duplicate.acceptance());
+            return receipt(acceptance,
+                    duplicate.acceptance() + ":" + duplicate.operationId());
+        }
+
+        BrainTurnContext context = store.requireBrainTurnContext(
+                turnId, result.fence().operationId());
+        if (!context.fence().equals(toResultFence(result.fence()))) {
+            throw new IllegalArgumentException(
+                    "Development Brain result differs from its persisted fence");
+        }
+        Instant now = clock.instant();
+        TaskManager.ResultCommand brainCommand = new TaskManager.ResultCommand(
+                id("accept-development-brain", context.operationId()),
+                ACTOR, context.taskId(), context.fence());
+        if (!context.isCurrent()
+                || !tasks.isCurrentBrainResultInCommand(brainCommand)) {
+            store.supersedeBrain(context, "stale Development Brain subject", now);
+            BrainTurnDeliveryReceipt recorded = new BrainTurnDeliveryReceipt(
+                    turnId, context.operationId(), result.outcome().name(), rawDigest,
+                    SUPERSEDED.name(), context.episodeId(), null, null, null, now);
+            store.insertBrainTurnReceipt(recorded);
+            return receipt(SUPERSEDED,
+                    SUPERSEDED.name() + ":" + context.operationId());
+        }
+        if (isBudgetExhaustion(result)) {
+            String detail = result.payload().error() == null
+                    ? "Brain review budget exhausted"
+                    : result.payload().error();
+            String blockerId = store.exhaustBrainBudget(context, detail, now);
+            CommandResult<TaskManager.State> cleared =
+                    tasks.acceptBrainBudgetExhaustionInCommand(
+                            new TaskManager.ResultCommand(
+                                    id("accept-brain-budget", context.operationId()),
+                                    ACTOR, context.taskId(), context.fence()),
+                            blockerId);
+            DispatchTicket.Acceptance acceptance;
+            if (cleared.disposition() == CommandResult.Disposition.SUPERSEDED) {
+                acceptance = SUPERSEDED;
+            }
+            else {
+                CommandResult<StageManager.State> stage =
+                        local.acceptBrainBudgetExhaustionInCommand(
+                                new StageManager.Command(
+                                        id("local-brain-budget", context.operationId()),
+                                        ACTOR, context.taskId(), context.taskEpoch(),
+                                        context.stageId(), context.stageGeneration(),
+                                        context.stageVersion()),
+                                blockerId);
+                acceptance = stage.disposition()
+                        == CommandResult.Disposition.SUPERSEDED
+                        ? SUPERSEDED : ACCEPTED;
+            }
+            BrainTurnDeliveryReceipt recorded = new BrainTurnDeliveryReceipt(
+                    turnId, context.operationId(), result.outcome().name(), rawDigest,
+                    acceptance.name(), context.episodeId(), null, blockerId,
+                    null, now);
+            store.insertBrainTurnReceipt(recorded);
+            return receipt(acceptance,
+                    acceptance.name() + ":" + context.operationId());
+        }
+        if (result.outcome() != SUCCEEDED) {
+            throw new IllegalStateException(
+                    "Development Brain failed without typed budget evidence");
+        }
+
+        BrainResult verdict = decodeBrainResult(result.payload().finalText());
+        TaskManager.BrainVerdict domainVerdict = switch (verdict.verdict()) {
+            case "APPROVED" -> TaskManager.BrainVerdict.APPROVED;
+            case "CHANGES_REQUESTED" -> TaskManager.BrainVerdict.CHANGES_REQUESTED;
+            default -> throw new IllegalArgumentException(
+                    "Unknown Development Brain verdict: " + verdict.verdict());
+        };
+        int unresolved = verdict.findings().size();
+        if (domainVerdict == TaskManager.BrainVerdict.APPROVED && unresolved != 0
+                || domainVerdict == TaskManager.BrainVerdict.CHANGES_REQUESTED
+                    && unresolved == 0) {
+            throw new IllegalArgumentException(
+                    "Development Brain verdict and findings disagree");
+        }
+        store.completeBrainVerdict(
+                context, domainVerdict.name(), unresolved,
+                required(verdict.summary(), "summary"), now);
+        TaskManager.BrainVerdictResult accepted = tasks.acceptBrainVerdictInCommand(
+                brainCommand,
+                domainVerdict);
+        if (accepted.task().disposition() == CommandResult.Disposition.SUPERSEDED) {
+            throw new IllegalStateException(
+                    "Current Development Brain verdict became superseded");
+        }
+        TaskManager.AcceptedBrainVerdict proof = accepted.accepted().orElseThrow();
+        String nextRequestId = null;
+        if (domainVerdict == TaskManager.BrainVerdict.APPROVED) {
+            CommandResult<StageManager.State> stage =
+                    local.acceptBrainApprovalInCommand(proof);
+            if (stage.disposition() == CommandResult.Disposition.SUPERSEDED) {
+                throw new IllegalStateException("Local Brain approval was superseded");
+            }
+        }
+        else {
+            CommandResult<StageManager.State> stage =
+                    local.acceptBrainFindingsInCommand(proof);
+            if (stage.disposition() == CommandResult.Disposition.SUPERSEDED) {
+                throw new IllegalStateException("Local Brain findings were superseded");
+            }
+            BrainFixTurn fix = createBrainFixTurn(context, verdict, now);
+            store.insertBrainFixTurn(fix);
+            CommandResult<StageManager.State> requested = local.requestBrainFixInCommand(
+                    new StageManager.Command(
+                            fix.commandId(), ACTOR, context.taskId(), context.taskEpoch(),
+                            context.stageId(), context.stageGeneration(),
+                            stage.state().version()),
+                    fix.fence(), fix.requestId());
+            if (requested.disposition() == CommandResult.Disposition.SUPERSEDED) {
+                throw new IllegalStateException("Brain-finding fix request was superseded");
+            }
+            nextRequestId = fix.requestId();
+        }
+        BrainTurnDeliveryReceipt recorded = new BrainTurnDeliveryReceipt(
+                turnId, context.operationId(), result.outcome().name(), rawDigest,
+                ACCEPTED.name(), context.episodeId(), domainVerdict.name(), null,
+                nextRequestId, now);
+        store.insertBrainTurnReceipt(recorded);
+        return receipt(ACCEPTED, ACCEPTED.name() + ":" + context.operationId());
+    }
+
+    private BrainFixTurn createBrainFixTurn(
+            BrainTurnContext context,
+            BrainResult verdict,
+            Instant now)
+    {
+        String requestId = id("brain-fix-request", context.episodeId());
+        String commandId = id("request-brain-fix", context.episodeId());
+        String turnId = id("brain-fix-turn", context.episodeId());
+        String operationId = id("brain-fix-operation", context.episodeId());
+        String ticketId = id("brain-fix-ticket", context.episodeId());
+        String prompt = "Address every finding from the Task Brain against this "
+                + "exact code subject:\n\n" + String.join("\n", verdict.findings())
+                + "\n\nReturn the same strict Local development result JSON.";
+        WorkModel model = decodeWorkModel(context.workModelSnapshot());
+        String lane = model.kind().name();
+        int laneMask = model.kind() == WorkModelKind.CLI ? 1 : 2;
+        ObjectNode launch = writerLaunch(
+                context.provider(), context.model(), context.roleSkill(),
+                model, context.worktreePath(), turnId, operationId, prompt);
+        return new BrainFixTurn(
+                requestId, commandId, turnId, operationId, ticketId,
+                context.episodeId(), context.workspaceId(), context.trunkId(),
+                context.taskId(), context.taskEpoch(), context.stageId(),
+                context.stageGeneration(), context.codeFingerprint(),
+                context.headSha(), context.baseSha(), lane, laneMask,
+                write(launch), digest(prompt), ACTOR, now);
+    }
+
+    private ObjectNode writerLaunch(
+            String provider,
+            String modelName,
+            String roleSkill,
+            WorkModel model,
+            String worktreePath,
+            String turnId,
+            String operationId,
+            String prompt)
+    {
+        if (!provider.equals(model.agentOrProvider())
+                || model.model() != null && !model.model().isBlank()
+                    && !modelName.equals(model.model())) {
+            throw new IllegalStateException(
+                    "Frozen Task Brain and work model do not identify one engine");
+        }
+        ObjectNode launch = json.createObjectNode();
+        launch.put("schemaVersion", 1);
+        launch.put("transport", model.kind().name());
+        launch.put("provider", provider);
+        putNullable(launch, "credentialAccount", model.account());
+        launch.put("model", modelName);
+        putNullable(launch, "reasoningEffort", model.reasoningEffort());
+        launch.put("workingDirectory", worktreePath);
+        launch.put("systemPrompt", implementationSystemPrompt(roleSkill));
+        launch.put("prompt", prompt);
+        ObjectNode endpoint = launch.putObject("toolEndpoint");
+        endpoint.put("serverName", "bytequay");
+        endpoint.put("url", "http://127.0.0.1:" + serverPort
+                + "/api/v2/stage-turns/" + turnId
+                + "/operations/" + operationId + "/mcp");
+        endpoint.put("ownerKind", "STAGE_TURN");
+        endpoint.put("ownerId", turnId);
+        endpoint.put("operationId", operationId);
+        endpoint.put("profile", "STAGE_DEVELOPMENT");
+        endpoint.put("approvalPromptTool", "mcp__bytequay__approval_prompt");
+        return launch;
+    }
+
+    private BrainResult decodeBrainResult(String value)
+    {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException("Development Brain result is missing");
+        }
+        try {
+            BrainResult result = brainResultReader.readValue(value);
+            if (result.schemaVersion() != 1) {
+                throw new IllegalArgumentException(
+                        "Unsupported Development Brain result version");
+            }
+            required(result.verdict(), "verdict");
+            required(result.summary(), "summary");
+            if (result.findings().stream().anyMatch(
+                    finding -> finding == null || finding.isBlank())) {
+                throw new IllegalArgumentException(
+                        "Development Brain findings must be non-blank");
+            }
+            return result;
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalArgumentException(
+                    "Development Brain result is not strict JSON", e);
+        }
+    }
+
+    private static boolean isBudgetExhaustion(
+            AgentTurnOwnerResultCodec.OwnerResult result)
+    {
+        return result.outcome() != SUCCEEDED
+                && "BRAIN_BUDGET_EXHAUSTED".equals(result.payload().error());
     }
 
     private BrainReviewRequest createBrainReview(
@@ -724,4 +984,17 @@ public final class LocalDevelopmentRuntimeCoordinator
             String knownRisks,
             String unresolvedConcerns,
             String contextRefs) {}
+
+    private record BrainResult(
+            int schemaVersion,
+            String verdict,
+            String summary,
+            List<String> findings)
+    {
+        private BrainResult
+        {
+            requireNonNull(findings, "findings is null");
+            findings = List.copyOf(findings);
+        }
+    }
 }

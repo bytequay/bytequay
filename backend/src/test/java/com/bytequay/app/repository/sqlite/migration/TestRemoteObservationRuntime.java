@@ -572,12 +572,20 @@ class TestRemoteObservationRuntime
                         "EXTEND", "PER_PUSH_APPROVAL", "MANUAL_TAKEOVER",
                         "STOP_AUTOMATION");
 
+        assertThatThrownBy(() -> runtime.repair().extendBudget(
+                "task-2", episodeId, "wrong-task", 1, 0, 0,
+                "user", "wrong Task"))
+                .isInstanceOf(IllegalStateException.class);
         assertThat(runtime.repair().extendBudget(
                 "task-1", episodeId, "extend-rerun", 1, 0, 0,
                 "user", "one more rerun").status()).isEqualTo("OPEN");
         assertThat(runtime.repair().extendBudget(
                 "task-1", episodeId, "extend-rerun", 1, 0, 0,
                 "user", "one more rerun").rerunLimit()).isEqualTo(2);
+        assertThatThrownBy(() -> runtime.repair().extendBudget(
+                "task-1", episodeId, "extend-rerun", 2, 0, 0,
+                "user", "one more rerun"))
+                .isInstanceOf(IllegalArgumentException.class);
         assertThat(runtime.jdbc().queryForObject("""
                 SELECT status FROM task_blocker WHERE owner_id = ?
                 """, String.class, episodeId)).isEqualTo("RESOLVED");

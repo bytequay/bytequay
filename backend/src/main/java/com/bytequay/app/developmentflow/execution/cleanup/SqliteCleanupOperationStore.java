@@ -294,6 +294,48 @@ public class SqliteCleanupOperationStore
         });
     }
 
+    /**
+     * Records one exact user retry command for the current parked Cleanup
+     * operation. The command id is the durable idempotency key.
+     */
+    public RecoveryAuthorization authorizeRetry(
+            String taskId,
+            String stepId,
+            String commandId,
+            String requestedBy,
+            String reason,
+            Instant requestedAt)
+    {
+        CleanupOperationHandler.requireText(taskId, "taskId");
+        CleanupOperationHandler.requireText(stepId, "stepId");
+        CleanupOperationHandler.requireText(commandId, "commandId");
+        CleanupOperationHandler.requireText(requestedBy, "requestedBy");
+        CleanupOperationHandler.requireText(reason, "reason");
+        requireNonNull(requestedAt, "requestedAt is null");
+        return inTransaction(() -> {
+            RecoveryAuthorization replay = findRetryAuthorization(commandId)
+                    .orElse(null);
+            if (replay != null) {
+                replay.requireExact(taskId, stepId, requestedBy, reason);
+                return replay;
+            }
+            RecoveryTarget target = requireRecoveryTarget(
+                    taskId, stepId, RecoveryAction.RETRY);
+            jdbc.update("""
+                    INSERT INTO cleanup_step_retry_request(
+                        id, cleanup_step_id, cleanup_operation_id, task_id,
+                        failed_attempt, requested_by, reason, status,
+                        requested_at_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+                    """, commandId, stepId, target.cleanupOperationId(), taskId,
+                    target.failedAttempt(), requestedBy, reason,
+                    requestedAt.toEpochMilli());
+            return new RecoveryAuthorization(
+                    taskId, stepId, commandId, target.cleanupOperationId(),
+                    target.dispatchTicketId(), requestedBy, reason, true);
+        });
+    }
+
     public String waiveOptional(
             String stepId, String actor, String reason, Instant waivedAt)
     {
@@ -320,6 +362,192 @@ public class SqliteCleanupOperationStore
             resolveBlockers(step, "WAIVED", "optional cleanup explicitly waived", waivedAt);
             return waiverId;
         });
+    }
+
+    /**
+     * Records one exact user waiver for an optional failed Cleanup step. The
+     * command id is the durable idempotency key.
+     */
+    public RecoveryAuthorization authorizeOptionalWaiver(
+            String taskId,
+            String stepId,
+            String commandId,
+            String actor,
+            String reason,
+            Instant waivedAt)
+    {
+        CleanupOperationHandler.requireText(taskId, "taskId");
+        CleanupOperationHandler.requireText(stepId, "stepId");
+        CleanupOperationHandler.requireText(commandId, "commandId");
+        CleanupOperationHandler.requireText(actor, "actor");
+        CleanupOperationHandler.requireText(reason, "reason");
+        requireNonNull(waivedAt, "waivedAt is null");
+        return inTransaction(() -> {
+            RecoveryAuthorization replay = findWaiverAuthorization(commandId)
+                    .orElse(null);
+            if (replay != null) {
+                replay.requireExact(taskId, stepId, actor, reason);
+                return replay;
+            }
+            RecoveryTarget target = requireRecoveryTarget(
+                    taskId, stepId, RecoveryAction.WAIVE);
+            jdbc.update("""
+                    INSERT INTO cleanup_step_waiver(
+                        id, cleanup_step_id, actor_id, reason, evidence,
+                        waived_at_ms)
+                    VALUES (?, ?, ?, ?, 'explicit optional cleanup waiver', ?)
+                    """, commandId, stepId, actor, reason, waivedAt.toEpochMilli());
+            int changed = jdbc.update("""
+                    UPDATE cleanup_step
+                       SET status = 'WAIVED', failure_kind = NULL,
+                           last_error = NULL
+                     WHERE id = ? AND task_id = ? AND status = 'FAILED'
+                       AND requirement = 'OPTIONAL'
+                    """, stepId, taskId);
+            requireChanged(changed, "Cleanup waiver lost its exact failure");
+            resolveBlockers(target.step(), "WAIVED",
+                    "optional cleanup explicitly waived", waivedAt);
+            return new RecoveryAuthorization(
+                    taskId, stepId, commandId, target.cleanupOperationId(),
+                    target.dispatchTicketId(), actor, reason, true);
+        });
+    }
+
+    private Optional<RecoveryAuthorization> findRetryAuthorization(String commandId)
+    {
+        return jdbc.query("""
+                SELECT retry.task_id, retry.cleanup_step_id, retry.id,
+                       retry.cleanup_operation_id,
+                       operation.dispatch_ticket_id, retry.requested_by,
+                       retry.reason
+                  FROM cleanup_step_retry_request retry
+                  JOIN cleanup_operation operation
+                    ON operation.id = retry.cleanup_operation_id
+                 WHERE retry.id = ?
+                """, (result, ignored) -> new RecoveryAuthorization(
+                        result.getString("task_id"),
+                        result.getString("cleanup_step_id"),
+                        result.getString("id"),
+                        result.getString("cleanup_operation_id"),
+                        result.getString("dispatch_ticket_id"),
+                        result.getString("requested_by"),
+                        result.getString("reason"), false), commandId)
+                .stream().findFirst();
+    }
+
+    private Optional<RecoveryAuthorization> findWaiverAuthorization(String commandId)
+    {
+        return jdbc.query("""
+                SELECT step.task_id, waiver.cleanup_step_id, waiver.id,
+                       step.cleanup_operation_id,
+                       operation.dispatch_ticket_id, waiver.actor_id,
+                       waiver.reason
+                  FROM cleanup_step_waiver waiver
+                  JOIN cleanup_step step ON step.id = waiver.cleanup_step_id
+                  JOIN cleanup_operation operation
+                    ON operation.id = step.cleanup_operation_id
+                 WHERE waiver.id = ?
+                """, (result, ignored) -> new RecoveryAuthorization(
+                        result.getString("task_id"),
+                        result.getString("cleanup_step_id"),
+                        result.getString("id"),
+                        result.getString("cleanup_operation_id"),
+                        result.getString("dispatch_ticket_id"),
+                        result.getString("actor_id"),
+                        result.getString("reason"), false), commandId)
+                .stream().findFirst();
+    }
+
+    private RecoveryTarget requireRecoveryTarget(
+            String taskId, String stepId, RecoveryAction action)
+    {
+        Step exactStep = requireStep(stepId);
+        List<RecoveryTarget> rows = jdbc.query("""
+                SELECT operation.id AS cleanup_operation_id,
+                       operation.dispatch_ticket_id
+                  FROM cleanup_step step
+                  JOIN cleanup_operation operation
+                    ON operation.id = step.cleanup_operation_id
+                  JOIN cleanup_stage cleanup
+                    ON cleanup.stage_id = operation.cleanup_stage_id
+                  JOIN stage owner ON owner.id = cleanup.stage_id
+                  JOIN tasks task ON task.id = operation.task_id
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN dispatch_ticket ticket
+                    ON ticket.id = operation.dispatch_ticket_id
+                 WHERE step.id = ? AND step.task_id = ?
+                   AND task.workflow_version = 'V2'
+                   AND task.lifecycle_state = 'CLEANING'
+                   AND task.epoch = operation.task_epoch
+                   AND operation.status = 'ACTIVE'
+                   AND cleanup.task_id = task.id
+                   AND cleanup.task_epoch = task.epoch
+                   AND cleanup.generation = operation.stage_generation
+                   AND owner.task_id = task.id
+                   AND owner.kind = 'CLEANUP'
+                   AND owner.generation = operation.stage_generation
+                   AND owner.checkpoint = 'CLEANING'
+                   AND owner.completed_at_ms IS NULL
+                   AND current.stage_id = owner.id
+                   AND current.stage_generation = owner.generation
+                   AND step.cleanup_stage_id = owner.id
+                   AND step.stage_generation = owner.generation
+                   AND step.task_epoch = task.epoch
+                   AND ticket.operation_id = operation.operation_id
+                   AND ticket.operation_kind = 'RUN_CLEANUP_OPERATION'
+                   AND ticket.async_family = 'CLEANUP'
+                   AND ticket.owner_kind = 'STAGE'
+                   AND ticket.owner_id = owner.id
+                   AND ticket.callback_route = 'CLEANUP_OPERATION_RESULT'
+                   AND ticket.task_id = task.id
+                   AND ticket.task_epoch = task.epoch
+                   AND ticket.stage_id = owner.id
+                   AND ticket.stage_generation = owner.generation
+                   AND ticket.attempt = operation.semantic_attempt
+                   AND ticket.status = 'RECONCILE_WAIT'
+                   AND ticket.next_attempt_at_ms IS NULL
+                   AND ticket.cancel_requested_at_ms IS NULL
+                   AND NOT EXISTS (
+                       SELECT 1 FROM cleanup_step earlier
+                        WHERE earlier.cleanup_operation_id = operation.id
+                          AND earlier.ordinal < step.ordinal
+                          AND earlier.status NOT IN (
+                              'SUCCEEDED', 'SKIPPED', 'WAIVED'))
+                   AND EXISTS (
+                       SELECT 1 FROM task_blocker blocker
+                        WHERE blocker.task_id = task.id
+                          AND blocker.stage_id = owner.id
+                          AND blocker.owner_kind = 'OPERATION'
+                          AND blocker.owner_id = operation.id
+                          AND blocker.subject_revision = CAST(step.ordinal AS TEXT)
+                          AND blocker.blocker_type = 'CLEANUP_STEP_FAILED'
+                          AND blocker.status = 'OPEN')
+                """, (result, ignored) -> new RecoveryTarget(
+                        result.getString("cleanup_operation_id"),
+                        result.getString("dispatch_ticket_id"), exactStep),
+                stepId, taskId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "Cleanup recovery does not own the exact parked Task step");
+        }
+        RecoveryTarget target = rows.getFirst();
+        Step step = target.step();
+        boolean allowed = switch (action) {
+            case RETRY -> step.status() == StepStatus.FAILED
+                    && step.failureKind() == FailureKind.DETERMINATE
+                    && step.executeAttemptCount() < step.attemptLimit()
+                    && !step.retryRequested();
+            case WAIVE -> step.status() == StepStatus.FAILED
+                    && step.requirement() == Requirement.OPTIONAL
+                    && !step.retryRequested();
+        };
+        if (!allowed) {
+            throw new IllegalStateException(
+                    action == RecoveryAction.RETRY
+                            ? "Cleanup step is not eligible for retry"
+                            : "Cleanup step is not an optional failed step");
+        }
+        return target;
     }
 
     public CleanupCompletion acceptSuccessfulResult(
@@ -624,6 +852,61 @@ public class SqliteCleanupOperationStore
                     taskEpoch, taskVersion, cleanupStageId, stageGeneration,
                     stageVersion, stageCheckpoint, terminalAcceptanceId,
                     operationId, semanticAttempt, status, barrierId, target, steps);
+        }
+    }
+
+    private enum RecoveryAction
+    {
+        RETRY,
+        WAIVE
+    }
+
+    private record RecoveryTarget(
+            String cleanupOperationId,
+            String dispatchTicketId,
+            Step step)
+    {
+        private int failedAttempt()
+        {
+            return step.attemptCount();
+        }
+    }
+
+    public record RecoveryAuthorization(
+            String taskId,
+            String stepId,
+            String commandId,
+            String cleanupOperationId,
+            String dispatchTicketId,
+            String actor,
+            String reason,
+            boolean created)
+    {
+        public RecoveryAuthorization
+        {
+            CleanupOperationHandler.requireText(taskId, "taskId");
+            CleanupOperationHandler.requireText(stepId, "stepId");
+            CleanupOperationHandler.requireText(commandId, "commandId");
+            CleanupOperationHandler.requireText(
+                    cleanupOperationId, "cleanupOperationId");
+            CleanupOperationHandler.requireText(dispatchTicketId, "dispatchTicketId");
+            CleanupOperationHandler.requireText(actor, "actor");
+            CleanupOperationHandler.requireText(reason, "reason");
+        }
+
+        private void requireExact(
+                String expectedTaskId,
+                String expectedStepId,
+                String expectedActor,
+                String expectedReason)
+        {
+            if (!taskId.equals(expectedTaskId)
+                    || !stepId.equals(expectedStepId)
+                    || !actor.equals(expectedActor)
+                    || !reason.equals(expectedReason)) {
+                throw new IllegalArgumentException(
+                        "Cleanup recovery command was already used with other values");
+            }
         }
     }
 

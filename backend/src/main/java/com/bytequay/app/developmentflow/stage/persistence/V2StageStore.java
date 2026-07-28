@@ -115,6 +115,15 @@ final class V2StageStore
                 .or(() -> queryInitialRequest(
                         "WHERE stage_id = ? AND returned_stage_version = ?",
                         stageId, persisted.version()))
+                .or(() -> queryEditedReview(
+                        "WHERE stage_id = ? AND returned_stage_version = ?",
+                        stageId, persisted.version()))
+                .or(() -> queryReviewRetry(
+                        "WHERE stage_id = ? AND returned_stage_version = ?",
+                        stageId, persisted.version()))
+                .or(() -> queryPlanTerminal(
+                        "WHERE stage_id = ? AND returned_stage_version = ?",
+                        stageId, persisted.version()))
                 .map(StageManager.CommandReceipt::state)
                 .orElseGet(() -> persisted.withPending(null));
         if (!persisted.matchesCore(stage)) {
@@ -148,7 +157,16 @@ final class V2StageStore
         }
         return queryInitialRequest(
                 "WHERE task_id = ? AND stage_id = ? AND command_id = ?",
-                taskId, stageId, commandId);
+                taskId, stageId, commandId)
+                .or(() -> queryEditedReview(
+                        "WHERE task_id = ? AND stage_id = ? AND command_id = ?",
+                        taskId, stageId, commandId))
+                .or(() -> queryReviewRetry(
+                        "WHERE task_id = ? AND stage_id = ? AND command_id = ?",
+                        taskId, stageId, commandId))
+                .or(() -> queryPlanTerminal(
+                        "WHERE task_id = ? AND stage_id = ? AND command_id = ?",
+                        taskId, stageId, commandId));
     }
 
     @Override
@@ -227,6 +245,201 @@ final class V2StageStore
             throw concurrent("Initial Stage result request was not inserted");
         }
         return requested;
+    }
+
+    @Override
+    public StageManager.State requestEditedPlanReview(
+            String commandId,
+            String actor,
+            long expectedTaskEpoch,
+            long expectedStageGeneration,
+            long expectedStageVersion,
+            String revisionId,
+            ResultFence pendingResult,
+            StageManager.State expected,
+            StageManager.State requested)
+    {
+        requireTransaction();
+        if (expected.kind() != StageKind.PLAN
+                || expected.checkpoint() != StageCheckpoint.DRAFTING
+                || requested.checkpoint() != StageCheckpoint.SELF_REVIEW
+                || expected.version() != expectedStageVersion
+                || requested.version() != expected.version() + 1
+                || expected.pendingResult() != null
+                || !pendingResult.equals(requested.pendingResult())) {
+            throw new IllegalArgumentException(
+                    "Edited Plan review request is inconsistent");
+        }
+        int changed = jdbc.update("""
+                UPDATE stage
+                SET version = ?, checkpoint = 'SELF_REVIEW'
+                WHERE id = ? AND task_id = ? AND kind = 'PLAN'
+                  AND generation = ? AND version = ?
+                  AND checkpoint = 'DRAFTING'
+                  AND completed_at_ms IS NULL AND end_reason IS NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM tasks task
+                      JOIN task_current_stage current ON current.task_id = task.id
+                      WHERE task.id = stage.task_id
+                        AND task.workflow_version = 'V2'
+                        AND task.lifecycle_state = 'ACTIVE'
+                        AND task.epoch = ?
+                        AND current.stage_id = stage.id
+                        AND current.stage_generation = stage.generation)
+                """, requested.version(), expected.id(), expected.taskId(),
+                expectedStageGeneration, expectedStageVersion,
+                expectedTaskEpoch);
+        if (changed != 1) {
+            throw concurrent("Edited Plan owner changed before review request");
+        }
+        long now = System.currentTimeMillis();
+        recordTransition(
+                commandId, "REQUEST_EDITED_PLAN_SELF_REVIEW", actor,
+                expected, requested, now);
+        jdbc.update("""
+                INSERT INTO stage_plan_edit_review_request(
+                    id, stage_id, task_id, command_id, actor,
+                    expected_task_epoch, expected_stage_generation,
+                    expected_stage_version, returned_stage_version,
+                    revision_id, pending_task_epoch, pending_stage_id,
+                    pending_stage_generation, pending_operation_id,
+                    pending_attempt, pending_code_fingerprint,
+                    pending_head_sha, pending_base_sha, requested_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id(), requested.id(), requested.taskId(), commandId, actor,
+                expectedTaskEpoch, expectedStageGeneration, expectedStageVersion,
+                requested.version(), revisionId, pendingResult.taskEpoch(),
+                pendingResult.stageId(), pendingResult.stageGeneration(),
+                pendingResult.operationId(), pendingResult.attempt(),
+                pendingResult.expectedCodeFingerprint(),
+                pendingResult.expectedHeadSha(), pendingResult.expectedBaseSha(), now);
+        return requested;
+    }
+
+    @Override
+    public StageManager.State retryPlanSelfReview(
+            String commandId,
+            String actor,
+            String selfReviewId,
+            String replacementTurnId,
+            ResultFence failed,
+            ResultFence replacement,
+            StageManager.State expected,
+            StageManager.State requested)
+    {
+        requireTransaction();
+        if (expected.kind() != StageKind.PLAN
+                || expected.checkpoint() != StageCheckpoint.SELF_REVIEW
+                || requested.checkpoint() != StageCheckpoint.SELF_REVIEW
+                || expected.version() + 1 != requested.version()
+                || !failed.equals(expected.pendingResult())
+                || !replacement.equals(requested.pendingResult())) {
+            throw new IllegalArgumentException("Plan review retry is inconsistent");
+        }
+        updateSameCheckpoint(expected, requested, failed.taskEpoch());
+        long now = System.currentTimeMillis();
+        recordTransition(
+                commandId, "RETRY_PLAN_SELF_REVIEW", actor,
+                expected, requested, now);
+        jdbc.update("""
+                INSERT INTO stage_plan_review_retry_request(
+                    id, stage_id, task_id, command_id, actor, self_review_id,
+                    predecessor_turn_id, replacement_turn_id,
+                    expected_stage_version, returned_stage_version,
+                    subject_task_epoch, subject_stage_generation,
+                    subject_operation_id, subject_attempt,
+                    subject_code_fingerprint, subject_head_sha, subject_base_sha,
+                    pending_task_epoch, pending_stage_generation,
+                    pending_operation_id, pending_attempt,
+                    pending_code_fingerprint, pending_head_sha, pending_base_sha,
+                    requested_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id(), requested.id(), requested.taskId(), commandId, actor,
+                selfReviewId, findTurnId(failed.operationId()), replacementTurnId,
+                expected.version(), requested.version(), failed.taskEpoch(),
+                failed.stageGeneration(), failed.operationId(), failed.attempt(),
+                failed.expectedCodeFingerprint(), failed.expectedHeadSha(),
+                failed.expectedBaseSha(), replacement.taskEpoch(),
+                replacement.stageGeneration(), replacement.operationId(),
+                replacement.attempt(), replacement.expectedCodeFingerprint(),
+                replacement.expectedHeadSha(), replacement.expectedBaseSha(), now);
+        return requested;
+    }
+
+    @Override
+    public StageManager.State acceptPlanTerminalResult(
+            String commandId,
+            String actor,
+            String cause,
+            String proofId,
+            ResultFence result,
+            StageManager.State expected,
+            StageManager.State cleared)
+    {
+        requireTransaction();
+        if (expected.kind() != StageKind.PLAN
+                || expected.checkpoint() != cleared.checkpoint()
+                || expected.version() + 1 != cleared.version()
+                || !result.equals(expected.pendingResult())
+                || cleared.pendingResult() != null) {
+            throw new IllegalArgumentException("Plan terminal result is inconsistent");
+        }
+        updateSameCheckpoint(expected, cleared, result.taskEpoch());
+        long now = System.currentTimeMillis();
+        recordTransition(commandId, cause, actor, expected, cleared, now);
+        jdbc.update("""
+                INSERT INTO stage_plan_terminal_result(
+                    id, stage_id, task_id, command_id, actor, cause, proof_id,
+                    checkpoint, expected_stage_version, returned_stage_version,
+                    subject_task_epoch, subject_stage_generation,
+                    subject_operation_id, subject_attempt,
+                    subject_code_fingerprint, subject_head_sha, subject_base_sha,
+                    recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, id(), cleared.id(), cleared.taskId(), commandId, actor,
+                cause, proofId, cleared.checkpoint().name(), expected.version(),
+                cleared.version(), result.taskEpoch(), result.stageGeneration(),
+                result.operationId(), result.attempt(),
+                result.expectedCodeFingerprint(), result.expectedHeadSha(),
+                result.expectedBaseSha(), now);
+        return cleared;
+    }
+
+    private void updateSameCheckpoint(
+            StageManager.State expected,
+            StageManager.State updated,
+            long taskEpoch)
+    {
+        int changed = jdbc.update("""
+                UPDATE stage
+                SET version = ?
+                WHERE id = ? AND task_id = ? AND kind = 'PLAN'
+                  AND generation = ? AND version = ? AND checkpoint = ?
+                  AND completed_at_ms IS NULL AND end_reason IS NULL
+                  AND EXISTS (
+                      SELECT 1
+                      FROM tasks task
+                      JOIN task_current_stage current ON current.task_id = task.id
+                      WHERE task.id = stage.task_id
+                        AND task.workflow_version = 'V2'
+                        AND task.lifecycle_state = 'ACTIVE'
+                        AND task.epoch = ?
+                        AND current.stage_id = stage.id
+                        AND current.stage_generation = stage.generation)
+                """, updated.version(), expected.id(), expected.taskId(),
+                expected.generation(), expected.version(),
+                expected.checkpoint().name(), taskEpoch);
+        if (changed != 1) {
+            throw concurrent("Plan Stage changed before terminal result update");
+        }
+    }
+
+    private String findTurnId(String operationId)
+    {
+        return jdbc.queryForObject(
+                "SELECT id FROM task_turn WHERE operation_id = ?",
+                String.class, operationId);
     }
 
     @Override
@@ -680,6 +893,33 @@ final class V2StageStore
                 .stream().findFirst();
     }
 
+    private Optional<StageManager.CommandReceipt> queryEditedReview(
+            String suffix, Object... arguments)
+    {
+        return jdbc.query("""
+                SELECT * FROM stage_plan_edit_review_request
+                """ + suffix, (rs, row) -> editedReview(rs), arguments)
+                .stream().findFirst();
+    }
+
+    private Optional<StageManager.CommandReceipt> queryReviewRetry(
+            String suffix, Object... arguments)
+    {
+        return jdbc.query("""
+                SELECT * FROM stage_plan_review_retry_request
+                """ + suffix, (rs, row) -> reviewRetry(rs), arguments)
+                .stream().findFirst();
+    }
+
+    private Optional<StageManager.CommandReceipt> queryPlanTerminal(
+            String suffix, Object... arguments)
+    {
+        return jdbc.query("""
+                SELECT * FROM stage_plan_terminal_result
+                """ + suffix, (rs, row) -> planTerminal(rs), arguments)
+                .stream().findFirst();
+    }
+
     private static StageManager.CommandReceipt initialRequest(ResultSet rs)
             throws SQLException
     {
@@ -704,6 +944,74 @@ final class V2StageStore
                 rs.getLong("expected_stage_generation"),
                 rs.getLong("expected_stage_version"), state.checkpoint(),
                 pending, null, CommandResult.Disposition.APPLIED);
+    }
+
+    private static StageManager.CommandReceipt editedReview(ResultSet rs)
+            throws SQLException
+    {
+        ResultFence pending = new ResultFence(
+                rs.getLong("pending_task_epoch"), rs.getString("pending_stage_id"),
+                rs.getLong("pending_stage_generation"),
+                rs.getString("pending_operation_id"), rs.getInt("pending_attempt"),
+                rs.getString("pending_code_fingerprint"),
+                rs.getString("pending_head_sha"), rs.getString("pending_base_sha"));
+        StageManager.State state = new StageManager.State(
+                rs.getString("stage_id"), rs.getString("task_id"), StageKind.PLAN,
+                rs.getLong("expected_stage_generation"),
+                rs.getLong("returned_stage_version"), StageCheckpoint.SELF_REVIEW,
+                null, pending);
+        return new StageManager.CommandReceipt(
+                state.taskId(), state, "REQUEST_EDITED_PLAN_SELF_REVIEW",
+                rs.getString("actor"), rs.getLong("expected_task_epoch"),
+                rs.getLong("expected_stage_generation"),
+                rs.getLong("expected_stage_version"), StageCheckpoint.DRAFTING,
+                pending, rs.getString("revision_id"),
+                CommandResult.Disposition.APPLIED);
+    }
+
+    private static StageManager.CommandReceipt reviewRetry(ResultSet rs)
+            throws SQLException
+    {
+        ResultFence subject = reviewFence(rs, "subject_");
+        ResultFence pending = reviewFence(rs, "pending_");
+        StageManager.State state = new StageManager.State(
+                rs.getString("stage_id"), rs.getString("task_id"), StageKind.PLAN,
+                subject.stageGeneration(), rs.getLong("returned_stage_version"),
+                StageCheckpoint.SELF_REVIEW, null, pending);
+        return new StageManager.CommandReceipt(
+                state.taskId(), state, "RETRY_PLAN_SELF_REVIEW",
+                rs.getString("actor"), null, null, null, null, subject,
+                rs.getString("self_review_id"),
+                CommandResult.Disposition.APPLIED);
+    }
+
+    private static StageManager.CommandReceipt planTerminal(ResultSet rs)
+            throws SQLException
+    {
+        ResultFence subject = reviewFence(rs, "subject_");
+        StageCheckpoint checkpoint = StageCheckpoint.valueOf(
+                rs.getString("checkpoint"));
+        StageManager.State state = new StageManager.State(
+                rs.getString("stage_id"), rs.getString("task_id"), StageKind.PLAN,
+                subject.stageGeneration(), rs.getLong("returned_stage_version"),
+                checkpoint, null, null);
+        return new StageManager.CommandReceipt(
+                state.taskId(), state, rs.getString("cause"),
+                rs.getString("actor"), null, null, null, null, subject,
+                rs.getString("proof_id"), CommandResult.Disposition.APPLIED);
+    }
+
+    private static ResultFence reviewFence(ResultSet rs, String prefix)
+            throws SQLException
+    {
+        return new ResultFence(
+                rs.getLong(prefix + "task_epoch"), rs.getString("stage_id"),
+                rs.getLong(prefix + "stage_generation"),
+                rs.getString(prefix + "operation_id"),
+                rs.getInt(prefix + "attempt"),
+                rs.getString(prefix + "code_fingerprint"),
+                rs.getString(prefix + "head_sha"),
+                rs.getString(prefix + "base_sha"));
     }
 
     private static StageManager.CommandReceipt receipt(ResultSet rs)

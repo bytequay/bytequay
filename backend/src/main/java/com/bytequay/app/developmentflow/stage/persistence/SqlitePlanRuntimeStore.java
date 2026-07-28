@@ -512,6 +512,33 @@ public class SqlitePlanRuntimeStore
                 """,
                 selfReviewId, revisionId, turnId, taskEpoch, reviewedDigest,
                 requestedAt.toEpochMilli());
+        String operationId = jdbc.queryForObject(
+                "SELECT operation_id FROM task_turn WHERE id = ?",
+                String.class, turnId);
+        jdbc.update("""
+                INSERT INTO plan_self_review_attempt(
+                    self_review_id, attempt, task_turn_id, operation_id,
+                    predecessor_turn_id, requested_at_ms)
+                VALUES (?, 1, ?, ?, NULL, ?)
+                """, selfReviewId, turnId, operationId,
+                requestedAt.toEpochMilli());
+    }
+
+    public void insertReviewRetryAttempt(
+            String selfReviewId,
+            String turnId,
+            String operationId,
+            String predecessorTurnId,
+            Instant requestedAt)
+    {
+        requireTransaction();
+        jdbc.update("""
+                INSERT INTO plan_self_review_attempt(
+                    self_review_id, attempt, task_turn_id, operation_id,
+                    predecessor_turn_id, requested_at_ms)
+                VALUES (?, 2, ?, ?, ?, ?)
+                """, selfReviewId, turnId, operationId, predecessorTurnId,
+                requestedAt.toEpochMilli());
     }
 
     public void completeSelfReview(
@@ -523,13 +550,17 @@ public class SqlitePlanRuntimeStore
                 SET status = 'SUCCEEDED', verdict = ?,
                     concern_summary = ?, completed_at_ms = ?, error_message = NULL
                 WHERE id = ? AND plan_revision_id = ?
-                  AND task_turn_id = ? AND reviewed_digest = ?
+                  AND reviewed_digest = ?
                   AND status = 'REQUESTED'
+                  AND EXISTS (
+                      SELECT 1 FROM plan_self_review_attempt attempt
+                      WHERE attempt.self_review_id = plan_self_review.id
+                        AND attempt.task_turn_id = ?)
                 """,
                 submission.verdict(), concernSummary(submission.concernsJson()),
                 completedAt.toEpochMilli(), submission.selfReviewId(),
-                submission.revisionId(), submission.turnId(),
-                submission.reviewedDigest());
+                submission.revisionId(), submission.reviewedDigest(),
+                submission.turnId());
         if (changed != 1) {
             throw new IllegalStateException("Plan self-review changed before completion");
         }
@@ -542,7 +573,11 @@ public class SqlitePlanRuntimeStore
         int changed = jdbc.update("""
                 UPDATE plan_self_review
                 SET status = 'FAILED', completed_at_ms = ?, error_message = ?
-                WHERE task_turn_id = ? AND status = 'REQUESTED'
+                WHERE status = 'REQUESTED'
+                  AND EXISTS (
+                      SELECT 1 FROM plan_self_review_attempt attempt
+                      WHERE attempt.self_review_id = plan_self_review.id
+                        AND attempt.task_turn_id = ?)
                 """,
                 completedAt.toEpochMilli(), required(error, "error"),
                 context.turnId());
@@ -556,19 +591,38 @@ public class SqlitePlanRuntimeStore
         List<ReviewOwner> rows = jdbc.query("""
                 SELECT review.id AS self_review_id,
                     review.plan_revision_id AS revision_id,
-                    review.reviewed_digest
+                    review.reviewed_digest, attempt.attempt,
+                    attempt.predecessor_turn_id
                 FROM plan_self_review review
-                JOIN task_turn turn ON turn.id = review.task_turn_id
-                WHERE review.task_turn_id = ?
+                JOIN plan_self_review_attempt attempt
+                  ON attempt.self_review_id = review.id
+                JOIN task_turn turn ON turn.id = attempt.task_turn_id
+                WHERE attempt.task_turn_id = ?
                   AND review.status = 'REQUESTED'
                   AND turn.purpose = 'PLAN_SELF_REVIEW'
                 """, (rs, row) -> new ReviewOwner(
                         rs.getString("self_review_id"),
                         rs.getString("revision_id"),
-                        rs.getString("reviewed_digest")), turnId);
+                        rs.getString("reviewed_digest"), rs.getInt("attempt"),
+                        rs.getString("predecessor_turn_id")), turnId);
         if (rows.size() != 1) {
             throw new IllegalStateException(
                     "Expected one exact Plan self-review, found " + rows.size());
+        }
+        return rows.getFirst();
+    }
+
+    public PlanCandidate requirePlanCandidate(String revisionId)
+    {
+        List<PlanCandidate> rows = jdbc.query("""
+                SELECT id, revision, content, content_digest, source
+                FROM plan_revision WHERE id = ?
+                """, (rs, row) -> new PlanCandidate(
+                        rs.getString("id"), rs.getInt("revision"),
+                        rs.getString("content"), rs.getString("content_digest"),
+                        rs.getString("source")), revisionId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException("Plan review candidate is missing");
         }
         return rows.getFirst();
     }
@@ -691,6 +745,122 @@ public class SqlitePlanRuntimeStore
         return rows.getFirst();
     }
 
+    public PlanEditContext requirePlanEditContext(
+            String taskId,
+            String stageId,
+            long stageGeneration,
+            String previousRevisionId,
+            String previousSelfReviewId)
+    {
+        List<PlanEditContext> rows = jdbc.query("""
+                SELECT task.id AS task_id, task.epoch AS task_epoch,
+                    task.aggregate_version AS task_version,
+                    task.thread_id AS trunk_id, trunk.workspace_id,
+                    stage.id AS stage_id, stage.generation,
+                    stage.version AS stage_version,
+                    revision.id AS previous_revision_id,
+                    revision.revision AS previous_revision,
+                    revision.content_digest AS previous_digest,
+                    review.id AS previous_self_review_id,
+                    context.work_model_snapshot, brain.provider, brain.model,
+                    brain.role_skill, code.worktree_path,
+                    code.code_fingerprint, code.local_head_sha,
+                    code.base_sha
+                FROM tasks task
+                JOIN threads trunk ON trunk.id = task.thread_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage ON stage.id = current.stage_id
+                JOIN plan_revision revision ON revision.plan_stage_id = stage.id
+                JOIN plan_self_review review
+                  ON review.plan_revision_id = revision.id
+                JOIN task_creation_context context ON context.task_id = task.id
+                JOIN task_brain brain ON brain.task_id = task.id
+                JOIN task_code_identity code ON code.task_id = task.id
+                WHERE task.id = ? AND stage.id = ? AND stage.generation = ?
+                  AND revision.id = ? AND review.id = ?
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND stage.kind = 'PLAN'
+                  AND stage.checkpoint = 'AWAITING_APPROVAL'
+                  AND stage.completed_at_ms IS NULL
+                  AND review.status = 'SUCCEEDED'
+                  AND review.verdict = 'APPROVED'
+                  AND review.reviewed_digest = revision.content_digest
+                  AND NOT EXISTS (
+                      SELECT 1 FROM plan_revision newer
+                      WHERE newer.plan_stage_id = revision.plan_stage_id
+                        AND newer.revision > revision.revision)
+                """, (rs, row) -> planEditContext(rs), taskId, stageId,
+                stageGeneration, previousRevisionId, previousSelfReviewId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "Latest reviewed Plan is not eligible for editing");
+        }
+        return rows.getFirst();
+    }
+
+    public EditedRevision insertUserRevision(
+            PlanEditContext context,
+            String revisionId,
+            String content,
+            String contentDigest,
+            String actor,
+            Instant createdAt)
+    {
+        requireTransaction();
+        int revision = context.previousRevision() + 1;
+        jdbc.update("""
+                INSERT INTO plan_revision(
+                    id, plan_stage_id, revision, content, content_digest,
+                    source, created_by, created_at_ms)
+                VALUES (?, ?, ?, ?, ?, 'USER_EDIT', ?, ?)
+                """, revisionId, context.stageId(), revision, content,
+                contentDigest, actor, createdAt.toEpochMilli());
+        return new EditedRevision(
+                revisionId, revision, content, contentDigest, createdAt);
+    }
+
+    public Optional<PlanEditReceipt> findPlanEditReceipt(String requestId)
+    {
+        return jdbc.query("""
+                SELECT receipt.request_id, receipt.task_id, receipt.task_epoch,
+                    receipt.plan_stage_id, receipt.stage_generation,
+                    receipt.expected_stage_version, receipt.actor,
+                    receipt.previous_revision_id, receipt.plan_revision_id,
+                    revision.revision, revision.content,
+                    receipt.content_digest, receipt.self_review_id,
+                    receipt.review_turn_id, receipt.review_operation_id,
+                    receipt.review_ticket_id, receipt.review_command_id,
+                    receipt.recorded_at_ms
+                FROM plan_user_edit_receipt receipt
+                JOIN plan_revision revision
+                  ON revision.id = receipt.plan_revision_id
+                WHERE receipt.request_id = ?
+                """, (rs, row) -> planEditReceipt(rs), requestId)
+                .stream().findFirst();
+    }
+
+    public void insertPlanEditReceipt(PlanEditReceipt receipt)
+    {
+        requireTransaction();
+        jdbc.update("""
+                INSERT INTO plan_user_edit_receipt(
+                    request_id, task_id, task_epoch, plan_stage_id,
+                    stage_generation, expected_stage_version, actor,
+                    previous_revision_id, plan_revision_id, content_digest,
+                    self_review_id, review_turn_id, review_operation_id,
+                    review_ticket_id, review_command_id, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, receipt.requestId(), receipt.taskId(), receipt.taskEpoch(),
+                receipt.stageId(), receipt.stageGeneration(),
+                receipt.expectedStageVersion(), receipt.actor(),
+                receipt.previousRevisionId(), receipt.revisionId(),
+                receipt.contentDigest(), receipt.selfReviewId(),
+                receipt.reviewTurnId(), receipt.reviewOperationId(),
+                receipt.reviewTicketId(), receipt.reviewCommandId(),
+                receipt.recordedAt().toEpochMilli());
+    }
+
     public boolean hasOpenStewardship(String revisionId)
     {
         Integer count = jdbc.queryForObject("""
@@ -717,6 +887,44 @@ public class SqlitePlanRuntimeStore
                 """,
                 approvalId, context.revisionId(), context.selfReviewId(), kind,
                 context.policyRevisionId(), actor, approvedAt.toEpochMilli());
+    }
+
+    public Optional<AcceptedApproval> findAcceptedApproval(String approvalId)
+    {
+        return jdbc.query("""
+                SELECT approval.id AS approval_id, approval.approval_kind,
+                    approval.actor, approval.policy_revision_id,
+                    approval.approved_at_ms, plan.task_id, plan.stage_id,
+                    plan.generation, stage.version AS plan_stage_version,
+                    revision.id AS revision_id,
+                    revision.content_digest, review.id AS self_review_id,
+                    task_receipt.next_stage_id,
+                    task_receipt.next_stage_generation
+                FROM plan_approval approval
+                JOIN plan_revision revision
+                  ON revision.id = approval.plan_revision_id
+                JOIN plan_stage plan ON plan.stage_id = revision.plan_stage_id
+                JOIN stage ON stage.id = plan.stage_id
+                JOIN plan_self_review review ON review.id = approval.self_review_id
+                JOIN task_command_receipt task_receipt
+                  ON task_receipt.task_id = plan.task_id
+                 AND task_receipt.proof_id = approval.id
+                 AND task_receipt.cause = 'OPEN_LOCAL_DEVELOPMENT'
+                 AND task_receipt.disposition = 'APPLIED'
+                WHERE approval.id = ?
+                """, (rs, row) -> new AcceptedApproval(
+                        rs.getString("approval_id"),
+                        rs.getString("approval_kind"), rs.getString("actor"),
+                        rs.getString("policy_revision_id"),
+                        instant(rs, "approved_at_ms"), rs.getString("task_id"),
+                        rs.getString("stage_id"), rs.getLong("generation"),
+                        rs.getLong("plan_stage_version"),
+                        rs.getString("revision_id"),
+                        rs.getString("content_digest"),
+                        rs.getString("self_review_id"),
+                        rs.getString("next_stage_id"),
+                        rs.getLong("next_stage_generation")), approvalId)
+                .stream().findFirst();
     }
 
     private static ProvisionContext provisionContext(ResultSet rs)
@@ -811,6 +1019,42 @@ public class SqlitePlanRuntimeStore
                 rs.getString("self_review_id"),
                 rs.getString("policy_revision_id"),
                 rs.getInt("auto_approve") == 1, rs.getInt("auto_merge") == 1);
+    }
+
+    private static PlanEditContext planEditContext(ResultSet rs)
+            throws SQLException
+    {
+        return new PlanEditContext(
+                rs.getString("task_id"), rs.getLong("task_epoch"),
+                rs.getLong("task_version"), rs.getString("trunk_id"),
+                rs.getString("workspace_id"), rs.getString("stage_id"),
+                rs.getLong("generation"), rs.getLong("stage_version"),
+                rs.getString("previous_revision_id"),
+                rs.getInt("previous_revision"), rs.getString("previous_digest"),
+                rs.getString("previous_self_review_id"),
+                rs.getString("work_model_snapshot"), rs.getString("provider"),
+                rs.getString("model"), rs.getString("role_skill"),
+                rs.getString("worktree_path"),
+                rs.getString("code_fingerprint"),
+                rs.getString("local_head_sha"), rs.getString("base_sha"));
+    }
+
+    private static PlanEditReceipt planEditReceipt(ResultSet rs)
+            throws SQLException
+    {
+        return new PlanEditReceipt(
+                rs.getString("request_id"), rs.getString("task_id"),
+                rs.getLong("task_epoch"), rs.getString("plan_stage_id"),
+                rs.getLong("stage_generation"),
+                rs.getLong("expected_stage_version"), rs.getString("actor"),
+                rs.getString("previous_revision_id"),
+                rs.getString("plan_revision_id"), rs.getInt("revision"),
+                rs.getString("content"), rs.getString("content_digest"),
+                rs.getString("self_review_id"), rs.getString("review_turn_id"),
+                rs.getString("review_operation_id"),
+                rs.getString("review_ticket_id"),
+                rs.getString("review_command_id"),
+                instant(rs, "recorded_at_ms"));
     }
 
     private static String concernSummary(String concernsJson)
@@ -1015,7 +1259,18 @@ public class SqlitePlanRuntimeStore
             String worktreePath) {}
 
     public record ReviewOwner(
-            String selfReviewId, String revisionId, String reviewedDigest) {}
+            String selfReviewId,
+            String revisionId,
+            String reviewedDigest,
+            int attempt,
+            String predecessorTurnId) {}
+
+    public record PlanCandidate(
+            String revisionId,
+            int revision,
+            String content,
+            String contentDigest,
+            String source) {}
 
     public record ReviewSubmission(
             String turnId,
@@ -1108,4 +1363,77 @@ public class SqlitePlanRuntimeStore
             String policyRevisionId,
             boolean autoApprove,
             boolean autoMerge) {}
+
+    public record AcceptedApproval(
+            String approvalId,
+            String kind,
+            String actor,
+            String policyRevisionId,
+            Instant approvedAt,
+            String taskId,
+            String planStageId,
+            long planStageGeneration,
+            long planStageVersion,
+            String revisionId,
+            String reviewedDigest,
+            String selfReviewId,
+            String localStageId,
+            long localStageGeneration) {}
+
+    public record PlanEditContext(
+            String taskId,
+            long taskEpoch,
+            long taskVersion,
+            String trunkId,
+            String workspaceId,
+            String stageId,
+            long stageGeneration,
+            long stageVersion,
+            String previousRevisionId,
+            int previousRevision,
+            String previousDigest,
+            String previousSelfReviewId,
+            String workModelSnapshot,
+            String provider,
+            String model,
+            String roleSkill,
+            String worktreePath,
+            String codeFingerprint,
+            String headSha,
+            String baseSha)
+    {
+        public BrainLaunchContext brain()
+        {
+            return new BrainLaunchContext(
+                    taskId, trunkId, workspaceId, workModelSnapshot, provider,
+                    model, roleSkill, worktreePath);
+        }
+    }
+
+    public record EditedRevision(
+            String revisionId,
+            int revision,
+            String content,
+            String contentDigest,
+            Instant createdAt) {}
+
+    public record PlanEditReceipt(
+            String requestId,
+            String taskId,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            long expectedStageVersion,
+            String actor,
+            String previousRevisionId,
+            String revisionId,
+            int revision,
+            String content,
+            String contentDigest,
+            String selfReviewId,
+            String reviewTurnId,
+            String reviewOperationId,
+            String reviewTicketId,
+            String reviewCommandId,
+            Instant recordedAt) {}
 }

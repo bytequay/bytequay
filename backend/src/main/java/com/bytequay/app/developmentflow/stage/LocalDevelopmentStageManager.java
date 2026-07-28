@@ -284,6 +284,16 @@ public final class LocalDevelopmentStageManager
                 StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK);
     }
 
+    /** Admits durable user steering from the owner-controlled review gate. */
+    public CommandResult<State> admitSteeringFromReviewInCommand(
+            Command command, ResultFence result, String turnRequestId)
+    {
+        return moveWithProofAndPendingResultInCommand(
+                command, result, turnRequestId, "ADMIT_LOCAL_STEERING",
+                StageCheckpoint.LOCAL_REVIEW,
+                StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK);
+    }
+
     public CommandResult<State> replaceImplementationTurnInCommand(
             ResultCommand completed, ResultFence replacement, String turnRequestId)
     {

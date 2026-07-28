@@ -651,93 +651,106 @@ public final class PlanRuntimeCoordinator
         requireNonNull(command, "command is null");
         String normalized = required(command.content(), "content").strip();
         String contentDigest = digest(normalized);
-        return commands.execute(command.taskId(), () -> {
-            TaskCommandExecutor.requireCurrent(command.taskId());
-            PlanEditReceipt duplicate = store.findPlanEditReceipt(
-                            command.requestId())
-                    .orElse(null);
-            if (duplicate != null) {
-                requireSameEdit(command, normalized, contentDigest, duplicate);
-                return duplicate;
-            }
+        return commands.execute(command.taskId(), () ->
+                editPlanInCommand(command, normalized, contentDigest));
+    }
 
-            PlanEditContext context = store.requirePlanEditContext(
-                    command.taskId(), command.stageId(), command.stageGeneration(),
-                    command.previousRevisionId(), command.previousSelfReviewId());
-            if (context.stageVersion() != command.expectedStageVersion()) {
-                throw new IllegalArgumentException("Plan edit has a stale Stage version");
-            }
-            if (context.previousDigest().equals(contentDigest)) {
-                throw new IllegalArgumentException(
-                        "Plan edit must materially change the latest revision");
-            }
-            Instant now = clock.instant();
-            String revisionId = id("plan-user-revision", command.requestId());
-            EditedRevision revision = store.insertUserRevision(
-                    context, revisionId, normalized, contentDigest,
-                    command.actor(), now);
-            String reviseCommandId = id(
-                    "plan-user-edit-revise", command.requestId());
-            PlanStageManager.RevisionCommand revise =
-                    new PlanStageManager.RevisionCommand(
-                            new StageManager.Command(
-                                    reviseCommandId, command.actor(), context.taskId(),
-                                    context.taskEpoch(), context.stageId(),
-                                    context.stageGeneration(), context.stageVersion()),
-                            revision.revisionId(), context.previousRevisionId(),
-                            revision.contentDigest());
-            CommandResult<StageManager.State> revised =
-                    plan.reviseBeforeApprovalInCommand(revise);
-            requireApplied(revised, "Plan user edit");
+    /** Existing Plan-owner edit path for an already-striped durable handoff. */
+    public PlanEditReceipt editPlanInCommand(PlanEditCommand command)
+    {
+        requireNonNull(command, "command is null");
+        String normalized = required(command.content(), "content").strip();
+        return editPlanInCommand(command, normalized, digest(normalized));
+    }
 
-            String reviewTurnId = id(
-                    "plan-user-edit-review-turn", command.requestId());
-            String reviewOperationId = id(
-                    "plan-user-edit-review-operation", command.requestId());
-            String reviewTicketId = id(
-                    "plan-user-edit-review-ticket", command.requestId());
-            TurnRequest review = turn(
-                    context.brain(), context.taskEpoch(), context.stageId(),
-                    context.stageGeneration(), context.codeFingerprint(),
-                    context.headSha(), context.baseSha(), PLAN_SELF_REVIEW,
-                    reviewTurnId, reviewOperationId, reviewTicketId,
-                    reviewPrompt(context.taskId(), new PlanSubmission(
-                            command.requestId(), reviewOperationId,
-                            revision.revisionId(), revision.revision(),
-                            revision.content(), revision.contentDigest(),
-                            "USER_EDIT", now)), now);
-            store.insertTurn(review);
-            String selfReviewId = id(
-                    "plan-user-edit-self-review", command.requestId());
-            store.insertSelfReview(
-                    selfReviewId, revision.revisionId(), review.turnId(),
-                    context.taskEpoch(), revision.contentDigest(), now);
-            String reviewCommandId = id(
-                    "plan-user-edit-request-review", command.requestId());
-            PlanStageManager.RevisionCommand requestReview =
-                    new PlanStageManager.RevisionCommand(
-                            new StageManager.Command(
-                                    reviewCommandId, command.actor(), context.taskId(),
-                                    context.taskEpoch(), context.stageId(),
-                                    context.stageGeneration(), revised.state().version()),
-                            revision.revisionId(), context.previousRevisionId(),
-                            revision.contentDigest());
-            CommandResult<StageManager.State> requested =
-                    plan.requestEditedRevisionReviewInCommand(
-                            requestReview, review.fence());
-            requireApplied(requested, "Edited Plan self-review request");
+    private PlanEditReceipt editPlanInCommand(
+            PlanEditCommand command, String normalized, String contentDigest)
+    {
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        PlanEditReceipt duplicate = store.findPlanEditReceipt(
+                        command.requestId())
+                .orElse(null);
+        if (duplicate != null) {
+            requireSameEdit(command, normalized, contentDigest, duplicate);
+            return duplicate;
+        }
 
-            PlanEditReceipt receipt = new PlanEditReceipt(
-                    command.requestId(), context.taskId(), context.taskEpoch(),
-                    context.stageId(), context.stageGeneration(),
-                    context.stageVersion(), command.actor(),
-                    context.previousRevisionId(), revision.revisionId(),
-                    revision.revision(), revision.content(),
-                    revision.contentDigest(), selfReviewId, review.turnId(),
-                    review.operationId(), review.ticketId(), reviewCommandId, now);
-            store.insertPlanEditReceipt(receipt);
-            return receipt;
-        });
+        PlanEditContext context = store.requirePlanEditContext(
+                command.taskId(), command.stageId(), command.stageGeneration(),
+                command.previousRevisionId(), command.previousSelfReviewId());
+        if (context.stageVersion() != command.expectedStageVersion()) {
+            throw new IllegalArgumentException("Plan edit has a stale Stage version");
+        }
+        if (context.previousDigest().equals(contentDigest)) {
+            throw new IllegalArgumentException(
+                    "Plan edit must materially change the latest revision");
+        }
+        Instant now = clock.instant();
+        String revisionId = id("plan-user-revision", command.requestId());
+        EditedRevision revision = store.insertUserRevision(
+                context, revisionId, normalized, contentDigest,
+                command.actor(), now);
+        String reviseCommandId = id(
+                "plan-user-edit-revise", command.requestId());
+        PlanStageManager.RevisionCommand revise =
+                new PlanStageManager.RevisionCommand(
+                        new StageManager.Command(
+                                reviseCommandId, command.actor(), context.taskId(),
+                                context.taskEpoch(), context.stageId(),
+                                context.stageGeneration(), context.stageVersion()),
+                        revision.revisionId(), context.previousRevisionId(),
+                        revision.contentDigest());
+        CommandResult<StageManager.State> revised =
+                plan.reviseBeforeApprovalInCommand(revise);
+        requireApplied(revised, "Plan user edit");
+
+        String reviewTurnId = id(
+                "plan-user-edit-review-turn", command.requestId());
+        String reviewOperationId = id(
+                "plan-user-edit-review-operation", command.requestId());
+        String reviewTicketId = id(
+                "plan-user-edit-review-ticket", command.requestId());
+        TurnRequest review = turn(
+                context.brain(), context.taskEpoch(), context.stageId(),
+                context.stageGeneration(), context.codeFingerprint(),
+                context.headSha(), context.baseSha(), PLAN_SELF_REVIEW,
+                reviewTurnId, reviewOperationId, reviewTicketId,
+                reviewPrompt(context.taskId(), new PlanSubmission(
+                        command.requestId(), reviewOperationId,
+                        revision.revisionId(), revision.revision(),
+                        revision.content(), revision.contentDigest(),
+                        "USER_EDIT", now)), now);
+        store.insertTurn(review);
+        String selfReviewId = id(
+                "plan-user-edit-self-review", command.requestId());
+        store.insertSelfReview(
+                selfReviewId, revision.revisionId(), review.turnId(),
+                context.taskEpoch(), revision.contentDigest(), now);
+        String reviewCommandId = id(
+                "plan-user-edit-request-review", command.requestId());
+        PlanStageManager.RevisionCommand requestReview =
+                new PlanStageManager.RevisionCommand(
+                        new StageManager.Command(
+                                reviewCommandId, command.actor(), context.taskId(),
+                                context.taskEpoch(), context.stageId(),
+                                context.stageGeneration(), revised.state().version()),
+                        revision.revisionId(), context.previousRevisionId(),
+                        revision.contentDigest());
+        CommandResult<StageManager.State> requested =
+                plan.requestEditedRevisionReviewInCommand(
+                        requestReview, review.fence());
+        requireApplied(requested, "Edited Plan self-review request");
+
+        PlanEditReceipt receipt = new PlanEditReceipt(
+                command.requestId(), context.taskId(), context.taskEpoch(),
+                context.stageId(), context.stageGeneration(),
+                context.stageVersion(), command.actor(),
+                context.previousRevisionId(), revision.revisionId(),
+                revision.revision(), revision.content(),
+                revision.contentDigest(), selfReviewId, review.turnId(),
+                review.operationId(), review.ticketId(), reviewCommandId, now);
+        store.insertPlanEditReceipt(receipt);
+        return receipt;
     }
 
     /** Approves the latest exact reviewed revision and starts Local atomically. */

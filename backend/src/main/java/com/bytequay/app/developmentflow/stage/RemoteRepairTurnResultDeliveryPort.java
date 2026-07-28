@@ -30,7 +30,8 @@ public final class RemoteRepairTurnResultDeliveryPort
             RemoteRepairTurnRuntime.CI_STAGE_CALLBACK,
             RemoteRepairTurnRuntime.CI_BRAIN_CALLBACK,
             RemoteRepairTurnRuntime.BRANCH_STAGE_CALLBACK,
-            RemoteRepairTurnRuntime.BRANCH_BRAIN_CALLBACK);
+            RemoteRepairTurnRuntime.BRANCH_BRAIN_CALLBACK,
+            RemoteRepairTurnRuntime.STEERING_CALLBACK);
 
     private final AgentTurnOwnerResultCodec codec;
     private final RemoteRepairTurnRuntime runtime;

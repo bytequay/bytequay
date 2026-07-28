@@ -29,6 +29,9 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeSto
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.BranchStep;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.CiEpisode;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.EffectDeliveryReceipt;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Attachment;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Request;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
@@ -40,6 +43,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -69,6 +73,8 @@ public final class RemoteRepairTurnRuntime
             "BRANCH_SYNC_CONFLICT_RESULT";
     public static final String BRANCH_BRAIN_CALLBACK =
             "BRANCH_SYNC_BRAIN_RESULT";
+    public static final String STEERING_CALLBACK =
+            "REMOTE_REPAIR_STEERING_RESULT";
 
     private static final String ACTOR = "v2-remote-repair";
 
@@ -85,6 +91,7 @@ public final class RemoteRepairTurnRuntime
     private final Clock clock;
     private final int serverPort;
     private final boolean requireCiBrainReview;
+    private SqliteStageSteeringStore steering;
 
     public RemoteRepairTurnRuntime(
             TaskCommandExecutor commands,
@@ -114,6 +121,48 @@ public final class RemoteRepairTurnRuntime
         }
         this.serverPort = serverPort;
         this.requireCiBrainReview = requireCiBrainReview;
+    }
+
+    @Autowired
+    void setSteeringStore(SqliteStageSteeringStore steering)
+    {
+        this.steering = requireNonNull(steering, "steering is null");
+    }
+
+    public SqliteRemoteRepairTurnStore.TurnRequest admitSteeringInCommand(
+            Request request)
+    {
+        requireNonNull(request, "request is null");
+        TaskCommandExecutor.requireCurrent(request.taskId());
+        SqliteStageSteeringStore ownerStore = requireNonNull(
+                steering, "Stage steering store is not configured");
+        String purpose = request.predecessor().purpose();
+        if (!purpose.equals("REMOTE_CI_REPAIR")
+                && !purpose.equals("BRANCH_CONFLICT_REPAIR")) {
+            throw new IllegalArgumentException(
+                    "Remote repair cannot consume " + purpose);
+        }
+        var handoff = ownerStore.requireRemoteHandoff(request.id());
+        String expectedFamily = purpose.equals("REMOTE_CI_REPAIR")
+                ? "CI_REPAIR" : "BRANCH_REPAIR";
+        if (!handoff.status().equals("PARKED")
+                || !handoff.ownerFamily().equals(expectedFamily)) {
+            throw new IllegalStateException(
+                    "Remote repair steering handoff is not parked for this owner");
+        }
+        RepairContext context = turns.requireContext(
+                request.taskId(), request.stageId());
+        WorkModel model = workModel(context);
+        String prompt = steeringPrompt(
+                request, ownerStore.attachments(request.id()), purpose);
+        String turnId = id("remote-repair-steering-turn", request.id());
+        String operationId = id("remote-repair-steering-operation", request.id());
+        return turns.insertSteeringTurn(
+                request,
+                write(launch(context, model, "STAGE_TURN", turnId,
+                        operationId, "STAGE_DEVELOPMENT",
+                        stageSystemPrompt(context.roleSkill()), prompt)),
+                model.kind().name(), laneMask(model), clock.instant());
     }
 
     @Override
@@ -235,8 +284,11 @@ public final class RemoteRepairTurnRuntime
         if (!supported(result.owner())) {
             return receipt(SUPERSEDED, "Remote repair Turn route is stale");
         }
-        String taskId = turns.requireTurnTaskId(
-                result.owner().id(), result.fence().operationId());
+        String taskId = STEERING_CALLBACK.equals(result.owner().callbackRoute())
+                ? turns.requireSteeringTaskId(
+                        result.owner().id(), result.fence().operationId())
+                : turns.requireTurnTaskId(
+                        result.owner().id(), result.fence().operationId());
         return commands.execute(taskId, () -> deliverInCommand(result));
     }
 
@@ -249,8 +301,12 @@ public final class RemoteRepairTurnRuntime
         if (duplicate != null) {
             return receipt(duplicate.acceptance(), duplicate.rawOutcome());
         }
-        TurnDelivery context = turns.requireTurnDelivery(
-                raw.owner().id(), raw.fence().operationId());
+        TurnDelivery context = STEERING_CALLBACK.equals(
+                raw.owner().callbackRoute())
+                ? turns.requireSteeringDelivery(
+                        raw.owner().id(), raw.fence().operationId())
+                : turns.requireTurnDelivery(
+                        raw.owner().id(), raw.fence().operationId());
         if (!context.fence().equals(toFence(raw.fence()))
                 || !expectedRoute(context).equals(
                         raw.owner().callbackRoute())) {
@@ -269,6 +325,16 @@ public final class RemoteRepairTurnRuntime
             String rawDigest)
     {
         Instant now = clock.instant();
+        if ("STEERING".equals(context.kind())) {
+            return deliverSteering(raw, context, rawDigest, now);
+        }
+        Request pendingSteering = steering == null ? null
+                : steering.findPendingByPredecessor(context.operationId())
+                        .orElse(null);
+        if (pendingSteering != null) {
+            return finishForPendingSteering(
+                    raw, context, rawDigest, pendingSteering, now);
+        }
         if (!context.current()) {
             turns.finishStageTurn(
                     context, raw.outcome().name(), rawDigest,
@@ -311,6 +377,82 @@ public final class RemoteRepairTurnRuntime
                 episode, remoteStore.requireBranchStep(episode.id(), 4),
                 next.codeFingerprint(), next.headSha(), next.baseSha(), now);
         return receipt(ACCEPTED, "branch validation requested");
+    }
+
+    private DispatchTicket.DeliveryReceipt finishForPendingSteering(
+            AgentTurnOwnerResultCodec.OwnerResult raw,
+            TurnDelivery context,
+            String rawDigest,
+            Request request,
+            Instant now)
+    {
+        boolean acceptOutput = request.mode() == V2StageSteeringControl.Mode.APPEND
+                && raw.outcome() == SUCCEEDED && context.current();
+        CodeSubject output = null;
+        String summary = null;
+        if (acceptOutput) {
+            StageResult result = decodeStage(raw.payload().finalText());
+            output = observe(context);
+            summary = result.summary();
+        }
+        DispatchTicket.Acceptance acceptance = acceptOutput
+                ? ACCEPTED : SUPERSEDED;
+        turns.finishPredecessorForSteering(
+                context, raw.outcome().name(), rawDigest, acceptance.name(),
+                acceptOutput ? "SUCCEEDED" : "SUPERSEDED", output, summary,
+                acceptOutput ? null : "replaced by durable user steering", now);
+        return receipt(acceptance,
+                acceptOutput ? "Remote predecessor completed before steering"
+                        : "Remote predecessor superseded by steering");
+    }
+
+    private DispatchTicket.DeliveryReceipt deliverSteering(
+            AgentTurnOwnerResultCodec.OwnerResult raw,
+            TurnDelivery context,
+            String rawDigest,
+            Instant now)
+    {
+        if (!context.current()) {
+            turns.finishSteeringTurn(
+                    context, raw.outcome().name(), rawDigest, SUPERSEDED.name(),
+                    "SUPERSEDED", null, null, "stale Remote steering subject", now);
+            stop(context, "Remote steering subject is stale", now);
+            return receipt(SUPERSEDED, "Remote steering subject is stale");
+        }
+        if (raw.outcome() != SUCCEEDED) {
+            String error = Objects.toString(
+                    raw.payload().error(), "Remote steering Turn failed");
+            turns.finishSteeringTurn(
+                    context, raw.outcome().name(), rawDigest, ACCEPTED.name(),
+                    raw.outcome() == CANCELED ? "CANCELED" : "FAILED",
+                    null, null, error, now);
+            stop(context, error, now);
+            return receipt(ACCEPTED, "Remote steering Turn failed");
+        }
+        StageResult result = decodeStage(raw.payload().finalText());
+        CodeSubject output = observe(context);
+        turns.finishSteeringTurn(
+                context, raw.outcome().name(), rawDigest, ACCEPTED.name(),
+                "SUCCEEDED", output, result.summary(), null, now);
+        if ("CI".equals(context.family())) {
+            CiEpisode episode = remoteStore.requireCiEpisode(
+                    context.taskId(), context.episodeId());
+            turns.insertCiValidation(
+                    turns.requireContext(context.taskId(), context.stageId()),
+                    episode, now);
+            return receipt(ACCEPTED, "CI validation requested after steering");
+        }
+        BranchEpisode episode = remoteStore.findBranchEpisode(
+                        context.episodeId())
+                .orElseThrow();
+        RepairContext next = turns.requireContext(
+                context.taskId(), context.stageId());
+        remoteStore.insertBranchEffect(
+                remoteStore.requireRemoteContext(
+                        context.taskId(), context.stageId()),
+                episode, remoteStore.requireBranchStep(episode.id(), 4),
+                next.codeFingerprint(), next.headSha(), next.baseSha(), now);
+        return receipt(ACCEPTED, "branch validation requested after steering");
     }
 
     private DispatchTicket.DeliveryReceipt deliverBrain(
@@ -498,10 +640,11 @@ public final class RemoteRepairTurnRuntime
     private EffectDeliveryReceipt duplicate(
             String operationId, String rawDigest)
     {
-        EffectDeliveryReceipt receipt = remoteStore.findCiEffectReceipt(
-                        operationId)
-                .orElseGet(() -> remoteStore.findBranchEffectReceipt(operationId)
-                        .orElse(null));
+        EffectDeliveryReceipt receipt = turns.findSteeringReceipt(operationId)
+                .orElseGet(() -> remoteStore.findCiEffectReceipt(operationId)
+                        .orElseGet(() -> remoteStore
+                                .findBranchEffectReceipt(operationId)
+                                .orElse(null)));
         if (receipt != null && !rawDigest.equals(receipt.rawDigest())) {
             throw new IllegalStateException(
                     "Remote repair Turn was redelivered with different evidence");
@@ -669,7 +812,8 @@ public final class RemoteRepairTurnRuntime
     {
         return owner.kind() == DispatchTicket.OwnerKind.STAGE_TURN
                 && (CI_STAGE_CALLBACK.equals(owner.callbackRoute())
-                    || BRANCH_STAGE_CALLBACK.equals(owner.callbackRoute()))
+                    || BRANCH_STAGE_CALLBACK.equals(owner.callbackRoute())
+                    || STEERING_CALLBACK.equals(owner.callbackRoute()))
                 || owner.kind() == DispatchTicket.OwnerKind.TASK_TURN
                 && (CI_BRAIN_CALLBACK.equals(owner.callbackRoute())
                     || BRANCH_BRAIN_CALLBACK.equals(owner.callbackRoute()));
@@ -677,6 +821,9 @@ public final class RemoteRepairTurnRuntime
 
     private static String expectedRoute(TurnDelivery context)
     {
+        if ("STEERING".equals(context.kind())) {
+            return STEERING_CALLBACK;
+        }
         if ("CI".equals(context.family())) {
             return "FIX_STAGE_TURN".equals(context.kind())
                     ? CI_STAGE_CALLBACK : CI_BRAIN_CALLBACK;
@@ -764,6 +911,22 @@ public final class RemoteRepairTurnRuntime
                 + "CHANGES_REQUESTED,summary:string,findings:string[]}.";
         return roleSkill == null || roleSkill.isBlank()
                 ? base : base + "\n\nRole skill:\n" + roleSkill;
+    }
+
+    private static String steeringPrompt(
+            Request request, List<Attachment> attachments, String purpose)
+    {
+        StringBuilder prompt = new StringBuilder(
+                "Apply this user steering to the exact current Remote repair. ")
+                .append("Keep the existing ").append(purpose)
+                .append(" objective and frozen subject. Do not push.\n\n")
+                .append(request.body());
+        if (!attachments.isEmpty()) {
+            prompt.append("\n\nDurable attachments:\n");
+            attachments.forEach(attachment -> prompt
+                    .append("- ").append(attachment.contentRef()).append('\n'));
+        }
+        return prompt.toString();
     }
 
     public record StageResult(int schemaVersion, String summary) {}

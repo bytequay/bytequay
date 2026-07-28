@@ -372,9 +372,9 @@ CREATE TABLE ci_repair_episode (
         AND fix_attempt_count <= fix_attempt_limit
         AND delivery_retry_count <= delivery_retry_limit
         AND push_count <= push_limit),
-    CHECK ((last_pushed_head_sha IS NULL
+    CHECK ((push_count = 0 AND last_pushed_head_sha IS NULL
             AND last_push_result_evaluation_id IS NULL)
-        OR last_pushed_head_sha IS NOT NULL),
+        OR (push_count > 0 AND last_pushed_head_sha IS NOT NULL)),
     CHECK ((status IN ('SUCCEEDED', 'EXHAUSTED', 'STOPPED'))
             = (completed_at_ms IS NOT NULL)),
     CHECK (classification NOT IN ('FLAKY', 'INFRASTRUCTURE')
@@ -436,6 +436,17 @@ WHEN NEW.rerun_count NOT BETWEEN OLD.rerun_count AND OLD.rerun_count + 1
   OR NEW.delivery_retry_count NOT BETWEEN OLD.delivery_retry_count AND OLD.delivery_retry_count + 1
   OR NEW.push_count NOT BETWEEN OLD.push_count AND OLD.push_count + 1
 BEGIN SELECT RAISE(ABORT, 'CI repair counters advance independently by at most one'); END;
+
+CREATE TRIGGER ci_repair_episode_push_subject
+BEFORE UPDATE OF push_count, last_pushed_head_sha ON ci_repair_episode
+WHEN (NEW.push_count = OLD.push_count + 1
+        AND (NEW.last_pushed_head_sha IS NULL
+            OR NEW.last_pushed_head_sha IS OLD.last_pushed_head_sha
+            OR NEW.last_pushed_head_sha IS NEW.subject_head_sha
+            OR NEW.last_push_result_evaluation_id IS NOT NULL))
+  OR (NEW.push_count = OLD.push_count
+        AND NEW.last_pushed_head_sha IS NOT OLD.last_pushed_head_sha)
+BEGIN SELECT RAISE(ABORT, 'Each CI repair push must record exactly one new unresolved head'); END;
 
 CREATE TRIGGER ci_repair_episode_push_result
 BEFORE UPDATE OF last_pushed_head_sha, last_push_result_evaluation_id

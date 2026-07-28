@@ -189,6 +189,20 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
                     UPDATE ci_repair_episode SET fix_attempt_count = 2
                     WHERE id = 'repair-1'
                     """);
+            assertFails(connection, """
+                    UPDATE ci_repair_episode SET push_count = 1
+                    WHERE id = 'repair-1'
+                    """);
+            assertFails(connection, """
+                    UPDATE ci_repair_episode
+                    SET last_pushed_head_sha = 'head-after-fix'
+                    WHERE id = 'repair-1'
+                    """);
+            assertFails(connection, """
+                    UPDATE ci_repair_episode
+                    SET push_count = 1, last_pushed_head_sha = 'head-1'
+                    WHERE id = 'repair-1'
+                    """);
             execute(connection, """
                     UPDATE ci_repair_episode
                     SET fix_attempt_count = 1, delivery_retry_count = 1,
@@ -198,7 +212,8 @@ class TestDevelopmentFlowRemoteCiProtocolMigration
                     """);
             assertFails(connection, """
                     UPDATE ci_repair_episode
-                    SET status = 'EXHAUSTED', completed_at_ms = 90
+                    SET terminal_ci_evaluation_id = 'ci-evaluation-1-1',
+                        status = 'EXHAUSTED', completed_at_ms = 90
                     WHERE id = 'repair-1'
                     """);
 

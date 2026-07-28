@@ -195,11 +195,6 @@
 .wu-relation-picker__list i { color: #1a7f37; font-size: 10px; font-style: normal; margin-left: auto; }
 .wu-relation-picker > footer { background: #fafbfc; border-top: 1px solid #eef0f2; justify-content: flex-end; }
 
-.wu-commits-tabs { display: inline-flex; gap: 2px; }
-.wu-commits-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: #57606a; cursor: pointer; font-size: 12.5px; padding: 4px 9px 6px; }
-.wu-commits-tabs button.active { border-bottom-color: #fd8c73; color: #17191c; font-weight: 600; }
-.wu-commits-relations { padding: 16px 0; }
-
 .wu-commit-source {
   background: #eceef0;
   border-radius: 8px;

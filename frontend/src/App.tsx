@@ -1018,7 +1018,9 @@ function App() {
           onOpenTask={(threadId, taskId) => setNav(lastTaskNav(threadId, taskId))}
           onSwitchWorkspace={openSidebarWorkspaceToday}
           onNewThread={() => setNewThreadDialogOpen(true)}
-          onOpenRelation={() => setNav({ view: 'workspace', section: 'commits' })}
+          onOpenRelation={() => setNav({
+            view: 'workspace', section: 'settings', settingsSection: 'relations',
+          })}
         />
       )}
       <div className="app-content">

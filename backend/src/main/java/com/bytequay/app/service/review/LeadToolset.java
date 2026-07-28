@@ -24,7 +24,6 @@ import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.service.agents.ToolCall;
 import com.bytequay.app.service.agents.ToolExecutor;
 import com.bytequay.app.service.agents.TurnSpec;
-import com.bytequay.app.service.threads.AgentScheduler;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -39,7 +38,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static java.util.Objects.requireNonNull;
@@ -52,8 +50,8 @@ import static java.util.Objects.requireNonNull;
  * and the findings table, nothing else.
  *
  * <p>When one Lead turn carries several {@code dispatch_to_reviewer}
- * calls, the round's batch is fanned out concurrently through
- * {@link AgentScheduler#invokeAll} (the global API-lane cap), and the
+ * calls, the round's batch is fanned out concurrently through shared
+ * review admission, and the
  * results come back in dispatch order — that is what makes a
  * five-reviewer panel cost one Lead round of wall-clock, not five.
  */
@@ -69,20 +67,20 @@ public class LeadToolset
     private final ReviewStore reviewStore;
     private final SeatToolset readTools;
     private final ReviewerSeat reviewerSeat;
-    private final AgentScheduler scheduler;
+    private final LegacyReviewAdmission reviewAdmission;
     private final ObjectMapper mapper;
 
     public LeadToolset(
             ReviewStore reviewStore,
             SeatToolset readTools,
             ReviewerSeat reviewerSeat,
-            AgentScheduler scheduler,
+            LegacyReviewAdmission reviewAdmission,
             ObjectMapper mapper)
     {
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.readTools = requireNonNull(readTools, "readTools is null");
         this.reviewerSeat = requireNonNull(reviewerSeat, "reviewerSeat is null");
-        this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.reviewAdmission = requireNonNull(reviewAdmission, "reviewAdmission is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -169,7 +167,7 @@ public class LeadToolset
             if (dispatches.size() < 2) {
                 return;
             }
-            List<Callable<ToolCallResult>> work = new ArrayList<>();
+            List<LegacyReviewAdmission.Work<ToolCallResult>> work = new ArrayList<>();
             List<ToolCall> accepted = new ArrayList<>();
             for (ToolCall call : dispatches) {
                 Dispatch dispatch;
@@ -181,12 +179,38 @@ public class LeadToolset
                     continue;
                 }
                 accepted.add(call);
-                work.add(() -> runDispatch(session, phase, round, dispatch));
+                ReviewPass pass = session.freshPass();
+                PanelSeatConfig.Seat seat = session.roster
+                        .byParticipantId(dispatch.participantId())
+                        .orElseThrow(() -> new IllegalStateException(
+                                "dispatched reviewer is missing from the roster"));
+                LegacyReviewAdmission.ProviderLane lane =
+                        CliReviewRunner.Provider.isCliProvider(seat.providerId())
+                                ? LegacyReviewAdmission.ProviderLane.CLI
+                                : LegacyReviewAdmission.ProviderLane.API;
+                String attemptId = ReviewerSeat.attemptId(
+                        dispatch.participantId(), dispatch.body(), phase, round,
+                        dispatch.leadMessageId());
+                work.add(new LegacyReviewAdmission.Work<>(
+                        pass, lane, attemptId,
+                        () -> runDispatch(
+                                session, phase, round, dispatch,
+                                /* capacityHeld */ true)));
             }
             if (work.isEmpty()) {
                 return;
             }
-            List<ToolCallResult> results = scheduler.invokeAll(work);
+            List<ToolCallResult> results;
+            try {
+                results = reviewAdmission.invokeAll(work);
+            }
+            catch (LegacyReviewAdmission.ReviewCapacityUnavailableException unavailable) {
+                accepted.forEach(call -> prefetched.put(
+                        call.id(),
+                        ToolCallResult.error(
+                                "Review capacity is busy; retry this reviewer dispatch.")));
+                return;
+            }
             for (int i = 0; i < accepted.size(); i++) {
                 prefetched.put(accepted.get(i).id(), results.get(i));
             }
@@ -340,10 +364,24 @@ public class LeadToolset
     private ToolExecutor.ToolCallResult runDispatch(
             Session session, ReviewPhase phase, int round, Dispatch dispatch)
     {
+        return runDispatch(session, phase, round, dispatch, false);
+    }
+
+    private ToolExecutor.ToolCallResult runDispatch(
+            Session session,
+            ReviewPhase phase,
+            int round,
+            Dispatch dispatch,
+            boolean capacityHeld)
+    {
         try {
-            ReviewMessage reply = reviewerSeat.runDispatchedTurn(
-                    session.freshPass(), session.roster, dispatch.participantId(),
-                    dispatch.body(), phase, round, dispatch.leadMessageId());
+            ReviewMessage reply = capacityHeld
+                    ? reviewerSeat.runDispatchedTurnAlreadyAdmitted(
+                            session.freshPass(), session.roster, dispatch.participantId(),
+                            dispatch.body(), phase, round, dispatch.leadMessageId(), true)
+                    : reviewerSeat.runDispatchedTurn(
+                            session.freshPass(), session.roster, dispatch.participantId(),
+                            dispatch.body(), phase, round, dispatch.leadMessageId());
             if (dispatch.findingId() != null) {
                 session.debateLedger.merge(dispatch.findingId(), reply.costUsdMilli(), Long::sum);
             }

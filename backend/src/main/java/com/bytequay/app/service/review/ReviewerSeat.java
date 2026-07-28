@@ -36,6 +36,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
@@ -77,6 +78,7 @@ public class ReviewerSeat
     private final ObjectMapper mapper;
     private final CliReviewRunner cliRunner;
     private final CliReviewSessionRegistry cliSessions;
+    private final LegacyReviewAdmission admission;
 
     public ReviewerSeat(
             TurnRunner runner,
@@ -88,7 +90,8 @@ public class ReviewerSeat
             ReviewStore reviewStore,
             ObjectMapper mapper,
             CliReviewRunner cliRunner,
-            CliReviewSessionRegistry cliSessions)
+            CliReviewSessionRegistry cliSessions,
+            LegacyReviewAdmission admission)
     {
         this.runner = requireNonNull(runner, "runner is null");
         this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
@@ -100,6 +103,7 @@ public class ReviewerSeat
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.cliRunner = requireNonNull(cliRunner, "cliRunner is null");
         this.cliSessions = requireNonNull(cliSessions, "cliSessions is null");
+        this.admission = requireNonNull(admission, "admission is null");
     }
 
     /** Thrown when a dispatch would spend past the seat's slice. The
@@ -154,6 +158,37 @@ public class ReviewerSeat
             String excludeMessageId,
             boolean enforceBudget)
     {
+        return runDispatchedTurn(
+                pass, roster, participantId, directive, phase, round,
+                excludeMessageId, enforceBudget, false);
+    }
+
+    ReviewMessage runDispatchedTurnAlreadyAdmitted(
+            ReviewPass pass,
+            PanelSeatConfig roster,
+            String participantId,
+            String directive,
+            ReviewPhase phase,
+            int round,
+            String excludeMessageId,
+            boolean enforceBudget)
+    {
+        return runDispatchedTurn(
+                pass, roster, participantId, directive, phase, round,
+                excludeMessageId, enforceBudget, true);
+    }
+
+    private ReviewMessage runDispatchedTurn(
+            ReviewPass pass,
+            PanelSeatConfig roster,
+            String participantId,
+            String directive,
+            ReviewPhase phase,
+            int round,
+            String excludeMessageId,
+            boolean enforceBudget,
+            boolean capacityHeld)
+    {
         requireNonNull(pass, "pass is null");
         requireNonNull(roster, "roster is null");
         requireNonNull(directive, "directive is null");
@@ -168,7 +203,10 @@ public class ReviewerSeat
         // CLI seats (Claude/Codex CLI) run as their own agents through a
         // subprocess, not the API TurnRunner — branch off here.
         if (CliReviewRunner.Provider.isCliProvider(seat.providerId())) {
-            return runCliTurn(pass, seat, participantId, directive, phase, round);
+            return runCliTurn(
+                    pass, seat, participantId, directive, phase, round,
+                    attemptId(participantId, directive, phase, round, excludeMessageId),
+                    capacityHeld);
         }
 
         ReviewProviderEndpoints.Endpoint endpoint = endpoints.resolve(seat.providerId());
@@ -181,7 +219,9 @@ public class ReviewerSeat
                 ? budgetHooks(pass.id(), participantId)
                 : new TurnHooks() { };
 
-        TurnResult result = runner.runTurn(
+        String attemptId = attemptId(
+                participantId, directive, phase, round, excludeMessageId);
+        Supplier<TurnResult> launch = () -> runner.runTurn(
                 new TurnSpec(
                         endpoint.transport(), endpoint.url(), endpoint.authToken(),
                         endpoint.modelId(),
@@ -189,6 +229,19 @@ public class ReviewerSeat
                         messages, toolset.toolsArray(endpoint.transport()),
                         MAX_OUTPUT_TOKENS, MAX_TOOL_ITERATIONS),
                 executor, hooks);
+        TurnResult result;
+        if (capacityHeld) {
+            admission.requireCurrent(
+                    pass, LegacyReviewAdmission.ProviderLane.API, attemptId);
+            result = launch.get();
+        }
+        else {
+            result = admission.invoke(
+                    pass,
+                    LegacyReviewAdmission.ProviderLane.API,
+                    attemptId,
+                    launch::get);
+        }
 
         String body = result.finalText() == null || result.finalText().isBlank()
                 ? (result.end() == TurnResult.End.ABORTED
@@ -237,7 +290,9 @@ public class ReviewerSeat
             String participantId,
             String directive,
             ReviewPhase phase,
-            int round)
+            int round,
+            String attemptId,
+            boolean capacityHeld)
     {
         CliReviewRunner.Provider provider = CliReviewRunner.Provider.of(seat.providerId());
         // The MCP bridge — real review tools incl. report_finding — is wired
@@ -250,10 +305,23 @@ public class ReviewerSeat
                 ? new CliReviewRunner.McpEndpoint(pass.id(), participantId)
                 : null;
 
+        Supplier<CliReviewRunner.Result> launch = () -> cliRunner.run(
+                provider, prompt, resume,
+                Path.of(System.getProperty("java.io.tmpdir")), endpoint);
         CliReviewRunner.Result result;
         try {
-            result = cliRunner.run(provider, prompt, resume,
-                    Path.of(System.getProperty("java.io.tmpdir")), endpoint);
+            if (capacityHeld) {
+                admission.requireCurrent(
+                        pass, LegacyReviewAdmission.ProviderLane.CLI, attemptId);
+                result = launch.get();
+            }
+            else {
+                result = admission.invoke(
+                        pass,
+                        LegacyReviewAdmission.ProviderLane.CLI,
+                        attemptId,
+                        launch::get);
+            }
         }
         catch (CliReviewException e) {
             log.warn("CLI reviewer seat {} ({}) {} failed: {}",
@@ -296,6 +364,20 @@ public class ReviewerSeat
         String body = stripFindingsBlock(result.text());
         return persistSeatMessage(pass, participantId, phase, round,
                 body.isBlank() ? "(no review text)" : body, result.costUsdMilli());
+    }
+
+    static String attemptId(
+            String participantId,
+            String directive,
+            ReviewPhase phase,
+            int round,
+            String excludeMessageId)
+    {
+        String discriminator = excludeMessageId == null || excludeMessageId.isBlank()
+                ? directive
+                : excludeMessageId;
+        return LegacyReviewAdmission.attemptId(
+                "seat", participantId, phase, round, discriminator);
     }
 
     /** Compose the single prompt string a CLI seat gets. On the first turn

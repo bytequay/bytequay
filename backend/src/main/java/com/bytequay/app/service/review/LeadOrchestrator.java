@@ -58,6 +58,7 @@ public class LeadOrchestrator
     private final ReviewProviderEndpoints endpoints;
     private final ReviewBudgetMeter budget;
     private final ReviewStore reviewStore;
+    private final LegacyReviewAdmission admission;
     private final ObjectMapper mapper;
 
     public LeadOrchestrator(
@@ -67,6 +68,7 @@ public class LeadOrchestrator
             ReviewProviderEndpoints endpoints,
             ReviewBudgetMeter budget,
             ReviewStore reviewStore,
+            LegacyReviewAdmission admission,
             ObjectMapper mapper)
     {
         this.runner = requireNonNull(runner, "runner is null");
@@ -75,6 +77,7 @@ public class LeadOrchestrator
         this.endpoints = requireNonNull(endpoints, "endpoints is null");
         this.budget = requireNonNull(budget, "budget is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
+        this.admission = requireNonNull(admission, "admission is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -138,14 +141,20 @@ public class LeadOrchestrator
             }
         };
 
-        TurnResult result = runner.runTurn(
-                new TurnSpec(
-                        endpoint.transport(), endpoint.url(), endpoint.authToken(),
-                        endpoint.modelId(),
-                        endpoint.transport() == TurnSpec.Transport.ANTHROPIC ? system : null,
-                        messages, toolset.toolsArray(endpoint.transport()),
-                        MAX_OUTPUT_TOKENS, MAX_TOOL_ITERATIONS),
-                executor, hooks);
+        String attemptId = LegacyReviewAdmission.attemptId(
+                "lead", leadSeat.participantId(), phase, round, directive);
+        TurnResult result = admission.invoke(
+                pass,
+                LegacyReviewAdmission.ProviderLane.API,
+                attemptId,
+                () -> runner.runTurn(
+                        new TurnSpec(
+                                endpoint.transport(), endpoint.url(), endpoint.authToken(),
+                                endpoint.modelId(),
+                                endpoint.transport() == TurnSpec.Transport.ANTHROPIC ? system : null,
+                                messages, toolset.toolsArray(endpoint.transport()),
+                                MAX_OUTPUT_TOKENS, MAX_TOOL_ITERATIONS),
+                        executor, hooks));
 
         if (result.finalText() != null && !result.finalText().isBlank()) {
             reviewStore.saveMessage(new ReviewMessage(

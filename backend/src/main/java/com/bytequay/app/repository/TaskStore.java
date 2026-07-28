@@ -26,6 +26,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Persistence boundary for the work-unit Task — a branch + worktree +
@@ -190,6 +191,12 @@ public interface TaskStore
 
     /** Single-row lookup by id. */
     Optional<Task> findTaskById(String id);
+
+    /** Exact V2 aggregate epoch for fencing capacity and execution work. */
+    default OptionalLong findTaskEpoch(String taskId)
+    {
+        return OptionalLong.empty();
+    }
 
     /** Find the task whose dev branch matches {@code branchName} — the
      *  PR sync uses this to auto-link a PR (incl. manually-opened ones)

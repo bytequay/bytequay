@@ -60,10 +60,13 @@ import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
+import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadSettings;
@@ -78,6 +81,7 @@ import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.checks.ValidationCheck;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.LegacyTaskScopeResolver;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -260,12 +264,15 @@ class TestDevelopmentFlowExecutionConfig
                 mock(LocalDevelopmentStageManager.class),
                 mock(LocalToRemoteHandoff.class),
                 mock(RemoteObservationRuntimeCoordinator.class),
+                mock(PRService.class),
+                mock(TaskStore.class),
                 mock(SqlitePublishResultStore.class),
                 cleanupStore,
                 mock(CleanupCompletionHandoff.class),
                 mock(TrunkManager.class),
                 mock(RemoteCiRepairRuntimeCoordinator.class),
                 mock(BranchSyncRuntimeCoordinator.class),
+                mock(RemoteRepairTurnRuntime.class),
                 mock(RemoteDevelopmentStageManager.class),
                 mock(SqliteMergeOperationStore.class),
                 mock(JdbcTemplate.class),
@@ -292,6 +299,12 @@ class TestDevelopmentFlowExecutionConfig
                 ThreadTurnOperationHandler.CALLBACK_ROUTE,
                 RemoteObservationOperationHandler.CALLBACK_ROUTE,
                 "REMOTE_CI_RERUN_RESULT",
+                "REMOTE_CI_VALIDATION_RESULT",
+                "REMOTE_CI_PUSH_RESULT",
+                RemoteRepairTurnRuntime.CI_STAGE_CALLBACK,
+                RemoteRepairTurnRuntime.CI_BRAIN_CALLBACK,
+                RemoteRepairTurnRuntime.BRANCH_STAGE_CALLBACK,
+                RemoteRepairTurnRuntime.BRANCH_BRAIN_CALLBACK,
                 "BRANCH_SYNC_FETCH_RESULT",
                 "BRANCH_SYNC_REBASE_RESULT",
                 "BRANCH_SYNC_VALIDATION_RESULT",
@@ -347,6 +360,7 @@ class TestDevelopmentFlowExecutionConfig
                     assertThat(context).hasSingleBean(
                             ExecutionPorts.ResultDeliveryPort.class);
                     assertThat(context).hasSingleBean(AgentTurnProviderSession.class);
+                    assertThat(context).hasSingleBean(V2TaskControlService.class);
                     ExecutionPorts.OperationHandlerRegistry handlers = context.getBean(
                             ExecutionPorts.OperationHandlerRegistry.class);
                     assertThat(handlers.require(
@@ -468,10 +482,16 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(RemoteDevelopmentRuntimeCoordinator.class))
                 .withBean(RemoteObservationRuntimeCoordinator.class,
                         () -> mock(RemoteObservationRuntimeCoordinator.class))
+                .withBean(PRService.class, () -> mock(PRService.class))
                 .withBean(RemoteCiRepairRuntimeCoordinator.class,
                         () -> mock(RemoteCiRepairRuntimeCoordinator.class))
                 .withBean(BranchSyncRuntimeCoordinator.class,
                         () -> mock(BranchSyncRuntimeCoordinator.class))
+                .withBean(RemoteRepairTurnRuntime.class,
+                        () -> mock(RemoteRepairTurnRuntime.class))
+                .withBean(TaskManager.class, () -> mock(TaskManager.class))
+                .withBean(TaskManager.Store.class,
+                        () -> mock(TaskManager.Store.class))
                 .withBean(TaskCommandExecutor.class,
                         () -> mock(TaskCommandExecutor.class))
                 .withBean(LocalDevelopmentStageManager.class,

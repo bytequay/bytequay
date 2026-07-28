@@ -14,6 +14,7 @@
 package com.bytequay.app.config;
 
 import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
+import com.bytequay.app.developmentflow.stage.BranchSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.CancellationToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
@@ -23,7 +24,14 @@ import com.bytequay.app.developmentflow.stage.LocalToRemoteHandoff;
 import com.bytequay.app.developmentflow.stage.PlanStageManager;
 import com.bytequay.app.developmentflow.stage.PlanToLocalHandoff;
 import com.bytequay.app.developmentflow.stage.ProvisionToPlanHandoff;
+import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteDevelopmentObservationConsumer;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
+import com.bytequay.app.developmentflow.stage.RemoteMergeObservationCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteObservationDomainHooks;
+import com.bytequay.app.developmentflow.stage.RemoteObservationMaintainer;
+import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
 import com.bytequay.app.developmentflow.stage.RemoteTerminalToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.ReplanHandoff;
 import com.bytequay.app.developmentflow.stage.StageManager;
@@ -68,6 +76,14 @@ class TestDevelopmentFlowDomainConfig
         assertThat(beans(RemoteDevelopmentStageManager.class)).hasSize(1);
         assertThat(beans(CleanupStageManager.class)).hasSize(1);
         assertThat(beans(StageManager.class)).hasSize(4);
+        assertThat(beans(RemoteRepairTurnRuntime.class)).hasSize(1);
+        assertThat(beans(RemoteCiRepairRuntimeCoordinator.class)).hasSize(1);
+        assertThat(beans(BranchSyncRuntimeCoordinator.class)).hasSize(1);
+        assertThat(beans(RemoteDevelopmentObservationConsumer.class)).hasSize(1);
+        assertThat(beans(RemoteObservationRuntimeCoordinator.class)).hasSize(1);
+        assertThat(beans(RemoteObservationDomainHooks.class)).hasSize(1);
+        assertThat(beans(RemoteMergeObservationCoordinator.class)).hasSize(1);
+        assertThat(beans(RemoteObservationMaintainer.class)).hasSize(1);
     }
 
     @Test

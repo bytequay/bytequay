@@ -66,6 +66,7 @@ import com.bytequay.app.developmentflow.stage.MergeResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort;
+import com.bytequay.app.developmentflow.stage.RemoteCiEffectResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteCiRerunResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentRuntimeCoordinator;
@@ -81,12 +82,17 @@ import com.bytequay.app.developmentflow.stage.RemoteMarkReadyResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteRepairTurnResultDeliveryPort;
+import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
+import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnResultDeliveryPort;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.CredentialService;
@@ -97,6 +103,7 @@ import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.checks.ValidationCheck;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -142,12 +149,15 @@ public class DevelopmentFlowExecutionConfig
             LocalDevelopmentStageManager localManager,
             LocalToRemoteHandoff localToRemote,
             RemoteObservationRuntimeCoordinator remoteObservations,
+            PRService prs,
+            TaskStore tasks,
             SqlitePublishResultStore publishStore,
             SqliteCleanupOperationStore cleanupStore,
             CleanupCompletionHandoff cleanupCompletion,
             TrunkManager trunks,
             RemoteCiRepairRuntimeCoordinator remoteCi,
             BranchSyncRuntimeCoordinator branchSync,
+            RemoteRepairTurnRuntime remoteRepairTurns,
             RemoteDevelopmentStageManager remoteManager,
             SqliteMergeOperationStore mergeOperations,
             JdbcTemplate jdbc,
@@ -171,7 +181,7 @@ public class DevelopmentFlowExecutionConfig
                 new LocalValidationResultDeliveryPort(localRuntime);
         PublishResultDeliveryPort publish = new PublishResultDeliveryPort(
                 commands, localManager, localToRemote, remoteObservations,
-                publishStore, json,
+                prs, tasks, publishStore, json,
                 Clock.systemUTC());
         CleanupOperationResultDelivery cleanup = new CleanupOperationResultDelivery(
                 cleanupStore, cleanupCompletion, Clock.systemUTC());
@@ -191,8 +201,12 @@ public class DevelopmentFlowExecutionConfig
                 new RemoteObservationResultDeliveryPort(remoteObservations);
         RemoteCiRerunResultDeliveryPort ciRerun =
                 new RemoteCiRerunResultDeliveryPort(remoteCi);
+        RemoteCiEffectResultDeliveryPort ciEffects =
+                new RemoteCiEffectResultDeliveryPort(remoteCi);
         BranchSyncResultDeliveryPort branches =
                 new BranchSyncResultDeliveryPort(branchSync);
+        RemoteRepairTurnResultDeliveryPort repairTurns =
+                new RemoteRepairTurnResultDeliveryPort(codec, remoteRepairTurns);
         MergeResultDeliveryPort merge = new MergeResultDeliveryPort(
                 commands, remoteManager, mergeOperations, json);
         return new ResultDeliveryRouter(Map.ofEntries(
@@ -216,6 +230,14 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry(RemoteObservationOperationHandler.CALLBACK_ROUTE,
                         observations),
                 Map.entry("REMOTE_CI_RERUN_RESULT", ciRerun),
+                Map.entry("REMOTE_CI_VALIDATION_RESULT", ciEffects),
+                Map.entry("REMOTE_CI_PUSH_RESULT", ciEffects),
+                Map.entry(RemoteRepairTurnRuntime.CI_STAGE_CALLBACK, repairTurns),
+                Map.entry(RemoteRepairTurnRuntime.CI_BRAIN_CALLBACK, repairTurns),
+                Map.entry(RemoteRepairTurnRuntime.BRANCH_STAGE_CALLBACK,
+                        repairTurns),
+                Map.entry(RemoteRepairTurnRuntime.BRANCH_BRAIN_CALLBACK,
+                        repairTurns),
                 Map.entry("BRANCH_SYNC_FETCH_RESULT", branches),
                 Map.entry("BRANCH_SYNC_REBASE_RESULT", branches),
                 Map.entry("BRANCH_SYNC_VALIDATION_RESULT", branches),
@@ -547,6 +569,21 @@ public class DevelopmentFlowExecutionConfig
             WorktreeWriterLeaseManager.Store store)
     {
         return new WorktreeWriterLeaseManager(store, Clock.systemUTC());
+    }
+
+    @Bean
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
+    public V2TaskControlService v2TaskControlService(
+            TaskManager tasks,
+            TaskManager.Store store,
+            ExecutionDispatcher dispatcher,
+            RemoteCiRepairRuntimeCoordinator ciRepair,
+            JdbcTemplate jdbc)
+    {
+        return new V2TaskControlService(
+                tasks, store, dispatcher, ciRepair, jdbc);
     }
 
     @Bean(initMethod = "start", destroyMethod = "close")

@@ -491,6 +491,50 @@ public abstract class StageManager
                 current, target, current.pendingResult(), null, proofId);
     }
 
+    /** Moves to a new exact subject and clears work armed for the superseded
+     * subject. Only an owner manager can expose a concrete use case for it. */
+    protected final CommandResult<State> moveWithProofClearingPendingInCommand(
+            Command command,
+            String proofId,
+            String cause,
+            StageCheckpoint source,
+            StageCheckpoint target)
+    {
+        requireNonNull(command, "command is null");
+        requireText(proofId, "proofId");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), command.stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            return CommandResult.duplicate(requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(),
+                    command.stageId(), command.expectedStageGeneration(),
+                    command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                    command.expectedStageVersion(), source, cause, null, proofId)
+                    .state());
+        }
+
+        OwnerState owner = loadOwner(command.taskId(), command.stageId());
+        validate(command, owner);
+        if (!accepts(owner.taskLifecycle())) {
+            throw rejected(INVALID_STATE,
+                    kind + " Stage cannot run while Task is "
+                            + owner.taskLifecycle());
+        }
+        State current = owner.stage();
+        if (current.checkpoint() != source
+                || !source.allowsStructuralTransition(target)) {
+            throw rejected(INVALID_STATE,
+                    "Cannot move " + kind + " Stage from "
+                            + current.checkpoint() + " to " + target);
+        }
+        return applied(
+                command.commandId(), cause, command.actor(),
+                command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                command.expectedStageVersion(), source,
+                current, target, null, null, proofId);
+    }
+
     /** Replays a structural command before an external proof store is consulted. */
     protected final Optional<CommandResult<State>> replayStructuralInCommand(
             Command command,

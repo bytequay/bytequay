@@ -423,6 +423,68 @@ class TestStageManagers
     }
 
     @Test
+    void acceptedRemoteFactsAdvanceTheOwnerAndNewHeadClearsArmedMerge()
+    {
+        AtomicReference<TaskManager.State> task = new AtomicReference<>(
+                new TaskManager.State(
+                        "task", "trunk", TaskLifecycle.ACTIVE, 3, 21, "remote",
+                        null, null, null, null));
+        CommandTestSupport.Stages store = new CommandTestSupport.Stages(
+                ignored -> task.get());
+        store.put(new StageManager.State(
+                "remote", "task", StageKind.REMOTE_DEVELOPMENT, 1, 8,
+                StageCheckpoint.WAITING_CI, null, null));
+        RemoteDevelopmentStageManager.RemoteGateEvidence ci =
+                new RemoteDevelopmentStageManager.RemoteGateEvidence(
+                        "task", 3, "remote", 1, "ci-1", "head-1", "base-1");
+        RemoteDevelopmentStageManager.RemoteGateEvidence ready =
+                new RemoteDevelopmentStageManager.RemoteGateEvidence(
+                        "task", 3, "remote", 1, "snapshot-1",
+                        "head-1", "base-1");
+        RemoteDevelopmentStageManager initialRemote =
+                new RemoteDevelopmentStageManager(
+                CommandTestSupport.executor(), store,
+                remoteGateEvidence(ci, ready, Optional.empty()));
+        TaskCommandExecutor commands = CommandTestSupport.executor();
+
+        CommandResult<StageManager.State> ciAccepted = commands.execute(
+                "task", () -> initialRemote.acceptCiEvidenceInCommand(
+                        gate("accept-ci", 8, ci)));
+        assertThat(ciAccepted.state().checkpoint())
+                .isEqualTo(StageCheckpoint.AWAITING_READY);
+        CommandResult<StageManager.State> openAccepted = commands.execute(
+                "task", () -> initialRemote.acceptObservedReadyInCommand(
+                        gate("accept-open", 9, ready)));
+        assertThat(openAccepted.state().checkpoint())
+                .isEqualTo(StageCheckpoint.WAITING_REMOTE_REVIEW);
+
+        ResultFence merge = new ResultFence(
+                3, "remote", 1, "merge-operation", 1,
+                null, "head-1", "base-1");
+        store.put(new StageManager.State(
+                "remote", "task", StageKind.REMOTE_DEVELOPMENT, 1, 20,
+                StageCheckpoint.MERGING, null, merge));
+        RemoteDevelopmentStageManager.RemoteGateEvidence changed =
+                new RemoteDevelopmentStageManager.RemoteGateEvidence(
+                        "task", 3, "remote", 1, "snapshot-2",
+                        "head-2", "base-2");
+        RemoteDevelopmentStageManager changedRemote =
+                new RemoteDevelopmentStageManager(
+                CommandTestSupport.executor(), store,
+                remoteGateEvidence(
+                        Optional.empty(), Optional.empty(), Optional.of(changed)));
+
+        CommandResult<StageManager.State> reset = commands.execute(
+                "task", () -> changedRemote.acceptHeadChangeInCommand(
+                        gate("accept-head-change", 20, changed),
+                        StageCheckpoint.MERGING));
+        assertThat(reset.state())
+                .extracting(StageManager.State::checkpoint,
+                        StageManager.State::pendingResult)
+                .containsExactly(StageCheckpoint.WAITING_CI, null);
+    }
+
+    @Test
     void multipleSupersededReceiptsAtOneVersionReplayTheirImmutableState()
     {
         Fixture fixture = new Fixture(
@@ -526,6 +588,115 @@ class TestStageManagers
                 return subject;
             }
         };
+    }
+
+    private static RemoteDevelopmentStageManager.EvidenceStore remoteGateEvidence(
+            RemoteDevelopmentStageManager.RemoteGateEvidence ci,
+            RemoteDevelopmentStageManager.RemoteGateEvidence ready,
+            Optional<RemoteDevelopmentStageManager.RemoteGateEvidence> changed)
+    {
+        return remoteGateEvidence(Optional.of(ci), Optional.of(ready), changed);
+    }
+
+    private static RemoteDevelopmentStageManager.EvidenceStore remoteGateEvidence(
+            Optional<RemoteDevelopmentStageManager.RemoteGateEvidence> ci,
+            Optional<RemoteDevelopmentStageManager.RemoteGateEvidence> ready,
+            Optional<RemoteDevelopmentStageManager.RemoteGateEvidence> changed)
+    {
+        return new RemoteDevelopmentStageManager.EvidenceStore()
+        {
+            @Override
+            public Optional<RemoteDevelopmentStageManager.FeedbackEvidence>
+                    findRemoteFeedback(
+                            String taskId,
+                            String stageId,
+                            long stageGeneration,
+                            String batchId)
+            {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<RemoteDevelopmentStageManager.RemoteGateEvidence>
+                    findAcceptedCi(
+                            String taskId,
+                            String stageId,
+                            long stageGeneration,
+                            String evidenceId)
+            {
+                return ci.filter(
+                        evidence -> evidence.proofId().equals(evidenceId));
+            }
+
+            @Override
+            public Optional<RemoteDevelopmentStageManager.RemoteGateEvidence>
+                    findObservedReady(
+                            String taskId,
+                            String stageId,
+                            long stageGeneration,
+                            String snapshotId)
+            {
+                return ready.filter(
+                        evidence -> evidence.proofId().equals(snapshotId));
+            }
+
+            @Override
+            public Optional<RemoteDevelopmentStageManager.RemoteGateEvidence>
+                    findHeadChange(
+                            String taskId,
+                            String stageId,
+                            long stageGeneration,
+                            String snapshotId)
+            {
+                return changed.filter(
+                        evidence -> evidence.proofId().equals(snapshotId));
+            }
+
+            @Override
+            public Optional<
+                    RemoteDevelopmentStageManager.MergeAuthorizationEvidence>
+                    findMergeAuthorization(
+                            String taskId,
+                            String stageId,
+                            long stageGeneration,
+                            String authorizationId)
+            {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<
+                    RemoteDevelopmentStageManager.TerminalObservationEvidence>
+                    findTerminalObservation(
+                            String taskId,
+                            String stageId,
+                            long stageGeneration,
+                            String observationId)
+            {
+                return Optional.empty();
+            }
+
+            @Override
+            public Optional<RemoteDevelopmentStageManager.RemoteSubjectEvidence>
+                    findCurrentRemoteSubject(
+                            String taskId, String stageId, long stageGeneration)
+            {
+                return Optional.empty();
+            }
+        };
+    }
+
+    private static RemoteDevelopmentStageManager.RemoteGateCommand gate(
+            String commandId,
+            long stageVersion,
+            RemoteDevelopmentStageManager.RemoteGateEvidence evidence)
+    {
+        return new RemoteDevelopmentStageManager.RemoteGateCommand(
+                new StageManager.Command(
+                        commandId, "remote-observer", evidence.taskId(),
+                        evidence.taskEpoch(), evidence.stageId(),
+                        evidence.stageGeneration(), stageVersion),
+                evidence.proofId(), evidence.headSha(), evidence.baseSha());
     }
 
     private static final class Fixture

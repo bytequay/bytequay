@@ -61,6 +61,24 @@ public final class RemoteDevelopmentStageManager
                 StageCheckpoint.WAITING_CI, StageCheckpoint.AWAITING_READY);
     }
 
+    /** Accepts recurring RemoteObserver CI truth without pretending it is a
+     * one-shot pending Stage result. */
+    public CommandResult<State> acceptCiEvidenceInCommand(RemoteGateCommand command)
+    {
+        requireNonNull(command, "command is null");
+        RemoteGateEvidence persisted = evidence.findAcceptedCi(
+                        command.stage().taskId(), command.stage().stageId(),
+                        command.stage().expectedStageGeneration(), command.proofId())
+                .orElseThrow(() -> rejected(
+                        "Fresh exact-head accepted CI evidence is missing"));
+        if (!persisted.matches(command)) {
+            throw rejected("CI evidence does not match the current exact head");
+        }
+        return moveWithProofInCommand(
+                command.stage(), command.proofId(), "ACCEPT_REMOTE_CI",
+                StageCheckpoint.WAITING_CI, StageCheckpoint.AWAITING_READY);
+    }
+
     public CommandResult<State> acceptReady(ResultCommand command)
     {
         return execute(command, () -> acceptReadyInCommand(command));
@@ -73,6 +91,45 @@ public final class RemoteDevelopmentStageManager
                 "ACCEPT_READY",
                 StageCheckpoint.AWAITING_READY,
                 StageCheckpoint.WAITING_REMOTE_REVIEW);
+    }
+
+    /** Accepts a fresh non-Draft observation. A PR that was already marked
+     * ready must not require a synthetic mark-ready Operation. */
+    public CommandResult<State> acceptObservedReadyInCommand(RemoteGateCommand command)
+    {
+        requireNonNull(command, "command is null");
+        RemoteGateEvidence persisted = evidence.findObservedReady(
+                        command.stage().taskId(), command.stage().stageId(),
+                        command.stage().expectedStageGeneration(), command.proofId())
+                .orElseThrow(() -> rejected(
+                        "Fresh exact-head open-PR evidence is missing"));
+        if (!persisted.matches(command)) {
+            throw rejected("Open-PR evidence does not match the current exact head");
+        }
+        return moveWithProofInCommand(
+                command.stage(), command.proofId(), "ACCEPT_OBSERVED_READY",
+                StageCheckpoint.AWAITING_READY,
+                StageCheckpoint.WAITING_REMOTE_REVIEW);
+    }
+
+    /** A newly accepted head invalidates every old-head gate and armed merge
+     * result before CI for the new subject may advance. */
+    public CommandResult<State> acceptHeadChangeInCommand(
+            RemoteGateCommand command, StageCheckpoint source)
+    {
+        requireNonNull(command, "command is null");
+        requireNonNull(source, "source is null");
+        RemoteGateEvidence persisted = evidence.findHeadChange(
+                        command.stage().taskId(), command.stage().stageId(),
+                        command.stage().expectedStageGeneration(), command.proofId())
+                .orElseThrow(() -> rejected(
+                        "Fresh exact-head change evidence is missing"));
+        if (!persisted.matches(command)) {
+            throw rejected("Head-change evidence does not match the current subject");
+        }
+        return moveWithProofClearingPendingInCommand(
+                command.stage(), command.proofId(), "ACCEPT_REMOTE_HEAD_CHANGE",
+                source, StageCheckpoint.WAITING_CI);
     }
 
     public CommandResult<State> beginRemoteFeedback(FeedbackCommand command)
@@ -686,6 +743,24 @@ public final class RemoteDevelopmentStageManager
 
         default Optional<RemoteGateEvidence> findCompletedMarkReady(
                 String taskId, String stageId, long stageGeneration, String operationId)
+        {
+            return Optional.empty();
+        }
+
+        default Optional<RemoteGateEvidence> findAcceptedCi(
+                String taskId, String stageId, long stageGeneration, String evidenceId)
+        {
+            return Optional.empty();
+        }
+
+        default Optional<RemoteGateEvidence> findObservedReady(
+                String taskId, String stageId, long stageGeneration, String snapshotId)
+        {
+            return Optional.empty();
+        }
+
+        default Optional<RemoteGateEvidence> findHeadChange(
+                String taskId, String stageId, long stageGeneration, String snapshotId)
         {
             return Optional.empty();
         }

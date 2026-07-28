@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.config;
 
+import com.bytequay.app.developmentflow.execution.merge.SqliteMergeOperationStore;
+import com.bytequay.app.developmentflow.stage.BranchSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.CancellationToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
@@ -24,9 +26,19 @@ import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.PlanStageManager;
 import com.bytequay.app.developmentflow.stage.PlanToLocalHandoff;
 import com.bytequay.app.developmentflow.stage.ProvisionToPlanHandoff;
+import com.bytequay.app.developmentflow.stage.RemoteCiFailureClassifier;
+import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteDevelopmentObservationConsumer;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteMergeObservationCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteMergeRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteObservationDomainHooks;
+import com.bytequay.app.developmentflow.stage.RemoteObservationMaintainer;
+import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteRepairTurnRuntime;
+import com.bytequay.app.developmentflow.stage.RemoteTerminalObservationCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteTerminalToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.ReplanHandoff;
 import com.bytequay.app.developmentflow.stage.StageManager;
@@ -34,6 +46,9 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopment
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteMergeRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRepairTurnStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
 import com.bytequay.app.developmentflow.task.BrainVerdictHandoff;
 import com.bytequay.app.developmentflow.task.TaskControlHandoff;
 import com.bytequay.app.developmentflow.task.TaskManager;
@@ -46,11 +61,11 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.Clock;
+import java.time.Duration;
 
 /**
  * Production command-side graph for the V2 domain owners and their atomic
@@ -184,18 +199,129 @@ public class DevelopmentFlowDomainConfig
     }
 
     @Bean
+    public RemoteRepairTurnRuntime remoteRepairTurnRuntime(
+            TaskCommandExecutor commands,
+            TaskManager tasks,
+            SqliteRemoteRuntimeStore remoteStore,
+            SqliteRemoteRepairTurnStore turns,
+            CodeFingerprints fingerprints,
+            GitRunner git,
+            ObjectMapper json,
+            @Value("${server.port:53123}") int serverPort,
+            @Value("${bytequay.development-flow.remote-ci.require-brain-review:true}")
+            boolean requireCiBrainReview)
+    {
+        return new RemoteRepairTurnRuntime(
+                commands, tasks, remoteStore, turns, fingerprints, git, json,
+                Clock.systemUTC(), serverPort, requireCiBrainReview);
+    }
+
+    @Bean
+    public RemoteCiRepairRuntimeCoordinator remoteCiRepairRuntimeCoordinator(
+            TaskCommandExecutor commands,
+            SqliteRemoteRuntimeStore store,
+            RemoteCiFailureClassifier classifier,
+            RemoteRepairTurnRuntime repairs,
+            ObjectMapper json,
+            @Value("${bytequay.development-flow.remote-ci.rerun-limit:1}")
+            int rerunLimit,
+            @Value("${bytequay.development-flow.remote-ci.fix-attempt-limit:3}")
+            int fixAttemptLimit,
+            @Value("${bytequay.development-flow.remote-ci.delivery-retry-limit:3}")
+            int deliveryRetryLimit,
+            @Value("${bytequay.development-flow.remote-ci.push-limit:3}")
+            int pushLimit)
+    {
+        return new RemoteCiRepairRuntimeCoordinator(
+                commands, store, classifier,
+                new SqliteRemoteRuntimeStore.CiBudgets(
+                        rerunLimit, fixAttemptLimit, deliveryRetryLimit, pushLimit),
+                repairs, json, Clock.systemUTC());
+    }
+
+    @Bean
+    public BranchSyncRuntimeCoordinator branchSyncRuntimeCoordinator(
+            TaskCommandExecutor commands,
+            SqliteRemoteRuntimeStore store,
+            RemoteRepairTurnRuntime repairs,
+            ObjectMapper json,
+            @Value("${bytequay.development-flow.branch-sync.require-brain-review:true}")
+            boolean requireBrainReview)
+    {
+        return new BranchSyncRuntimeCoordinator(
+                commands, store, repairs, repairs, requireBrainReview, json,
+                Clock.systemUTC());
+    }
+
+    @Bean
+    public RemoteMergeObservationCoordinator remoteMergeObservationCoordinator(
+            SqliteRemoteMergeRuntimeStore runtime,
+            SqliteMergeOperationStore operations,
+            RemoteTerminalObservationCoordinator terminal)
+    {
+        return new RemoteMergeObservationCoordinator(
+                runtime, operations, terminal, Clock.systemUTC());
+    }
+
+    @Bean
+    public RemoteObservationDomainHooks remoteObservationDomainHooks(
+            SqliteRemoteDevelopmentRuntimeStore store,
+            RemoteDevelopmentStageManager remote,
+            RemoteCiRepairRuntimeCoordinator ciRepair,
+            BranchSyncRuntimeCoordinator branchSync,
+            RemoteMergeObservationCoordinator mergeObservation,
+            RemoteMergeRuntimeCoordinator merges)
+    {
+        return new RemoteObservationDomainHooks(
+                store, remote, ciRepair, branchSync, mergeObservation, merges);
+    }
+
+    @Bean
+    public RemoteDevelopmentObservationConsumer remoteObservationConsumer(
+            SqliteRemoteDevelopmentRuntimeStore store,
+            RemoteFeedbackRuntimeCoordinator feedback,
+            RemoteDevelopmentRuntimeCoordinator remote,
+            RemoteObservationDomainHooks hooks)
+    {
+        return new RemoteDevelopmentObservationConsumer(
+                store, feedback, remote,
+                new RemoteDevelopmentObservationConsumer.Hooks(
+                        hooks::acceptCiInCommand,
+                        hooks::acceptBranchInCommand,
+                        hooks::acceptMergeInCommand,
+                        hooks::acceptReadinessInCommand),
+                Clock.systemUTC());
+    }
+
+    @Bean
+    public RemoteObservationRuntimeCoordinator remoteObservationRuntimeCoordinator(
+            TaskCommandExecutor commands,
+            SqliteRemoteRuntimeStore store,
+            RemoteDevelopmentObservationConsumer consumer,
+            ObjectMapper json)
+    {
+        return new RemoteObservationRuntimeCoordinator(
+                commands, store, consumer, json, Clock.systemUTC());
+    }
+
+    @Bean
+    public RemoteObservationMaintainer remoteObservationMaintainer(
+            SqliteRemoteRuntimeStore store,
+            RemoteObservationRuntimeCoordinator observations,
+            @Value("${bytequay.development-flow.remote-observation.interval-ms:20000}")
+            long intervalMs,
+            @Value("${bytequay.development-flow.remote-observation.batch-size:100}")
+            int batchSize)
+    {
+        return new RemoteObservationMaintainer(
+                store, observations, Duration.ofMillis(intervalMs), batchSize);
+    }
+
+    @Bean
     public CleanupStageManager cleanupStageManager(
             TaskCommandExecutor commands, StageManager.Store store)
     {
         return new CleanupStageManager(commands, store);
-    }
-
-    /** Remote protocol evidence is not mapped yet, so every proof fails closed. */
-    @Bean
-    @ConditionalOnMissingBean(RemoteDevelopmentStageManager.EvidenceStore.class)
-    public RemoteDevelopmentStageManager.EvidenceStore remoteEvidenceStore()
-    {
-        return RemoteDevelopmentStageManager.EvidenceStore.empty();
     }
 
     @Bean

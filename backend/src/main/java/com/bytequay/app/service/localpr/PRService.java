@@ -287,6 +287,12 @@ public interface PRService
     /** Same transaction projection used by the durable task-push command. */
     PR recordPushInCommand(String prId, String repo, int remotePrNumber, String remotePrUrl);
 
+    /**
+     * Same transaction projection used by a durable publish result. Unlike
+     * the legacy task-push adapter, this does not write a legacy Stage event.
+     */
+    PR recordPublishedInCommand(String prId, String repo, int remotePrNumber, String remotePrUrl);
+
     /** Flip {@code remote-open → merged} after a user-gated GitHub merge. */
     PR recordMerged(String prId);
 

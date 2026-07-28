@@ -47,6 +47,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedPublishedRemoteTask;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedWorkspaceAndTrunk;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestRemoteObservationRuntime
 {
@@ -94,6 +95,10 @@ class TestRemoteObservationRuntime
         assertThat(runtime.accepted().get()).isNotNull();
         assertThat(runtime.accepted().get().ciEvaluation().outcome())
                 .isEqualTo(RemoteCiPolicy.PolicyOutcome.WAITING);
+        assertThatThrownBy(() -> runtime.repair().acceptObservationInCommand(
+                runtime.accepted().get()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("task command");
         assertThat(runtime.jdbc().queryForObject("""
                 SELECT current_head_sha FROM remote_development_stage
                 WHERE stage_id = 'remote-stage-1'
@@ -219,6 +224,11 @@ class TestRemoteObservationRuntime
                 runtime, "initial-green", "head-1", "base-1",
                 RemoteCiPolicy.CheckState.PASSED, 800);
 
+        assertThatThrownBy(() -> runtime.branch().startInCommand(
+                "task-1", "remote-stage-1", "outside-command",
+                "base-2", "BASE_ADVANCED", 2))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("task command");
         runtime.branch().start(
                 "task-1", "remote-stage-1", "sync-command",
                 "base-2", "BASE_ADVANCED", 2);
@@ -253,6 +263,17 @@ class TestRemoteObservationRuntime
         assertThat(runtime.jdbc().queryForObject(
                 "SELECT COUNT(*) FROM capacity_lease", Integer.class))
                 .isZero();
+        assertThat(runtime.jdbc().queryForObject(
+                "SELECT COUNT(*) FROM remote_worktree_subject", Integer.class))
+                .isEqualTo(3);
+        assertThat(runtime.jdbc().queryForMap("""
+                SELECT code_fingerprint, head_sha, base_sha
+                FROM task_current_code_subject_v230
+                WHERE task_id = 'task-1'
+                """))
+                .containsEntry("code_fingerprint", "fingerprint-2")
+                .containsEntry("head_sha", "head-2")
+                .containsEntry("base_sha", "base-2");
 
         deliverObservation(
                 runtime, "observed-rebased-head", "head-2", "base-2",
@@ -391,7 +412,7 @@ class TestRemoteObservationRuntime
             insertRemoteOwner(connection, 1);
             insertCiPolicy(connection, 1);
         }
-        migrate(migrationUrl, "243");
+        migrate(migrationUrl, "248");
 
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(migrationUrl + "?foreign_keys=ON&busy_timeout=30000");

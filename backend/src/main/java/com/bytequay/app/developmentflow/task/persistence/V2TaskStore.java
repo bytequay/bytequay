@@ -1489,6 +1489,25 @@ final class V2TaskStore
                 WHERE turn.operation_id = ?
                   AND (? IS NULL OR episode.id = ?)
                 """, Integer.class, fence.operationId(), proofId, proofId);
+        if (count != null && count == 1) {
+            return true;
+        }
+        if (!tableAvailable("ci_repair_operation")
+                || !tableAvailable("branch_sync_dispatch_operation")) {
+            return false;
+        }
+        count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM (
+                    SELECT operation.id, operation.operation_id
+                    FROM ci_repair_operation operation
+                    WHERE operation.kind = 'BRAIN_REVIEW'
+                    UNION ALL
+                    SELECT operation.id, operation.operation_id
+                    FROM branch_sync_dispatch_operation operation
+                    WHERE operation.kind = 'BRAIN_REVIEW') operation
+                WHERE operation.operation_id = ?
+                  AND (? IS NULL OR operation.id = ?)
+                """, Integer.class, fence.operationId(), proofId, proofId);
         return count != null && count == 1;
     }
 

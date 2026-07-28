@@ -79,9 +79,15 @@ public final class RemoteCiRepairRuntimeCoordinator
         CiEpisode episode = store.findLiveCiEpisode(
                         candidate.context().stageId())
                 .orElse(null);
-        if (episode != null && (!episode.subjectHeadSha().equals(
-                candidate.evidence().headSha())
-                || !episode.subjectBaseSha().equals(
+        boolean pushedHead = episode != null
+                && Objects.equals(episode.lastPushedHeadSha(),
+                        candidate.evidence().headSha())
+                && episode.subjectBaseSha().equals(
+                        candidate.evidence().baseSha());
+        if (episode != null && !pushedHead
+                && (!episode.subjectHeadSha().equals(
+                        candidate.evidence().headSha())
+                    || !episode.subjectBaseSha().equals(
                         candidate.evidence().baseSha()))) {
             store.stopCiEpisode(
                     episode, "Remote subject changed before repair completed", now);
@@ -94,6 +100,11 @@ public final class RemoteCiRepairRuntimeCoordinator
             }
             case ACCEPTED -> {
                 if (episode != null) {
+                    if (pushedHead
+                            && episode.lastPushResultEvaluationId() == null) {
+                        store.recordCiPushResult(
+                                episode, candidate.evidence().ciEvaluationId());
+                    }
                     store.succeedCiEpisode(
                             episode, candidate.evidence().ciEvaluationId(), now);
                 }
@@ -101,12 +112,23 @@ public final class RemoteCiRepairRuntimeCoordinator
             }
             case FAILED -> {
                 if (episode == null) {
+                    if (store.hasExhaustedCiSubject(
+                            candidate.context().stageId(),
+                            candidate.evidence().headSha(),
+                            candidate.evidence().baseSha())) {
+                        return;
+                    }
                     Classification classification = requireNonNull(
                             classifier.classify(candidate),
                             "CI failure classification is null");
                     episode = store.openCiEpisode(
                             candidate.context(), candidate.evidence(),
                             classification.name(), budgets, now);
+                }
+                else if (pushedHead
+                        && episode.lastPushResultEvaluationId() == null) {
+                    store.recordCiPushResult(
+                            episode, candidate.evidence().ciEvaluationId());
                 }
                 continueRepair(candidate, episode, now);
             }
@@ -157,6 +179,27 @@ public final class RemoteCiRepairRuntimeCoordinator
         }
         String taskId = store.requireEffectTaskId(expectedFence.operationId());
         return commands.execute(taskId, () -> deliverRerunInCommand(
+                owner, expectedFence, rawResult));
+    }
+
+    public DispatchTicket.DeliveryReceipt deliverEffect(
+            DispatchTicket.OwnerReference owner,
+            DispatchTicket.OperationFence expectedFence,
+            DispatchTicket.DispatchResult rawResult)
+    {
+        requireNonNull(owner, "owner is null");
+        requireNonNull(expectedFence, "expectedFence is null");
+        requireNonNull(rawResult, "rawResult is null");
+        if (owner.kind() != DispatchTicket.OwnerKind.STAGE
+                || !expectedFence.equals(rawResult.fence())
+                || !"REMOTE_CI_VALIDATION_RESULT".equals(
+                        owner.callbackRoute())
+                    && !"REMOTE_CI_PUSH_RESULT".equals(
+                        owner.callbackRoute())) {
+            return receipt(SUPERSEDED, "CI effect owner/fence is stale");
+        }
+        String taskId = store.requireEffectTaskId(expectedFence.operationId());
+        return commands.execute(taskId, () -> deliverEffectInCommand(
                 owner, expectedFence, rawResult));
     }
 
@@ -293,6 +336,78 @@ public final class RemoteCiRepairRuntimeCoordinator
         return receipt(acceptance, succeeded ? "awaiting CI" : "rerun failed");
     }
 
+    private DispatchTicket.DeliveryReceipt deliverEffectInCommand(
+            DispatchTicket.OwnerReference owner,
+            DispatchTicket.OperationFence expectedFence,
+            DispatchTicket.DispatchResult rawResult)
+    {
+        String rawDigest = digest(write(rawResult));
+        EffectDeliveryReceipt duplicate = store.findCiEffectReceipt(
+                        expectedFence.operationId())
+                .orElse(null);
+        if (duplicate != null) {
+            if (!rawDigest.equals(duplicate.rawDigest())) {
+                throw new IllegalStateException(
+                        "CI effect was redelivered with different evidence");
+            }
+            return receipt(duplicate.acceptance(), duplicate.rawOutcome());
+        }
+        CiEffectDelivery context = store.requireCiEffectDelivery(
+                expectedFence.operationId());
+        String expectedRoute = switch (context.kind()) {
+            case "VALIDATE" -> "REMOTE_CI_VALIDATION_RESULT";
+            case "PUSH_HEAD" -> "REMOTE_CI_PUSH_RESULT";
+            default -> null;
+        };
+        boolean exact = owner.id().equals(context.stageId())
+                && Objects.equals(expectedRoute, owner.callbackRoute())
+                && matches(expectedFence, context);
+        DispatchTicket.Acceptance acceptance = exact && context.current()
+                ? ACCEPTED : SUPERSEDED;
+        RemoteEffectOperationHandler.Result result = rawResult.outcome() == SUCCEEDED
+                ? decode(rawResult.payloadJson()) : null;
+        if (result != null
+                && !context.operationId().equals(result.operationId())) {
+            throw new IllegalArgumentException(
+                    "CI result belongs to another Operation");
+        }
+        store.finishCiEffect(
+                context, rawResult.outcome().name(), rawDigest,
+                acceptance.name(), result, clock.instant());
+        CiEpisode episode = store.requireCiEpisode(
+                context.taskId(), context.episodeId());
+        if (acceptance == SUPERSEDED) {
+            store.stopCiEpisode(
+                    episode, "Remote subject changed before CI effect delivery",
+                    clock.instant());
+            return receipt(SUPERSEDED, "stale CI subject");
+        }
+        if (rawResult.outcome() != SUCCEEDED || result == null) {
+            store.blockCiEpisode(
+                    episode, "CI_REPAIR_EFFECT_FAILED",
+                    "CI repair effect failed",
+                    "{\"operationId\":\"" + escape(context.operationId())
+                            + "\"}", clock.instant());
+            return receipt(ACCEPTED, "CI effect failed");
+        }
+        if ("VALIDATE".equals(context.kind())) {
+            deterministicRepairs.acceptValidationInCommand(episode, result);
+            return receipt(ACCEPTED,
+                    result.disposition()
+                            == RemoteEffectOperationHandler.Disposition.SUCCEEDED
+                            ? "CI validation passed" : "CI validation failed");
+        }
+        if (result.disposition()
+                != RemoteEffectOperationHandler.Disposition.SUCCEEDED) {
+            store.blockCiEpisode(
+                    episode, "CI_REPAIR_PUSH_FAILED", "CI repair push failed",
+                    "{\"operationId\":\"" + escape(context.operationId())
+                            + "\"}", clock.instant());
+            return receipt(ACCEPTED, "CI push failed");
+        }
+        return receipt(ACCEPTED, "awaiting pushed-head CI observation");
+    }
+
     private static boolean matches(
             DispatchTicket.OperationFence fence, CiEffectDelivery context)
     {
@@ -364,6 +479,14 @@ public final class RemoteCiRepairRuntimeCoordinator
     {
         /** Starts the exact StageTurn -> validation -> optional Brain -> push arm. */
         void startInCommand(Candidate candidate, CiEpisode episode);
+
+        /** Continues the same finite arm after canonical validation. */
+        default void acceptValidationInCommand(
+                CiEpisode episode, RemoteEffectOperationHandler.Result result)
+        {
+            throw new IllegalStateException(
+                    "Deterministic CI validation continuation is not configured");
+        }
     }
 
     public enum Classification

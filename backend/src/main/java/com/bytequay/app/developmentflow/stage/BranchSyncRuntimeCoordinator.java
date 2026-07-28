@@ -92,40 +92,60 @@ public final class BranchSyncRuntimeCoordinator
         if (attemptLimit < 1) {
             throw new IllegalArgumentException("attemptLimit must be positive");
         }
-        return commands.execute(taskId, () -> {
-            TaskCommandExecutor.requireCurrent(taskId);
-            String episodeId = PlanRuntimeCoordinator.id(
-                    "branch-sync-episode", commandId);
-            BranchEpisode duplicate = store.findBranchEpisode(episodeId)
-                    .orElse(null);
-            if (duplicate != null) {
-                if (!taskId.equals(duplicate.taskId())
-                        || !stageId.equals(duplicate.stageId())
-                        || !targetBaseSha.equals(duplicate.targetBaseSha())
-                        || !policySource.equals(duplicate.policySource())
-                        || attemptLimit != duplicate.attemptLimit()) {
-                    throw new IllegalArgumentException(
-                            "Branch sync command was already used with other values");
-                }
-                return duplicate;
-            }
-            if (store.findLiveBranchEpisode(stageId).isPresent()) {
-                throw new IllegalStateException(
-                        "Remote Stage already has a live branch sync");
-            }
-            RemoteContext context = store.requireRemoteContext(taskId, stageId);
-            if (context.baseSha().equals(targetBaseSha)) {
+        return commands.execute(taskId, () -> startInCommand(
+                taskId, stageId, commandId, targetBaseSha, policySource,
+                attemptLimit));
+    }
+
+    /** Starts branch sync while the caller owns the Task command. */
+    public BranchEpisode startInCommand(
+            String taskId,
+            String stageId,
+            String commandId,
+            String targetBaseSha,
+            String policySource,
+            int attemptLimit)
+    {
+        requireText(taskId, "taskId");
+        requireText(stageId, "stageId");
+        requireText(commandId, "commandId");
+        requireText(targetBaseSha, "targetBaseSha");
+        requireText(policySource, "policySource");
+        if (attemptLimit < 1) {
+            throw new IllegalArgumentException("attemptLimit must be positive");
+        }
+        TaskCommandExecutor.requireCurrent(taskId);
+        String episodeId = PlanRuntimeCoordinator.id(
+                "branch-sync-episode", commandId);
+        BranchEpisode duplicate = store.findBranchEpisode(episodeId)
+                .orElse(null);
+        if (duplicate != null) {
+            if (!taskId.equals(duplicate.taskId())
+                    || !stageId.equals(duplicate.stageId())
+                    || !targetBaseSha.equals(duplicate.targetBaseSha())
+                    || !policySource.equals(duplicate.policySource())
+                    || attemptLimit != duplicate.attemptLimit()) {
                 throw new IllegalArgumentException(
-                        "Branch sync target is already the observed base");
+                        "Branch sync command was already used with other values");
             }
-            Instant now = clock.instant();
-            BranchEpisode episode = store.insertBranchEpisode(
-                    context, commandId, targetBaseSha, policySource,
-                    attemptLimit, now);
-            schedule(context, episode, 1, null,
-                    episode.oldHeadSha(), episode.observedBaseSha(), now);
-            return store.findBranchEpisode(episode.id()).orElseThrow();
-        });
+            return duplicate;
+        }
+        if (store.findLiveBranchEpisode(stageId).isPresent()) {
+            throw new IllegalStateException(
+                    "Remote Stage already has a live branch sync");
+        }
+        RemoteContext context = store.requireRemoteContext(taskId, stageId);
+        if (context.baseSha().equals(targetBaseSha)) {
+            throw new IllegalArgumentException(
+                    "Branch sync target is already the observed base");
+        }
+        Instant now = clock.instant();
+        BranchEpisode episode = store.insertBranchEpisode(
+                context, commandId, targetBaseSha, policySource,
+                attemptLimit, now);
+        schedule(context, episode, 1, null,
+                episode.oldHeadSha(), episode.observedBaseSha(), now);
+        return store.findBranchEpisode(episode.id()).orElseThrow();
     }
 
     /** Completes only after the pushed head is independently observed. */

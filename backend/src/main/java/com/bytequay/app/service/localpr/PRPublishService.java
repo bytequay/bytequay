@@ -14,6 +14,7 @@
 package com.bytequay.app.service.localpr;
 
 import com.bytequay.app.config.AsyncConfig;
+import com.bytequay.app.developmentflow.stage.V2PrRemoteControlService;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
 import com.bytequay.app.domain.HandledAction;
@@ -68,6 +69,7 @@ public class PRPublishService
     private final ReadyToMergeService readyToMerge;
     private final TaskService taskService;
     private final TaskPushSaga pushSaga;
+    private final V2PrRemoteControlService v2Controls;
     private final Executor executor;
 
     public PRPublishService(
@@ -80,6 +82,7 @@ public class PRPublishService
             ReadyToMergeService readyToMerge,
             TaskService taskService,
             TaskPushSaga pushSaga,
+            V2PrRemoteControlService v2Controls,
             @Qualifier(AsyncConfig.APPLICATION_EXECUTOR) Executor executor)
     {
         this.prService = requireNonNull(prService, "prService is null");
@@ -91,6 +94,7 @@ public class PRPublishService
         this.readyToMerge = requireNonNull(readyToMerge, "readyToMerge is null");
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.pushSaga = requireNonNull(pushSaga, "pushSaga is null");
+        this.v2Controls = requireNonNull(v2Controls, "v2Controls is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -116,6 +120,9 @@ public class PRPublishService
     void reconcilePushedElsewhere(PrPushedEvent event)
     {
         try {
+            if (isV2Task(event.taskId())) {
+                return;
+            }
             if (pushSaga.adoptRemotePullRequest(
                     event.taskId(), event.repo(), event.remotePrNumber(), event.remotePrUrl())) {
                 return;
@@ -199,6 +206,12 @@ public class PRPublishService
      */
     public PR push(String prId, boolean userOverride)
     {
+        Optional<PR> candidate = prService.findById(prId);
+        if (candidate.isPresent() && isV2(candidate.orElseThrow())) {
+            PR pr = candidate.orElseThrow();
+            v2Controls.approveAndShip(pr.taskId(), prId, userOverride);
+            return prService.findById(prId).orElse(pr);
+        }
         return pushSaga.push(prId, userOverride);
     }
 
@@ -220,6 +233,10 @@ public class PRPublishService
     {
         PR identified = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
+        if (isV2(identified)) {
+            v2Controls.merge(identified.taskId(), method);
+            return prService.findById(prId).orElse(identified);
+        }
         if (identified.taskId() == null || identified.taskId().isBlank()) {
             return mergeLocked(prId, method);
         }
@@ -317,6 +334,8 @@ public class PRPublishService
     {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
+        rejectUnsupportedV2(pr,
+                "merge-queue removal requires a typed durable V2 merge control");
         if (pr.remotePrNumber() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " has not been pushed");
         }
@@ -332,6 +351,8 @@ public class PRPublishService
     {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no local PR " + prId));
+        rejectUnsupportedV2(pr,
+                "remote branch deletion is owned by the typed V2 Cleanup operation");
         if (!PR.STATUS_MERGED.equals(pr.status())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "local PR " + prId + " is not merged");
         }
@@ -346,6 +367,8 @@ public class PRPublishService
     {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
+        rejectUnsupportedV2(pr,
+                "remote comments require an explicit typed V2 feedback authorization");
         if (pr.remotePrNumber() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity");
         }
@@ -408,6 +431,8 @@ public class PRPublishService
     {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
+        rejectUnsupportedV2(pr,
+                "GitHub review publication requires an explicit typed V2 review authorization");
         if (pr.repo() == null || pr.remotePrNumber() == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "PR " + prId + " has no remote identity to review");
         }
@@ -472,6 +497,39 @@ public class PRPublishService
                 && pr.githubSync() != null
                 && pr.githubSync().watchReason() == PullRequest.Origin.REVIEW_REQUESTED) {
             prService.markHandled(pr.id(), action);
+        }
+    }
+
+    private boolean isV2(PR pr)
+    {
+        return pr.taskId() != null && !pr.taskId().isBlank()
+                && workflowVersion(pr.taskId());
+    }
+
+    private boolean isV2Task(String taskId)
+    {
+        return taskId != null && !taskId.isBlank() && workflowVersion(taskId);
+    }
+
+    private boolean workflowVersion(String taskId)
+    {
+        return taskStore.findWorkflowVersion(taskId)
+                .map(version -> {
+                    if (!"V2".equals(version) && !"LEGACY".equals(version)) {
+                        throw new IllegalStateException(
+                                "unsupported Task workflow version " + version);
+                    }
+                    return "V2".equals(version);
+                })
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Task " + taskId + " has no immutable workflow route"));
+    }
+
+    private void rejectUnsupportedV2(PR pr, String reason)
+    {
+        if (isV2(pr)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, reason);
         }
     }
 

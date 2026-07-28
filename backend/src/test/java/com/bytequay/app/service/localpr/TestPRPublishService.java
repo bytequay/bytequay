@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.developmentflow.stage.V2PrRemoteControlService;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergeResult;
@@ -77,13 +78,17 @@ class TestPRPublishService
     private final PullRequestDetail liveDetail = mock(PullRequestDetail.class);
     private final TaskService taskService = mock(TaskService.class);
     private final TaskPushSaga pushSaga = mock(TaskPushSaga.class);
+    private final V2PrRemoteControlService v2Controls = mock(V2PrRemoteControlService.class);
     private final PRPublishService service =
             new PRPublishService(
                     prService, taskStore, pullRequests, patResolver, brainReview,
-                    pullRequestDetails, readyToMerge, taskService, pushSaga, Runnable::run);
+                    pullRequestDetails, readyToMerge, taskService, pushSaga,
+                    v2Controls, Runnable::run);
 
     {
         when(prService.comments(anyString())).thenReturn(List.of());
+        when(taskStore.findWorkflowVersion(anyString()))
+                .thenReturn(Optional.of("LEGACY"));
         when(watchedRepos.findAll()).thenReturn(List.of());
         when(pullRequestDetails.fetchFreshPullRequestDetail(anyString(), anyInt())).thenReturn(liveDetail);
         when(readyToMerge.isReadyForMerge(nullable(String.class), eq(liveDetail))).thenReturn(true);
@@ -140,6 +145,87 @@ class TestPRPublishService
     }
 
     @Test
+    void v2ApprovalCreatesTheTypedPublishOperationInsteadOfCallingTheLegacySaga()
+    {
+        PR local = pr(PR.STATUS_LOCAL_OPEN);
+        when(prService.findById("pr1")).thenReturn(Optional.of(local));
+        when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
+
+        assertThat(service.push("pr1", true)).isSameAs(local);
+
+        verify(v2Controls).approveAndShip("task1", "pr1", true);
+        verify(pushSaga, never()).push(anyString(), anyBoolean());
+    }
+
+    @Test
+    void v2ManualMergeCreatesExactHeadAuthorityInsteadOfCallingGitHubDirectly()
+    {
+        PR remote = pushedPr(PR.STATUS_REMOTE_OPEN);
+        when(prService.findById("pr1")).thenReturn(Optional.of(remote));
+        when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
+
+        assertThat(service.merge("pr1", "squash")).isSameAs(remote);
+
+        verify(v2Controls).merge("task1", "squash");
+        verify(pullRequests, never()).mergePullRequest(any(), any(), any());
+        verify(taskService, never()).completeTasksForMergedPr(anyString(), anyInt());
+    }
+
+    @Test
+    void v2ReviewerVisibleAndCleanupEffectsFailClosedBeforeRemoteIo()
+    {
+        PR remote = pushedPr(PR.STATUS_REMOTE_OPEN);
+        when(prService.findById("pr1")).thenReturn(Optional.of(remote));
+        when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
+
+        assertThatThrownBy(() -> service.dequeue("pr1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("typed durable V2 merge control");
+        assertThatThrownBy(() -> service.deleteBranch("pr1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("typed V2 Cleanup operation");
+        assertThatThrownBy(() -> service.postComment("pr1", "hello"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("typed V2 feedback authorization");
+        assertThatThrownBy(() -> service.publishReview("pr1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("typed V2 review authorization");
+
+        verify(pullRequests, never()).dequeuePullRequest(any(), any());
+        verify(pullRequests, never()).deleteBranch(any(), any(), anyString());
+        verify(pullRequests, never()).createIssueComment(any(), any(), anyString());
+        verify(pullRequests, never()).createReview(any(), any(), any());
+    }
+
+    @Test
+    void v2RemoteFactsNeverEnterTheLegacyPushAdoptionPath()
+    {
+        when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
+
+        service.reconcilePushedElsewhere(new PrPushedEvent(
+                "task1", "acme/widget", 145,
+                "https://github.com/acme/widget/pull/145"));
+
+        verify(pushSaga, never()).adoptRemotePullRequest(any(), any(), anyInt(), any());
+        verify(prService, never()).recordPush(any(), any(), anyInt(), any());
+    }
+
+    @Test
+    void taskOwnedRemoteEffectFailsClosedWithoutAnImmutableWorkflowRoute()
+    {
+        PR local = pr(PR.STATUS_LOCAL_OPEN);
+        when(prService.findById("pr1")).thenReturn(Optional.of(local));
+        when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.push("pr1", true))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no immutable workflow route");
+
+        verify(v2Controls, never()).approveAndShip(any(), any(), anyBoolean());
+        verify(pushSaga, never()).push(anyString(), anyBoolean());
+    }
+
+    @Test
     void onPushedElsewhereAdvancesALocalOpenRowToRemoteDrafted()
     {
         // Mirrors a push/open_pr gate or the ship/next tool flow — none of
@@ -160,7 +246,8 @@ class TestPRPublishService
         AtomicReference<Runnable> submitted = new AtomicReference<>();
         PRPublishService asynchronous = new PRPublishService(
                 prService, taskStore, pullRequests, patResolver, brainReview,
-                pullRequestDetails, readyToMerge, taskService, pushSaga, submitted::set);
+                pullRequestDetails, readyToMerge, taskService, pushSaga,
+                v2Controls, submitted::set);
         when(prService.findByTask("task1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
         PrPushedEvent event = new PrPushedEvent(
                 "task1", "acme/widget", 145,

@@ -221,19 +221,24 @@ public final class LocalDevelopmentStageManager
     public CommandResult<State> authorizePublish(PublishCommand command)
     {
         requireNonNull(command, "command is null");
-        return execute(command.stage(), () -> {
-            Optional<CommandResult<State>> replay = replayStructuralInCommand(
-                    command.stage(), "AUTHORIZE_PUBLISH", command.resultFence(),
-                    command.authorizationId(), StageCheckpoint.LOCAL_REVIEW);
-            if (replay.isPresent()) {
-                return replay.orElseThrow();
-            }
-            AcceptedPublishAuthorization accepted = requirePublishAuthorization(command);
-            return moveWithProofAndPendingResultInCommand(
-                    accepted.command.stage(), accepted.command.resultFence(),
-                    accepted.evidence.authorizationId(), "AUTHORIZE_PUBLISH",
-                    StageCheckpoint.LOCAL_REVIEW, StageCheckpoint.PUBLISHING);
-        });
+        return execute(command.stage(), () -> authorizePublishInCommand(command));
+    }
+
+    /** Starts a publish while the typed runtime coordinator owns the Task command. */
+    public CommandResult<State> authorizePublishInCommand(PublishCommand command)
+    {
+        requireNonNull(command, "command is null");
+        Optional<CommandResult<State>> replay = replayStructuralInCommand(
+                command.stage(), "AUTHORIZE_PUBLISH", command.resultFence(),
+                command.authorizationId(), StageCheckpoint.LOCAL_REVIEW);
+        if (replay.isPresent()) {
+            return replay.orElseThrow();
+        }
+        AcceptedPublishAuthorization accepted = requirePublishAuthorization(command);
+        return moveWithProofAndPendingResultInCommand(
+                accepted.command.stage(), accepted.command.resultFence(),
+                accepted.evidence.authorizationId(), "AUTHORIZE_PUBLISH",
+                StageCheckpoint.LOCAL_REVIEW, StageCheckpoint.PUBLISHING);
     }
 
     private AcceptedPublishAuthorization requirePublishAuthorization(PublishCommand command)

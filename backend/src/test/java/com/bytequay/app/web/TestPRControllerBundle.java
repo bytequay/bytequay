@@ -23,12 +23,17 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -56,5 +61,27 @@ class TestPRControllerBundle
         controller.bundle("pr1");
 
         verify(sync).syncPRForDisplay("pr1");
+    }
+
+    @Test
+    void v2ApprovalFailsClosedBeforeCallingGitHub()
+    {
+        PRService prs = mock(PRService.class);
+        TaskStore tasks = mock(TaskStore.class);
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PR pr = PR.create(
+                "pr1", "task1", "feature/x", "main", "Title", "",
+                Instant.parse("2026-07-24T00:00:00Z"));
+        when(prs.findById("pr1")).thenReturn(Optional.of(pr));
+        when(tasks.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
+        PRController controller = new PRController(
+                prs, mock(PRPublishService.class), mock(PRSyncService.class), tasks,
+                new ObjectMapper(), mock(RepoTestValidationCheck.class),
+                pullRequests, mock(InvestigationReviewService.class));
+
+        assertThatThrownBy(() -> controller.approve("pr1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("typed V2 review authorization");
+        verify(pullRequests, never()).submitApproval(anyString(), anyInt());
     }
 }

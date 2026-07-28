@@ -63,6 +63,7 @@ import static com.bytequay.app.domain.ReviewRoundState.TRIAGING;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
@@ -268,6 +269,27 @@ class TestReviewRoundStateMachine
         assertThat(result.activeGateToken()).isEqualTo("gate-token");
         verify(events).publishEvent(new RoundGateAuthorizedEvent(
                 TASK_ID, ROUND_ID, "gate-token"));
+    }
+
+    @Test
+    void staleGateAuthorizationIsRejectedBeforeTheConditionalWrite()
+    {
+        ReviewRound waiting = round(AWAITING_GATE, null, 0);
+        when(rounds.findById(ROUND_ID)).thenReturn(Optional.of(waiting));
+        when(tasks.findTaskById(TASK_ID))
+                .thenReturn(Optional.of(task(TaskPhase.AWAITING_REMOTE_REVIEW, TaskStatus.IN_REVIEW)));
+        when(runs.findById(RUN_ID))
+                .thenReturn(Optional.of(run(AgentRun.STATUS_AWAITING_GATE)));
+
+        assertThatThrownBy(() -> machine.authorizeGate(
+                ROUND_ID, "stale-revision", 1, "sha256:abc", "user_approved"))
+                .hasMessageContaining("not authorizable at this gate revision");
+        assertThatThrownBy(() -> machine.authorizeGate(
+                ROUND_ID, "stale-fingerprint", 0, "sha256:def", "user_approved"))
+                .hasMessageContaining("not authorizable at this gate revision");
+
+        verify(rounds, never()).authorizeGateIf(any(), anyInt(), any(), any());
+        verify(events, never()).publishEvent(any(RoundGateAuthorizedEvent.class));
     }
 
     @Test

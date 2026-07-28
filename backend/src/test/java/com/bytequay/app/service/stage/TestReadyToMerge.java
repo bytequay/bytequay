@@ -263,6 +263,25 @@ class TestReadyToMerge
     }
 
     @Test
+    void observedMergeClearsTheStaleGateAndStandingAuthorization()
+    {
+        String threadId = seedThread();
+        String taskId = seedTask(threadId);
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+
+        readyToMerge.evaluate(task, readyDetail());
+        taskStore.authorizeMerge(taskId, Instant.now());
+
+        readyToMerge.evaluate(task, detail(CiStatus.PASSING, 0, 0, true, "closed"));
+
+        assertThat(taskStore.mergeNotificationSentAt(taskId)).isEmpty();
+        assertThat(taskStore.isMergeAuthorized(taskId)).isFalse();
+        assertThat(notifications.listForThread(threadId)).anyMatch(notification ->
+                notification.payloadJson().contains("\"action\":\"merge_pr\"")
+                        && notification.status() == NotificationStatus.RESOLVED);
+    }
+
+    @Test
     void autoReEnqueuesWhenAuthorizedAndTheQueueBounced()
     {
         String threadId = seedThread();

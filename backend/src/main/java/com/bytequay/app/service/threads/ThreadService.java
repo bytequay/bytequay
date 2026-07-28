@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.task.creation.V2TaskCreationService;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.PullRequestCommit;
@@ -59,7 +60,9 @@ import org.springframework.context.ApplicationEventPublisherAware;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
@@ -144,6 +147,9 @@ public class ThreadService
      *  the legacy no-snapshot path unless they exercise this integration. */
     private WorkModelResolver workModelResolver;
     private WorkModelService workModels;
+    /** Optional production cutover boundary; direct POJO tests stay legacy. */
+    private V2TaskCreationService v2TaskCreation;
+    private TransactionTemplate legacyTaskTransactions;
     /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
      *  null in POJO unit tests that construct this service directly, where
      *  task-creation side effects (stage init) aren't under test. */
@@ -202,6 +208,17 @@ public class ThreadService
     {
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
         this.workModels = requireNonNull(workModels, "workModels is null");
+    }
+
+    @Autowired
+    void setV2TaskCreation(
+            V2TaskCreationService v2TaskCreation,
+            PlatformTransactionManager transactionManager)
+    {
+        this.v2TaskCreation = requireNonNull(
+                v2TaskCreation, "v2TaskCreation is null");
+        this.legacyTaskTransactions = new TransactionTemplate(requireNonNull(
+                transactionManager, "transactionManager is null"));
     }
 
     @Override
@@ -556,6 +573,9 @@ public class ThreadService
             requireNonNull(threadEngines, "threadEngines is null")
                     .replace(thread.id(), engineSnapshot);
         }
+        if (v2TaskCreation != null && v2TaskCreation.routes(thread.workspaceId())) {
+            v2TaskCreation.prepareTrunk(thread.id(), thread.workspaceId());
+        }
         // initialPrompt — if present — feeds the title derivation
         // above but is NOT enqueued as a trunk turn. Treat it as
         // setup context the user prepared in the create dialog; the
@@ -614,11 +634,23 @@ public class ThreadService
      * start a task?" prompt should call into this method once that
      * proposal UI lands.
      */
-    @Transactional
     public Task materialiseTask(String threadId, NewTaskRequest request)
     {
         requireNonNull(request, "request is null");
         Thread thread = requireTask(threadId);
+        if (v2TaskCreation != null && v2TaskCreation.routes(thread.workspaceId())) {
+            return v2TaskCreation.create(thread, request);
+        }
+        if (legacyTaskTransactions != null) {
+            return legacyTaskTransactions.execute(status ->
+                    materialiseLegacyTask(thread, request));
+        }
+        return materialiseLegacyTask(thread, request);
+    }
+
+    private Task materialiseLegacyTask(Thread thread, NewTaskRequest request)
+    {
+        String threadId = thread.id();
         if (request.workingDir() == null || request.workingDir().isBlank()) {
             throw new IllegalArgumentException("workingDir is required to materialise a task");
         }

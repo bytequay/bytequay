@@ -14,6 +14,7 @@
 package com.bytequay.app.developmentflow.task.creation;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Optional;
 
 import static com.bytequay.app.developmentflow.task.creation.TaskAssignment.BaseSource.EXISTING_PR_HEAD;
@@ -29,6 +30,7 @@ public record TaskCreationInput(
         CreationBase base,
         EngineSnapshot engine,
         WorkModelSnapshot workModel,
+        Presentation presentation,
         Instant createdAt)
 {
     public TaskCreationInput
@@ -39,6 +41,7 @@ public record TaskCreationInput(
         requireNonNull(base, "base is null");
         requireNonNull(engine, "engine is null");
         requireNonNull(workModel, "workModel is null");
+        requireNonNull(presentation, "presentation is null");
         requireNonNull(createdAt, "createdAt is null");
         if (!assignment.identity().trunkId().equals(policy.trunkId())) {
             throw new IllegalArgumentException(
@@ -49,6 +52,20 @@ public record TaskCreationInput(
                     "creation base does not match assignment provenance");
         }
         requireExactAssignmentBase(assignment, base);
+    }
+
+    /** Compatibility constructor for protocol tests and older internal callers. */
+    public TaskCreationInput(
+            String workspaceId,
+            TaskAssignment assignment,
+            TaskPolicy policy,
+            CreationBase base,
+            EngineSnapshot engine,
+            WorkModelSnapshot workModel,
+            Instant createdAt)
+    {
+        this(workspaceId, assignment, policy, base, engine, workModel,
+                Presentation.from(assignment), createdAt);
     }
 
     public TaskAssignment.CreationProvenance provenance()
@@ -233,6 +250,76 @@ public record TaskCreationInput(
         public WorkModelSnapshot
         {
             requireText(value, "value");
+        }
+    }
+
+    /** Immutable user-facing identity copied onto the compatibility Task row. */
+    public record Presentation(
+            String name,
+            String taskType,
+            Integer linkedIssueNumber,
+            String openingPrompt,
+            String origin)
+    {
+        public Presentation
+        {
+            requireText(name, "name");
+            requireText(taskType, "taskType");
+            if (linkedIssueNumber != null && linkedIssueNumber < 1) {
+                throw new IllegalArgumentException(
+                        "linkedIssueNumber must be positive");
+            }
+            if (openingPrompt != null && openingPrompt.isBlank()) {
+                openingPrompt = null;
+            }
+            requireText(origin, "origin");
+        }
+
+        private static Presentation from(TaskAssignment assignment)
+        {
+            String name;
+            String taskType = "DEVELOP";
+            Integer issue = null;
+            String prompt = null;
+            String origin = assignment.provenance().name().toLowerCase(Locale.ROOT);
+            switch (assignment) {
+                case TaskAssignment.NewFromTrunk value -> {
+                    name = value.planSeed();
+                    prompt = value.prompt();
+                }
+                case TaskAssignment.ExistingOwnPr value -> {
+                    name = "Work on PR #" + value.pullRequest().number();
+                    taskType = "REVIEW";
+                }
+                case TaskAssignment.ReviewFindings value -> {
+                    name = "Address review findings";
+                    taskType = "REVIEW";
+                }
+                case TaskAssignment.Issue value -> {
+                    name = "Work on " + value.issueIdentity();
+                    issue = parseIssueNumber(value.issueIdentity());
+                }
+                case TaskAssignment.Automation value ->
+                        name = value.reason();
+                case TaskAssignment.QualityScan value ->
+                        name = "Address quality finding " + value.evidenceIdentity();
+            }
+            return new Presentation(name, taskType, issue, prompt, origin);
+        }
+
+        private static Integer parseIssueNumber(String issueId)
+        {
+            int hash = issueId == null ? -1 : issueId.lastIndexOf('#');
+            if (hash < 0 || hash == issueId.length() - 1) {
+                return null;
+            }
+            try {
+                int value = Integer.parseInt(issueId.substring(hash + 1));
+                return value > 0 ? value : null;
+            }
+            catch (NumberFormatException ignored) {
+                return null;
+            }
         }
     }
 

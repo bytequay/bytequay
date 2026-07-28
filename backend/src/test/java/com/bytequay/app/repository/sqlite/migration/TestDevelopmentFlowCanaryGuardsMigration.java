@@ -103,6 +103,19 @@ class TestDevelopmentFlowCanaryGuardsMigration
             assertThat(text(connection, """
                     SELECT status FROM thread_turns WHERE id = 'legacy-task-turn'
                     """)).isEqualTo("SUCCEEDED");
+
+            execute(connection, """
+                    UPDATE threads SET title = 'Renamed V2 Trunk'
+                    WHERE id = 'trunk-1'
+                    """);
+            assertThat(text(connection, """
+                    SELECT title FROM threads WHERE id = 'trunk-1'
+                    """)).isEqualTo("Renamed V2 Trunk");
+            assertThatThrownBy(() -> execute(connection, """
+                    UPDATE threads SET lifecycle_state = 'IDLE'
+                    WHERE id = 'trunk-1'
+                    """))
+                    .hasMessageContaining("aggregate version must advance once");
         }
 
         SQLiteDataSource dataSource = new SQLiteDataSource();
@@ -182,7 +195,7 @@ class TestDevelopmentFlowCanaryGuardsMigration
 
     private static void migrate(String url)
     {
-        migrate(url, "245");
+        migrate(url, "246");
     }
 
     private static void migrate(String url, String target)

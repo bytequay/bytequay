@@ -17,6 +17,8 @@ import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.AcceptedApproval;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ApprovalContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.BrainLaunchContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.EditedRevision;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.McpContext;
@@ -26,6 +28,8 @@ import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanSubmission;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ProvisionContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ProvisionReceipt;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ReplanDraftContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ReplanDraftReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ReviewSubmission;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.TurnDeliveryContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.TurnDeliveryReceipt;
@@ -71,6 +75,8 @@ public final class PlanRuntimeCoordinator
     private final TaskManager tasks;
     private final PlanStageManager plan;
     private final SqlitePlanRuntimeStore store;
+    private final PlanToLocalHandoff planToLocal;
+    private final LocalDevelopmentRuntimeCoordinator localRuntime;
     private final ObjectMapper json;
     private final ObjectReader provisionEvidenceReader;
     private final ObjectReader workModelReader;
@@ -86,10 +92,32 @@ public final class PlanRuntimeCoordinator
             Clock clock,
             int serverPort)
     {
+        this(
+                commands, tasks, plan, store, null, null, json, clock,
+                serverPort);
+    }
+
+    public PlanRuntimeCoordinator(
+            TaskCommandExecutor commands,
+            TaskManager tasks,
+            PlanStageManager plan,
+            SqlitePlanRuntimeStore store,
+            PlanToLocalHandoff planToLocal,
+            LocalDevelopmentRuntimeCoordinator localRuntime,
+            ObjectMapper json,
+            Clock clock,
+            int serverPort)
+    {
         this.commands = requireNonNull(commands, "commands is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.plan = requireNonNull(plan, "plan is null");
         this.store = requireNonNull(store, "store is null");
+        if ((planToLocal == null) != (localRuntime == null)) {
+            throw new IllegalArgumentException(
+                    "Plan-to-Local handoff and Local runtime must be configured together");
+        }
+        this.planToLocal = planToLocal;
+        this.localRuntime = localRuntime;
         this.json = requireNonNull(json, "json is null");
         this.provisionEvidenceReader = json.readerFor(
                         ProvisionTaskOperationHandler.ProvisionEvidence.class)
@@ -347,6 +375,10 @@ public final class PlanRuntimeCoordinator
                                         "v2-plan-runtime", context.taskId(),
                                         context.fence()));
                 requireApplied(accepted, "Plan self-review approval");
+                maybeAutoApprove(
+                        context.taskId(), context.stageId(),
+                        context.stageGeneration(), submission.revisionId(),
+                        submission.selfReviewId());
                 yield recordTurnDelivery(
                         context, rawResult, rawDigest, ACCEPTED,
                         "REVIEW_APPROVED", now);
@@ -708,6 +740,128 @@ public final class PlanRuntimeCoordinator
         });
     }
 
+    /** Approves the latest exact reviewed revision and starts Local atomically. */
+    public AcceptedApproval approvePlan(PlanApprovalCommand command)
+    {
+        requireNonNull(command, "command is null");
+        requireLocalHandoff();
+        return commands.execute(command.taskId(), () -> {
+            TaskCommandExecutor.requireCurrent(command.taskId());
+            String approvalId = id("plan-human-approval", command.requestId());
+            AcceptedApproval duplicate = store.findAcceptedApproval(approvalId)
+                    .orElse(null);
+            if (duplicate != null) {
+                requireSameApproval(command, approvalId, duplicate);
+                return duplicate;
+            }
+            ApprovalContext context = store.requireApprovalContext(
+                    command.taskId(), command.stageId(), command.stageGeneration(),
+                    command.revisionId(), command.selfReviewId());
+            requireApprovalFence(command, context);
+            return acceptApprovalInCommand(
+                    approvalId, "HUMAN", command.actor(), context);
+        });
+    }
+
+    private void maybeAutoApprove(
+            String taskId,
+            String stageId,
+            long stageGeneration,
+            String revisionId,
+            String selfReviewId)
+    {
+        if (planToLocal == null) {
+            return;
+        }
+        ApprovalContext context = store.requireApprovalContext(
+                taskId, stageId, stageGeneration, revisionId, selfReviewId);
+        if (!context.autoApprove() || store.hasOpenStewardship(revisionId)) {
+            return;
+        }
+        String approvalId = id(
+                "plan-policy-approval",
+                context.policyRevisionId() + ":" + selfReviewId);
+        acceptApprovalInCommand(
+                approvalId, "POLICY",
+                "policy/" + context.policyRevisionId(), context);
+    }
+
+    private AcceptedApproval acceptApprovalInCommand(
+            String approvalId,
+            String kind,
+            String actor,
+            ApprovalContext context)
+    {
+        requireLocalHandoff();
+        Instant now = clock.instant();
+        store.insertApproval(approvalId, context, kind, actor, now);
+        String handoffId = id("plan-to-local-handoff", approvalId);
+        String localStageId = id("local-stage", approvalId);
+        PlanToLocalHandoff.Result handedOff = planToLocal.acceptInCommand(
+                new PlanToLocalHandoff.Command(
+                        new PlanStageManager.ApprovalCommand(
+                                new StageManager.Command(
+                                        handoffId, actor, context.taskId(),
+                                        context.taskEpoch(), context.stageId(),
+                                        context.stageGeneration(),
+                                        context.stageVersion()),
+                                approvalId, context.revisionId(),
+                                context.selfReviewId(), context.reviewedDigest()),
+                        new TaskManager.StageAdvanceCommand(
+                                handoffId, actor, context.taskId(),
+                                context.taskEpoch(), context.taskVersion(),
+                                localStageId, context.stageGeneration())));
+        requireApplied(handedOff.plan(), "Plan approval");
+        requireApplied(handedOff.local(), "Local Stage opening");
+        localRuntime.startInitialImplementationInCommand(
+                context.taskId(), localStageId, approvalId);
+        return store.findAcceptedApproval(approvalId)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Accepted Plan approval receipt is missing"));
+    }
+
+    private void requireLocalHandoff()
+    {
+        if (planToLocal == null || localRuntime == null) {
+            throw new IllegalStateException(
+                    "Plan approval requires the Local development runtime");
+        }
+    }
+
+    private static void requireApprovalFence(
+            PlanApprovalCommand command, ApprovalContext context)
+    {
+        if (context.taskEpoch() != command.taskEpoch()
+                || context.taskVersion() != command.expectedTaskVersion()
+                || context.stageVersion() != command.expectedStageVersion()) {
+            throw new IllegalArgumentException("Plan approval fence is stale");
+        }
+    }
+
+    private static void requireSameApproval(
+            PlanApprovalCommand command,
+            String approvalId,
+            AcceptedApproval receipt)
+    {
+        String expectedLocalStage = id("local-stage", approvalId);
+        if (!"HUMAN".equals(receipt.kind())
+                || !command.actor().equals(receipt.actor())
+                || !command.taskId().equals(receipt.taskId())
+                || command.taskEpoch() != receipt.taskEpoch()
+                || command.expectedTaskVersion() + 1 != receipt.taskVersion()
+                || !command.stageId().equals(receipt.planStageId())
+                || command.stageGeneration() != receipt.planStageGeneration()
+                || command.expectedStageVersion() + 1
+                    != receipt.planStageVersion()
+                || !command.revisionId().equals(receipt.revisionId())
+                || !command.selfReviewId().equals(receipt.selfReviewId())
+                || !expectedLocalStage.equals(receipt.localStageId())
+                || command.stageGeneration() != receipt.localStageGeneration()) {
+            throw new IllegalArgumentException(
+                    "Plan approval request id was used for another exact approval");
+        }
+    }
+
     private static void requireSameEdit(
             PlanEditCommand command,
             String normalized,
@@ -795,6 +949,80 @@ public final class PlanRuntimeCoordinator
                 planStageId, 1, draftTurnId, draftOperationId, draftTicketId, now);
         store.insertProvisionReceipt(receipt);
         return receipt;
+    }
+
+    public ReplanDraftReceipt startReplanDraftInCommand(
+            TaskManager.AcceptedReplan accepted,
+            PlanStageManager.AcceptedOpening opened)
+    {
+        requireNonNull(accepted, "accepted is null");
+        requireNonNull(opened, "opened is null");
+        TaskCommandExecutor.requireCurrent(accepted.taskId());
+        if (!accepted.taskId().equals(opened.taskId())
+                || !accepted.replanRequestId().equals(opened.proofId())) {
+            throw new IllegalArgumentException(
+                    "Replan draft owner differs from the opened Plan");
+        }
+        ReplanDraftReceipt duplicate = store.findReplanDraftReceipt(
+                        accepted.replanRequestId())
+                .orElse(null);
+        if (duplicate != null) {
+            requireSameReplanDraft(accepted, opened, duplicate);
+            return duplicate;
+        }
+
+        ReplanDraftContext context = store.requireReplanDraftContext(
+                accepted.taskId(), accepted.replanRequestId(), opened.stageId(),
+                opened.stageGeneration());
+        Instant now = clock.instant();
+        String draftTurnId = id(
+                "replan-draft-turn", accepted.replanRequestId());
+        String draftOperationId = id(
+                "replan-draft-operation", accepted.replanRequestId());
+        String draftTicketId = id(
+                "replan-draft-ticket", accepted.replanRequestId());
+        TurnRequest draft = turn(
+                context.brain(), context.taskEpoch(), context.stageId(),
+                context.stageGeneration(), context.codeFingerprint(),
+                context.headSha(), context.baseSha(), PLAN_DRAFT,
+                draftTurnId, draftOperationId, draftTicketId,
+                replanPrompt(accepted.taskId(), context.reason()), now);
+        store.insertTurn(draft);
+        CommandResult<StageManager.State> requested = plan.requestDraftInCommand(
+                new StageManager.Command(
+                        id("request-replan-draft", accepted.replanRequestId()),
+                        "v2-plan-runtime", accepted.taskId(), context.taskEpoch(),
+                        context.stageId(), context.stageGeneration(),
+                        context.stageVersion()),
+                draft.turnId(), draft.fence());
+        requireApplied(requested, "Replan draft request");
+        ReplanDraftReceipt receipt = new ReplanDraftReceipt(
+                accepted.replanRequestId(), accepted.taskId(), context.taskEpoch(),
+                context.stageId(), context.stageGeneration(), draftTurnId,
+                draftOperationId, draftTicketId, now);
+        store.insertReplanDraftReceipt(receipt);
+        return receipt;
+    }
+
+    private static void requireSameReplanDraft(
+            TaskManager.AcceptedReplan accepted,
+            PlanStageManager.AcceptedOpening opened,
+            ReplanDraftReceipt receipt)
+    {
+        if (!accepted.replanRequestId().equals(receipt.replanRequestId())
+                || !accepted.taskId().equals(receipt.taskId())
+                || accepted.sourceTaskEpoch() + 1 != receipt.taskEpoch()
+                || !opened.stageId().equals(receipt.planStageId())
+                || opened.stageGeneration() != receipt.planStageGeneration()
+                || !id("replan-draft-turn", accepted.replanRequestId())
+                    .equals(receipt.draftTurnId())
+                || !id("replan-draft-operation", accepted.replanRequestId())
+                    .equals(receipt.draftOperationId())
+                || !id("replan-draft-ticket", accepted.replanRequestId())
+                    .equals(receipt.draftTicketId())) {
+            throw new IllegalArgumentException(
+                    "Replan request was already armed for another Plan");
+        }
     }
 
     private TurnRequest turn(
@@ -896,6 +1124,17 @@ public final class PlanRuntimeCoordinator
                 + "Then call record_plan exactly once with task_id='"
                 + context.taskId() + "' and a finalized structured plan. "
                 + "Do not edit code, commit, push, or create remote effects.";
+    }
+
+    private static String replanPrompt(String taskId, String reason)
+    {
+        return "Create a replacement Plan for Task " + taskId
+                + " after quiesced replan request: " + reason
+                + ". Inspect the current Task worktree without changing files. "
+                + "Call record_plan exactly once with task_id='" + taskId
+                + "' and a finalized structured Plan. Preserve useful completed "
+                + "work and address the replan reason. Do not edit code, commit, "
+                + "push, or create remote effects.";
     }
 
     private static String reviewPrompt(String taskId, PlanSubmission submission)
@@ -1215,6 +1454,34 @@ public final class PlanRuntimeCoordinator
             required(content, "content");
             if (stageGeneration < 1 || expectedStageVersion < 0) {
                 throw new IllegalArgumentException("Plan edit fence is invalid");
+            }
+        }
+    }
+
+    public record PlanApprovalCommand(
+            String requestId,
+            String actor,
+            String taskId,
+            long taskEpoch,
+            long expectedTaskVersion,
+            String stageId,
+            long stageGeneration,
+            long expectedStageVersion,
+            String revisionId,
+            String selfReviewId)
+    {
+        public PlanApprovalCommand
+        {
+            required(requestId, "requestId");
+            required(actor, "actor");
+            required(taskId, "taskId");
+            required(stageId, "stageId");
+            required(revisionId, "revisionId");
+            required(selfReviewId, "selfReviewId");
+            if (taskEpoch < 1 || stageGeneration < 1
+                    || expectedTaskVersion < 0 || expectedStageVersion < 0) {
+                throw new IllegalArgumentException(
+                        "Plan approval fence is invalid");
             }
         }
     }

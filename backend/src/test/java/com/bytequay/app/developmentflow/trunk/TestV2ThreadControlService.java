@@ -26,11 +26,14 @@ import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -82,5 +85,26 @@ class TestV2ThreadControlService
                 .isEqualTo(AgentTurnProviderSession.Transport.CLI);
         assertThat(request.getValue().userMessage()).isEqualTo("plan the next task");
         assertThat(request.getValue().prompt()).isEqualTo("plan the next task");
+    }
+
+    @Test
+    void interruptPersistsPreLaunchSuppressionBeforeCancelingTickets()
+    {
+        PlanningBaseTurnRuntime planning = mock(PlanningBaseTurnRuntime.class);
+        ThreadTurnProjection projection = mock(ThreadTurnProjection.class);
+        ExecutionDispatcher dispatcher = mock(ExecutionDispatcher.class);
+        when(projection.cancelableTicketIds("trunk-1"))
+                .thenReturn(List.of("ticket-1"));
+        V2ThreadControlService service = new V2ThreadControlService(
+                planning, projection, dispatcher,
+                mock(ThreadEngineOverrides.class), mock(RoleRegistry.class),
+                mock(SessionKnowledgeProvider.class));
+
+        service.interrupt("trunk-1");
+
+        InOrder order = inOrder(planning, dispatcher);
+        order.verify(planning).suppressPending(
+                "trunk-1", "User canceled before provider launch");
+        order.verify(dispatcher).requestCancel("ticket-1");
     }
 }

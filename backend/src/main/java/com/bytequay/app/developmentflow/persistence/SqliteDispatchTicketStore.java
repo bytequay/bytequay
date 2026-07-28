@@ -61,6 +61,8 @@ public class SqliteDispatchTicketStore
                         OR EXISTS (
                             SELECT 1
                             FROM planning_base_refresh_operation planning
+                            JOIN trunk_planning_base_request_receipt request
+                              ON request.planning_operation_id = planning.id
                             WHERE planning.dispatch_ticket_id = d.id
                               AND planning.operation_id = d.operation_id
                               AND planning.status = 'REQUESTED'
@@ -72,15 +74,14 @@ public class SqliteDispatchTicketStore
                               AND NOT EXISTS (
                                   SELECT 1
                                   FROM planning_base_refresh_operation preceding
+                                  JOIN trunk_planning_base_request_receipt preceding_request
+                                    ON preceding_request.planning_operation_id = preceding.id
                                   WHERE preceding.trunk_id = planning.trunk_id
                                     AND preceding.id <> planning.id
                                     AND preceding.status IN ('REQUESTED', 'SUCCEEDED')
-                                    AND preceding.launched_thread_turn_id IS NULL
-                                    AND (preceding.requested_at_ms
-                                           < planning.requested_at_ms
-                                      OR (preceding.requested_at_ms
-                                            = planning.requested_at_ms
-                                        AND preceding.id < planning.id)))))
+                                    AND preceding.launch_disposition = 'PENDING'
+                                    AND preceding_request.returned_trunk_version
+                                          < request.returned_trunk_version)))
                   """
                 : "";
         String cursorClause = cursor == null ? "" : """

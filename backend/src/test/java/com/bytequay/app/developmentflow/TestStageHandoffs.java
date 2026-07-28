@@ -33,6 +33,9 @@ import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -336,10 +339,19 @@ class TestStageHandoffs
                 "cleanup", StageKind.CLEANUP, 1, 6,
                 StageCheckpoint.CLEANING, fence));
 
+        List<String> hooks = new ArrayList<>();
         CleanupCompletionHandoff handoff = new CleanupCompletionHandoff(
                 executor,
                 new CleanupStageManager(executor, stages),
-                new TaskManager(executor, tasks));
+                new TaskManager(executor, tasks),
+                List.of(
+                        completion -> {
+                            assertThat(transactions.commits())
+                                    .isGreaterThanOrEqualTo(1);
+                            hooks.add("trunk:" + completion.taskId());
+                        },
+                        completion -> hooks.add("review:" + completion.taskId())),
+                Clock.fixed(Instant.ofEpochMilli(50), ZoneOffset.UTC));
         CleanupCompletionHandoff.Command command = new CleanupCompletionHandoff.Command(
                 new TaskManager.Command("finish", "dispatcher", "task", 4, 40),
                 new StageManager.ResultCommand("finish", "dispatcher", "task", fence));
@@ -352,6 +364,7 @@ class TestStageHandoffs
         assertThat(result.task().orElseThrow().state())
                 .extracting(TaskManager.State::lifecycle, TaskManager.State::currentStageId)
                 .containsExactly(TaskLifecycle.CANCELED, null);
+        assertThat(hooks).containsExactly("trunk:task", "review:task");
 
         CleanupCompletionHandoff.Result duplicate = handoff.accept(command);
         assertThat(duplicate.stage().disposition())
@@ -359,6 +372,25 @@ class TestStageHandoffs
         assertThat(duplicate.task().orElseThrow().disposition())
                 .isEqualTo(CommandResult.Disposition.DUPLICATE);
         assertThat(order).containsExactly("stage", "task");
+        assertThat(hooks).containsExactly(
+                "trunk:task", "review:task", "trunk:task", "review:task");
+
+        List<String> attempted = new ArrayList<>();
+        CleanupCompletionHandoff failingObserver = new CleanupCompletionHandoff(
+                executor,
+                new CleanupStageManager(executor, stages),
+                new TaskManager(executor, tasks),
+                List.of(
+                        completion -> {
+                            attempted.add("first");
+                            throw new IllegalStateException("first hook failed");
+                        },
+                        completion -> attempted.add("second")),
+                Clock.fixed(Instant.ofEpochMilli(51), ZoneOffset.UTC));
+        assertThatThrownBy(() -> failingObserver.accept(command))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("first hook failed");
+        assertThat(attempted).containsExactly("first", "second");
     }
 
     private static TaskManager.State task(

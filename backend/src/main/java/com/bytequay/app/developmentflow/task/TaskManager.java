@@ -208,6 +208,47 @@ public final class TaskManager
                 TaskLifecycle.ARCHIVED);
     }
 
+    /** Records one exact replan request before any old-epoch work is stopped. */
+    public ReplanRequest requestReplan(ReplanRequestCommand command)
+    {
+        requireNonNull(command, "command is null");
+        return commands.execute(command.task().taskId(), () -> {
+            Optional<ReplanRequest> duplicate = store.findReplanRequest(
+                    command.task().taskId(), command.task().commandId());
+            if (duplicate.isPresent()) {
+                ReplanRequest request = duplicate.orElseThrow();
+                if (!request.matches(command)) {
+                    throw rejected(COMMAND_ID_CONFLICT,
+                            "Replan command id was used with other input");
+                }
+                return request;
+            }
+            Optional<ReplanRequest> active = store.findActiveReplanRequest(
+                    command.task().taskId());
+            if (active.isPresent()) {
+                return active.orElseThrow();
+            }
+            if (findCommandResult(
+                    command.task().taskId(), command.task().commandId()).isPresent()) {
+                throw rejected(COMMAND_ID_CONFLICT,
+                        "Command id is already used by another Task command");
+            }
+            State current = load(command.task().taskId());
+            validateExpected(command.task(), current);
+            if (current.lifecycle() != TaskLifecycle.ACTIVE
+                    || !same(current.currentStageId(), command.sourceStageId())) {
+                throw rejected(INVALID_STATE,
+                        "Replan requires the exact current active Stage");
+            }
+            if (command.sourceKind() == StageKind.PLAN
+                    || command.sourceKind() == StageKind.CLEANUP) {
+                throw rejected(INVALID_STATE,
+                        "Replan requires a previously approved Plan");
+            }
+            return store.createReplanRequest(command, current);
+        });
+    }
+
     /** Appends and atomically selects one immutable Task policy revision. */
     public CommandResult<PolicyRevision> revisePolicy(PolicyCommand command)
     {
@@ -1895,6 +1936,77 @@ public final class TaskManager
         }
     }
 
+    public record ReplanRequestCommand(
+            Command task,
+            String requestId,
+            String quiescenceBarrierId,
+            String sourceStageId,
+            long sourceStageGeneration,
+            StageKind sourceKind,
+            String reason)
+    {
+        public ReplanRequestCommand
+        {
+            requireNonNull(task, "task is null");
+            requireText(requestId, "requestId");
+            requireText(quiescenceBarrierId, "quiescenceBarrierId");
+            requireText(sourceStageId, "sourceStageId");
+            requireNonNull(sourceKind, "sourceKind is null");
+            requireText(reason, "reason");
+            if (sourceStageGeneration < 1) {
+                throw new IllegalArgumentException(
+                        "sourceStageGeneration must be positive");
+            }
+        }
+    }
+
+    /** Task-owned durable intent that prevents admission for its source epoch. */
+    public record ReplanRequest(
+            String requestId,
+            String commandId,
+            String requestedBy,
+            String taskId,
+            long sourceTaskEpoch,
+            String sourceStageId,
+            long sourceStageGeneration,
+            StageKind sourceKind,
+            String quiescenceBarrierId,
+            String reason,
+            String status,
+            String newPlanStageId,
+            Long newPlanGeneration)
+    {
+        public ReplanRequest
+        {
+            requireText(requestId, "requestId");
+            requireText(commandId, "commandId");
+            requireText(requestedBy, "requestedBy");
+            requireText(taskId, "taskId");
+            requireText(sourceStageId, "sourceStageId");
+            requireNonNull(sourceKind, "sourceKind is null");
+            requireText(quiescenceBarrierId, "quiescenceBarrierId");
+            requireText(reason, "reason");
+            requireText(status, "status");
+            if (sourceTaskEpoch < 1 || sourceStageGeneration < 1) {
+                throw new IllegalArgumentException("Replan request fence is invalid");
+            }
+        }
+
+        private boolean matches(ReplanRequestCommand command)
+        {
+            return requestId.equals(command.requestId())
+                    && commandId.equals(command.task().commandId())
+                    && requestedBy.equals(command.task().actor())
+                    && taskId.equals(command.task().taskId())
+                    && sourceTaskEpoch == command.task().expectedEpoch()
+                    && sourceStageId.equals(command.sourceStageId())
+                    && sourceStageGeneration == command.sourceStageGeneration()
+                    && sourceKind == command.sourceKind()
+                    && quiescenceBarrierId.equals(command.quiescenceBarrierId())
+                    && reason.equals(command.reason());
+        }
+    }
+
     /** Exact SATISFIED task_replan_request/barrier join returned by Task Store. */
     public record ReplanEvidence(
             String taskId,
@@ -2673,6 +2785,24 @@ public final class TaskManager
          */
         Optional<ReplanEvidence> findReplanEvidence(
                 String taskId, String replanRequestId);
+
+        default Optional<ReplanRequest> findReplanRequest(
+                String taskId, String commandId)
+        {
+            return Optional.empty();
+        }
+
+        default Optional<ReplanRequest> findActiveReplanRequest(String taskId)
+        {
+            return Optional.empty();
+        }
+
+        default ReplanRequest createReplanRequest(
+                ReplanRequestCommand command, State current)
+        {
+            throw new UnsupportedOperationException(
+                    "Replan request persistence is not supported");
+        }
 
         Optional<QuiescenceEvidence> findSatisfiedQuiescence(
                 String taskId, String barrierId);

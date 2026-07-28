@@ -15,6 +15,7 @@ package com.bytequay.app.developmentflow.stage.persistence;
 
 import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.stage.PlanStageManager;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -33,6 +34,7 @@ import static java.util.Objects.requireNonNull;
 /** Exact persistence boundary for the V2 Plan TaskTurn protocol. */
 @Repository
 public class SqlitePlanRuntimeStore
+        implements PlanStageManager.FollowupStore
 {
     private final JdbcTemplate jdbc;
 
@@ -837,6 +839,92 @@ public class SqlitePlanRuntimeStore
                     "Latest reviewed Plan is not eligible for approval");
         }
         return rows.getFirst();
+    }
+
+    public Optional<ApprovalContext> findLatestApprovalContext(String stageId)
+    {
+        return jdbc.query("""
+                SELECT task.id AS task_id, task.epoch AS task_epoch,
+                    task.aggregate_version AS task_version,
+                    task.thread_id AS trunk_id, trunk.workspace_id,
+                    stage.id AS stage_id, stage.generation,
+                    stage.version AS stage_version, stage.checkpoint,
+                    revision.id AS revision_id, revision.content_digest,
+                    review.id AS self_review_id,
+                    task.policy_revision_id, policy.auto_approve,
+                    policy.auto_merge
+                FROM tasks task
+                JOIN threads trunk ON trunk.id = task.thread_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage ON stage.id = current.stage_id
+                JOIN plan_revision revision ON revision.plan_stage_id = stage.id
+                JOIN plan_self_review review
+                  ON review.plan_revision_id = revision.id
+                JOIN task_policy_revision policy ON policy.id = task.policy_revision_id
+                WHERE stage.id = ? AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND stage.task_id = task.id
+                  AND stage.generation = current.stage_generation
+                  AND stage.kind = 'PLAN'
+                  AND stage.checkpoint = 'AWAITING_APPROVAL'
+                  AND stage.completed_at_ms IS NULL
+                  AND review.status = 'SUCCEEDED'
+                  AND review.verdict = 'APPROVED'
+                  AND review.reviewed_digest = revision.content_digest
+                  AND NOT EXISTS (
+                      SELECT 1 FROM plan_revision newer
+                      WHERE newer.plan_stage_id = revision.plan_stage_id
+                        AND newer.revision > revision.revision)
+                """, (rs, row) -> approvalContext(rs), stageId)
+                .stream().findFirst();
+    }
+
+    @Override
+    public Optional<PlanStageManager.FollowupEvidence> find(
+            String taskId, String stageId, String followupId)
+    {
+        return jdbc.query("""
+                SELECT followup.id, plan.task_id, plan.stage_id,
+                       plan.generation, revision.id AS revision_id,
+                       followup.status, followup.resolution,
+                       followup.resolved_at_ms
+                FROM plan_followup followup
+                JOIN plan_revision revision
+                  ON revision.id = followup.plan_revision_id
+                JOIN plan_stage plan ON plan.stage_id = revision.plan_stage_id
+                WHERE followup.id = ? AND followup.kind = 'FOLLOW_UP'
+                  AND plan.task_id = ? AND plan.stage_id = ?
+                """, (rs, row) -> new PlanStageManager.FollowupEvidence(
+                        rs.getString("id"), rs.getString("task_id"),
+                        rs.getString("stage_id"), rs.getLong("generation"),
+                        rs.getString("revision_id"),
+                        PlanStageManager.FollowupStatus.valueOf(
+                                rs.getString("status")),
+                        rs.getString("resolution"),
+                        instant(rs, "resolved_at_ms")),
+                followupId, taskId, stageId).stream().findFirst();
+    }
+
+    @Override
+    public PlanStageManager.FollowupEvidence update(
+            PlanStageManager.FollowupEvidence current,
+            PlanStageManager.FollowupCommand command)
+    {
+        requireTransaction();
+        int changed = jdbc.update("""
+                UPDATE plan_followup
+                   SET status = ?, resolved_at_ms = ?, resolution = ?
+                 WHERE id = ? AND plan_revision_id = ? AND status = ?
+                """, command.status().name(), command.resolvedAt().toEpochMilli(),
+                command.actor() + ": " + command.resolution(), current.id(),
+                current.revisionId(), current.status().name());
+        if (changed != 1) {
+            throw new IllegalStateException(
+                    "Plan follow-up changed before resolution: " + current.id());
+        }
+        return find(command.taskId(), command.stageId(), command.followupId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Resolved Plan follow-up disappeared"));
     }
 
     public PlanEditContext requirePlanEditContext(

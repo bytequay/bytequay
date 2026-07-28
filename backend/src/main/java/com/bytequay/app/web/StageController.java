@@ -18,6 +18,8 @@ import com.bytequay.app.beans.stage.StageDetailDto;
 import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
 import com.bytequay.app.beans.workmodel.ResolvedWorkModelResponse;
+import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
+import com.bytequay.app.developmentflow.stage.V2PlanControlService;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.WorkModel;
@@ -31,6 +33,7 @@ import com.bytequay.app.service.stage.StageService;
 import com.bytequay.app.service.stage.StageSteeringService;
 import com.bytequay.app.service.workmodel.ScopeWorkModel;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -67,6 +70,8 @@ public class StageController
     private final TaskStore taskStore;
     private final ThreadStore threadStore;
     private final WorkModelResolver workModelResolver;
+    private V2ControlRouteStore v2Routes;
+    private V2PlanControlService v2PlanControls;
 
     public StageController(
             StageService service,
@@ -88,6 +93,16 @@ public class StageController
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
+    }
+
+    @Autowired
+    void setV2PlanControls(
+            V2ControlRouteStore v2Routes,
+            V2PlanControlService v2PlanControls)
+    {
+        this.v2Routes = requireNonNull(v2Routes, "v2Routes is null");
+        this.v2PlanControls = requireNonNull(
+                v2PlanControls, "v2PlanControls is null");
     }
 
     @GetMapping("/api/tasks/{taskId}/brain")
@@ -162,12 +177,27 @@ public class StageController
     @PostMapping("/api/stages/{planStageId}/approve")
     public PlanStageService.ApproveResult approvePlan(@PathVariable String planStageId)
     {
-        return planStageService.approveByStage(parseStageId(planStageId));
+        UUID stageId = parseStageId(planStageId);
+        if (isV2Stage(stageId)) {
+            V2PlanControlService.Approval approval = requireV2PlanControls()
+                    .approve(stageId.toString());
+            return new PlanStageService.ApproveResult(
+                    approval.localStageId(),
+                    "/tasks/" + approval.taskId() + "/stages/"
+                            + approval.localStageId());
+        }
+        return planStageService.approveByStage(stageId);
     }
 
     @PostMapping("/api/tasks/{taskId}/replan")
     public PlanStageService.ReplanResult replan(@PathVariable String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            V2PlanControlService.Replan result = requireV2PlanControls()
+                    .replan(taskId);
+            return new PlanStageService.ReplanResult(
+                    result.planStageId(), result.preparing());
+        }
         return planStageService.replan(taskId);
     }
 
@@ -179,8 +209,37 @@ public class StageController
             @PathVariable String followupEventId,
             @RequestBody FollowupPatch patch)
     {
+        UUID stageId = parseStageId(planStageId);
+        String v2TaskId = v2TaskForStage(stageId);
+        if (v2TaskId != null) {
+            requireV2PlanControls().resolveFollowup(
+                    v2TaskId, stageId.toString(), followupEventId,
+                    patch == null ? null : patch.status());
+            return;
+        }
         planStageService.resolveFollowup(
                 parseStageId(followupEventId), patch == null ? null : patch.status());
+    }
+
+    private boolean isV2Stage(UUID stageId)
+    {
+        return v2TaskForStage(stageId) != null;
+    }
+
+    private String v2TaskForStage(UUID stageId)
+    {
+        return v2Routes == null ? null
+                : v2Routes.taskForStage(stageId.toString()).orElse(null);
+    }
+
+    private V2PlanControlService requireV2PlanControls()
+    {
+        if (v2PlanControls == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(503),
+                    "V2 Plan controls are not configured");
+        }
+        return v2PlanControls;
     }
 
     /** GET /api/stages/{stageId}/work-model — resolve the effective work

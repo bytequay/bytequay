@@ -1213,6 +1213,97 @@ final class V2TaskStore
     }
 
     @Override
+    public Optional<TaskManager.ReplanRequest> findReplanRequest(
+            String taskId, String commandId)
+    {
+        return replanRequests("request.task_id = ? AND request.command_id = ?",
+                taskId, commandId).stream().findFirst();
+    }
+
+    @Override
+    public Optional<TaskManager.ReplanRequest> findActiveReplanRequest(String taskId)
+    {
+        return replanRequests("request.task_id = ? AND request.status IN ('REQUESTED', 'QUIESCING')",
+                taskId).stream().findFirst();
+    }
+
+    @Override
+    public TaskManager.ReplanRequest createReplanRequest(
+            TaskManager.ReplanRequestCommand command,
+            TaskManager.State current)
+    {
+        requireTransaction();
+        int barrier = jdbc.update("""
+                INSERT INTO task_quiescence_barrier(
+                    id, task_id, task_epoch, reason, status, requested_at_ms)
+                SELECT ?, task.id, task.epoch, 'REPLAN', 'REQUESTED', ?
+                FROM tasks task
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage source ON source.id = current.stage_id
+                WHERE task.id = ? AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND task.epoch = ? AND task.aggregate_version = ?
+                  AND source.id = ? AND source.task_id = task.id
+                  AND source.generation = ? AND source.kind = ?
+                  AND source.completed_at_ms IS NULL
+                """, command.quiescenceBarrierId(), System.currentTimeMillis(),
+                current.id(), current.epoch(), current.version(),
+                command.sourceStageId(), command.sourceStageGeneration(),
+                command.sourceKind().name());
+        if (barrier != 1) {
+            throw concurrent("Task or source Stage changed before replan request");
+        }
+        jdbc.update("""
+                INSERT INTO task_replan_request(
+                    id, task_id, source_stage_id, source_generation,
+                    source_task_epoch, target_task_epoch,
+                    quiescence_barrier_id, command_id, reason, requested_by,
+                    status, requested_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'REQUESTED', ?)
+                """, command.requestId(), current.id(), command.sourceStageId(),
+                command.sourceStageGeneration(), current.epoch(), current.epoch() + 1,
+                command.quiescenceBarrierId(), command.task().commandId(),
+                command.reason(), command.task().actor(), System.currentTimeMillis());
+        int quiescing = jdbc.update("""
+                UPDATE task_replan_request
+                   SET status = 'QUIESCING'
+                 WHERE id = ? AND task_id = ? AND status = 'REQUESTED'
+                """, command.requestId(), current.id());
+        if (quiescing != 1) {
+            throw concurrent("Replan request changed before quiescence began");
+        }
+        return findReplanRequest(current.id(), command.task().commandId())
+                .orElseThrow(() -> concurrent("Created replan request disappeared"));
+    }
+
+    private List<TaskManager.ReplanRequest> replanRequests(
+            String predicate, Object... arguments)
+    {
+        return jdbc.query("""
+                SELECT request.id, request.command_id, request.requested_by,
+                       request.task_id, request.source_task_epoch,
+                       request.source_stage_id, request.source_generation,
+                       source.kind, request.quiescence_barrier_id,
+                       request.reason, request.status, request.new_plan_stage_id,
+                       request.new_plan_generation
+                FROM task_replan_request request
+                JOIN stage source ON source.id = request.source_stage_id
+                WHERE %s
+                ORDER BY request.requested_at_ms, request.id
+                """.formatted(predicate), (rs, row) -> new TaskManager.ReplanRequest(
+                        rs.getString("id"), rs.getString("command_id"),
+                        rs.getString("requested_by"), rs.getString("task_id"),
+                        rs.getLong("source_task_epoch"),
+                        rs.getString("source_stage_id"),
+                        rs.getLong("source_generation"),
+                        StageKind.valueOf(rs.getString("kind")),
+                        rs.getString("quiescence_barrier_id"),
+                        rs.getString("reason"), rs.getString("status"),
+                        rs.getString("new_plan_stage_id"),
+                        nullableLong(rs, "new_plan_generation")), arguments);
+    }
+
+    @Override
     public Optional<TaskManager.QuiescenceEvidence> findSatisfiedQuiescence(
             String taskId, String barrierId)
     {

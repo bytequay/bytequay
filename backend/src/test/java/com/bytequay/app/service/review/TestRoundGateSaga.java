@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane;
+import com.bytequay.app.developmentflow.execution.LegacySagaCapacity;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.ReviewRoundState;
@@ -49,6 +51,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -83,11 +86,15 @@ class TestRoundGateSaga
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final GitRunner git = mock(GitRunner.class);
     private final CodeFingerprints fingerprints = mock(CodeFingerprints.class);
+    private final LegacySagaCapacity capacity = mock(LegacySagaCapacity.class);
+    private final LegacySagaCapacity.Attempt capacityAttempt =
+            mock(LegacySagaCapacity.Attempt.class);
     private final AtomicReference<Task> task = new AtomicReference<>(task());
     private final AtomicReference<ReviewRound> round = new AtomicReference<>(round());
     private final RoundGateSaga saga = new RoundGateSaga(
             rounds, gates, tasks, stages, roundMachine, taskMachine, commands,
-            prs, pullRequests, git, fingerprints, new ObjectMapper(), Runnable::run);
+            prs, pullRequests, git, fingerprints, capacity,
+            new ObjectMapper(), Runnable::run);
 
     @BeforeEach
     void setUp()
@@ -98,6 +105,8 @@ class TestRoundGateSaga
         when(stages.findCommentsByRound(any())).thenReturn(List.of());
         when(git.headSha(WORKTREE)).thenReturn("head-1");
         when(fingerprints.fingerprint(WORKTREE)).thenReturn("fingerprint-1");
+        when(capacity.tryAcquire(any(), any(), any()))
+                .thenReturn(Optional.of(capacityAttempt));
         doAnswer(invocation -> {
             String token = invocation.getArgument(2);
             round.set(withActiveToken(round.get(), token));
@@ -131,6 +140,70 @@ class TestRoundGateSaga
                 .allMatch(RoundGateEffect::completed)
                 .extracting(RoundGateEffect::attempts)
                 .containsExactly(1);
+    }
+
+    @Test
+    void capacityDenialLeavesTheExactEffectPendingWithoutGitOrGithubIo()
+            throws Exception
+    {
+        saga.approve(ROUND_ID);
+        String token = gates.authorization.token();
+        when(capacity.tryAcquire(any(), any(), any())).thenReturn(Optional.empty());
+        clearInvocations(git, fingerprints, pullRequests);
+
+        saga.drive(token);
+        saga.drive(token);
+
+        verifyNoInteractions(git, fingerprints, pullRequests);
+        assertThat(gates.findEffects(token))
+                .allMatch(effect -> effect.status() == RoundGateEffect.Status.PENDING)
+                .allMatch(effect -> effect.attempts() == 0);
+        verify(capacity, times(2)).tryAcquire(
+                "task-1", "legacy-round-gate-effect:1",
+                Set.of(CapacityLane.GITHUB));
+    }
+
+    @Test
+    void durableSweepRetriesAnAuthorizationAfterCapacityDenial()
+            throws Exception
+    {
+        saga.approve(ROUND_ID);
+        String token = gates.authorization.token();
+        when(capacity.tryAcquire(any(), any(), any())).thenReturn(Optional.empty());
+        saga.drive(token);
+        assertThat(gates.findEffects(token).getFirst().status())
+                .isEqualTo(RoundGateEffect.Status.PENDING);
+
+        when(capacity.tryAcquire(any(), any(), any()))
+                .thenReturn(Optional.of(capacityAttempt));
+        saga.reconcileActive();
+
+        verify(git).push(WORKTREE);
+        verify(roundMachine).postInCommand(
+                "task-1", ROUND_ID, token, "round_gate_posted");
+        assertThat(gates.findEffects(token)).allMatch(RoundGateEffect::completed);
+    }
+
+    @Test
+    void lostCapacityLeavesTheClaimInFlightForRemoteProbeRecovery()
+            throws Exception
+    {
+        doAnswer(ignored -> {
+            when(capacityAttempt.leaseLost()).thenReturn(true);
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE, "capacity owner interrupted");
+        }).when(git).push(WORKTREE);
+        saga.approve(ROUND_ID);
+
+        saga.drive(gates.authorization.token());
+
+        RoundGateEffect effect = gates.findEffect(
+                gates.authorization.token(), RoundGateSaga.EFFECT_PUSH_BRANCH).orElseThrow();
+        assertThat(effect.status()).isEqualTo(RoundGateEffect.Status.IN_FLIGHT);
+        assertThat(effect.claimOwner()).isNotBlank();
+        verify(roundMachine, never()).parkInCommand(any(), any(), any());
+        verify(taskMachine, never()).parkOperationalInCommand(any(), any(), any());
+        verifyNoInteractions(pullRequests);
     }
 
     @Test

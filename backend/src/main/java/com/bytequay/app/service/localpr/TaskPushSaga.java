@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.developmentflow.execution.CapacityManager;
+import com.bytequay.app.developmentflow.execution.LegacySagaCapacity;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.ListPullRequestsQuery;
@@ -65,6 +67,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
@@ -107,6 +110,7 @@ public class TaskPushSaga
     private final TaskPhaseMachine taskMachine;
     private final NotificationService notifications;
     private final LocalReviewSubmissionStore submissions;
+    private final LegacySagaCapacity capacity;
     private final ObjectMapper mapper;
 
     public TaskPushSaga(
@@ -123,6 +127,7 @@ public class TaskPushSaga
             TaskPhaseMachine taskMachine,
             NotificationService notifications,
             LocalReviewSubmissionStore submissions,
+            LegacySagaCapacity capacity,
             ObjectMapper mapper)
     {
         this.prs = requireNonNull(prs, "prs is null");
@@ -138,6 +143,7 @@ public class TaskPushSaga
         this.taskMachine = requireNonNull(taskMachine, "taskMachine is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.submissions = requireNonNull(submissions, "submissions is null");
+        this.capacity = requireNonNull(capacity, "capacity is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -201,26 +207,50 @@ public class TaskPushSaga
                     .equalsIgnoreCase(repo)) {
                 throw conflict("remote-open event does not match the authorized repository");
             }
-            Path worktree = Path.of(payload.worktreePath());
-            String remoteHead = remoteHeadSha(worktree, payload.branchName()).orElse(null);
-            if (!authorization.headSha().equals(remoteHead)) {
-                throw conflict("remote-open branch does not match the authorized HEAD");
+            Optional<LegacySagaCapacity.Attempt> admitted = capacity.tryAcquire(
+                    taskId,
+                    authorizationCapacityOperationId(authorization.token(), "adopt"),
+                    Set.of(CapacityManager.CapacityLane.GITHUB));
+            if (admitted.isEmpty()) {
+                return false;
             }
-            RepoRef target = new RepoRef(payload.repoOwner(), payload.repoName());
-            PullRequest opened = findExistingOpenPullRequest(
-                    pats.resolve(target.fullName()), target, payload)
-                    .filter(candidate -> candidate.number() == number)
-                    .filter(candidate -> url.equals(candidate.htmlUrl()))
-                    .orElseThrow(() -> conflict(
-                            "remote-open pull request does not match the authorization"));
-            RemoteEvidence remote = new RemoteEvidence(
-                    opened.repo(), opened.number(), opened.htmlUrl(), opened.author());
-            commands.executeVoid(taskId, () -> completeObservedRemoteInCommand(
-                    authorization, remote));
-
-            ObservedCode observed = observeAuthorizedCode(authorization, worktree);
-            commands.executeVoid(taskId, () -> finalizeInCommand(
-                    authorization, observed.head(), observed.fingerprint(), remote));
+            ObservedCode observed;
+            RemoteEvidence remote;
+            try (LegacySagaCapacity.Attempt attempt = admitted.orElseThrow()) {
+                try {
+                    Path worktree = Path.of(payload.worktreePath());
+                    attempt.requireLive();
+                    String remoteHead = remoteHeadSha(
+                            worktree, payload.branchName()).orElse(null);
+                    if (!authorization.headSha().equals(remoteHead)) {
+                        throw conflict("remote-open branch does not match the authorized HEAD");
+                    }
+                    attempt.requireLive();
+                    RepoRef target = new RepoRef(payload.repoOwner(), payload.repoName());
+                    PullRequest opened = findExistingOpenPullRequest(
+                            pats.resolve(target.fullName()), target, payload)
+                            .filter(candidate -> candidate.number() == number)
+                            .filter(candidate -> url.equals(candidate.htmlUrl()))
+                            .orElseThrow(() -> conflict(
+                                    "remote-open pull request does not match the authorization"));
+                    remote = new RemoteEvidence(
+                            opened.repo(), opened.number(), opened.htmlUrl(), opened.author());
+                    attempt.requireLive();
+                    observed = observeAuthorizedCode(authorization, worktree);
+                    attempt.requireLive();
+                    commands.executeVoid(taskId, () -> completeObservedRemoteInCommand(
+                            authorization, remote));
+                    attempt.requireLive();
+                    commands.executeVoid(taskId, () -> finalizeInCommand(
+                            authorization, observed.head(), observed.fingerprint(), remote));
+                }
+                catch (RuntimeException e) {
+                    if (attempt.leaseLost()) {
+                        return false;
+                    }
+                    throw e;
+                }
+            }
             return true;
         });
     }
@@ -512,37 +542,63 @@ public class TaskPushSaga
                 || pushes.findActiveByTask(taskId).isPresent()) {
             return;
         }
-        Path worktree = worktree(task);
-        String head = headSha(worktree);
-        String remoteHead = remoteHeadSha(worktree, pr.branchName()).orElse(null);
-        if (!head.equals(remoteHead)) {
-            throw conflict("remote branch does not match task HEAD for orphan adoption");
+        Optional<LegacySagaCapacity.Attempt> admitted = capacity.tryAcquire(
+                taskId,
+                "legacy-task-push-pr:" + pr.id() + ":orphan-adoption",
+                Set.of(CapacityManager.CapacityLane.GITHUB));
+        if (admitted.isEmpty()) {
+            return;
         }
-        PublishTarget target = resolvePublishTarget(task, pr);
-        if (!target.repo().fullName().equalsIgnoreCase(pr.repo())) {
-            throw conflict("remote PR repository does not match the task publish target");
+        try (LegacySagaCapacity.Attempt attempt = admitted.orElseThrow()) {
+            try {
+                Path worktree = worktree(task);
+                attempt.requireLive();
+                String head = headSha(worktree);
+                attempt.requireLive();
+                String remoteHead = remoteHeadSha(worktree, pr.branchName()).orElse(null);
+                if (!head.equals(remoteHead)) {
+                    throw conflict("remote branch does not match task HEAD for orphan adoption");
+                }
+                attempt.requireLive();
+                PublishTarget target = resolvePublishTarget(task, pr);
+                if (!target.repo().fullName().equalsIgnoreCase(pr.repo())) {
+                    throw conflict("remote PR repository does not match the task publish target");
+                }
+                PushPayload payload = new PushPayload(
+                        pr.id(), task.id(), worktree.toString(), target.repo().owner(), target.repo().repo(),
+                        target.apiHead(), target.headFilter(), target.base(), pr.branchName(),
+                        pr.title(), pr.description(), head);
+                attempt.requireLive();
+                PullRequest observed = findExistingOpenPullRequest(
+                        pats.resolve(target.repo().fullName()), target.repo(), payload)
+                        .filter(remote -> remote.number() == pr.remotePrNumber())
+                        .filter(remote -> pr.remotePrUrl().equals(remote.htmlUrl()))
+                        .orElseThrow(() -> conflict(
+                                "remote PR identity could not be verified for orphan adoption"));
+                String payloadJson = json(payload);
+                attempt.requireLive();
+                String fingerprint = fingerprints.fingerprint(worktree);
+                TaskPushAuthorization authorization = new TaskPushAuthorization(
+                        UUID.randomUUID().toString(), task.id(), pr.id(), null, head, fingerprint,
+                        Actor.WEBHOOK, TaskPushAuthorization.BASIS_LEGACY_REMOTE, null, null,
+                        payloadJson, sha256(payloadJson), json(EFFECT_ORDER),
+                        Instant.now(), null, null, null);
+                RemoteEvidence remote = new RemoteEvidence(
+                        observed.repo(), observed.number(), observed.htmlUrl(), observed.author());
+                attempt.requireLive();
+                OrphanAdoption adoption = new OrphanAdoption(
+                        authorization, json(new PushEvidence(head)), json(remote), remote);
+                commands.executeVoid(task.id(), () -> adoptOrphanInCommand(
+                        adoption.authorization(), adoption.pushEvidence(),
+                        adoption.pullRequestEvidence(), adoption.remote()));
+            }
+            catch (RuntimeException e) {
+                if (!attempt.leaseLost()) {
+                    throw e;
+                }
+                return;
+            }
         }
-        PushPayload payload = new PushPayload(
-                pr.id(), task.id(), worktree.toString(), target.repo().owner(), target.repo().repo(),
-                target.apiHead(), target.headFilter(), target.base(), pr.branchName(),
-                pr.title(), pr.description(), head);
-        PullRequest observed = findExistingOpenPullRequest(
-                pats.resolve(target.repo().fullName()), target.repo(), payload)
-                .filter(remote -> remote.number() == pr.remotePrNumber())
-                .filter(remote -> pr.remotePrUrl().equals(remote.htmlUrl()))
-                .orElseThrow(() -> conflict(
-                        "remote PR identity could not be verified for orphan adoption"));
-        String payloadJson = json(payload);
-        String fingerprint = fingerprints.fingerprint(worktree);
-        TaskPushAuthorization authorization = new TaskPushAuthorization(
-                UUID.randomUUID().toString(), task.id(), pr.id(), null, head, fingerprint,
-                Actor.WEBHOOK, TaskPushAuthorization.BASIS_LEGACY_REMOTE, null, null,
-                payloadJson, sha256(payloadJson), json(EFFECT_ORDER),
-                Instant.now(), null, null, null);
-        RemoteEvidence remote = new RemoteEvidence(
-                observed.repo(), observed.number(), observed.htmlUrl(), observed.author());
-        commands.executeVoid(task.id(), () -> adoptOrphanInCommand(
-                authorization, json(new PushEvidence(head)), json(remote), remote));
     }
 
     private void adoptOrphanInCommand(
@@ -765,41 +821,96 @@ public class TaskPushSaga
                 if (effect.leaseUntil() == null || effect.leaseUntil().isAfter(Instant.now())) {
                     return;
                 }
-                if (recoverExpiredClaim(authorization, effect)) {
-                    continue;
-                }
-                return;
             }
-            if (effect.exhausted()) {
+            if (effect.status() != TaskPushEffect.Status.IN_FLIGHT
+                    && effect.exhausted()) {
                 commands.executeVoid(authorization.taskId(), () ->
                         taskMachine.parkOperationalInCommand(
                                 authorization.taskId(), Actor.AGENT,
                                 "local_push_attempts_exhausted"));
                 return;
             }
-            ObservedCode observed = observeAuthorizedCode(authorization, worktree);
-            String owner = UUID.randomUUID().toString();
-            boolean claimed = commands.execute(task.id(),
-                    () -> claimInCommand(
-                            authorization, effectKey, owner, observed));
-            if (!claimed) {
+
+            // Delivery may be synchronous or a recovery wake; either way the
+            // durable step is still pending until shared admission succeeds.
+            Optional<LegacySagaCapacity.Attempt> admitted = capacity.tryAcquire(
+                    task.id(), capacityOperationId(effect),
+                    Set.of(CapacityManager.CapacityLane.GITHUB));
+            if (admitted.isEmpty()) {
                 return;
             }
-            try {
-                String evidence = performEffect(effectKey, authorization);
-                commands.executeVoid(task.id(), () -> completeEffectInCommand(
-                        authorization, effectKey, owner, evidence));
-            }
-            catch (RuntimeException e) {
-                failEffect(authorization, effectKey, owner, e);
-                throw e;
+            try (LegacySagaCapacity.Attempt attempt = admitted.orElseThrow()) {
+                if (effect.status() == TaskPushEffect.Status.IN_FLIGHT) {
+                    if (recoverExpiredClaim(authorization, effect, attempt)) {
+                        continue;
+                    }
+                    return;
+                }
+
+                String owner = UUID.randomUUID().toString();
+                boolean claimed = false;
+                try {
+                    attempt.requireLive();
+                    ObservedCode observed = observeAuthorizedCode(authorization, worktree);
+                    attempt.requireLive();
+                    claimed = commands.execute(task.id(),
+                            () -> claimInCommand(
+                                    authorization, effectKey, owner, observed));
+                    if (!claimed) {
+                        return;
+                    }
+                    attempt.requireLive();
+                    String evidence = performEffect(effectKey, authorization);
+                    attempt.requireLive();
+                    commands.executeVoid(task.id(), () -> completeEffectInCommand(
+                            authorization, effectKey, owner, evidence));
+                }
+                catch (RuntimeException e) {
+                    if (attempt.leaseLost()) {
+                        // The remote outcome may be ambiguous. Keep an owned
+                        // claim for the existing probe-before-retry path.
+                        return;
+                    }
+                    if (claimed) {
+                        failEffect(authorization, effectKey, owner, e);
+                    }
+                    throw e;
+                }
             }
         }
 
-        ObservedCode finalCode = observeAuthorizedCode(authorization, worktree);
-        RemoteEvidence remote = remoteEvidence(token);
-        commands.executeVoid(task.id(), () -> finalizeInCommand(
-                authorization, finalCode.head(), finalCode.fingerprint(), remote));
+        finalizeUnderCapacity(authorization, task.id(), worktree);
+    }
+
+    private void finalizeUnderCapacity(
+            TaskPushAuthorization authorization, String taskId, Path worktree)
+    {
+        Optional<LegacySagaCapacity.Attempt> admitted = capacity.tryAcquire(
+                taskId,
+                authorizationCapacityOperationId(authorization.token(), "finalize"),
+                Set.of(CapacityManager.CapacityLane.GITHUB));
+        if (admitted.isEmpty()) {
+            return;
+        }
+        ObservedCode finalCode;
+        RemoteEvidence remote;
+        try (LegacySagaCapacity.Attempt attempt = admitted.orElseThrow()) {
+            try {
+                attempt.requireLive();
+                finalCode = observeAuthorizedCode(authorization, worktree);
+                attempt.requireLive();
+                remote = remoteEvidence(authorization.token());
+                attempt.requireLive();
+                commands.executeVoid(taskId, () -> finalizeInCommand(
+                        authorization, finalCode.head(), finalCode.fingerprint(), remote));
+            }
+            catch (RuntimeException e) {
+                if (!attempt.leaseLost()) {
+                    throw e;
+                }
+                return;
+            }
+        }
     }
 
     private ObservedCode observeAuthorizedCode(
@@ -820,13 +931,20 @@ public class TaskPushSaga
      * Probe the exact remote marker first; only a proven miss releases the
      * cursor for a bounded retry. */
     private boolean recoverExpiredClaim(
-            TaskPushAuthorization authorization, TaskPushEffect effect)
+            TaskPushAuthorization authorization,
+            TaskPushEffect effect,
+            LegacySagaCapacity.Attempt attempt)
     {
         String evidence;
         try {
+            attempt.requireLive();
             evidence = probeExpiredEffect(authorization, effect.effectKey());
+            attempt.requireLive();
         }
         catch (RuntimeException e) {
+            if (attempt.leaseLost()) {
+                return false;
+            }
             failEffect(authorization, effect.effectKey(), effect.claimOwner(), e);
             return false;
         }
@@ -841,6 +959,16 @@ public class TaskPushSaga
                 authorization, effect.effectKey(), effect.claimOwner(),
                 new IllegalStateException("expired push effect was absent remotely"));
         return false;
+    }
+
+    static String capacityOperationId(TaskPushEffect effect)
+    {
+        return "legacy-task-push-effect:" + effect.id();
+    }
+
+    private static String authorizationCapacityOperationId(String token, String action)
+    {
+        return "legacy-task-push-authorization:" + token + ":" + action;
     }
 
     private String probeExpiredEffect(
@@ -1321,6 +1449,12 @@ public class TaskPushSaga
     private record ObservedCode(String head, String fingerprint) {}
 
     private record RemoteEvidence(String repo, int number, String url, String author) {}
+
+    private record OrphanAdoption(
+            TaskPushAuthorization authorization,
+            String pushEvidence,
+            String pullRequestEvidence,
+            RemoteEvidence remote) {}
 
     /** Immutable payload persisted on an EXTERNAL_SAGA recovery request. */
     public record RecoveryPlan(

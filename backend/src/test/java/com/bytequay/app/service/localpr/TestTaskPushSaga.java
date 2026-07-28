@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane;
+import com.bytequay.app.developmentflow.execution.LegacySagaCapacity;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PullRequest;
@@ -56,6 +58,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -64,12 +67,14 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestTaskPushSaga
@@ -91,9 +96,13 @@ class TestTaskPushSaga
     private final TaskPhaseMachine taskMachine = mock(TaskPhaseMachine.class);
     private final NotificationService notifications = mock(NotificationService.class);
     private final LocalReviewSubmissionStore submissions = mock(LocalReviewSubmissionStore.class);
+    private final LegacySagaCapacity capacity = mock(LegacySagaCapacity.class);
+    private final LegacySagaCapacity.Attempt capacityAttempt =
+            mock(LegacySagaCapacity.Attempt.class);
     private final TaskPushSaga saga = new TaskPushSaga(
             prs, tasks, watchedRepos, git, pullRequests, pats, rounds, fingerprints,
-            pushes, commands, taskMachine, notifications, submissions, new ObjectMapper());
+            pushes, commands, taskMachine, notifications, submissions, capacity,
+            new ObjectMapper());
 
     @BeforeEach
     void setUp()
@@ -116,6 +125,8 @@ class TestTaskPushSaga
                 .thenReturn(Optional.of(new RepoRef("acme", "widget")));
         when(fingerprints.fingerprint(WORKTREE)).thenReturn("fingerprint-1");
         when(pats.resolve("acme/widget")).thenReturn("pat");
+        when(capacity.tryAcquire(anyString(), anyString(), any()))
+                .thenReturn(Optional.of(capacityAttempt));
         when(pullRequests.listPullRequests(any(), any(), any())).thenReturn(List.of());
         when(pullRequests.createPullRequest(any(), any(), any())).thenReturn(remotePr());
         PR pushed = pr.withRemote(
@@ -160,6 +171,55 @@ class TestTaskPushSaga
                 .allMatch(TaskPushEffect::completed)
                 .extracting(TaskPushEffect::attempts)
                 .containsExactly(1, 1);
+    }
+
+    @Test
+    void capacityDenialLeavesTheExactEffectPendingWithoutGitOrGithubIo()
+            throws Exception
+    {
+        when(capacity.tryAcquire(anyString(), anyString(), any()))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> saga.push("pr-1", false))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("awaiting retry or recovery");
+        String token = pushes.authorization.token();
+        assertThat(pushes.findEffects(token))
+                .allMatch(effect -> effect.status() == TaskPushEffect.Status.PENDING)
+                .allMatch(effect -> effect.attempts() == 0);
+
+        clearInvocations(git, fingerprints, pullRequests);
+        saga.drive(token);
+        saga.drive(token);
+
+        verifyNoInteractions(git, fingerprints, pullRequests);
+        assertThat(pushes.findEffects(token))
+                .allMatch(effect -> effect.status() == TaskPushEffect.Status.PENDING)
+                .allMatch(effect -> effect.attempts() == 0);
+        verify(capacity, times(3)).tryAcquire(
+                "task-1", "legacy-task-push-effect:1",
+                Set.of(CapacityLane.GITHUB));
+    }
+
+    @Test
+    void lostCapacityLeavesTheClaimInFlightForRemoteProbeRecovery()
+            throws Exception
+    {
+        doAnswer(ignored -> {
+            when(capacityAttempt.leaseLost()).thenReturn(true);
+            throw new IOException("capacity owner interrupted");
+        }).when(git).push(WORKTREE);
+
+        assertThatThrownBy(() -> saga.push("pr-1", false))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("awaiting retry or recovery");
+
+        TaskPushEffect effect = pushes.findEffect(
+                pushes.authorization.token(), TaskPushSaga.EFFECT_PUSH_BRANCH).orElseThrow();
+        assertThat(effect.status()).isEqualTo(TaskPushEffect.Status.IN_FLIGHT);
+        assertThat(effect.claimOwner()).isNotBlank();
+        verify(prs, never()).recordPushFailureInCommand(any(), any(), any());
+        verify(pullRequests, never()).createPullRequest(any(), any(), any());
     }
 
     @Test

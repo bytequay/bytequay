@@ -15,7 +15,7 @@ package com.bytequay.app.developmentflow.stage;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.ResultFence;
-import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator.SteeringAdmission;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanEditReceipt;
@@ -61,7 +61,7 @@ public final class V2StageSteeringRuntime
     private final LocalDevelopmentRuntimeCoordinator local;
     private final PlanRuntimeCoordinator plan;
     private final ChatAttachmentStore attachmentStore;
-    private final ObjectProvider<ExecutionDispatcher> dispatcher;
+    private final DispatchTicketControl tickets;
     private final ObjectProvider<RemoteRepairTurnRuntime> remoteRepairs;
     private final ObjectProvider<RemoteFeedbackRuntimeCoordinator> remoteFeedback;
     private final Clock clock;
@@ -74,12 +74,12 @@ public final class V2StageSteeringRuntime
             LocalDevelopmentRuntimeCoordinator local,
             PlanRuntimeCoordinator plan,
             ChatAttachmentStore attachmentStore,
-            ObjectProvider<ExecutionDispatcher> dispatcher,
+            DispatchTicketControl tickets,
             ObjectProvider<RemoteRepairTurnRuntime> remoteRepairs,
             ObjectProvider<RemoteFeedbackRuntimeCoordinator> remoteFeedback)
     {
         this(commands, stages, store, local, plan, attachmentStore,
-                dispatcher, remoteRepairs, remoteFeedback, Clock.systemUTC());
+                tickets, remoteRepairs, remoteFeedback, Clock.systemUTC());
     }
 
     V2StageSteeringRuntime(
@@ -89,7 +89,7 @@ public final class V2StageSteeringRuntime
             LocalDevelopmentRuntimeCoordinator local,
             PlanRuntimeCoordinator plan,
             ChatAttachmentStore attachmentStore,
-            ObjectProvider<ExecutionDispatcher> dispatcher,
+            DispatchTicketControl tickets,
             ObjectProvider<RemoteRepairTurnRuntime> remoteRepairs,
             ObjectProvider<RemoteFeedbackRuntimeCoordinator> remoteFeedback,
             Clock clock)
@@ -101,7 +101,7 @@ public final class V2StageSteeringRuntime
         this.plan = requireNonNull(plan, "plan is null");
         this.attachmentStore = requireNonNull(
                 attachmentStore, "attachmentStore is null");
-        this.dispatcher = requireNonNull(dispatcher, "dispatcher is null");
+        this.tickets = requireNonNull(tickets, "tickets is null");
         this.remoteRepairs = requireNonNull(
                 remoteRepairs, "remoteRepairs is null");
         this.remoteFeedback = requireNonNull(
@@ -315,10 +315,7 @@ public final class V2StageSteeringRuntime
                 || request.predecessor() == null) {
             return;
         }
-        ExecutionDispatcher current = dispatcher.getIfAvailable();
-        if (current != null) {
-            current.requestCancel(request.predecessor().ticketId());
-        }
+        tickets.requestCancel(request.predecessor().ticketId());
     }
 
     private static String staleReason(

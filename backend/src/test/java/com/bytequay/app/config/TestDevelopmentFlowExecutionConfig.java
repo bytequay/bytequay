@@ -14,6 +14,7 @@
 package com.bytequay.app.config;
 
 import com.bytequay.app.developmentflow.execution.CapacityManager;
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
@@ -95,6 +96,7 @@ import com.bytequay.app.service.checks.ValidationCheck;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.localpr.PRService;
+import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
 import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.threads.LegacyTaskScopeResolver;
@@ -131,7 +133,7 @@ import static org.mockito.Mockito.when;
 class TestDevelopmentFlowExecutionConfig
 {
     @Test
-    void sharedCapacityIsAlwaysOnButV2DispatcherIsAbsentByDefault()
+    void dispatchPauseKeepsDurableV2ControlsButStartsNoExecutor()
     {
         contextRunner()
                 .withUserConfiguration(DevelopmentFlowExecutionConfig.class)
@@ -140,6 +142,11 @@ class TestDevelopmentFlowExecutionConfig
                     assertThat(context).hasSingleBean(LegacyCapacityBridge.class);
                     assertThat(context).hasSingleBean(LegacyCapacityLeaseMaintainer.class);
                     assertThat(context).hasSingleBean(WorktreeWriterLeaseManager.class);
+                    assertThat(context).hasSingleBean(DispatchTicketControl.class);
+                    assertThat(context).hasSingleBean(V2TaskControlService.class);
+                    assertThat(context).hasSingleBean(PlanningBaseTurnRuntime.class);
+                    assertThat(context).hasSingleBean(V2ThreadControlService.class);
+                    assertThat(context).hasSingleBean(ReviewAssignmentTurnRuntime.class);
                     assertThat(context).doesNotHaveBean(ExecutionDispatcher.class);
                 });
     }
@@ -496,13 +503,43 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(CapacityManager.CapacityLeaseStore.class))
                 .withBean(
                         WorktreeWriterLeaseManager.Store.class,
-                        () -> mock(WorktreeWriterLeaseManager.Store.class));
+                        () -> mock(WorktreeWriterLeaseManager.Store.class))
+                .withBean(
+                        ExecutionPorts.DispatchTicketStore.class,
+                        TestDevelopmentFlowExecutionConfig::ticketStore)
+                .withBean(TaskManager.class, () -> mock(TaskManager.class))
+                .withBean(TaskManager.Store.class,
+                        () -> mock(TaskManager.Store.class))
+                .withBean(RemoteCiRepairRuntimeCoordinator.class,
+                        () -> mock(RemoteCiRepairRuntimeCoordinator.class))
+                .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
+                .withBean(TrunkManager.class, () -> mock(TrunkManager.class))
+                .withBean(TrunkManager.Store.class,
+                        () -> mock(TrunkManager.Store.class))
+                .withBean(SqlitePlanningBaseTurnStore.class,
+                        () -> mock(SqlitePlanningBaseTurnStore.class))
+                .withBean(ThreadTurnHandoff.class,
+                        () -> mock(ThreadTurnHandoff.class))
+                .withBean(WorkspaceRepositoryResolver.class,
+                        () -> mock(WorkspaceRepositoryResolver.class))
+                .withBean(WatchedRepoStore.class,
+                        () -> mock(WatchedRepoStore.class))
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withBean(ThreadTurnProjection.class,
+                        () -> mock(ThreadTurnProjection.class))
+                .withBean(ThreadEngineOverrides.class,
+                        () -> mock(ThreadEngineOverrides.class))
+                .withBean(RoleRegistry.class, () -> mock(RoleRegistry.class))
+                .withBean(SessionKnowledgeProvider.class,
+                        () -> mock(SessionKnowledgeProvider.class))
+                .withBean(SqliteReviewAssignmentTurnStore.class,
+                        () -> mock(SqliteReviewAssignmentTurnStore.class))
+                .withBean(ReviewProviderEndpoints.class,
+                        () -> mock(ReviewProviderEndpoints.class));
     }
 
-    private static ApplicationContextRunner v2ContextRunner()
+    private static ExecutionPorts.DispatchTicketStore ticketStore()
     {
-        SqliteCleanupOperationStore cleanup = mock(SqliteCleanupOperationStore.class);
-        when(cleanup.findPendingFinalizations(100)).thenReturn(List.of());
         ExecutionPorts.DispatchTicketStore tickets = mock(
                 ExecutionPorts.DispatchTicketStore.class);
         when(tickets.findExpiredClaims(any(), anyInt())).thenReturn(List.of());
@@ -510,6 +547,13 @@ class TestDevelopmentFlowExecutionConfig
                 .thenReturn(List.of());
         when(tickets.findEligiblePage(any(), any(), anyInt()))
                 .thenReturn(new ExecutionPorts.TicketScanPage(List.of(), null));
+        return tickets;
+    }
+
+    private static ApplicationContextRunner v2ContextRunner()
+    {
+        SqliteCleanupOperationStore cleanup = mock(SqliteCleanupOperationStore.class);
+        when(cleanup.findPendingFinalizations(100)).thenReturn(List.of());
         ExecutionPorts.DispatchWakeStore wakes = mock(
                 ExecutionPorts.DispatchWakeStore.class);
         when(wakes.claimAvailable(anyString(), any(), any(), anyInt()))
@@ -530,45 +574,22 @@ class TestDevelopmentFlowExecutionConfig
                 .withBean(RemoteObservationRuntimeCoordinator.class,
                         () -> mock(RemoteObservationRuntimeCoordinator.class))
                 .withBean(PRService.class, () -> mock(PRService.class))
-                .withBean(RemoteCiRepairRuntimeCoordinator.class,
-                        () -> mock(RemoteCiRepairRuntimeCoordinator.class))
                 .withBean(BranchSyncRuntimeCoordinator.class,
                         () -> mock(BranchSyncRuntimeCoordinator.class))
                 .withBean(RemoteRepairTurnRuntime.class,
                         () -> mock(RemoteRepairTurnRuntime.class))
-                .withBean(TaskManager.class, () -> mock(TaskManager.class))
-                .withBean(TaskManager.Store.class,
-                        () -> mock(TaskManager.Store.class))
                 .withBean(TaskCommandExecutor.class,
                         () -> mock(TaskCommandExecutor.class))
                 .withBean(LocalDevelopmentStageManager.class,
                         () -> mock(LocalDevelopmentStageManager.class))
                 .withBean(RemoteDevelopmentStageManager.class,
                         () -> mock(RemoteDevelopmentStageManager.class))
-                .withBean(TrunkManager.class, () -> mock(TrunkManager.class))
-                .withBean(TrunkManager.Store.class,
-                        () -> mock(TrunkManager.Store.class))
                 .withBean(SqliteTaskOutcomeSummaryStore.class,
                         () -> mock(SqliteTaskOutcomeSummaryStore.class))
                 .withBean(TaskOutcomeSummaryRuntime.class,
                         () -> mock(TaskOutcomeSummaryRuntime.class))
-                .withBean(SqlitePlanningBaseTurnStore.class,
-                        () -> mock(SqlitePlanningBaseTurnStore.class))
-                .withBean(ThreadTurnHandoff.class,
-                        () -> mock(ThreadTurnHandoff.class))
-                .withBean(ThreadTurnProjection.class,
-                        () -> mock(ThreadTurnProjection.class))
-                .withBean(WorkspaceRepositoryResolver.class,
-                        () -> mock(WorkspaceRepositoryResolver.class))
-                .withBean(WatchedRepoStore.class,
-                        () -> mock(WatchedRepoStore.class))
                 .withBean(WorktreeService.class,
                         () -> mock(WorktreeService.class))
-                .withBean(ThreadEngineOverrides.class,
-                        () -> mock(ThreadEngineOverrides.class))
-                .withBean(RoleRegistry.class, () -> mock(RoleRegistry.class))
-                .withBean(SessionKnowledgeProvider.class,
-                        () -> mock(SessionKnowledgeProvider.class))
                 .withBean(LocalToRemoteHandoff.class,
                         () -> mock(LocalToRemoteHandoff.class))
                 .withBean(SqlitePublishResultStore.class,
@@ -576,8 +597,6 @@ class TestDevelopmentFlowExecutionConfig
                 .withBean(SqliteCleanupOperationStore.class, () -> cleanup)
                 .withBean(CleanupCompletionHandoff.class,
                         () -> mock(CleanupCompletionHandoff.class))
-                .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
-                .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(CredentialService.class,
                         () -> mock(CredentialService.class))
                 .withBean(Ds4LifecycleService.class,
@@ -591,10 +610,6 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(SqliteAgentTurnOperationStore.class))
                 .withBean(SqliteThreadTurnOperationStore.class,
                         () -> mock(SqliteThreadTurnOperationStore.class))
-                .withBean(SqliteReviewAssignmentTurnStore.class,
-                        () -> mock(SqliteReviewAssignmentTurnStore.class))
-                .withBean(ReviewProviderEndpoints.class,
-                        () -> mock(ReviewProviderEndpoints.class))
                 .withBean(ActiveAgentContextRegistry.class,
                         () -> mock(ActiveAgentContextRegistry.class))
                 .withBean(ToolExposurePolicy.class,
@@ -632,7 +647,6 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(SqliteMergeOperationStore.class))
                 .withBean(GitHubMergeEffects.class,
                         () -> mock(GitHubMergeEffects.class))
-                .withBean(ExecutionPorts.DispatchTicketStore.class, () -> tickets)
                 .withBean(ExecutionPorts.DispatchWakeStore.class, () -> wakes)
                 .withBean(ExecutionPorts.ExecutionEvidencePort.class,
                         () -> mock(ExecutionPorts.ExecutionEvidencePort.class));

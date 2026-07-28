@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.developmentflow.trunk;
 
-import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadMessage;
@@ -46,7 +46,7 @@ public final class V2ThreadControlService
 {
     private final PlanningBaseTurnRuntime planning;
     private final ThreadTurnProjection projection;
-    private final ExecutionDispatcher dispatcher;
+    private final DispatchTicketControl tickets;
     private final ThreadEngineOverrides engines;
     private final RoleRegistry roles;
     private final SessionKnowledgeProvider knowledge;
@@ -54,14 +54,14 @@ public final class V2ThreadControlService
     public V2ThreadControlService(
             PlanningBaseTurnRuntime planning,
             ThreadTurnProjection projection,
-            ExecutionDispatcher dispatcher,
+            DispatchTicketControl tickets,
             ThreadEngineOverrides engines,
             RoleRegistry roles,
             SessionKnowledgeProvider knowledge)
     {
         this.planning = requireNonNull(planning, "planning is null");
         this.projection = requireNonNull(projection, "projection is null");
-        this.dispatcher = requireNonNull(dispatcher, "dispatcher is null");
+        this.tickets = requireNonNull(tickets, "tickets is null");
         this.engines = requireNonNull(engines, "engines is null");
         this.roles = requireNonNull(roles, "roles is null");
         this.knowledge = requireNonNull(knowledge, "knowledge is null");
@@ -120,7 +120,8 @@ public final class V2ThreadControlService
     {
         planning.suppressPending(
                 trunkId, "User canceled before provider launch");
-        projection.cancelableTicketIds(trunkId).forEach(dispatcher::requestCancel);
+        projection.cancelableTicketIds(trunkId)
+                .forEach(tickets::requestCancel);
     }
 
     private static ThreadTurn projectedTurn(

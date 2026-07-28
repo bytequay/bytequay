@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.developmentflow.task;
 
-import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
@@ -37,7 +37,7 @@ class TestV2TaskControlService
     {
         TaskManager tasks = mock(TaskManager.class);
         TaskManager.Store store = mock(TaskManager.Store.class);
-        ExecutionDispatcher dispatcher = mock(ExecutionDispatcher.class);
+        DispatchTicketControl tickets = mock(DispatchTicketControl.class);
         RemoteCiRepairRuntimeCoordinator ciRepair =
                 mock(RemoteCiRepairRuntimeCoordinator.class);
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
@@ -48,7 +48,7 @@ class TestV2TaskControlService
                 eq("task-1")))
                 .thenReturn(List.of("episode-1"));
         V2TaskControlService controls = new V2TaskControlService(
-                tasks, store, dispatcher, ciRepair, jdbc);
+                tasks, store, tickets, ciRepair, jdbc);
 
         assertThat(controls.retryFailedCi("task-1")).isSameAs(state);
 

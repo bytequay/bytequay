@@ -14,7 +14,7 @@
 package com.bytequay.app.developmentflow.task.persistence;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
-import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.stage.CancellationToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
@@ -1226,7 +1226,7 @@ class TestSqliteTaskStore
         V2TaskStore store = new V2TaskStore(jdbc);
         TaskManager tasks = new TaskManager(commands, store);
         V2TaskControlService controls = new V2TaskControlService(
-                tasks, store, mock(ExecutionDispatcher.class),
+                tasks, store, mock(DispatchTicketControl.class),
                 mock(RemoteCiRepairRuntimeCoordinator.class), jdbc);
         return new ControlFixture(jdbc, transactions, commands, store, tasks, controls);
     }

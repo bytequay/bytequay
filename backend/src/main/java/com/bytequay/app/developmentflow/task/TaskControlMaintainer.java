@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.developmentflow.task;
 
-import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.stage.CancellationToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.StageKind;
@@ -22,7 +22,6 @@ import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntim
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore.ControlContext;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore.ResumeHandoff;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore.TerminalAcceptance;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -54,21 +53,10 @@ public final class TaskControlMaintainer
             TaskControlHandoff controls,
             List<TaskResumeOwner> resumeOwners,
             List<CancellationToCleanupHandoff> cancellations,
-            ObjectProvider<ExecutionDispatcher> dispatcher)
+            DispatchTicketControl tickets)
     {
-        this(
-                store,
-                controls,
-                resumeOwners,
-                cancellations,
-                ticketId -> {
-                    ExecutionDispatcher current = dispatcher.getIfAvailable();
-                    if (current == null) {
-                        throw new IllegalStateException(
-                                "V2 dispatcher is not available for Task cancellation");
-                    }
-                    current.requestCancel(ticketId);
-                });
+        this(store, controls, resumeOwners, cancellations,
+                tickets::requestCancel);
     }
 
     public TaskControlMaintainer(

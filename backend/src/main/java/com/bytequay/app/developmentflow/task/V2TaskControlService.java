@@ -14,7 +14,7 @@
 package com.bytequay.app.developmentflow.task;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
-import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.server.ResponseStatusException;
@@ -43,20 +43,20 @@ public final class V2TaskControlService
 
     private final TaskManager tasks;
     private final TaskManager.Store store;
-    private final ExecutionDispatcher dispatcher;
+    private final DispatchTicketControl tickets;
     private final RemoteCiRepairRuntimeCoordinator ciRepair;
     private final JdbcTemplate jdbc;
 
     public V2TaskControlService(
             TaskManager tasks,
             TaskManager.Store store,
-            ExecutionDispatcher dispatcher,
+            DispatchTicketControl tickets,
             RemoteCiRepairRuntimeCoordinator ciRepair,
             JdbcTemplate jdbc)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.store = requireNonNull(store, "store is null");
-        this.dispatcher = requireNonNull(dispatcher, "dispatcher is null");
+        this.tickets = requireNonNull(tickets, "tickets is null");
         this.ciRepair = requireNonNull(ciRepair, "ciRepair is null");
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
     }
@@ -222,7 +222,7 @@ public final class V2TaskControlService
 
     private void cancelLiveTickets(String taskId)
     {
-        liveTicketIds(taskId).forEach(dispatcher::requestCancel);
+        liveTicketIds(taskId).forEach(tickets::requestCancel);
     }
 
     private List<String> liveTicketIds(String taskId)

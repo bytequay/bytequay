@@ -13,13 +13,12 @@
  */
 package com.bytequay.app.developmentflow.task;
 
-import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.stage.ReplanHandoff;
 import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore.ReplanContext;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -44,16 +43,9 @@ public final class TaskReplanMaintainer
     public TaskReplanMaintainer(
             SqliteTaskControlRuntimeStore store,
             List<ReplanHandoff> handoffs,
-            ObjectProvider<ExecutionDispatcher> dispatcher)
+            DispatchTicketControl tickets)
     {
-        this(store, handoffs, ticketId -> {
-            ExecutionDispatcher current = dispatcher.getIfAvailable();
-            if (current == null) {
-                return false;
-            }
-            current.requestCancel(ticketId);
-            return true;
-        });
+        this(store, handoffs, tickets::requestCancel);
     }
 
     public TaskReplanMaintainer(

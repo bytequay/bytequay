@@ -13,21 +13,34 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageResumeRearmStore;
 import com.bytequay.app.developmentflow.task.TaskResumeOwner;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.springframework.stereotype.Component;
+
+import java.time.Instant;
 
 import static java.util.Objects.requireNonNull;
 
 @Component
 final class RemoteTaskResumeOwner
-        implements TaskResumeOwner
+        implements TaskResumeOwner, ExecutionPorts.MaintenanceWork
 {
-    private final SqliteStageResumeRearmStore store;
+    private static final int LIMIT = 32;
 
-    RemoteTaskResumeOwner(SqliteStageResumeRearmStore store)
+    private final SqliteStageResumeRearmStore store;
+    private final TaskCommandExecutor commands;
+    private final RemoteObservationRuntimeCoordinator observations;
+
+    RemoteTaskResumeOwner(
+            SqliteStageResumeRearmStore store,
+            TaskCommandExecutor commands,
+            RemoteObservationRuntimeCoordinator observations)
     {
         this.store = requireNonNull(store, "store is null");
+        this.commands = requireNonNull(commands, "commands is null");
+        this.observations = requireNonNull(observations, "observations is null");
     }
 
     @Override
@@ -35,4 +48,36 @@ final class RemoteTaskResumeOwner
 
     @Override
     public Acceptance accept(Request request) { return store.accept(request, kind()); }
+
+    @Override
+    public void maintain(Instant now)
+    {
+        for (var intent : store.pending(kind(), LIMIT)) {
+            if (!intent.taskLifecycle().equals("ACTIVE")) {
+                continue;
+            }
+            try {
+                commands.executeVoid(intent.taskId(), () -> {
+                    switch (intent.restoreCheckpoint()) {
+                        case WAITING_CI, AWAITING_READY, WAITING_REMOTE_REVIEW,
+                                READY_TO_MERGE -> store.materializeObservation(
+                                intent, observations.requestObservationInCommand(
+                                        intent.taskId(), intent.stageId()), now);
+                        case ADDRESSING_REMOTE_FEEDBACK ->
+                                store.materializeRemoteFeedback(intent, now);
+                        default -> store.diagnose(
+                                intent, "REMOTE_RESUME_CURSOR_UNSUPPORTED",
+                                "No exact Remote continuation is frozen for "
+                                        + intent.restoreCheckpoint(), now);
+                    }
+                });
+            }
+            catch (IllegalStateException ambiguous) {
+                commands.executeVoid(intent.taskId(), () ->
+                        store.diagnose(intent,
+                                "REMOTE_RESUME_PREDECESSOR_AMBIGUOUS",
+                                ambiguous.getMessage(), now));
+            }
+        }
+    }
 }

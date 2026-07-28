@@ -128,10 +128,11 @@ public class DevelopmentFlowDomainConfig
             StageManager.Store store,
             PlanStageManager.ApprovalStore approvals,
             PlanStageManager.RevisionStore revisions,
-            PlanStageManager.FollowupStore followups)
+            PlanStageManager.FollowupStore followups,
+            PlanStageManager.UserWaitStore userWaits)
     {
         return new PlanStageManager(
-                commands, store, approvals, revisions, followups);
+                commands, store, approvals, revisions, followups, userWaits);
     }
 
     @Bean

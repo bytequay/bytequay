@@ -151,7 +151,7 @@ public final class LocalDevelopmentRuntimeCoordinator
                 localRequestId, localCommandId, turnId, operationId, ticketId,
                 context.workspaceId(), context.trunkId(), context.taskId(),
                 context.taskEpoch(), context.stageId(), context.stageGeneration(),
-                context.codeFingerprint(), context.headSha(), context.baseSha(),
+                1, context.codeFingerprint(), context.headSha(), context.baseSha(),
                 workModel.kind().name(), laneMask, write(launch), digest(prompt),
                 "user", clock.instant());
         ownerStore.insertLocalTurn(turn);
@@ -173,6 +173,63 @@ public final class LocalDevelopmentRuntimeCoordinator
         };
         if (admitted.disposition() == CommandResult.Disposition.SUPERSEDED) {
             throw new IllegalStateException("Current Local steering was superseded");
+        }
+        return new SteeringAdmission(turnId, operationId, ticketId);
+    }
+
+    /** Replaces the exact settled Local StageTurn that produced a user wait. */
+    public SteeringAdmission admitUserWaitContinuationInCommand(
+            Request request, long stageVersion)
+    {
+        requireNonNull(request, "request is null");
+        TaskCommandExecutor.requireCurrent(request.taskId());
+        SqliteStageSteeringStore ownerStore = requireNonNull(
+                steering, "Stage steering store is not configured");
+        SqliteStageSteeringStore.Predecessor predecessor = requireNonNull(
+                request.predecessor(), "user-wait predecessor is missing");
+        LocalContext context = ownerStore.requireLocalContext(request, stageVersion);
+        String localRequestId = id("local-wait-request", request.id());
+        String localCommandId = id("persist-local-wait", request.id());
+        String turnId = id("local-wait-turn", request.id());
+        String operationId = id("local-wait-operation", request.id());
+        String ticketId = id("local-wait-ticket", request.id());
+        String prompt = steeringPrompt(request, ownerStore.attachments(request.id()));
+        WorkModel workModel = decodeWorkModel(context.workModelSnapshot());
+        int laneMask = workModel.kind() == WorkModelKind.CLI ? 1 : 2;
+        ObjectNode launch = writerLaunch(
+                context.provider(), context.model(), context.roleSkill(), workModel,
+                context.worktreePath(), turnId, operationId, prompt);
+        LocalTurn turn = new LocalTurn(
+                localRequestId, localCommandId, turnId, operationId, ticketId,
+                context.workspaceId(), context.trunkId(), context.taskId(),
+                context.taskEpoch(), context.stageId(), context.stageGeneration(),
+                predecessor.attempt() + 1, context.codeFingerprint(),
+                context.headSha(), context.baseSha(), workModel.kind().name(),
+                laneMask, write(launch), digest(prompt), "user", clock.instant());
+        ownerStore.insertLocalContinuationTurn(turn, predecessor);
+        ResultFence completed = new ResultFence(
+                request.taskEpoch(), request.stageId(), request.stageGeneration(),
+                predecessor.operationId(), predecessor.attempt(),
+                predecessor.codeFingerprint(), predecessor.headSha(),
+                predecessor.baseSha());
+        StageManager.ResultCommand command = new StageManager.ResultCommand(
+                id("continue-local-user-wait", request.id()), ACTOR,
+                request.taskId(), completed);
+        CommandResult<StageManager.State> admitted = switch (context.checkpoint()) {
+            case IMPLEMENTING -> local.replaceImplementationTurnInCommand(
+                    command, turn.fence(), localRequestId);
+            case ADDRESSING_BRAIN_FINDINGS -> local.replaceBrainFixTurnInCommand(
+                    command, turn.fence(), localRequestId);
+            case ADDRESSING_LOCAL_FEEDBACK ->
+                    local.replaceLocalFeedbackTurnInCommand(
+                            command, turn.fence(), localRequestId);
+            default -> throw new IllegalStateException(
+                    "Local Stage cannot continue a user wait at "
+                            + context.checkpoint());
+        };
+        if (admitted.disposition() == CommandResult.Disposition.SUPERSEDED) {
+            throw new IllegalStateException(
+                    "Current Local user-wait continuation was superseded");
         }
         return new SteeringAdmission(turnId, operationId, ticketId);
     }
@@ -529,14 +586,14 @@ public final class LocalDevelopmentRuntimeCoordinator
 
         BrainTurnContext context = store.requireBrainTurnContext(
                 turnId, result.fence().operationId());
-        if (!context.fence().equals(toResultFence(result.fence()))) {
+        if (!context.deliveryFence().equals(toResultFence(result.fence()))) {
             throw new IllegalArgumentException(
                     "Development Brain result differs from its persisted fence");
         }
         Instant now = clock.instant();
         TaskManager.ResultCommand brainCommand = new TaskManager.ResultCommand(
                 id("accept-development-brain", context.operationId()),
-                ACTOR, context.taskId(), context.fence());
+                ACTOR, context.taskId(), context.ownerFence());
         if (!context.isCurrent()
                 || !tasks.isCurrentBrainResultInCommand(brainCommand)) {
             store.supersedeBrain(context, "stale Development Brain subject", now);
@@ -556,7 +613,7 @@ public final class LocalDevelopmentRuntimeCoordinator
                     tasks.acceptBrainBudgetExhaustionInCommand(
                             new TaskManager.ResultCommand(
                                     id("accept-brain-budget", context.operationId()),
-                                    ACTOR, context.taskId(), context.fence()),
+                                    ACTOR, context.taskId(), context.ownerFence()),
                             blockerId);
             DispatchTicket.Acceptance acceptance;
             if (cleared.disposition() == CommandResult.Disposition.SUPERSEDED) {

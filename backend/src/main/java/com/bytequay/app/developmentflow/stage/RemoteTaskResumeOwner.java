@@ -65,6 +65,7 @@ final class RemoteTaskResumeOwner
                                         intent.taskId(), intent.stageId()), now);
                         case ADDRESSING_REMOTE_FEEDBACK ->
                                 store.materializeRemoteFeedback(intent, now);
+                        case MERGING -> store.recoverMerge(intent, now);
                         default -> store.diagnose(
                                 intent, "REMOTE_RESUME_CURSOR_UNSUPPORTED",
                                 "No exact Remote continuation is frozen for "

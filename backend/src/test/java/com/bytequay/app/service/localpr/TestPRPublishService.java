@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.developmentflow.execution.remote.V2UserRemoteActionRuntime;
 import com.bytequay.app.developmentflow.stage.V2PrRemoteControlService;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.HandledAction;
@@ -79,11 +80,13 @@ class TestPRPublishService
     private final TaskService taskService = mock(TaskService.class);
     private final TaskPushSaga pushSaga = mock(TaskPushSaga.class);
     private final V2PrRemoteControlService v2Controls = mock(V2PrRemoteControlService.class);
+    private final V2UserRemoteActionRuntime v2UserRemoteActions =
+            mock(V2UserRemoteActionRuntime.class);
     private final PRPublishService service =
             new PRPublishService(
                     prService, taskStore, pullRequests, patResolver, brainReview,
                     pullRequestDetails, readyToMerge, taskService, pushSaga,
-                    v2Controls, Runnable::run);
+                    v2Controls, v2UserRemoteActions, Runnable::run);
 
     {
         when(prService.comments(anyString())).thenReturn(List.of());
@@ -172,29 +175,91 @@ class TestPRPublishService
     }
 
     @Test
-    void v2ReviewerVisibleAndCleanupEffectsFailClosedBeforeRemoteIo()
+    void v2ReviewerVisibleAndCleanupEffectsUseTypedDurableActions()
     {
         PR remote = pushedPr(PR.STATUS_REMOTE_OPEN);
-        when(prService.findById("pr1")).thenReturn(Optional.of(remote));
+        PR merged = pushedPr(PR.STATUS_MERGED);
+        when(prService.findById("pr1"))
+                .thenReturn(Optional.of(remote), Optional.of(remote),
+                        Optional.of(merged), Optional.of(merged),
+                        Optional.of(remote), Optional.of(remote));
         when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
 
-        assertThatThrownBy(() -> service.dequeue("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("typed durable V2 merge control");
-        assertThatThrownBy(() -> service.deleteBranch("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("typed V2 Cleanup operation");
-        assertThatThrownBy(() -> service.postComment("pr1", "hello"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("typed V2 feedback authorization");
-        assertThatThrownBy(() -> service.publishReview("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("typed V2 review authorization");
+        service.dequeue("dequeue-command", "pr1");
+        service.deleteBranch("delete-command", "pr1");
+        service.postComment("comment-command", "pr1", " hello ");
+
+        verify(v2UserRemoteActions).dequeue(
+                "dequeue-command", "task1", "pr1");
+        verify(v2UserRemoteActions).deleteRemoteBranch(
+                "delete-command", "task1", "pr1", "feature/x");
+        verify(v2UserRemoteActions).postTopLevelComment(
+                "comment-command", "task1", "pr1", "hello",
+                HandledAction.COMMENTED);
 
         verify(pullRequests, never()).dequeuePullRequest(any(), any());
         verify(pullRequests, never()).deleteBranch(any(), any(), anyString());
         verify(pullRequests, never()).createIssueComment(any(), any(), anyString());
         verify(pullRequests, never()).createReview(any(), any(), any());
+    }
+
+    @Test
+    void v2ApprovalWithoutCommentsCreatesADurableFrozenReviewAction()
+    {
+        PR remote = pushedPr(PR.STATUS_REMOTE_OPEN);
+        when(prService.findById("pr1"))
+                .thenReturn(Optional.of(remote), Optional.of(remote));
+        when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
+
+        assertThat(service.publishReview(
+                "review-command", "pr1", "APPROVE", List.of(), List.of(), ""))
+                .isSameAs(remote);
+
+        verify(v2UserRemoteActions).submitReview(
+                "review-command", "task1", "pr1", "APPROVE", "", List.of(),
+                HandledAction.APPROVED);
+        verify(pullRequests, never()).createReview(any(), any(), any());
+    }
+
+    @Test
+    void everyV2RemoteActionRequiresTheCallerCommandId()
+    {
+        PR remote = pushedPr(PR.STATUS_REMOTE_OPEN);
+        PR merged = pushedPr(PR.STATUS_MERGED);
+        when(prService.findById("pr1")).thenReturn(
+                Optional.of(remote), Optional.of(merged), Optional.of(remote),
+                Optional.of(remote));
+        when(taskStore.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
+
+        assertThatThrownBy(() -> service.dequeue(" ", "pr1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting(failure -> ((ResponseStatusException) failure)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThatThrownBy(() -> service.deleteBranch(null, "pr1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting(failure -> ((ResponseStatusException) failure)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThatThrownBy(() -> service.postComment(null, "pr1", "hello"))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting(failure -> ((ResponseStatusException) failure)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThatThrownBy(() -> service.publishReview(
+                null, "pr1", "APPROVE", List.of(), List.of(), ""))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting(failure -> ((ResponseStatusException) failure)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+
+        verify(v2UserRemoteActions, never()).dequeue(any(), any(), any());
+        verify(v2UserRemoteActions, never()).deleteRemoteBranch(
+                any(), any(), any(), any());
+        verify(v2UserRemoteActions, never()).postTopLevelComment(
+                any(), any(), any(), any(), any());
+        verify(v2UserRemoteActions, never()).submitReview(
+                any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -247,7 +312,7 @@ class TestPRPublishService
         PRPublishService asynchronous = new PRPublishService(
                 prService, taskStore, pullRequests, patResolver, brainReview,
                 pullRequestDetails, readyToMerge, taskService, pushSaga,
-                v2Controls, submitted::set);
+                v2Controls, v2UserRemoteActions, submitted::set);
         when(prService.findByTask("task1")).thenReturn(Optional.of(pr(PR.STATUS_LOCAL_OPEN)));
         PrPushedEvent event = new PrPushedEvent(
                 "task1", "acme/widget", 145,

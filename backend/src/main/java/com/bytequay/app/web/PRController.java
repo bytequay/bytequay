@@ -46,6 +46,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -220,10 +221,13 @@ public class PRController
         prService.clearSnoozeWakeReason(prId);
     }
 
-    /** Submits a GitHub approval review, then records it as handled locally
-     *  — the dashboard/inbox's "Approve" affordance for an external PR. */
+    /** Submits a GitHub approval review — through the durable V2 action
+     *  protocol for a V2 Task, or the legacy direct path otherwise. */
     @PostMapping("/api/prs/{prId}/approve")
-    public void approve(@PathVariable String prId)
+    public void approve(
+            @PathVariable String prId,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String commandId)
     {
         PR pr = prService.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId));
@@ -233,8 +237,14 @@ public class PRController
                             HttpStatus.CONFLICT,
                             "Task " + pr.taskId() + " has no immutable workflow route"));
             if ("V2".equals(workflowVersion)) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        "GitHub approval requires an explicit typed V2 review authorization");
+                if (commandId == null || commandId.isBlank()) {
+                    throw new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST,
+                            "Idempotency-Key is required for a V2 remote action");
+                }
+                publish.publishReview(
+                        commandId, prId, "APPROVE", List.of(), List.of(), "");
+                return;
             }
             if (!"LEGACY".equals(workflowVersion)) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
@@ -321,16 +331,22 @@ public class PRController
 
     /** User-gated removal of a pushed PR from its repo's merge queue. */
     @DeleteMapping("/api/prs/{prId}/merge-queue")
-    public PRDto dequeue(@PathVariable String prId)
+    public PRDto dequeue(
+            @PathVariable String prId,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String commandId)
     {
-        return PRDto.from(publish.dequeue(prId));
+        return PRDto.from(publish.dequeue(commandId, prId));
     }
 
     /** User-gated deletion of a merged PR's head branch on GitHub. */
     @DeleteMapping("/api/prs/{prId}/branch")
-    public PRDto deleteBranch(@PathVariable String prId)
+    public PRDto deleteBranch(
+            @PathVariable String prId,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String commandId)
     {
-        return PRDto.from(publish.deleteBranch(prId));
+        return PRDto.from(publish.deleteBranch(commandId, prId));
     }
 
     public record PostRemoteCommentRequest(String body) {}
@@ -339,9 +355,12 @@ public class PRController
      * PR has merged, then refreshes the conversation timeline. */
     @PostMapping("/api/prs/{prId}/remote-comments")
     public PRDto postRemoteComment(
-            @PathVariable String prId, @RequestBody PostRemoteCommentRequest body)
+            @PathVariable String prId,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String commandId,
+            @RequestBody PostRemoteCommentRequest body)
     {
-        publish.postComment(prId, body.body());
+        publish.postComment(commandId, prId, body.body());
         return PRDto.from(sync.syncPR(prId, 0)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
     }
@@ -351,14 +370,23 @@ public class PRController
      *  task PRs that have reached the remote stage publish here. */
     @PostMapping("/api/prs/{prId}/publish-review")
     public PRDto publishReview(
-            @PathVariable String prId, @RequestBody(required = false) PublishReviewRequest body)
+            @PathVariable String prId,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            String commandId,
+            @RequestBody(required = false) PublishReviewRequest body)
     {
         String verdict = body == null ? "COMMENT" : body.verdict();
         List<String> findingIds = body == null ? null : body.findingIds();
         List<String> commentIds = body == null ? null : body.comments();
         String reviewBody = body == null ? null : body.body();
-        publish.publishReview(prId, verdict, findingIds, commentIds, reviewBody);
-        investigationReviews.recordPublished(prId, verdict, findingIds, commentIds);
+        PR published = publish.publishReview(
+                commandId, prId, verdict, findingIds, commentIds, reviewBody);
+        if (published.taskId() == null
+                || !"V2".equals(taskStore.findWorkflowVersion(
+                        published.taskId()).orElse(null))) {
+            investigationReviews.recordPublished(
+                    prId, verdict, findingIds, commentIds);
+        }
         return PRDto.from(sync.syncPR(prId, 0)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "no PR " + prId)));
     }

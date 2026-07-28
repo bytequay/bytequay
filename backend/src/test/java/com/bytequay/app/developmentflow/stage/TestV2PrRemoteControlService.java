@@ -26,7 +26,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
 import java.sql.ResultSet;
@@ -38,7 +37,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -119,19 +117,20 @@ class TestV2PrRemoteControlService
         assertThat(command.getValue().stageId()).isEqualTo("remote-stage-1");
         assertThat(command.getValue().readinessEvidenceId()).isEqualTo("readiness-1");
         assertThat(command.getValue().authorityKind()).isEqualTo(AuthorityKind.MANUAL);
+        assertThat(command.getValue().mergeMethod()).isEqualTo("rebase");
     }
 
     @Test
-    void nonSquashDirectMergeFailsClosedBeforeCreatingAuthority()
+    void directMergePreservesTheSelectedMethod()
     {
         RecordingJdbc jdbc = RecordingJdbc.merge("UNSUPPORTED");
         V2PrRemoteControlService service = service(jdbc);
 
-        assertThatThrownBy(() -> service.merge("task-1", "rebase"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("squash method only");
+        service.merge("task-1", "rebase");
 
-        verify(merges, never()).start(any());
+        ArgumentCaptor<Command> command = ArgumentCaptor.forClass(Command.class);
+        verify(merges).start(command.capture());
+        assertThat(command.getValue().mergeMethod()).isEqualTo("rebase");
     }
 
     private V2PrRemoteControlService service(JdbcTemplate jdbc)
@@ -176,9 +175,13 @@ class TestV2PrRemoteControlService
                 return List.of();
             }
             boolean publishCandidate = mode == Mode.PUBLISH
-                    && sql.contains("JOIN local_development_stage");
+                    && sql.contains("JOIN local_development_stage")
+                    && sql.contains("JOIN task_policy_revision policy"
+                            + " ON policy.id = task.policy_revision_id");
             boolean mergeCandidate = mode == Mode.MERGE
-                    && sql.contains("remote_readiness_evidence readiness");
+                    && sql.contains("remote_readiness_evidence readiness")
+                    && sql.contains("JOIN task_automation_policy policy")
+                    && sql.contains("MAX(current_policy.revision)");
             if (!publishCandidate && !mergeCandidate) {
                 return List.of();
             }

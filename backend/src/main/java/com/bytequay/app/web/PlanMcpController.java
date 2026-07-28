@@ -19,6 +19,7 @@ import com.bytequay.app.developmentflow.stage.PlanMcpService;
 import com.bytequay.app.service.mcp.McpService;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -47,6 +48,7 @@ public final class PlanMcpController
     private final AgentTurnOperationHandler.Store turns;
     private final Clock clock;
 
+    @Autowired
     public PlanMcpController(
             PlanMcpService plans,
             McpService tools,

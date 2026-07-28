@@ -56,6 +56,8 @@ final class PlanTaskResumeOwner
                 commands.executeVoid(intent.taskId(), () -> {
                     switch (intent.restoreCheckpoint()) {
                         case DRAFTING -> store.materializePlanDraft(intent, now);
+                        case SELF_REVIEW ->
+                                store.materializePlanSelfReview(intent, now);
                         case AWAITING_APPROVAL -> store.materializePassiveWait(
                                 intent, kind(), StageCheckpoint.AWAITING_APPROVAL,
                                 now);

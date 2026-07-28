@@ -258,7 +258,7 @@ class TestMergeOperationHandler
         return new MergeRequest(
                 "merge-row", "authorization", "readiness", "operation",
                 "remote-stage", "task", "trunk", "workspace", 1, 1, 1,
-                MergeMode.DIRECT, status, attemptCount, attemptLimit, 0, 0,
+                MergeMode.DIRECT, "squash", status, attemptCount, attemptLimit, 0, 0,
                 "head", "base", "owner/repo", 17, "readiness", "V2",
                 "ACTIVE", 1, "remote-stage", 1, "MERGING", null);
     }
@@ -269,7 +269,7 @@ class TestMergeOperationHandler
         return new MergeRequest(
                 "merge-row", "authorization", "readiness", "operation",
                 "remote-stage", "task", "trunk", "workspace", 1, 1, 1,
-                MergeMode.MERGE_QUEUE, status, attemptCount, attemptLimit, 1, 1,
+                MergeMode.MERGE_QUEUE, "squash", status, attemptCount, attemptLimit, 1, 1,
                 "head", "base", "owner/repo", 17, "fresh-readiness", "V2",
                 "ACTIVE", 1, "remote-stage", 1, "MERGING", null);
     }
@@ -283,7 +283,7 @@ class TestMergeOperationHandler
                 request.stageId(), request.taskId(), request.trunkId(),
                 request.workspaceId(), request.taskEpoch(),
                 request.stageGeneration(), request.semanticAttempt(),
-                request.mode(), status, attempts, request.attemptLimit(),
+                request.mode(), request.mergeMethod(), status, attempts, request.attemptLimit(),
                 request.queueBounceCount(), request.maxQueueReenqueues(),
                 request.headSha(), request.baseSha(), request.remoteRepositoryId(),
                 request.remotePrNumber(), request.currentReadinessId(),

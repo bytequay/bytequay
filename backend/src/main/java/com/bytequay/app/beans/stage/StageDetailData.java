@@ -60,8 +60,43 @@ public record StageDetailData(
         List<AgentRun> liveRuns,
         BranchGuard guard,
         ReviewRound liveRound,
-        List<TaskBrainViewData.DevPhase> devPhases)
+        List<TaskBrainViewData.DevPhase> devPhases,
+        RecoveryOptions recovery)
 {
+    /**
+     * Exact owner-scoped recovery choices. A missing value means the current
+     * Stage has no recoverable V2 failure; clients must never infer a latest
+     * CI episode or Cleanup step on their own.
+     */
+    public record RecoveryOptions(
+            CiRecovery ci,
+            CleanupRecovery cleanup)
+    {
+    }
+
+    public record CiRecovery(
+            String episodeId,
+            int rerunCount,
+            int rerunLimit,
+            int fixAttemptCount,
+            int fixAttemptLimit,
+            int pushCount,
+            int pushLimit,
+            List<String> actions)
+    {
+    }
+
+    public record CleanupRecovery(
+            String stepId,
+            String kind,
+            String requirement,
+            int attemptCount,
+            int attemptLimit,
+            String error,
+            List<String> actions)
+    {
+    }
+
     /**
      * The pull-request block shown on the stage page's PR tab. Surfaced from
      * the same {@link com.bytequay.app.domain.PullRequestDetail} the

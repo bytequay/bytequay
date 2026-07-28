@@ -309,19 +309,16 @@ public class TaskController
      *  "clear the override". */
     public record WorkModelBody(WorkModel workModel) {}
 
-    /** Next → park the current task at AWAITING_REVIEW (worktree
-     *  preserved) and start a fresh task cut from main. The trunk
-     *  window's Next button calls this. See
-     *  {@link TaskService#parkAndStartNext}. */
+    /** Next returns control to Trunk planning. A LEGACY Task keeps its
+     *  park-and-cut compatibility behavior; a V2 Task remains unchanged and
+     *  only a later typed Trunk assignment may materialize a sibling. */
     @Concept(
             name = "next",
             kind = ConceptKind.VERB,
-            definition = "Park the current task at AWAITING_REVIEW (worktree preserved) "
-                    + "and start a fresh task cut from main. The mid-flight transition "
-                    + "for when one unit of work is done enough to set aside and the "
-                    + "user wants to start the next one without losing context.",
-            examples = "next when the agent's diff is ready to review and the user wants "
-                    + "to start the follow-up without waiting for sign-off.",
+            definition = "Return control to Trunk planning. V2 leaves the current Task "
+                    + "at its exact checkpoint; LEGACY retains park-and-cut compatibility.",
+            examples = "next when the user wants to discuss or assign another unit of "
+                    + "work at Trunk scope without canceling current work.",
             relatedConcepts = {"task", "ship", "awaiting_review"})
     @PostMapping("/{taskId}/next")
     public Task next(

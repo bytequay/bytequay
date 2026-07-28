@@ -372,6 +372,7 @@ public final class MergeOperationHandler
             long stageGeneration,
             int semanticAttempt,
             MergeMode mode,
+            String mergeMethod,
             OperationStatus status,
             int attemptCount,
             int attemptLimit,
@@ -401,6 +402,10 @@ public final class MergeOperationHandler
             requireText(trunkId, "trunkId");
             requireText(workspaceId, "workspaceId");
             requireNonNull(mode, "mode is null");
+            requireText(mergeMethod, "mergeMethod");
+            if (!Set.of("merge", "squash", "rebase").contains(mergeMethod)) {
+                throw new IllegalArgumentException("unsupported mergeMethod");
+            }
             requireNonNull(status, "status is null");
             requireText(headSha, "headSha");
             requireText(baseSha, "baseSha");

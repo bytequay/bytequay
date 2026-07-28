@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.checks.RepoTestValidationCheck;
@@ -23,17 +24,17 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.review.InvestigationReviewService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -64,24 +65,86 @@ class TestPRControllerBundle
     }
 
     @Test
-    void v2ApprovalFailsClosedBeforeCallingGitHub()
+    void v2ApprovalRetryReusesTheCallerCommandAfterALostResponse()
     {
         PRService prs = mock(PRService.class);
         TaskStore tasks = mock(TaskStore.class);
         PullRequestService pullRequests = mock(PullRequestService.class);
+        PRPublishService publish = mock(PRPublishService.class);
         PR pr = PR.create(
                 "pr1", "task1", "feature/x", "main", "Title", "",
                 Instant.parse("2026-07-24T00:00:00Z"));
         when(prs.findById("pr1")).thenReturn(Optional.of(pr));
         when(tasks.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
         PRController controller = new PRController(
-                prs, mock(PRPublishService.class), mock(PRSyncService.class), tasks,
+                prs, publish, mock(PRSyncService.class), tasks,
                 new ObjectMapper(), mock(RepoTestValidationCheck.class),
                 pullRequests, mock(InvestigationReviewService.class));
 
-        assertThatThrownBy(() -> controller.approve("pr1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("typed V2 review authorization");
+        controller.approve("pr1", "approve-command");
+        controller.approve("pr1", "approve-command");
+
+        verify(publish, times(2)).publishReview(
+                "approve-command", "pr1", "APPROVE", List.of(), List.of(), "");
         verify(pullRequests, never()).submitApproval(anyString(), anyInt());
+    }
+
+    @Test
+    void legacyApprovalKeepsTheExistingDirectBehavior()
+    {
+        PRService prs = mock(PRService.class);
+        TaskStore tasks = mock(TaskStore.class);
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PRPublishService publish = mock(PRPublishService.class);
+        PR pr = mock(PR.class);
+        when(pr.taskId()).thenReturn("task1");
+        when(pr.repo()).thenReturn("acme/widget");
+        when(pr.remotePrNumber()).thenReturn(17);
+        when(prs.findById("pr1")).thenReturn(Optional.of(pr));
+        when(tasks.findWorkflowVersion("task1")).thenReturn(Optional.of("LEGACY"));
+        PRController controller = new PRController(
+                prs, publish, mock(PRSyncService.class), tasks,
+                new ObjectMapper(), mock(RepoTestValidationCheck.class),
+                pullRequests, mock(InvestigationReviewService.class));
+
+        controller.approve("pr1", null);
+
+        verify(pullRequests).submitApproval("acme/widget", 17);
+        verify(prs).markHandled("pr1", HandledAction.APPROVED);
+        verify(publish, never()).publishReview(
+                anyString(), anyString(), anyList(), anyList(), anyString());
+    }
+
+    @Test
+    void v2ReviewDefersInvestigationPublicationUntilRemoteEvidence()
+    {
+        PRService prs = mock(PRService.class);
+        TaskStore tasks = mock(TaskStore.class);
+        PRPublishService publish = mock(PRPublishService.class);
+        PRSyncService sync = mock(PRSyncService.class);
+        InvestigationReviewService investigations = mock(
+                InvestigationReviewService.class);
+        PR pr = PR.create(
+                "pr1", "task1", "feature/x", "main", "Title", "",
+                Instant.parse("2026-07-24T00:00:00Z"));
+        when(publish.publishReview(
+                "review-command", "pr1", "COMMENT", List.of("finding-1"),
+                List.of("comment-1"), "summary")).thenReturn(pr);
+        when(tasks.findWorkflowVersion("task1")).thenReturn(Optional.of("V2"));
+        when(sync.syncPR("pr1", 0)).thenReturn(Optional.of(pr));
+        PRController controller = new PRController(
+                prs, publish, sync, tasks, new ObjectMapper(),
+                mock(RepoTestValidationCheck.class),
+                mock(PullRequestService.class), investigations);
+
+        controller.publishReview("pr1", "review-command", new PRController.PublishReviewRequest(
+                "COMMENT", List.of("finding-1"), List.of("comment-1"),
+                "summary"));
+
+        verify(publish).publishReview(
+                "review-command", "pr1", "COMMENT", List.of("finding-1"),
+                List.of("comment-1"), "summary");
+        verify(investigations, never()).recordPublished(
+                anyString(), anyString(), anyList(), anyList());
     }
 }

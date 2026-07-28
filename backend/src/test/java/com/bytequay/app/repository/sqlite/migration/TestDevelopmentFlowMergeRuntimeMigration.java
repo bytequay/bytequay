@@ -91,7 +91,7 @@ class TestDevelopmentFlowMergeRuntimeMigration
                     "SELECT COUNT(*) FROM remote_merge_effect_attempt")).isZero();
         }
 
-        migrate(url, "244");
+        migrate(url, "274");
         try (Connection connection = connect(url)) {
             assertThat(number(connection, """
                     SELECT COUNT(*) FROM dispatch_ticket
@@ -99,8 +99,167 @@ class TestDevelopmentFlowMergeRuntimeMigration
                     """)).isOne();
             assertThat(number(connection,
                     "SELECT COUNT(*) FROM remote_merge_effect_attempt")).isZero();
+            assertThat(text(connection, """
+                    SELECT authorization.merge_method || '|' || operation.merge_method
+                    FROM remote_merge_authorization authorization
+                    JOIN remote_merge_operation operation
+                      ON operation.merge_authorization_id = authorization.id
+                    WHERE authorization.id = 'merge-auth-1'
+                    """)).isEqualTo("rebase|rebase");
+            assertFails(connection, """
+                    UPDATE remote_merge_operation SET merge_method = 'squash'
+                    WHERE id = 'merge-op-1'
+                    """);
             assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
                     .isZero();
+        }
+    }
+
+    @Test
+    void upgradesExistingMergeOperationsWithTheFormerSquashBehavior()
+            throws Exception
+    {
+        String url = "jdbc:sqlite:" + tempDir.resolve("merge-method-upgrade.db")
+                + "?foreign_keys=ON";
+        migrate(url, "228");
+        try (Connection connection = connect(url)) {
+            seedWorkspaceAndTrunk(connection);
+            seedPublishedRemoteTask(connection, 1);
+        }
+        migrate(url, "244");
+        try (Connection connection = connect(url)) {
+            seedReady(connection, 1, "UNSUPPORTED", 0);
+            execute(connection, """
+                    INSERT INTO remote_merge_authorization(
+                        id, remote_development_stage_id, task_id, task_epoch,
+                        stage_generation, readiness_evidence_id,
+                        automation_policy_id, head_sha, base_sha, authority_kind,
+                        status, authorized_at_ms)
+                    VALUES ('merge-auth-1', 'remote-stage-1', 'task-1', 1, 1,
+                        'readiness-1-1', 'automation-1-1', 'head-1', 'base-1',
+                        'AUTO_MERGE_POLICY', 'ACTIVE', 75)
+                    """);
+            execute(connection, """
+                    INSERT INTO remote_merge_operation(
+                        id, merge_authorization_id, remote_development_stage_id,
+                        task_id, task_epoch, stage_generation, operation_id,
+                        semantic_attempt, head_sha, base_sha, mode,
+                        merge_queue_capability, status, attempt_limit,
+                        max_queue_reenqueues, requested_at_ms)
+                    VALUES ('merge-op-1', 'merge-auth-1', 'remote-stage-1',
+                        'task-1', 1, 1, 'merge-operation-1', 1, 'head-1',
+                        'base-1', 'DIRECT', 'UNSUPPORTED', 'REQUESTED', 3, 0, 76)
+                    """);
+        }
+
+        migrate(url, "274");
+        try (Connection connection = connect(url)) {
+            assertThat(text(connection, """
+                    SELECT authorization.merge_method || '|' || operation.merge_method
+                    FROM remote_merge_authorization authorization
+                    JOIN remote_merge_operation operation
+                      ON operation.merge_authorization_id = authorization.id
+                    """)).isEqualTo("squash|squash");
+            assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
+                    .isZero();
+        }
+    }
+
+    @Test
+    void supersededAutoMergeCannotClaimItsFirstExternalEffect()
+            throws Exception
+    {
+        String url = remoteUrl("stale-policy-pre-effect.db", 1);
+        try (Connection connection = connect(url)) {
+            seedReady(connection, 1, "UNSUPPORTED", 0);
+            execute(connection, authorizationSql(1));
+            execute(connection, operationSql(1));
+            execute(connection, """
+                    UPDATE remote_merge_authorization
+                    SET status = 'CONSUMED', terminal_at_ms = 80
+                    WHERE id = 'merge-auth-1'
+                    """);
+            execute(connection, ticketSql(1));
+            authorizeStageForMerge(connection, 1);
+            execute(connection, supersedingPolicySql(1));
+        }
+
+        SqliteMergeOperationStore store = mergeStore(url);
+        assertThat(store.tryClaim(
+                "merge-operation-1",
+                new ClaimSpec(
+                        ClaimMode.EXECUTE, EffectKind.DIRECT_MERGE, null,
+                        "readiness-1-1", "merge-operation-1:direct"),
+                "worker", Instant.ofEpochMilli(90),
+                Instant.ofEpochMilli(100))).isEmpty();
+
+        store.reconcileAcceptedObservation(
+                "merge-operation-1", Instant.ofEpochMilli(91));
+
+        assertThat(store.requireByOperationId("merge-operation-1")
+                .request().status()).isEqualTo(OperationStatus.CANCELED);
+        try (Connection connection = connect(url)) {
+            assertThat(number(connection,
+                    "SELECT COUNT(*) FROM remote_merge_effect_attempt")).isZero();
+            assertThat(text(connection, """
+                    SELECT checkpoint FROM stage WHERE id = 'remote-stage-1'
+                    """)).isEqualTo("MERGING");
+        }
+    }
+
+    @Test
+    void supersedingPolicyDoesNotRewriteAnAlreadyClaimedExternalEffect()
+            throws Exception
+    {
+        String url = remoteUrl("stale-policy-claimed.db", 1);
+        try (Connection connection = connect(url)) {
+            seedReady(connection, 1, "UNSUPPORTED", 0);
+            execute(connection, authorizationSql(1));
+            execute(connection, operationSql(1));
+            execute(connection, """
+                    UPDATE remote_merge_authorization
+                    SET status = 'CONSUMED', terminal_at_ms = 80
+                    WHERE id = 'merge-auth-1'
+                    """);
+            execute(connection, ticketSql(1));
+            authorizeStageForMerge(connection, 1);
+        }
+
+        SqliteMergeOperationStore store = mergeStore(url);
+        var claim = store.tryClaim(
+                        "merge-operation-1",
+                        new ClaimSpec(
+                                ClaimMode.EXECUTE, EffectKind.DIRECT_MERGE, null,
+                                "readiness-1-1", "merge-operation-1:direct"),
+                        "worker", Instant.ofEpochMilli(90),
+                        Instant.ofEpochMilli(100))
+                .orElseThrow();
+        try (Connection connection = connect(url)) {
+            execute(connection, supersedingPolicySql(1));
+        }
+
+        store.reconcileAcceptedObservation(
+                "merge-operation-1", Instant.ofEpochMilli(91));
+        assertThat(store.markAwaiting(
+                claim,
+                new EffectEvidence(
+                        "remote-merge-id", "merge accepted; awaiting observation",
+                        false),
+                Instant.ofEpochMilli(92))).isTrue();
+
+        assertThat(store.requireByOperationId("merge-operation-1")
+                .request().status())
+                .isEqualTo(OperationStatus.AWAITING_OBSERVATION);
+        try (Connection connection = connect(url)) {
+            assertThat(text(connection, """
+                    SELECT attempt.status || '|' || operation.status || '|'
+                        || stage.checkpoint
+                    FROM remote_merge_effect_attempt attempt
+                    JOIN remote_merge_operation operation
+                      ON operation.id = attempt.merge_operation_id
+                    JOIN stage ON stage.id = operation.remote_development_stage_id
+                    WHERE operation.id = 'merge-op-1'
+                    """)).isEqualTo("AWAITING_OBSERVATION|AWAITING_OBSERVATION|MERGING");
         }
     }
 
@@ -514,7 +673,7 @@ class TestDevelopmentFlowMergeRuntimeMigration
                 seedPublishedRemoteTask(connection, task);
             }
         }
-        migrate(url, "244");
+        migrate(url, "274");
         return url;
     }
 
@@ -553,6 +712,20 @@ class TestDevelopmentFlowMergeRuntimeMigration
                 VALUES ('automation-%1$s-%2$s', 'task-%1$s', %2$s, 'TASK', 1, 1,
                     0, 0, %3$s, 0, 0, 0, 'user', 55 + %2$s)
                 """.formatted(task, revision, maxReenqueues);
+    }
+
+    private static String supersedingPolicySql(int task)
+    {
+        return """
+                INSERT INTO task_automation_policy(
+                    id, task_id, revision, source, auto_approve, auto_merge,
+                    keep_draft, minimum_write_approvals,
+                    max_merge_queue_reenqueues, require_low_risk,
+                    require_small_effort, stewardship_exception,
+                    created_by, created_at_ms)
+                VALUES ('automation-%1$s-2', 'task-%1$s', 2, 'TASK', 1, 0,
+                    0, 1, 0, 0, 0, 0, 'user', 90)
+                """.formatted(task);
     }
 
     private static void authorizeStageForMerge(Connection connection, int task)
@@ -645,10 +818,11 @@ class TestDevelopmentFlowMergeRuntimeMigration
                     id, remote_development_stage_id, task_id, task_epoch,
                     stage_generation, readiness_evidence_id,
                     automation_policy_id, head_sha, base_sha, authority_kind,
-                    status, authorized_at_ms)
+                    status, authorized_at_ms, merge_method)
                 VALUES ('merge-auth-%1$s', 'remote-stage-%1$s', 'task-%1$s',
                     1, 1, 'readiness-%1$s-1', 'automation-%1$s-1',
-                    'head-%1$s', 'base-%1$s', 'AUTO_MERGE_POLICY', 'ACTIVE', 75)
+                    'head-%1$s', 'base-%1$s', 'AUTO_MERGE_POLICY', 'ACTIVE', 75,
+                    'rebase')
                 """.formatted(task);
     }
 
@@ -660,11 +834,11 @@ class TestDevelopmentFlowMergeRuntimeMigration
                     task_id, task_epoch, stage_generation, operation_id,
                     semantic_attempt, head_sha, base_sha, mode,
                     merge_queue_capability, status, attempt_limit,
-                    max_queue_reenqueues, requested_at_ms)
+                    max_queue_reenqueues, requested_at_ms, merge_method)
                 VALUES ('merge-op-%1$s', 'merge-auth-%1$s',
                     'remote-stage-%1$s', 'task-%1$s', 1, 1,
                     'merge-operation-%1$s', 1, 'head-%1$s', 'base-%1$s',
-                    'DIRECT', 'UNSUPPORTED', 'REQUESTED', 3, 0, 76)
+                    'DIRECT', 'UNSUPPORTED', 'REQUESTED', 3, 0, 76, 'rebase')
                 """.formatted(task);
     }
 
@@ -676,11 +850,11 @@ class TestDevelopmentFlowMergeRuntimeMigration
                     task_id, task_epoch, stage_generation, operation_id,
                     semantic_attempt, head_sha, base_sha, mode,
                     merge_queue_capability, status, attempt_limit,
-                    max_queue_reenqueues, requested_at_ms)
+                    max_queue_reenqueues, requested_at_ms, merge_method)
                 VALUES ('merge-op-%1$s', 'merge-auth-%1$s',
                     'remote-stage-%1$s', 'task-%1$s', 1, 1,
                     'merge-operation-%1$s', 1, 'head-%1$s', 'base-%1$s',
-                    'MERGE_QUEUE', 'SUPPORTED', 'REQUESTED', 4, 1, 76)
+                    'MERGE_QUEUE', 'SUPPORTED', 'REQUESTED', 4, 1, 76, 'rebase')
                 """.formatted(task);
     }
 

@@ -54,15 +54,36 @@ class TestActiveAgentContextRegistry
         AtomicInteger stops = new AtomicInteger();
 
         assertThat(registry.requestStop(
-                "thread-1", "agent-1", "before-session")).isFalse();
+                "thread-1", "agent-1", "before-session")).isTrue();
         assertThat(registry.attachStop(
                 "thread-1", "agent-1", stops::incrementAndGet)).isTrue();
         assertThat(registry.attachStop(
                 "thread-1", "agent-1", stops::incrementAndGet)).isFalse();
         assertThat(registry.requestStop(
+                "thread-1", "agent-1", "USER_WAIT:question-1")).isFalse();
+        assertThat(registry.requestStop(
+                "thread-1", "agent-1", "USER_WAIT:question-2")).isFalse();
+        assertThat(stops).hasValue(1);
+        assertThat(registry.stopReason("thread-1", "agent-1"))
+                .contains("before-session");
+    }
+
+    @Test
+    void attachedProviderStopRunsImmediatelyAndOnlyOnce()
+    {
+        ResolvedAgentContext context = new ResolvedAgentContext(
+                ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
+                Set.of(), List.of(), Set.of(), Set.of());
+        registry.put("thread-1", "agent-1", context);
+        AtomicInteger stops = new AtomicInteger();
+
+        assertThat(registry.attachStop(
+                "thread-1", "agent-1", stops::incrementAndGet)).isTrue();
+        assertThat(registry.requestStop(
                 "thread-1", "agent-1", "USER_WAIT:question-1")).isTrue();
         assertThat(registry.requestStop(
                 "thread-1", "agent-1", "USER_WAIT:question-2")).isFalse();
+
         assertThat(stops).hasValue(1);
         assertThat(registry.stopReason("thread-1", "agent-1"))
                 .contains("USER_WAIT:question-1");

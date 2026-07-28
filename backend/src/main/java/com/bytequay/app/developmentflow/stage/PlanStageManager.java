@@ -21,6 +21,7 @@ import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
 
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.INVALID_STATE;
@@ -33,6 +34,7 @@ public final class PlanStageManager
     private final ApprovalStore approvals;
     private final RevisionStore revisions;
     private final FollowupStore followups;
+    private final UserWaitStore userWaits;
 
     public PlanStageManager(TaskCommandExecutor commands, Store store)
     {
@@ -41,7 +43,7 @@ public final class PlanStageManager
                 store,
                 (taskId, stageId, generation, approvalId) -> Optional.empty(),
                 (taskId, stageId, generation, revisionId) -> Optional.empty(),
-                FollowupStore.unsupported());
+                FollowupStore.unsupported(), UserWaitStore.unsupported());
     }
 
     public PlanStageManager(
@@ -52,7 +54,7 @@ public final class PlanStageManager
                 store,
                 approvals,
                 (taskId, stageId, generation, revisionId) -> Optional.empty(),
-                FollowupStore.unsupported());
+                FollowupStore.unsupported(), UserWaitStore.unsupported());
     }
 
     public PlanStageManager(
@@ -61,7 +63,8 @@ public final class PlanStageManager
             ApprovalStore approvals,
             RevisionStore revisions)
     {
-        this(commands, store, approvals, revisions, FollowupStore.unsupported());
+        this(commands, store, approvals, revisions, FollowupStore.unsupported(),
+                UserWaitStore.unsupported());
     }
 
     public PlanStageManager(
@@ -71,10 +74,83 @@ public final class PlanStageManager
             RevisionStore revisions,
             FollowupStore followups)
     {
+        this(commands, store, approvals, revisions, followups,
+                UserWaitStore.unsupported());
+    }
+
+    public PlanStageManager(
+            TaskCommandExecutor commands,
+            Store store,
+            ApprovalStore approvals,
+            RevisionStore revisions,
+            FollowupStore followups,
+            UserWaitStore userWaits)
+    {
         super(commands, store, StageKind.PLAN);
         this.approvals = requireNonNull(approvals, "approvals is null");
         this.revisions = requireNonNull(revisions, "revisions is null");
         this.followups = requireNonNull(followups, "followups is null");
+        this.userWaits = requireNonNull(userWaits, "userWaits is null");
+    }
+
+    /** Replaces one exact Plan TaskTurn suspended on a durable user wait. */
+    public CommandResult<State> continueUserWaitInCommand(
+            ResultCommand predecessor,
+            String waitKind,
+            String waitId,
+            String successorTurnId,
+            ResultFence successor)
+    {
+        requireNonNull(predecessor, "predecessor is null");
+        requireText(waitKind, "waitKind");
+        requireText(waitId, "waitId");
+        requireText(successorTurnId, "successorTurnId");
+        requireNonNull(successor, "successor is null");
+        ResultFence previous = predecessor.resultFence();
+        if (successor.equals(previous)
+                || successor.taskEpoch() != previous.taskEpoch()
+                || !successor.stageId().equals(previous.stageId())
+                || successor.stageGeneration() != previous.stageGeneration()
+                || !Objects.equals(
+                        successor.expectedCodeFingerprint(),
+                        previous.expectedCodeFingerprint())
+                || !Objects.equals(
+                        successor.expectedHeadSha(), previous.expectedHeadSha())
+                || !Objects.equals(
+                        successor.expectedBaseSha(), previous.expectedBaseSha())) {
+            throw new CommandRejectedException(
+                    INVALID_STATE, "Plan user-wait successor changed its owner fence");
+        }
+        Optional<UserWaitEvidence> duplicate = userWaits.find(
+                predecessor.taskId(), previous.stageId(), predecessor.commandId());
+        if (duplicate.isPresent()) {
+            UserWaitEvidence receipt = duplicate.orElseThrow();
+            if (!receipt.matches(predecessor, waitKind, waitId,
+                    successorTurnId, successor)) {
+                throw new IllegalStateException(
+                        "Plan user-wait command id names another continuation");
+            }
+            return CommandResult.duplicate(receipt.state());
+        }
+        OwnerState owner = requireOwnerInCommand(
+                predecessor.taskId(), previous.stageId());
+        State current = owner.stage();
+        if (owner.taskLifecycle() != TaskLifecycle.ACTIVE
+                || owner.taskEpoch() != previous.taskEpoch()
+                || !previous.stageId().equals(owner.currentStageId())
+                || current.kind() != StageKind.PLAN
+                || current.endReason() != null
+                || !previous.equals(current.pendingResult())
+                || current.checkpoint() != StageCheckpoint.DRAFTING
+                    && current.checkpoint() != StageCheckpoint.SELF_REVIEW) {
+            return CommandResult.superseded(current);
+        }
+        State updated = new State(
+                current.id(), current.taskId(), current.kind(), current.generation(),
+                current.version() + 1, current.checkpoint(), null, successor);
+        return CommandResult.applied(userWaits.commit(
+                predecessor, waitKind, waitId, successorTurnId,
+                successor, current, updated));
     }
 
     /** Changes only the exact Plan-owned follow-up; the completed Stage stays immutable. */
@@ -455,6 +531,92 @@ public final class PlanStageManager
     {
         Optional<RevisionEvidence> findRevision(
                 String taskId, String stageId, long stageGeneration, String revisionId);
+    }
+
+    public record UserWaitEvidence(
+            String taskId,
+            String stageId,
+            String commandId,
+            String waitKind,
+            String waitId,
+            String predecessorTurnId,
+            ResultFence predecessor,
+            String successorTurnId,
+            ResultFence successor,
+            State state)
+    {
+        public UserWaitEvidence
+        {
+            requireText(taskId, "taskId");
+            requireText(stageId, "stageId");
+            requireText(commandId, "commandId");
+            requireText(waitKind, "waitKind");
+            requireText(waitId, "waitId");
+            requireText(predecessorTurnId, "predecessorTurnId");
+            requireNonNull(predecessor, "predecessor is null");
+            requireText(successorTurnId, "successorTurnId");
+            requireNonNull(successor, "successor is null");
+            requireNonNull(state, "state is null");
+        }
+
+        private boolean matches(
+                ResultCommand command,
+                String expectedWaitKind,
+                String expectedWaitId,
+                String expectedSuccessorTurnId,
+                ResultFence expectedSuccessor)
+        {
+            return taskId.equals(command.taskId())
+                    && stageId.equals(command.resultFence().stageId())
+                    && commandId.equals(command.commandId())
+                    && waitKind.equals(expectedWaitKind)
+                    && waitId.equals(expectedWaitId)
+                    && predecessor.equals(command.resultFence())
+                    && successorTurnId.equals(expectedSuccessorTurnId)
+                    && successor.equals(expectedSuccessor);
+        }
+    }
+
+    public interface UserWaitStore
+    {
+        Optional<UserWaitEvidence> find(
+                String taskId, String stageId, String commandId);
+
+        State commit(
+                ResultCommand predecessor,
+                String waitKind,
+                String waitId,
+                String successorTurnId,
+                ResultFence successor,
+                State expected,
+                State updated);
+
+        static UserWaitStore unsupported()
+        {
+            return new UserWaitStore()
+            {
+                @Override
+                public Optional<UserWaitEvidence> find(
+                        String taskId, String stageId, String commandId)
+                {
+                    return Optional.empty();
+                }
+
+                @Override
+                public State commit(
+                        ResultCommand predecessor,
+                        String waitKind,
+                        String waitId,
+                        String successorTurnId,
+                        ResultFence successor,
+                        State expected,
+                        State updated)
+                {
+                    throw new UnsupportedOperationException(
+                            "Plan user-wait persistence is not configured");
+                }
+            };
+        }
     }
 
     public enum FollowupStatus

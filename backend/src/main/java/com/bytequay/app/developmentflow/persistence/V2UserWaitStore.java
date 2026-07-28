@@ -32,8 +32,11 @@ import static java.util.Objects.requireNonNull;
 
 /** Exact durable questions and permission grants for typed V2 Turns. */
 @Repository
-public final class V2UserWaitStore
+public class V2UserWaitStore
 {
+    private static final String LEGACY_CONSUMPTION_CALL_ID_PREFIX =
+            "__legacy_v263_consumption__:";
+
     private final JdbcTemplate jdbc;
 
     public V2UserWaitStore(JdbcTemplate jdbc)
@@ -54,7 +57,7 @@ public final class V2UserWaitStore
     {
         requireOwner(owner);
         requireText(id, "id");
-        requireText(callId, "callId");
+        requireCallId(callId);
         requireText(prompt, "prompt");
         requireText(optionsJson, "optionsJson");
         requireNonNull(createdAt, "createdAt is null");
@@ -96,7 +99,7 @@ public final class V2UserWaitStore
             ActiveAgentContextRegistry.TypedOwner owner, String callId)
     {
         requireOwner(owner);
-        requireText(callId, "callId");
+        requireCallId(callId);
         return one(jdbc.query(questionUnion(
                         "owner_kind = ? AND turn_id = ? AND operation_id = ? AND call_id = ?"),
                 V2UserWaitStore::question, owner.kind().name(), owner.turnId(),
@@ -151,6 +154,16 @@ public final class V2UserWaitStore
                        AND (question.state = 'OPEN'
                          OR question.continuation_state = 'READY'))
                   + (SELECT COUNT(*)
+                     FROM review_assignment_question question
+                     JOIN review_assignment_turn turn ON turn.id = question.turn_id
+                     JOIN review_assignment assignment
+                       ON assignment.id = turn.assignment_id
+                     JOIN review_round round ON round.id = assignment.round_id
+                     JOIN review_session session ON session.id = round.session_id
+                     WHERE session.owner_task_id = ?
+                       AND (question.state = 'OPEN'
+                         OR question.continuation_state = 'READY'))
+                  + (SELECT COUNT(*)
                      FROM permission_request permission
                      WHERE (permission.state = 'OPEN'
                          OR permission.continuation_state = 'READY')
@@ -162,8 +175,20 @@ public final class V2UserWaitStore
                            SELECT 1 FROM stage_turn turn
                            JOIN stage owner ON owner.id = turn.stage_id
                            WHERE turn.id = permission.turn_id
-                             AND owner.task_id = ?))))
-                """, Integer.class, taskId, taskId, taskId, taskId);
+                             AND owner.task_id = ?))
+                         OR (permission.turn_kind = 'REVIEW_ASSIGNMENT'
+                           AND EXISTS (
+                               SELECT 1 FROM review_assignment_turn turn
+                               JOIN review_assignment assignment
+                                 ON assignment.id = turn.assignment_id
+                               JOIN review_round round
+                                 ON round.id = assignment.round_id
+                               JOIN review_session session
+                                 ON session.id = round.session_id
+                               WHERE turn.id = permission.turn_id
+                                 AND session.owner_task_id = ?))))
+                """, Integer.class,
+                taskId, taskId, taskId, taskId, taskId, taskId);
         return count != null && count > 0;
     }
 
@@ -319,7 +344,7 @@ public final class V2UserWaitStore
     {
         requireOwner(owner);
         requireText(id, "id");
-        requireText(callId, "callId");
+        requireCallId(callId);
         requireText(capability, "capability");
         requireText(parametersJson, "parametersJson");
         requireText(parametersDigest, "parametersDigest");
@@ -357,7 +382,7 @@ public final class V2UserWaitStore
 
     public Optional<PermissionRequest> findPermission(String callId)
     {
-        requireText(callId, "callId");
+        requireCallId(callId);
         return one(jdbc.query("""
                 SELECT id, call_id, turn_kind, turn_id, operation_id, capability,
                     tool_name, parameters_json, parameters_digest, policy_snapshot,
@@ -405,6 +430,57 @@ public final class V2UserWaitStore
                 ORDER BY ready_at_ms, wait_id
                 LIMIT ?
                 """, (row, ignored) -> new ReadyContinuation(
+                        DispatchTicket.OwnerKind.THREAD_TURN,
+                        row.getString("wait_kind"), row.getString("wait_id")),
+                limit);
+    }
+
+    public List<ReadyContinuation> listReadyContinuations(int limit)
+    {
+        if (limit < 1) {
+            return List.of();
+        }
+        return jdbc.query("""
+                SELECT 'THREAD_TURN' AS owner_kind, 'QUESTION' AS wait_kind,
+                    question.id AS wait_id,
+                    question.answered_at_ms AS ready_at_ms
+                FROM thread_question question
+                WHERE question.state = 'ANSWERED'
+                  AND question.continuation_state = 'READY'
+                UNION ALL
+                SELECT 'TASK_TURN', 'QUESTION', question.id,
+                    question.answered_at_ms
+                FROM task_question question
+                WHERE question.state = 'ANSWERED'
+                  AND question.continuation_state = 'READY'
+                UNION ALL
+                SELECT 'STAGE_TURN', 'QUESTION', question.id,
+                    question.answered_at_ms
+                FROM stage_question question
+                WHERE question.state = 'ANSWERED'
+                  AND question.continuation_state = 'READY'
+                UNION ALL
+                SELECT 'REVIEW_ASSIGNMENT_TURN', 'QUESTION', question.id,
+                    question.answered_at_ms
+                FROM review_assignment_question question
+                WHERE question.state = 'ANSWERED'
+                  AND question.continuation_state = 'READY'
+                UNION ALL
+                SELECT CASE permission.turn_kind
+                        WHEN 'THREAD' THEN 'THREAD_TURN'
+                        WHEN 'TASK' THEN 'TASK_TURN'
+                        WHEN 'STAGE' THEN 'STAGE_TURN'
+                        WHEN 'REVIEW_ASSIGNMENT' THEN 'REVIEW_ASSIGNMENT_TURN'
+                       END,
+                    'PERMISSION', permission.id, permission.answered_at_ms
+                FROM permission_request permission
+                WHERE permission.state <> 'OPEN'
+                  AND permission.continuation_state = 'READY'
+                ORDER BY ready_at_ms, wait_id
+                LIMIT ?
+                """, (row, ignored) -> new ReadyContinuation(
+                        DispatchTicket.OwnerKind.valueOf(
+                                row.getString("owner_kind")),
                         row.getString("wait_kind"), row.getString("wait_id")),
                 limit);
     }
@@ -447,12 +523,62 @@ public final class V2UserWaitStore
                 WHERE id = ? AND continuation_state = 'READY'
                 """.formatted(table), successorTurnId, waitId);
         if (changed == 0) {
-            String state = waitKind.equals("QUESTION")
-                    ? findQuestion(waitId).orElseThrow().continuationState()
-                    : findPermissionById(waitId).orElseThrow().continuationState();
-            if (!state.equals("DISPATCHED")) {
+            String state;
+            String persistedSuccessor;
+            if (waitKind.equals("QUESTION")) {
+                Question persisted = findQuestion(waitId).orElseThrow();
+                state = persisted.continuationState();
+                persistedSuccessor = persisted.successorTurnId();
+            }
+            else {
+                PermissionRequest persisted = findPermissionById(waitId)
+                        .orElseThrow();
+                state = persisted.continuationState();
+                persistedSuccessor = persisted.successorTurnId();
+            }
+            if (!state.equals("DISPATCHED")
+                    || !successorTurnId.equals(persistedSuccessor)) {
                 throw new IllegalStateException(
                         "typed wait changed before continuation dispatch");
+            }
+        }
+    }
+
+    @Transactional
+    public void markContinuationSuperseded(
+            String waitKind, String waitId, String detail)
+    {
+        requireText(waitKind, "waitKind");
+        requireText(waitId, "waitId");
+        requireText(detail, "detail");
+        String table;
+        if (waitKind.equals("QUESTION")) {
+            Question question = findQuestion(waitId).orElseThrow(() ->
+                    new IllegalArgumentException(
+                            "typed question not found: " + waitId));
+            table = supportPrefix(question.owner().kind()) + "_question";
+        }
+        else if (waitKind.equals("PERMISSION")) {
+            table = "permission_request";
+        }
+        else {
+            throw new IllegalArgumentException(
+                    "unsupported continuation wait kind: " + waitKind);
+        }
+        int changed = jdbc.update("""
+                UPDATE %s
+                SET continuation_state = 'SUPERSEDED',
+                    successor_turn_id = NULL, continuation_error = ?
+                WHERE id = ? AND continuation_state = 'READY'
+                """.formatted(table), detail, waitId);
+        if (changed == 0) {
+            String state = waitKind.equals("QUESTION")
+                    ? findQuestion(waitId).orElseThrow().continuationState()
+                    : findPermissionById(waitId).orElseThrow()
+                            .continuationState();
+            if (!state.equals("SUPERSEDED")) {
+                throw new IllegalStateException(
+                        "typed wait changed before continuation supersession");
             }
         }
     }
@@ -465,7 +591,7 @@ public final class V2UserWaitStore
             String actor,
             Instant answeredAt)
     {
-        requireText(callId, "callId");
+        requireCallId(callId);
         requireNonNull(choice, "choice is null");
         if (expectedRevision < 0) {
             throw new IllegalArgumentException("expectedRevision is negative");
@@ -544,14 +670,21 @@ public final class V2UserWaitStore
     @Transactional
     public OptionalInt consumeGrant(
             ActiveAgentContextRegistry.TypedOwner currentOwner,
+            String callId,
             String toolName,
             String parametersDigest,
             Instant consumedAt)
     {
         requireOwner(currentOwner);
+        requireCallId(callId);
         requireText(toolName, "toolName");
         requireText(parametersDigest, "parametersDigest");
         requireNonNull(consumedAt, "consumedAt is null");
+        OptionalInt replay = consumedGrantRemaining(
+                currentOwner, callId, toolName, parametersDigest);
+        if (replay.isPresent()) {
+            return replay;
+        }
         OwnerScope current = ownerScope(currentOwner);
         List<PermissionRequest> candidates = jdbc.query("""
                 SELECT id, call_id, turn_kind, turn_id, operation_id, capability,
@@ -573,7 +706,8 @@ public final class V2UserWaitStore
                     requested_at_ms, id
                 """, V2UserWaitStore::permission, toolName);
         for (PermissionRequest candidate : candidates) {
-            if (!grantMatches(candidate, current, parametersDigest)) {
+            if (!grantMatches(
+                    candidate, currentOwner, current, parametersDigest)) {
                 continue;
             }
             int remaining = candidate.remainingUses();
@@ -584,46 +718,73 @@ public final class V2UserWaitStore
                         last_consumed_at_ms = ?
                     WHERE id = ? AND state = ? AND remaining_uses = ?
                       AND consumed_uses = ?
+                      AND NOT EXISTS (
+                          SELECT 1 FROM permission_grant_consumption consumption
+                          WHERE consumption.permission_id = permission_request.id
+                            AND consumption.turn_kind = ?
+                            AND consumption.turn_id = ?
+                            AND consumption.operation_id = ?
+                            AND consumption.call_id = ?
+                            AND consumption.parameters_digest = ?)
                     """, next, consumedAt.toEpochMilli(), candidate.id(),
-                    candidate.state(), remaining, candidate.consumedUses());
+                    candidate.state(), remaining, candidate.consumedUses(),
+                    turnKind(currentOwner.kind()), currentOwner.turnId(),
+                    currentOwner.operationId(), callId, parametersDigest);
             if (updated == 1) {
                 jdbc.update("""
                         INSERT INTO permission_grant_consumption(
                             id, permission_id, turn_kind, turn_id,
-                            operation_id, parameters_digest,
+                            operation_id, call_id, parameters_digest,
                             remaining_after, consumed_at_ms)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, UUID.randomUUID().toString(), candidate.id(),
                         turnKind(currentOwner.kind()), currentOwner.turnId(),
-                        currentOwner.operationId(), parametersDigest, next,
+                        currentOwner.operationId(), callId, parametersDigest, next,
                         consumedAt.toEpochMilli());
                 return OptionalInt.of(next);
             }
         }
-        return OptionalInt.empty();
+        return consumedGrantRemaining(
+                currentOwner, callId, toolName, parametersDigest);
     }
 
     public boolean wasGrantConsumed(
             ActiveAgentContextRegistry.TypedOwner owner,
+            String callId,
+            String toolName,
+            String parametersDigest)
+    {
+        return consumedGrantRemaining(
+                owner, callId, toolName, parametersDigest).isPresent();
+    }
+
+    private OptionalInt consumedGrantRemaining(
+            ActiveAgentContextRegistry.TypedOwner owner,
+            String callId,
             String toolName,
             String parametersDigest)
     {
         requireOwner(owner);
+        requireCallId(callId);
         requireText(toolName, "toolName");
         requireText(parametersDigest, "parametersDigest");
-        Integer count = jdbc.queryForObject("""
-                SELECT COUNT(*)
+        List<Integer> remaining = jdbc.query("""
+                SELECT consumption.remaining_after
                 FROM permission_grant_consumption consumption
                 JOIN permission_request permission
                   ON permission.id = consumption.permission_id
                 WHERE consumption.turn_kind = ?
                   AND consumption.turn_id = ?
                   AND consumption.operation_id = ?
+                  AND consumption.call_id = ?
                   AND consumption.parameters_digest = ?
                   AND permission.tool_name = ?
-                """, Integer.class, turnKind(owner.kind()), owner.turnId(),
-                owner.operationId(), parametersDigest, toolName);
-        return count != null && count > 0;
+                """, (row, ignored) -> row.getInt("remaining_after"),
+                turnKind(owner.kind()), owner.turnId(), owner.operationId(),
+                callId, parametersDigest, toolName);
+        return remaining.isEmpty()
+                ? OptionalInt.empty()
+                : OptionalInt.of(remaining.getFirst());
     }
 
     public Optional<PermissionRequest> findPermissionForTrunk(
@@ -723,7 +884,8 @@ public final class V2UserWaitStore
         if (!receipt.owner().equals(owner)
                 || !receipt.waitKind().equals(waitKind)
                 || !receipt.waitId().equals(waitId)
-                || !receipt.payloadDigest().equals(payloadDigest)) {
+                || !receipt.payloadDigest().equals(payloadDigest)
+                || !receipt.resultEvidence().equals(resultEvidence)) {
             throw new IllegalArgumentException(
                     "operation already names different user-wait evidence");
         }
@@ -772,17 +934,32 @@ public final class V2UserWaitStore
         requireNonNull(canceledAt, "canceledAt is null");
         int canceled = cancelQuestionsForTask(
                 "task_question", "task_turn", "turn.task_id = ?",
-                taskId, actor, reason, canceledAt);
+                "TASK_TURN", taskId, actor, reason, canceledAt);
         canceled += cancelQuestionsForTask(
                 "stage_question", "stage_turn",
                 "EXISTS (SELECT 1 FROM stage owner WHERE owner.id = turn.stage_id AND owner.task_id = ?)",
-                taskId, actor, reason, canceledAt);
+                "STAGE_TURN", taskId, actor, reason, canceledAt);
+        String reviewOwner = """
+                EXISTS (
+                    SELECT 1 FROM review_assignment assignment
+                    JOIN review_round round ON round.id = assignment.round_id
+                    JOIN review_session session ON session.id = round.session_id
+                    WHERE assignment.id = turn.assignment_id
+                      AND session.owner_task_id = ?)
+                """;
+        canceled += cancelQuestionsForTask(
+                "review_assignment_question", "review_assignment_turn",
+                reviewOwner, "REVIEW_ASSIGNMENT_TURN", taskId, actor, reason,
+                canceledAt);
         canceled += cancelReadyQuestionsForTask(
                 "task_question", "task_turn", "turn.task_id = ?", taskId);
         canceled += cancelReadyQuestionsForTask(
                 "stage_question", "stage_turn",
                 "EXISTS (SELECT 1 FROM stage owner WHERE owner.id = turn.stage_id AND owner.task_id = ?)",
                 taskId);
+        canceled += cancelReadyQuestionsForTask(
+                "review_assignment_question", "review_assignment_turn",
+                reviewOwner, taskId);
         jdbc.update("""
                 INSERT INTO permission_answer_attempt(
                     id, permission_id, expected_revision, proposed_state,
@@ -797,8 +974,17 @@ public final class V2UserWaitStore
                     OR (permission.turn_kind = 'STAGE' AND EXISTS (
                         SELECT 1 FROM stage_turn turn
                         JOIN stage owner ON owner.id = turn.stage_id
-                        WHERE turn.id = permission.turn_id AND owner.task_id = ?)))
-                """, actor, reason, canceledAt.toEpochMilli(), taskId, taskId);
+                        WHERE turn.id = permission.turn_id AND owner.task_id = ?))
+                    OR (permission.turn_kind = 'REVIEW_ASSIGNMENT' AND EXISTS (
+                        SELECT 1 FROM review_assignment_turn turn
+                        JOIN review_assignment assignment
+                          ON assignment.id = turn.assignment_id
+                        JOIN review_round round ON round.id = assignment.round_id
+                        JOIN review_session session ON session.id = round.session_id
+                        WHERE turn.id = permission.turn_id
+                          AND session.owner_task_id = ?)))
+                """, actor, reason, canceledAt.toEpochMilli(),
+                taskId, taskId, taskId);
         canceled += jdbc.update("""
                 UPDATE permission_request
                 SET state = 'CANCELED', answer = ?,
@@ -814,8 +1000,17 @@ public final class V2UserWaitStore
                         SELECT 1 FROM stage_turn turn
                         JOIN stage owner ON owner.id = turn.stage_id
                         WHERE turn.id = permission_request.turn_id
-                          AND owner.task_id = ?)))
-                """, reason, canceledAt.toEpochMilli(), actor, taskId, taskId);
+                          AND owner.task_id = ?))
+                    OR (turn_kind = 'REVIEW_ASSIGNMENT' AND EXISTS (
+                        SELECT 1 FROM review_assignment_turn turn
+                        JOIN review_assignment assignment
+                          ON assignment.id = turn.assignment_id
+                        JOIN review_round round ON round.id = assignment.round_id
+                        JOIN review_session session ON session.id = round.session_id
+                        WHERE turn.id = permission_request.turn_id
+                          AND session.owner_task_id = ?)))
+                """, reason, canceledAt.toEpochMilli(), actor,
+                taskId, taskId, taskId);
         canceled += jdbc.update("""
                 UPDATE permission_request
                 SET continuation_state = 'CANCELED', continuation_error = ?
@@ -828,8 +1023,16 @@ public final class V2UserWaitStore
                         SELECT 1 FROM stage_turn turn
                         JOIN stage owner ON owner.id = turn.stage_id
                         WHERE turn.id = permission_request.turn_id
-                          AND owner.task_id = ?)))
-                """, reason, taskId, taskId);
+                          AND owner.task_id = ?))
+                    OR (turn_kind = 'REVIEW_ASSIGNMENT' AND EXISTS (
+                        SELECT 1 FROM review_assignment_turn turn
+                        JOIN review_assignment assignment
+                          ON assignment.id = turn.assignment_id
+                        JOIN review_round round ON round.id = assignment.round_id
+                        JOIN review_session session ON session.id = round.session_id
+                        WHERE turn.id = permission_request.turn_id
+                          AND session.owner_task_id = ?)))
+                """, reason, taskId, taskId, taskId);
         return canceled;
     }
 
@@ -853,6 +1056,7 @@ public final class V2UserWaitStore
             String questionTable,
             String turnTable,
             String ownerPredicate,
+            String ownerKind,
             String taskId,
             String actor,
             String reason,
@@ -869,8 +1073,7 @@ public final class V2UserWaitStore
                 JOIN %s turn ON turn.id = question.turn_id
                 WHERE question.state = 'OPEN' AND %s
                 """.formatted(questionTable, turnTable, ownerPredicate),
-                questionTable.equals("task_question") ? "TASK_TURN" : "STAGE_TURN",
-                reason, actor, canceledAt.toEpochMilli(), taskId);
+                ownerKind, reason, actor, canceledAt.toEpochMilli(), taskId);
         return jdbc.update("""
                 UPDATE %s
                 SET state = 'CANCELED', answer = ?, answer_free_form = ?,
@@ -946,7 +1149,8 @@ public final class V2UserWaitStore
                     WHERE turn.id = ? AND turn.operation_id = ?
                     """, V2UserWaitStore::scope, owner.turnId(), owner.operationId());
             case REVIEW_ASSIGNMENT_TURN -> jdbc.query("""
-                    SELECT NULL AS trunk_id, NULL AS task_id,
+                    SELECT session.owner_thread_id AS trunk_id,
+                        session.owner_task_id AS task_id,
                         session.repo_id AS repository_id
                     FROM review_assignment_turn turn
                     JOIN review_assignment assignment ON assignment.id = turn.assignment_id
@@ -961,29 +1165,19 @@ public final class V2UserWaitStore
     }
 
     private boolean grantMatches(
-            PermissionRequest grant, OwnerScope current, String parametersDigest)
+            PermissionRequest grant,
+            ActiveAgentContextRegistry.TypedOwner currentOwner,
+            OwnerScope current,
+            String parametersDigest)
     {
         return switch (grant.grantScopeKind()) {
             case "CALL" -> grant.grantScopeId().equals(parametersDigest)
-                    && sameAuthorizationBoundary(
-                            ownerScope(grant.owner()), current);
+                    && currentOwner.turnId().equals(grant.successorTurnId());
             case "TRUNK" -> grant.grantScopeId().equals(current.trunkId());
             case "TASK" -> grant.grantScopeId().equals(current.taskId());
             case "REPOSITORY" -> grant.grantScopeId().equals(current.repositoryId());
             default -> false;
         };
-    }
-
-    private static boolean sameAuthorizationBoundary(OwnerScope left, OwnerScope right)
-    {
-        if (left.taskId() != null || right.taskId() != null) {
-            return left.taskId() != null && left.taskId().equals(right.taskId());
-        }
-        if (left.trunkId() != null || right.trunkId() != null) {
-            return left.trunkId() != null && left.trunkId().equals(right.trunkId());
-        }
-        return left.repositoryId() != null
-                && left.repositoryId().equals(right.repositoryId());
     }
 
     private static String questionUnion(String predicate)
@@ -1045,10 +1239,15 @@ public final class V2UserWaitStore
                     question.answered_at_ms,
                     'REVIEW_ASSIGNMENT_TURN' AS owner_kind,
                     question.turn_id, turn.operation_id,
-                    NULL AS owner_trunk_id, NULL AS task_id,
+                    session.owner_thread_id AS owner_trunk_id,
+                    session.owner_task_id AS task_id,
                     NULL AS stage_id
                 FROM review_assignment_question question
                 JOIN review_assignment_turn turn ON turn.id = question.turn_id
+                JOIN review_assignment assignment
+                  ON assignment.id = turn.assignment_id
+                JOIN review_round round ON round.id = assignment.round_id
+                JOIN review_session session ON session.id = round.session_id
                 ) typed_questions
                 WHERE %s
                 """.formatted(predicate);
@@ -1265,6 +1464,15 @@ public final class V2UserWaitStore
         }
     }
 
+    private static void requireCallId(String callId)
+    {
+        requireText(callId, "callId");
+        if (callId.startsWith(LEGACY_CONSUMPTION_CALL_ID_PREFIX)) {
+            throw new IllegalArgumentException(
+                    "callId uses the reserved V263 migration prefix");
+        }
+    }
+
     private static Instant instant(ResultSet row, String column)
             throws SQLException
     {
@@ -1451,7 +1659,10 @@ public final class V2UserWaitStore
             String stageKind,
             String purpose) {}
 
-    public record ReadyContinuation(String waitKind, String waitId) {}
+    public record ReadyContinuation(
+            DispatchTicket.OwnerKind ownerKind,
+            String waitKind,
+            String waitId) {}
 
     private record OwnerScope(String trunkId, String taskId, String repositoryId) {}
 

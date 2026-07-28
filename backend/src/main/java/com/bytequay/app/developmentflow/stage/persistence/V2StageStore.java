@@ -44,6 +44,7 @@ final class V2StageStore
         implements StageManager.Store,
         PlanStageManager.ApprovalStore,
         PlanStageManager.RevisionStore,
+        PlanStageManager.UserWaitStore,
         LocalDevelopmentStageManager.EvidenceStore
 {
     private static final String RECEIPT_SELECT = "SELECT * FROM stage_command_receipt";
@@ -80,6 +81,11 @@ final class V2StageStore
             RECEIPT_INSERT.replace(
                     "INSERT INTO stage_command_receipt(",
                     "INSERT INTO remote_observation_stage_receipt(");
+
+    private static final String REMOTE_POLICY_RECEIPT_INSERT =
+            RECEIPT_INSERT.replace(
+                    "INSERT INTO stage_command_receipt(",
+                    "INSERT INTO remote_policy_stage_receipt_v268(");
 
     private static final String STEERING_RECEIPT_INSERT = RECEIPT_INSERT.replace(
             "INSERT INTO stage_command_receipt(",
@@ -125,6 +131,7 @@ final class V2StageStore
         Optional<StageManager.CommandReceipt> projection = findProjection(
                 stageId, persisted.version());
         StageManager.State stage = projection
+                .or(() -> queryPlanUserWaitProjection(stageId, persisted.version()))
                 .or(() -> queryInitialRequest(
                         "WHERE stage_id = ? AND returned_stage_version = ?",
                         stageId, persisted.version()))
@@ -186,6 +193,15 @@ final class V2StageStore
                 return remoteObservation;
             }
         }
+        if (tableAvailable("remote_policy_stage_receipt_v268")) {
+            Optional<StageManager.CommandReceipt> remotePolicy = queryReceipt(
+                    "SELECT * FROM remote_policy_stage_receipt_v268"
+                            + " WHERE task_id = ? AND stage_id = ? AND command_id = ?",
+                    taskId, stageId, commandId);
+            if (remotePolicy.isPresent()) {
+                return remotePolicy;
+            }
+        }
         if (tableAvailable("stage_steering_transition_receipt_v257")) {
             Optional<StageManager.CommandReceipt> steering = queryReceipt(
                     "SELECT * FROM stage_steering_transition_receipt_v257"
@@ -197,6 +213,15 @@ final class V2StageStore
         }
         if (tableAvailable("stage_resume_rearm_successor_v257")) {
             Optional<StageManager.CommandReceipt> resumed = queryResumeRearm(
+                    "WHERE intent.task_id = ? AND intent.stage_id = ?"
+                            + " AND successor.command_id = ?",
+                    taskId, stageId, commandId);
+            if (resumed.isPresent()) {
+                return resumed;
+            }
+        }
+        if (tableAvailable("stage_resume_async_successor_v272")) {
+            Optional<StageManager.CommandReceipt> resumed = queryAsyncResumeRearm(
                     "WHERE intent.task_id = ? AND intent.stage_id = ?"
                             + " AND successor.command_id = ?",
                     taskId, stageId, commandId);
@@ -414,6 +439,114 @@ final class V2StageStore
                 replacement.attempt(), replacement.expectedCodeFingerprint(),
                 replacement.expectedHeadSha(), replacement.expectedBaseSha(), now);
         return requested;
+    }
+
+    @Override
+    public Optional<PlanStageManager.UserWaitEvidence> find(
+            String taskId, String stageId, String commandId)
+    {
+        return jdbc.query("""
+                SELECT continuation.task_id, continuation.stage_id,
+                       continuation.command_id, continuation.wait_kind,
+                       continuation.wait_id, continuation.predecessor_turn_id,
+                       continuation.successor_turn_id,
+                       predecessor.task_epoch AS previous_task_epoch,
+                       predecessor.trigger_stage_generation AS previous_generation,
+                       predecessor.operation_id AS previous_operation_id,
+                       predecessor.attempt AS previous_attempt,
+                       predecessor.expected_code_fingerprint AS previous_fingerprint,
+                       predecessor.expected_head_sha AS previous_head,
+                       predecessor.expected_base_sha AS previous_base,
+                       successor.task_epoch AS next_task_epoch,
+                       successor.trigger_stage_generation AS next_generation,
+                       successor.operation_id AS next_operation_id,
+                       successor.attempt AS next_attempt,
+                       successor.expected_code_fingerprint AS next_fingerprint,
+                       successor.expected_head_sha AS next_head,
+                       successor.expected_base_sha AS next_base,
+                       continuation.returned_stage_version,
+                       continuation.checkpoint
+                FROM plan_turn_user_wait_continuation_v265 continuation
+                JOIN task_turn predecessor
+                  ON predecessor.id = continuation.predecessor_turn_id
+                JOIN task_turn successor
+                  ON successor.id = continuation.successor_turn_id
+                WHERE continuation.task_id = ?
+                  AND continuation.stage_id = ?
+                  AND continuation.command_id = ?
+                """, (rs, row) -> {
+                    ResultFence previous = new ResultFence(
+                            rs.getLong("previous_task_epoch"), stageId,
+                            rs.getLong("previous_generation"),
+                            rs.getString("previous_operation_id"),
+                            rs.getInt("previous_attempt"),
+                            rs.getString("previous_fingerprint"),
+                            rs.getString("previous_head"),
+                            rs.getString("previous_base"));
+                    ResultFence next = new ResultFence(
+                            rs.getLong("next_task_epoch"), stageId,
+                            rs.getLong("next_generation"),
+                            rs.getString("next_operation_id"),
+                            rs.getInt("next_attempt"),
+                            rs.getString("next_fingerprint"),
+                            rs.getString("next_head"),
+                            rs.getString("next_base"));
+                    StageManager.State state = new StageManager.State(
+                            stageId, taskId, StageKind.PLAN,
+                            next.stageGeneration(),
+                            rs.getLong("returned_stage_version"),
+                            StageCheckpoint.valueOf(rs.getString("checkpoint")),
+                            null, next);
+                    return new PlanStageManager.UserWaitEvidence(
+                            taskId, stageId, rs.getString("command_id"),
+                            rs.getString("wait_kind"), rs.getString("wait_id"),
+                            rs.getString("predecessor_turn_id"), previous,
+                            rs.getString("successor_turn_id"), next, state);
+                }, taskId, stageId, commandId).stream().findFirst();
+    }
+
+    @Override
+    public StageManager.State commit(
+            StageManager.ResultCommand predecessor,
+            String waitKind,
+            String waitId,
+            String successorTurnId,
+            ResultFence successor,
+            StageManager.State expected,
+            StageManager.State updated)
+    {
+        requireTransaction();
+        if (expected.kind() != StageKind.PLAN
+                || expected.checkpoint() != updated.checkpoint()
+                || expected.version() + 1 != updated.version()
+                || !predecessor.resultFence().equals(expected.pendingResult())
+                || !successor.equals(updated.pendingResult())) {
+            throw new IllegalArgumentException(
+                    "Plan user-wait continuation is inconsistent");
+        }
+        updateSameCheckpoint(expected, updated,
+                predecessor.resultFence().taskEpoch());
+        long now = System.currentTimeMillis();
+        recordTransition(
+                predecessor.commandId(), "CONTINUE_PLAN_USER_WAIT",
+                predecessor.actor(), expected, updated, now);
+        jdbc.update("""
+                INSERT INTO plan_turn_user_wait_continuation_v265(
+                    wait_kind, wait_id, command_id, task_id, task_epoch,
+                    stage_id, stage_generation, predecessor_turn_id,
+                    predecessor_operation_id, successor_turn_id,
+                    successor_operation_id, expected_stage_version,
+                    returned_stage_version, checkpoint, admitted_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, waitKind, waitId, predecessor.commandId(),
+                predecessor.taskId(), predecessor.resultFence().taskEpoch(),
+                predecessor.resultFence().stageId(),
+                predecessor.resultFence().stageGeneration(),
+                findTurnId(predecessor.resultFence().operationId()),
+                predecessor.resultFence().operationId(), successorTurnId,
+                successor.operationId(), expected.version(), updated.version(),
+                expected.checkpoint().name(), now);
+        return updated;
     }
 
     @Override
@@ -874,6 +1007,8 @@ final class V2StageStore
                             ? STEERING_RECEIPT_INSERT
                     : isRemoteObservationCause(cause)
                             ? REMOTE_OBSERVATION_RECEIPT_INSERT
+                            : cause.equals("RECONSIDER_REMOTE_READINESS_POLICY")
+                                    ? REMOTE_POLICY_RECEIPT_INSERT
                             : isRemoteRuntimeCause(cause)
                                     ? REMOTE_RECEIPT_INSERT
                                     : RECEIPT_INSERT;
@@ -951,6 +1086,16 @@ final class V2StageStore
                 return observation;
             }
         }
+        if (tableAvailable("remote_policy_stage_receipt_v268")) {
+            Optional<StageManager.CommandReceipt> policy = queryReceipt(
+                    "SELECT * FROM remote_policy_stage_receipt_v268"
+                            + " WHERE stage_id = ? AND disposition = 'APPLIED'"
+                            + " AND returned_version = ?",
+                    stageId, version);
+            if (policy.isPresent()) {
+                return policy;
+            }
+        }
         if (tableAvailable("stage_steering_transition_receipt_v257")) {
             Optional<StageManager.CommandReceipt> steering = queryReceipt(
                     "SELECT * FROM stage_steering_transition_receipt_v257"
@@ -962,12 +1107,83 @@ final class V2StageStore
             }
         }
         if (tableAvailable("stage_resume_rearm_successor_v257")) {
-            return queryResumeRearm(
+            Optional<StageManager.CommandReceipt> resumed = queryResumeRearm(
+                    "WHERE intent.stage_id = ?"
+                            + " AND successor.returned_stage_version = ?",
+                    stageId, version);
+            if (resumed.isPresent()) {
+                return resumed;
+            }
+        }
+        if (tableAvailable("stage_resume_async_successor_v272")) {
+            return queryAsyncResumeRearm(
                     "WHERE intent.stage_id = ?"
                             + " AND successor.returned_stage_version = ?",
                     stageId, version);
         }
         return Optional.empty();
+    }
+
+    private Optional<StageManager.CommandReceipt> queryPlanUserWaitProjection(
+            String stageId, long version)
+    {
+        if (!tableAvailable("plan_turn_user_wait_continuation_v265")) {
+            return Optional.empty();
+        }
+        return jdbc.query("""
+                SELECT continuation.task_id, continuation.command_id,
+                       continuation.task_epoch,
+                       continuation.stage_generation,
+                       continuation.expected_stage_version,
+                       continuation.returned_stage_version,
+                       continuation.checkpoint, continuation.wait_id,
+                       predecessor.operation_id AS previous_operation_id,
+                       predecessor.attempt AS previous_attempt,
+                       predecessor.expected_code_fingerprint AS previous_fingerprint,
+                       predecessor.expected_head_sha AS previous_head,
+                       predecessor.expected_base_sha AS previous_base,
+                       successor.operation_id AS next_operation_id,
+                       successor.attempt AS next_attempt,
+                       successor.expected_code_fingerprint AS next_fingerprint,
+                       successor.expected_head_sha AS next_head,
+                       successor.expected_base_sha AS next_base
+                FROM plan_turn_user_wait_continuation_v265 continuation
+                JOIN task_turn predecessor
+                  ON predecessor.id = continuation.predecessor_turn_id
+                JOIN task_turn successor
+                  ON successor.id = continuation.successor_turn_id
+                WHERE continuation.stage_id = ?
+                  AND continuation.returned_stage_version = ?
+                """, (rs, row) -> {
+                    long taskEpoch = rs.getLong("task_epoch");
+                    long generation = rs.getLong("stage_generation");
+                    ResultFence previous = new ResultFence(
+                            taskEpoch, stageId, generation,
+                            rs.getString("previous_operation_id"),
+                            rs.getInt("previous_attempt"),
+                            rs.getString("previous_fingerprint"),
+                            rs.getString("previous_head"),
+                            rs.getString("previous_base"));
+                    ResultFence next = new ResultFence(
+                            taskEpoch, stageId, generation,
+                            rs.getString("next_operation_id"),
+                            rs.getInt("next_attempt"),
+                            rs.getString("next_fingerprint"),
+                            rs.getString("next_head"),
+                            rs.getString("next_base"));
+                    StageManager.State state = new StageManager.State(
+                            stageId, rs.getString("task_id"), StageKind.PLAN,
+                            generation, rs.getLong("returned_stage_version"),
+                            StageCheckpoint.valueOf(rs.getString("checkpoint")),
+                            null, next);
+                    return new StageManager.CommandReceipt(
+                            state.taskId(), state, "CONTINUE_PLAN_USER_WAIT",
+                            "v2-plan-runtime", taskEpoch, generation,
+                            rs.getLong("expected_stage_version"),
+                            state.checkpoint(), previous,
+                            rs.getString("wait_id"),
+                            CommandResult.Disposition.APPLIED);
+                }, stageId, version).stream().findFirst();
     }
 
     private Optional<StageManager.CommandReceipt> queryResumeRearm(
@@ -992,6 +1208,48 @@ final class V2StageStore
                             rs.getLong("stage_generation"),
                             rs.getString("operation_id"),
                             rs.getInt("semantic_attempt"),
+                            rs.getString("code_fingerprint"),
+                            rs.getString("head_sha"), rs.getString("base_sha"));
+                    StageCheckpoint checkpoint = StageCheckpoint.valueOf(
+                            rs.getString("restore_checkpoint"));
+                    StageManager.State state = new StageManager.State(
+                            rs.getString("stage_id"), rs.getString("task_id"),
+                            StageKind.valueOf(rs.getString("stage_kind")),
+                            rs.getLong("stage_generation"),
+                            rs.getLong("returned_stage_version"), checkpoint,
+                            null, pending);
+                    return new StageManager.CommandReceipt(
+                            state.taskId(), state, "REARM_STAGE_OWNER",
+                            "stage-resume-owner", rs.getLong("task_epoch"),
+                            rs.getLong("stage_generation"),
+                            rs.getLong("stage_version"), checkpoint, pending,
+                            rs.getString("owner_id"),
+                            CommandResult.Disposition.APPLIED);
+                }, arguments).stream().findFirst();
+    }
+
+    private Optional<StageManager.CommandReceipt> queryAsyncResumeRearm(
+            String suffix, Object... arguments)
+    {
+        return jdbc.query("""
+                SELECT intent.task_id, intent.task_epoch, intent.stage_id,
+                       intent.stage_kind, intent.stage_generation,
+                       intent.stage_version, intent.restore_checkpoint,
+                       intent.code_fingerprint, intent.head_sha, intent.base_sha,
+                       successor.command_id, successor.owner_id,
+                       successor.operation_id, successor.dispatch_attempt,
+                       successor.returned_stage_version
+                FROM stage_resume_async_successor_v272 successor
+                JOIN stage_resume_rearm_intent_v257 intent
+                  ON intent.handoff_id = successor.handoff_id
+                """ + suffix + " AND successor.status = 'ARMED'"
+                        + " AND successor.returned_stage_version IS NOT NULL",
+                (rs, row) -> {
+                    ResultFence pending = new ResultFence(
+                            rs.getLong("task_epoch"), rs.getString("stage_id"),
+                            rs.getLong("stage_generation"),
+                            rs.getString("operation_id"),
+                            rs.getInt("dispatch_attempt"),
                             rs.getString("code_fingerprint"),
                             rs.getString("head_sha"), rs.getString("base_sha"));
                     StageCheckpoint checkpoint = StageCheckpoint.valueOf(

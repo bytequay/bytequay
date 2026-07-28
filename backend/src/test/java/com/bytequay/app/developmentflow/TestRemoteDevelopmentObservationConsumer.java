@@ -134,14 +134,14 @@ class TestRemoteDevelopmentObservationConsumer
                         "readiness-1", "authorization-1", "operation-1",
                         "ticket-1",
                         SqliteRemoteMergeRuntimeStore.AuthorityKind.AUTO_MERGE_POLICY,
-                        3);
+                        "squash", 3);
         when(store.findStart("authorization-1")).thenReturn(Optional.of(
                 new StartReceipt(
                         "authorization-1", "readiness-1",
                         SqliteRemoteMergeRuntimeStore.AuthorityKind.AUTO_MERGE_POLICY,
                         null, "merge-1", "operation-1", "ticket-1", "task-1",
                         "stage-1", 1, 1, 1, 3, "head-1", "base-1",
-                        MergeMode.DIRECT)));
+                        MergeMode.DIRECT, "squash")));
         TaskCommandExecutor commands = CommandTestSupport.executor();
         RemoteMergeRuntimeCoordinator coordinator =
                 new RemoteMergeRuntimeCoordinator(

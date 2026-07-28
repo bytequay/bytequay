@@ -2923,6 +2923,38 @@ export type WorkspaceApiRequest = {
   body?: unknown;
 };
 
+export type ReadinessAssistanceKind =
+  | 'POST_MAINTAINER_NUDGE'
+  | 'REQUEST_REVIEWER';
+
+/** Exact owner token projected only for a ready PR the viewer cannot merge. */
+export type ReadinessAssistanceAvailability = {
+  taskEpoch: number;
+  stageId: string;
+  stageGeneration: number;
+  snapshotId: string;
+  readinessId: string;
+  policyId: string;
+  headSha: string;
+  baseSha: string;
+  viewerLogin: string;
+  actions: ReadinessAssistanceKind[];
+};
+
+export type ReadinessAssistanceRequest = {
+  commandId: string;
+  taskEpoch: number;
+  stageGeneration: number;
+  snapshotId: string;
+  readinessId: string;
+  policyId: string;
+  headSha: string;
+  baseSha: string;
+  kind: ReadinessAssistanceKind;
+  externalTarget: string | null;
+  payload: string;
+};
+
 export type Bridge = {
   workspaceApi: <T = unknown>(request: WorkspaceApiRequest) => Promise<T>;
   savePat: (pat: string) => Promise<boolean>;
@@ -4015,11 +4047,32 @@ export type Bridge = {
   /** Explicitly restart an exhausted post-ship CI loop. Unlike ordinary
    *  Resume, this action may rerun failed GitHub Actions. */
   retryFailedCi: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
-  /** Next → park the current task at AWAITING_REVIEW (worktree
-   *  preserved) and start a fresh task cut from main. The trunk
-   *  window's Next button calls this; differs from
-   *  {@link shipAndContinue} which is terminal — task closes,
-   *  worktree reaps. */
+  /** Execute one exact owner-scoped V2 CI recovery command. */
+  recoverV2Ci: (
+    taskId: string,
+    episodeId: string,
+    command: {
+      commandId: string;
+      action: 'EXTEND_BUDGET' | 'CONTINUE_WITH_PER_PUSH_APPROVAL' | 'MANUAL_TAKEOVER' | 'STOP_AUTOMATION';
+      rerunDelta: number;
+      fixDelta: number;
+      pushDelta: number;
+      reason: string;
+    },
+  ) => Promise<unknown>;
+  /** Execute one exact owner-scoped V2 Cleanup recovery command. */
+  recoverV2Cleanup: (
+    taskId: string,
+    stepId: string,
+    command: {
+      commandId: string;
+      action: 'RETRY' | 'WAIVE_OPTIONAL';
+      reason: string;
+    },
+  ) => Promise<unknown>;
+  /** Return control to Trunk planning. V2 preserves the exact current Task
+   *  checkpoint and leaves sibling creation to Trunk; LEGACY retains its
+   *  park-and-cut compatibility behavior. */
   parkAndStartNext: (
     threadId: string,
     taskId: string,
@@ -4397,6 +4450,17 @@ export type Bridge = {
     images?: string[],
     mode?: 'APPEND' | 'CANCEL_AND_REPLACE',
   ) => Promise<{ turnId: string }>;
+  /** Read the exact ready-but-unmergeable V2 action token, if one exists. */
+  getV2ReadinessAssistance: (
+    taskId: string,
+    stageId: string,
+  ) => Promise<ReadinessAssistanceAvailability | null>;
+  /** Manually authorize one exact maintainer nudge or reviewer request. */
+  authorizeV2ReadinessAssistance: (
+    taskId: string,
+    stageId: string,
+    body: ReadinessAssistanceRequest,
+  ) => Promise<{ actionId: string; status: string }>;
   /** Approve the task's plan: closes the PlanStage, opens the
    *  DevelopmentStage, and returns its id (+ redirect path) so the view can
    *  auto-navigate to the dev stage detail page. */

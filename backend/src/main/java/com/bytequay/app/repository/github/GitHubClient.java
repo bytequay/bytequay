@@ -1795,11 +1795,13 @@ public class GitHubClient
                     .body(body)
                     .retrieve()
                     .body(MergeQueueGqlResponse.class);
+            requireMergeQueueResponse(response == null ? null : response.errors(),
+                    "fetchMergeQueueInfo");
             if (response == null
                     || response.data() == null
                     || response.data().repository() == null
                     || response.data().repository().pullRequest() == null) {
-                return new PullRequestRepository.MergeQueueInfo(false, null);
+                throw incompleteMergeQueueResponse("fetchMergeQueueInfo");
             }
             MergeQueueGqlPr pullRequest = response.data().repository().pullRequest();
             boolean queueConfigured = pullRequest.mergeQueue() != null
@@ -1818,7 +1820,11 @@ public class GitHubClient
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record MergeQueueGqlResponse(MergeQueueGqlData data) {}
+    record MergeQueueGqlResponse(
+            MergeQueueGqlData data, List<MergeQueueGqlError> errors) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueGqlError(String type, String message) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record MergeQueueGqlData(MergeQueueGqlRepo repository) {}
@@ -2066,11 +2072,13 @@ public class GitHubClient
                     .body(body)
                     .retrieve()
                     .body(MergeQueueProbeGqlResponse.class);
+            requireMergeQueueResponse(response == null ? null : response.errors(),
+                    "probeMergeQueue");
             if (response == null
                     || response.data() == null
                     || response.data().repository() == null
                     || response.data().repository().pullRequest() == null) {
-                return Optional.empty();
+                throw incompleteMergeQueueResponse("probeMergeQueue");
             }
             MergeQueueProbeGqlPr probe = response.data().repository().pullRequest();
             // mergeQueue is non-null iff the PR's base branch has merge
@@ -2112,11 +2120,13 @@ public class GitHubClient
                     .body(body)
                     .retrieve()
                     .body(MergeQueueProbeGqlResponse.class);
+            requireMergeQueueResponse(response == null ? null : response.errors(),
+                    "pullRequestNodeId");
             if (response == null
                     || response.data() == null
                     || response.data().repository() == null
                     || response.data().repository().pullRequest() == null) {
-                return Optional.empty();
+                throw incompleteMergeQueueResponse("pullRequestNodeId");
             }
             return Optional.ofNullable(response.data().repository().pullRequest().id());
         }
@@ -2128,10 +2138,6 @@ public class GitHubClient
     @Override
     public MergeResult enqueuePullRequest(String pat, String pullRequestNodeId)
     {
-        // enqueuePullRequest takes only the PR id — the queue's
-        // configured merge method overrides any caller preference. Reading
-        // back state lets us build a useful message ("queued at position
-        // 3, awaiting checks") rather than a bare success.
         String mutation = "mutation($id: ID!) {"
                 + " enqueuePullRequest(input: { pullRequestId: $id }) {"
                 + "   mergeQueueEntry { id position state }"
@@ -2139,22 +2145,56 @@ public class GitHubClient
         Map<String, Object> body = ImmutableMap.of(
                 "query", mutation,
                 "variables", ImmutableMap.of("id", pullRequestNodeId));
+        return enqueuePullRequest(pat, body);
+    }
+
+    @Override
+    public MergeResult enqueuePullRequest(
+            String pat, String pullRequestNodeId, String expectedHeadOid)
+    {
+        if (expectedHeadOid == null || expectedHeadOid.isBlank()) {
+            throw new IllegalArgumentException("expectedHeadOid must not be blank");
+        }
+        String mutation = "mutation($id: ID!, $head: GitObjectID!) {"
+                + " enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) {"
+                + "   mergeQueueEntry { id position state }"
+                + " } }";
+        Map<String, Object> body = ImmutableMap.of(
+                "query", mutation,
+                "variables", ImmutableMap.of(
+                        "id", pullRequestNodeId, "head", expectedHeadOid));
+        return enqueuePullRequest(pat, body);
+    }
+
+    private MergeResult enqueuePullRequest(String pat, Map<String, Object> body)
+    {
+        // The queue's configured merge method overrides caller preference.
+        // Reading back state makes the result useful to older callers too.
         try {
             EnqueueGqlResponse response = graphqlRestClient.post()
                     .header("Authorization", authorization(pat))
                     .body(body)
                     .retrieve()
                     .body(EnqueueGqlResponse.class);
+            if (response != null && response.errors() != null
+                    && !response.errors().isEmpty()) {
+                EnqueueGqlError error = response.errors().getFirst();
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(422),
+                        "GitHub enqueuePullRequest failed: " + error.message());
+            }
             EnqueueGqlEntry entry = response == null
                     || response.data() == null
                     || response.data().enqueuePullRequest() == null
                             ? null
                             : response.data().enqueuePullRequest().mergeQueueEntry();
-            String message;
             if (entry == null) {
-                message = "Added to merge queue";
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502),
+                        "GitHub enqueuePullRequest returned no queue entry");
             }
-            else if (entry.position() != null && entry.state() != null) {
+            String message;
+            if (entry.position() != null && entry.state() != null) {
                 message = "Added to merge queue (position " + entry.position()
                         + ", " + entry.state().toLowerCase(Locale.ROOT).replace('_', ' ') + ")";
             }
@@ -2172,7 +2212,8 @@ public class GitHubClient
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record MergeQueueProbeGqlResponse(MergeQueueProbeGqlData data) {}
+    record MergeQueueProbeGqlResponse(
+            MergeQueueProbeGqlData data, List<MergeQueueGqlError> errors) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record MergeQueueProbeGqlData(MergeQueueProbeGqlRepo repository) {}
@@ -2186,8 +2227,32 @@ public class GitHubClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     record MergeQueueProbeGqlQueue(String id) {}
 
+    private static void requireMergeQueueResponse(
+            List<MergeQueueGqlError> errors, String operation)
+    {
+        if (errors == null || errors.isEmpty()) {
+            return;
+        }
+        MergeQueueGqlError error = errors.getFirst();
+        throw new ResponseStatusException(
+                HttpStatusCode.valueOf(502),
+                "GitHub " + operation + " returned GraphQL error "
+                        + error.type() + ": " + error.message());
+    }
+
+    private static ResponseStatusException incompleteMergeQueueResponse(
+            String operation)
+    {
+        return new ResponseStatusException(
+                HttpStatusCode.valueOf(502),
+                "GitHub " + operation + " returned incomplete GraphQL data");
+    }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record EnqueueGqlResponse(EnqueueGqlData data) {}
+    record EnqueueGqlResponse(EnqueueGqlData data, List<EnqueueGqlError> errors) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record EnqueueGqlError(String type, String message) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record EnqueueGqlData(EnqueueGqlPayload enqueuePullRequest) {}

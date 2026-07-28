@@ -35,6 +35,7 @@ import org.mockito.ArgumentCaptor;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -90,6 +91,9 @@ class TestReviewerSeat
 
         ReviewDiffCache diffCache = mock(ReviewDiffCache.class);
         when(diffCache.diffFor(any())).thenReturn("diff --git a/x b/x\n+hi\n");
+        LegacyReviewAdmission admission = mock(LegacyReviewAdmission.class);
+        when(admission.invoke(any(), any(), any(), any())).thenAnswer(invocation ->
+                invocation.<Callable<TurnResult>>getArgument(3).call());
 
         SeatToolset toolset = new SeatToolset(
                 reviewStore, diffCache, mock(PullRequestRepository.class),
@@ -104,7 +108,8 @@ class TestReviewerSeat
                 reviewStore,
                 mapper,
                 new CliReviewRunner(mapper),
-                new CliReviewSessionRegistry());
+                new CliReviewSessionRegistry(),
+                admission);
     }
 
     @Test

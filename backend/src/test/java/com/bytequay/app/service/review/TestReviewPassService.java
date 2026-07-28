@@ -42,7 +42,6 @@ import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
 import com.bytequay.app.service.credentials.PatResolver;
-import com.bytequay.app.service.threads.AgentScheduler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -53,13 +52,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.Callable;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -104,7 +103,7 @@ class TestReviewPassService
     private LeadOrchestrator leadOrchestrator;
     private ReviewerSeat reviewerSeat;
     private LeadToolset leadToolset;
-    private AgentScheduler scheduler;
+    private LegacyReviewAdmission reviewAdmission;
     private ReviewBudgetMeter budgetMeter;
     private ReviewPassService service;
     private final List<Object> publishedEvents = new ArrayList<>();
@@ -125,7 +124,7 @@ class TestReviewPassService
         leadOrchestrator = mock(LeadOrchestrator.class);
         reviewerSeat = mock(ReviewerSeat.class);
         leadToolset = mock(LeadToolset.class);
-        scheduler = mock(AgentScheduler.class);
+        reviewAdmission = mock(LegacyReviewAdmission.class);
 
         when(registry.all()).thenReturn(List.of(reviewer));
         when(reviewer.providerId()).thenReturn("claude");
@@ -140,13 +139,13 @@ class TestReviewPassService
         when(leadToolset.sessionFor(anyString(), any(), anyString()))
                 .thenReturn(mock(LeadToolset.Session.class));
 
-        // Scheduler runs fan-out batches inline so tests stay
+        // Admission runs fan-out batches inline so tests stay
         // deterministic and single-threaded.
-        when(scheduler.invokeAll(any())).thenAnswer(inv -> {
-            List<Callable<Object>> work = inv.getArgument(0);
+        when(reviewAdmission.invokeAll(any())).thenAnswer(inv -> {
+            List<LegacyReviewAdmission.Work<Object>> work = inv.getArgument(0);
             List<Object> results = new ArrayList<>();
-            for (Callable<Object> item : work) {
-                results.add(item.call());
+            for (LegacyReviewAdmission.Work<Object> item : work) {
+                results.add(item.work().call());
             }
             return results;
         });
@@ -154,6 +153,10 @@ class TestReviewPassService
         // Default seat behaviour: persist a short reply, no findings.
         when(reviewerSeat.runDispatchedTurn(
                 any(), any(), anyString(), anyString(), any(), anyInt(), any()))
+                .thenAnswer(inv -> seatMessage(inv.getArgument(0), inv.getArgument(2),
+                        "Looked at the diff; nothing to flag."));
+        when(reviewerSeat.runDispatchedTurnAlreadyAdmitted(
+                any(), any(), anyString(), anyString(), any(), anyInt(), any(), anyBoolean()))
                 .thenAnswer(inv -> seatMessage(inv.getArgument(0), inv.getArgument(2),
                         "Looked at the diff; nothing to flag."));
 
@@ -176,7 +179,7 @@ class TestReviewPassService
                 leadOrchestrator, reviewerSeat, leadToolset,
                 budgetMeter,
                 mock(ReviewDiffCache.class),
-                scheduler,
+                reviewAdmission,
                 skillStore,
                 publishedEvents::add);
     }
@@ -495,12 +498,12 @@ class TestReviewPassService
         verify(leadOrchestrator).runRound(
                 any(), any(), any(), eq(ReviewPhase.TERMINATE), anyInt(), anyString());
 
-        // The independent fan-out went through the scheduler once,
+        // The independent fan-out went through shared admission once,
         // dispatching the (single) reviewer seat.
-        verify(scheduler).invokeAll(any());
-        verify(reviewerSeat).runDispatchedTurn(
+        verify(reviewAdmission).invokeAll(any());
+        verify(reviewerSeat).runDispatchedTurnAlreadyAdmitted(
                 any(), any(), anyString(), anyString(),
-                eq(ReviewPhase.INDEPENDENT), eq(0), any());
+                eq(ReviewPhase.INDEPENDENT), eq(0), any(), eq(true));
 
         // The default agenda was installed and froze fully DONE.
         List<AgendaPhase> agenda = AgendaJsonCodec.parse(detail.pass().agendaJson());
@@ -671,7 +674,7 @@ class TestReviewPassService
                 threadStore, reviewStore, pullRequests, pullRequestStore, patResolver, registry,
                 appSettings, deferred::add,
                 leadOrchestrator, reviewerSeat, leadToolset, budgetMeter,
-                mock(ReviewDiffCache.class), scheduler, skillStore, publishedEvents::add);
+                mock(ReviewDiffCache.class), reviewAdmission, skillStore, publishedEvents::add);
         async.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
                 List.of(), 3, 500L, true, WS, null,
                 List.of(
@@ -711,7 +714,7 @@ class TestReviewPassService
                 threadStore, reviewStore, pullRequests, pullRequestStore, patResolver, registry,
                 appSettings, deferred::add,
                 leadOrchestrator, reviewerSeat, leadToolset, budgetMeter,
-                diffCache, scheduler, skillStore, publishedEvents::add);
+                diffCache, reviewAdmission, skillStore, publishedEvents::add);
         svc.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
                 List.of(), 3, 500L, true, WS, null,
                 List.of(
@@ -750,9 +753,9 @@ class TestReviewPassService
         // Resume re-runs the reviewer seat's INDEPENDENT turn — the thing a
         // single-turn lead steer never does — so the panel actually keeps
         // reviewing instead of stalling after the lead speaks.
-        verify(reviewerSeat, atLeastOnce()).runDispatchedTurn(
+        verify(reviewerSeat, atLeastOnce()).runDispatchedTurnAlreadyAdmitted(
                 any(), any(), anyString(), anyString(),
-                eq(ReviewPhase.INDEPENDENT), anyInt(), any());
+                eq(ReviewPhase.INDEPENDENT), anyInt(), any(), eq(true));
     }
 
     @Test
@@ -834,8 +837,8 @@ class TestReviewPassService
     void everySeatFailingParksThePassTerminated()
     {
         doThrow(new RuntimeException("Anthropic returned 529"))
-                .when(reviewerSeat).runDispatchedTurn(
-                        any(), any(), anyString(), anyString(), any(), anyInt(), any());
+                .when(reviewerSeat).runDispatchedTurnAlreadyAdmitted(
+                        any(), any(), anyString(), anyString(), any(), anyInt(), any(), eq(true));
 
         // The seat-then-run entry hands the body to the executor, which
         // parks the pass at TERMINATE on total failure and swallows the
@@ -1107,8 +1110,8 @@ class TestReviewPassService
                     SeatToolset.severityFrom(severity), ReviewFindingStatus.REPORTED,
                     "[Claude (Anthropic)] " + body, null, null, Instant.now()));
             return seatMessage(pass, inv.getArgument(2), "Flagged: " + body);
-        }).when(reviewerSeat).runDispatchedTurn(
-                any(), any(), anyString(), anyString(), any(), anyInt(), any());
+        }).when(reviewerSeat).runDispatchedTurnAlreadyAdmitted(
+                any(), any(), anyString(), anyString(), any(), anyInt(), any(), eq(true));
     }
 
     private ReviewMessage seatMessage(ReviewPass pass, String participantId, String body)

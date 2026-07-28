@@ -546,6 +546,19 @@ class TestBrainReviewServiceImpl
         verify(prService, never()).recordBrainReview(any(), any(), any(), anyInt(), any());
     }
 
+    @Test
+    void devVerdictForAnotherRunCannotReachTheLiveRound()
+    {
+        ReviewRound triaging = brainRound(ReviewRound.STATUS_TRIAGING).withIterationBumped();
+        when(roundStore.findLiveByTask(TASK_ID)).thenReturn(Optional.of(triaging));
+
+        service.recordVerdict(
+                TASK_ID, "run-stage", "different-run", "dev", ReviewRound.VERDICT_APPROVED);
+
+        verify(roundMachine, never()).recordVerdict(anyString(), anyString(), anyString());
+        verify(agentRuns, never()).findById(anyString());
+    }
+
     // ── R21-R23: code lock-point review loop ─────────────────────────────
 
     @Test

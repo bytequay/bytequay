@@ -70,12 +70,19 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeSto
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.V2TaskControlService;
+import com.bytequay.app.developmentflow.trunk.PlanningBaseRefreshOperationHandler;
+import com.bytequay.app.developmentflow.trunk.PlanningBaseTurnRuntime;
+import com.bytequay.app.developmentflow.trunk.SqlitePlanningBaseTurnStore;
+import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
+import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
+import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadSettings;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ToolExposurePolicy;
@@ -86,8 +93,13 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
+import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.threads.LegacyTaskScopeResolver;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.service.threads.WorktreeService;
+import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
+import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
+import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -196,6 +208,8 @@ class TestDevelopmentFlowExecutionConfig
         AgentTurnOperationHandler turns = mock(AgentTurnOperationHandler.class);
         ThreadTurnOperationHandler threadTurns = mock(
                 ThreadTurnOperationHandler.class);
+        PlanningBaseRefreshOperationHandler planningBase = mock(
+                PlanningBaseRefreshOperationHandler.class);
         ReviewAssignmentTurnOperationHandler reviewTurns = mock(
                 ReviewAssignmentTurnOperationHandler.class);
         LocalValidationOperationHandler localValidation = mock(
@@ -215,9 +229,9 @@ class TestDevelopmentFlowExecutionConfig
         MergeOperationHandler merge = mock(MergeOperationHandler.class);
 
         ExecutionPorts.OperationHandlerRegistry registry = config.v2OperationHandlers(
-                provisioning, turns, threadTurns, reviewTurns, localValidation,
-                publish, cleanup, remoteValidation, remoteEffects, markReady,
-                observations, finiteEffects, merge);
+                provisioning, turns, threadTurns, planningBase, reviewTurns,
+                localValidation, publish, cleanup, remoteValidation,
+                remoteEffects, markReady, observations, finiteEffects, merge);
 
         assertThat(registry.require(ProvisionTaskOperationHandler.OPERATION_KIND))
                 .isSameAs(provisioning);
@@ -227,6 +241,9 @@ class TestDevelopmentFlowExecutionConfig
                 .isSameAs(turns);
         assertThat(registry.require(ThreadTurnOperationHandler.OPERATION_KIND))
                 .isSameAs(threadTurns);
+        assertThat(registry.require(
+                PlanningBaseRefreshOperationHandler.OPERATION_KIND))
+                .isSameAs(planningBase);
         assertThat(registry.require(ReviewAssignmentTurnOperationHandler.OPERATION_KIND))
                 .isSameAs(reviewTurns);
         assertThat(registry.require(LocalValidationOperationHandler.OPERATION_KIND))
@@ -267,6 +284,7 @@ class TestDevelopmentFlowExecutionConfig
         when(cleanupStore.findPendingFinalizations(7)).thenReturn(List.of());
 
         ExecutionPorts.ResultDeliveryPort delivery = config.v2ResultDelivery(
+                mock(PlanningBaseTurnRuntime.class),
                 mock(PlanRuntimeCoordinator.class),
                 mock(LocalDevelopmentRuntimeCoordinator.class),
                 mock(RemoteFeedbackRuntimeCoordinator.class),
@@ -297,6 +315,7 @@ class TestDevelopmentFlowExecutionConfig
                         ReflectionTestUtils.getField(delivery, "routes");
         assertThat(routes).isNotNull();
         assertThat(routes.keySet()).containsExactlyInAnyOrder(
+                PlanningBaseRefreshOperationHandler.CALLBACK_ROUTE,
                 PlanRuntimeCoordinator.PROVISION_CALLBACK,
                 PlanRuntimeCoordinator.TURN_CALLBACK,
                 LocalDevelopmentRuntimeCoordinator.TURN_CALLBACK,
@@ -370,10 +389,14 @@ class TestDevelopmentFlowExecutionConfig
                     assertThat(context).hasSingleBean(ExecutionDispatcher.class);
                     assertThat(context).hasSingleBean(
                             ExecutionPorts.OperationHandlerRegistry.class);
-                    assertThat(context).hasSingleBean(
-                            ExecutionPorts.ResultDeliveryPort.class);
+                    assertThat(context).hasBean("v2ResultDelivery");
+                    assertThat(context.getBean(
+                            ExecutionPorts.ResultDeliveryPort.class))
+                            .isInstanceOf(ResultDeliveryRouter.class);
                     assertThat(context).hasSingleBean(AgentTurnProviderSession.class);
                     assertThat(context).hasSingleBean(V2TaskControlService.class);
+                    assertThat(context).hasSingleBean(PlanningBaseTurnRuntime.class);
+                    assertThat(context).hasSingleBean(V2ThreadControlService.class);
                     ExecutionPorts.OperationHandlerRegistry handlers = context.getBean(
                             ExecutionPorts.OperationHandlerRegistry.class);
                     assertThat(handlers.require(
@@ -512,6 +535,25 @@ class TestDevelopmentFlowExecutionConfig
                 .withBean(RemoteDevelopmentStageManager.class,
                         () -> mock(RemoteDevelopmentStageManager.class))
                 .withBean(TrunkManager.class, () -> mock(TrunkManager.class))
+                .withBean(TrunkManager.Store.class,
+                        () -> mock(TrunkManager.Store.class))
+                .withBean(SqlitePlanningBaseTurnStore.class,
+                        () -> mock(SqlitePlanningBaseTurnStore.class))
+                .withBean(ThreadTurnHandoff.class,
+                        () -> mock(ThreadTurnHandoff.class))
+                .withBean(ThreadTurnProjection.class,
+                        () -> mock(ThreadTurnProjection.class))
+                .withBean(WorkspaceRepositoryResolver.class,
+                        () -> mock(WorkspaceRepositoryResolver.class))
+                .withBean(WatchedRepoStore.class,
+                        () -> mock(WatchedRepoStore.class))
+                .withBean(WorktreeService.class,
+                        () -> mock(WorktreeService.class))
+                .withBean(ThreadEngineOverrides.class,
+                        () -> mock(ThreadEngineOverrides.class))
+                .withBean(RoleRegistry.class, () -> mock(RoleRegistry.class))
+                .withBean(SessionKnowledgeProvider.class,
+                        () -> mock(SessionKnowledgeProvider.class))
                 .withBean(LocalToRemoteHandoff.class,
                         () -> mock(LocalToRemoteHandoff.class))
                 .withBean(SqlitePublishResultStore.class,

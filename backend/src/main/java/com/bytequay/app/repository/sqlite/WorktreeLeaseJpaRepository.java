@@ -22,5 +22,11 @@ interface WorktreeLeaseJpaRepository
 {
     /** Active leases for a task — typically 0 or 1, but the model
      *  permits multiple in pathological cases the reaper sweeps. */
-    List<WorktreeLeaseEntity> findByTaskId(String taskId);
+    List<WorktreeLeaseEntity> findByTaskIdAndWorkflowVersion(
+            String taskId, String workflowVersion);
+
+    List<WorktreeLeaseEntity> findByWorkflowVersion(String workflowVersion);
+
+    long deleteByWorktreePathAndWorkflowVersion(
+            String worktreePath, String workflowVersion);
 }

@@ -424,7 +424,20 @@ public final class ExecutionDispatcher
                 return;
             }
 
-            activeExecution = new ActiveExecution(executionId, claim, cancellation);
+            ExecutionContext context = new ExecutionContext(
+                    ticket.envelope(),
+                    lease,
+                    cancellation,
+                    evidence,
+                    executionId,
+                    clock,
+                    () -> capacityManager.requireExactLeaseForTicket(
+                            claim.ticketId(),
+                            claim.capacityLeaseId(),
+                            ticket.envelope().capacityRequest(),
+                            claim.owner()));
+            activeExecution = new ActiveExecution(
+                    executionId, claim, cancellation, context);
             active.put(claim.ticketId(), activeExecution);
             if (closed.get()) {
                 abandonForShutdown(claim.ticketId(), activeExecution);
@@ -442,18 +455,6 @@ public final class ExecutionDispatcher
                     .filter(ignored -> claim.purpose() == DispatchTicket.ClaimPurpose.EXECUTE)
                     .ifPresent(ignored -> cancellation.cancel());
 
-            ExecutionContext context = new ExecutionContext(
-                    ticket.envelope(),
-                    lease,
-                    cancellation,
-                    evidence,
-                    executionId,
-                    clock,
-                    () -> capacityManager.requireExactLeaseForTicket(
-                            claim.ticketId(),
-                            claim.capacityLeaseId(),
-                            ticket.envelope().capacityRequest(),
-                            claim.owner()));
             ExecutionPorts.OperationHandler handler = handlers.require(
                     ticket.envelope().operationKind());
             DispatchTicket.DispatchResult result =
@@ -492,6 +493,18 @@ public final class ExecutionDispatcher
         }
         finally {
             if (activeExecution != null) {
+                try {
+                    activeExecution.context().closeWriterResource();
+                }
+                catch (RuntimeException firstFailure) {
+                    try {
+                        activeExecution.context().closeWriterResource();
+                    }
+                    catch (RuntimeException retryFailure) {
+                        firstFailure.addSuppressed(retryFailure);
+                    }
+                    recordInfrastructureFailure(claim.ticketId(), firstFailure);
+                }
                 active.remove(claim.ticketId(), activeExecution);
             }
         }
@@ -694,9 +707,11 @@ public final class ExecutionDispatcher
                 if (execution.executionId() != null) {
                     evidence.heartbeat(execution.executionId(), clock.instant());
                 }
+                execution.context().heartbeatWriterResource();
             }
             catch (RuntimeException e) {
                 recordInfrastructureFailure(ticketId, e);
+                signalStop(ticketId, execution);
             }
         });
     }
@@ -949,12 +964,14 @@ public final class ExecutionDispatcher
     private record ActiveExecution(
             String executionId,
             Claim claim,
-            ExecutionContext.Cancellation cancellation)
+            ExecutionContext.Cancellation cancellation,
+            ExecutionContext context)
     {
         private ActiveExecution
         {
             requireNonNull(claim, "claim is null");
             requireNonNull(cancellation, "cancellation is null");
+            requireNonNull(context, "context is null");
             if (executionId != null && executionId.isBlank()) {
                 throw new IllegalArgumentException("executionId must not be blank");
             }

@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.VALIDATION;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.OwnerKind.STAGE;
+import static com.bytequay.app.developmentflow.execution.DispatchTicket.State.RECONCILE_WAIT;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.State.RESULT_PENDING;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -67,6 +68,39 @@ class TestDispatchTicketControl
         assertThat(stored.get().cancelRequestedAt()).isEqualTo(NOW);
         assertThat(stored.get().pendingResult().outcome())
                 .isEqualTo(DispatchTicket.Outcome.CANCELED);
+    }
+
+    @Test
+    void persistsDeferredResumeWithoutAStartedDispatcher()
+    {
+        DispatchTicket parked = ticket()
+                .claim("worker", "lease", NOW.plusSeconds(30))
+                .markRunning(NOW)
+                .manualReconciliation("awaiting owner decision");
+        AtomicReference<DispatchTicket> stored = new AtomicReference<>(parked);
+        ExecutionPorts.DispatchTicketStore tickets = mock(
+                ExecutionPorts.DispatchTicketStore.class);
+        when(tickets.findById("ticket")).thenAnswer(ignored ->
+                Optional.of(stored.get()));
+        when(tickets.compareAndSet(eq("ticket"), anyLong(), any()))
+                .thenAnswer(invocation -> {
+                    long version = invocation.getArgument(1);
+                    DispatchTicket replacement = invocation.getArgument(2);
+                    if (stored.get().version() != version) {
+                        return false;
+                    }
+                    stored.set(replacement);
+                    return true;
+                });
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ExecutionDispatcher> dispatcher = mock(ObjectProvider.class);
+        when(dispatcher.getIfAvailable()).thenReturn(null);
+        DispatchTicketControl control = new DispatchTicketControl(
+                tickets, dispatcher, Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(control.resumeDeferred("ticket")).isTrue();
+        assertThat(stored.get().state()).isEqualTo(RECONCILE_WAIT);
+        assertThat(stored.get().nextAttemptAt()).isEqualTo(NOW);
     }
 
     private static DispatchTicket ticket()

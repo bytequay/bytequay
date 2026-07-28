@@ -66,4 +66,30 @@ public final class DispatchTicketControl
             }
         }
     }
+
+    /** Re-arms a domain-deferred ticket even while V2 dispatch is paused. */
+    public boolean resumeDeferred(String ticketId)
+    {
+        requireNonNull(ticketId, "ticketId is null");
+        ExecutionDispatcher current = dispatcher.getIfAvailable();
+        if (current != null) {
+            return current.resumeDeferred(ticketId);
+        }
+        while (true) {
+            Optional<DispatchTicket> found = tickets.findById(ticketId);
+            if (found.isEmpty()) {
+                return false;
+            }
+            DispatchTicket ticket = found.orElseThrow();
+            if (ticket.state() != DispatchTicket.State.RECONCILE_WAIT
+                    || ticket.nextAttemptAt() != null
+                    || ticket.cancelRequestedAt() != null) {
+                return false;
+            }
+            DispatchTicket resumed = ticket.resumeReconciliation(clock.instant());
+            if (tickets.compareAndSet(ticketId, ticket.version(), resumed)) {
+                return true;
+            }
+        }
+    }
 }

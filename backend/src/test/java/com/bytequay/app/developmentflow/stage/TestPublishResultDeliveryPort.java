@@ -58,6 +58,7 @@ class TestPublishResultDeliveryPort
     private MemoryStore store;
     private LocalDevelopmentStageManager local;
     private LocalToRemoteHandoff handoff;
+    private RemoteObservationRuntimeCoordinator observations;
     private PublishResultDeliveryPort delivery;
 
     @BeforeEach
@@ -66,9 +67,10 @@ class TestPublishResultDeliveryPort
         store = new MemoryStore(context());
         local = mock(LocalDevelopmentStageManager.class);
         handoff = mock(LocalToRemoteHandoff.class);
+        observations = mock(RemoteObservationRuntimeCoordinator.class);
         delivery = new PublishResultDeliveryPort(
                 new TaskCommandExecutor(new NoopTransactions()),
-                local, handoff, store, JSON,
+                local, handoff, observations, store, JSON,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -96,6 +98,8 @@ class TestPublishResultDeliveryPort
         assertThat(store.remoteInitialized).isEqualTo(1);
         assertThat(store.receipt).isPresent();
         verify(handoff).acceptInCommand(any());
+        verify(observations).requestObservationInCommand(
+                "task-1", remote.id());
     }
 
     @Test
@@ -117,6 +121,7 @@ class TestPublishResultDeliveryPort
         assertThat(store.published).isEqualTo(1);
         assertThat(store.remoteInitialized).isZero();
         assertThat(store.receipt.orElseThrow().remoteStageId()).isNull();
+        verify(observations, never()).requestObservationInCommand(any(), any());
     }
 
     @Test

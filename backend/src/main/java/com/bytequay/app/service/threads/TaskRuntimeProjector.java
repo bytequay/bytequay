@@ -100,6 +100,9 @@ public class TaskRuntimeProjector
     @EventListener
     public void onTurnStatusChanged(TaskTurnStatusChanged event)
     {
+        if (taskStore.isV2Task(event.taskId())) {
+            return;
+        }
         executor.execute(() -> projectSafely(event.taskId()));
     }
 
@@ -126,6 +129,9 @@ public class TaskRuntimeProjector
     /** Reload-and-project one task under its command. */
     public void project(String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            return;
+        }
         boolean promoted = commands.execute(taskId, () -> projectInCommand(taskId));
         if (promoted) {
             // A queued follower just took the pointer — its lane row was

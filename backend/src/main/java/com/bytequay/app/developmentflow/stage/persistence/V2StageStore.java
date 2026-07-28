@@ -1080,6 +1080,8 @@ final class V2StageStore
         statement.setString(index++, fence.expectedHeadSha());
         statement.setString(index++, fence.expectedBaseSha());
         return index;
+    }
+
     private static OwnerFence validateCommit(
             Long expectedTaskEpoch,
             Long expectedStageGeneration,

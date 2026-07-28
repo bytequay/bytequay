@@ -29,21 +29,30 @@ import com.bytequay.app.developmentflow.execution.agentturn.CliAgentTurnProvider
 import com.bytequay.app.developmentflow.execution.agentturn.CredentialApiProviderResolver;
 import com.bytequay.app.developmentflow.execution.agentturn.LoopbackOwnerMcpClient;
 import com.bytequay.app.developmentflow.execution.agentturn.RoutingAgentTurnProviderSession;
+import com.bytequay.app.developmentflow.execution.agentturn.ThreadTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandler;
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationResultDelivery;
 import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupEffects;
 import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupOperationStore;
+import com.bytequay.app.developmentflow.execution.merge.GitHubMergeEffects;
+import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler;
+import com.bytequay.app.developmentflow.execution.merge.SqliteMergeOperationStore;
 import com.bytequay.app.developmentflow.execution.provisioning.GitRunnerProvisioningGit;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler;
 import com.bytequay.app.developmentflow.execution.provisioning.SqliteProvisionTaskOperationStore;
 import com.bytequay.app.developmentflow.execution.publish.GitHubPublishEffects;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler;
 import com.bytequay.app.developmentflow.execution.publish.SqlitePublishOperationStore;
+import com.bytequay.app.developmentflow.execution.remote.GitHubRemoteEffects;
+import com.bytequay.app.developmentflow.execution.remote.GitHubRemoteObserver;
 import com.bytequay.app.developmentflow.execution.remote.RemoteFeedbackEffectOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.RemoteMarkReadyOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteFeedbackEffectOperationStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteMarkReadyOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteAgentTurnOperationStore;
+import com.bytequay.app.developmentflow.persistence.SqliteThreadTurnOperationStore;
+import com.bytequay.app.developmentflow.stage.BranchSyncResultDeliveryPort;
+import com.bytequay.app.developmentflow.stage.BranchSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
 import com.bytequay.app.developmentflow.stage.LocalBrainResultDeliveryPort;
@@ -53,10 +62,15 @@ import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.LocalToRemoteHandoff;
 import com.bytequay.app.developmentflow.stage.LocalValidationOperationHandler;
 import com.bytequay.app.developmentflow.stage.LocalValidationResultDeliveryPort;
+import com.bytequay.app.developmentflow.stage.MergeResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort;
+import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteCiRerunResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
+import com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackBrainResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackEffectResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator;
@@ -64,13 +78,20 @@ import com.bytequay.app.developmentflow.stage.RemoteFeedbackTurnResultDeliveryPo
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteMarkReadyResultDeliveryPort;
+import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
+import com.bytequay.app.developmentflow.stage.RemoteObservationResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
+import com.bytequay.app.developmentflow.trunk.ThreadTurnResultDeliveryPort;
+import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ToolExposurePolicy;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.checks.ValidationCheck;
@@ -124,6 +145,11 @@ public class DevelopmentFlowExecutionConfig
             SqlitePublishResultStore publishStore,
             SqliteCleanupOperationStore cleanupStore,
             CleanupCompletionHandoff cleanupCompletion,
+            TrunkManager trunks,
+            RemoteCiRepairRuntimeCoordinator remoteCi,
+            BranchSyncRuntimeCoordinator branchSync,
+            RemoteDevelopmentStageManager remoteManager,
+            SqliteMergeOperationStore mergeOperations,
             JdbcTemplate jdbc,
             ObjectMapper json)
     {
@@ -158,6 +184,17 @@ public class DevelopmentFlowExecutionConfig
         ExecutionPorts.ResultDeliveryPort remoteBrainDelivery =
                 (owner, fence, result) -> remoteBrain.deliver(
                         codec.decode(owner, fence, result));
+        ThreadTurnResultDeliveryPort threadTurns =
+                new ThreadTurnResultDeliveryPort(
+                        trunks, codec, json, Clock.systemUTC());
+        RemoteObservationResultDeliveryPort observations =
+                new RemoteObservationResultDeliveryPort(remoteObservations);
+        RemoteCiRerunResultDeliveryPort ciRerun =
+                new RemoteCiRerunResultDeliveryPort(remoteCi);
+        BranchSyncResultDeliveryPort branches =
+                new BranchSyncResultDeliveryPort(branchSync);
+        MergeResultDeliveryPort merge = new MergeResultDeliveryPort(
+                commands, remoteManager, mergeOperations, json);
         return new ResultDeliveryRouter(Map.ofEntries(
                 Map.entry(PlanRuntimeCoordinator.PROVISION_CALLBACK, plan),
                 Map.entry(PlanRuntimeCoordinator.TURN_CALLBACK, taskTurns),
@@ -174,7 +211,16 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry(RemoteDevelopmentRuntimeCoordinator.EFFECT_CALLBACK,
                         new RemoteFeedbackEffectResultDeliveryPort(remoteRuntime)),
                 Map.entry(RemoteDevelopmentRuntimeCoordinator.MARK_READY_CALLBACK,
-                        new RemoteMarkReadyResultDeliveryPort(remoteRuntime))));
+                        new RemoteMarkReadyResultDeliveryPort(remoteRuntime)),
+                Map.entry(ThreadTurnOperationHandler.CALLBACK_ROUTE, threadTurns),
+                Map.entry(RemoteObservationOperationHandler.CALLBACK_ROUTE,
+                        observations),
+                Map.entry("REMOTE_CI_RERUN_RESULT", ciRerun),
+                Map.entry("BRANCH_SYNC_FETCH_RESULT", branches),
+                Map.entry("BRANCH_SYNC_REBASE_RESULT", branches),
+                Map.entry("BRANCH_SYNC_VALIDATION_RESULT", branches),
+                Map.entry("BRANCH_SYNC_PUSH_RESULT", branches),
+                Map.entry(MergeOperationHandler.CALLBACK_ROUTE, merge)));
     }
 
     @Bean
@@ -221,6 +267,68 @@ public class DevelopmentFlowExecutionConfig
             ObjectMapper json)
     {
         return new AgentTurnOperationHandler(operations, provider, writers, json);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(ThreadTurnOperationHandler.class)
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
+    public ThreadTurnOperationHandler v2ThreadTurnOperationHandler(
+            SqliteThreadTurnOperationStore operations,
+            AgentTurnProviderSession provider,
+            ActiveAgentContextRegistry activeContexts,
+            ToolExposurePolicy tools,
+            ObjectMapper json)
+    {
+        return new ThreadTurnOperationHandler(
+                operations, provider, activeContexts, tools, json,
+                Clock.systemUTC());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(RemoteObservationOperationHandler.class)
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
+    public RemoteObservationOperationHandler v2RemoteObservationOperationHandler(
+            SqliteRemoteRuntimeStore operations,
+            GitHubRemoteObserver observer,
+            ObjectMapper json)
+    {
+        return new RemoteObservationOperationHandler(operations, observer, json);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(RemoteEffectOperationHandler.class)
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
+    public RemoteEffectOperationHandler v2RemoteEffectOperationHandler(
+            SqliteRemoteRuntimeStore operations,
+            GitHubRemoteEffects effects,
+            WorktreeWriterLeaseManager writers,
+            ObjectMapper json)
+    {
+        return new RemoteEffectOperationHandler(
+                operations, effects, writers, json);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(MergeOperationHandler.class)
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
+    public MergeOperationHandler v2MergeOperationHandler(
+            SqliteMergeOperationStore operations,
+            GitHubMergeEffects effects,
+            ObjectMapper json,
+            @Value("${bytequay.development-flow.merge.observation-poll-ms:20000}")
+            long observationPollMs)
+    {
+        return new MergeOperationHandler(
+                operations, effects, json, Clock.systemUTC(),
+                Duration.ofMillis(observationPollMs));
     }
 
     @Bean
@@ -322,17 +430,22 @@ public class DevelopmentFlowExecutionConfig
     public ExecutionPorts.OperationHandlerRegistry v2OperationHandlers(
             ProvisionTaskOperationHandler provisioning,
             AgentTurnOperationHandler agentTurns,
+            ThreadTurnOperationHandler threadTurns,
             LocalValidationOperationHandler localValidation,
             PublishOperationHandler publish,
             CleanupOperationHandler cleanup,
             RemoteFeedbackValidationOperationHandler remoteValidation,
             RemoteFeedbackEffectOperationHandler remoteEffects,
-            RemoteMarkReadyOperationHandler markReady)
+            RemoteMarkReadyOperationHandler markReady,
+            RemoteObservationOperationHandler observations,
+            RemoteEffectOperationHandler remoteFiniteEffects,
+            MergeOperationHandler merge)
     {
         Map<String, ExecutionPorts.OperationHandler> handlers = Map.ofEntries(
                 Map.entry(ProvisionTaskOperationHandler.OPERATION_KIND, provisioning),
                 Map.entry(AgentTurnOperationHandler.TASK_OPERATION_KIND, agentTurns),
                 Map.entry(AgentTurnOperationHandler.STAGE_OPERATION_KIND, agentTurns),
+                Map.entry(ThreadTurnOperationHandler.OPERATION_KIND, threadTurns),
                 Map.entry(LocalValidationOperationHandler.OPERATION_KIND,
                         localValidation),
                 Map.entry(PublishOperationHandler.OPERATION_KIND, publish),
@@ -341,7 +454,24 @@ public class DevelopmentFlowExecutionConfig
                         remoteValidation),
                 Map.entry(RemoteFeedbackEffectOperationHandler.OPERATION_KIND,
                         remoteEffects),
-                Map.entry(RemoteMarkReadyOperationHandler.OPERATION_KIND, markReady));
+                Map.entry(RemoteMarkReadyOperationHandler.OPERATION_KIND, markReady),
+                Map.entry(RemoteObservationOperationHandler.OPERATION_KIND,
+                        observations),
+                Map.entry(RemoteEffectOperationHandler.RERUN_CI,
+                        remoteFiniteEffects),
+                Map.entry(RemoteEffectOperationHandler.VALIDATE_CI_REPAIR,
+                        remoteFiniteEffects),
+                Map.entry(RemoteEffectOperationHandler.PUSH_CI_REPAIR,
+                        remoteFiniteEffects),
+                Map.entry(RemoteEffectOperationHandler.FETCH_BRANCH,
+                        remoteFiniteEffects),
+                Map.entry(RemoteEffectOperationHandler.REBASE_BRANCH,
+                        remoteFiniteEffects),
+                Map.entry(RemoteEffectOperationHandler.VALIDATE_BRANCH,
+                        remoteFiniteEffects),
+                Map.entry(RemoteEffectOperationHandler.PUSH_BRANCH,
+                        remoteFiniteEffects),
+                Map.entry(MergeOperationHandler.OPERATION_KIND, merge));
         return operationKind -> {
             ExecutionPorts.OperationHandler handler = handlers.get(
                     requireNonNull(operationKind, "operationKind is null"));

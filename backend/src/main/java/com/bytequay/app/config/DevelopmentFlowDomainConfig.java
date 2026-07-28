@@ -38,6 +38,7 @@ import com.bytequay.app.developmentflow.task.BrainVerdictHandoff;
 import com.bytequay.app.developmentflow.task.TaskControlHandoff;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
+import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.ids.IdGenerator;
@@ -64,6 +65,16 @@ public class DevelopmentFlowDomainConfig
             TaskCommandExecutor commands, TrunkManager.Store store)
     {
         return new TrunkManager(commands, store);
+    }
+
+    @Bean
+    public ThreadTurnHandoff threadTurnHandoff(
+            TrunkManager trunks,
+            ObjectMapper json,
+            @Value("${server.port:53123}") int serverPort)
+    {
+        return new ThreadTurnHandoff(
+                trunks, json, Clock.systemUTC(), serverPort);
     }
 
     @Bean

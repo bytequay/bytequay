@@ -23,20 +23,28 @@ import com.bytequay.app.developmentflow.execution.ResultDeliveryRouter;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
+import com.bytequay.app.developmentflow.execution.agentturn.ThreadTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandler;
 import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupEffects;
 import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupOperationStore;
+import com.bytequay.app.developmentflow.execution.merge.GitHubMergeEffects;
+import com.bytequay.app.developmentflow.execution.merge.MergeOperationHandler;
+import com.bytequay.app.developmentflow.execution.merge.SqliteMergeOperationStore;
 import com.bytequay.app.developmentflow.execution.provisioning.GitRunnerProvisioningGit;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler;
 import com.bytequay.app.developmentflow.execution.provisioning.SqliteProvisionTaskOperationStore;
 import com.bytequay.app.developmentflow.execution.publish.GitHubPublishEffects;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler;
 import com.bytequay.app.developmentflow.execution.publish.SqlitePublishOperationStore;
+import com.bytequay.app.developmentflow.execution.remote.GitHubRemoteEffects;
+import com.bytequay.app.developmentflow.execution.remote.GitHubRemoteObserver;
 import com.bytequay.app.developmentflow.execution.remote.RemoteFeedbackEffectOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.RemoteMarkReadyOperationHandler;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteFeedbackEffectOperationStore;
 import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteMarkReadyOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteAgentTurnOperationStore;
+import com.bytequay.app.developmentflow.persistence.SqliteThreadTurnOperationStore;
+import com.bytequay.app.developmentflow.stage.BranchSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator;
@@ -44,19 +52,27 @@ import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.LocalToRemoteHandoff;
 import com.bytequay.app.developmentflow.stage.LocalValidationOperationHandler;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
+import com.bytequay.app.developmentflow.stage.RemoteEffectOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationOperationHandler;
+import com.bytequay.app.developmentflow.stage.RemoteObservationOperationHandler;
 import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
+import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadSettings;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ToolExposurePolicy;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.checks.ValidationCheck;
@@ -142,12 +158,16 @@ class TestDevelopmentFlowExecutionConfig
                 AgentTurnProviderSession.class,
                 ProvisionTaskOperationHandler.class,
                 AgentTurnOperationHandler.class,
+                ThreadTurnOperationHandler.class,
                 LocalValidationOperationHandler.class,
                 PublishOperationHandler.class,
                 CleanupOperationHandler.class,
                 RemoteFeedbackValidationOperationHandler.class,
                 RemoteFeedbackEffectOperationHandler.class,
-                RemoteMarkReadyOperationHandler.class);
+                RemoteMarkReadyOperationHandler.class,
+                RemoteObservationOperationHandler.class,
+                RemoteEffectOperationHandler.class,
+                MergeOperationHandler.class);
 
         Method remoteEffects = methodReturning(
                 RemoteFeedbackEffectOperationHandler.class);
@@ -165,6 +185,8 @@ class TestDevelopmentFlowExecutionConfig
         ProvisionTaskOperationHandler provisioning = mock(
                 ProvisionTaskOperationHandler.class);
         AgentTurnOperationHandler turns = mock(AgentTurnOperationHandler.class);
+        ThreadTurnOperationHandler threadTurns = mock(
+                ThreadTurnOperationHandler.class);
         LocalValidationOperationHandler localValidation = mock(
                 LocalValidationOperationHandler.class);
         PublishOperationHandler publish = mock(PublishOperationHandler.class);
@@ -175,10 +197,16 @@ class TestDevelopmentFlowExecutionConfig
                 RemoteFeedbackEffectOperationHandler.class);
         RemoteMarkReadyOperationHandler markReady = mock(
                 RemoteMarkReadyOperationHandler.class);
+        RemoteObservationOperationHandler observations = mock(
+                RemoteObservationOperationHandler.class);
+        RemoteEffectOperationHandler finiteEffects = mock(
+                RemoteEffectOperationHandler.class);
+        MergeOperationHandler merge = mock(MergeOperationHandler.class);
 
         ExecutionPorts.OperationHandlerRegistry registry = config.v2OperationHandlers(
-                provisioning, turns, localValidation, publish, cleanup,
-                remoteValidation, remoteEffects, markReady);
+                provisioning, turns, threadTurns, localValidation, publish, cleanup,
+                remoteValidation, remoteEffects, markReady, observations,
+                finiteEffects, merge);
 
         assertThat(registry.require(ProvisionTaskOperationHandler.OPERATION_KIND))
                 .isSameAs(provisioning);
@@ -186,6 +214,8 @@ class TestDevelopmentFlowExecutionConfig
                 .isSameAs(turns);
         assertThat(registry.require(AgentTurnOperationHandler.STAGE_OPERATION_KIND))
                 .isSameAs(turns);
+        assertThat(registry.require(ThreadTurnOperationHandler.OPERATION_KIND))
+                .isSameAs(threadTurns);
         assertThat(registry.require(LocalValidationOperationHandler.OPERATION_KIND))
                 .isSameAs(localValidation);
         assertThat(registry.require(PublishOperationHandler.OPERATION_KIND))
@@ -199,6 +229,14 @@ class TestDevelopmentFlowExecutionConfig
                 .isSameAs(remoteEffects);
         assertThat(registry.require(RemoteMarkReadyOperationHandler.OPERATION_KIND))
                 .isSameAs(markReady);
+        assertThat(registry.require(RemoteObservationOperationHandler.OPERATION_KIND))
+                .isSameAs(observations);
+        assertThat(registry.require(RemoteEffectOperationHandler.RERUN_CI))
+                .isSameAs(finiteEffects);
+        assertThat(registry.require(RemoteEffectOperationHandler.PUSH_BRANCH))
+                .isSameAs(finiteEffects);
+        assertThat(registry.require(MergeOperationHandler.OPERATION_KIND))
+                .isSameAs(merge);
         assertThatThrownBy(() -> registry.require("UNKNOWN"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unsupported V2 operation kind");
@@ -225,6 +263,11 @@ class TestDevelopmentFlowExecutionConfig
                 mock(SqlitePublishResultStore.class),
                 cleanupStore,
                 mock(CleanupCompletionHandoff.class),
+                mock(TrunkManager.class),
+                mock(RemoteCiRepairRuntimeCoordinator.class),
+                mock(BranchSyncRuntimeCoordinator.class),
+                mock(RemoteDevelopmentStageManager.class),
+                mock(SqliteMergeOperationStore.class),
                 mock(JdbcTemplate.class),
                 new ObjectMapper());
 
@@ -245,7 +288,15 @@ class TestDevelopmentFlowExecutionConfig
                 RemoteFeedbackRuntimeCoordinator.VALIDATION_CALLBACK,
                 RemoteFeedbackRuntimeCoordinator.BRAIN_CALLBACK,
                 RemoteDevelopmentRuntimeCoordinator.EFFECT_CALLBACK,
-                RemoteDevelopmentRuntimeCoordinator.MARK_READY_CALLBACK);
+                RemoteDevelopmentRuntimeCoordinator.MARK_READY_CALLBACK,
+                ThreadTurnOperationHandler.CALLBACK_ROUTE,
+                RemoteObservationOperationHandler.CALLBACK_ROUTE,
+                "REMOTE_CI_RERUN_RESULT",
+                "BRANCH_SYNC_FETCH_RESULT",
+                "BRANCH_SYNC_REBASE_RESULT",
+                "BRANCH_SYNC_VALIDATION_RESULT",
+                "BRANCH_SYNC_PUSH_RESULT",
+                MergeOperationHandler.CALLBACK_ROUTE);
 
         delivery.recoverCommittedDeliveries(7);
         verify(cleanupStore).findPendingFinalizations(7);
@@ -417,10 +468,17 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(RemoteDevelopmentRuntimeCoordinator.class))
                 .withBean(RemoteObservationRuntimeCoordinator.class,
                         () -> mock(RemoteObservationRuntimeCoordinator.class))
+                .withBean(RemoteCiRepairRuntimeCoordinator.class,
+                        () -> mock(RemoteCiRepairRuntimeCoordinator.class))
+                .withBean(BranchSyncRuntimeCoordinator.class,
+                        () -> mock(BranchSyncRuntimeCoordinator.class))
                 .withBean(TaskCommandExecutor.class,
                         () -> mock(TaskCommandExecutor.class))
                 .withBean(LocalDevelopmentStageManager.class,
                         () -> mock(LocalDevelopmentStageManager.class))
+                .withBean(RemoteDevelopmentStageManager.class,
+                        () -> mock(RemoteDevelopmentStageManager.class))
+                .withBean(TrunkManager.class, () -> mock(TrunkManager.class))
                 .withBean(LocalToRemoteHandoff.class,
                         () -> mock(LocalToRemoteHandoff.class))
                 .withBean(SqlitePublishResultStore.class,
@@ -441,6 +499,12 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(GitRunnerProvisioningGit.class))
                 .withBean(SqliteAgentTurnOperationStore.class,
                         () -> mock(SqliteAgentTurnOperationStore.class))
+                .withBean(SqliteThreadTurnOperationStore.class,
+                        () -> mock(SqliteThreadTurnOperationStore.class))
+                .withBean(ActiveAgentContextRegistry.class,
+                        () -> mock(ActiveAgentContextRegistry.class))
+                .withBean(ToolExposurePolicy.class,
+                        () -> mock(ToolExposurePolicy.class))
                 .withBean(SqliteLocalDevelopmentRuntimeStore.class,
                         () -> mock(SqliteLocalDevelopmentRuntimeStore.class))
                 .withBean(ValidationCheck.class,
@@ -462,6 +526,16 @@ class TestDevelopmentFlowExecutionConfig
                         () -> mock(SqliteRemoteFeedbackEffectOperationStore.class))
                 .withBean(SqliteRemoteMarkReadyOperationStore.class,
                         () -> mock(SqliteRemoteMarkReadyOperationStore.class))
+                .withBean(SqliteRemoteRuntimeStore.class,
+                        () -> mock(SqliteRemoteRuntimeStore.class))
+                .withBean(GitHubRemoteObserver.class,
+                        () -> mock(GitHubRemoteObserver.class))
+                .withBean(GitHubRemoteEffects.class,
+                        () -> mock(GitHubRemoteEffects.class))
+                .withBean(SqliteMergeOperationStore.class,
+                        () -> mock(SqliteMergeOperationStore.class))
+                .withBean(GitHubMergeEffects.class,
+                        () -> mock(GitHubMergeEffects.class))
                 .withBean(ExecutionPorts.DispatchTicketStore.class, () -> tickets)
                 .withBean(ExecutionPorts.DispatchWakeStore.class, () -> wakes)
                 .withBean(ExecutionPorts.ExecutionEvidencePort.class,

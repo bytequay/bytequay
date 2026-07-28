@@ -31,7 +31,7 @@ import static java.util.Objects.requireNonNull;
 /** Review-owned, synchronous consumer of exact V2 TaskOutcome facts. */
 @Service
 public final class ReviewBuildOutcomeService
-        implements CleanupCompletionHandoff.TaskOutcomeConsumer
+        implements CleanupCompletionHandoff.PostCompletionHook
 {
     private static final Logger log = LoggerFactory.getLogger(
             ReviewBuildOutcomeService.class);
@@ -53,6 +53,11 @@ public final class ReviewBuildOutcomeService
     }
 
     @Override
+    public void afterCommit(CleanupCompletionHandoff.Completion completion)
+    {
+        acceptTaskOutcome(completion.taskId());
+    }
+
     public void acceptTaskOutcome(String taskId)
     {
         requireText(taskId, "taskId");

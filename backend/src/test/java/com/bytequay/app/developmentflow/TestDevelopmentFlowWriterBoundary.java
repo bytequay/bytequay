@@ -250,6 +250,36 @@ class TestDevelopmentFlowWriterBoundary
     }
 
     @Test
+    void concreteAggregateWritersJoinTheCommandTransaction()
+            throws IOException
+    {
+        Path sources = Path.of("src/main/java/com/bytequay/app/developmentflow");
+        try (var files = Files.walk(sources)) {
+            for (Path source : files
+                    .filter(path -> path.toString().endsWith(".java"))
+                    .filter(path -> normalized(path).contains("/persistence/"))
+                    .toList()) {
+                String contents = Files.readString(source);
+                if (!implementsStore(contents, "TrunkManager")
+                        && !implementsStore(contents, "TaskManager")
+                        && !implementsStore(contents, "StageManager")) {
+                    continue;
+                }
+                assertThat(contents)
+                        .as("aggregate Store must use the transaction-bound connection: %s", source)
+                        .contains("JdbcTemplate")
+                        .doesNotContain(
+                                "DataSource",
+                                "getConnection(",
+                                "PlatformTransactionManager",
+                                "TransactionTemplate",
+                                "@Transactional",
+                                "SqliteTransactions");
+            }
+        }
+    }
+
+    @Test
     void managersOwnNoAsynchronousWorker()
     {
         assertThat(Set.of(

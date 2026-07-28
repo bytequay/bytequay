@@ -257,6 +257,20 @@ class TestTaskLifecycleDriver
     }
 
     @Test
+    void lateRemoteMergeDoesNotRewriteAnAlreadyCanceledTask()
+    {
+        Task canceled = task("trinodb/trino#29897", TaskPhase.COMPLETED)
+                .withStatus(TaskStatus.CANCELED);
+        PullRequestDetail merged = mock(PullRequestDetail.class);
+        when(merged.merged()).thenReturn(true);
+        when(pullRequests.refreshPullRequestDetail("trinodb/trino", 29897)).thenReturn(merged);
+
+        driver.reconcileTask(canceled);
+
+        verify(phaseMachine, never()).finishTerminal(anyString(), any(), any(), anyString());
+    }
+
+    @Test
     void notificationCleanupFailureDoesNotBlockTerminalResourceCleanup()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
@@ -752,6 +766,21 @@ class TestTaskLifecycleDriver
 
         verify(taskStore, never()).findTaskById(anyString());
         verify(submissions, never()).incrementFailures(anyString());
+    }
+
+    @Test
+    void completedTurnCannotDriveASiblingTask()
+    {
+        ThreadTurn completed = addressingTurn("task-a", ThreadTurnStatus.COMPLETED);
+        when(turnStore.findTurnById("address-turn")).thenReturn(Optional.of(completed));
+
+        driver.onLocalAddressTurnFinished(
+                new TaskTurnFinishedEvent("task-b", "address-turn", false));
+
+        verify(taskStore, never()).findTaskById(anyString());
+        verify(submissions, never()).incrementFailures(anyString());
+        verify(claimedValidation, never()).claimAndRunLocalReview(
+                anyString(), anyLong(), anyString());
     }
 
     @Test

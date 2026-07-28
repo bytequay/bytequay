@@ -13,7 +13,10 @@
  */
 package com.bytequay.app.developmentflow.execution;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.REJECTED;
 import static java.util.Objects.requireNonNull;
@@ -54,5 +57,33 @@ public final class ResultDeliveryRouter
                             + "\"result\":\"unknown callback route\"}");
         }
         return port.deliver(owner, expectedFence, rawResult);
+    }
+
+    @Override
+    public void afterDeliveryCommitted(
+            DispatchTicket.OwnerReference owner,
+            DispatchTicket.OperationFence expectedFence,
+            DispatchTicket.DispatchResult rawResult,
+            DispatchTicket.DeliveryReceipt receipt)
+            throws Exception
+    {
+        requireNonNull(owner, "owner is null");
+        ExecutionPorts.ResultDeliveryPort port = routes.get(owner.callbackRoute());
+        if (port != null) {
+            port.afterDeliveryCommitted(owner, expectedFence, rawResult, receipt);
+        }
+    }
+
+    @Override
+    public void recoverCommittedDeliveries(int limit)
+            throws Exception
+    {
+        Set<ExecutionPorts.ResultDeliveryPort> visited =
+                Collections.newSetFromMap(new IdentityHashMap<>());
+        for (ExecutionPorts.ResultDeliveryPort port : routes.values()) {
+            if (visited.add(port)) {
+                port.recoverCommittedDeliveries(limit);
+            }
+        }
     }
 }

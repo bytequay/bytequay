@@ -19,25 +19,72 @@ import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import com.bytequay.app.developmentflow.execution.LegacyCapacityLeaseMaintainer;
 import com.bytequay.app.developmentflow.execution.LegacySagaCapacity;
+import com.bytequay.app.developmentflow.execution.ResultDeliveryRouter;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
+import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandler;
+import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupEffects;
+import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupOperationStore;
+import com.bytequay.app.developmentflow.execution.provisioning.GitRunnerProvisioningGit;
+import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler;
+import com.bytequay.app.developmentflow.execution.provisioning.SqliteProvisionTaskOperationStore;
+import com.bytequay.app.developmentflow.execution.publish.GitHubPublishEffects;
+import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler;
+import com.bytequay.app.developmentflow.execution.publish.SqlitePublishOperationStore;
+import com.bytequay.app.developmentflow.execution.remote.RemoteFeedbackEffectOperationHandler;
+import com.bytequay.app.developmentflow.execution.remote.RemoteMarkReadyOperationHandler;
+import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteFeedbackEffectOperationStore;
+import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteMarkReadyOperationStore;
+import com.bytequay.app.developmentflow.persistence.SqliteAgentTurnOperationStore;
+import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
+import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
+import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
+import com.bytequay.app.developmentflow.stage.LocalToRemoteHandoff;
+import com.bytequay.app.developmentflow.stage.LocalValidationOperationHandler;
+import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteDevelopmentRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteFeedbackValidationOperationHandler;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadSettings;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.agents.TurnRunner;
+import com.bytequay.app.service.checks.CodeFingerprints;
+import com.bytequay.app.service.checks.ValidationCheck;
+import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.threads.LegacyTaskScopeResolver;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestDevelopmentFlowExecutionConfig
@@ -71,7 +118,7 @@ class TestDevelopmentFlowExecutionConfig
     }
 
     @Test
-    void enablingProvidesDeliveryButStillRequiresRealHandlersAndWakeStore()
+    void enablingDeclaresTheCompleteExecutionGraphAndRequiredRemoteGateways()
     {
         Method dispatcher = Arrays.stream(
                         DevelopmentFlowExecutionConfig.class.getDeclaredMethods())
@@ -84,13 +131,178 @@ class TestDevelopmentFlowExecutionConfig
                 ExecutionPorts.ExecutionEvidencePort.class,
                 ExecutionPorts.DispatchTicketStore.class,
                 ExecutionPorts.DispatchWakeStore.class);
-        assertThat(Arrays.stream(
+        Set<Class<?>> returnTypes = Arrays.stream(
                         DevelopmentFlowExecutionConfig.class.getDeclaredMethods())
-                .map(Method::getReturnType))
-                .contains(ExecutionPorts.ResultDeliveryPort.class)
-                .doesNotContain(
-                        ExecutionPorts.OperationHandlerRegistry.class,
-                        ExecutionPorts.DispatchWakeStore.class);
+                .map(Method::getReturnType)
+                .collect(Collectors.toSet());
+        assertThat(returnTypes).contains(
+                ExecutionPorts.ResultDeliveryPort.class,
+                ExecutionPorts.OperationHandlerRegistry.class,
+                AgentTurnProviderSession.class,
+                ProvisionTaskOperationHandler.class,
+                AgentTurnOperationHandler.class,
+                LocalValidationOperationHandler.class,
+                PublishOperationHandler.class,
+                CleanupOperationHandler.class,
+                RemoteFeedbackValidationOperationHandler.class,
+                RemoteFeedbackEffectOperationHandler.class,
+                RemoteMarkReadyOperationHandler.class);
+
+        Method remoteEffects = methodReturning(
+                RemoteFeedbackEffectOperationHandler.class);
+        Method markReady = methodReturning(RemoteMarkReadyOperationHandler.class);
+        assertThat(remoteEffects.getParameterTypes()).contains(
+                RemoteFeedbackEffectOperationHandler.EffectGateway.class);
+        assertThat(markReady.getParameterTypes()).contains(
+                RemoteMarkReadyOperationHandler.MarkReadyGateway.class);
+    }
+
+    @Test
+    void registryMapsEveryCurrentOperationKindAndRejectsUnknown()
+    {
+        DevelopmentFlowExecutionConfig config = new DevelopmentFlowExecutionConfig();
+        ProvisionTaskOperationHandler provisioning = mock(
+                ProvisionTaskOperationHandler.class);
+        AgentTurnOperationHandler turns = mock(AgentTurnOperationHandler.class);
+        LocalValidationOperationHandler localValidation = mock(
+                LocalValidationOperationHandler.class);
+        PublishOperationHandler publish = mock(PublishOperationHandler.class);
+        CleanupOperationHandler cleanup = mock(CleanupOperationHandler.class);
+        RemoteFeedbackValidationOperationHandler remoteValidation = mock(
+                RemoteFeedbackValidationOperationHandler.class);
+        RemoteFeedbackEffectOperationHandler remoteEffects = mock(
+                RemoteFeedbackEffectOperationHandler.class);
+        RemoteMarkReadyOperationHandler markReady = mock(
+                RemoteMarkReadyOperationHandler.class);
+
+        ExecutionPorts.OperationHandlerRegistry registry = config.v2OperationHandlers(
+                provisioning, turns, localValidation, publish, cleanup,
+                remoteValidation, remoteEffects, markReady);
+
+        assertThat(registry.require(ProvisionTaskOperationHandler.OPERATION_KIND))
+                .isSameAs(provisioning);
+        assertThat(registry.require(AgentTurnOperationHandler.TASK_OPERATION_KIND))
+                .isSameAs(turns);
+        assertThat(registry.require(AgentTurnOperationHandler.STAGE_OPERATION_KIND))
+                .isSameAs(turns);
+        assertThat(registry.require(LocalValidationOperationHandler.OPERATION_KIND))
+                .isSameAs(localValidation);
+        assertThat(registry.require(PublishOperationHandler.OPERATION_KIND))
+                .isSameAs(publish);
+        assertThat(registry.require(CleanupOperationHandler.OPERATION_KIND))
+                .isSameAs(cleanup);
+        assertThat(registry.require(
+                RemoteFeedbackValidationOperationHandler.OPERATION_KIND))
+                .isSameAs(remoteValidation);
+        assertThat(registry.require(RemoteFeedbackEffectOperationHandler.OPERATION_KIND))
+                .isSameAs(remoteEffects);
+        assertThat(registry.require(RemoteMarkReadyOperationHandler.OPERATION_KIND))
+                .isSameAs(markReady);
+        assertThatThrownBy(() -> registry.require("UNKNOWN"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unsupported V2 operation kind");
+    }
+
+    @Test
+    void resultRouterIncludesEveryCurrentCallbackAndRecoversCleanup()
+            throws Exception
+    {
+        DevelopmentFlowExecutionConfig config = new DevelopmentFlowExecutionConfig();
+        SqliteCleanupOperationStore cleanupStore = mock(
+                SqliteCleanupOperationStore.class);
+        when(cleanupStore.findPendingFinalizations(7)).thenReturn(List.of());
+
+        ExecutionPorts.ResultDeliveryPort delivery = config.v2ResultDelivery(
+                mock(PlanRuntimeCoordinator.class),
+                mock(LocalDevelopmentRuntimeCoordinator.class),
+                mock(RemoteFeedbackRuntimeCoordinator.class),
+                mock(RemoteDevelopmentRuntimeCoordinator.class),
+                mock(TaskCommandExecutor.class),
+                mock(LocalDevelopmentStageManager.class),
+                mock(LocalToRemoteHandoff.class),
+                mock(SqlitePublishResultStore.class),
+                cleanupStore,
+                mock(CleanupCompletionHandoff.class),
+                mock(JdbcTemplate.class),
+                new ObjectMapper());
+
+        assertThat(delivery).isInstanceOf(ResultDeliveryRouter.class);
+        @SuppressWarnings("unchecked")
+        Map<String, ExecutionPorts.ResultDeliveryPort> routes =
+                (Map<String, ExecutionPorts.ResultDeliveryPort>)
+                        ReflectionTestUtils.getField(delivery, "routes");
+        assertThat(routes).isNotNull();
+        assertThat(routes.keySet()).containsExactlyInAnyOrder(
+                PlanRuntimeCoordinator.PROVISION_CALLBACK,
+                PlanRuntimeCoordinator.TURN_CALLBACK,
+                LocalDevelopmentRuntimeCoordinator.TURN_CALLBACK,
+                LocalValidationOperationHandler.CALLBACK_ROUTE,
+                PublishOperationHandler.CALLBACK_ROUTE,
+                CleanupOperationHandler.CALLBACK_ROUTE,
+                RemoteFeedbackRuntimeCoordinator.TURN_CALLBACK,
+                RemoteFeedbackRuntimeCoordinator.VALIDATION_CALLBACK,
+                RemoteFeedbackRuntimeCoordinator.BRAIN_CALLBACK,
+                RemoteDevelopmentRuntimeCoordinator.EFFECT_CALLBACK,
+                RemoteDevelopmentRuntimeCoordinator.MARK_READY_CALLBACK);
+
+        delivery.recoverCommittedDeliveries(7);
+        verify(cleanupStore).findPendingFinalizations(7);
+    }
+
+    @Test
+    void remoteHandlersHaveNoProductionFallbackGateway()
+    {
+        DevelopmentFlowExecutionConfig config = new DevelopmentFlowExecutionConfig();
+        ObjectMapper json = new ObjectMapper();
+
+        assertThatThrownBy(() -> config.v2RemoteFeedbackEffectOperationHandler(
+                mock(SqliteRemoteFeedbackEffectOperationStore.class), null, json))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("effects is null");
+        assertThatThrownBy(() -> config.v2RemoteMarkReadyOperationHandler(
+                mock(SqliteRemoteMarkReadyOperationStore.class), null, json))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("github is null");
+    }
+
+    @Test
+    void enabledSpringGraphFailsClosedWithoutRemoteGateways()
+    {
+        v2ContextRunner().run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure())
+                    .hasMessageContaining("EffectGateway");
+        });
+    }
+
+    @Test
+    void enabledSpringGraphBuildsAllHandlersWithExplicitRemoteGateways()
+    {
+        v2ContextRunner()
+                .withBean(
+                        RemoteFeedbackEffectOperationHandler.EffectGateway.class,
+                        () -> mock(
+                                RemoteFeedbackEffectOperationHandler.EffectGateway.class))
+                .withBean(
+                        RemoteMarkReadyOperationHandler.MarkReadyGateway.class,
+                        () -> mock(RemoteMarkReadyOperationHandler.MarkReadyGateway.class))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(ExecutionDispatcher.class);
+                    assertThat(context).hasSingleBean(
+                            ExecutionPorts.OperationHandlerRegistry.class);
+                    assertThat(context).hasSingleBean(
+                            ExecutionPorts.ResultDeliveryPort.class);
+                    assertThat(context).hasSingleBean(AgentTurnProviderSession.class);
+                    ExecutionPorts.OperationHandlerRegistry handlers = context.getBean(
+                            ExecutionPorts.OperationHandlerRegistry.class);
+                    assertThat(handlers.require(
+                            RemoteFeedbackEffectOperationHandler.OPERATION_KIND))
+                            .isInstanceOf(RemoteFeedbackEffectOperationHandler.class);
+                    assertThat(handlers.require(
+                            RemoteMarkReadyOperationHandler.OPERATION_KIND))
+                            .isInstanceOf(RemoteMarkReadyOperationHandler.class);
+                });
     }
 
     @Test
@@ -171,5 +383,92 @@ class TestDevelopmentFlowExecutionConfig
                 .withBean(
                         WorktreeWriterLeaseManager.Store.class,
                         () -> mock(WorktreeWriterLeaseManager.Store.class));
+    }
+
+    private static ApplicationContextRunner v2ContextRunner()
+    {
+        SqliteCleanupOperationStore cleanup = mock(SqliteCleanupOperationStore.class);
+        when(cleanup.findPendingFinalizations(100)).thenReturn(List.of());
+        ExecutionPorts.DispatchTicketStore tickets = mock(
+                ExecutionPorts.DispatchTicketStore.class);
+        when(tickets.findExpiredClaims(any(), anyInt())).thenReturn(List.of());
+        when(tickets.findExpiredDeliveryClaims(any(), anyInt()))
+                .thenReturn(List.of());
+        when(tickets.findEligiblePage(any(), any(), anyInt()))
+                .thenReturn(new ExecutionPorts.TicketScanPage(List.of(), null));
+        ExecutionPorts.DispatchWakeStore wakes = mock(
+                ExecutionPorts.DispatchWakeStore.class);
+        when(wakes.claimAvailable(anyString(), any(), any(), anyInt()))
+                .thenReturn(List.of());
+
+        return contextRunner()
+                .withPropertyValues(
+                        "bytequay.development-flow.v2-dispatch-enabled=true")
+                .withUserConfiguration(DevelopmentFlowExecutionConfig.class)
+                .withBean(PlanRuntimeCoordinator.class,
+                        () -> mock(PlanRuntimeCoordinator.class))
+                .withBean(LocalDevelopmentRuntimeCoordinator.class,
+                        () -> mock(LocalDevelopmentRuntimeCoordinator.class))
+                .withBean(RemoteFeedbackRuntimeCoordinator.class,
+                        () -> mock(RemoteFeedbackRuntimeCoordinator.class))
+                .withBean(RemoteDevelopmentRuntimeCoordinator.class,
+                        () -> mock(RemoteDevelopmentRuntimeCoordinator.class))
+                .withBean(TaskCommandExecutor.class,
+                        () -> mock(TaskCommandExecutor.class))
+                .withBean(LocalDevelopmentStageManager.class,
+                        () -> mock(LocalDevelopmentStageManager.class))
+                .withBean(LocalToRemoteHandoff.class,
+                        () -> mock(LocalToRemoteHandoff.class))
+                .withBean(SqlitePublishResultStore.class,
+                        () -> mock(SqlitePublishResultStore.class))
+                .withBean(SqliteCleanupOperationStore.class, () -> cleanup)
+                .withBean(CleanupCompletionHandoff.class,
+                        () -> mock(CleanupCompletionHandoff.class))
+                .withBean(JdbcTemplate.class, () -> mock(JdbcTemplate.class))
+                .withBean(ObjectMapper.class, ObjectMapper::new)
+                .withBean(CredentialService.class,
+                        () -> mock(CredentialService.class))
+                .withBean(Ds4LifecycleService.class,
+                        () -> mock(Ds4LifecycleService.class))
+                .withBean(TurnRunner.class, () -> mock(TurnRunner.class))
+                .withBean(SqliteProvisionTaskOperationStore.class,
+                        () -> mock(SqliteProvisionTaskOperationStore.class))
+                .withBean(GitRunnerProvisioningGit.class,
+                        () -> mock(GitRunnerProvisioningGit.class))
+                .withBean(SqliteAgentTurnOperationStore.class,
+                        () -> mock(SqliteAgentTurnOperationStore.class))
+                .withBean(SqliteLocalDevelopmentRuntimeStore.class,
+                        () -> mock(SqliteLocalDevelopmentRuntimeStore.class))
+                .withBean(ValidationCheck.class,
+                        () -> mock(ValidationCheck.class))
+                .withBean(CodeFingerprints.class,
+                        () -> mock(CodeFingerprints.class))
+                .withBean(GitRunner.class, () -> mock(GitRunner.class))
+                .withBean(SqlitePublishOperationStore.class,
+                        () -> mock(SqlitePublishOperationStore.class))
+                .withBean(GitHubPublishEffects.class,
+                        () -> mock(GitHubPublishEffects.class))
+                .withBean(SqliteCleanupEffects.class,
+                        () -> mock(SqliteCleanupEffects.class))
+                .withBean(CleanupQuiescenceHandoff.class,
+                        () -> mock(CleanupQuiescenceHandoff.class))
+                .withBean(SqliteRemoteFeedbackLoopStore.class,
+                        () -> mock(SqliteRemoteFeedbackLoopStore.class))
+                .withBean(SqliteRemoteFeedbackEffectOperationStore.class,
+                        () -> mock(SqliteRemoteFeedbackEffectOperationStore.class))
+                .withBean(SqliteRemoteMarkReadyOperationStore.class,
+                        () -> mock(SqliteRemoteMarkReadyOperationStore.class))
+                .withBean(ExecutionPorts.DispatchTicketStore.class, () -> tickets)
+                .withBean(ExecutionPorts.DispatchWakeStore.class, () -> wakes)
+                .withBean(ExecutionPorts.ExecutionEvidencePort.class,
+                        () -> mock(ExecutionPorts.ExecutionEvidencePort.class));
+    }
+
+    private static Method methodReturning(Class<?> returnType)
+    {
+        return Arrays.stream(DevelopmentFlowExecutionConfig.class.getDeclaredMethods())
+                .filter(method -> method.getReturnType() == returnType)
+                .findFirst()
+                .orElseThrow();
     }
 }

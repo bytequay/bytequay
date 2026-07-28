@@ -185,6 +185,72 @@ class TestStageManagers
     }
 
     @Test
+    void localWorkArmsReplacesAndClearsOneExactPendingResult()
+    {
+        Fixture fixture = new Fixture(
+                StageKind.LOCAL_DEVELOPMENT, StageCheckpoint.IMPLEMENTING, false,
+                TaskLifecycle.ACTIVE);
+        ResultFence first = new ResultFence(
+                3, "stage", 2, "implementation-one", 1,
+                "code", "head", "base");
+        StageManager.Command request = fixture.command("request-implementation");
+
+        assertThat(fixture.local.requestImplementation(
+                request, first, "turn-request-one").state().pendingResult())
+                .isEqualTo(first);
+        assertThat(fixture.local.requestImplementation(
+                request, first, "turn-request-one").disposition())
+                .isEqualTo(CommandResult.Disposition.DUPLICATE);
+
+        ResultFence replacement = new ResultFence(
+                3, "stage", 2, "implementation-two", 1,
+                "code", "head", "base");
+        TaskCommandExecutor commands = CommandTestSupport.executor();
+        StageManager.ResultCommand replaceCommand = new StageManager.ResultCommand(
+                "replace-implementation", "user", "task", first);
+        CommandResult<StageManager.State> replaced = commands.execute("task", () ->
+                fixture.local.replaceImplementationTurnInCommand(
+                        replaceCommand, replacement, "turn-request-two"));
+        assertThat(replaced.state().pendingResult()).isEqualTo(replacement);
+        assertThatThrownBy(() -> commands.execute("task", () ->
+                fixture.local.replaceImplementationTurnInCommand(
+                        replaceCommand,
+                        new ResultFence(
+                                3, "stage", 2, "conflicting-operation", 1,
+                                "code", "head", "base"),
+                        "turn-request-two")))
+                .isInstanceOfSatisfying(CommandRejectedException.class,
+                        failure -> assertThat(failure.reason())
+                                .isEqualTo(COMMAND_ID_CONFLICT));
+
+        Fixture sameWork = new Fixture(
+                StageKind.LOCAL_DEVELOPMENT, StageCheckpoint.IMPLEMENTING, true,
+                TaskLifecycle.ACTIVE);
+        assertRejected(INVALID_STATE, () -> commands.execute("task", () ->
+                sameWork.local.replaceImplementationTurnInCommand(
+                        sameWork.result("same-work"), sameWork.fence,
+                        "turn-request-two")));
+
+        CommandResult<StageManager.State> lateOldResult = commands.execute("task", () ->
+                fixture.local.clearImplementationTurnInCommand(
+                        new StageManager.ResultCommand(
+                                "late-old-result", "dispatcher", "task", first),
+                        "turn-request-one"));
+        assertThat(lateOldResult.disposition())
+                .isEqualTo(CommandResult.Disposition.SUPERSEDED);
+        assertThat(lateOldResult.state().pendingResult()).isEqualTo(replacement);
+
+        CommandResult<StageManager.State> cleared = commands.execute("task", () ->
+                fixture.local.clearImplementationTurnInCommand(
+                        new StageManager.ResultCommand(
+                                "clear-implementation", "dispatcher", "task",
+                                replacement),
+                        "turn-request-two"));
+        assertThat(cleared.state().pendingResult()).isNull();
+        assertThat(cleared.state().checkpoint()).isEqualTo(StageCheckpoint.IMPLEMENTING);
+    }
+
+    @Test
     void terminalAndRemoteObservationTransitionsHaveNoStandaloneBypass()
     {
         Set<String> unsafe = Set.of(
@@ -520,6 +586,30 @@ class TestStageManagers
                                         String authorizationId)
                         {
                             return Optional.empty();
+                        }
+
+                        @Override
+                        public Optional<LocalDevelopmentStageManager.ReplacementEvidence>
+                                findReplacement(
+                                        String taskId,
+                                        String stageId,
+                                        long generation,
+                                        String requestId)
+                        {
+                            if (!requestId.equals("turn-request-two")) {
+                                return Optional.empty();
+                            }
+                            return Optional.of(
+                                    new LocalDevelopmentStageManager.ReplacementEvidence(
+                                            taskId, stageId, generation, requestId,
+                                            new ResultFence(
+                                                    3, "stage", 2,
+                                                    "implementation-one", 1,
+                                                    "code", "head", "base"),
+                                            new ResultFence(
+                                                    3, "stage", 2,
+                                                    "implementation-two", 1,
+                                                    "code", "head", "base")));
                         }
                     });
             remote = new RemoteDevelopmentStageManager(

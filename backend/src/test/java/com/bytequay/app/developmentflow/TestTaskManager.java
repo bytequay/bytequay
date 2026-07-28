@@ -136,6 +136,39 @@ class TestTaskManager
                         failure -> assertThat(failure.reason()).isEqualTo(INVALID_STATE));
     }
 
+    @Test
+    void taskBrainRequestArmsOnlyItsExactCurrentStageSubject()
+    {
+        CommandTestSupport.Tasks store = new CommandTestSupport.Tasks();
+        TaskManager manager = new TaskManager(CommandTestSupport.executor(), store);
+        store.put(state(TaskLifecycle.ACTIVE, 4, 7, null));
+        ResultFence fence = new ResultFence(
+                4, "stage", 2, "brain-operation", 1,
+                "code", "head", "base");
+        TaskManager.BrainReviewRequestCommand command =
+                new TaskManager.BrainReviewRequestCommand(
+                        "request-brain", "local-runtime", "task", 4, 7,
+                        "brain-episode", fence);
+
+        assertThat(manager.requestBrainReview(command).state().pendingBrainResult())
+                .isEqualTo(fence);
+        assertThat(manager.requestBrainReview(command).disposition())
+                .isEqualTo(CommandResult.Disposition.DUPLICATE);
+
+        CommandTestSupport.Tasks staleStore = new CommandTestSupport.Tasks();
+        TaskManager stale = new TaskManager(CommandTestSupport.executor(), staleStore);
+        staleStore.put(state(TaskLifecycle.ACTIVE, 4, 7, null));
+        ResultFence otherStage = new ResultFence(
+                4, "other-stage", 2, "other-brain-operation", 1,
+                "code", "head", "base");
+        assertThatThrownBy(() -> stale.requestBrainReview(
+                new TaskManager.BrainReviewRequestCommand(
+                        "wrong-stage", "local-runtime", "task", 4, 7,
+                        "other-episode", otherStage)))
+                .isInstanceOfSatisfying(CommandRejectedException.class,
+                        failure -> assertThat(failure.reason()).isEqualTo(INVALID_STATE));
+    }
+
     private static TaskManager.Command command(String id, TaskManager.State state)
     {
         return command(id, state.epoch(), state.version());

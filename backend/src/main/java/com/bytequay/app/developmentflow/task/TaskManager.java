@@ -739,7 +739,57 @@ public final class TaskManager
     }
 
     /** Semantic command step for a cross-domain use case already holding the Task stripe. */
-    BrainVerdictResult acceptBrainVerdictInCommand(
+    public CommandResult<State> requestBrainReview(BrainReviewRequestCommand command)
+    {
+        requireNonNull(command, "command is null");
+        return commands.execute(
+                command.taskId(), () -> requestBrainReviewInCommand(command));
+    }
+
+    /**
+     * Arms one exact Task-owned Brain result. The caller must have already
+     * persisted the matching BrainReviewEpisode, TaskTurn, and DispatchTicket
+     * in this command transaction.
+     */
+    public CommandResult<State> requestBrainReviewInCommand(
+            BrainReviewRequestCommand command)
+    {
+        requireNonNull(command, "command is null");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+
+        Optional<CommandReceipt> duplicate = findCommandResult(
+                command.taskId(), command.commandId());
+        if (duplicate.isPresent()) {
+            return CommandResult.duplicate(requireReceipt(
+                    duplicate.orElseThrow(), "REQUEST_BRAIN_REVIEW", command.actor(),
+                    command.expectedEpoch(), command.expectedVersion(), command.resultFence(),
+                    null, command.episodeId(), null, null, null).state());
+        }
+
+        State current = load(command.taskId());
+        validateExpected(command.asTaskCommand(), current);
+        ResultFence result = command.resultFence();
+        if (current.lifecycle() != TaskLifecycle.ACTIVE
+                || current.pendingBrainResult() != null
+                || result.taskEpoch() != current.epoch()
+                || !same(current.currentStageId(), result.stageId())) {
+            throw rejected(INVALID_STATE,
+                    "Task cannot arm this exact Brain review result");
+        }
+
+        State updated = new State(
+                current.id(), current.trunkId(), current.lifecycle(), current.epoch(),
+                current.version() + 1, current.currentStageId(), result,
+                current.lastBrainVerdict(), current.lastBrainResult(),
+                current.terminalIntent());
+        return CommandResult.applied(store.commit(
+                command.commandId(), "REQUEST_BRAIN_REVIEW", command.actor(),
+                command.expectedEpoch(), command.expectedVersion(), result, null,
+                command.episodeId(), null, null, null, current, updated));
+    }
+
+    /** Semantic command step for a cross-domain use case already holding the Task stripe. */
+    public BrainVerdictResult acceptBrainVerdictInCommand(
             ResultCommand command, BrainVerdict verdict)
     {
         requireNonNull(command, "command is null");
@@ -1646,6 +1696,44 @@ public final class TaskManager
             requireText(actor, "actor");
             requireText(taskId, "taskId");
             requireNonNull(resultFence, "resultFence is null");
+        }
+    }
+
+    public record BrainReviewRequestCommand(
+            String commandId,
+            String actor,
+            String taskId,
+            long expectedEpoch,
+            long expectedVersion,
+            String episodeId,
+            ResultFence resultFence)
+    {
+        public BrainReviewRequestCommand
+        {
+            requireText(commandId, "commandId");
+            requireText(actor, "actor");
+            requireText(taskId, "taskId");
+            requireText(episodeId, "episodeId");
+            requireNonNull(resultFence, "resultFence is null");
+            if (expectedEpoch < 1 || expectedVersion < 0) {
+                throw new IllegalArgumentException("Task Brain request fence is invalid");
+            }
+            if (resultFence.taskEpoch() != expectedEpoch
+                    || resultFence.stageId() == null
+                    || resultFence.expectedCodeFingerprint() == null
+                    || resultFence.expectedCodeFingerprint().isBlank()
+                    || resultFence.expectedHeadSha() == null
+                    || resultFence.expectedHeadSha().isBlank()
+                    || resultFence.expectedBaseSha() == null
+                    || resultFence.expectedBaseSha().isBlank()) {
+                throw new IllegalArgumentException(
+                        "Task Brain request requires its complete Stage subject");
+            }
+        }
+
+        private Command asTaskCommand()
+        {
+            return new Command(commandId, actor, taskId, expectedEpoch, expectedVersion);
         }
     }
 

@@ -22,6 +22,7 @@ import com.bytequay.app.service.threads.TaskCommandExecutor;
 
 import java.util.Optional;
 
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.COMMAND_ID_CONFLICT;
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.INVALID_STATE;
 import static java.util.Objects.requireNonNull;
 
@@ -61,6 +62,29 @@ public final class LocalDevelopmentStageManager
                 StageCheckpoint.IMPLEMENTING, StageCheckpoint.VALIDATING);
     }
 
+    public CommandResult<State> acceptImplementationResultInCommand(
+            ResultCommand command, String devReportId)
+    {
+        return acceptResultWithProofInCommand(
+                command, devReportId, "ACCEPT_LOCAL_CODE_RESULT",
+                StageCheckpoint.IMPLEMENTING, StageCheckpoint.VALIDATING);
+    }
+
+    public CommandResult<State> requestImplementation(
+            Command command, ResultFence result, String turnRequestId)
+    {
+        return execute(command, () -> requestImplementationInCommand(
+                command, result, turnRequestId));
+    }
+
+    public CommandResult<State> requestImplementationInCommand(
+            Command command, ResultFence result, String turnRequestId)
+    {
+        return armPendingResultInCommand(
+                command, result, turnRequestId, "REQUEST_LOCAL_RESULT",
+                StageCheckpoint.IMPLEMENTING);
+    }
+
     public CommandResult<State> acceptValidation(ResultCommand command)
     {
         return execute(command, () -> acceptValidationInCommand(command));
@@ -71,6 +95,22 @@ public final class LocalDevelopmentStageManager
         return acceptResultInCommand(
                 command, "ACCEPT_VALIDATION",
                 StageCheckpoint.VALIDATING, StageCheckpoint.BRAIN_REVIEW);
+    }
+
+    public CommandResult<State> requestValidationInCommand(
+            Command command, ResultFence result, String operationId)
+    {
+        return armPendingResultInCommand(
+                command, result, operationId, "REQUEST_LOCAL_RESULT",
+                StageCheckpoint.VALIDATING);
+    }
+
+    public CommandResult<State> clearValidationInCommand(
+            ResultCommand command, String operationId)
+    {
+        return clearPendingResultInCommand(
+                command, operationId, "CLEAR_LOCAL_RESULT",
+                StageCheckpoint.VALIDATING);
     }
 
     public CommandResult<State> acceptBrainApprovalInCommand(
@@ -92,6 +132,22 @@ public final class LocalDevelopmentStageManager
                 StageCheckpoint.ADDRESSING_BRAIN_FINDINGS);
     }
 
+    public CommandResult<State> requestBrainFixInCommand(
+            Command command, ResultFence result, String turnRequestId)
+    {
+        return armPendingResultInCommand(
+                command, result, turnRequestId, "REQUEST_LOCAL_RESULT",
+                StageCheckpoint.ADDRESSING_BRAIN_FINDINGS);
+    }
+
+    public CommandResult<State> acceptBrainBudgetExhaustionInCommand(
+            Command command, String blockerId)
+    {
+        return moveWithProofInCommand(
+                command, blockerId, "ACCEPT_BRAIN_BUDGET_EXHAUSTION",
+                StageCheckpoint.BRAIN_REVIEW, StageCheckpoint.LOCAL_REVIEW);
+    }
+
     public CommandResult<State> acceptBrainFixes(ResultCommand command)
     {
         return execute(command, () -> acceptBrainFixesInCommand(command));
@@ -104,6 +160,23 @@ public final class LocalDevelopmentStageManager
                 "ACCEPT_BRAIN_FIXES",
                 StageCheckpoint.ADDRESSING_BRAIN_FINDINGS,
                 StageCheckpoint.IMPLEMENTING);
+    }
+
+    public CommandResult<State> acceptBrainFixResultInCommand(
+            ResultCommand command, String devReportId)
+    {
+        return acceptResultWithProofInCommand(
+                command, devReportId, "ACCEPT_LOCAL_CODE_RESULT",
+                StageCheckpoint.ADDRESSING_BRAIN_FINDINGS,
+                StageCheckpoint.IMPLEMENTING);
+    }
+
+    public CommandResult<State> beginValidationInCommand(
+            Command command, String devReportId)
+    {
+        return moveWithProofInCommand(
+                command, devReportId, "BEGIN_LOCAL_VALIDATION",
+                StageCheckpoint.IMPLEMENTING, StageCheckpoint.VALIDATING);
     }
 
     public CommandResult<State> submitLocalFeedback(FeedbackCommand command)
@@ -177,6 +250,94 @@ public final class LocalDevelopmentStageManager
                 "ACCEPT_LOCAL_FEEDBACK_FIXES",
                 StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK,
                 StageCheckpoint.IMPLEMENTING);
+    }
+
+    public CommandResult<State> acceptLocalFeedbackResultInCommand(
+            ResultCommand command, String devReportId)
+    {
+        return acceptResultWithProofInCommand(
+                command, devReportId, "ACCEPT_LOCAL_CODE_RESULT",
+                StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK,
+                StageCheckpoint.IMPLEMENTING);
+    }
+
+    public CommandResult<State> requestLocalFeedbackFixInCommand(
+            Command command, ResultFence result, String turnRequestId)
+    {
+        return armPendingResultInCommand(
+                command, result, turnRequestId, "REQUEST_LOCAL_RESULT",
+                StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK);
+    }
+
+    public CommandResult<State> replaceImplementationTurnInCommand(
+            ResultCommand completed, ResultFence replacement, String turnRequestId)
+    {
+        requireReplacement(completed, replacement, turnRequestId);
+        return replacePendingResultInCommand(
+                completed, replacement, turnRequestId, "REPLACE_LOCAL_RESULT",
+                StageCheckpoint.IMPLEMENTING);
+    }
+
+    public CommandResult<State> replaceBrainFixTurnInCommand(
+            ResultCommand completed, ResultFence replacement, String turnRequestId)
+    {
+        requireReplacement(completed, replacement, turnRequestId);
+        return replacePendingResultInCommand(
+                completed, replacement, turnRequestId, "REPLACE_LOCAL_RESULT",
+                StageCheckpoint.ADDRESSING_BRAIN_FINDINGS);
+    }
+
+    public CommandResult<State> replaceLocalFeedbackTurnInCommand(
+            ResultCommand completed, ResultFence replacement, String turnRequestId)
+    {
+        requireReplacement(completed, replacement, turnRequestId);
+        return replacePendingResultInCommand(
+                completed, replacement, turnRequestId, "REPLACE_LOCAL_RESULT",
+                StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK);
+    }
+
+    private void requireReplacement(
+            ResultCommand completed, ResultFence replacement, String turnRequestId)
+    {
+        requireNonNull(completed, "completed is null");
+        requireNonNull(replacement, "replacement is null");
+        requireText(turnRequestId, "turnRequestId");
+        if (replacement.equals(completed.resultFence())) {
+            throw rejected("Replacement result must name new work");
+        }
+        ReplacementEvidence persisted = evidence.findReplacement(
+                        completed.taskId(), completed.resultFence().stageId(),
+                        completed.resultFence().stageGeneration(), turnRequestId)
+                .orElseThrow(() -> rejected("Exact Local replacement request is missing"));
+        if (!persisted.matches(completed, replacement)) {
+            throw new CommandRejectedException(
+                    COMMAND_ID_CONFLICT,
+                    "Local replacement command conflicts with its immutable request");
+        }
+    }
+
+    public CommandResult<State> clearImplementationTurnInCommand(
+            ResultCommand completed, String turnRequestId)
+    {
+        return clearPendingResultInCommand(
+                completed, turnRequestId, "CLEAR_LOCAL_RESULT",
+                StageCheckpoint.IMPLEMENTING);
+    }
+
+    public CommandResult<State> clearBrainFixTurnInCommand(
+            ResultCommand completed, String turnRequestId)
+    {
+        return clearPendingResultInCommand(
+                completed, turnRequestId, "CLEAR_LOCAL_RESULT",
+                StageCheckpoint.ADDRESSING_BRAIN_FINDINGS);
+    }
+
+    public CommandResult<State> clearLocalFeedbackTurnInCommand(
+            ResultCommand completed, String turnRequestId)
+    {
+        return clearPendingResultInCommand(
+                completed, turnRequestId, "CLEAR_LOCAL_RESULT",
+                StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK);
     }
 
     PublicationResult acceptPublishedForHandoffInCommand(ResultCommand command)
@@ -340,6 +501,36 @@ public final class LocalDevelopmentStageManager
         }
     }
 
+    public record ReplacementEvidence(
+            String taskId,
+            String stageId,
+            long stageGeneration,
+            String requestId,
+            ResultFence predecessor,
+            ResultFence replacement)
+    {
+        public ReplacementEvidence
+        {
+            requireText(taskId, "taskId");
+            requireText(stageId, "stageId");
+            requireText(requestId, "requestId");
+            requireNonNull(predecessor, "predecessor is null");
+            requireNonNull(replacement, "replacement is null");
+            if (stageGeneration < 1) {
+                throw new IllegalArgumentException("stageGeneration must be positive");
+            }
+        }
+
+        private boolean matches(ResultCommand completed, ResultFence requestedReplacement)
+        {
+            return taskId.equals(completed.taskId())
+                    && stageId.equals(completed.resultFence().stageId())
+                    && stageGeneration == completed.resultFence().stageGeneration()
+                    && predecessor.equals(completed.resultFence())
+                    && replacement.equals(requestedReplacement);
+        }
+    }
+
     public interface EvidenceStore
     {
         Optional<FeedbackEvidence> findLocalFeedback(
@@ -347,6 +538,12 @@ public final class LocalDevelopmentStageManager
 
         Optional<PublishAuthorizationEvidence> findPublishAuthorization(
                 String taskId, String stageId, long stageGeneration, String authorizationId);
+
+        default Optional<ReplacementEvidence> findReplacement(
+                String taskId, String stageId, long stageGeneration, String requestId)
+        {
+            return Optional.empty();
+        }
 
         static EvidenceStore empty()
         {

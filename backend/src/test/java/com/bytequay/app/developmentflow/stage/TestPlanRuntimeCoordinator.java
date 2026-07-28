@@ -18,9 +18,11 @@ import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOper
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.TaskReplanMaintainer;
 import com.bytequay.app.developmentflow.task.creation.TaskAssignment;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
+import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.ids.IdGenerator;
@@ -33,12 +35,14 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.web.server.ResponseStatusException;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -48,6 +52,7 @@ import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptan
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Outcome.FAILED;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Outcome.SUCCEEDED;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestPlanRuntimeCoordinator
 {
@@ -575,6 +580,195 @@ class TestPlanRuntimeCoordinator
         assertThat(countWhere(jdbc, "task_turn", "task_epoch = 2")).isOne();
     }
 
+    @Test
+    void productControlApprovesLatestPlanAndOwnsFollowupStatus()
+            throws Exception
+    {
+        Bootstrapped bootstrap = bootstrap("plan-product-approval.db");
+        ReviewedPlan reviewed = reviewedPlan(
+                bootstrap, List.of("Watch rollout telemetry"));
+        V2PlanControlService controls = controls(
+                bootstrap.runtime(), ignored -> true);
+
+        V2PlanControlService.Approval approval = controls.approve(
+                reviewed.stageId());
+
+        assertThat(approval.taskId()).isEqualTo(bootstrap.taskId());
+        assertThat(bootstrap.jdbc().queryForMap("""
+                SELECT stage.kind, stage.checkpoint
+                  FROM task_current_stage current
+                  JOIN stage ON stage.id = current.stage_id
+                 WHERE current.task_id = ?
+                """, bootstrap.taskId()))
+                .containsEntry("kind", "LOCAL_DEVELOPMENT")
+                .containsEntry("checkpoint", "IMPLEMENTING");
+
+        controls.resolveFollowup(
+                bootstrap.taskId(), reviewed.stageId(), reviewed.followupId(),
+                "addressed");
+        Map<String, Object> resolved = bootstrap.jdbc().queryForMap("""
+                SELECT status, resolution, resolved_at_ms
+                  FROM plan_followup WHERE id = ?
+                """, reviewed.followupId());
+        assertThat(resolved)
+                .containsEntry("status", "RESOLVED")
+                .containsEntry("resolution", "user: addressed");
+        assertThat(resolved.get("resolved_at_ms")).isNotNull();
+        controls.resolveFollowup(
+                bootstrap.taskId(), reviewed.stageId(), reviewed.followupId(),
+                "addressed");
+        assertThatThrownBy(() -> controls.resolveFollowup(
+                bootstrap.taskId(), reviewed.stageId(), reviewed.followupId(),
+                "dismissed"))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        failure -> assertThat(failure.getStatusCode().value())
+                                .isEqualTo(409));
+        assertThatThrownBy(() -> controls.resolveFollowup(
+                bootstrap.taskId(), approval.localStageId(),
+                reviewed.followupId(), "dismissed"))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        failure -> assertThat(failure.getStatusCode().value())
+                                .isEqualTo(404));
+    }
+
+    @Test
+    void productControlRejectsAStaleReviewedRevision()
+            throws Exception
+    {
+        Bootstrapped bootstrap = bootstrap("plan-product-stale.db");
+        ReviewedPlan reviewed = reviewedPlan(bootstrap, List.of());
+        SqlitePlanRuntimeStore.ApprovalContext stale = bootstrap.runtime()
+                .planStore().findLatestApprovalContext(reviewed.stageId())
+                .orElseThrow();
+        bootstrap.runtime().plan().editPlan(
+                new PlanRuntimeCoordinator.PlanEditCommand(
+                        "stale-revision-edit", "user", bootstrap.taskId(),
+                        stale.stageId(), stale.stageGeneration(), stale.stageVersion(),
+                        stale.revisionId(), stale.selfReviewId(),
+                        "1. Replace the reviewed approach.\n2. Validate it."));
+
+        assertThatThrownBy(() -> controls(
+                bootstrap.runtime(), ignored -> true).approve(reviewed.stageId()))
+                .isInstanceOfSatisfying(ResponseStatusException.class,
+                        failure -> assertThat(failure.getStatusCode().value())
+                                .isEqualTo(409));
+        assertThat(count(bootstrap.jdbc(), "plan_approval")).isZero();
+    }
+
+    @Test
+    void productReplanWaitsForOldWorkThenRestartsExactlyOnce()
+            throws Exception
+    {
+        Bootstrapped bootstrap = bootstrap("plan-product-replan.db");
+        ReviewedPlan reviewed = reviewedPlan(bootstrap, List.of());
+        List<String> cancellationRequests = new ArrayList<>();
+        V2PlanControlService first = controls(bootstrap.runtime(), ticketId -> {
+            cancellationRequests.add(ticketId);
+            return true;
+        });
+        first.approve(reviewed.stageId());
+
+        V2PlanControlService.Replan waiting = first.replan(bootstrap.taskId());
+        V2PlanControlService.Replan duplicate = first.replan(bootstrap.taskId());
+
+        assertThat(waiting.preparing()).isTrue();
+        assertThat(waiting.planStageId()).isNull();
+        assertThat(duplicate).isEqualTo(waiting);
+        assertThat(cancellationRequests).isNotEmpty();
+        assertThat(count(bootstrap.jdbc(), "task_replan_request")).isOne();
+        assertThat(countWhere(bootstrap.jdbc(), "task_replan_request",
+                "status = 'QUIESCING'")).isOne();
+        assertThat(countWhere(bootstrap.jdbc(), "plan_stage", "generation = 2"))
+                .isZero();
+
+        bootstrap.jdbc().update("""
+                UPDATE stage_turn
+                   SET status = 'CANCELED', started_at_ms = ?, finished_at_ms = ?,
+                       error_message = 'replan'
+                 WHERE stage_id IN (
+                       SELECT id FROM stage WHERE task_id = ?)
+                   AND status IN ('REQUESTED', 'QUEUED')
+                """, NOW.plusSeconds(70).toEpochMilli(),
+                NOW.plusSeconds(71).toEpochMilli(), bootstrap.taskId());
+        bootstrap.jdbc().update("""
+                UPDATE dispatch_ticket
+                   SET version = version + 1, status = 'CANCELED',
+                       cancel_requested_at_ms = ?, delivery_acceptance = 'ACCEPTED',
+                       delivery_evidence = 'replan', completed_at_ms = ?
+                 WHERE task_id = ? AND status = 'REQUESTED'
+                """, NOW.plusSeconds(70).toEpochMilli(),
+                NOW.plusSeconds(71).toEpochMilli(), bootstrap.taskId());
+
+        Runtime restarted = runtime(bootstrap.dataSource());
+        V2PlanControlService.Replan completed = controls(
+                restarted, ignored -> true).replan(bootstrap.taskId());
+
+        assertThat(completed.preparing()).isFalse();
+        assertThat(completed.planStageId()).isNotBlank();
+        assertThat(count(bootstrap.jdbc(), "task_replan_request")).isOne();
+        assertThat(countWhere(bootstrap.jdbc(), "task_replan_request",
+                "status = 'APPLIED'")).isOne();
+        assertThat(countWhere(bootstrap.jdbc(), "plan_stage", "generation = 2"))
+                .isOne();
+        assertThat(count(bootstrap.jdbc(), "task_replan_plan_receipt")).isOne();
+        assertThat(countWhere(bootstrap.jdbc(), "task_turn",
+                "task_epoch = 2 AND purpose = 'PLAN_DRAFT'")).isOne();
+
+    }
+
+    private static ReviewedPlan reviewedPlan(
+            Bootstrapped bootstrap, List<String> followups)
+    {
+        PlanRuntimeCoordinator plan = bootstrap.runtime().plan();
+        RunningTurn draft = startCurrentTurn(
+                bootstrap.jdbc(), bootstrap.taskId());
+        plan.recordPlan(
+                draft.turnId(), draft.operationId(), bootstrap.taskId(),
+                "1. Implement the reviewed approach.\n2. Validate it.");
+        deliverSucceeded(plan, bootstrap.jdbc(), draft);
+        RunningTurn review = startCurrentTurn(
+                bootstrap.jdbc(), bootstrap.taskId());
+        plan.recordSelfReview(
+                review.turnId(), review.operationId(), bootstrap.taskId(),
+                "APPROVED", List.of(), followups, List.of());
+        deliverSucceeded(plan, bootstrap.jdbc(), review);
+        finalizePendingTickets(bootstrap.jdbc());
+        Map<String, Object> owner = bootstrap.jdbc().queryForMap("""
+                SELECT stage.id AS stage_id, revision.id AS revision_id,
+                       self_review.id AS self_review_id
+                  FROM task_current_stage current
+                  JOIN stage ON stage.id = current.stage_id
+                  JOIN plan_revision revision ON revision.plan_stage_id = stage.id
+                  JOIN plan_self_review self_review
+                    ON self_review.plan_revision_id = revision.id
+                 WHERE current.task_id = ?
+                 ORDER BY revision.revision DESC LIMIT 1
+                """, bootstrap.taskId());
+        String followupId = bootstrap.jdbc().query("""
+                SELECT followup.id
+                  FROM plan_followup followup
+                 WHERE followup.plan_revision_id = ? AND followup.kind = 'FOLLOW_UP'
+                 ORDER BY followup.created_at_ms, followup.id LIMIT 1
+                """, (result, ignored) -> result.getString("id"),
+                owner.get("revision_id")).stream().findFirst().orElse(null);
+        return new ReviewedPlan(
+                (String) owner.get("stage_id"),
+                (String) owner.get("revision_id"),
+                (String) owner.get("self_review_id"), followupId);
+    }
+
+    private static V2PlanControlService controls(
+            Runtime runtime, TaskReplanMaintainer.CancellationPort cancellations)
+    {
+        TaskReplanMaintainer replans = new TaskReplanMaintainer(
+                runtime.controlStore(),
+                List.of(runtime.replan(), runtime.localReplan()), cancellations);
+        return new V2PlanControlService(
+                runtime.plan(), runtime.planStore(), runtime.planManager(),
+                runtime.tasks(), runtime.controlStore(), replans,
+                Clock.fixed(NOW.plusSeconds(60), ZoneOffset.UTC));
+    }
+
     private Bootstrapped bootstrap(String name)
             throws Exception
     {
@@ -782,6 +976,8 @@ class TestPlanRuntimeCoordinator
     private static Runtime runtime(SQLiteDataSource dataSource)
     {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        DataSourceTransactionManager transactionManager =
+                new DataSourceTransactionManager(dataSource);
         TrunkManager.Store trunkStore;
         TaskManager.Store taskStore;
         StageManager.Store stageStore;
@@ -791,6 +987,8 @@ class TestPlanRuntimeCoordinator
         try (AnnotationConfigApplicationContext context =
                 new AnnotationConfigApplicationContext()) {
             context.registerBean(JdbcTemplate.class, () -> jdbc);
+            context.registerBean(
+                    DataSourceTransactionManager.class, () -> transactionManager);
             context.scan(
                     "com.bytequay.app.developmentflow.trunk.persistence",
                     "com.bytequay.app.developmentflow.task.persistence",
@@ -804,12 +1002,13 @@ class TestPlanRuntimeCoordinator
             localEvidence = context.getBean(
                     LocalDevelopmentStageManager.EvidenceStore.class);
         }
-        TaskCommandExecutor commands = new TaskCommandExecutor(
-                new DataSourceTransactionManager(dataSource));
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactionManager);
         TrunkManager trunks = new TrunkManager(commands, trunkStore);
         TaskManager tasks = new TaskManager(commands, taskStore);
+        SqlitePlanRuntimeStore planRuntimeStore = new SqlitePlanRuntimeStore(jdbc);
         PlanStageManager plan = new PlanStageManager(
-                commands, stageStore, approvalStore, revisionStore);
+                commands, stageStore, approvalStore, revisionStore,
+                planRuntimeStore);
         LocalDevelopmentStageManager local = new LocalDevelopmentStageManager(
                 commands, stageStore, localEvidence);
         PlanToLocalHandoff planToLocal = new PlanToLocalHandoff(
@@ -825,13 +1024,20 @@ class TestPlanRuntimeCoordinator
         TaskCreationHandoff creation = new TaskCreationHandoff(
                 commands, trunks, tasks, new IdGenerator(ignored -> 1));
         PlanRuntimeCoordinator coordinator = new PlanRuntimeCoordinator(
-                commands, tasks, plan, new SqlitePlanRuntimeStore(jdbc),
+                commands, tasks, plan, planRuntimeStore,
                 planToLocal, localRuntime, json,
                 Clock.fixed(NOW.plusSeconds(60), ZoneOffset.UTC), 53123);
         ReplanHandoff replan = new ReplanHandoff(
                 commands, plan, tasks, plan,
                 coordinator::startReplanDraftInCommand);
-        return new Runtime(creation, coordinator, replan);
+        ReplanHandoff localReplan = new ReplanHandoff(
+                commands, local, tasks, plan,
+                coordinator::startReplanDraftInCommand);
+        SqliteTaskControlRuntimeStore controlStore =
+                new SqliteTaskControlRuntimeStore(jdbc, transactionManager);
+        return new Runtime(
+                creation, coordinator, replan, localReplan, tasks, plan,
+                planRuntimeStore, controlStore);
     }
 
     private static void seedTrunk(JdbcTemplate jdbc, Path repositoryRoot)
@@ -975,13 +1181,24 @@ class TestPlanRuntimeCoordinator
     private record Runtime(
             TaskCreationHandoff creation,
             PlanRuntimeCoordinator plan,
-            ReplanHandoff replan) {}
+            ReplanHandoff replan,
+            ReplanHandoff localReplan,
+            TaskManager tasks,
+            PlanStageManager planManager,
+            SqlitePlanRuntimeStore planStore,
+            SqliteTaskControlRuntimeStore controlStore) {}
 
     private record Bootstrapped(
             SQLiteDataSource dataSource,
             JdbcTemplate jdbc,
             Runtime runtime,
             String taskId) {}
+
+    private record ReviewedPlan(
+            String stageId,
+            String revisionId,
+            String selfReviewId,
+            String followupId) {}
 
     private static final class RunningTurn
     {

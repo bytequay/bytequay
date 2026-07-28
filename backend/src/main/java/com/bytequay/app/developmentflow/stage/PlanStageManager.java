@@ -20,6 +20,7 @@ import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.INVALID_STATE;
@@ -31,6 +32,7 @@ public final class PlanStageManager
 {
     private final ApprovalStore approvals;
     private final RevisionStore revisions;
+    private final FollowupStore followups;
 
     public PlanStageManager(TaskCommandExecutor commands, Store store)
     {
@@ -38,7 +40,8 @@ public final class PlanStageManager
                 commands,
                 store,
                 (taskId, stageId, generation, approvalId) -> Optional.empty(),
-                (taskId, stageId, generation, revisionId) -> Optional.empty());
+                (taskId, stageId, generation, revisionId) -> Optional.empty(),
+                FollowupStore.unsupported());
     }
 
     public PlanStageManager(
@@ -48,7 +51,8 @@ public final class PlanStageManager
                 commands,
                 store,
                 approvals,
-                (taskId, stageId, generation, revisionId) -> Optional.empty());
+                (taskId, stageId, generation, revisionId) -> Optional.empty(),
+                FollowupStore.unsupported());
     }
 
     public PlanStageManager(
@@ -57,9 +61,46 @@ public final class PlanStageManager
             ApprovalStore approvals,
             RevisionStore revisions)
     {
+        this(commands, store, approvals, revisions, FollowupStore.unsupported());
+    }
+
+    public PlanStageManager(
+            TaskCommandExecutor commands,
+            Store store,
+            ApprovalStore approvals,
+            RevisionStore revisions,
+            FollowupStore followups)
+    {
         super(commands, store, StageKind.PLAN);
         this.approvals = requireNonNull(approvals, "approvals is null");
         this.revisions = requireNonNull(revisions, "revisions is null");
+        this.followups = requireNonNull(followups, "followups is null");
+    }
+
+    /** Changes only the exact Plan-owned follow-up; the completed Stage stays immutable. */
+    public FollowupEvidence resolveFollowup(FollowupCommand command)
+    {
+        requireNonNull(command, "command is null");
+        return executeOwnerCommand(command.taskId(), () -> {
+            FollowupEvidence current = followups.find(
+                            command.taskId(), command.stageId(), command.followupId())
+                    .orElseThrow(() -> new CommandRejectedException(
+                            INVALID_STATE, "Exact Plan follow-up is missing"));
+            if (current.stageGeneration() != command.stageGeneration()) {
+                throw new CommandRejectedException(
+                        INVALID_STATE, "Plan follow-up belongs to another generation");
+            }
+            if (current.status() == command.status()) {
+                return current;
+            }
+            if (current.status() == FollowupStatus.RESOLVED
+                    || current.status() == FollowupStatus.DEFERRED
+                    && command.status() != FollowupStatus.RESOLVED) {
+                throw new CommandRejectedException(
+                        INVALID_STATE, "Illegal Plan follow-up transition");
+            }
+            return followups.update(current, command);
+        });
     }
 
     AcceptedOpening openFromTaskInCommand(TaskManager.StageOpening opening)
@@ -414,6 +455,92 @@ public final class PlanStageManager
     {
         Optional<RevisionEvidence> findRevision(
                 String taskId, String stageId, long stageGeneration, String revisionId);
+    }
+
+    public enum FollowupStatus
+    {
+        OPEN,
+        RESOLVED,
+        DEFERRED
+    }
+
+    public record FollowupCommand(
+            String taskId,
+            String stageId,
+            long stageGeneration,
+            String followupId,
+            FollowupStatus status,
+            String actor,
+            String resolution,
+            Instant resolvedAt)
+    {
+        public FollowupCommand
+        {
+            requireText(taskId, "taskId");
+            requireText(stageId, "stageId");
+            requireText(followupId, "followupId");
+            requireNonNull(status, "status is null");
+            requireText(actor, "actor");
+            requireText(resolution, "resolution");
+            requireNonNull(resolvedAt, "resolvedAt is null");
+            if (stageGeneration < 1 || status == FollowupStatus.OPEN) {
+                throw new IllegalArgumentException(
+                        "Follow-up resolution fence is invalid");
+            }
+        }
+    }
+
+    public record FollowupEvidence(
+            String id,
+            String taskId,
+            String stageId,
+            long stageGeneration,
+            String revisionId,
+            FollowupStatus status,
+            String resolution,
+            Instant resolvedAt)
+    {
+        public FollowupEvidence
+        {
+            requireText(id, "id");
+            requireText(taskId, "taskId");
+            requireText(stageId, "stageId");
+            requireText(revisionId, "revisionId");
+            requireNonNull(status, "status is null");
+            if (stageGeneration < 1) {
+                throw new IllegalArgumentException(
+                        "Follow-up generation must be positive");
+            }
+        }
+    }
+
+    public interface FollowupStore
+    {
+        Optional<FollowupEvidence> find(
+                String taskId, String stageId, String followupId);
+
+        FollowupEvidence update(FollowupEvidence current, FollowupCommand command);
+
+        static FollowupStore unsupported()
+        {
+            return new FollowupStore()
+            {
+                @Override
+                public Optional<FollowupEvidence> find(
+                        String taskId, String stageId, String followupId)
+                {
+                    return Optional.empty();
+                }
+
+                @Override
+                public FollowupEvidence update(
+                        FollowupEvidence current, FollowupCommand command)
+                {
+                    throw new UnsupportedOperationException(
+                            "Plan follow-up persistence is not configured");
+                }
+            };
+        }
     }
 
     private static void requireText(String value, String name)

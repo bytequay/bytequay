@@ -143,6 +143,13 @@ public abstract class StageManager
         return commands.execute(command.taskId(), work);
     }
 
+    protected final <T> T executeOwnerCommand(String taskId, Supplier<T> work)
+    {
+        requireText(taskId, "taskId");
+        requireNonNull(work, "work is null");
+        return commands.execute(taskId, work);
+    }
+
     protected final CommandResult<State> moveInCommand(
             Command command,
             String cause,

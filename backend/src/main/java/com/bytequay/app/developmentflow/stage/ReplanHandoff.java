@@ -57,6 +57,11 @@ public final class ReplanHandoff
         return commands.execute(command.taskId(), () -> acceptInCommand(command));
     }
 
+    public StageKind sourceKind()
+    {
+        return source.kind();
+    }
+
     private Result acceptInCommand(TaskManager.ReplanCommand command)
     {
         TaskManager.AcceptedReplan accepted =

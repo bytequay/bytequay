@@ -103,6 +103,110 @@ public final class SqliteTaskControlRuntimeStore
                 """, (result, ignored) -> context(result));
     }
 
+    public ReplanSource requireReplanSource(String taskId)
+    {
+        requireText(taskId, "taskId");
+        return jdbc.query("""
+                SELECT task.id AS task_id, task.epoch,
+                       task.aggregate_version AS task_version,
+                       stage.id AS stage_id, stage.kind AS stage_kind,
+                       stage.generation AS stage_generation
+                  FROM tasks task
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN stage ON stage.id = current.stage_id
+                 WHERE task.id = ? AND task.workflow_version = 'V2'
+                   AND task.lifecycle_state = 'ACTIVE'
+                   AND stage.task_id = task.id
+                   AND stage.generation = current.stage_generation
+                   AND stage.completed_at_ms IS NULL
+                """, (result, ignored) -> new ReplanSource(
+                        result.getString("task_id"), result.getLong("epoch"),
+                        result.getLong("task_version"),
+                        result.getString("stage_id"),
+                        StageKind.valueOf(result.getString("stage_kind")),
+                        result.getLong("stage_generation")), taskId)
+                .stream().findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "no active V2 Task Stage: " + taskId));
+    }
+
+    public List<ReplanContext> pendingReplans()
+    {
+        return jdbc.query("""
+                SELECT request.id AS request_id, request.command_id,
+                       request.requested_by, request.reason,
+                       request.quiescence_barrier_id,
+                       task.id AS task_id, task.epoch AS task_epoch,
+                       task.aggregate_version AS task_version,
+                       source.id AS source_stage_id,
+                       source.kind AS source_stage_kind,
+                       source.generation AS source_stage_generation,
+                       source.version AS source_stage_version,
+                       COALESCE((SELECT MAX(candidate.generation)
+                           FROM stage candidate
+                          WHERE candidate.task_id = task.id
+                            AND candidate.kind = 'PLAN'), 0) + 1
+                           AS next_plan_generation
+                  FROM task_replan_request request
+                  JOIN task_quiescence_barrier barrier
+                    ON barrier.id = request.quiescence_barrier_id
+                  JOIN tasks task ON task.id = request.task_id
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN stage source ON source.id = current.stage_id
+                 WHERE request.status = 'QUIESCING'
+                   AND barrier.task_id = request.task_id
+                   AND barrier.task_epoch = request.source_task_epoch
+                   AND barrier.reason = 'REPLAN'
+                   AND barrier.status IN ('REQUESTED', 'SATISFIED')
+                   AND task.workflow_version = 'V2'
+                   AND task.lifecycle_state = 'ACTIVE'
+                   AND task.epoch = request.source_task_epoch
+                   AND source.id = request.source_stage_id
+                   AND source.generation = request.source_generation
+                   AND source.completed_at_ms IS NULL
+                 ORDER BY request.requested_at_ms, request.id
+                """, (result, ignored) -> new ReplanContext(
+                        result.getString("request_id"),
+                        result.getString("command_id"),
+                        result.getString("requested_by"),
+                        result.getString("reason"),
+                        result.getString("quiescence_barrier_id"),
+                        result.getString("task_id"),
+                        result.getLong("task_epoch"),
+                        result.getLong("task_version"),
+                        result.getString("source_stage_id"),
+                        StageKind.valueOf(result.getString("source_stage_kind")),
+                        result.getLong("source_stage_generation"),
+                        result.getLong("source_stage_version"),
+                        result.getLong("next_plan_generation")));
+    }
+
+    public Optional<ReplanProgress> replanProgress(String requestId)
+    {
+        requireText(requestId, "requestId");
+        return jdbc.query("""
+                SELECT id, status, new_plan_stage_id, new_plan_generation
+                  FROM task_replan_request WHERE id = ?
+                """, (result, ignored) -> new ReplanProgress(
+                        result.getString("id"), result.getString("status"),
+                        result.getString("new_plan_stage_id"),
+                        nullableLong(result, "new_plan_generation")), requestId)
+                .stream().findFirst();
+    }
+
+    public List<String> liveReplanTicketIds(String taskId, long taskEpoch)
+    {
+        return jdbc.query("""
+                SELECT id FROM dispatch_ticket
+                 WHERE task_id = ? AND task_epoch = ?
+                   AND status IN (
+                       'REQUESTED', 'RETRY_WAIT', 'RECONCILE_WAIT',
+                       'RESULT_PENDING', 'CLAIMED', 'RUNNING', 'DELIVERING')
+                 ORDER BY created_at_ms, id
+                """, (result, ignored) -> result.getString("id"),
+                taskId, taskEpoch);
+    }
+
     public List<String> liveTicketIds(String taskId, boolean includeCleanup)
     {
         return jdbc.query("""
@@ -895,6 +999,71 @@ public final class SqliteTaskControlRuntimeStore
                     || stageGeneration < 1 || stageVersion < 0) {
                 throw new IllegalArgumentException("control owner fence is invalid");
             }
+        }
+    }
+
+    public record ReplanSource(
+            String taskId,
+            long taskEpoch,
+            long taskVersion,
+            String stageId,
+            StageKind stageKind,
+            long stageGeneration)
+    {
+        public ReplanSource
+        {
+            requireText(taskId, "taskId");
+            requireText(stageId, "stageId");
+            requireNonNull(stageKind, "stageKind is null");
+            if (taskEpoch < 1 || taskVersion < 0 || stageGeneration < 1) {
+                throw new IllegalArgumentException("replan source fence is invalid");
+            }
+        }
+    }
+
+    public record ReplanContext(
+            String requestId,
+            String commandId,
+            String requestedBy,
+            String reason,
+            String barrierId,
+            String taskId,
+            long taskEpoch,
+            long taskVersion,
+            String sourceStageId,
+            StageKind sourceStageKind,
+            long sourceStageGeneration,
+            long sourceStageVersion,
+            long nextPlanGeneration)
+    {
+        public ReplanContext
+        {
+            requireText(requestId, "requestId");
+            requireText(commandId, "commandId");
+            requireText(requestedBy, "requestedBy");
+            requireText(reason, "reason");
+            requireText(barrierId, "barrierId");
+            requireText(taskId, "taskId");
+            requireText(sourceStageId, "sourceStageId");
+            requireNonNull(sourceStageKind, "sourceStageKind is null");
+            if (taskEpoch < 1 || taskVersion < 0
+                    || sourceStageGeneration < 1 || sourceStageVersion < 0
+                    || nextPlanGeneration < 1) {
+                throw new IllegalArgumentException("replan continuation fence is invalid");
+            }
+        }
+    }
+
+    public record ReplanProgress(
+            String requestId,
+            String status,
+            String newPlanStageId,
+            Long newPlanGeneration)
+    {
+        public ReplanProgress
+        {
+            requireText(requestId, "requestId");
+            requireText(status, "status");
         }
     }
 

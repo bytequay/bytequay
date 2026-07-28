@@ -117,9 +117,11 @@ public class DevelopmentFlowDomainConfig
             TaskCommandExecutor commands,
             StageManager.Store store,
             PlanStageManager.ApprovalStore approvals,
-            PlanStageManager.RevisionStore revisions)
+            PlanStageManager.RevisionStore revisions,
+            PlanStageManager.FollowupStore followups)
     {
-        return new PlanStageManager(commands, store, approvals, revisions);
+        return new PlanStageManager(
+                commands, store, approvals, revisions, followups);
     }
 
     @Bean

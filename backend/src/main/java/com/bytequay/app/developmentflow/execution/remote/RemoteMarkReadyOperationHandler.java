@@ -22,6 +22,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -111,8 +112,9 @@ public final class RemoteMarkReadyOperationHandler
             throw new ExecutionPorts.IndeterminateExecutionException(
                     "Mark-ready is not in a probe-safe state");
         }
-        Observation observation = github.probe(operation, context);
-        if (!observation.open()) {
+        Observation observation = store.findAcceptedReadyObservation(operation)
+                .orElse(null);
+        if (observation == null) {
             throw new ExecutionPorts.RetryableExecutionException(
                     "Accepted non-Draft observation is not available yet");
         }
@@ -183,14 +185,13 @@ public final class RemoteMarkReadyOperationHandler
 
         void finishIndeterminate(
                 String id, int attempt, String evidence, Instant completedAt);
+
+        Optional<Observation> findAcceptedReadyObservation(Operation operation);
     }
 
     public interface MarkReadyGateway
     {
         void markReady(Operation operation, ExecutionContext context)
-                throws Exception;
-
-        Observation probe(Operation operation, ExecutionContext context)
                 throws Exception;
     }
 
@@ -214,13 +215,25 @@ public final class RemoteMarkReadyOperationHandler
             String stageId,
             long stageGeneration,
             int semanticAttempt,
+            String repositoryId,
+            int pullRequestNumber,
             String headSha,
             String baseSha,
             Status status,
             int attemptCount,
             int attemptLimit,
             String resultSnapshotId,
-            String evidence) {}
+            String evidence)
+    {
+        public Operation
+        {
+            requireNonNull(repositoryId, "repositoryId is null");
+            if (repositoryId.isBlank() || pullRequestNumber < 1) {
+                throw new IllegalArgumentException(
+                        "Mark-ready Remote identity is invalid");
+            }
+        }
+    }
 
     public record Observation(boolean open, String snapshotId, String evidence)
     {

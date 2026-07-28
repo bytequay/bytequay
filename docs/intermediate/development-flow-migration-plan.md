@@ -279,9 +279,10 @@ changes were intentionally excluded from this lifecycle map.
 
 The shared real-store fixture, same-database service recreation, deterministic
 duplicate/out-of-order delivery, ambiguous Git/GitHub probes, and strict API
-compatibility snapshots are now checked in. Slice 0 remains open only for a
-single executable current canonical journey through its existing terminal
-cleanup behavior; durable V2 Cleanup is correctly deferred to Slice 9.
+compatibility snapshots are now checked in. The same fixture also drives the
+persisted LEGACY Remote Development owner graph through the production phase
+machine and its existing terminal Cleanup marker while retaining PR ownership.
+Slice 0 is complete; durable V2 Cleanup remains correctly deferred to Slice 9.
 
 ## Slice 1 — additive persistence spine
 

@@ -58,6 +58,7 @@ import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.review.ReviewBuildOutcomeService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -382,9 +383,11 @@ public class DevelopmentFlowDomainConfig
     public CleanupCompletionHandoff cleanupCompletionHandoff(
             TaskCommandExecutor commands,
             CleanupStageManager cleanup,
-            TaskManager tasks)
+            TaskManager tasks,
+            ReviewBuildOutcomeService reviewOutcomes)
     {
-        return new CleanupCompletionHandoff(commands, cleanup, tasks);
+        return new CleanupCompletionHandoff(
+                commands, cleanup, tasks, reviewOutcomes);
     }
 
     @Bean

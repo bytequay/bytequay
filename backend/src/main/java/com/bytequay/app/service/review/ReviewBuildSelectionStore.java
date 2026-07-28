@@ -30,14 +30,15 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
-/** Immutable review-session selection consumed by later V2 Task creation. */
+/** Immutable, revision-fenced review selection consumed by V2 Task creation. */
 @Component
-public final class ReviewBuildSelectionStore
+public class ReviewBuildSelectionStore
 {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
@@ -55,6 +56,7 @@ public final class ReviewBuildSelectionStore
             String repoFullName,
             int prNumber,
             String reviewedHeadSha,
+            SpawnInput spawn,
             List<ReviewFinding> findings,
             Instant frozenAt)
     {
@@ -62,65 +64,70 @@ public final class ReviewBuildSelectionStore
         requireText(reviewPassId, "reviewPassId");
         requireText(repoFullName, "repoFullName");
         requireText(reviewedHeadSha, "reviewedHeadSha");
+        requireNonNull(spawn, "spawn is null");
         requireNonNull(findings, "findings is null");
         requireNonNull(frozenAt, "frozenAt is null");
         if (prNumber < 1 || findings.isEmpty()) {
             throw new IllegalArgumentException(
                     "review build requires a PR and at least one finding");
         }
+
         List<Finding> frozen = new ArrayList<>(findings.size());
         Set<String> ids = new HashSet<>();
-        for (ReviewFinding finding : findings) {
-            requireNonNull(finding, "finding is null");
-            if (!reviewPassId.equals(finding.reviewPassId())) {
-                throw new IllegalArgumentException(
-                        "review finding belongs to a different pass");
-            }
-            if (finding.status() != ReviewFindingStatus.AGREED
-                    || (finding.severity() != ReviewFindingSeverity.BLOCKER
-                    && finding.severity() != ReviewFindingSeverity.MAJOR)) {
-                throw new IllegalArgumentException(
-                        "review build finding is not an agreed Major+ finding");
-            }
-            if (!ids.add(finding.id())) {
+        for (ReviewFinding expected : findings) {
+            requireNonNull(expected, "finding is null");
+            if (!ids.add(expected.id())) {
                 throw new IllegalArgumentException(
                         "review finding selection contains a duplicate id");
             }
-            String content = write(new FindingSnapshot(
-                    1, finding.id(), finding.reviewPassId(), finding.path(),
-                    finding.line(), finding.severity().dbValue(),
-                    finding.status().dbValue(), finding.body(),
-                    finding.resolution(), finding.postedCommentId(),
-                    finding.createdAt(), finding.debateStatus(),
-                    finding.debateRounds()));
+            CurrentFinding current = findCurrent(expected.id()).orElseThrow(() ->
+                    new IllegalStateException(
+                            "selected review finding no longer exists: " + expected.id()));
+            if (!expected.equals(current.finding())) {
+                throw new IllegalStateException(
+                        "selected review finding changed before freeze: " + expected.id());
+            }
+            requireEligible(reviewPassId, current.finding());
+            String content = snapshot(current.finding());
             frozen.add(new Finding(
-                    reviewPassId, finding.id(), 1, content, digest(content)));
+                    reviewPassId, current.finding().id(), current.revision(),
+                    content, digest(content)));
         }
-        Selection candidate = new Selection(
+
+        Selection candidate = selection(
                 threadId, reviewPassId, repoFullName, prNumber,
-                reviewedHeadSha, digest(frozen.stream()
-                        .map(Finding::contentDigest)
-                        .reduce("", (left, right) -> left + "\n" + right)),
-                List.copyOf(frozen), frozenAt);
+                reviewedHeadSha, spawn, frozen, frozenAt);
         int inserted = jdbc.update("""
                     INSERT OR IGNORE INTO review_build_selection(
                         thread_id, review_pass_id, repo_full_name, pr_number,
-                        reviewed_head_sha, selection_digest, frozen_at_ms)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, candidate.threadId(), candidate.reviewPassId(),
-                    candidate.repoFullName(), candidate.prNumber(),
-                    candidate.reviewedHeadSha(), candidate.selectionDigest(),
-                    candidate.frozenAt().toEpochMilli());
+                        reviewed_head_sha, workspace_id, opening_title,
+                        selection_policy, spawn_mode, base_repository_id,
+                        head_repository_id, base_ref, head_ref,
+                        selection_digest, frozen_at_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                candidate.threadId(), candidate.reviewPassId(),
+                candidate.repoFullName(), candidate.prNumber(),
+                candidate.reviewedHeadSha(), candidate.spawn().workspaceId(),
+                candidate.spawn().openingTitle(),
+                candidate.spawn().selectionPolicy().name(),
+                candidate.spawn().mode(), candidate.spawn().baseRepositoryId(),
+                candidate.spawn().headRepositoryId(), candidate.spawn().baseRef(),
+                candidate.spawn().headRef(), candidate.selectionDigest(),
+                candidate.frozenAt().toEpochMilli());
         if (inserted == 0) {
-            Selection existing = find(threadId).orElseThrow(() ->
-                    new IllegalStateException(
-                            "review pass is already frozen for another build Trunk"));
-            if (!existing.sameFrozenInput(candidate)) {
-                throw new IllegalStateException(
-                        "review build selection already exists with different input");
+            Selection existing = findByReviewPass(reviewPassId)
+                    .or(() -> find(threadId))
+                    .orElseThrow(() -> new IllegalStateException(
+                            "review build selection uniqueness conflict has no owner"));
+            if (existing.threadId().equals(threadId)
+                    && existing.sameFrozenInput(candidate)) {
+                return existing;
             }
-            return existing;
+            throw new SelectionConflict(
+                    existing.threadId(), existing.sameFrozenInput(candidate));
         }
+
         int position = 0;
         for (Finding finding : candidate.findings()) {
             jdbc.update("""
@@ -128,10 +135,10 @@ public final class ReviewBuildSelectionStore
                             thread_id, position, review_pass_id, finding_id,
                             finding_revision, content_json, content_digest)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """, candidate.threadId(), ++position,
-                        finding.reviewPassId(), finding.findingId(),
-                        finding.findingRevision(), finding.contentJson(),
-                        finding.contentDigest());
+                        """,
+                    candidate.threadId(), ++position, finding.reviewPassId(),
+                    finding.findingId(), finding.findingRevision(),
+                    finding.contentJson(), finding.contentDigest());
         }
         return candidate;
     }
@@ -139,16 +146,69 @@ public final class ReviewBuildSelectionStore
     public Optional<Selection> find(String threadId)
     {
         requireText(threadId, "threadId");
+        return query("selection.thread_id = ?", threadId);
+    }
+
+    public Optional<Selection> findByReviewPass(String reviewPassId)
+    {
+        requireText(reviewPassId, "reviewPassId");
+        return query("selection.review_pass_id = ?", reviewPassId);
+    }
+
+    /** True only while every mutable source row is the exact frozen revision. */
+    boolean matchesCurrent(Selection selection)
+    {
+        requireNonNull(selection, "selection is null");
+        for (Finding frozen : selection.findings()) {
+            CurrentFinding current = findCurrent(frozen.findingId()).orElse(null);
+            if (current == null
+                    || current.revision() != frozen.findingRevision()
+                    || !frozen.reviewPassId().equals(
+                    current.finding().reviewPassId())
+                    || current.finding().status() != ReviewFindingStatus.AGREED) {
+                return false;
+            }
+            String content = snapshot(current.finding());
+            if (!content.equals(frozen.contentJson())
+                    || !digest(content).equals(frozen.contentDigest())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Optional<Selection> query(String predicate, Object value)
+    {
         List<SelectionHeader> headers = jdbc.query("""
-                SELECT thread_id, review_pass_id, repo_full_name, pr_number,
-                       reviewed_head_sha, selection_digest, frozen_at_ms
-                FROM review_build_selection WHERE thread_id = ?
-                """, (rs, row) -> new SelectionHeader(
-                rs.getString("thread_id"), rs.getString("review_pass_id"),
-                rs.getString("repo_full_name"), rs.getInt("pr_number"),
-                rs.getString("reviewed_head_sha"),
-                rs.getString("selection_digest"),
-                Instant.ofEpochMilli(rs.getLong("frozen_at_ms"))), threadId);
+                SELECT selection.thread_id, selection.review_pass_id,
+                       selection.repo_full_name, selection.pr_number,
+                       selection.reviewed_head_sha, selection.workspace_id,
+                       selection.opening_title, selection.selection_policy,
+                       selection.spawn_mode, selection.base_repository_id,
+                       selection.head_repository_id, selection.base_ref,
+                       selection.head_ref, selection.selection_digest,
+                       selection.frozen_at_ms
+                FROM review_build_selection selection
+                """ + " WHERE " + predicate,
+                (rs, row) -> new SelectionHeader(
+                        rs.getString("thread_id"),
+                        rs.getString("review_pass_id"),
+                        rs.getString("repo_full_name"),
+                        rs.getInt("pr_number"),
+                        rs.getString("reviewed_head_sha"),
+                        new SpawnInput(
+                                rs.getString("workspace_id"),
+                                rs.getString("opening_title"),
+                                SelectionPolicy.valueOf(
+                                        rs.getString("selection_policy")),
+                                rs.getString("spawn_mode"),
+                                rs.getString("base_repository_id"),
+                                rs.getString("head_repository_id"),
+                                rs.getString("base_ref"),
+                                rs.getString("head_ref")),
+                        rs.getString("selection_digest"),
+                        Instant.ofEpochMilli(rs.getLong("frozen_at_ms"))),
+                value);
         if (headers.isEmpty()) {
             return Optional.empty();
         }
@@ -161,14 +221,13 @@ public final class ReviewBuildSelectionStore
                 """, (rs, row) -> new Finding(
                 rs.getString("review_pass_id"), rs.getString("finding_id"),
                 rs.getInt("finding_revision"), rs.getString("content_json"),
-                rs.getString("content_digest")), threadId);
-        Selection selection = new Selection(
+                rs.getString("content_digest")), header.threadId());
+        Selection selection = selection(
                 header.threadId(), header.reviewPassId(), header.repoFullName(),
-                header.prNumber(), header.reviewedHeadSha(),
-                header.selectionDigest(), findings, header.frozenAt());
-        String actual = digest(findings.stream().map(Finding::contentDigest)
-                .reduce("", (left, right) -> left + "\n" + right));
-        if (findings.isEmpty() || !actual.equals(selection.selectionDigest())
+                header.prNumber(), header.reviewedHeadSha(), header.spawn(),
+                findings, header.frozenAt());
+        if (findings.isEmpty()
+                || !selection.selectionDigest().equals(header.selectionDigest())
                 || findings.stream().anyMatch(finding ->
                 !selection.reviewPassId().equals(finding.reviewPassId())
                         || !digest(finding.contentJson())
@@ -179,15 +238,98 @@ public final class ReviewBuildSelectionStore
         return Optional.of(selection);
     }
 
+    private Optional<CurrentFinding> findCurrent(String findingId)
+    {
+        return jdbc.query("""
+                SELECT id, review_pass_id, path, line, severity, status, body,
+                       resolution, posted_comment_id, created_at_ms,
+                       debate_status, debate_rounds, revision
+                FROM review_findings WHERE id = ?
+                """, (rs, row) -> new CurrentFinding(
+                new ReviewFinding(
+                        rs.getString("id"), rs.getString("review_pass_id"),
+                        rs.getString("path"), (Integer) rs.getObject("line"),
+                        ReviewFindingSeverity.fromDbValue(
+                                rs.getString("severity")),
+                        ReviewFindingStatus.fromDbValue(rs.getString("status")),
+                        rs.getString("body"), rs.getString("resolution"),
+                        rs.getString("posted_comment_id"),
+                        Instant.ofEpochMilli(rs.getLong("created_at_ms")),
+                        rs.getString("debate_status"),
+                        rs.getInt("debate_rounds")),
+                rs.getInt("revision")), findingId).stream().findFirst();
+    }
+
+    private static void requireEligible(
+            String reviewPassId, ReviewFinding finding)
+    {
+        if (!reviewPassId.equals(finding.reviewPassId())) {
+            throw new IllegalArgumentException(
+                    "review finding belongs to a different pass");
+        }
+        if (finding.status() != ReviewFindingStatus.AGREED
+                || (finding.severity() != ReviewFindingSeverity.BLOCKER
+                && finding.severity() != ReviewFindingSeverity.MAJOR)) {
+            throw new IllegalArgumentException(
+                    "review build finding is not an agreed Major+ finding");
+        }
+    }
+
+    private Selection selection(
+            String threadId,
+            String reviewPassId,
+            String repoFullName,
+            int prNumber,
+            String reviewedHeadSha,
+            SpawnInput spawn,
+            List<Finding> findings,
+            Instant frozenAt)
+    {
+        String digest = digest(canonical(List.of(
+                reviewPassId, repoFullName.toLowerCase(Locale.ROOT),
+                Integer.toString(prNumber), reviewedHeadSha,
+                spawn.workspaceId(), spawn.openingTitle(),
+                spawn.selectionPolicy().name(), spawn.mode(),
+                spawn.baseRepositoryId().toLowerCase(Locale.ROOT),
+                spawn.headRepositoryId().toLowerCase(Locale.ROOT),
+                spawn.baseRef(), spawn.headRef(),
+                findings.stream().map(finding -> canonical(List.of(
+                                finding.reviewPassId(), finding.findingId(),
+                                Integer.toString(finding.findingRevision()),
+                                finding.contentDigest())))
+                        .reduce("", (left, right) -> left + right))));
+        return new Selection(
+                threadId, reviewPassId, repoFullName, prNumber,
+                reviewedHeadSha, spawn, digest, List.copyOf(findings), frozenAt);
+    }
+
+    private String snapshot(ReviewFinding finding)
+    {
+        return write(new FindingSnapshot(
+                1, finding.id(), finding.reviewPassId(), finding.path(),
+                finding.line(), finding.severity().dbValue(),
+                finding.status().dbValue(), finding.body(), finding.resolution(),
+                finding.postedCommentId(), finding.createdAt(),
+                finding.debateStatus(), finding.debateRounds()));
+    }
+
     private String write(Object value)
     {
         try {
             return json.writeValueAsString(value);
         }
         catch (JsonProcessingException e) {
-            throw new IllegalStateException(
-                    "could not freeze review finding", e);
+            throw new IllegalStateException("could not freeze review finding", e);
         }
+    }
+
+    private static String canonical(List<String> values)
+    {
+        StringBuilder out = new StringBuilder();
+        for (String value : values) {
+            out.append(value.length()).append(':').append(value);
+        }
+        return out.toString();
     }
 
     private static String digest(String value)
@@ -201,12 +343,46 @@ public final class ReviewBuildSelectionStore
         }
     }
 
+    public enum SelectionPolicy
+    {
+        ALL_ELIGIBLE,
+        EXPLICIT,
+    }
+
+    public record SpawnInput(
+            String workspaceId,
+            String openingTitle,
+            SelectionPolicy selectionPolicy,
+            String mode,
+            String baseRepositoryId,
+            String headRepositoryId,
+            String baseRef,
+            String headRef)
+    {
+        public SpawnInput
+        {
+            requireText(workspaceId, "workspaceId");
+            requireText(openingTitle, "openingTitle");
+            requireNonNull(selectionPolicy, "selectionPolicy is null");
+            requireText(mode, "mode");
+            if (!ReviewBuildSpawnService.MODE_AUTHOR.equals(mode)
+                    && !ReviewBuildSpawnService.MODE_SUGGESTED.equals(mode)) {
+                throw new IllegalArgumentException("unknown review build mode");
+            }
+            requireText(baseRepositoryId, "baseRepositoryId");
+            requireText(headRepositoryId, "headRepositoryId");
+            requireText(baseRef, "baseRef");
+            requireText(headRef, "headRef");
+        }
+    }
+
     public record Selection(
             String threadId,
             String reviewPassId,
             String repoFullName,
             int prNumber,
             String reviewedHeadSha,
+            SpawnInput spawn,
             String selectionDigest,
             List<Finding> findings,
             Instant frozenAt)
@@ -217,6 +393,7 @@ public final class ReviewBuildSelectionStore
             requireText(reviewPassId, "reviewPassId");
             requireText(repoFullName, "repoFullName");
             requireText(reviewedHeadSha, "reviewedHeadSha");
+            requireNonNull(spawn, "spawn is null");
             requireText(selectionDigest, "selectionDigest");
             findings = List.copyOf(requireNonNull(findings, "findings is null"));
             requireNonNull(frozenAt, "frozenAt is null");
@@ -226,12 +403,13 @@ public final class ReviewBuildSelectionStore
             }
         }
 
-        private boolean sameFrozenInput(Selection other)
+        boolean sameFrozenInput(Selection other)
         {
             return reviewPassId.equals(other.reviewPassId)
-                    && repoFullName.equals(other.repoFullName)
+                    && repoFullName.equalsIgnoreCase(other.repoFullName)
                     && prNumber == other.prNumber
                     && reviewedHeadSha.equals(other.reviewedHeadSha)
+                    && spawn.equals(other.spawn)
                     && selectionDigest.equals(other.selectionDigest)
                     && findings.equals(other.findings);
         }
@@ -257,15 +435,39 @@ public final class ReviewBuildSelectionStore
         }
     }
 
+    public static final class SelectionConflict
+            extends IllegalStateException
+    {
+        private final String existingThreadId;
+        private final boolean sameInput;
+
+        SelectionConflict(String existingThreadId, boolean sameInput)
+        {
+            super(sameInput
+                    ? "review pass was concurrently frozen by another build Trunk"
+                    : "review build selection already exists with different input");
+            this.existingThreadId = requireNonNull(
+                    existingThreadId, "existingThreadId is null");
+            this.sameInput = sameInput;
+        }
+
+        public String existingThreadId() { return existingThreadId; }
+
+        public boolean sameInput() { return sameInput; }
+    }
+
     private record SelectionHeader(
             String threadId,
             String reviewPassId,
             String repoFullName,
             int prNumber,
             String reviewedHeadSha,
+            SpawnInput spawn,
             String selectionDigest,
             Instant frozenAt)
     {}
+
+    private record CurrentFinding(ReviewFinding finding, int revision) {}
 
     private record FindingSnapshot(
             int schemaVersion,

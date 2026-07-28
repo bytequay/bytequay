@@ -37,11 +37,12 @@ import java.util.Set;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Closes the review→build loop: when a spawned build thread's work ships
+ * Legacy review→build compatibility: when a spawned build thread's work ships
  * — its task's commits land, or its suggested-change comments are
  * accepted — the {@code #finding-<id>} refs in those commit subjects /
  * comment bodies flip the matching AGREED findings on the parent review
- * pass to RESOLVED.
+ * pass to RESOLVED. V2 review-build Trunks are excluded: only their exact
+ * completed TaskOutcome may resolve the frozen selection.
  *
  * <p>Idempotent (a finding already past AGREED is skipped) and scoped:
  * a {@code #finding-<id>} that belongs to a different pass is ignored,
@@ -58,14 +59,20 @@ public class ReviewPassResolver
     private final TaskStore taskStore;
     private final ReviewStore reviewStore;
     private final GitRunner git;
+    private final ReviewBuildSelectionStore selections;
 
     public ReviewPassResolver(
-            ThreadStore threadStore, TaskStore taskStore, ReviewStore reviewStore, GitRunner git)
+            ThreadStore threadStore,
+            TaskStore taskStore,
+            ReviewStore reviewStore,
+            GitRunner git,
+            ReviewBuildSelectionStore selections)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.git = requireNonNull(git, "git is null");
+        this.selections = requireNonNull(selections, "selections is null");
     }
 
     /**
@@ -80,6 +87,9 @@ public class ReviewPassResolver
         try {
             Thread thread = threadStore.findThreadById(threadId).orElse(null);
             if (thread == null || thread.parentReviewPassId() == null) {
+                return 0;
+            }
+            if (selections.find(threadId).isPresent()) {
                 return 0;
             }
             List<String> texts = new ArrayList<>();
@@ -102,6 +112,9 @@ public class ReviewPassResolver
     {
         Thread thread = threadStore.findThreadById(buildThreadId).orElse(null);
         if (thread == null || thread.parentReviewPassId() == null) {
+            return 0;
+        }
+        if (selections.find(buildThreadId).isPresent()) {
             return 0;
         }
         return resolveOnPass(thread.parentReviewPassId(), buildThreadId, texts);

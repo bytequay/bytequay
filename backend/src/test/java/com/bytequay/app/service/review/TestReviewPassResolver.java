@@ -47,6 +47,7 @@ class TestReviewPassResolver
     private TaskStore taskStore;
     private ReviewStore reviewStore;
     private GitRunner git;
+    private ReviewBuildSelectionStore selections;
     private ReviewPassResolver resolver;
 
     @BeforeEach
@@ -56,7 +57,9 @@ class TestReviewPassResolver
         taskStore = mock(TaskStore.class);
         reviewStore = mock(ReviewStore.class);
         git = mock(GitRunner.class);
-        resolver = new ReviewPassResolver(threadStore, taskStore, reviewStore, git);
+        selections = mock(ReviewBuildSelectionStore.class);
+        resolver = new ReviewPassResolver(
+                threadStore, taskStore, reviewStore, git, selections);
     }
 
     @Test
@@ -143,6 +146,22 @@ class TestReviewPassResolver
 
         assertThat(flipped).isEqualTo(1);
         verify(reviewStore).saveFinding(any());
+    }
+
+    @Test
+    void v2ReviewBuildIgnoresPublishAndTextReferences()
+    {
+        when(threadStore.findThreadById("bt"))
+                .thenReturn(Optional.of(buildThread("pass-1")));
+        when(selections.find("bt")).thenReturn(Optional.of(mock(
+                ReviewBuildSelectionStore.Selection.class)));
+
+        assertThat(resolver.resolveFromTexts(
+                "bt", List.of("#finding-f1"))).isZero();
+        assertThat(resolver.onPublishApproved(
+                "bt", "ship_task", "#finding-f1")).isZero();
+        verify(reviewStore, never()).listFindingsForPass(any());
+        verify(reviewStore, never()).saveFinding(any());
     }
 
     // ── helpers ──────────────────────────────────────────────────────

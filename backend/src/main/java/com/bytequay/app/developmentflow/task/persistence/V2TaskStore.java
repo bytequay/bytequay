@@ -36,6 +36,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -755,15 +756,16 @@ final class V2TaskStore
                     id, thread_id, seq, status, phase, created_at_ms,
                     workflow_version, epoch, aggregate_version, lifecycle_state,
                     assignment_id, policy_revision_id, creation_receipt_id,
-                    name, task_type, linked_pr_number, linked_issue_number,
-                    opening_prompt, origin)
+                    name, task_type, linked_pr_number, linked_pr_ref,
+                    linked_issue_number, opening_prompt, origin)
                 VALUES (?, ?, ?, 'PENDING', 'PLANNING', ?,
-                    'V2', 1, 0, 'PROVISIONING', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    'V2', 1, 0, 'PROVISIONING', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 state.id(), state.trunkId(), taskSequence, createdAt,
                 assignmentId, input.policy().id(), receiptId,
                 input.presentation().name(), input.presentation().taskType(),
                 linkedPrNumber(input.assignment()),
+                linkedPrRef(input.assignment()),
                 input.presentation().linkedIssueNumber(),
                 input.presentation().openingPrompt(), input.presentation().origin());
         jdbc.update("""
@@ -1986,6 +1988,19 @@ final class V2TaskStore
                     (long) value.pullRequest().number();
             default -> null;
         };
+    }
+
+    private static String linkedPrRef(TaskAssignment assignment)
+    {
+        TaskAssignment.PullRequestRef pullRequest = switch (assignment) {
+            case TaskAssignment.ExistingOwnPr value -> value.pullRequest();
+            case TaskAssignment.ReviewFindings value -> value.pullRequest();
+            default -> null;
+        };
+        return pullRequest == null
+                ? null
+                : (pullRequest.repositories().baseRepositoryId()
+                + "#" + pullRequest.number()).toLowerCase(Locale.ROOT);
     }
 
     private static Long nullableLong(Integer value)

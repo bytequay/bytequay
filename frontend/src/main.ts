@@ -4941,6 +4941,8 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       body.openingTitle = a.openingTitle;
     }
     if (a.selectedFindingIds !== undefined) {
+      // Omission is intentional backward-compatible select-all. Presence is
+      // an exact subset; the backend rejects an empty subset.
       if (!Array.isArray(a.selectedFindingIds)
         || !a.selectedFindingIds.every((id) => typeof id === 'string' && id.length > 0)) {
         throw new Error('selectedFindingIds must be an array of non-empty strings');

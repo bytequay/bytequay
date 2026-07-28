@@ -88,7 +88,8 @@ public class ReviewController
      * Spawn a build thread from a TERMINATE-d pass to apply its AGREED
      * findings. Gated on at least one AGREED finding at severity ≥ MAJOR
      * (422 {@code no_eligible_findings}); 409 if the pass isn't TERMINATE
-     * or already spawned. The {@code workspaceId} is optional — null
+     * or a replay differs from the frozen spawn input. The
+     * {@code workspaceId} is optional — null
      * auto-resolves from the workspace(s) watching the PR's repo (422
      * {@code no_workspace_for_repo} / {@code ambiguous_workspace_picker_required}).
      */
@@ -105,9 +106,11 @@ public class ReviewController
                 passId, workspaceId, openingTitle, selectedFindingIds);
     }
 
-    /** Spawn-build body — both fields optional. {@code workspaceId} null
+    /** Spawn-build body. {@code workspaceId} null
      *  auto-resolves; {@code openingTitle} null defaults to "Fix review
-     *  findings on PR #N". */
+     *  findings on PR #N"; omitted {@code selectedFindingIds} deliberately
+     *  selects every currently eligible finding, while a supplied list is an
+     *  exact subset and an empty list is invalid. */
     public record SpawnBuildRequest(
             String workspaceId,
             String openingTitle,

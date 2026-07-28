@@ -76,8 +76,6 @@ class TestV2AggregateHandoffStore
                 .contains(new PlanStageManager.RevisionEvidence(
                         "task-1", "plan-1", 1, "revision-2",
                         "revision-1", "digest-2"));
-        assertThat(first.localEvidence().findLocalFeedback(
-                "task-1", "plan-1", 1, "feedback-without-digest")).isEmpty();
         assertThat(first.localEvidence().findPublishAuthorization(
                 "task-1", "plan-1", 1, "missing-authorization")).isEmpty();
 

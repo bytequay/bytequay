@@ -16,6 +16,7 @@ package com.bytequay.app.developmentflow.task.persistence;
 import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.ResultFence;
+import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
@@ -203,24 +204,238 @@ final class V2TaskStore
     public Optional<TaskManager.PauseEvidence> findPauseEvidence(
             String taskId, String barrierId)
     {
-        // V225 stores only opaque barrier evidence, not the typed Stage/checkpoint fence.
-        return Optional.empty();
+        return jdbc.query("""
+                SELECT evidence.task_id, evidence.task_epoch, evidence.barrier_id,
+                       evidence.stage_id, evidence.stage_generation,
+                       evidence.restore_checkpoint, evidence.stop_evidence_digest
+                FROM task_pause_evidence evidence
+                JOIN task_pause_evidence_digest_v230 digest
+                  ON digest.barrier_id = evidence.barrier_id
+                JOIN task_quiescence_barrier barrier
+                  ON barrier.id = evidence.barrier_id
+                JOIN tasks task ON task.id = evidence.task_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage owner ON owner.id = current.stage_id
+                JOIN task_current_code_subject_v230 code
+                  ON code.task_id = task.id
+                JOIN task_live_work_counts_v230 live ON live.task_id = task.id
+                WHERE evidence.task_id = ? AND evidence.barrier_id = ?
+                  AND evidence.status = 'SATISFIED'
+                  AND barrier.task_id = evidence.task_id
+                  AND barrier.task_epoch = evidence.task_epoch
+                  AND barrier.reason = 'PAUSE' AND barrier.status = 'SATISFIED'
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'PAUSING'
+                  AND task.epoch = evidence.task_epoch
+                  AND current.stage_id = evidence.stage_id
+                  AND current.stage_generation = evidence.stage_generation
+                  AND owner.generation = evidence.stage_generation
+                  AND owner.checkpoint = evidence.restore_checkpoint
+                  AND owner.completed_at_ms IS NULL
+                  AND code.code_fingerprint = evidence.code_fingerprint
+                  AND code.head_sha = evidence.head_sha
+                  AND code.base_sha = evidence.base_sha
+                  AND evidence.stop_evidence_digest = digest.content_digest
+                  AND live.task_epoch = evidence.task_epoch
+                  AND live.active_task_turn_count = 0
+                  AND live.active_stage_turn_count = 0
+                  AND live.active_review_turn_count = 0
+                  AND live.active_plan_review_count = 0
+                  AND live.active_brain_episode_count = 0
+                  AND live.active_validation_count = 0
+                  AND live.active_provision_operation_count = 0
+                  AND live.active_dispatch_count = 0
+                  AND live.active_agent_execution_count = 0
+                  AND live.unreconciled_execution_count = 0
+                  AND live.active_quiescence_count = 0
+                  AND live.active_replan_count = 0
+                  AND live.active_publish_operation_count = 0
+                  AND live.unreconciled_publish_operation_count = 0
+                  AND live.active_publish_effect_count = 0
+                  AND NOT EXISTS (
+                      SELECT 1 FROM capacity_lease lease
+                      WHERE lease.workflow_source = 'V2'
+                        AND lease.task_id = evidence.task_id
+                        AND lease.task_epoch = evidence.task_epoch
+                        AND lease.released_at_ms IS NULL
+                        AND lease.expires_at_ms > evidence.recorded_at_ms)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM worktree_leases lease
+                      WHERE lease.workflow_version = 'V2'
+                        AND lease.task_id = evidence.task_id
+                        AND lease.task_epoch = evidence.task_epoch
+                        AND lease.expires_at_ms > evidence.recorded_at_ms)
+                """,
+                (rs, row) -> new TaskManager.PauseEvidence(
+                        rs.getString("task_id"),
+                        rs.getLong("task_epoch"),
+                        rs.getString("barrier_id"),
+                        rs.getString("stage_id"),
+                        rs.getLong("stage_generation"),
+                        StageCheckpoint.valueOf(rs.getString("restore_checkpoint")),
+                        rs.getString("stop_evidence_digest")),
+                taskId, barrierId).stream().findFirst();
     }
 
     @Override
     public Optional<TaskManager.ResumeEvidence> findResumeEvidence(
             String taskId, String reconciliationId)
     {
-        // The typed resume-reconciliation protocol is intentionally deferred.
-        return Optional.empty();
+        return jdbc.query("""
+                SELECT evidence.task_id, evidence.task_epoch, evidence.id,
+                       evidence.stage_id, evidence.stage_generation,
+                       evidence.restore_checkpoint, evidence.reconciliation_digest
+                FROM task_resume_reconciliation evidence
+                JOIN task_resume_evidence_digest_v230 digest
+                  ON digest.id = evidence.id
+                JOIN task_pause_evidence paused
+                  ON paused.barrier_id = evidence.pause_barrier_id
+                JOIN tasks task ON task.id = evidence.task_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage owner ON owner.id = current.stage_id
+                JOIN task_current_code_subject_v230 code
+                  ON code.task_id = task.id
+                JOIN task_live_work_counts_v230 live ON live.task_id = task.id
+                WHERE evidence.task_id = ? AND evidence.id = ?
+                  AND evidence.status = 'SATISFIED'
+                  AND paused.status = 'SATISFIED'
+                  AND paused.task_id = evidence.task_id
+                  AND paused.task_epoch = evidence.task_epoch
+                  AND paused.stage_id = evidence.stage_id
+                  AND paused.stage_generation = evidence.stage_generation
+                  AND paused.restore_checkpoint = evidence.restore_checkpoint
+                  AND paused.code_fingerprint = evidence.paused_code_fingerprint
+                  AND paused.head_sha = evidence.paused_head_sha
+                  AND paused.base_sha = evidence.paused_base_sha
+                  AND code.code_fingerprint = evidence.paused_code_fingerprint
+                  AND code.head_sha = evidence.paused_head_sha
+                  AND code.base_sha = evidence.paused_base_sha
+                  AND evidence.reconciliation_digest = digest.content_digest
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'RESUMING'
+                  AND task.epoch = evidence.task_epoch
+                  AND current.stage_id = evidence.stage_id
+                  AND current.stage_generation = evidence.stage_generation
+                  AND owner.generation = evidence.stage_generation
+                  AND owner.checkpoint = evidence.restore_checkpoint
+                  AND owner.completed_at_ms IS NULL
+                  AND live.task_epoch = evidence.task_epoch
+                  AND live.active_task_turn_count = 0
+                  AND live.active_stage_turn_count = 0
+                  AND live.active_plan_review_count = 0
+                  AND live.active_validation_count = 0
+                  AND live.active_brain_episode_count = 0
+                  AND live.active_provision_operation_count = 0
+                  AND live.active_writer_dispatch_count = 0
+                  AND live.active_agent_execution_count = 0
+                  AND live.unreconciled_execution_count = 0
+                  AND live.active_publish_operation_count = 0
+                  AND live.unreconciled_publish_operation_count = 0
+                  AND live.active_publish_effect_count = 0
+                  AND NOT EXISTS (
+                      SELECT 1 FROM capacity_lease lease
+                      WHERE lease.workflow_source = 'V2'
+                        AND lease.task_id = evidence.task_id
+                        AND lease.task_epoch = evidence.task_epoch
+                        AND lease.writer_required = 1
+                        AND lease.released_at_ms IS NULL
+                        AND lease.expires_at_ms > evidence.recorded_at_ms)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM worktree_leases lease
+                      WHERE lease.workflow_version = 'V2'
+                        AND lease.task_id = evidence.task_id
+                        AND lease.task_epoch = evidence.task_epoch
+                        AND lease.expires_at_ms > evidence.recorded_at_ms)
+                """,
+                (rs, row) -> new TaskManager.ResumeEvidence(
+                        rs.getString("task_id"),
+                        rs.getLong("task_epoch"),
+                        rs.getString("id"),
+                        rs.getString("stage_id"),
+                        rs.getLong("stage_generation"),
+                        StageCheckpoint.valueOf(rs.getString("restore_checkpoint")),
+                        rs.getString("reconciliation_digest")),
+                taskId, reconciliationId).stream().findFirst();
     }
 
     @Override
     public Optional<TaskManager.ArchiveEvidence> findArchiveEvidence(
             String taskId, String archiveEvidenceId)
     {
-        // The typed archive-liveness protocol is intentionally deferred.
-        return Optional.empty();
+        return jdbc.query("""
+                SELECT evidence.task_id, evidence.task_epoch, evidence.id,
+                       evidence.stage_id, evidence.stage_generation,
+                       evidence.liveness_digest
+                FROM task_archive_liveness evidence
+                JOIN task_archive_evidence_digest_v230 digest
+                  ON digest.id = evidence.id
+                JOIN tasks task ON task.id = evidence.task_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage owner ON owner.id = current.stage_id
+                JOIN task_live_work_counts_v230 live ON live.task_id = task.id
+                WHERE evidence.task_id = ? AND evidence.id = ?
+                  AND evidence.status = 'SATISFIED'
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ARCHIVING'
+                  AND task.epoch = evidence.task_epoch
+                  AND current.stage_id = evidence.stage_id
+                  AND current.stage_generation = evidence.stage_generation
+                  AND owner.generation = evidence.stage_generation
+                  AND owner.completed_at_ms IS NULL
+                  AND evidence.liveness_digest = digest.content_digest
+                  AND live.task_epoch = evidence.task_epoch
+                  AND live.active_task_turn_count = evidence.active_task_turn_count
+                  AND live.active_stage_turn_count = evidence.active_stage_turn_count
+                  AND live.active_review_turn_count = evidence.active_review_turn_count
+                  AND live.active_plan_review_count = evidence.active_plan_review_count
+                  AND live.active_brain_episode_count
+                        = evidence.active_brain_episode_count
+                  AND live.active_validation_count = evidence.active_validation_count
+                  AND live.active_provision_operation_count
+                        = evidence.active_provision_operation_count
+                  AND live.active_dispatch_count = evidence.active_dispatch_count
+                  AND live.active_agent_execution_count
+                        = evidence.active_agent_execution_count
+                  AND live.unreconciled_execution_count
+                        = evidence.unreconciled_execution_count
+                  AND live.active_quiescence_count = evidence.active_quiescence_count
+                  AND live.active_replan_count = evidence.active_replan_count
+                  AND live.active_feedback_batch_count
+                        = evidence.active_feedback_batch_count
+                  AND live.active_publish_operation_count
+                        = evidence.active_publish_operation_count
+                  AND live.unreconciled_publish_operation_count
+                        = evidence.unreconciled_publish_operation_count
+                  AND live.active_publish_effect_count
+                        = evidence.active_publish_effect_count
+                  AND live.active_publish_authorization_count
+                        = evidence.active_publish_authorization_count
+                  AND live.open_permission_count = evidence.open_permission_count
+                  AND live.accepted_terminal_intent_count
+                        = evidence.accepted_terminal_intent_count
+                  AND live.open_cleanup_stage_count = evidence.open_cleanup_stage_count
+                  AND (SELECT COUNT(*) FROM capacity_lease lease
+                      WHERE lease.workflow_source = 'V2'
+                        AND lease.task_id = evidence.task_id
+                        AND lease.task_epoch = evidence.task_epoch
+                        AND lease.released_at_ms IS NULL
+                        AND lease.expires_at_ms > evidence.recorded_at_ms)
+                        = evidence.live_capacity_lease_count
+                  AND (SELECT COUNT(*) FROM worktree_leases lease
+                      WHERE lease.workflow_version = 'V2'
+                        AND lease.task_id = evidence.task_id
+                        AND lease.task_epoch = evidence.task_epoch
+                        AND lease.expires_at_ms > evidence.recorded_at_ms)
+                        = evidence.live_worktree_lease_count
+                """,
+                (rs, row) -> new TaskManager.ArchiveEvidence(
+                        rs.getString("task_id"),
+                        rs.getLong("task_epoch"),
+                        rs.getString("id"),
+                        rs.getString("stage_id"),
+                        rs.getLong("stage_generation"),
+                        rs.getString("liveness_digest")),
+                taskId, archiveEvidenceId).stream().findFirst();
     }
 
     @Override

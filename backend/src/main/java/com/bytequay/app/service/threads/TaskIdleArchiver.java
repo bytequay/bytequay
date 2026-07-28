@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadTurn;
@@ -24,6 +25,7 @@ import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.service.WorkspaceBehaviorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -36,17 +38,12 @@ import java.util.Set;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The task-axis sibling of {@code IdleThreadArchiver} and the sole
- * caller of {@link TaskPhaseMachine#archiveIdle}: dormant IDLE tasks
- * drop to ARCHIVED after the workspace's archive-idle cadence. The
- * thread→task status cascade used to do this implicitly; task status
- * now derives only from the task's own runtime, so archiving needs its
- * own explicit intent.
+ * The task-axis sibling of {@code IdleThreadArchiver}. Dormant Tasks drop to
+ * ARCHIVED after the workspace's archive-idle cadence. Legacy Tasks retain the
+ * sole {@link TaskPhaseMachine#archiveIdle} path; typed Tasks ask their Task
+ * owner to record ARCHIVING only after an atomic durable-liveness recheck.
  *
- * <p>The scan permits archiving only with no queued/running liveness
- * turn, no live review round, no open validation claim, and no pending
- * resume/recovery request; the machine re-verifies the durable half
- * under the task lock.
+ * <p>Each owner rechecks its own durable liveness under the Task command lock.
  */
 @Service
 public class TaskIdleArchiver
@@ -65,6 +62,7 @@ public class TaskIdleArchiver
     private final ValidationPassStore validationStore;
     private final WorkspaceBehaviorService behavior;
     private final TaskPhaseMachine machine;
+    private final ObjectProvider<V2TaskControlService> v2Controls;
 
     public TaskIdleArchiver(
             TaskStore taskStore,
@@ -72,7 +70,8 @@ public class TaskIdleArchiver
             ReviewRoundStore roundStore,
             ValidationPassStore validationStore,
             WorkspaceBehaviorService behavior,
-            TaskPhaseMachine machine)
+            TaskPhaseMachine machine,
+            ObjectProvider<V2TaskControlService> v2Controls)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
@@ -80,6 +79,7 @@ public class TaskIdleArchiver
         this.validationStore = requireNonNull(validationStore, "validationStore is null");
         this.behavior = requireNonNull(behavior, "behavior is null");
         this.machine = requireNonNull(machine, "machine is null");
+        this.v2Controls = requireNonNull(v2Controls, "v2Controls is null");
     }
 
     @Scheduled(fixedDelayString = "PT1H", initialDelayString = "PT5M")
@@ -101,6 +101,12 @@ public class TaskIdleArchiver
             return;
         }
         Instant cutoff = now.minus(cadence);
+        V2TaskControlService controls = v2Controls.getIfAvailable();
+        if (controls != null) {
+            for (String taskId : controls.idleArchiveCandidates(cutoff, now, PAGE)) {
+                controls.archiveIfIdle(taskId, cutoff, now);
+            }
+        }
         for (Task task : taskStore.listByStatuses(Set.of(TaskStatus.IDLE), PAGE)) {
             if (taskStore.isV2Task(task.id())) {
                 continue;

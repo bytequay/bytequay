@@ -32,6 +32,8 @@ import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -174,6 +176,23 @@ public final class TaskManager
         return execute(
                 command, "REQUEST_ARCHIVE", TaskLifecycle.ARCHIVING, false, null,
                 TaskLifecycle.ACTIVE);
+    }
+
+    /** Archives only while the exact typed owner is still durably idle. */
+    public Optional<CommandResult<State>> requestArchiveIfIdle(
+            Command command, Instant cutoff, Instant observedAt)
+    {
+        requireNonNull(command, "command is null");
+        requireNonNull(cutoff, "cutoff is null");
+        requireNonNull(observedAt, "observedAt is null");
+        return commands.execute(command.taskId(), () -> {
+            if (!store.isIdleForArchive(command.taskId(), cutoff, observedAt)) {
+                return Optional.empty();
+            }
+            return Optional.of(applyInCommand(
+                    command, "REQUEST_ARCHIVE", TaskLifecycle.ARCHIVING,
+                    false, null, TaskLifecycle.ACTIVE));
+        });
     }
 
     public CommandResult<State> requestCancel(Command command)
@@ -2562,6 +2581,18 @@ public final class TaskManager
     public interface Store
     {
         Optional<State> findById(String taskId);
+
+        default List<String> findIdleArchiveCandidates(
+                Instant cutoff, Instant observedAt, int limit)
+        {
+            return List.of();
+        }
+
+        default boolean isIdleForArchive(
+                String taskId, Instant cutoff, Instant observedAt)
+        {
+            return false;
+        }
 
         Optional<CommandReceipt> findCommandResult(String taskId, String commandId);
 

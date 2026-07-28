@@ -171,11 +171,11 @@ class TestDevelopmentFlowCanaryGuardsMigration
         assertThat(auditor.legacyDrainStatus().drained()).isTrue();
 
         DevelopmentFlowCanaryRoute disabled =
-                new DevelopmentFlowCanaryRoute(false, false, "workspace-1");
+                new DevelopmentFlowCanaryRoute(false, "");
         DevelopmentFlowCanaryRoute allowListed =
-                new DevelopmentFlowCanaryRoute(true, true, " workspace-1, workspace-2 ");
+                new DevelopmentFlowCanaryRoute(true, " workspace-1, workspace-2 ");
         DevelopmentFlowCanaryRoute allWorkspaces =
-                new DevelopmentFlowCanaryRoute(true, true, "*");
+                new DevelopmentFlowCanaryRoute(false, "*");
         assertThat(disabled.routesNewTaskToV2("workspace-1")).isFalse();
         assertThat(allowListed.routesNewTaskToV2("workspace-1")).isTrue();
         assertThat(allowListed.routesNewTaskToV2("workspace-3")).isFalse();

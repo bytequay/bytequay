@@ -35,6 +35,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -50,6 +51,142 @@ import static java.util.Objects.requireNonNull;
 final class V2TaskStore
         implements TaskManager.Store
 {
+    private static final String IDLE_ARCHIVE_ELIGIBILITY = """
+            WITH task_activity(task_id, occurred_at_ms) AS (
+                SELECT id, created_at_ms
+                  FROM tasks WHERE workflow_version = 'V2'
+                UNION ALL
+                SELECT task_id, occurred_at_ms FROM task_transition
+                UNION ALL
+                SELECT stage.task_id, stage.opened_at_ms FROM stage
+                UNION ALL
+                SELECT stage.task_id, transition.occurred_at_ms
+                  FROM stage_transition transition
+                  JOIN stage ON stage.id = transition.stage_id
+                UNION ALL
+                SELECT task_id, COALESCE(finished_at_ms, started_at_ms, requested_at_ms)
+                  FROM task_turn
+                UNION ALL
+                SELECT stage.task_id,
+                       COALESCE(turn.finished_at_ms, turn.started_at_ms,
+                                turn.requested_at_ms)
+                  FROM stage_turn turn
+                  JOIN stage ON stage.id = turn.stage_id
+                UNION ALL
+                SELECT pull_request.task_id,
+                       COALESCE(turn.finished_at_ms, turn.started_at_ms,
+                                turn.requested_at_ms)
+                  FROM review_assignment_turn turn
+                  JOIN review_assignment assignment ON assignment.id = turn.assignment_id
+                  JOIN review_round round ON round.id = assignment.round_id
+                  JOIN review_session session ON session.id = round.session_id
+                  JOIN pr pull_request ON pull_request.id = session.pr_id
+                 WHERE pull_request.origin = 'task'
+                UNION ALL
+                SELECT task_id, COALESCE(completed_at_ms, started_at_ms, created_at_ms)
+                  FROM dispatch_ticket WHERE task_id IS NOT NULL
+                UNION ALL
+                SELECT task_id, COALESCE(resolved_at_ms, opened_at_ms)
+                  FROM task_blocker
+                UNION ALL
+                SELECT turn.task_id,
+                       COALESCE(question.answered_at_ms, question.created_at_ms)
+                  FROM task_question question
+                  JOIN task_turn turn ON turn.id = question.turn_id
+                UNION ALL
+                SELECT stage.task_id,
+                       COALESCE(question.answered_at_ms, question.created_at_ms)
+                  FROM stage_question question
+                  JOIN stage_turn turn ON turn.id = question.turn_id
+                  JOIN stage ON stage.id = turn.stage_id
+                UNION ALL
+                SELECT task_id, state_changed_at_ms
+                  FROM local_review_comment_revision
+                UNION ALL
+                SELECT plan.task_id, revision.created_at_ms
+                  FROM plan_revision revision
+                  JOIN plan_stage plan ON plan.stage_id = revision.plan_stage_id
+                UNION ALL
+                SELECT plan.task_id,
+                       COALESCE(followup.resolved_at_ms, followup.created_at_ms)
+                  FROM plan_followup followup
+                  JOIN plan_revision revision ON revision.id = followup.plan_revision_id
+                  JOIN plan_stage plan ON plan.stage_id = revision.plan_stage_id
+                UNION ALL
+                SELECT task_id, requested_at_ms
+                  FROM stage_steering_request_v257
+                UNION ALL
+                SELECT task_id,
+                       COALESCE(materialized_at_ms, diagnosed_at_ms, accepted_at_ms)
+                  FROM stage_resume_rearm_intent_v257
+            ),
+            latest_activity AS (
+                SELECT task_id, MAX(occurred_at_ms) AS occurred_at_ms
+                  FROM task_activity
+                 GROUP BY task_id
+            )
+            SELECT task.id, latest_activity.occurred_at_ms
+              FROM tasks task
+              JOIN task_current_stage current ON current.task_id = task.id
+              JOIN stage owner ON owner.id = current.stage_id
+              JOIN task_live_work_counts_v230 live ON live.task_id = task.id
+              JOIN task_control_live_work_v256 all_epoch ON all_epoch.task_id = task.id
+              JOIN latest_activity ON latest_activity.task_id = task.id
+             WHERE task.workflow_version = 'V2'
+               AND task.lifecycle_state = 'ACTIVE'
+               AND owner.task_id = task.id
+               AND owner.generation = current.stage_generation
+               AND owner.completed_at_ms IS NULL
+               AND owner.kind <> 'REMOTE_DEVELOPMENT'
+               AND owner.checkpoint NOT IN ('LOCAL_REVIEW', 'PUBLISHING')
+               AND NOT EXISTS (
+                   SELECT 1 FROM task_blocker blocker
+                    WHERE blocker.task_id = task.id AND blocker.status = 'OPEN')
+               AND NOT EXISTS (
+                   SELECT 1 FROM stage_steering_request_v257 steering
+                    WHERE steering.task_id = task.id AND steering.status = 'PENDING')
+               AND NOT EXISTS (
+                   SELECT 1 FROM stage_resume_rearm_intent_v257 resume
+                    WHERE resume.task_id = task.id AND resume.status = 'PENDING')
+               AND (live.active_task_turn_count
+                  + live.active_stage_turn_count
+                  + live.active_review_turn_count
+                  + live.active_plan_review_count
+                  + live.active_validation_count
+                  + live.active_brain_episode_count
+                  + live.active_provision_operation_count
+                  + live.active_dispatch_count
+                  + live.active_agent_execution_count
+                  + live.unreconciled_execution_count
+                  + live.active_quiescence_count
+                  + live.active_replan_count
+                  + live.active_feedback_batch_count
+                  + live.active_publish_operation_count
+                  + live.unreconciled_publish_operation_count
+                  + live.active_publish_effect_count
+                  + live.active_publish_authorization_count
+                  + live.open_permission_count
+                  + live.accepted_terminal_intent_count
+                  + live.open_cleanup_stage_count) = 0
+               AND (all_epoch.active_task_turn_count
+                  + all_epoch.active_stage_turn_count
+                  + all_epoch.active_review_turn_count
+                  + all_epoch.active_dispatch_count
+                  + all_epoch.active_agent_execution_count) = 0
+               AND NOT EXISTS (
+                   SELECT 1 FROM capacity_lease lease
+                    WHERE lease.workflow_source = 'V2'
+                      AND lease.task_id = task.id
+                      AND lease.released_at_ms IS NULL
+                      AND lease.expires_at_ms > ?)
+               AND NOT EXISTS (
+                   SELECT 1 FROM worktree_leases lease
+                    WHERE lease.workflow_version = 'V2'
+                      AND lease.task_id = task.id
+                      AND lease.expires_at_ms > ?)
+               AND latest_activity.occurred_at_ms < ?
+            """;
+
     private static final String RECEIPT_SELECT = """
             SELECT * FROM task_command_receipt
             """;
@@ -137,6 +274,37 @@ final class V2TaskStore
                     "Task receipt projection disagrees with Task row: " + taskId);
         }
         return Optional.of(snapshot);
+    }
+
+    @Override
+    public List<String> findIdleArchiveCandidates(
+            Instant cutoff, Instant observedAt, int limit)
+    {
+        requireNonNull(cutoff, "cutoff is null");
+        requireNonNull(observedAt, "observedAt is null");
+        if (limit < 1) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        return jdbc.query(
+                IDLE_ARCHIVE_ELIGIBILITY
+                        + " ORDER BY latest_activity.occurred_at_ms, task.id LIMIT ?",
+                (rs, row) -> rs.getString("id"),
+                observedAt.toEpochMilli(), observedAt.toEpochMilli(),
+                cutoff.toEpochMilli(), limit);
+    }
+
+    @Override
+    public boolean isIdleForArchive(
+            String taskId, Instant cutoff, Instant observedAt)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(cutoff, "cutoff is null");
+        requireNonNull(observedAt, "observedAt is null");
+        return !jdbc.query(
+                IDLE_ARCHIVE_ELIGIBILITY + " AND task.id = ?",
+                (rs, row) -> rs.getString("id"),
+                observedAt.toEpochMilli(), observedAt.toEpochMilli(),
+                cutoff.toEpochMilli(), taskId).isEmpty();
     }
 
     @Override

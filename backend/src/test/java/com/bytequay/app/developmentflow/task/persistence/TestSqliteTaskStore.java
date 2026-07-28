@@ -14,7 +14,9 @@
 package com.bytequay.app.developmentflow.task.persistence;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
+import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.stage.CancellationToCleanupHandoff;
+import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageResumeRearmStore;
@@ -24,6 +26,7 @@ import com.bytequay.app.developmentflow.task.TaskControlMaintainer;
 import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.TaskResumeOwner;
+import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -36,6 +39,7 @@ import org.sqlite.SQLiteDataSource;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -43,11 +47,174 @@ import java.util.List;
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.STALE_VERSION;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 class TestSqliteTaskStore
 {
     @TempDir
     private Path tempDir;
+
+    @Test
+    void idleArchiveSelectsOnlyDueTypedTasksAndLeavesLegacySiblingUntouched()
+    {
+        Path file = tempDir.resolve("idle-archive-selection.db");
+        SQLiteDataSource dataSource = database(file);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Instant cutoff = now.minus(1, ChronoUnit.DAYS);
+        seedTrunk(jdbc);
+        seedActiveTaskWithCode(
+                jdbc, "task-due", "plan-due", 1,
+                now.minus(2, ChronoUnit.DAYS).toEpochMilli());
+        seedActiveTaskWithCode(
+                jdbc, "task-fresh", "plan-fresh", 2,
+                now.minus(10, ChronoUnit.MINUTES).toEpochMilli());
+        seedLegacySibling(
+                jdbc, "task-legacy", 3,
+                now.minus(3, ChronoUnit.DAYS).toEpochMilli());
+        migrate(file, "257");
+
+        ControlFixture fixture = controls(dataSource);
+        assertThat(fixture.controls().idleArchiveCandidates(cutoff, now, 10))
+                .containsExactly("task-due");
+        assertThat(fixture.controls().archiveIfIdle("task-due", cutoff, now))
+                .isTrue();
+        assertThat(fixture.controls().archiveIfIdle("task-fresh", cutoff, now))
+                .isFalse();
+
+        assertThat(fixture.store().findById("task-due").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.ARCHIVING);
+        assertThat(fixture.store().findById("task-fresh").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.ACTIVE);
+        assertThat(jdbc.queryForMap("""
+                SELECT workflow_version, status, phase, lifecycle_state
+                  FROM tasks WHERE id = 'task-legacy'
+                """))
+                .containsEntry("workflow_version", "LEGACY")
+                .containsEntry("status", "IDLE")
+                .containsEntry("phase", "PLANNING")
+                .containsEntry("lifecycle_state", null);
+        assertThat(count(jdbc, "task_transition", "task-legacy")).isZero();
+        assertThat(count(jdbc, "task_command_receipt", "task-legacy")).isZero();
+    }
+
+    @Test
+    void idleArchiveRechecksLiveTicketInsideSerializedTaskCommand()
+    {
+        Path file = tempDir.resolve("idle-archive-race.db");
+        SQLiteDataSource dataSource = database(file);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+        Instant cutoff = now.minus(1, ChronoUnit.DAYS);
+        seedTrunk(jdbc);
+        seedActiveTaskWithCode(
+                jdbc, "task-race", "plan-race", 1,
+                now.minus(2, ChronoUnit.DAYS).toEpochMilli());
+        migrate(file, "257");
+
+        ControlFixture fixture = controls(dataSource);
+        assertThat(fixture.controls().idleArchiveCandidates(cutoff, now, 10))
+                .containsExactly("task-race");
+
+        seedLivePlanTurn(jdbc, "task-race", "plan-race", "race");
+
+        assertThat(fixture.controls().archiveIfIdle("task-race", cutoff, now))
+                .isFalse();
+        assertThat(fixture.store().findById("task-race").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.ACTIVE);
+        assertThat(count(jdbc, "task_transition", "task-race")).isZero();
+        assertThat(count(jdbc, "task_command_receipt", "task-race")).isZero();
+    }
+
+    @Test
+    void idleArchiveCompletesAfterRestartAndRevivesThroughExactStageOwner()
+    {
+        Path file = tempDir.resolve("idle-archive-restart.db");
+        SQLiteDataSource dataSource = database(file);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        Instant now = Instant.now().minusMillis(100)
+                .truncatedTo(ChronoUnit.MILLIS);
+        Instant cutoff = now.minus(1, ChronoUnit.DAYS);
+        seedTrunk(jdbc);
+        seedActiveTaskWithCode(
+                jdbc, "task-revive", "plan-revive", 1,
+                now.minus(2, ChronoUnit.DAYS).toEpochMilli());
+        migrate(file, "257");
+
+        ControlFixture beforeRestart = controls(dataSource);
+        assertThat(beforeRestart.controls().archiveIfIdle(
+                "task-revive", cutoff, now)).isTrue();
+
+        ControlFixture restarted = controls(dataSource);
+        TaskControlMaintainer archiveMaintainer = maintainer(
+                restarted, List.of());
+        archiveMaintainer.maintain(now);
+        archiveMaintainer.maintain(now);
+        assertThat(restarted.store().findById("task-revive")
+                .orElseThrow().lifecycle()).isEqualTo(TaskLifecycle.ARCHIVED);
+
+        assertThat(restarted.controls().resume("task-revive").lifecycle())
+                .isEqualTo(TaskLifecycle.RESUMING);
+        SqliteStageResumeRearmStore rearms =
+                new SqliteStageResumeRearmStore(restarted.jdbc());
+        TaskResumeOwner planOwner = new TaskResumeOwner()
+        {
+            @Override
+            public StageKind kind()
+            {
+                return StageKind.PLAN;
+            }
+
+            @Override
+            public Acceptance accept(Request request)
+            {
+                return rearms.accept(request, kind());
+            }
+        };
+        TaskControlMaintainer resumeMaintainer = maintainer(
+                restarted, List.of(planOwner));
+        resumeMaintainer.maintain(now);
+        resumeMaintainer.maintain(now);
+
+        assertThat(restarted.store().findById("task-revive").orElseThrow())
+                .returns(TaskLifecycle.ACTIVE, TaskManager.State::lifecycle)
+                .returns("plan-revive", TaskManager.State::currentStageId);
+        assertThat(restarted.jdbc().queryForMap("""
+                SELECT task.status, task.phase, owner.kind, owner.generation,
+                       owner.checkpoint
+                  FROM tasks task
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN stage owner ON owner.id = current.stage_id
+                 WHERE task.id = 'task-revive'
+                """))
+                .containsEntry("status", "IDLE")
+                .containsEntry("phase", "PLANNING")
+                .containsEntry("kind", "PLAN")
+                .containsEntry("generation", 1)
+                .containsEntry("checkpoint", "DRAFTING");
+        assertThat(count(restarted.jdbc(), "task_archive_liveness", "task-revive"))
+                .isEqualTo(1);
+        assertThat(count(restarted.jdbc(),
+                "task_resume_reconciliation_v256", "task-revive"))
+                .isEqualTo(1);
+        assertThat(restarted.jdbc().queryForMap("""
+                SELECT status, stage_kind, stage_id
+                  FROM task_resume_handoff_v256
+                 WHERE task_id = 'task-revive'
+                """))
+                .containsEntry("status", "ACCEPTED")
+                .containsEntry("stage_kind", "PLAN")
+                .containsEntry("stage_id", "plan-revive");
+        Instant afterCadence = now.plus(2, ChronoUnit.DAYS);
+        assertThat(restarted.controls().idleArchiveCandidates(
+                afterCadence.minus(1, ChronoUnit.DAYS), afterCadence, 10))
+                .doesNotContain("task-revive");
+        assertThat(count(restarted.jdbc(), "cleanup_stage", "task-revive"))
+                .isZero();
+        assertThat(restarted.jdbc().queryForObject(
+                "SELECT COUNT(*) FROM pragma_foreign_key_check", Integer.class))
+                .isZero();
+    }
 
     @Test
     void duplicateStaleRollbackRestartAndDeferredEvidenceFailClosed()
@@ -783,9 +950,35 @@ class TestSqliteTaskStore
     private static void seedCanceledPlanTurn(
             JdbcTemplate jdbc, String taskId, String stageId, String suffix)
     {
+        seedLivePlanTurn(jdbc, taskId, stageId, suffix);
+        String turnId = "plan-turn-" + suffix;
+        String ticketId = "plan-ticket-" + suffix;
+        jdbc.update("""
+                UPDATE task_turn SET status = 'CANCELED', started_at_ms = 12,
+                    finished_at_ms = 13, error_message = 'paused'
+                WHERE id = ?
+                """, turnId);
+        jdbc.update("""
+                UPDATE dispatch_ticket SET version = version + 1,
+                    status = 'CANCELED', cancel_requested_at_ms = 12,
+                    delivery_acceptance = 'ACCEPTED',
+                    delivery_evidence = 'paused', completed_at_ms = 13
+                WHERE id = ?
+                """, ticketId);
+        jdbc.update("""
+                INSERT INTO plan_task_turn_delivery_receipt(
+                    task_turn_id, operation_id, raw_outcome,
+                    raw_evidence_digest, acceptance, domain_result,
+                    recorded_at_ms)
+                VALUES (?, ?, 'CANCELED', ?, 'ACCEPTED', 'TURN_CANCELED', 13)
+                """, turnId, "plan-operation-" + suffix, "d".repeat(64));
+    }
+
+    private static void seedLivePlanTurn(
+            JdbcTemplate jdbc, String taskId, String stageId, String suffix)
+    {
         String turnId = "plan-turn-" + suffix;
         String operationId = "plan-operation-" + suffix;
-        String ticketId = "plan-ticket-" + suffix;
         jdbc.update("""
                 INSERT INTO task_brain(
                     id, task_id, provider, model, engine_snapshot, created_at_ms)
@@ -823,26 +1016,7 @@ class TestSqliteTaskStore
                     'TASK_TURN', ?, 'TASK_TURN_RESULT', 2, 1, 0,
                     'workspace-1', 'trunk-1', ?, 1, ?, 1, 1,
                     'fp-code', 'base-code', 'base-code', 'REQUESTED', 11)
-                """, ticketId, operationId, turnId, taskId, stageId);
-        jdbc.update("""
-                UPDATE task_turn SET status = 'CANCELED', started_at_ms = 12,
-                    finished_at_ms = 13, error_message = 'paused'
-                WHERE id = ?
-                """, turnId);
-        jdbc.update("""
-                UPDATE dispatch_ticket SET version = version + 1,
-                    status = 'CANCELED', cancel_requested_at_ms = 12,
-                    delivery_acceptance = 'ACCEPTED',
-                    delivery_evidence = 'paused', completed_at_ms = 13
-                WHERE id = ?
-                """, ticketId);
-        jdbc.update("""
-                INSERT INTO plan_task_turn_delivery_receipt(
-                    task_turn_id, operation_id, raw_outcome,
-                    raw_evidence_digest, acceptance, domain_result,
-                    recorded_at_ms)
-                VALUES (?, ?, 'CANCELED', ?, 'ACCEPTED', 'TURN_CANCELED', 13)
-                """, turnId, operationId, "d".repeat(64));
+                """, "plan-ticket-" + suffix, operationId, turnId, taskId, stageId);
     }
 
     private static void migrate(Path file, String target)
@@ -927,6 +1101,13 @@ class TestSqliteTaskStore
     private static void seedActiveTaskWithCode(
             JdbcTemplate jdbc, String taskId, String stageId, int sequence)
     {
+        seedActiveTaskWithCode(jdbc, taskId, stageId, sequence, 1);
+    }
+
+    private static void seedActiveTaskWithCode(
+            JdbcTemplate jdbc, String taskId, String stageId, int sequence,
+            long createdAt)
+    {
         String assignment = "assignment-" + taskId;
         String provision = "provision-" + taskId;
         String operation = "provision-operation-" + taskId;
@@ -936,24 +1117,24 @@ class TestSqliteTaskStore
                     id, trunk_id, kind, planning_base_sha, plan_seed, prompt,
                     created_by, created_at_ms)
                 VALUES (?, 'trunk-1', 'NEW_FROM_TRUNK', 'base-code',
-                    'seed', 'prompt', 'test', 1)
-                """, assignment);
+                    'seed', 'prompt', 'test', ?)
+                """, assignment, createdAt);
         jdbc.update("""
                 INSERT INTO tasks(
                     id, thread_id, seq, status, phase, created_at_ms,
                     workflow_version, lifecycle_state, assignment_id,
                     policy_revision_id)
-                VALUES (?, 'trunk-1', ?, 'IDLE', 'PLANNING', 1,
+                VALUES (?, 'trunk-1', ?, 'IDLE', 'PLANNING', ?,
                     'V2', 'PROVISIONING', ?, 'policy-1')
-                """, taskId, sequence, assignment);
+                """, taskId, sequence, createdAt, assignment);
         jdbc.update("""
                 INSERT INTO task_creation_context(
                     task_id, assignment_id, policy_revision_id, provenance,
                     repository_id, publish_repository_id, planning_base_sha,
                     engine_snapshot, work_model_snapshot, created_at_ms)
                 VALUES (?, ?, 'policy-1', 'DIRECT_USER', 'acme/widget',
-                    'acme/widget', 'base-code', 'engine', 'work-model', 2)
-                """, taskId, assignment);
+                    'acme/widget', 'base-code', 'engine', 'work-model', ?)
+                """, taskId, assignment, createdAt + 1);
         jdbc.update("""
                 INSERT INTO provision_task_operation(
                     id, task_id, task_epoch, assignment_id, operation_id,
@@ -961,9 +1142,9 @@ class TestSqliteTaskStore
                     requested_branch_name, requested_worktree_path,
                     status, created_at_ms)
                 VALUES (?, ?, 1, ?, ?, 1, 'acme/widget', 'base-code', ?, ?,
-                    'REQUESTED', 3)
+                    'REQUESTED', ?)
                 """, provision, taskId, assignment, operation,
-                "dev/" + taskId, "/tmp/" + taskId);
+                "dev/" + taskId, "/tmp/" + taskId, createdAt + 2);
         jdbc.update("""
                 INSERT INTO dispatch_ticket(
                     id, operation_id, operation_kind, async_family,
@@ -973,8 +1154,8 @@ class TestSqliteTaskStore
                     status, created_at_ms)
                 VALUES (?, ?, 'PROVISION_TASK', 'LOCAL_GIT', 'TASK', ?,
                     'TASK_PROVISION_RESULT', 16, 1, 1, 'workspace-1', 'trunk-1',
-                    ?, 1, 1, 'base-code', 'REQUESTED', 3)
-                """, ticket, operation, taskId, taskId);
+                    ?, 1, 1, 'base-code', 'REQUESTED', ?)
+                """, ticket, operation, taskId, taskId, createdAt + 2);
         jdbc.update("UPDATE provision_task_operation SET status = 'DISPATCHED' WHERE id = ?",
                 provision);
         jdbc.update("""
@@ -992,9 +1173,9 @@ class TestSqliteTaskStore
                 UPDATE provision_task_operation
                 SET status = 'ACCEPTED', result_base_sha = 'base-code',
                     result_head_sha = 'base-code',
-                    result_code_fingerprint = 'fp-code', completed_at_ms = 4
+                    result_code_fingerprint = 'fp-code', completed_at_ms = ?
                 WHERE id = ?
-                """, provision);
+                """, createdAt + 3, provision);
         jdbc.update("""
                 INSERT INTO task_code_identity(
                     task_id, provision_operation_id, repository_id,
@@ -1002,14 +1183,15 @@ class TestSqliteTaskStore
                     base_sha, local_head_sha, code_fingerprint,
                     created_at_ms, updated_at_ms)
                 VALUES (?, ?, 'acme/widget', 'acme/widget', ?, ?,
-                    'base-code', 'base-code', 'fp-code', 4, 4)
-                """, taskId, provision, "dev/" + taskId, "/tmp/" + taskId);
+                    'base-code', 'base-code', 'fp-code', ?, ?)
+                """, taskId, provision, "dev/" + taskId, "/tmp/" + taskId,
+                createdAt + 3, createdAt + 3);
         jdbc.update("DELETE FROM dispatch_ticket WHERE id = ?", ticket);
         jdbc.update("""
                 INSERT INTO stage(
                     id, task_id, kind, generation, version, checkpoint, opened_at_ms)
-                VALUES (?, ?, 'PLAN', 1, 0, 'DRAFTING', 5)
-                """, stageId, taskId);
+                VALUES (?, ?, 'PLAN', 1, 0, 'DRAFTING', ?)
+                """, stageId, taskId, createdAt + 4);
         jdbc.update("""
                 INSERT INTO task_current_stage(task_id, stage_id, stage_generation)
                 VALUES (?, ?, 1)
@@ -1023,6 +1205,49 @@ class TestSqliteTaskStore
                 VALUES (?, ?, 1, 1)
                 """, stageId, taskId);
     }
+
+    private static void seedLegacySibling(
+            JdbcTemplate jdbc, String taskId, int sequence, long createdAt)
+    {
+        jdbc.update("""
+                INSERT INTO tasks(
+                    id, thread_id, seq, status, phase, created_at_ms,
+                    workflow_version)
+                VALUES (?, 'trunk-1', ?, 'IDLE', 'PLANNING', ?, 'LEGACY')
+                """, taskId, sequence, createdAt);
+    }
+
+    private static ControlFixture controls(SQLiteDataSource dataSource)
+    {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
+        V2TaskStore store = new V2TaskStore(jdbc);
+        TaskManager tasks = new TaskManager(commands, store);
+        V2TaskControlService controls = new V2TaskControlService(
+                tasks, store, mock(ExecutionDispatcher.class),
+                mock(RemoteCiRepairRuntimeCoordinator.class), jdbc);
+        return new ControlFixture(jdbc, transactions, commands, store, tasks, controls);
+    }
+
+    private static TaskControlMaintainer maintainer(
+            ControlFixture fixture, List<TaskResumeOwner> resumeOwners)
+    {
+        return new TaskControlMaintainer(
+                new SqliteTaskControlRuntimeStore(
+                        fixture.jdbc(), fixture.transactions()),
+                new TaskControlHandoff(fixture.commands(), fixture.tasks()),
+                resumeOwners, List.of(), ignored -> {});
+    }
+
+    private record ControlFixture(
+            JdbcTemplate jdbc,
+            DataSourceTransactionManager transactions,
+            TaskCommandExecutor commands,
+            V2TaskStore store,
+            TaskManager tasks,
+            V2TaskControlService controls) {}
 
     private static void seedRetainedWorktreeLease(
             JdbcTemplate jdbc, String taskId, String stageId, int fence, long expiresAt)

@@ -42,10 +42,15 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -200,6 +205,59 @@ class TestValidationClaimService
         assertThat(published)
                 .filteredOn(ValidationPassFinishedEvent.class::isInstance)
                 .isEmpty();
+    }
+
+    @Test
+    void startupRecoveryReclaimsAnExpiredValidationLease()
+    {
+        String taskId = seedTask("/tmp/restarted-validation-worktree");
+        Task task = taskStore.findTaskById(taskId).orElseThrow();
+        String fingerprint = "fp-" + taskId;
+        long validationEpoch = taskStore.listPhaseEvents(taskId).stream()
+                .filter(event -> event.toPhase() == TaskPhase.VALIDATING)
+                .mapToLong(event -> event.id())
+                .max()
+                .orElse(0L);
+        String claimKey = "dev-round:" + taskId + ":" + validationEpoch + ":" + fingerprint;
+        store.insertClaim(
+                claimKey, taskId, "dev-round", null,
+                fingerprint, null, null, NOW);
+        assertThat(store.acquireOwner(
+                claimKey, "owner-before-restart", "dead-executor",
+                NOW.minusSeconds(1), NOW.minusSeconds(2))).isTrue();
+
+        TaskStore restartedTasks = mock(TaskStore.class);
+        when(restartedTasks.findTaskById(taskId)).thenReturn(Optional.of(task));
+        when(restartedTasks.listByPhases(any(), anyInt())).thenReturn(List.of(task));
+        when(restartedTasks.listPhaseEvents(taskId))
+                .thenReturn(taskStore.listPhaseEvents(taskId));
+        ValidationPassService checks = mock(ValidationPassService.class);
+        when(checks.runChecks(taskId)).thenReturn(List.of());
+        CodeFingerprints fingerprints = mock(CodeFingerprints.class);
+        when(fingerprints.fingerprint(any(Path.class))).thenReturn(fingerprint);
+        ValidationExecutorRegistry restartedRegistry = mock(ValidationExecutorRegistry.class);
+        ScheduledFuture<?> renewal = mock(ScheduledFuture.class);
+        doReturn(renewal).when(restartedRegistry)
+                .scheduleLeaseRenewal(any(Runnable.class), anyLong());
+        when(restartedRegistry.submitIfAbsent(eq(claimKey), any(Runnable.class)))
+                .thenAnswer(invocation -> {
+                    invocation.<Runnable>getArgument(1).run();
+                    return true;
+                });
+        List<Object> published = new CopyOnWriteArrayList<>();
+        ValidationClaimService restarted = new ValidationClaimService(
+                store, restartedTasks, mock(ReviewRoundStore.class),
+                checks, fingerprints, restartedRegistry, commands,
+                published::add, mapper);
+
+        restarted.reconcileClaims();
+
+        assertThat(store.findByClaimKey(claimKey).orElseThrow().isTerminalGreen()).isTrue();
+        verify(checks).runChecks(taskId);
+        verify(renewal).cancel(false);
+        assertThat(published)
+                .filteredOn(ValidationPassFinishedEvent.class::isInstance)
+                .hasSize(1);
     }
 
     private ValidationClaim awaitTerminal(String claimKey)

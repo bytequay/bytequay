@@ -24,12 +24,16 @@ import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.PlanStageManager;
 import com.bytequay.app.developmentflow.stage.PlanToLocalHandoff;
 import com.bytequay.app.developmentflow.stage.ProvisionToPlanHandoff;
+import com.bytequay.app.developmentflow.stage.RemoteDevelopmentRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
+import com.bytequay.app.developmentflow.stage.RemoteFeedbackRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteTerminalToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.ReplanHandoff;
 import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLoopStore;
 import com.bytequay.app.developmentflow.task.BrainVerdictHandoff;
 import com.bytequay.app.developmentflow.task.TaskControlHandoff;
 import com.bytequay.app.developmentflow.task.TaskManager;
@@ -138,6 +142,34 @@ public class DevelopmentFlowDomainConfig
             RemoteDevelopmentStageManager.EvidenceStore evidence)
     {
         return new RemoteDevelopmentStageManager(commands, store, evidence);
+    }
+
+    @Bean
+    public RemoteDevelopmentRuntimeCoordinator remoteDevelopmentRuntimeCoordinator(
+            TaskCommandExecutor commands,
+            RemoteDevelopmentStageManager remote,
+            SqliteRemoteDevelopmentRuntimeStore store,
+            ObjectMapper json)
+    {
+        return new RemoteDevelopmentRuntimeCoordinator(
+                commands, remote, store, json, Clock.systemUTC());
+    }
+
+    @Bean
+    public RemoteFeedbackRuntimeCoordinator remoteFeedbackRuntimeCoordinator(
+            TaskCommandExecutor commands,
+            TaskManager tasks,
+            RemoteDevelopmentStageManager remote,
+            SqliteRemoteDevelopmentRuntimeStore remoteStore,
+            SqliteRemoteFeedbackLoopStore feedbackStore,
+            CodeFingerprints fingerprints,
+            GitRunner git,
+            ObjectMapper json,
+            @Value("${server.port:53123}") int serverPort)
+    {
+        return new RemoteFeedbackRuntimeCoordinator(
+                commands, tasks, remote, remoteStore, feedbackStore,
+                fingerprints, git, json, Clock.systemUTC(), serverPort);
     }
 
     @Bean

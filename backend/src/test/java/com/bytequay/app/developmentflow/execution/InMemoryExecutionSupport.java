@@ -241,6 +241,95 @@ final class InMemoryExecutionSupport
         }
     }
 
+    static final class WorktreeStore
+            implements WorktreeWriterLeaseManager.Store
+    {
+        private final Map<String, WorktreeWriterLeaseManager.Lease> byPath =
+                new LinkedHashMap<>();
+        private int heartbeats;
+        private boolean failNextRelease;
+
+        @Override
+        public synchronized Optional<WorktreeWriterLeaseManager.Lease> tryAcquire(
+                WorktreeWriterLeaseManager.Lease requested,
+                Instant now)
+        {
+            byPath.values().removeIf(lease -> !lease.isActiveAt(now));
+            if (byPath.containsKey(requested.worktreePath())
+                    || byPath.values().stream().anyMatch(
+                            lease -> lease.taskId().equals(requested.taskId()))) {
+                return Optional.empty();
+            }
+            byPath.put(requested.worktreePath(), requested);
+            return Optional.of(requested);
+        }
+
+        @Override
+        public synchronized Optional<WorktreeWriterLeaseManager.Lease> findExact(
+                WorktreeWriterLeaseManager.Lease expected,
+                Instant now)
+        {
+            return Optional.ofNullable(byPath.get(expected.worktreePath()))
+                    .filter(expected::sameIdentity);
+        }
+
+        @Override
+        public synchronized Optional<WorktreeWriterLeaseManager.Lease> heartbeat(
+                WorktreeWriterLeaseManager.Lease expected,
+                Instant heartbeatAt,
+                Instant expiresAt)
+        {
+            WorktreeWriterLeaseManager.Lease current = byPath.get(
+                    expected.worktreePath());
+            if (current == null
+                    || !expected.sameIdentity(current)
+                    || !current.isActiveAt(heartbeatAt)
+                    || !expiresAt.isAfter(heartbeatAt)) {
+                return Optional.empty();
+            }
+            WorktreeWriterLeaseManager.Lease updated =
+                    new WorktreeWriterLeaseManager.Lease(
+                            current.worktreePath(),
+                            current.taskId(),
+                            current.operationId(),
+                            current.taskEpoch(),
+                            current.fencingToken(),
+                            current.leaseOwner(),
+                            current.acquiredAt(),
+                            expiresAt);
+            byPath.put(updated.worktreePath(), updated);
+            heartbeats++;
+            return Optional.of(updated);
+        }
+
+        @Override
+        public synchronized boolean release(
+                WorktreeWriterLeaseManager.Lease expected,
+                Instant releasedAt)
+        {
+            if (failNextRelease) {
+                failNextRelease = false;
+                throw new IllegalStateException("test release failed");
+            }
+            WorktreeWriterLeaseManager.Lease current = byPath.get(
+                    expected.worktreePath());
+            if (current != null && expected.sameIdentity(current)) {
+                byPath.remove(expected.worktreePath());
+            }
+            return true;
+        }
+
+        synchronized int heartbeatCount()
+        {
+            return heartbeats;
+        }
+
+        synchronized void failNextRelease()
+        {
+            failNextRelease = true;
+        }
+    }
+
     static final class TicketStore
             implements ExecutionPorts.DispatchTicketStore
     {

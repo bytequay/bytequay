@@ -41,6 +41,9 @@ class WorktreeLeaseEntity
     @Column(name = "expires_at_ms")
     private Long expiresAtMs;
 
+    @Column(name = "workflow_version", nullable = false)
+    private String workflowVersion = "LEGACY";
+
     String getWorktreePath() { return worktreePath; }
     void setWorktreePath(String worktreePath) { this.worktreePath = worktreePath; }
 
@@ -58,4 +61,7 @@ class WorktreeLeaseEntity
 
     Long getExpiresAtMs() { return expiresAtMs; }
     void setExpiresAtMs(Long expiresAtMs) { this.expiresAtMs = expiresAtMs; }
+
+    String getWorkflowVersion() { return workflowVersion; }
+    void setWorkflowVersion(String workflowVersion) { this.workflowVersion = workflowVersion; }
 }

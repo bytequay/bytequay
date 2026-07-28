@@ -31,6 +31,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.VALIDATION;
@@ -948,6 +949,69 @@ class TestExecutionDispatcher
 
             assertThat(staleRejections).hasValue(1);
             assertThat(fixture.ticket("expiring-writer").state()).isEqualTo(RUNNING);
+        }
+    }
+
+    @Test
+    void dispatcherHeartbeatsAndReleasesRegisteredWorktreeLease()
+            throws Exception
+    {
+        ExecutorService operations = Executors.newSingleThreadExecutor();
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try (Fixture fixture = fixture(operations, 4)) {
+            InMemoryExecutionSupport.WorktreeStore worktrees =
+                    new InMemoryExecutionSupport.WorktreeStore();
+            WorktreeWriterLeaseManager writers = new WorktreeWriterLeaseManager(
+                    worktrees, fixture.clock);
+            AtomicReference<WorktreeWriterLeaseManager.Lease> held =
+                    new AtomicReference<>();
+            fixture.handlers.put("registered-writer", new ExecutionPorts.OperationHandler()
+            {
+                @Override
+                public DispatchTicket.DispatchResult execute(ExecutionContext context)
+                        throws Exception
+                {
+                    held.set(writers.acquire(context, "/tmp/registered-writer"));
+                    started.countDown();
+                    if (!release.await(2, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("test writer did not resume");
+                    }
+                    writers.authorizeMutation(context, held.get())
+                            .run(fence -> {
+                                assertThat(fence.worktreePath())
+                                        .isEqualTo("/tmp/registered-writer");
+                                return null;
+                            });
+                    return result(context, "done");
+                }
+            });
+            fixture.put(requested(
+                    "registered-writer", "registered-writer", LOCAL_GIT, true));
+
+            fixture.dispatcher.runMaintenance();
+            assertThat(started.await(2, TimeUnit.SECONDS)).isTrue();
+            Instant firstExpiry = held.get().expiresAt();
+
+            fixture.clock.advance(Duration.ofSeconds(5));
+            fixture.dispatcher.runMaintenance();
+
+            assertThat(worktrees.heartbeatCount()).isEqualTo(1);
+            assertThat(worktrees.findExact(held.get(), fixture.clock.instant()))
+                    .get()
+                    .extracting(WorktreeWriterLeaseManager.Lease::expiresAt)
+                    .isEqualTo(firstExpiry.plusSeconds(5));
+
+            worktrees.failNextRelease();
+            release.countDown();
+            operations.submit(() -> {}).get(2, TimeUnit.SECONDS);
+
+            assertThat(worktrees.findExact(held.get(), fixture.clock.instant())).isEmpty();
+            assertThat(fixture.ticket("registered-writer").state())
+                    .isEqualTo(RESULT_PENDING);
+        }
+        finally {
+            release.countDown();
         }
     }
 

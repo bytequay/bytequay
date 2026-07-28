@@ -86,6 +86,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -1137,6 +1138,54 @@ class TestAgentScheduler
             capacity.manager().release(lease.id(), "dispatcher");
         }
         assertThat(capacity.store().activeCount(capacity.clock().instant())).isZero();
+    }
+
+    @Test
+    void policyIncreaseWakesADeniedDurableTurnWithoutALeaseRelease()
+    {
+        InMemoryExecutionSupport.MutableClock clock =
+                new InMemoryExecutionSupport.MutableClock(
+                        Instant.parse("2026-07-28T00:00:00Z"));
+        InMemoryExecutionSupport.CapacityStore store =
+                new InMemoryExecutionSupport.CapacityStore();
+        AtomicReference<CapacityManager.CapacityPolicy> policy = new AtomicReference<>(
+                CapacityManager.CapacityPolicy.initial(4, 1, Map.of()));
+        CapacityManager manager = new CapacityManager(
+                store, policy::get, clock, Duration.ofSeconds(30));
+        LegacyCapacityBridge bridge = new LegacyCapacityBridge(manager);
+        Thread thread = thread("policy-wake-thread", CLI_AGENT);
+        CapacityManager.CapacityRequest occupiedRequest = new CapacityManager.CapacityRequest(
+                "v2-occupied",
+                CapacityManager.WorkflowSource.V2,
+                Set.of(CapacityManager.CapacityLane.CLI),
+                new CapacityManager.CapacityScope(
+                        "ws-default", thread.id(), "v2-task", 1L),
+                false,
+                true,
+                true);
+        CapacityManager.CapacityLease occupied = manager.tryAcquireForTicket(
+                "v2-ticket", occupiedRequest, "dispatcher").lease().orElseThrow();
+        TestHarness harness = new TestHarness(4, 6, bridge, true);
+        RecordingSession session = harness.register(thread);
+        harness.tasks.setThreadId("legacy-task", thread.id());
+
+        String waiting = harness.scheduler.enqueueTaskTurn(
+                thread, "wait for policy", "legacy-task");
+        assertThat(harness.turns.findTurnById(waiting).orElseThrow().status())
+                .isEqualTo(QUEUED);
+        assertThat(session.inputs).isEmpty();
+
+        policy.set(CapacityManager.CapacityPolicy.initial(4, 2, Map.of()));
+        manager.policyChanged();
+
+        assertThat(harness.turns.findTurnById(waiting).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(session.inputs).containsExactly("wait for policy");
+        assertThat(store.activeCount(clock.instant())).isEqualTo(2);
+
+        session.completeNext();
+        manager.release(occupied.id(), "dispatcher");
+        assertThat(store.activeCount(clock.instant())).isZero();
     }
 
     @Test

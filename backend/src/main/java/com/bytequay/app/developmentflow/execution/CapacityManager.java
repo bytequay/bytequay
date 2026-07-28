@@ -273,6 +273,16 @@ public final class CapacityManager
     }
 
     /**
+     * Wakes durable waiters after an admission-policy write. No lease is
+     * changed here; each waiter re-reads the authoritative policy before it
+     * attempts admission, so this is only a best-effort liveness hint.
+     */
+    public void policyChanged()
+    {
+        signalCapacityAvailable();
+    }
+
+    /**
      * Registers a best-effort in-process wake hint. Durable queues remain
      * authoritative; listener failures never fail lease release.
      */

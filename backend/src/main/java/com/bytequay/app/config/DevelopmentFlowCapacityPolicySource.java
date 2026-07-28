@@ -30,25 +30,28 @@ final class DevelopmentFlowCapacityPolicySource
     private final ThreadSettingsStore settings;
     private final int defaultWorkspaceLimit;
     private final int defaultTrunkLimit;
+    private final Map<CapacityManager.CapacityLane, Integer> laneLimits;
 
     DevelopmentFlowCapacityPolicySource(
             ThreadStore threads,
             ThreadSettingsStore settings,
             int defaultWorkspaceLimit,
-            int defaultTrunkLimit)
+            int defaultTrunkLimit,
+            Map<CapacityManager.CapacityLane, Integer> laneLimits)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.defaultWorkspaceLimit = positive(
                 defaultWorkspaceLimit, "defaultWorkspaceLimit");
         this.defaultTrunkLimit = positive(defaultTrunkLimit, "defaultTrunkLimit");
+        this.laneLimits = Map.copyOf(requireNonNull(laneLimits, "laneLimits is null"));
     }
 
     @Override
     public CapacityManager.CapacityPolicy current()
     {
         return CapacityManager.CapacityPolicy.initial(
-                defaultWorkspaceLimit, defaultTrunkLimit, Map.of());
+                defaultWorkspaceLimit, defaultTrunkLimit, laneLimits);
     }
 
     @Override

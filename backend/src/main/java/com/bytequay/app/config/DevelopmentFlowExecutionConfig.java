@@ -28,6 +28,15 @@ import org.springframework.context.annotation.Configuration;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.Map;
+
+import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.CLEANUP;
+import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.GITHUB;
+import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
+import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.MERGE;
+import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.REMOTE_OBSERVATION;
+import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.REVIEW;
+import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.VALIDATION;
 
 /**
  * Shared capacity wiring is always active during LEGACY/V2 coexistence.
@@ -44,10 +53,29 @@ public class DevelopmentFlowExecutionConfig
             @Value("${bytequay.development-flow.capacity.default-workspace-running-tasks:4}")
             int defaultWorkspaceLimit,
             @Value("${bytequay.development-flow.capacity.default-trunk-running-tasks:4}")
-            int defaultTrunkLimit)
+            int defaultTrunkLimit,
+            @Value("${bytequay.development-flow.capacity.validation:4}") int validationLimit,
+            @Value("${bytequay.development-flow.capacity.review:6}") int reviewLimit,
+            @Value("${bytequay.development-flow.capacity.local-git:4}") int localGitLimit,
+            @Value("${bytequay.development-flow.capacity.github:6}") int githubLimit,
+            @Value("${bytequay.development-flow.capacity.remote-observation:8}")
+            int remoteObservationLimit,
+            @Value("${bytequay.development-flow.capacity.merge:2}") int mergeLimit,
+            @Value("${bytequay.development-flow.capacity.cleanup:4}") int cleanupLimit)
     {
         return new DevelopmentFlowCapacityPolicySource(
-                threads, settings, defaultWorkspaceLimit, defaultTrunkLimit);
+                threads,
+                settings,
+                defaultWorkspaceLimit,
+                defaultTrunkLimit,
+                Map.of(
+                        VALIDATION, validationLimit,
+                        REVIEW, reviewLimit,
+                        LOCAL_GIT, localGitLimit,
+                        GITHUB, githubLimit,
+                        REMOTE_OBSERVATION, remoteObservationLimit,
+                        MERGE, mergeLimit,
+                        CLEANUP, cleanupLimit));
     }
 
     @Bean

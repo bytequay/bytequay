@@ -30,6 +30,7 @@ public final class ExecutionContext
     private final String executionId;
     private final Clock clock;
     private final Supplier<CapacityManager.CapacityLease> exactLeaseSupplier;
+    private WriterResource writerResource;
 
     ExecutionContext(
             DispatchTicket.DispatchEnvelope envelope,
@@ -65,6 +66,16 @@ public final class ExecutionContext
 
     public long requireWriterFencingToken()
     {
+        return requireWriterCapacityLease().writerFencingToken();
+    }
+
+    /**
+     * Revalidates and returns the exact live writer CapacityLease. Mutating
+     * adapters must use this boundary instead of trusting the launch-time
+     * snapshot returned by {@link #capacityLease()}.
+     */
+    public CapacityManager.CapacityLease requireWriterCapacityLease()
+    {
         if (!envelope.capacityRequest().writerRequired()) {
             throw new IllegalStateException(
                     "operation does not hold an exact writer fencing token");
@@ -75,7 +86,37 @@ public final class ExecutionContext
             throw new IllegalStateException(
                     "operation does not hold an exact writer fencing token");
         }
-        return liveLease.writerFencingToken();
+        return liveLease;
+    }
+
+    synchronized void registerWriterResource(Runnable heartbeat, Runnable release)
+    {
+        WriterResource resource = new WriterResource(
+                requireNonNull(heartbeat, "heartbeat is null"),
+                requireNonNull(release, "release is null"));
+        if (writerResource != null) {
+            throw new IllegalStateException(
+                    "one worktree writer lease is already registered");
+        }
+        writerResource = resource;
+    }
+
+    synchronized void heartbeatWriterResource()
+    {
+        if (writerResource != null) {
+            writerResource.heartbeat().run();
+        }
+    }
+
+    synchronized void closeWriterResource()
+    {
+        if (writerResource != null) {
+            // Clear only after the exact release succeeds so a transient store
+            // failure can be retried. The durable expiry fence remains the
+            // final recovery path if the process dies before retrying.
+            writerResource.release().run();
+            writerResource = null;
+        }
     }
 
     public boolean isCancellationRequested()
@@ -186,6 +227,15 @@ public final class ExecutionContext
                     stopFailure.compareAndSet(null, e);
                 }
             }
+        }
+    }
+
+    private record WriterResource(Runnable heartbeat, Runnable release)
+    {
+        private WriterResource
+        {
+            requireNonNull(heartbeat, "heartbeat is null");
+            requireNonNull(release, "release is null");
         }
     }
 }

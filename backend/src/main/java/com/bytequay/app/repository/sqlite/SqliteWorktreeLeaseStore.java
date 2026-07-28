@@ -16,6 +16,7 @@ package com.bytequay.app.repository.sqlite;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.WorktreeLeaseStore;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +30,8 @@ import static java.util.Objects.requireNonNull;
 class SqliteWorktreeLeaseStore
         implements WorktreeLeaseStore
 {
+    private static final String LEGACY = "LEGACY";
+
     private final WorktreeLeaseJpaRepository leases;
 
     SqliteWorktreeLeaseStore(WorktreeLeaseJpaRepository leases)
@@ -42,12 +45,17 @@ class SqliteWorktreeLeaseStore
     {
         WorktreeLeaseEntity entity = leases.findById(lease.worktreePath())
                 .orElseGet(WorktreeLeaseEntity::new);
+        if (!LEGACY.equals(entity.getWorkflowVersion())) {
+            throw new DataIntegrityViolationException(
+                    "V2 worktree lease is owned by the V2 writer boundary");
+        }
         entity.setWorktreePath(lease.worktreePath());
         entity.setTaskId(lease.taskId());
         entity.setAgentKind(lease.agentKind().name());
         entity.setHolderPid(lease.holderPid());
         entity.setAcquiredAtMs(lease.acquiredAt().toEpochMilli());
         entity.setExpiresAtMs(Timestamps.epochMilli(lease.expiresAt()));
+        entity.setWorkflowVersion(LEGACY);
         leases.save(entity);
     }
 
@@ -60,7 +68,7 @@ class SqliteWorktreeLeaseStore
     @Override
     public List<WorktreeLease> listForTask(String taskId)
     {
-        return leases.findByTaskId(taskId).stream()
+        return leases.findByTaskIdAndWorkflowVersion(taskId, LEGACY).stream()
                 .map(SqliteWorktreeLeaseStore::toDomain)
                 .toList();
     }
@@ -68,7 +76,7 @@ class SqliteWorktreeLeaseStore
     @Override
     public List<WorktreeLease> listAll()
     {
-        return leases.findAll().stream()
+        return leases.findByWorkflowVersion(LEGACY).stream()
                 .map(SqliteWorktreeLeaseStore::toDomain)
                 .toList();
     }
@@ -77,9 +85,7 @@ class SqliteWorktreeLeaseStore
     @Transactional
     public void releaseByWorktreePath(String worktreePath)
     {
-        if (leases.existsById(worktreePath)) {
-            leases.deleteById(worktreePath);
-        }
+        leases.deleteByWorktreePathAndWorkflowVersion(worktreePath, LEGACY);
     }
 
     private static WorktreeLease toDomain(WorktreeLeaseEntity e)

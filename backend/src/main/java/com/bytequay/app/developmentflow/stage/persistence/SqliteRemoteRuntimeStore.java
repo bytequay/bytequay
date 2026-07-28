@@ -1007,7 +1007,8 @@ public class SqliteRemoteRuntimeStore
                 SELECT id, remote_development_stage_id, task_id, task_epoch,
                        stage_generation, remote_pr_binding_id,
                        source_snapshot_id, old_head_sha, observed_base_sha,
-                       target_base_sha, policy_source, status, attempt_count,
+                       target_base_sha, branch_sync_policy_revision_id,
+                       policy_source, status, attempt_count,
                        attempt_limit, result_head_sha, result_snapshot_id,
                        opened_at_ms, completed_at_ms, error_message
                 FROM branch_sync_episode
@@ -1023,7 +1024,8 @@ public class SqliteRemoteRuntimeStore
                 SELECT id, remote_development_stage_id, task_id, task_epoch,
                        stage_generation, remote_pr_binding_id,
                        source_snapshot_id, old_head_sha, observed_base_sha,
-                       target_base_sha, policy_source, status, attempt_count,
+                       target_base_sha, branch_sync_policy_revision_id,
+                       policy_source, status, attempt_count,
                        attempt_limit, result_head_sha, result_snapshot_id,
                        opened_at_ms, completed_at_ms, error_message
                 FROM branch_sync_episode WHERE id = ?
@@ -1035,6 +1037,7 @@ public class SqliteRemoteRuntimeStore
             RemoteContext context,
             String commandId,
             String targetBaseSha,
+            String policyRevisionId,
             String policySource,
             int attemptLimit,
             Instant at)
@@ -1049,8 +1052,8 @@ public class SqliteRemoteRuntimeStore
                 "Branch sync requires an accepted Remote snapshot");
         return insertBranchEpisode(
                 context, commandId, sourceSnapshotId, context.headSha(),
-                context.baseSha(), targetBaseSha, policySource, attemptLimit,
-                at);
+                context.baseSha(), targetBaseSha, policyRevisionId,
+                policySource, attemptLimit, at);
     }
 
     /**
@@ -1061,6 +1064,7 @@ public class SqliteRemoteRuntimeStore
     public BranchEpisode insertObservedBranchEpisode(
             RemoteContext context,
             String commandId,
+            String policyRevisionId,
             String policySource,
             int attemptLimit,
             Instant at)
@@ -1068,6 +1072,7 @@ public class SqliteRemoteRuntimeStore
         requireTransaction();
         requireNonNull(context, "context is null");
         requireNonNull(commandId, "commandId is null");
+        requireNonNull(policyRevisionId, "policyRevisionId is null");
         requireNonNull(policySource, "policySource is null");
         if (attemptLimit < 1) {
             throw new IllegalArgumentException("attemptLimit must be positive");
@@ -1079,7 +1084,7 @@ public class SqliteRemoteRuntimeStore
                 "Branch sync requires an accepted Remote snapshot");
         return insertBranchEpisode(
                 context, commandId, sourceSnapshotId, context.headSha(),
-                context.baseSha(), context.baseSha(), policySource,
+                context.baseSha(), context.baseSha(), policyRevisionId, policySource,
                 attemptLimit, at);
     }
 
@@ -1090,6 +1095,7 @@ public class SqliteRemoteRuntimeStore
             String oldHeadSha,
             String observedBaseSha,
             String targetBaseSha,
+            String policyRevisionId,
             String policySource,
             int attemptLimit,
             Instant at)
@@ -1100,13 +1106,14 @@ public class SqliteRemoteRuntimeStore
                     id, remote_development_stage_id, task_id, task_epoch,
                     stage_generation, remote_pr_binding_id, source_snapshot_id,
                     old_head_sha, observed_base_sha, target_base_sha,
-                    policy_source, status, attempt_limit, opened_at_ms)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
+                    branch_sync_policy_revision_id, policy_source, status,
+                    attempt_limit, opened_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
                 """, episodeId, context.stageId(), context.taskId(),
                 context.taskEpoch(), context.stageGeneration(),
                 context.remotePrBindingId(), sourceSnapshotId, oldHeadSha,
-                observedBaseSha, targetBaseSha, policySource, attemptLimit,
-                at.toEpochMilli());
+                observedBaseSha, targetBaseSha, policyRevisionId, policySource,
+                attemptLimit, at.toEpochMilli());
         List<String> kinds = List.of(
                 "FETCH_COMPARE", "MECHANICAL_REBASE", "CONFLICT_REPAIR",
                 "VALIDATE", "BRAIN_REVIEW", "FORCE_WITH_LEASE_PUSH");
@@ -1631,6 +1638,7 @@ public class SqliteRemoteRuntimeStore
                 rs.getString("old_head_sha"),
                 rs.getString("observed_base_sha"),
                 rs.getString("target_base_sha"),
+                rs.getString("branch_sync_policy_revision_id"),
                 rs.getString("policy_source"), rs.getString("status"),
                 rs.getInt("attempt_count"), rs.getInt("attempt_limit"),
                 rs.getString("result_head_sha"),
@@ -2033,6 +2041,7 @@ public class SqliteRemoteRuntimeStore
             String oldHeadSha,
             String observedBaseSha,
             String targetBaseSha,
+            String policyRevisionId,
             String policySource,
             String status,
             int attemptCount,

@@ -21,6 +21,8 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeSto
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.BranchStep;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.EffectDeliveryReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.RemoteContext;
+import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
+import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager.Policy;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -49,6 +51,7 @@ public final class BranchSyncRuntimeCoordinator
 
     private final TaskCommandExecutor commands;
     private final SqliteRemoteRuntimeStore store;
+    private final V2BranchSyncPolicyManager policies;
     private final ConflictRepairPort conflicts;
     private final BrainReviewPort brainReview;
     private final boolean requireBrainReview;
@@ -59,6 +62,7 @@ public final class BranchSyncRuntimeCoordinator
     public BranchSyncRuntimeCoordinator(
             TaskCommandExecutor commands,
             SqliteRemoteRuntimeStore store,
+            V2BranchSyncPolicyManager policies,
             ConflictRepairPort conflicts,
             BrainReviewPort brainReview,
             boolean requireBrainReview,
@@ -67,6 +71,7 @@ public final class BranchSyncRuntimeCoordinator
     {
         this.commands = requireNonNull(commands, "commands is null");
         this.store = requireNonNull(store, "store is null");
+        this.policies = requireNonNull(policies, "policies is null");
         this.conflicts = requireNonNull(conflicts, "conflicts is null");
         this.brainReview = requireNonNull(brainReview, "brainReview is null");
         this.requireBrainReview = requireBrainReview;
@@ -80,21 +85,14 @@ public final class BranchSyncRuntimeCoordinator
             String taskId,
             String stageId,
             String commandId,
-            String targetBaseSha,
-            String policySource,
-            int attemptLimit)
+            String targetBaseSha)
     {
         requireText(taskId, "taskId");
         requireText(stageId, "stageId");
         requireText(commandId, "commandId");
         requireText(targetBaseSha, "targetBaseSha");
-        requireText(policySource, "policySource");
-        if (attemptLimit < 1) {
-            throw new IllegalArgumentException("attemptLimit must be positive");
-        }
         return commands.execute(taskId, () -> startInCommand(
-                taskId, stageId, commandId, targetBaseSha, policySource,
-                attemptLimit));
+                taskId, stageId, commandId, targetBaseSha));
     }
 
     /** Starts branch sync while the caller owns the Task command. */
@@ -102,18 +100,12 @@ public final class BranchSyncRuntimeCoordinator
             String taskId,
             String stageId,
             String commandId,
-            String targetBaseSha,
-            String policySource,
-            int attemptLimit)
+            String targetBaseSha)
     {
         requireText(taskId, "taskId");
         requireText(stageId, "stageId");
         requireText(commandId, "commandId");
         requireText(targetBaseSha, "targetBaseSha");
-        requireText(policySource, "policySource");
-        if (attemptLimit < 1) {
-            throw new IllegalArgumentException("attemptLimit must be positive");
-        }
         TaskCommandExecutor.requireCurrent(taskId);
         String episodeId = PlanRuntimeCoordinator.id(
                 "branch-sync-episode", commandId);
@@ -122,13 +114,15 @@ public final class BranchSyncRuntimeCoordinator
         if (duplicate != null) {
             if (!taskId.equals(duplicate.taskId())
                     || !stageId.equals(duplicate.stageId())
-                    || !targetBaseSha.equals(duplicate.targetBaseSha())
-                    || !policySource.equals(duplicate.policySource())
-                    || attemptLimit != duplicate.attemptLimit()) {
+                    || !targetBaseSha.equals(duplicate.targetBaseSha())) {
                 throw new IllegalArgumentException(
                         "Branch sync command was already used with other values");
             }
             return duplicate;
+        }
+        Policy policy = policies.armOnFirstPushInCommand(taskId);
+        if (!policy.enabled()) {
+            throw new IllegalStateException("Branch sync policy is disabled");
         }
         if (store.findLiveBranchEpisode(stageId).isPresent()) {
             throw new IllegalStateException(
@@ -141,8 +135,8 @@ public final class BranchSyncRuntimeCoordinator
         }
         Instant now = clock.instant();
         BranchEpisode episode = store.insertBranchEpisode(
-                context, commandId, targetBaseSha, policySource,
-                attemptLimit, now);
+                context, commandId, targetBaseSha, policy.id(), policy.source(),
+                policy.attemptLimit(), now);
         schedule(context, episode, 1, null,
                 episode.oldHeadSha(), episode.observedBaseSha(), now);
         return store.findBranchEpisode(episode.id()).orElseThrow();
@@ -178,6 +172,11 @@ public final class BranchSyncRuntimeCoordinator
                     != RemoteObservationOperationHandler.PrState.DRAFT) {
             return;
         }
+        Policy policy = policies.armOnFirstPushInCommand(
+                candidate.context().taskId());
+        if (!policy.enabled()) {
+            return;
+        }
         if (!Objects.equals(candidate.context().currentHeadSha(),
                     candidate.evidence().headSha())
                 || Objects.equals(candidate.context().currentBaseSha(),
@@ -196,8 +195,8 @@ public final class BranchSyncRuntimeCoordinator
                 "branch-sync-observation-command",
                 candidate.evidence().snapshotId());
         BranchEpisode started = store.insertObservedBranchEpisode(
-                current, commandId, "REMOTE_BASE_ADVANCED", 3,
-                clock.instant());
+                current, commandId, policy.id(), policy.source(),
+                policy.attemptLimit(), clock.instant());
         schedule(current, started, 1, null, code.headSha(), code.baseSha(),
                 clock.instant());
     }

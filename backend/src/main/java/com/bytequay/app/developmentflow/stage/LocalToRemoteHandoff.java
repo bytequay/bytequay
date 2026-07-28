@@ -16,6 +16,7 @@ package com.bytequay.app.developmentflow.stage;
 import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
 import java.util.Optional;
@@ -29,17 +30,21 @@ public final class LocalToRemoteHandoff
     private final LocalDevelopmentStageManager local;
     private final TaskManager tasks;
     private final RemoteDevelopmentStageManager remote;
+    private final V2BranchSyncPolicyManager branchSyncPolicy;
 
     public LocalToRemoteHandoff(
             TaskCommandExecutor commands,
             LocalDevelopmentStageManager local,
             TaskManager tasks,
-            RemoteDevelopmentStageManager remote)
+            RemoteDevelopmentStageManager remote,
+            V2BranchSyncPolicyManager branchSyncPolicy)
     {
         this.commands = requireNonNull(commands, "commands is null");
         this.local = requireNonNull(local, "local is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.remote = requireNonNull(remote, "remote is null");
+        this.branchSyncPolicy = requireNonNull(
+                branchSyncPolicy, "branchSyncPolicy is null");
     }
 
     public Result accept(Command command)
@@ -64,6 +69,7 @@ public final class LocalToRemoteHandoff
                     CommandRejectedException.Reason.INVALID_STATE,
                     "Task authorized a Remote Stage that cannot open");
         }
+        branchSyncPolicy.armOnFirstPushInCommand(command.task().taskId());
         return new Result(
                 publication.stage(), Optional.of(opening.taskState()), Optional.of(remoteStage));
     }

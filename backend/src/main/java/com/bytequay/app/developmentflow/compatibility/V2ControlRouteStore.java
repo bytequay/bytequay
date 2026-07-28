@@ -31,6 +31,18 @@ public class V2ControlRouteStore
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
     }
 
+    public boolean isV2Task(String taskId)
+    {
+        if (taskId == null || taskId.isBlank()) {
+            return false;
+        }
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM tasks
+                WHERE id = ? AND workflow_version = 'V2'
+                """, Integer.class, taskId);
+        return count != null && count == 1;
+    }
+
     public Optional<String> taskForStage(String stageId)
     {
         if (stageId == null || stageId.isBlank()) {

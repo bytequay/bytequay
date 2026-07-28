@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.developmentflow.compatibility.V2BranchGuardProjection;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.stage.BranchSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.RemoteCiPolicy;
@@ -24,6 +25,7 @@ import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinato
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.CiBudgets;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore.ObservationRequest;
+import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -226,12 +228,14 @@ class TestRemoteObservationRuntime
 
         assertThatThrownBy(() -> runtime.branch().startInCommand(
                 "task-1", "remote-stage-1", "outside-command",
-                "base-2", "BASE_ADVANCED", 2))
+                "base-2"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("task command");
         runtime.branch().start(
                 "task-1", "remote-stage-1", "sync-command",
-                "base-2", "BASE_ADVANCED", 2);
+                "base-2");
+        assertThat(runtime.guardProjection().project("task-1").state())
+                .isEqualTo("fixing");
         deliverBranchEffect(
                 runtime, "FETCH_COMPARE", "head-1", "base-1", null,
                 RemoteEffectOperationHandler.Disposition.SUCCEEDED,
@@ -293,6 +297,138 @@ class TestRemoteObservationRuntime
         assertThat(runtime.jdbc().queryForObject(
                 "SELECT COUNT(*) FROM remote_head_evidence_invalidation",
                 Integer.class)).isEqualTo(5);
+        assertThat(runtime.guardProjection().project("task-1"))
+                .satisfies(guard -> {
+                    assertThat(guard.enabled()).isTrue();
+                    assertThat(guard.state()).isEqualTo("healthy");
+                    assertThat(guard.health().behindBy()).isZero();
+                    assertThat(guard.health().mergeable()).isTrue();
+                    assertThat(guard.health().checksGreen()).isTrue();
+                });
+    }
+
+    @Test
+    void firstAcceptedPushArmsTheDefaultPolicyExactlyOnce()
+            throws Exception
+    {
+        Runtime runtime = runtime();
+        assertThat(runtime.guardProjection().project("task-1").enabled()).isFalse();
+
+        deliverObservation(
+                runtime, "first-push-observation", "head-1", "base-1",
+                RemoteCiPolicy.CheckState.PASSED, 800);
+        deliverObservation(
+                runtime, "first-push-repeat", "head-1", "base-1",
+                RemoteCiPolicy.CheckState.PASSED, 900);
+
+        assertThat(runtime.policies().current("task-1"))
+                .satisfies(policy -> {
+                    assertThat(policy.enabled()).isTrue();
+                    assertThat(policy.source()).isEqualTo("FIRST_PUSH_DEFAULT");
+                    assertThat(policy.attemptLimit()).isEqualTo(3);
+                });
+        assertThat(runtime.jdbc().queryForObject("""
+                SELECT COUNT(*) FROM task_branch_sync_policy_revision
+                WHERE task_id = 'task-1'
+                """, Integer.class)).isOne();
+    }
+
+    @Test
+    void explicitDisableSurvivesRestartAndPreventsBaseDriftSync()
+            throws Exception
+    {
+        Runtime runtime = runtime();
+        runtime.policies().update("task-1", false, "nightly");
+        V2BranchSyncPolicyManager restarted = new V2BranchSyncPolicyManager(
+                new TaskCommandExecutor(
+                        new DataSourceTransactionManager(runtime.dataSource())),
+                runtime.jdbc(), Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThat(restarted.current("task-1").enabled()).isFalse();
+        assertThat(restarted.current("task-1").source())
+                .isEqualTo("USER_CONFIGURED");
+
+        deliverObservation(
+                runtime, "disabled-initial", "head-1", "base-1",
+                RemoteCiPolicy.CheckState.PASSED, 800);
+        deliverObservation(
+                runtime, "disabled-base-advance", "head-1", "base-2",
+                RemoteCiPolicy.CheckState.PASSED, 900);
+
+        assertThat(runtime.jdbc().queryForObject(
+                "SELECT COUNT(*) FROM branch_sync_episode", Integer.class))
+                .isZero();
+        assertThat(runtime.policies().current("task-1").enabled()).isFalse();
+        assertThat(runtime.jdbc().queryForObject("""
+                SELECT COUNT(*) FROM task_branch_sync_policy_revision
+                WHERE task_id = 'task-1'
+                """, Integer.class)).isOne();
+    }
+
+    @Test
+    void independentRemoteHeadMoveNeverStartsOrRewritesBranchSync()
+            throws Exception
+    {
+        Runtime runtime = runtime();
+        deliverObservation(
+                runtime, "head-move-initial", "head-1", "base-1",
+                RemoteCiPolicy.CheckState.PASSED, 800);
+
+        deliverObservation(
+                runtime, "independent-head-move", "head-2", "base-2",
+                RemoteCiPolicy.CheckState.PASSED, 900);
+
+        assertThat(runtime.jdbc().queryForObject(
+                "SELECT COUNT(*) FROM branch_sync_episode", Integer.class))
+                .isZero();
+        assertThat(runtime.jdbc().queryForObject(
+                "SELECT COUNT(*) FROM branch_sync_dispatch_operation",
+                Integer.class)).isZero();
+        assertThat(runtime.jdbc().queryForMap("""
+                SELECT head_sha, base_sha FROM task_current_code_subject_v230
+                WHERE task_id = 'task-1'
+                """))
+                .containsEntry("head_sha", "head-1")
+                .containsEntry("base_sha", "base-1");
+        assertThat(runtime.jdbc().queryForMap("""
+                SELECT current_head_sha, current_base_sha
+                FROM remote_development_stage
+                WHERE stage_id = 'remote-stage-1'
+                """))
+                .containsEntry("current_head_sha", "head-2")
+                .containsEntry("current_base_sha", "base-2");
+    }
+
+    @Test
+    void conflictAndFailureProjectWithoutMutatingLegacyGuardState()
+            throws Exception
+    {
+        Runtime runtime = runtime();
+        deliverObservation(
+                runtime, "projection-initial", "head-1", "base-1",
+                RemoteCiPolicy.CheckState.PASSED, 800);
+        runtime.branch().start(
+                "task-1", "remote-stage-1", "projection-conflict", "base-2");
+        deliverBranchEffect(
+                runtime, "FETCH_COMPARE", "head-1", "base-1", null,
+                RemoteEffectOperationHandler.Disposition.SUCCEEDED,
+                "head-1", "base-1");
+        deliverBranchEffect(
+                runtime, "MECHANICAL_REBASE", "head-1", "base-1", null,
+                RemoteEffectOperationHandler.Disposition.CONFLICT,
+                "head-1", "base-2");
+        assertThat(runtime.guardProjection().project("task-1").state())
+                .isEqualTo("conflicted");
+
+        runtime.jdbc().update("""
+                UPDATE branch_sync_episode
+                SET status = 'FAILED', completed_at_ms = 1100,
+                    error_message = 'repair failed'
+                WHERE status = 'CONFLICT_REPAIR'
+                """);
+        assertThat(runtime.guardProjection().project("task-1").state())
+                .isEqualTo("needs_attention");
+        assertThat(runtime.jdbc().queryForObject(
+                "SELECT COUNT(*) FROM branch_guard", Integer.class)).isZero();
     }
 
     @Test
@@ -310,14 +446,21 @@ class TestRemoteObservationRuntime
 
         assertThat(runtime.jdbc().queryForMap("""
                 SELECT source_snapshot_id, old_head_sha, observed_base_sha,
-                       target_base_sha, policy_source, status
+                       target_base_sha, branch_sync_policy_revision_id,
+                       policy_source, status
                 FROM branch_sync_episode
                 """))
                 .containsEntry("old_head_sha", "head-1")
                 .containsEntry("observed_base_sha", "base-2")
                 .containsEntry("target_base_sha", "base-2")
-                .containsEntry("policy_source", "REMOTE_BASE_ADVANCED")
+                .containsEntry("policy_source", "FIRST_PUSH_DEFAULT")
                 .containsEntry("status", "OPEN");
+        assertThat(runtime.jdbc().queryForObject("""
+                SELECT branch_sync_policy_revision_id IS NOT NULL
+                FROM branch_sync_episode
+                """, Boolean.class)).isTrue();
+        assertThat(runtime.guardProjection().project("task-1").state())
+                .isEqualTo("fixing");
         assertThat(runtime.jdbc().queryForMap("""
                 SELECT kind, expected_head_sha, expected_base_sha,
                        target_base_sha, status
@@ -459,7 +602,7 @@ class TestRemoteObservationRuntime
             insertRemoteOwner(connection, 1);
             insertCiPolicy(connection, 1);
         }
-        migrate(migrationUrl, "248");
+        migrate(migrationUrl, "264");
 
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(migrationUrl + "?foreign_keys=ON&busy_timeout=30000");
@@ -467,6 +610,8 @@ class TestRemoteObservationRuntime
         TaskCommandExecutor commands = new TaskCommandExecutor(
                 new DataSourceTransactionManager(dataSource));
         SqliteRemoteRuntimeStore store = new SqliteRemoteRuntimeStore(jdbc);
+        V2BranchSyncPolicyManager policies = new V2BranchSyncPolicyManager(
+                commands, jdbc, Clock.fixed(NOW, ZoneOffset.UTC));
         AtomicReference<RemoteObservationConsumer.Candidate> accepted =
                 new AtomicReference<>();
         RemoteCiRepairRuntimeCoordinator repair =
@@ -481,11 +626,8 @@ class TestRemoteObservationRuntime
                         },
                         new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
         BranchSyncRuntimeCoordinator branch = new BranchSyncRuntimeCoordinator(
-                commands, store,
-                (episode, result) -> {
-                    throw new AssertionError(
-                            "no-conflict sync must not start a StageTurn");
-                },
+                commands, store, policies,
+                (episode, result) -> {},
                 (episode, step, result) -> {
                     throw new AssertionError("Brain review is disabled");
                 },
@@ -502,7 +644,9 @@ class TestRemoteObservationRuntime
                 new RemoteObservationRuntimeCoordinator(
                         commands, store, consumer, json,
                         Clock.fixed(NOW, ZoneOffset.UTC));
-        return new Runtime(jdbc, json, coordinator, repair, branch, accepted);
+        return new Runtime(
+                dataSource, jdbc, json, coordinator, repair, branch, policies,
+                new V2BranchGuardProjection(jdbc), accepted);
     }
 
     private static void deliverObservation(
@@ -697,11 +841,14 @@ class TestRemoteObservationRuntime
     }
 
     private record Runtime(
+            SQLiteDataSource dataSource,
             JdbcTemplate jdbc,
             ObjectMapper json,
             RemoteObservationRuntimeCoordinator coordinator,
             RemoteCiRepairRuntimeCoordinator repair,
             BranchSyncRuntimeCoordinator branch,
+            V2BranchSyncPolicyManager policies,
+            V2BranchGuardProjection guardProjection,
             AtomicReference<RemoteObservationConsumer.Candidate> accepted) {}
 
     private record EffectOperation(

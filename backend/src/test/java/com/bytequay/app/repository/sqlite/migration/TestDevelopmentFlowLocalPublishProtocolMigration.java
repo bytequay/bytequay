@@ -16,9 +16,14 @@ package com.bytequay.app.repository.sqlite.migration;
 import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
+import com.bytequay.app.developmentflow.stage.RemoteMergeRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageManager;
+import com.bytequay.app.developmentflow.stage.V2PrRemoteControlService;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePublishResultStore;
+import com.bytequay.app.service.checks.CodeFingerprints;
+import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -28,6 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.sqlite.SQLiteDataSource;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -36,11 +42,76 @@ import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TestDevelopmentFlowLocalPublishProtocolMigration
 {
     @TempDir
     private Path tempDir;
+
+    @Test
+    void approveAndShipCreatesARealPublishGraphAcceptedByCurrentTriggers()
+            throws Exception
+    {
+        Path worktree = tempDir.resolve("worktree");
+        Files.createDirectories(worktree);
+        String url = migrated("approve-and-ship-runtime.db");
+        try (Connection connection = connect(url)) {
+            seedApprovedLocalSubject(connection, false, worktree.toString());
+        }
+        migrate(url, "250");
+
+        SQLiteDataSource dataSource = new SQLiteDataSource();
+        dataSource.setUrl(url);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(
+                new DataSourceTransactionManager(dataSource));
+        GitRunner git = mock(GitRunner.class);
+        CodeFingerprints fingerprints = mock(CodeFingerprints.class);
+        PatResolver pats = mock(PatResolver.class);
+        when(git.isGitWorkingTree(worktree)).thenReturn(true);
+        when(git.currentBranch(worktree)).thenReturn("dev/task-1");
+        when(git.headSha(worktree)).thenReturn("head-1");
+        when(git.statusPorcelainZ(worktree)).thenReturn("");
+        when(git.commitCountUniqueTo(worktree, "HEAD", "base-1")).thenReturn(1);
+        when(fingerprints.fingerprint(worktree)).thenReturn("fp-1");
+        when(pats.resolve("acme/widget")).thenReturn("token");
+
+        try (StageStores stores = stageStores(dataSource)) {
+            LocalDevelopmentStageManager local =
+                    new LocalDevelopmentStageManager(
+                            commands, stores.stage(), stores.evidence());
+            V2PrRemoteControlService controls = new V2PrRemoteControlService(
+                    jdbc, commands, local,
+                    mock(RemoteMergeRuntimeCoordinator.class),
+                    git, fingerprints, pats);
+
+            controls.approveAndShip("task-1", "pr-1", false);
+        }
+
+        assertThat(jdbc.queryForObject(
+                "SELECT status FROM publish_operation", String.class))
+                .isEqualTo("DISPATCHED");
+        assertThat(jdbc.queryForObject(
+                "SELECT checkpoint FROM stage WHERE id = 'local-stage-1'",
+                String.class)).isEqualTo("PUBLISHING");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM publish_effect_step", Integer.class))
+                .isEqualTo(6);
+        assertThat(jdbc.queryForObject(
+                "SELECT policy_revision_id FROM publish_authorization",
+                String.class)).isEqualTo("policy-1");
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM dispatch_ticket
+                WHERE operation_kind = 'PUBLISH_LOCAL_DEVELOPMENT'
+                  AND callback_route = 'STAGE_PUBLISH_RESULT'
+                  AND status = 'REQUESTED'
+                """, Integer.class)).isOne();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pragma_foreign_key_check",
+                Integer.class)).isZero();
+    }
 
     @Test
     void expiredPublishClaimCanOnlyBeRecoveredByProbeBeforeReexecution()
@@ -1444,7 +1515,14 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
     private static void seedApprovedLocalSubject(Connection connection, boolean fork)
             throws SQLException
     {
-        seedV2TaskAndLocalReport(connection, fork);
+        seedApprovedLocalSubject(connection, fork, "/tmp/task-1");
+    }
+
+    private static void seedApprovedLocalSubject(
+            Connection connection, boolean fork, String worktreePath)
+            throws SQLException
+    {
+        seedV2TaskAndLocalReport(connection, fork, worktreePath);
         execute(connection, """
                 INSERT INTO validation_operation(
                     id, local_development_stage_id, task_id, task_epoch,
@@ -1534,7 +1612,8 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                 """);
     }
 
-    private static void seedV2TaskAndLocalReport(Connection connection, boolean fork)
+    private static void seedV2TaskAndLocalReport(
+            Connection connection, boolean fork, String worktreePath)
             throws SQLException
     {
         String upstreamRepository = fork ? "'acme/widget'" : "NULL";
@@ -1596,8 +1675,8 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     status, created_at_ms)
                 VALUES ('provision-1', 'task-1', 1, 'assignment-1',
                     'provision-operation-1', 1, 'acme/widget', 'base-1',
-                    'dev/task-1', '/tmp/task-1', 'REQUESTED', 4)
-                """);
+                    'dev/task-1', '%s', 'REQUESTED', 4)
+                """.formatted(worktreePath));
         execute(connection, """
                 INSERT INTO dispatch_ticket(
                     id, operation_id, operation_kind, async_family,
@@ -1641,9 +1720,10 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     base_sha, local_head_sha, code_fingerprint,
                     created_at_ms, updated_at_ms)
                 VALUES ('task-1', 'provision-1', 'acme/widget', %s, '%s',
-                    'dev/task-1', '/tmp/task-1', 'base-1', 'base-1',
+                    'dev/task-1', '%s', 'base-1', 'base-1',
                     'fp-initial', 5, 5)
-                """.formatted(upstreamRepository, publishRepository));
+                """.formatted(
+                        upstreamRepository, publishRepository, worktreePath));
         execute(connection, """
                 INSERT INTO stage(
                     id, task_id, kind, generation, version, checkpoint, opened_at_ms)

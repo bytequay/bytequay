@@ -53,26 +53,19 @@ public final class CancellationToCleanupHandoff
                 source.sealForTaskCancellationInCommand(accepted);
         TaskManager.StageOpening opening =
                 tasks.acceptCancellationStageInCommand(accepted, sealed);
-        CommandResult<StageManager.State> waiting =
-                cleanup.openFromCancellationInCommand(opening);
-        TaskManager.AcceptedCleanupQuiescence quiescence =
-                tasks.acceptCanceledCleanupQuiescenceInCommand(accepted, opening);
-        CommandResult<StageManager.State> cleaning =
-                cleanup.acceptQuiescenceInCommand(quiescence);
-        return new Result(sealed.stage(), opening.taskState(), waiting, cleaning);
+        CommandResult<StageManager.State> waiting = cleanup.openFromCancellationInCommand(opening);
+        return new Result(sealed.stage(), opening.taskState(), waiting);
     }
 
     public record Result(
             CommandResult<StageManager.State> source,
             TaskManager.State task,
-            CommandResult<StageManager.State> cleanupWaiting,
             CommandResult<StageManager.State> cleanup)
     {
         public Result
         {
             requireNonNull(source, "source is null");
             requireNonNull(task, "task is null");
-            requireNonNull(cleanupWaiting, "cleanupWaiting is null");
             requireNonNull(cleanup, "cleanup is null");
         }
     }

@@ -192,6 +192,44 @@ public final class ExecutionPorts
                 DispatchTicket.OperationFence expectedFence,
                 DispatchTicket.DispatchResult rawResult)
                 throws Exception;
+
+        /**
+         * Runs only after the accepted receipt and terminal ticket committed.
+         * Domain finalizers use this boundary when their durable outcome must
+         * prove that delivery itself is complete. A failure is recovered by
+         * {@link #recoverCommittedDeliveries(int)}; it never rewinds a ticket.
+         */
+        default void afterDeliveryCommitted(
+                DispatchTicket.OwnerReference owner,
+                DispatchTicket.OperationFence expectedFence,
+                DispatchTicket.DispatchResult rawResult,
+                DispatchTicket.DeliveryReceipt receipt)
+                throws Exception {}
+
+        /** Restart backstop for a committed receipt whose finalizer did not run. */
+        default void recoverCommittedDeliveries(int limit)
+                throws Exception {}
+    }
+
+    /**
+     * The Operation deliberately parked without holding capacity. A durable
+     * owner decision or the supplied retry time must re-arm its ticket.
+     */
+    public static final class OperationDeferredException
+            extends Exception
+    {
+        private final Instant retryAt;
+
+        public OperationDeferredException(String message, Instant retryAt)
+        {
+            super(requireNonNull(message, "message is null"));
+            this.retryAt = retryAt;
+        }
+
+        public Instant retryAt()
+        {
+            return retryAt;
+        }
     }
 
     public interface ExecutionEvidencePort

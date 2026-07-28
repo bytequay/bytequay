@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,6 +37,14 @@ import static java.util.Objects.requireNonNull;
 public final class CapacityManager
 {
     private static final String UNSCOPED = "\u0000";
+    private static final Set<CapacityLane> TASK_EXCLUSIVE_LANES = Set.of(
+            CapacityLane.CLI,
+            CapacityLane.API,
+            CapacityLane.VALIDATION,
+            CapacityLane.LOCAL_GIT,
+            CapacityLane.GITHUB,
+            CapacityLane.MERGE,
+            CapacityLane.CLEANUP);
 
     private final CapacityLeaseStore store;
     private final CapacityPolicySource policies;
@@ -73,7 +82,41 @@ public final class CapacityManager
      * Tries every policy dimension before inserting a lease. A denial writes
      * nothing, so durable capacity waits hold neither a worker nor a lease.
      */
-    public synchronized Admission tryAcquire(CapacityRequest request, String leaseOwner)
+    public Admission tryAcquire(CapacityRequest request, String leaseOwner)
+    {
+        requireNonNull(request, "request is null");
+        if (request.source() != WorkflowSource.LEGACY) {
+            throw new IllegalArgumentException(
+                    "V2 capacity requires its exact DispatchTicket id");
+        }
+        return store.inAdmissionTransaction(
+                transaction -> tryAcquire(transaction, null, request, leaseOwner));
+    }
+
+    public Admission tryAcquireForTicket(
+            String ticketId,
+            CapacityRequest request,
+            String leaseOwner)
+    {
+        requireNonNull(ticketId, "ticketId is null");
+        requireNonNull(request, "request is null");
+        if (ticketId.isBlank()) {
+            throw new IllegalArgumentException("ticketId must not be blank");
+        }
+        if (request.source() != WorkflowSource.V2) {
+            throw new IllegalArgumentException(
+                    "DispatchTicket capacity requires a V2 request");
+        }
+        return store.inAdmissionTransaction(
+                transaction -> tryAcquire(
+                        transaction, ticketId, request, leaseOwner));
+    }
+
+    private Admission tryAcquire(
+            CapacityLeaseStore transaction,
+            String ticketId,
+            CapacityRequest request,
+            String leaseOwner)
     {
         requireNonNull(request, "request is null");
         requireNonNull(leaseOwner, "leaseOwner is null");
@@ -81,17 +124,17 @@ public final class CapacityManager
             throw new IllegalArgumentException("leaseOwner must not be blank");
         }
         Instant now = clock.instant();
-        Optional<CapacityLease> existing = store.findActiveByOperation(
+        Optional<CapacityLease> existing = transaction.findActiveByOperation(
                 request.operationId(), now);
         if (existing.isPresent()) {
-            if (existing.get().covers(request, leaseOwner)) {
+            if (existing.get().covers(ticketId, request, leaseOwner)) {
                 return Admission.admitted(existing.get());
             }
             return Admission.denied(Denial.OPERATION_ALREADY_LEASED);
         }
 
         CapacityPolicy policy = requireNonNull(policies.current(), "current policy is null");
-        List<CapacityLease> active = store.listActive(now);
+        List<CapacityLease> active = transaction.listActive(now);
 
         for (CapacityLane lane : request.lanes()) {
             Integer limit = policy.laneLimits().get(lane);
@@ -99,13 +142,25 @@ public final class CapacityManager
                 return Admission.denied(Denial.UNCONFIGURED_LANE);
             }
             int reserved = policy.reservedTrunkControl().getOrDefault(lane, 0);
-            int usable = request.trunkControl() ? limit : limit - reserved;
             long occupied = active.stream()
                     .filter(lease -> lease.lanes().contains(lane))
                     .count();
-            if (occupied >= usable) {
+            long ordinaryOccupied = active.stream()
+                    .filter(lease -> lease.lanes().contains(lane))
+                    .filter(lease -> !lease.trunkControl())
+                    .count();
+            if (occupied >= limit
+                    || (!request.trunkControl()
+                            && ordinaryOccupied >= limit - reserved)) {
                 return Admission.denied(Denial.LANE_LIMIT);
             }
+        }
+
+        String taskId = request.scope().taskId();
+        if (taskId != null && active.stream()
+                .filter(lease -> taskId.equals(lease.scope().taskId()))
+                .anyMatch(lease -> !lease.scope().equals(request.scope()))) {
+            return Admission.denied(Denial.TASK_SCOPE_CONFLICT);
         }
 
         if (addsExecutingTask(request, active)) {
@@ -127,11 +182,12 @@ public final class CapacityManager
 
         CapacityLeaseDraft draft = new CapacityLeaseDraft(
                 requireNonNull(idSupplier.get(), "generated lease id is null"),
+                ticketId,
                 request,
                 leaseOwner,
                 now,
                 now.plus(leaseDuration));
-        Optional<CapacityLease> created = store.create(draft);
+        Optional<CapacityLease> created = transaction.create(draft);
         return created.map(Admission::admitted)
                 .orElseGet(() -> Admission.denied(Denial.CONCURRENT_CONFLICT));
     }
@@ -159,8 +215,45 @@ public final class CapacityManager
         return List.copyOf(store.expire(clock.instant()));
     }
 
+    Duration leaseDuration()
+    {
+        return leaseDuration;
+    }
+
     /** Rejects adapter execution without the exact live lease. */
     public synchronized CapacityLease requireExactLease(
+            String leaseId,
+            CapacityRequest request,
+            String leaseOwner)
+    {
+        requireNonNull(request, "request is null");
+        if (request.source() != WorkflowSource.LEGACY) {
+            throw new IllegalArgumentException(
+                    "V2 capacity requires its exact DispatchTicket id");
+        }
+        return requireExactLease(null, leaseId, request, leaseOwner);
+    }
+
+    public synchronized CapacityLease requireExactLeaseForTicket(
+            String ticketId,
+            String leaseId,
+            CapacityRequest request,
+            String leaseOwner)
+    {
+        requireNonNull(ticketId, "ticketId is null");
+        requireNonNull(request, "request is null");
+        if (ticketId.isBlank()) {
+            throw new IllegalArgumentException("ticketId must not be blank");
+        }
+        if (request.source() != WorkflowSource.V2) {
+            throw new IllegalArgumentException(
+                    "DispatchTicket capacity requires a V2 request");
+        }
+        return requireExactLease(ticketId, leaseId, request, leaseOwner);
+    }
+
+    private CapacityLease requireExactLease(
+            String ticketId,
             String leaseId,
             CapacityRequest request,
             String leaseOwner)
@@ -171,7 +264,7 @@ public final class CapacityManager
         Instant now = clock.instant();
         CapacityLease lease = store.findById(leaseId)
                 .filter(candidate -> candidate.isActiveAt(now))
-                .filter(candidate -> candidate.covers(request, leaseOwner))
+                .filter(candidate -> candidate.covers(ticketId, request, leaseOwner))
                 .orElseThrow(() -> new IllegalStateException(
                         "missing or stale exact capacity lease for " + request.operationId()));
         if (request.writerRequired() && lease.writerFencingToken() == null) {
@@ -301,15 +394,52 @@ public final class CapacityManager
 
     public enum CapacityLane
     {
-        CLI,
-        API,
-        VALIDATION,
-        REVIEW,
-        LOCAL_GIT,
-        GITHUB,
-        REMOTE_OBSERVATION,
-        MERGE,
-        CLEANUP
+        CLI(1),
+        API(2),
+        VALIDATION(4),
+        REVIEW(8),
+        LOCAL_GIT(16),
+        GITHUB(32),
+        REMOTE_OBSERVATION(64),
+        MERGE(128),
+        CLEANUP(256);
+
+        private static final int ALL_BITS = 511;
+
+        private final int maskBit;
+
+        CapacityLane(int maskBit)
+        {
+            this.maskBit = maskBit;
+        }
+
+        public int maskBit()
+        {
+            return maskBit;
+        }
+
+        public static int toMask(Set<CapacityLane> lanes)
+        {
+            requireNonNull(lanes, "lanes is null");
+            if (lanes.isEmpty()) {
+                throw new IllegalArgumentException("at least one capacity lane is required");
+            }
+            return lanes.stream().mapToInt(CapacityLane::maskBit).reduce(0, (a, b) -> a | b);
+        }
+
+        public static Set<CapacityLane> fromMask(int mask)
+        {
+            if (mask < 1 || (mask & ~ALL_BITS) != 0) {
+                throw new IllegalArgumentException("invalid capacity lane mask: " + mask);
+            }
+            EnumSet<CapacityLane> lanes = EnumSet.noneOf(CapacityLane.class);
+            for (CapacityLane lane : values()) {
+                if ((mask & lane.maskBit) != 0) {
+                    lanes.add(lane);
+                }
+            }
+            return Set.copyOf(lanes);
+        }
     }
 
     public enum WorkflowSource
@@ -325,6 +455,7 @@ public final class CapacityManager
         WORKSPACE_LIMIT,
         TRUNK_LIMIT,
         TASK_MUTATION_LIMIT,
+        TASK_SCOPE_CONFLICT,
         OPERATION_ALREADY_LEASED,
         CONCURRENT_CONFLICT
     }
@@ -383,6 +514,10 @@ public final class CapacityManager
             if (trunkControl && scope.trunkId() == null) {
                 throw new IllegalArgumentException("Trunk control requires an exact Trunk");
             }
+            if (trunkControl && scope.taskId() != null) {
+                throw new IllegalArgumentException(
+                        "Trunk control must not consume Task capacity");
+            }
             if ((exclusiveTask || writerRequired) && scope.taskId() == null) {
                 throw new IllegalArgumentException(
                         "exclusive or writer work requires an exact Task");
@@ -390,11 +525,42 @@ public final class CapacityManager
             if (writerRequired && !exclusiveTask) {
                 throw new IllegalArgumentException("writer work must be Task-exclusive");
             }
+            if (lanes.contains(CapacityLane.REVIEW)) {
+                if (exclusiveTask || writerRequired || lanes.stream().anyMatch(
+                        lane -> lane != CapacityLane.REVIEW
+                                && lane != CapacityLane.CLI
+                                && lane != CapacityLane.API)) {
+                    throw new IllegalArgumentException(
+                            "REVIEW capacity is read-only and may use only CLI or API runners");
+                }
+            }
+            if (lanes.contains(CapacityLane.REMOTE_OBSERVATION)
+                    && (exclusiveTask || writerRequired || lanes.size() != 1)) {
+                throw new IllegalArgumentException(
+                        "REMOTE_OBSERVATION capacity is a read-only lane");
+            }
+            if (lanes.contains(CapacityLane.LOCAL_GIT) && !writerRequired) {
+                throw new IllegalArgumentException(
+                        "LOCAL_GIT work requires an exclusive writer lease");
+            }
+            if (lanes.contains(CapacityLane.VALIDATION) && !exclusiveTask) {
+                throw new IllegalArgumentException(
+                        "VALIDATION work requires the Task-exclusive lease");
+            }
+            if (scope.taskId() != null
+                    && !lanes.contains(CapacityLane.REVIEW)
+                    && !lanes.contains(CapacityLane.REMOTE_OBSERVATION)
+                    && lanes.stream().anyMatch(TASK_EXCLUSIVE_LANES::contains)
+                    && !exclusiveTask) {
+                throw new IllegalArgumentException(
+                        "Task-mutating capacity lane requires the exclusive Task lease");
+            }
         }
     }
 
     public record CapacityLeaseDraft(
             String id,
+            String ticketId,
             CapacityRequest request,
             String leaseOwner,
             Instant acquiredAt,
@@ -407,6 +573,15 @@ public final class CapacityManager
             requireNonNull(leaseOwner, "leaseOwner is null");
             requireNonNull(acquiredAt, "acquiredAt is null");
             requireNonNull(expiresAt, "expiresAt is null");
+            if (id.isBlank() || leaseOwner.isBlank()) {
+                throw new IllegalArgumentException(
+                        "lease id and owner must not be blank");
+            }
+            requireNonBlankIfPresent(ticketId, "ticketId");
+            if ((request.source() == WorkflowSource.V2) != (ticketId != null)) {
+                throw new IllegalArgumentException(
+                        "only V2 capacity has an exact DispatchTicket id");
+            }
             if (!expiresAt.isAfter(acquiredAt)) {
                 throw new IllegalArgumentException("lease expiry must follow acquisition");
             }
@@ -415,6 +590,7 @@ public final class CapacityManager
 
     public record CapacityLease(
             String id,
+            String ticketId,
             String operationId,
             WorkflowSource source,
             Set<CapacityLane> lanes,
@@ -427,7 +603,8 @@ public final class CapacityManager
             Instant acquiredAt,
             Instant heartbeatAt,
             Instant expiresAt,
-            Instant releasedAt)
+            Instant releasedAt,
+            String releaseReason)
     {
         public CapacityLease
         {
@@ -441,8 +618,39 @@ public final class CapacityManager
             requireNonNull(acquiredAt, "acquiredAt is null");
             requireNonNull(heartbeatAt, "heartbeatAt is null");
             requireNonNull(expiresAt, "expiresAt is null");
-            if (writerRequired && writerFencingToken == null) {
-                throw new IllegalArgumentException("writer lease requires a fencing token");
+            if (id.isBlank() || operationId.isBlank() || leaseOwner.isBlank()) {
+                throw new IllegalArgumentException(
+                        "lease identity fields must not be blank");
+            }
+            requireNonBlankIfPresent(ticketId, "ticketId");
+            requireNonBlankIfPresent(releaseReason, "releaseReason");
+            if ((source == WorkflowSource.V2) != (ticketId != null)) {
+                throw new IllegalArgumentException(
+                        "only V2 capacity has an exact DispatchTicket id");
+            }
+            if (lanes.isEmpty()) {
+                throw new IllegalArgumentException("capacity lease lanes must not be empty");
+            }
+            if (trunkControl && scope.taskId() != null) {
+                throw new IllegalArgumentException(
+                        "Trunk control must not consume Task capacity");
+            }
+            if (exclusiveTask && scope.taskId() == null) {
+                throw new IllegalArgumentException(
+                        "Task-exclusive lease requires an exact Task");
+            }
+            if ((releasedAt == null) != (releaseReason == null)) {
+                throw new IllegalArgumentException(
+                        "release time and reason must be supplied together");
+            }
+            if (!expiresAt.isAfter(acquiredAt)
+                    || heartbeatAt.isBefore(acquiredAt)) {
+                throw new IllegalArgumentException("lease timestamps are invalid");
+            }
+            if (writerRequired != (writerFencingToken != null)
+                    || (writerRequired && !exclusiveTask)) {
+                throw new IllegalArgumentException(
+                        "only an exclusive writer lease has a fencing token");
             }
         }
 
@@ -452,11 +660,15 @@ public final class CapacityManager
             return releasedAt == null && expiresAt.isAfter(instant);
         }
 
-        public boolean covers(CapacityRequest request, String expectedLeaseOwner)
+        public boolean covers(
+                String expectedTicketId,
+                CapacityRequest request,
+                String expectedLeaseOwner)
         {
             requireNonNull(request, "request is null");
             requireNonNull(expectedLeaseOwner, "expectedLeaseOwner is null");
-            return operationId.equals(request.operationId())
+            return Objects.equals(ticketId, expectedTicketId)
+                    && operationId.equals(request.operationId())
                     && source == request.source()
                     && lanes.equals(request.lanes())
                     && scope.equals(request.scope())
@@ -619,6 +831,13 @@ public final class CapacityManager
     /** Persistence only; callers must not make policy decisions here. */
     public interface CapacityLeaseStore
     {
+        /**
+         * Runs the complete admission read/check/insert under one database
+         * serialization boundary. A JDBC implementation must acquire its
+         * write transaction before the first callback read.
+         */
+        <T> T inAdmissionTransaction(Function<CapacityLeaseStore, T> work);
+
         List<CapacityLease> listActive(Instant now);
 
         Optional<CapacityLease> findActiveByOperation(String operationId, Instant now);

@@ -156,14 +156,50 @@ public final class BranchSyncRuntimeCoordinator
         BranchEpisode episode = store.findLiveBranchEpisode(
                         candidate.context().stageId())
                 .orElse(null);
-        if (episode == null || !"AWAITING_HEAD".equals(episode.status())) {
+        if (episode != null) {
+            if ("AWAITING_HEAD".equals(episode.status())
+                    && Objects.equals(
+                            episode.resultHeadSha(), candidate.evidence().headSha())
+                    && episode.targetBaseSha().equals(
+                            candidate.evidence().baseSha())) {
+                store.succeedBranchEpisode(
+                        episode, candidate.evidence().snapshotId(), clock.instant());
+            }
             return;
         }
-        if (Objects.equals(episode.resultHeadSha(), candidate.evidence().headSha())
-                && episode.targetBaseSha().equals(candidate.evidence().baseSha())) {
-            store.succeedBranchEpisode(
-                    episode, candidate.evidence().snapshotId(), clock.instant());
+
+        // A normal Remote observation is also the scheduled branch-guard
+        // probe. Start only for a pure base advance: an independently moved
+        // PR head must first be reconciled as external truth, never
+        // force-overwritten by an automatic rebase.
+        if (candidate.observation().prState()
+                    != RemoteObservationOperationHandler.PrState.OPEN
+                && candidate.observation().prState()
+                    != RemoteObservationOperationHandler.PrState.DRAFT) {
+            return;
         }
+        if (!Objects.equals(candidate.context().currentHeadSha(),
+                    candidate.evidence().headSha())
+                || Objects.equals(candidate.context().currentBaseSha(),
+                    candidate.evidence().baseSha())) {
+            return;
+        }
+        SqliteRemoteRuntimeStore.CodeSubject code = store.requireCodeSubject(
+                candidate.context().taskId());
+        if (!Objects.equals(code.headSha(), candidate.evidence().headSha())
+                || Objects.equals(code.baseSha(), candidate.evidence().baseSha())) {
+            return;
+        }
+        RemoteContext current = store.requireRemoteContext(
+                candidate.context().taskId(), candidate.context().stageId());
+        String commandId = PlanRuntimeCoordinator.id(
+                "branch-sync-observation-command",
+                candidate.evidence().snapshotId());
+        BranchEpisode started = store.insertObservedBranchEpisode(
+                current, commandId, "REMOTE_BASE_ADVANCED", 3,
+                clock.instant());
+        schedule(current, started, 1, null, code.headSha(), code.baseSha(),
+                clock.instant());
     }
 
     public DispatchTicket.DeliveryReceipt deliver(

@@ -102,6 +102,24 @@ public class SqliteRemoteRuntimeStore
         return context.withRequiredChecks(required);
     }
 
+    /** Local worktree subject used to fence an observation-driven rebase. */
+    public CodeSubject requireCodeSubject(String taskId)
+    {
+        List<CodeSubject> rows = jdbc.query("""
+                SELECT code_fingerprint, head_sha, base_sha
+                FROM task_current_code_subject_v230
+                WHERE task_id = ?
+                """, (rs, row) -> new CodeSubject(
+                        rs.getString("code_fingerprint"),
+                        rs.getString("head_sha"), rs.getString("base_sha")),
+                taskId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "Expected one current V2 code subject, found " + rows.size());
+        }
+        return rows.getFirst();
+    }
+
     public Optional<ObservationRequest> findLiveObservation(String stageId)
     {
         return jdbc.query("""
@@ -1029,6 +1047,53 @@ public class SqliteRemoteRuntimeStore
                 WHERE stage_id = ? AND accepted_snapshot_id IS NOT NULL
                 """, context.stageId(),
                 "Branch sync requires an accepted Remote snapshot");
+        return insertBranchEpisode(
+                context, commandId, sourceSnapshotId, context.headSha(),
+                context.baseSha(), targetBaseSha, policySource, attemptLimit,
+                at);
+    }
+
+    /**
+     * Starts from a just-accepted pure base advance. The accepted snapshot is
+     * the exact Remote subject; the first effect is separately fenced by the
+     * still-local code subject supplied by the coordinator.
+     */
+    public BranchEpisode insertObservedBranchEpisode(
+            RemoteContext context,
+            String commandId,
+            String policySource,
+            int attemptLimit,
+            Instant at)
+    {
+        requireTransaction();
+        requireNonNull(context, "context is null");
+        requireNonNull(commandId, "commandId is null");
+        requireNonNull(policySource, "policySource is null");
+        if (attemptLimit < 1) {
+            throw new IllegalArgumentException("attemptLimit must be positive");
+        }
+        String sourceSnapshotId = requireSingleString("""
+                SELECT accepted_snapshot_id FROM remote_development_stage
+                WHERE stage_id = ? AND accepted_snapshot_id IS NOT NULL
+                """, context.stageId(),
+                "Branch sync requires an accepted Remote snapshot");
+        return insertBranchEpisode(
+                context, commandId, sourceSnapshotId, context.headSha(),
+                context.baseSha(), context.baseSha(), policySource,
+                attemptLimit, at);
+    }
+
+    private BranchEpisode insertBranchEpisode(
+            RemoteContext context,
+            String commandId,
+            String sourceSnapshotId,
+            String oldHeadSha,
+            String observedBaseSha,
+            String targetBaseSha,
+            String policySource,
+            int attemptLimit,
+            Instant at)
+    {
         String episodeId = id("branch-sync-episode", commandId);
         jdbc.update("""
                 INSERT INTO branch_sync_episode(
@@ -1039,8 +1104,8 @@ public class SqliteRemoteRuntimeStore
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?)
                 """, episodeId, context.stageId(), context.taskId(),
                 context.taskEpoch(), context.stageGeneration(),
-                context.remotePrBindingId(), sourceSnapshotId, context.headSha(),
-                context.baseSha(), targetBaseSha, policySource, attemptLimit,
+                context.remotePrBindingId(), sourceSnapshotId, oldHeadSha,
+                observedBaseSha, targetBaseSha, policySource, attemptLimit,
                 at.toEpochMilli());
         List<String> kinds = List.of(
                 "FETCH_COMPARE", "MECHANICAL_REBASE", "CONFLICT_REPAIR",
@@ -1773,6 +1838,17 @@ public class SqliteRemoteRuntimeStore
                     stageGeneration, stageVersion, remotePrBindingId,
                     repositoryId, pullRequestNumber, headRef, worktreePath,
                     headSha, baseSha, ciPolicyRevisionId, ciPolicy, required);
+        }
+    }
+
+    public record CodeSubject(
+            String codeFingerprint, String headSha, String baseSha)
+    {
+        public CodeSubject
+        {
+            requireNonNull(codeFingerprint, "codeFingerprint is null");
+            requireNonNull(headSha, "headSha is null");
+            requireNonNull(baseSha, "baseSha is null");
         }
     }
 

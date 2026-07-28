@@ -1140,6 +1140,55 @@ final class V2TaskStore
     public Optional<TaskManager.ResumeEvidence> findResumeEvidence(
             String taskId, String reconciliationId)
     {
+        if (tableAvailable("task_resume_reconciliation_v256")) {
+            Optional<TaskManager.ResumeEvidence> current = jdbc.query("""
+                    SELECT evidence.task_id, evidence.task_epoch, evidence.id,
+                           evidence.stage_id, evidence.stage_generation,
+                           evidence.restore_checkpoint,
+                           evidence.reconciliation_digest
+                    FROM task_resume_reconciliation_v256 evidence
+                    JOIN task_resume_evidence_digest_v256 digest
+                      ON digest.id = evidence.id
+                    JOIN tasks task ON task.id = evidence.task_id
+                    JOIN task_current_stage current ON current.task_id = task.id
+                    JOIN stage owner ON owner.id = current.stage_id
+                    JOIN task_current_code_subject_v230 code
+                      ON code.task_id = task.id
+                    JOIN task_control_live_work_v256 live
+                      ON live.task_id = task.id
+                    WHERE evidence.task_id = ? AND evidence.id = ?
+                      AND evidence.status = 'SATISFIED'
+                      AND evidence.reconciliation_digest = digest.content_digest
+                      AND task.workflow_version = 'V2'
+                      AND task.lifecycle_state = 'RESUMING'
+                      AND task.epoch = evidence.task_epoch
+                      AND current.stage_id = evidence.stage_id
+                      AND current.stage_generation = evidence.stage_generation
+                      AND owner.generation = evidence.stage_generation
+                      AND owner.checkpoint = evidence.restore_checkpoint
+                      AND owner.completed_at_ms IS NULL
+                      AND code.code_fingerprint = evidence.code_fingerprint
+                      AND code.head_sha = evidence.head_sha
+                      AND code.base_sha = evidence.base_sha
+                      AND live.active_task_turn_count = 0
+                      AND live.active_stage_turn_count = 0
+                      AND live.active_review_turn_count = 0
+                      AND live.active_dispatch_count = 0
+                      AND live.active_agent_execution_count = 0
+                    """,
+                    (rs, row) -> new TaskManager.ResumeEvidence(
+                            rs.getString("task_id"),
+                            rs.getLong("task_epoch"),
+                            rs.getString("id"),
+                            rs.getString("stage_id"),
+                            rs.getLong("stage_generation"),
+                            StageCheckpoint.valueOf(rs.getString("restore_checkpoint")),
+                            rs.getString("reconciliation_digest")),
+                    taskId, reconciliationId).stream().findFirst();
+            if (current.isPresent()) {
+                return current;
+            }
+        }
         return jdbc.query("""
                 SELECT evidence.task_id, evidence.task_epoch, evidence.id,
                        evidence.stage_id, evidence.stage_generation,
@@ -1366,7 +1415,8 @@ final class V2TaskStore
                 throw concurrent("Task current Stage changed before terminal commit");
             }
         }
-        recordTerminalIntent(cause, proofId, resultFence, expected, updated);
+        recordTerminalIntent(
+                commandId, cause, proofId, resultFence, expected, updated);
         if (!cleanupCompletion) {
             recordTransition(commandId, cause, actor, expected, updated);
             insertReceipt(
@@ -1529,6 +1579,7 @@ final class V2TaskStore
     }
 
     private void recordTerminalIntent(
+            String commandId,
             String cause,
             String proofId,
             ResultFence resultFence,
@@ -1548,18 +1599,26 @@ final class V2TaskStore
                 VALUES (?, ?, ?, ?, ?, ?, NULL, 1, ?)
                 """,
                 id(), updated.id(), updated.terminalIntent().name(),
-                remoteTerminalSource(cause), proofId,
+                terminalSource(cause), terminalSourceId(
+                        commandId, cause, proofId),
                 resultFence == null ? null : resultFence.expectedHeadSha(),
                 System.currentTimeMillis());
     }
 
-    private static String remoteTerminalSource(String cause)
+    private static String terminalSource(String cause)
     {
         return switch (cause) {
             case "OPEN_MERGED_CLEANUP", "OPEN_REMOTE_CLOSED_CLEANUP" ->
                     "REMOTE_OBSERVATION";
+            case "REQUEST_CANCEL" -> "USER_CANCEL";
             default -> cause;
         };
+    }
+
+    private static String terminalSourceId(
+            String commandId, String cause, String proofId)
+    {
+        return "REQUEST_CANCEL".equals(cause) ? commandId : proofId;
     }
 
     private void recordTransition(

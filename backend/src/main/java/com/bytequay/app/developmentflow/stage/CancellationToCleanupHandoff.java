@@ -45,6 +45,11 @@ public final class CancellationToCleanupHandoff
         return commands.execute(command.taskId(), () -> acceptInCommand(command));
     }
 
+    public StageKind sourceKind()
+    {
+        return source.kind();
+    }
+
     private Result acceptInCommand(TaskManager.CancellationCommand command)
     {
         TaskManager.AcceptedCancellation accepted =

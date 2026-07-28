@@ -18,8 +18,13 @@ import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationResult
 import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupOperationStore;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupStageManager;
+import com.bytequay.app.developmentflow.stage.StageCheckpoint;
+import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.stage.StageManager;
+import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
+import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore.ControlContext;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -77,6 +82,120 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
             assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
                     .isZero();
         }
+    }
+
+    @Test
+    void taskControlUpgradePreservesAnExistingCleanupGraph()
+            throws Exception
+    {
+        String url = remoteUrl("task-control-upgrade.db", false);
+
+        migrate(url, "256");
+        migrate(url, "256");
+
+        try (Connection connection = connect(url)) {
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM cleanup_stage
+                     WHERE stage_id = 'cleanup-stage-1'
+                    """)).isOne();
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM cleanup_operation
+                     WHERE id = 'cleanup-operation-1'
+                    """)).isOne();
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM cleanup_step
+                     WHERE cleanup_operation_id = 'cleanup-operation-1'
+                    """)).isEqualTo(11);
+            assertThat(number(connection,
+                    "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
+        }
+    }
+
+    @Test
+    void remoteTerminalCleanupRuntimeProducesItsAcceptanceAndGraph()
+            throws Exception
+    {
+        String url = url("remote-terminal-runtime.db");
+        migrate(url, "228");
+        try (Connection connection = connect(url)) {
+            seedWorkspaceAndTrunk(connection);
+            seedPublishedRemoteTask(connection, 1);
+        }
+        migrate(url, "234");
+        try (Connection connection = connect(url)) {
+            prepareMergedCleanup(connection, false);
+            execute(connection,
+                    "DELETE FROM cleanup_stage WHERE stage_id = 'cleanup-stage-1'");
+            execute(connection, """
+                    DELETE FROM task_terminal_acceptance
+                     WHERE id = 'terminal-acceptance-1'
+                    """);
+        }
+        migrate(url, "256");
+
+        SQLiteDataSource dataSource = new SQLiteDataSource();
+        dataSource.setUrl(url);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        SqliteTaskControlRuntimeStore runtime = new SqliteTaskControlRuntimeStore(
+                jdbc, new DataSourceTransactionManager(dataSource));
+        Instant now = Instant.now().minusSeconds(1);
+        ControlContext context = new ControlContext(
+                "task-1", TaskLifecycle.CLEANING, 1, 2,
+                "cleanup-stage-1", StageKind.CLEANUP, 1, 0,
+                StageCheckpoint.WAITING_QUIESCENCE,
+                "terminal-intent-1", TaskManager.TerminalOutcome.COMPLETED,
+                "REMOTE_OBSERVATION", "snapshot-1-1",
+                "open-cleanup-1", "ACTIVE");
+
+        SqliteTaskControlRuntimeStore.TerminalAcceptance acceptance =
+                runtime.ensureTerminalAcceptance(context, now);
+        assertThat(jdbc.queryForMap("""
+                SELECT task.lifecycle_state, task.epoch, owner.kind,
+                       owner.checkpoint, policy.id AS policy_id,
+                       intent.id AS intent_id, intent.accepted,
+                       acceptance.id AS acceptance_id, binding.id AS binding_id
+                  FROM tasks task
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN stage owner ON owner.id = current.stage_id
+                  JOIN task_policy_revision policy ON policy.id = task.policy_revision_id
+                  JOIN task_terminal_intent intent ON intent.task_id = task.id
+                  JOIN task_terminal_acceptance acceptance
+                    ON acceptance.task_terminal_intent_id = intent.id
+                  LEFT JOIN remote_pr_binding binding ON binding.task_id = task.id
+                 WHERE task.id = 'task-1'
+                """))
+                .containsEntry("lifecycle_state", "CLEANING")
+                .containsEntry("kind", "CLEANUP")
+                .containsEntry("checkpoint", "WAITING_QUIESCENCE")
+                .containsEntry("policy_id", "policy-1")
+                .containsEntry("intent_id", "terminal-intent-1")
+                .containsEntry("binding_id", "binding-1");
+        runtime.ensureCleanupStage(context, acceptance, now);
+        String barrier = runtime.ensureBarrier(
+                context, TaskManager.QuiescenceReason.CLEANUP, now);
+        assertThat(runtime.satisfyBarrier("task-1", barrier, now)).isTrue();
+        SqliteTaskControlRuntimeStore.CleanupGraph graph =
+                runtime.ensureCleanupGraph(context, acceptance, barrier, now);
+
+        assertThat(graph.stepCount()).isEqualTo(11);
+        assertThat(jdbc.queryForMap("""
+                SELECT source_kind, remote_terminal_observation_id
+                  FROM task_terminal_acceptance WHERE task_id = 'task-1'
+                """))
+                .containsEntry("source_kind", "REMOTE_OBSERVATION")
+                .containsEntry(
+                        "remote_terminal_observation_id", "terminal-observation-1");
+        assertThat(jdbc.queryForMap("""
+                SELECT terminal_reason, remote_pr_disposition
+                  FROM cleanup_stage WHERE task_id = 'task-1'
+                """))
+                .containsEntry("terminal_reason", "COMPLETED")
+                .containsEntry("remote_pr_disposition", "REMOTE_ALREADY_TERMINAL");
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM cleanup_step WHERE task_id = 'task-1'
+                """, Integer.class)).isEqualTo(11);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pragma_foreign_key_check", Integer.class)).isZero();
     }
 
     @Test
@@ -589,6 +708,13 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
     private static void prepareMergedCleanup(Connection connection)
             throws Exception
     {
+        prepareMergedCleanup(connection, true);
+    }
+
+    private static void prepareMergedCleanup(
+            Connection connection, boolean startCleanup)
+            throws Exception
+    {
         insertRemoteOwner(connection, 1);
         insertSnapshot(connection, 1, 1, "head-1", "base-1", "MERGED",
                 "MERGEABLE");
@@ -703,6 +829,9 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     'policy-1', 'binding-1', 'REMOTE_ALREADY_TERMINAL',
                     'REQUIRED', 'OPTIONAL', 72)
                 """);
+        if (!startCleanup) {
+            return;
+        }
         execute(connection, """
                 INSERT INTO dispatch_ticket(
                     id, operation_id, operation_kind, async_family,

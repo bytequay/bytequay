@@ -83,6 +83,11 @@ public abstract class StageManager
 
     protected abstract boolean accepts(TaskLifecycle lifecycle);
 
+    final StageKind kind()
+    {
+        return kind;
+    }
+
     final CommandResult<State> openInCommand(
             TaskManager.StageOpening opening,
             StageCheckpoint initialCheckpoint,

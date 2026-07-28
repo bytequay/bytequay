@@ -25,11 +25,9 @@ export default function WorkspaceRelationsSettings({ workspaceId, repoName }: {
   repoName: string;
 }) {
   const [relation, setRelation] = useState<WorkspaceRelationDto | null>(null);
-  const [candidates, setCandidates] = useState<WorkspaceRelationCandidateDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState('');
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,17 +45,6 @@ export default function WorkspaceRelationsSettings({ workspaceId, repoName }: {
     window.dispatchEvent(new CustomEvent(WORKSPACE_RELATION_CHANGED, {
       detail: { workspaceId },
     }));
-  };
-
-  const openPicker = () => {
-    setPickerOpen(true);
-    setMessage(null);
-    void workspaceApi.relationCandidates(workspaceId)
-      .then(next => {
-        setCandidates(next);
-        setSelectedId(next.find(row => row.suggested)?.workspaceId ?? next[0]?.workspaceId ?? '');
-      })
-      .catch(reason => setMessage(errorMessage(reason)));
   };
 
   const save = async (next: WorkspaceRelationDto, overrides: Partial<Pick<
@@ -90,7 +77,10 @@ export default function WorkspaceRelationsSettings({ workspaceId, repoName }: {
           <span className="wu-relation-empty__icon" aria-hidden>⑂</span>
           <h2>No upstream linked</h2>
           <p>Link another workspace as a read-only upstream for commits and tags. The upstream workspace is never changed.</p>
-          <button type="button" className="wu-primary-button" onClick={openPicker}>
+          <button type="button" className="wu-primary-button" onClick={() => {
+            setMessage(null);
+            setPickerOpen(true);
+          }}>
             Link upstream workspace…
           </button>
         </section>
@@ -162,31 +152,63 @@ export default function WorkspaceRelationsSettings({ workspaceId, repoName }: {
       </p>
       {message !== null && <div className="wu-inline-message" role="status">{message}</div>}
       {pickerOpen && (
-        <RelationPicker
-          candidates={candidates}
-          selectedId={selectedId}
-          busy={busy}
-          onSelect={setSelectedId}
-          onClose={() => setPickerOpen(false)}
-          onConfirm={() => {
-            if (selectedId.length === 0) return;
-            setBusy(true);
-            setMessage(null);
-            void workspaceApi.saveRelation(workspaceId, {
-              upstreamWorkspaceId: selectedId,
-              commitsEnabled: true,
-              tagsEnabled: true,
-              autoFetchIntervalMinutes: 30,
-            }).then(next => {
-              notify(next);
-              setPickerOpen(false);
-              setMessage('Upstream linked.');
-            }).catch(reason => setMessage(errorMessage(reason)))
-              .finally(() => setBusy(false));
-          }}
-        />
+        <LinkUpstreamDialog workspaceId={workspaceId} onClose={() => setPickerOpen(false)}
+          onLinked={next => {
+            notify(next);
+            setPickerOpen(false);
+            setMessage('Upstream linked.');
+          }} />
       )}
     </>
+  );
+}
+
+/** Links an upstream workspace from anywhere. Managing an existing relation
+ * stays in workspace settings; only the first link is offered inline. */
+export function LinkUpstreamDialog({ workspaceId, onClose, onLinked }: {
+  workspaceId: string;
+  onClose: () => void;
+  onLinked: (relation: WorkspaceRelationDto) => void;
+}) {
+  const [candidates, setCandidates] = useState<WorkspaceRelationCandidateDto[]>([]);
+  const [selectedId, setSelectedId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void workspaceApi.relationCandidates(workspaceId)
+      .then(next => {
+        if (cancelled) return;
+        setCandidates(next);
+        setSelectedId(next.find(row => row.suggested)?.workspaceId ?? next[0]?.workspaceId ?? '');
+      })
+      .catch(reason => { if (!cancelled) setError(errorMessage(reason)); });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
+
+  return (
+    <RelationPicker
+      candidates={candidates}
+      selectedId={selectedId}
+      busy={busy}
+      error={error}
+      onSelect={setSelectedId}
+      onClose={onClose}
+      onConfirm={() => {
+        if (selectedId.length === 0) return;
+        setBusy(true);
+        setError(null);
+        void workspaceApi.saveRelation(workspaceId, {
+          upstreamWorkspaceId: selectedId,
+          commitsEnabled: true,
+          tagsEnabled: true,
+          autoFetchIntervalMinutes: 30,
+        }).then(onLinked)
+          .catch(reason => setError(errorMessage(reason)))
+          .finally(() => setBusy(false));
+      }}
+    />
   );
 }
 
@@ -208,10 +230,11 @@ function RelationToggle({ label, detail, checked, disabled, soon = false, onChan
   );
 }
 
-function RelationPicker({ candidates, selectedId, busy, onSelect, onClose, onConfirm }: {
+function RelationPicker({ candidates, selectedId, busy, error, onSelect, onClose, onConfirm }: {
   candidates: WorkspaceRelationCandidateDto[];
   selectedId: string;
   busy: boolean;
+  error: string | null;
   onSelect: (id: string) => void;
   onClose: () => void;
   onConfirm: () => void;
@@ -234,6 +257,7 @@ function RelationPicker({ candidates, selectedId, busy, onSelect, onClose, onCon
           ))}
           {candidates.length === 0 && <span role="status">No eligible workspace found.</span>}
         </div>
+        {error !== null && <span className="wu-form-error">{error}</span>}
         <footer>
           <button type="button" onClick={onClose}>Cancel</button>
           <button type="button" className="wu-primary-button" disabled={busy || selectedId.length === 0}

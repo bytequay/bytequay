@@ -15,6 +15,7 @@ package com.bytequay.app.developmentflow;
 
 import com.bytequay.app.developmentflow.stage.CancellationToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
+import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupStageManager;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.LocalToRemoteHandoff;
@@ -262,18 +263,23 @@ class TestStageHandoffs
 
         CancellationToCleanupHandoff.Result result = handoff.accept(command);
 
-        assertThat(order).containsExactly("stage", "task", "stage", "stage");
+        assertThat(order).containsExactly("stage", "task", "stage");
         assertThat(result.task())
                 .extracting(TaskManager.State::lifecycle, TaskManager.State::currentStageId)
                 .containsExactly(TaskLifecycle.CLEANING, "cleanup");
-        assertThat(result.cleanupWaiting().state().checkpoint())
+        assertThat(result.cleanup().state().checkpoint())
                 .isEqualTo(StageCheckpoint.WAITING_QUIESCENCE);
-        assertThat(result.cleanup().state().checkpoint()).isEqualTo(StageCheckpoint.CLEANING);
         CancellationToCleanupHandoff.Result replay = handoff.accept(command);
-        assertThat(replay.cleanupWaiting().disposition())
-                .isEqualTo(CommandResult.Disposition.DUPLICATE);
         assertThat(replay.cleanup().disposition())
                 .isEqualTo(CommandResult.Disposition.DUPLICATE);
+
+        CleanupQuiescenceHandoff quiescence = new CleanupQuiescenceHandoff(
+                executor, new TaskManager(executor, tasks),
+                new CleanupStageManager(executor, stages));
+        assertThat(quiescence.accept(new TaskManager.CleanupQuiescenceCommand(
+                "start-cleanup", "system", "task", 4, 22,
+                "cleanup", 1, 0, "cancel-barrier")).state().checkpoint())
+                .isEqualTo(StageCheckpoint.CLEANING);
     }
 
     @Test

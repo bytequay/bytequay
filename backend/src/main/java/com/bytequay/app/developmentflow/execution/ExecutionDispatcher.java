@@ -270,6 +270,7 @@ public final class ExecutionDispatcher
             return;
         }
         try {
+            recoverCommittedDeliveries();
             heartbeatActiveExecutions();
             heartbeatActiveDeliveries();
             capacityManager.expireLeases();
@@ -301,6 +302,20 @@ public final class ExecutionDispatcher
             signalStop(ticketId, execution);
         }
         return true;
+    }
+
+    /** Re-arms one domain-deferred ticket after its durable owner decision. */
+    public boolean resumeDeferred(String ticketId)
+    {
+        requireNonNull(ticketId, "ticketId is null");
+        ensureOpen();
+        return transform(
+                ticketId,
+                ticket -> ticket.state() == DispatchTicket.State.RECONCILE_WAIT
+                        && ticket.nextAttemptAt() == null
+                        && ticket.cancelRequestedAt() == null,
+                ticket -> ticket.resumeReconciliation(clock.instant()))
+                .isPresent();
     }
 
     int activeExecutionCount()
@@ -639,6 +654,9 @@ public final class ExecutionDispatcher
         catch (ExecutionPorts.RetryableExecutionException e) {
             recordRetry(claim, executionId, e);
         }
+        catch (ExecutionPorts.OperationDeferredException e) {
+            recordDeferred(claim, executionId, e);
+        }
         catch (ExecutionPorts.IndeterminateExecutionException e) {
             recordIndeterminate(claim, executionId, e);
         }
@@ -781,6 +799,28 @@ public final class ExecutionDispatcher
                 message(failure));
     }
 
+    private void recordDeferred(
+            Claim claim,
+            String executionId,
+            ExecutionPorts.OperationDeferredException deferred)
+    {
+        Optional<DispatchTicket> current = tickets.findById(claim.ticketId())
+                .filter(ticket -> ownsClaim(ticket, claim))
+                .filter(ticket -> ticket.state() == DispatchTicket.State.RUNNING);
+        if (current.isEmpty()) {
+            finishEvidence(executionId, null, message(deferred));
+            return;
+        }
+        transform(
+                claim.ticketId(),
+                ticket -> ownsClaim(ticket, claim)
+                        && ticket.state() == DispatchTicket.State.RUNNING,
+                ticket -> deferred.retryAt() == null
+                        ? ticket.manualReconciliation(message(deferred))
+                        : ticket.reconcileWait(message(deferred), deferred.retryAt()));
+        finishEvidence(executionId, null, message(deferred));
+    }
+
     private void parkManualReconciliation(
             Claim claim,
             String executionId,
@@ -825,8 +865,22 @@ public final class ExecutionDispatcher
                     ticket.envelope().owner(),
                     ticket.envelope().fence(),
                     ticket.pendingResult());
-            tickets.replaceTicketAndReleaseDeliveryClaim(
+            boolean committed = tickets.replaceTicketAndReleaseDeliveryClaim(
                     claim, ticket.completeDelivery(receipt, clock.instant()));
+            if (committed) {
+                try {
+                    resultDelivery.afterDeliveryCommitted(
+                            ticket.envelope().owner(),
+                            ticket.envelope().fence(),
+                            ticket.pendingResult(),
+                            receipt);
+                }
+                catch (Exception failure) {
+                    recordInfrastructureFailure(
+                            ticket.id(), new RuntimeException(
+                                    "post-delivery finalization failed", failure));
+                }
+            }
         }
         catch (Exception e) {
             tickets.findById(claim.ticketId())
@@ -883,6 +937,18 @@ public final class ExecutionDispatcher
                 signalStop(ticketId, execution);
             }
         });
+    }
+
+    private void recoverCommittedDeliveries()
+    {
+        try {
+            resultDelivery.recoverCommittedDeliveries(config.scanLimit());
+        }
+        catch (Exception failure) {
+            recordInfrastructureFailure(
+                    null, new RuntimeException(
+                            "committed result recovery failed", failure));
+        }
     }
 
     private void heartbeatActiveDeliveries()

@@ -272,6 +272,16 @@ public record DispatchTicket(
         return unclaimed(State.RECONCILE_WAIT, null, error, null);
     }
 
+    /** Re-arms an explicitly parked Operation without changing its evidence. */
+    public DispatchTicket resumeReconciliation(Instant now)
+    {
+        requireNonNull(now, "now is null");
+        if (state != State.RECONCILE_WAIT || nextAttemptAt != null) {
+            throw new IllegalStateException("ticket is not explicitly parked");
+        }
+        return unclaimed(State.RECONCILE_WAIT, now, lastError, null);
+    }
+
     public DispatchTicket deliveryRetry(String error, Instant nextAttempt)
     {
         if (pendingResult == null) {

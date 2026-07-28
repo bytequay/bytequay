@@ -317,6 +317,47 @@ public abstract class StageManager
         return resolveResultInCommand(command, cause, null, source, target);
     }
 
+    /**
+     * Accepts an exact externally persisted operation fact without requiring
+     * the Stage to duplicate that operation as pending state. Cleanup uses
+     * this after its ledger and dispatch result have both been persisted.
+     */
+    protected final ResultResolution acceptFactForHandoffInCommand(
+            ResultCommand command,
+            String cause,
+            StageCheckpoint source,
+            StageCheckpoint target)
+    {
+        requireNonNull(command, "command is null");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        ResultFence fact = command.resultFence();
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), fact.stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            CommandReceipt receipt = requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(), fact.stageId(),
+                    fact.stageGeneration(), null, null, null, null, cause, fact, null);
+            return new ResultResolution(
+                    CommandResult.duplicate(receipt.state()), receipt.disposition());
+        }
+
+        OwnerState owner = loadOwner(command.taskId(), fact.stageId());
+        State current = owner.stage();
+        if (!matchesFact(owner, fact)
+                || current.checkpoint() != source
+                || !source.allowsStructuralTransition(target)) {
+            return new ResultResolution(CommandResult.superseded(store.recordSuperseded(
+                    command.commandId(), cause, command.actor(),
+                    null, null, null, null, fact, null, current)),
+                    CommandResult.Disposition.SUPERSEDED);
+        }
+        return new ResultResolution(applied(
+                command.commandId(), cause, command.actor(),
+                null, null, null, null,
+                current, target, null, fact, null),
+                CommandResult.Disposition.APPLIED);
+    }
+
     private ResultResolution resolveResultInCommand(
             ResultCommand command,
             String cause,

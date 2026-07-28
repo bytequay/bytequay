@@ -73,7 +73,7 @@ public final class CleanupStageManager
 
     CompletionResult acceptCleanupCompleteInCommand(ResultCommand command)
     {
-        ResultResolution resolution = acceptResultForHandoffInCommand(
+        ResultResolution resolution = acceptFactForHandoffInCommand(
                 command, "ACCEPT_CLEANUP_COMPLETE",
                 StageCheckpoint.CLEANING, StageCheckpoint.COMPLETED);
         CommandResult<State> result = resolution.result();

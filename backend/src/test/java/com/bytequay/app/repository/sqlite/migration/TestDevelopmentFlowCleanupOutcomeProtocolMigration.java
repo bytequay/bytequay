@@ -13,11 +13,26 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationResultDelivery;
+import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupOperationStore;
+import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
+import com.bytequay.app.developmentflow.stage.CleanupStageManager;
+import com.bytequay.app.developmentflow.stage.StageManager;
+import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.sqlite.SQLiteDataSource;
 
+import java.lang.reflect.Constructor;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.acceptSnapshot;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.assertFails;
@@ -433,6 +448,125 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
         }
     }
 
+    @Test
+    void explicitRetryEvidenceIsRequiredAndConsumedExactlyOnce()
+            throws Exception
+    {
+        String url = remoteUrl("cleanup-runtime.db", false);
+        migrate(url, "240");
+        migrate(url, "240");
+
+        try (Connection connection = connect(url)) {
+            claimStep(connection, 1, "EXECUTE", 100);
+            recordResult(connection, 1, 1, "EXECUTE", "SUCCEEDED", null,
+                    "admission guard", "step-1", null, 101);
+            finishSuccess(connection, 1, 102);
+
+            claimStep(connection, 2, "EXECUTE", 110);
+            recordResult(connection, 2, 1, "EXECUTE", "FAILED", null,
+                    "open work remains", "step-2-failed", "still open", 111);
+            openBlocker(connection, 2, 111);
+            finishFailure(connection, 2, "DETERMINATE", "still open", 112);
+
+            assertFails(connection, claimStepSql(2, "EXECUTE", 120));
+            execute(connection, """
+                    INSERT INTO cleanup_step_retry_request(
+                        id, cleanup_step_id, cleanup_operation_id, task_id,
+                        failed_attempt, requested_by, reason, status,
+                        requested_at_ms)
+                    VALUES ('retry-step-2', 'cleanup-step-2',
+                        'cleanup-operation-1', 'task-1', 1, 'user',
+                        'open work was reconciled', 'PENDING', 121)
+                    """);
+            claimStep(connection, 2, "EXECUTE", 122);
+
+            assertThat(text(connection, """
+                    SELECT retry.status || '|' || step.attempt_count || '|'
+                        || step.execute_attempt_count
+                    FROM cleanup_step_retry_request retry
+                    JOIN cleanup_step step ON step.id = retry.cleanup_step_id
+                    WHERE retry.id = 'retry-step-2'
+                    """)).isEqualTo("CONSUMED|2|2");
+            assertFails(connection, """
+                    INSERT INTO cleanup_step_retry_request(
+                        id, cleanup_step_id, cleanup_operation_id, task_id,
+                        failed_attempt, requested_by, reason, status,
+                        requested_at_ms)
+                    VALUES ('duplicate-retry-step-2', 'cleanup-step-2',
+                        'cleanup-operation-1', 'task-1', 1, 'user',
+                        'duplicate', 'PENDING', 123)
+                    """);
+            assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
+                    .isZero();
+        }
+    }
+
+    @Test
+    void runtimeDeliveryCompletesCleanupThenTerminalizesTaskAfterTicketCommit()
+            throws Exception
+    {
+        String url = remoteUrl("cleanup-delivery.db", false);
+        migrate(url, "240");
+        try (Connection connection = connect(url)) {
+            settleSuccessfulRuntimeCleanup(connection);
+            moveCleanupTicketToResultPending(connection);
+        }
+
+        SQLiteDataSource dataSource = new SQLiteDataSource();
+        dataSource.setUrl(url + "?foreign_keys=ON&busy_timeout=30000");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        DataSourceTransactionManager transactionManager =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactionManager);
+        TaskManager tasks = new TaskManager(commands, reflectStore(
+                "com.bytequay.app.developmentflow.task.persistence.V2TaskStore",
+                TaskManager.Store.class, jdbc));
+        CleanupStageManager cleanup = new CleanupStageManager(commands, reflectStore(
+                "com.bytequay.app.developmentflow.stage.persistence.V2StageStore",
+                StageManager.Store.class, jdbc));
+        SqliteCleanupOperationStore operations =
+                new SqliteCleanupOperationStore(jdbc, transactionManager);
+        CleanupOperationResultDelivery delivery = new CleanupOperationResultDelivery(
+                operations,
+                new CleanupCompletionHandoff(commands, cleanup, tasks),
+                Clock.fixed(Instant.ofEpochMilli(500), ZoneOffset.UTC));
+        DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
+                1L, "cleanup-stage-1", 1L,
+                "cleanup-operation-id-1", 1, null, null, null);
+        DispatchTicket.OwnerReference owner = new DispatchTicket.OwnerReference(
+                DispatchTicket.OwnerKind.STAGE,
+                "cleanup-stage-1", "CLEANUP_OPERATION_RESULT");
+        DispatchTicket.DispatchResult result = new DispatchTicket.DispatchResult(
+                fence, DispatchTicket.Outcome.SUCCEEDED,
+                "cleanup-summary", "all cleanup steps settled", null);
+
+        DispatchTicket.DeliveryReceipt receipt = delivery.deliver(owner, fence, result);
+        assertThat(receipt.acceptance()).isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
+        assertThat(jdbcText(jdbc, "SELECT status FROM cleanup_operation"))
+                .isEqualTo("COMPLETED");
+        assertThat(jdbcText(jdbc, "SELECT checkpoint FROM stage WHERE id = 'cleanup-stage-1'"))
+                .isEqualTo("CLEANING");
+        assertThat(jdbcText(jdbc, "SELECT lifecycle_state FROM tasks WHERE id = 'task-1'"))
+                .isEqualTo("CLEANING");
+        assertThat(delivery.deliver(owner, fence, result).acceptance())
+                .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
+
+        commitAcceptedCleanupTicket(jdbc, receipt);
+        delivery.afterDeliveryCommitted(owner, fence, result, receipt);
+        delivery.recoverCommittedDeliveries(10);
+
+        assertThat(jdbcText(jdbc, "SELECT lifecycle_state FROM tasks WHERE id = 'task-1'"))
+                .isEqualTo("COMPLETED");
+        assertThat(jdbcNumber(jdbc, "SELECT COUNT(*) FROM task_outcome WHERE task_id = 'task-1'"))
+                .isOne();
+        assertThat(jdbcNumber(jdbc, "SELECT COUNT(*) FROM trunk_outcome_inbox WHERE task_id = 'task-1'"))
+                .isOne();
+        assertThat(jdbcNumber(jdbc, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
+                .isZero();
+        assertThat(delivery.deliver(owner, fence, result).acceptance())
+                .isEqualTo(DispatchTicket.Acceptance.SUPERSEDED);
+    }
+
     private String remoteUrl(String file, boolean sibling)
             throws Exception
     {
@@ -828,6 +962,120 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     resolution_evidence = 'cleanup decision recorded'
                 WHERE id = 'cleanup-blocker-%1$s'
                 """.formatted(ordinal, status, resolvedAt));
+    }
+
+    private static void settleSuccessfulRuntimeCleanup(Connection connection)
+            throws Exception
+    {
+        for (int ordinal = 1; ordinal <= 11; ordinal++) {
+            int claimedAt = 100 + ordinal * 10;
+            claimStep(connection, ordinal, "EXECUTE", claimedAt);
+            if (ordinal == 6) {
+                execute(connection, """
+                        UPDATE notifications
+                           SET status = 'DISMISSED', read_at_ms = 159
+                         WHERE task_id = 'task-1' AND status = 'UNREAD'
+                        """);
+                execute(connection, """
+                        UPDATE permission_request
+                           SET state = 'CANCELED', answer = 'Cleanup canceled request',
+                               answer_revision = answer_revision + 1,
+                               answered_at_ms = 159
+                         WHERE id = 'cleanup-permission-1'
+                        """);
+                execute(connection, """
+                        INSERT INTO cleanup_interaction_dismissal_evidence(
+                            id, cleanup_step_id, cleanup_operation_id, task_id,
+                            task_epoch, dismissed_notification_count,
+                            canceled_permission_count,
+                            notification_scope_evidence,
+                            permission_scope_evidence, recorded_at_ms)
+                        VALUES ('runtime-interactions', 'cleanup-step-6',
+                            'cleanup-operation-1', 'task-1', 1, 1, 1,
+                            'all Task notifications dismissed',
+                            'all Task permission prompts canceled', 159)
+                        """);
+            }
+            String digest = ordinal == 11 ? "cleanup-summary" : "step-" + ordinal;
+            String externalEffectId = ordinal >= 8 && ordinal <= 10
+                    ? "effect-" + ordinal
+                    : null;
+            recordResult(connection, ordinal, 1, "EXECUTE", "SUCCEEDED",
+                    externalEffectId, "step complete", digest, null, claimedAt + 1);
+            finishSuccess(connection, ordinal, claimedAt + 2);
+        }
+    }
+
+    private static void moveCleanupTicketToResultPending(Connection connection)
+            throws Exception
+    {
+        execute(connection, """
+                UPDATE capacity_lease
+                   SET released_at_ms = 490,
+                       release_reason = 'cleanup execution complete'
+                 WHERE id = 'cleanup-lease-1'
+                """);
+        execute(connection, """
+                UPDATE dispatch_ticket
+                   SET version = 2, status = 'RESULT_PENDING',
+                       claim_purpose = NULL, claim_owner = NULL,
+                       capacity_lease_id = NULL, claim_expires_at_ms = NULL,
+                       pending_result_outcome = 'SUCCEEDED',
+                       pending_result_payload = 'cleanup-summary',
+                       pending_result_evidence = 'all cleanup steps settled',
+                       pending_result_task_epoch = 1,
+                       pending_result_stage_id = 'cleanup-stage-1',
+                       pending_result_stage_generation = 1,
+                       pending_result_operation_id = 'cleanup-operation-id-1',
+                       pending_result_attempt = 1
+                 WHERE id = 'cleanup-ticket-1'
+                """);
+    }
+
+    private static void commitAcceptedCleanupTicket(
+            JdbcTemplate jdbc, DispatchTicket.DeliveryReceipt receipt)
+    {
+        int changed = jdbc.update("""
+                UPDATE dispatch_ticket
+                   SET version = 3, status = 'SUCCEEDED',
+                       pending_result_outcome = NULL,
+                       pending_result_payload = NULL,
+                       pending_result_evidence = NULL,
+                       pending_result_error = NULL,
+                       pending_result_task_epoch = NULL,
+                       pending_result_stage_id = NULL,
+                       pending_result_stage_generation = NULL,
+                       pending_result_operation_id = NULL,
+                       pending_result_attempt = NULL,
+                       pending_result_expected_code_fingerprint = NULL,
+                       pending_result_expected_head_sha = NULL,
+                       pending_result_expected_base_sha = NULL,
+                       delivery_acceptance = ?, delivery_evidence = ?,
+                       completed_at_ms = 501
+                 WHERE id = 'cleanup-ticket-1' AND status = 'RESULT_PENDING'
+                """, receipt.acceptance().name(), receipt.evidenceJson());
+        assertThat(changed).isOne();
+    }
+
+    private static <T> T reflectStore(
+            String className, Class<T> storeType, JdbcTemplate jdbc)
+            throws Exception
+    {
+        Constructor<?> constructor = Class.forName(className)
+                .getDeclaredConstructor(JdbcTemplate.class);
+        constructor.setAccessible(true);
+        return storeType.cast(constructor.newInstance(jdbc));
+    }
+
+    private static String jdbcText(JdbcTemplate jdbc, String sql)
+    {
+        return jdbc.queryForObject(sql, String.class);
+    }
+
+    private static long jdbcNumber(JdbcTemplate jdbc, String sql)
+    {
+        Long value = jdbc.queryForObject(sql, Long.class);
+        return value == null ? 0 : value;
     }
 
     private static String completeCleanupSql()

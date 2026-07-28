@@ -461,6 +461,11 @@ final class V2StageStore
                 expectedTaskEpoch, expectedStageGeneration,
                 expectedStageVersion, subjectFence, expected, updated);
         long now = System.currentTimeMillis();
+        boolean transitionProvesCleanup = expected.kind() == StageKind.CLEANUP
+                && expected.checkpoint() != updated.checkpoint();
+        if (transitionProvesCleanup) {
+            recordTransition(commandId, cause, actor, expected, updated, now);
+        }
         int changed = jdbc.update("""
                 UPDATE stage
                 SET version = ?, checkpoint = ?, completed_at_ms = ?, end_reason = ?
@@ -486,7 +491,9 @@ final class V2StageStore
         if (changed != 1) {
             throw concurrent("Stage changed before commit: " + expected.id());
         }
-        recordTransition(commandId, cause, actor, expected, updated, now);
+        if (!transitionProvesCleanup) {
+            recordTransition(commandId, cause, actor, expected, updated, now);
+        }
         insertReceipt(
                 commandId, cause, actor, CommandResult.Disposition.APPLIED,
                 expectedTaskEpoch, expectedStageGeneration, expectedStageVersion,

@@ -130,6 +130,47 @@ class TestExecutionDispatcher
     }
 
     @Test
+    void domainDeferredOperationParksWithoutCapacityAndResumesOnlyOnOwnerWake()
+    {
+        try (Fixture fixture = fixture(new InMemoryExecutionSupport.DirectExecutorService(), 4)) {
+            AtomicInteger calls = new AtomicInteger();
+            fixture.handlers.put("deferred", new ExecutionPorts.OperationHandler()
+            {
+                @Override
+                public DispatchTicket.DispatchResult execute(ExecutionContext context)
+                        throws Exception
+                {
+                    calls.incrementAndGet();
+                    throw new ExecutionPorts.OperationDeferredException(
+                            "awaiting explicit retry or waiver", null);
+                }
+
+                @Override
+                public DispatchTicket.DispatchResult reconcile(ExecutionContext context)
+                {
+                    calls.incrementAndGet();
+                    return result(context, "resumed");
+                }
+            });
+            fixture.put(requested("deferred", "deferred", VALIDATION, false));
+
+            fixture.dispatcher.runMaintenance();
+            assertThat(fixture.ticket("deferred").state()).isEqualTo(RECONCILE_WAIT);
+            assertThat(fixture.ticket("deferred").nextAttemptAt()).isNull();
+            assertThat(fixture.capacityStore.activeCount(NOW)).isZero();
+
+            fixture.dispatcher.runMaintenance();
+            assertThat(calls).hasValue(1);
+            assertThat(fixture.dispatcher.resumeDeferred("deferred")).isTrue();
+            fixture.dispatcher.runMaintenance();
+
+            assertThat(calls).hasValue(2);
+            assertThat(fixture.ticket("deferred").state()).isEqualTo(RESULT_PENDING);
+            assertThat(fixture.capacityStore.activeCount(NOW)).isZero();
+        }
+    }
+
+    @Test
     void submissionFailureReleasesCapacityAndRestoresDurableEligibility()
     {
         SharedState state = sharedState(4);

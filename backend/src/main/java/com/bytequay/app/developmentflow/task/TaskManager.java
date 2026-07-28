@@ -1878,7 +1878,8 @@ public final class TaskManager
             return taskId.equals(command.taskId())
                     && taskEpoch == command.taskEpoch()
                     && barrierId.equals(command.barrierId())
-                    && reason == QuiescenceReason.CLEANUP;
+                    && (reason == QuiescenceReason.CLEANUP
+                    || reason == QuiescenceReason.CANCEL);
         }
     }
 

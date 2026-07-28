@@ -1066,6 +1066,15 @@ final class V2TaskStore
         String linkedStageAtCas = stageChanged && updated.currentStageId() != null
                 ? updated.currentStageId()
                 : expected.currentStageId();
+        boolean cleanupCompletion = "ACCEPT_CLEANUP_COMPLETION".equals(cause);
+        if (cleanupCompletion) {
+            insertTaskOutcome(resultFence, expected, updated);
+            recordTransition(commandId, cause, actor, expected, updated);
+            insertReceipt(
+                    commandId, cause, actor, CommandResult.Disposition.APPLIED,
+                    expectedEpoch, expectedVersion, resultFence, brainVerdict, proofId,
+                    nextStageId, nextStageKind, nextStageGeneration, updated);
+        }
         int changed = jdbc.update("""
                 UPDATE tasks
                 SET lifecycle_state = ?, epoch = ?, aggregate_version = ?
@@ -1096,12 +1105,85 @@ final class V2TaskStore
             }
         }
         recordTerminalIntent(cause, proofId, resultFence, expected, updated);
-        recordTransition(commandId, cause, actor, expected, updated);
-        insertReceipt(
-                commandId, cause, actor, CommandResult.Disposition.APPLIED,
-                expectedEpoch, expectedVersion, resultFence, brainVerdict, proofId,
-                nextStageId, nextStageKind, nextStageGeneration, updated);
+        if (!cleanupCompletion) {
+            recordTransition(commandId, cause, actor, expected, updated);
+            insertReceipt(
+                    commandId, cause, actor, CommandResult.Disposition.APPLIED,
+                    expectedEpoch, expectedVersion, resultFence, brainVerdict, proofId,
+                    nextStageId, nextStageKind, nextStageGeneration, updated);
+        }
         return updated;
+    }
+
+    private void insertTaskOutcome(
+            ResultFence resultFence,
+            TaskManager.State expected,
+            TaskManager.State updated)
+    {
+        requireNonNull(resultFence, "Cleanup result fence is null");
+        if (expected.lifecycle() != TaskLifecycle.CLEANING
+                || !updated.lifecycle().isTerminal()
+                || updated.currentStageId() != null
+                || expected.terminalIntent() == null
+                || !updated.lifecycle().name().equals(expected.terminalIntent().name())) {
+            throw new IllegalArgumentException("Cleanup Task outcome is inconsistent");
+        }
+        long now = System.currentTimeMillis();
+        int inserted = jdbc.update("""
+                INSERT INTO task_outcome(
+                    id, task_id, trunk_id, task_epoch,
+                    terminal_acceptance_id, cleanup_operation_id,
+                    cleanup_stage_id, terminal_reason, pr_id,
+                    remote_pr_binding_id, remote_terminal_observation_id,
+                    observed_head_sha, cleanup_summary_digest,
+                    summary_state, summary_text, summary_digest,
+                    summary_operation_id, follow_up_proposals_json,
+                    backlog_items_json, recorded_at_ms, summary_updated_at_ms)
+                SELECT 'TASK_OUTCOME:' || task.id, task.id, task.thread_id,
+                       task.epoch, acceptance.id, operation.id,
+                       cleanup.stage_id, acceptance.kind, binding.pr_id,
+                       cleanup.remote_pr_binding_id,
+                       acceptance.remote_terminal_observation_id,
+                       acceptance.observed_head_sha, operation.summary_digest,
+                       'FALLBACK',
+                       'TaskOutcome:' || task.id || ':' || acceptance.kind
+                           || ':' || operation.summary_digest,
+                       operation.summary_digest, NULL, '[]', '[]', ?, NULL
+                  FROM tasks task
+                  JOIN task_current_stage current ON current.task_id = task.id
+                  JOIN cleanup_stage cleanup ON cleanup.stage_id = current.stage_id
+                  JOIN stage owner ON owner.id = cleanup.stage_id
+                  JOIN task_terminal_acceptance acceptance
+                    ON acceptance.id = cleanup.terminal_acceptance_id
+                  JOIN cleanup_operation operation
+                    ON operation.cleanup_stage_id = cleanup.stage_id
+                  JOIN dispatch_ticket ticket
+                    ON ticket.id = operation.dispatch_ticket_id
+                  LEFT JOIN remote_pr_binding binding
+                    ON binding.id = cleanup.remote_pr_binding_id
+                 WHERE task.id = ? AND task.workflow_version = 'V2'
+                   AND task.lifecycle_state = 'CLEANING' AND task.epoch = ?
+                   AND task.aggregate_version = ?
+                   AND current.stage_id = ? AND current.stage_generation = ?
+                   AND owner.generation = current.stage_generation
+                   AND owner.checkpoint = 'COMPLETED'
+                   AND owner.completed_at_ms IS NOT NULL
+                   AND acceptance.task_id = task.id
+                   AND acceptance.task_epoch = task.epoch
+                   AND acceptance.kind = ?
+                   AND operation.operation_id = ?
+                   AND operation.semantic_attempt = ?
+                   AND operation.status = 'COMPLETED'
+                   AND operation.summary_digest IS NOT NULL
+                   AND ticket.status = 'SUCCEEDED'
+                   AND ticket.delivery_acceptance = 'ACCEPTED'
+                   AND ticket.delivery_evidence IS NOT NULL
+                """, now, expected.id(), resultFence.taskEpoch(), expected.version(),
+                resultFence.stageId(), resultFence.stageGeneration(),
+                updated.lifecycle().name(), resultFence.operationId(), resultFence.attempt());
+        if (inserted != 1) {
+            throw concurrent("Cleanup outcome proof changed before Task terminalization");
+        }
     }
 
     @Override

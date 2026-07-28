@@ -3956,7 +3956,11 @@ export type Bridge = {
    *  eligible findings, no / ambiguous workspace). */
   spawnBuildFromReview: (
     passId: string,
-    opts?: { workspaceId?: string; openingTitle?: string },
+    opts?: {
+      workspaceId?: string;
+      openingTitle?: string;
+      selectedFindingIds?: string[];
+    },
   ) => Promise<{ threadId: string; taskId: string | null; mode: string }>;
   /** Flip the headless auto-fix opt-in for one repo. Off by default
    *  per CLAUDE.md; only when this is explicitly true does the

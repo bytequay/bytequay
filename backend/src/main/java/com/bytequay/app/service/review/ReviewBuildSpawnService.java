@@ -28,7 +28,6 @@ import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.ReviewStore;
-import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
@@ -41,9 +40,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -83,30 +85,27 @@ public class ReviewBuildSpawnService
     private final ReviewStore reviewStore;
     private final PullRequestRepository pullRequests;
     private final PatResolver patResolver;
-    private final ThreadStore threadStore;
-    private final ThreadService threadService;
     private final WorkspaceService workspaceService;
     private final WatchedRepoStore watchedRepos;
     private final GitRunner git;
+    private final ReviewBuildSpawnCommitter committer;
 
     public ReviewBuildSpawnService(
             ReviewStore reviewStore,
             PullRequestRepository pullRequests,
             PatResolver patResolver,
-            ThreadStore threadStore,
-            ThreadService threadService,
             WorkspaceService workspaceService,
             WatchedRepoStore watchedRepos,
-            GitRunner git)
+            GitRunner git,
+            ReviewBuildSpawnCommitter committer)
     {
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
-        this.threadStore = requireNonNull(threadStore, "threadStore is null");
-        this.threadService = requireNonNull(threadService, "threadService is null");
         this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.git = requireNonNull(git, "git is null");
+        this.committer = requireNonNull(committer, "committer is null");
     }
 
     /** Result of a spawn: the new build thread, its active task (null
@@ -114,6 +113,15 @@ public class ReviewBuildSpawnService
     public record BuildSpawn(String threadId, String taskId, String mode) {}
 
     public BuildSpawn spawn(String passId, String workspaceId, String openingTitle)
+    {
+        return spawn(passId, workspaceId, openingTitle, null);
+    }
+
+    public BuildSpawn spawn(
+            String passId,
+            String workspaceId,
+            String openingTitle,
+            List<String> selectedFindingIds)
     {
         requireNonNull(passId, "passId is null");
         ReviewPass pass = reviewStore.findPassById(passId)
@@ -131,10 +139,15 @@ public class ReviewBuildSpawnService
                 .filter(f -> f.status() == ReviewFindingStatus.AGREED)
                 .filter(f -> f.severity() == ReviewFindingSeverity.BLOCKER
                         || f.severity() == ReviewFindingSeverity.MAJOR)
+                .sorted(Comparator
+                        .comparingInt((ReviewFinding finding) ->
+                                severityWeight(finding.severity())).reversed()
+                        .thenComparing(ReviewFinding::id))
                 .toList();
         if (eligible.isEmpty()) {
             throw status(422, "no_eligible_findings");
         }
+        List<ReviewFinding> selected = select(eligible, selectedFindingIds);
 
         String repo = pass.repoFullName();
         int prNumber = pass.prNumber();
@@ -142,6 +155,11 @@ public class ReviewBuildSpawnService
         String pat = patResolver.resolve(repo);
         PullRequest pr = pullRequests.getPullRequest(pat, ref);
         PrRawDetail raw = pullRequests.fetchPrDetail(pat, ref);
+        if (pass.headSha() == null || pass.headSha().isBlank()
+                || raw.headSha() == null
+                || !pass.headSha().equals(raw.headSha())) {
+            throw status(409, "review_head_moved");
+        }
         String currentLogin = pullRequests.fetchUserProfile(pat).login();
         boolean authorIsReviewer = pr.author() != null && currentLogin != null
                 && pr.author().equalsIgnoreCase(currentLogin);
@@ -164,13 +182,14 @@ public class ReviewBuildSpawnService
             }
         }
 
-        String opening = renderOpeningTurn(prNumber, pr.title(), eligible, mode, raw.headRef());
+        String opening = renderOpeningTurn(
+                prNumber, pr.title(), selected, mode, raw.headRef());
         String title = openingTitle == null || openingTitle.isBlank()
                 ? "Fix review findings on PR #" + prNumber
                 : openingTitle.strip();
         Path clonePath = resolveClonePath(repo);
 
-        Thread thread = threadService.create(new ThreadService.NewTaskRequest(
+        ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT,
                 /* provider */ null,
                 /* model */ null,
@@ -184,12 +203,8 @@ public class ReviewBuildSpawnService
                 /* linkedIssueNumber */ null,
                 ThreadFlow.BUILD,
                 ws,
-                /* workModel */ null));
-
-        // Stamp the back-links: the build thread → its parent pass, and
-        // the pass → its spawned thread (one per pass).
-        threadStore.saveThread(withParentReviewPass(thread, passId));
-        reviewStore.savePass(withSpawnedBuildThread(pass, thread.id()));
+                /* workModel */ null);
+        Thread thread = committer.commit(request, pass, selected, Instant.now());
 
         // A freshly spawned build thread is 0-task — its first task
         // materialises later — so there's no task id to report yet.
@@ -197,6 +212,30 @@ public class ReviewBuildSpawnService
         log.info("Spawned build thread {} ({}) from review pass {} on PR {}#{}",
                 thread.id(), mode, passId, repo, prNumber);
         return new BuildSpawn(thread.id(), taskId, mode);
+    }
+
+    private static List<ReviewFinding> select(
+            List<ReviewFinding> eligible, List<String> requestedIds)
+    {
+        if (requestedIds == null) {
+            return eligible;
+        }
+        if (requestedIds.isEmpty()) {
+            throw status(422, "invalid_selected_findings");
+        }
+        Set<String> requested = new HashSet<>();
+        for (String id : requestedIds) {
+            if (id == null || id.isBlank() || !requested.add(id)) {
+                throw status(422, "invalid_selected_findings");
+            }
+        }
+        List<ReviewFinding> selected = eligible.stream()
+                .filter(finding -> requested.contains(finding.id()))
+                .toList();
+        if (selected.size() != requested.size()) {
+            throw status(422, "selected_finding_is_not_eligible");
+        }
+        return selected;
     }
 
     /** Render the structured AGREED-findings block — the spawned trunk's
@@ -299,23 +338,6 @@ public class ReviewBuildSpawnService
             case NIT -> 2;
             case QUESTION -> 1;
         };
-    }
-
-    private static Thread withParentReviewPass(Thread t, String passId)
-    {
-        return new Thread(
-                t.id(), t.kind(), t.provider(), t.agentSessionId(), t.title(), t.status(),
-                t.model(), t.costUsdMilli(), t.tokensIn(), t.tokensOut(), t.createdAt(),
-                t.updatedAt(), t.endedAt(), t.errorMessage(), t.flow(), t.workspaceId(),
-                t.workModel(), passId);
-    }
-
-    private static ReviewPass withSpawnedBuildThread(ReviewPass p, String threadId)
-    {
-        return new ReviewPass(
-                p.id(), p.threadId(), p.repoFullName(), p.prNumber(), p.headSha(), p.phase(),
-                p.round(), p.roundCap(), p.costCapMilli(), p.costUsdMilli(), p.verdict(),
-                p.createdAt(), p.endedAt(), threadId, p.agendaJson());
     }
 
     private static ResponseStatusException status(int code, String message)

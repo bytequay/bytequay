@@ -21,6 +21,7 @@ import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.trunk.TrunkLifecycle;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
+import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
@@ -33,6 +34,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.review.ReviewBuildSelectionStore;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
@@ -113,7 +115,7 @@ class TestV2TaskCreationService
                 new DevelopmentFlowCanaryRoute(true, true, WORKSPACE),
                 handoff, jdbc, threads, tasks, engines, repositories, relations,
                 mock(PullRequestRepository.class), mock(PatResolver.class),
-                new ObjectMapper(), projection);
+                mock(ReviewBuildSelectionStore.class), new ObjectMapper(), projection);
         Thread trunk = trunk();
         ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT, "codex", "gpt-test", "Build exact flow",
@@ -145,6 +147,78 @@ class TestV2TaskCreationService
         assertThat(jdbc.queryForObject("""
                 SELECT turn_version FROM threads WHERE id = ?
                 """, String.class, TRUNK)).isEqualTo("V2");
+    }
+
+    @Test
+    void mapsFrozenReviewBuildSelectionToExactReviewFindingsAssignment()
+    {
+        Path repositoryRoot = tempDir.resolve("review-repo").toAbsolutePath();
+        JdbcTemplate jdbc = database("review-creation.db", repositoryRoot);
+        TaskCreationHandoff handoff = mock(TaskCreationHandoff.class);
+        TaskStore tasks = mock(TaskStore.class);
+        ThreadStore threads = mock(ThreadStore.class);
+        ThreadEngineOverrides engines = mock(ThreadEngineOverrides.class);
+        WorkspaceRepositoryResolver repositories =
+                mock(WorkspaceRepositoryResolver.class);
+        WorkspaceRelationService relations = mock(WorkspaceRelationService.class);
+        PullRequestRepository pullRequests = mock(PullRequestRepository.class);
+        PatResolver pats = mock(PatResolver.class);
+        ReviewBuildSelectionStore selections = mock(
+                ReviewBuildSelectionStore.class);
+        V2DevelopmentFlowProjection projection = mock(
+                V2DevelopmentFlowProjection.class);
+        Task raw = taskShape();
+
+        when(engines.forAudience(TRUNK, SessionAudience.PLAN))
+                .thenReturn(Optional.of(PLAN_MODEL));
+        when(repositories.resolve(WORKSPACE)).thenReturn(
+                new WorkspaceRepositoryResolver.RepositoryIdentity(
+                        "acme", "widget", "acme/widget", "main"));
+        when(pats.resolve("acme/widget")).thenReturn("pat");
+        when(pullRequests.fetchPrDetail(any(), any())).thenReturn(new PrRawDetail(
+                "body", List.of(), false, true, "clean", 1, 1, 1, 0,
+                List.of(), "reviewed-head", "feature/review", "author/widget",
+                "main", "acme/widget", "open", false, "base-head", null));
+        ReviewBuildSelectionStore.Finding selected =
+                new ReviewBuildSelectionStore.Finding(
+                        "review-pass", "finding-1", 1, "{\"id\":\"finding-1\"}",
+                        "finding-digest");
+        when(selections.find(TRUNK)).thenReturn(Optional.of(
+                new ReviewBuildSelectionStore.Selection(
+                        TRUNK, "review-pass", "acme/widget", 42,
+                        "reviewed-head", "selection-digest",
+                        List.of(selected), Instant.ofEpochMilli(2))));
+        when(handoff.create(any())).thenReturn(creationResult(repositoryRoot));
+        when(tasks.findTaskById(TASK)).thenReturn(Optional.of(raw));
+        when(projection.project(raw)).thenReturn(raw);
+
+        V2TaskCreationService service = new V2TaskCreationService(
+                new DevelopmentFlowCanaryRoute(true, true, WORKSPACE),
+                handoff, jdbc, threads, tasks, engines, repositories, relations,
+                pullRequests, pats, selections, new ObjectMapper(), projection);
+        ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT, "codex", "gpt-test", "Fix finding",
+                repositoryRoot.toString(), null, "Address #finding-finding-1",
+                List.of(), "DEVELOP", 42, null, ThreadFlow.BUILD, WORKSPACE,
+                PLAN_MODEL);
+
+        service.create(reviewTrunk(), request);
+
+        ArgumentCaptor<TaskCreationHandoff.Command> command =
+                ArgumentCaptor.forClass(TaskCreationHandoff.Command.class);
+        verify(handoff).create(command.capture());
+        assertThat(command.getValue().authorization().input().assignment())
+                .isInstanceOfSatisfying(
+                        TaskAssignment.ReviewFindings.class,
+                        assignment -> {
+                            assertThat(assignment.sourceReviewId())
+                                    .isEqualTo("review-pass");
+                            assertThat(assignment.pullRequest().remoteHeadSha())
+                                    .isEqualTo("reviewed-head");
+                            assertThat(assignment.findings())
+                                    .extracting(TaskAssignment.ReviewFindingRef::findingId)
+                                    .containsExactly("finding-1");
+                        });
     }
 
     private JdbcTemplate database(String name, Path repositoryRoot)
@@ -207,6 +281,16 @@ class TestV2TaskCreationService
                 TRUNK, ThreadKind.CLI_AGENT, "codex", null, "Trunk",
                 ThreadStatus.IDLE, "gpt-test", 0, 0, 0, now, now,
                 null, null, ThreadFlow.BUILD, WORKSPACE, PLAN_MODEL);
+    }
+
+    private static Thread reviewTrunk()
+    {
+        Instant now = Instant.ofEpochMilli(1);
+        return new Thread(
+                TRUNK, ThreadKind.CLI_AGENT, "codex", null, "Review build",
+                ThreadStatus.IDLE, "gpt-test", 0, 0, 0, now, now,
+                null, null, ThreadFlow.BUILD, WORKSPACE, PLAN_MODEL,
+                "review-pass");
     }
 
     private static Task taskShape()

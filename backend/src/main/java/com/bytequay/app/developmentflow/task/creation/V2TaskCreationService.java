@@ -26,6 +26,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.review.ReviewBuildSelectionStore;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
@@ -60,6 +61,7 @@ public final class V2TaskCreationService
     private final WorkspaceRelationService relations;
     private final PullRequestRepository pullRequests;
     private final PatResolver pats;
+    private final ReviewBuildSelectionStore reviewSelections;
     private final ObjectMapper json;
     private final V2DevelopmentFlowProjection projection;
 
@@ -74,6 +76,7 @@ public final class V2TaskCreationService
             WorkspaceRelationService relations,
             PullRequestRepository pullRequests,
             PatResolver pats,
+            ReviewBuildSelectionStore reviewSelections,
             ObjectMapper json,
             V2DevelopmentFlowProjection projection)
     {
@@ -87,6 +90,8 @@ public final class V2TaskCreationService
         this.relations = requireNonNull(relations, "relations is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.pats = requireNonNull(pats, "pats is null");
+        this.reviewSelections = requireNonNull(
+                reviewSelections, "reviewSelections is null");
         this.json = requireNonNull(json, "json is null");
         this.projection = requireNonNull(projection, "projection is null");
     }
@@ -292,7 +297,18 @@ public final class V2TaskCreationService
         requireText(raw.baseRef(), "PR base ref");
         String headRepo = requireText(raw.headRepo(), "PR head repository");
         String baseRepo = requireText(raw.baseRepo(), "PR base repository");
-        if (!workspace.fullName().equalsIgnoreCase(headRepo)) {
+        ReviewBuildSelectionStore.Selection reviewSelection =
+                reviewSelections.find(trunk.id()).orElse(null);
+        if (trunk.parentReviewPassId() == null && reviewSelection != null) {
+            throw new IllegalStateException(
+                    "review build selection has no parent ReviewSession");
+        }
+        if (trunk.parentReviewPassId() != null && reviewSelection == null) {
+            throw new IllegalStateException(
+                    "review build Task is missing its frozen finding selection");
+        }
+        if (reviewSelection == null
+                && !workspace.fullName().equalsIgnoreCase(headRepo)) {
             throw new IllegalStateException(
                     "V2 existing-PR Task requires the Workspace-owned head repository");
         }
@@ -302,9 +318,30 @@ public final class V2TaskCreationService
         TaskAssignment.PullRequestRef exact = new TaskAssignment.PullRequestRef(
                 routing, number, raw.baseRef(), raw.headRef(),
                 raw.baseSha(), raw.headSha());
+        TaskAssignment assignment;
+        if (reviewSelection == null) {
+            assignment = new TaskAssignment.ExistingOwnPr(identity, exact);
+        }
+        else {
+            if (!trunk.parentReviewPassId().equals(
+                    reviewSelection.reviewPassId())
+                    || reviewSelection.prNumber() != number
+                    || !reviewSelection.repoFullName().equalsIgnoreCase(baseRepo)
+                    || !reviewSelection.reviewedHeadSha().equals(raw.headSha())) {
+                throw new IllegalStateException(
+                        "review build selection is stale or names another PR");
+            }
+            assignment = new TaskAssignment.ReviewFindings(
+                    identity, reviewSelection.reviewPassId(), exact,
+                    reviewSelection.findings().stream()
+                            .map(finding -> new TaskAssignment.ReviewFindingRef(
+                                    finding.reviewPassId(), finding.findingId(),
+                                    finding.findingRevision(),
+                                    finding.contentDigest()))
+                            .toList());
+        }
         return new AssignmentAndBase(
-                new TaskAssignment.ExistingOwnPr(identity, exact),
-                new TaskCreationInput.ExistingPrHead(exact));
+                assignment, new TaskCreationInput.ExistingPrHead(exact));
     }
 
     private TaskAssignment.RepositoryRouting workspaceRouting(String workspaceId)

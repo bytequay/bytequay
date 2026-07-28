@@ -67,6 +67,7 @@ class TestReviewBuildSpawnService
     private WorkspaceService workspaceService;
     private WatchedRepoStore watchedRepos;
     private GitRunner git;
+    private ReviewBuildSelectionStore selections;
     private ReviewBuildSpawnService service;
 
     private static final String REPO = "acme/widget";
@@ -83,8 +84,11 @@ class TestReviewBuildSpawnService
         workspaceService = mock(WorkspaceService.class);
         watchedRepos = mock(WatchedRepoStore.class);
         git = mock(GitRunner.class);
+        selections = mock(ReviewBuildSelectionStore.class);
+        ReviewBuildSpawnCommitter committer = new ReviewBuildSpawnCommitter(
+                threadService, threadStore, reviewStore, selections);
         service = new ReviewBuildSpawnService(reviewStore, pullRequests, patResolver,
-                threadStore, threadService, workspaceService, watchedRepos, git);
+                workspaceService, watchedRepos, git, committer);
 
         when(patResolver.resolve(REPO)).thenReturn("pat");
         when(pullRequests.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(rawDetail());
@@ -180,6 +184,59 @@ class TestReviewBuildSpawnService
         ArgumentCaptor<ReviewPass> savedPass = ArgumentCaptor.forClass(ReviewPass.class);
         verify(reviewStore).savePass(savedPass.capture());
         assertThat(savedPass.getValue().spawnedBuildThreadId()).isEqualTo("thread-new");
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ReviewFinding>> frozen = ArgumentCaptor.forClass(List.class);
+        verify(selections).freeze(
+                eq("thread-new"), eq("p"), eq(REPO), eq(PR), eq("sha"),
+                frozen.capture(), any(Instant.class));
+        assertThat(frozen.getValue())
+                .extracting(ReviewFinding::id)
+                .containsExactly("f1");
+    }
+
+    @Test
+    void freezesOnlyExplicitlySelectedEligibleFindings()
+    {
+        when(reviewStore.findPassById("p"))
+                .thenReturn(Optional.of(pass(ReviewPhase.TERMINATE, null)));
+        when(reviewStore.listFindingsForPass("p")).thenReturn(List.of(
+                finding("f-major", ReviewFindingSeverity.MAJOR,
+                        ReviewFindingStatus.AGREED, "major", null),
+                finding("f-blocker", ReviewFindingSeverity.BLOCKER,
+                        ReviewFindingStatus.AGREED, "blocker", null)));
+
+        service.spawn("p", "ws-1", null, List.of("f-major"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ReviewFinding>> frozen = ArgumentCaptor.forClass(List.class);
+        verify(selections).freeze(
+                eq("thread-new"), eq("p"), eq(REPO), eq(PR), eq("sha"),
+                frozen.capture(), any(Instant.class));
+        assertThat(frozen.getValue())
+                .extracting(ReviewFinding::id)
+                .containsExactly("f-major");
+    }
+
+    @Test
+    void rejectsSpawnWhenReviewedHeadMoved()
+    {
+        eligiblePass();
+        PrRawDetail current = rawDetail();
+        when(pullRequests.fetchPrDetail(eq("pat"), any(PullRequestRef.class)))
+                .thenReturn(new PrRawDetail(
+                        current.body(), current.labels(),
+                        current.draft(), current.mergeable(),
+                        current.mergeableState(), current.additions(),
+                        current.deletions(), current.changedFiles(),
+                        current.requestedReviewerCount(),
+                        current.requestedReviewers(), "moved-head",
+                        current.headRef(), current.headRepo(), current.baseRef(),
+                        current.baseRepo()));
+
+        assertThatThrownBy(() -> service.spawn("p", "ws-1", null))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("review_head_moved");
+        verify(threadService, never()).create(any());
     }
 
     @Test

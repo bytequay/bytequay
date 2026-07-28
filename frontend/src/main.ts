@@ -4924,7 +4924,12 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof args !== 'object' || args === null) {
       throw new Error('reviews:spawnBuild args must be an object');
     }
-    const a = args as { passId?: unknown; workspaceId?: unknown; openingTitle?: unknown };
+    const a = args as {
+      passId?: unknown;
+      workspaceId?: unknown;
+      openingTitle?: unknown;
+      selectedFindingIds?: unknown;
+    };
     if (typeof a.passId !== 'string' || a.passId.trim().length === 0) {
       throw new Error('passId must be a non-empty string');
     }
@@ -4934,6 +4939,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     if (typeof a.openingTitle === 'string' && a.openingTitle.length > 0) {
       body.openingTitle = a.openingTitle;
+    }
+    if (a.selectedFindingIds !== undefined) {
+      if (!Array.isArray(a.selectedFindingIds)
+        || !a.selectedFindingIds.every((id) => typeof id === 'string' && id.length > 0)) {
+        throw new Error('selectedFindingIds must be an array of non-empty strings');
+      }
+      body.selectedFindingIds = a.selectedFindingIds;
     }
     const res = await fetch(
       `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}/spawn-build`,

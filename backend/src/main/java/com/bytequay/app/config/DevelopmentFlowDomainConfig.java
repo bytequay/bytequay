@@ -17,6 +17,7 @@ import com.bytequay.app.developmentflow.stage.CancellationToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupStageManager;
+import com.bytequay.app.developmentflow.stage.LocalDevelopmentRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.LocalToRemoteHandoff;
 import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
@@ -27,13 +28,16 @@ import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.RemoteTerminalToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.ReplanHandoff;
 import com.bytequay.app.developmentflow.stage.StageManager;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore;
 import com.bytequay.app.developmentflow.task.BrainVerdictHandoff;
 import com.bytequay.app.developmentflow.task.TaskControlHandoff;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
+import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.ids.IdGenerator;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -107,6 +111,22 @@ public class DevelopmentFlowDomainConfig
             LocalDevelopmentStageManager.EvidenceStore evidence)
     {
         return new LocalDevelopmentStageManager(commands, store, evidence);
+    }
+
+    @Bean
+    public LocalDevelopmentRuntimeCoordinator localDevelopmentRuntimeCoordinator(
+            TaskCommandExecutor commands,
+            TaskManager tasks,
+            LocalDevelopmentStageManager local,
+            SqliteLocalDevelopmentRuntimeStore store,
+            CodeFingerprints fingerprints,
+            GitRunner git,
+            ObjectMapper json,
+            @Value("${server.port:53123}") int serverPort)
+    {
+        return new LocalDevelopmentRuntimeCoordinator(
+                commands, tasks, local, store, fingerprints, git, json,
+                Clock.systemUTC(), serverPort);
     }
 
     @Bean

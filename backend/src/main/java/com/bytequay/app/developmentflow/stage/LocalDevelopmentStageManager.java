@@ -85,6 +85,16 @@ public final class LocalDevelopmentStageManager
                 StageCheckpoint.IMPLEMENTING);
     }
 
+    /** Arms the first implementation Turn immediately after Plan opens Local v0. */
+    public CommandResult<State> startInitialImplementationInCommand(
+            Command command, ResultFence result, String turnRequestId)
+    {
+        return requestInitialResultInCommand(
+                command,
+                new InitialResultOwner(InitialResultOwnerKind.STAGE_TURN, turnRequestId),
+                result, "REQUEST_LOCAL_RESULT", StageCheckpoint.IMPLEMENTING);
+    }
+
     public CommandResult<State> acceptValidation(ResultCommand command)
     {
         return execute(command, () -> acceptValidationInCommand(command));

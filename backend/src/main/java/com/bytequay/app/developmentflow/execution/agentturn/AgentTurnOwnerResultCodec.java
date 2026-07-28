@@ -69,12 +69,14 @@ public final class AgentTurnOwnerResultCodec
     {
         boolean compatible = switch (outcome) {
             case SUCCEEDED -> disposition
-                    == AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED;
+                    == AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED
+                    || disposition == AgentTurnOperationHandler.Disposition.USER_WAIT;
             case CANCELED -> disposition
                     == AgentTurnOperationHandler.Disposition.PROVIDER_CANCELED;
             case INDETERMINATE -> disposition
                     == AgentTurnOperationHandler.Disposition.RECONCILIATION_REQUIRED;
             case FAILED -> disposition != AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED
+                    && disposition != AgentTurnOperationHandler.Disposition.USER_WAIT
                     && disposition != AgentTurnOperationHandler.Disposition.PROVIDER_CANCELED
                     && disposition
                     != AgentTurnOperationHandler.Disposition.RECONCILIATION_REQUIRED;

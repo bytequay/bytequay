@@ -151,14 +151,29 @@ public final class ThreadTurnOperationHandler
                             turn.turnId(), turn.operationId()));
             try {
                 context.onCancellation(session::cancel);
+                if (!activeContexts.attachStop(
+                        turn.trunkId(), agentKey, session::cancel)) {
+                    throw new IllegalStateException(
+                            "typed ThreadTurn provider stop hook was not attached");
+                }
                 AgentTurnProviderSession.Result result = session.startAndAwait(null);
                 context.recordUsage(
                         result.inputTokens(), result.outputTokens(), result.costUsdMilli());
+                Optional<String> stopReason = activeContexts.stopReason(
+                        turn.trunkId(), agentKey);
+                if (stopReason.isPresent()
+                        && stopReason.orElseThrow().startsWith("USER_WAIT:")) {
+                    return userWait(
+                            envelope, turn, input,
+                            AgentTurnOperationHandler.userWaitRef(
+                                    stopReason.orElseThrow()));
+                }
                 if (result.completion() == AgentTurnProviderSession.Completion.CANCELED) {
+                    String error = result.error() == null
+                            ? "provider session canceled" : result.error();
                     return canceled(
                             envelope, turn, input,
-                            result.error() == null
-                                    ? "provider session canceled" : result.error());
+                            error);
                 }
                 return providerResult(envelope, turn, input, result);
             }
@@ -266,6 +281,23 @@ public final class ThreadTurnOperationHandler
                 json(evidence(turn, PROVIDER_CANCELED, error)), error);
     }
 
+    private DispatchTicket.DispatchResult userWait(
+            DispatchTicket.DispatchEnvelope envelope,
+            ExactTurn turn,
+            AgentTurnOperationHandler.LaunchInput input,
+            AgentTurnOperationHandler.UserWaitRef wait)
+    {
+        AgentTurnOperationHandler.RawResult payload = raw(
+                envelope, turn, input.transport(), input.provider(), "",
+                0, 0, 0, null,
+                AgentTurnOperationHandler.Disposition.USER_WAIT, null,
+                null, wait);
+        return new DispatchTicket.DispatchResult(
+                envelope.fence(), SUCCEEDED, json(payload),
+                json(evidence(turn, AgentTurnOperationHandler.Disposition.USER_WAIT,
+                        wait.kind() + ":" + wait.id())), null);
+    }
+
     private DispatchTicket.DispatchResult failure(
             DispatchTicket.DispatchEnvelope envelope,
             ExactTurn turn,
@@ -294,7 +326,8 @@ public final class ThreadTurnOperationHandler
             String error)
     {
         return raw(envelope, turn, transport, provider, finalText, inputTokens,
-                outputTokens, costUsdMilli, processPid, disposition, error, null);
+                outputTokens, costUsdMilli, processPid, disposition, error, null,
+                null);
     }
 
     private static AgentTurnOperationHandler.RawResult raw(
@@ -311,6 +344,26 @@ public final class ThreadTurnOperationHandler
             String error,
             String providerSessionId)
     {
+        return raw(envelope, turn, transport, provider, finalText, inputTokens,
+                outputTokens, costUsdMilli, processPid, disposition, error,
+                providerSessionId, null);
+    }
+
+    private static AgentTurnOperationHandler.RawResult raw(
+            DispatchTicket.DispatchEnvelope envelope,
+            ExactTurn turn,
+            AgentTurnProviderSession.Transport transport,
+            String provider,
+            String finalText,
+            long inputTokens,
+            long outputTokens,
+            long costUsdMilli,
+            Long processPid,
+            AgentTurnOperationHandler.Disposition disposition,
+            String error,
+            String providerSessionId,
+            AgentTurnOperationHandler.UserWaitRef wait)
+    {
         return new AgentTurnOperationHandler.RawResult(
                 PAYLOAD_VERSION,
                 turn == null ? envelope.owner().id() : turn.turnId(),
@@ -318,7 +371,7 @@ public final class ThreadTurnOperationHandler
                 turn == null ? null : turn.purpose(),
                 transport, provider, providerSessionId, finalText,
                 inputTokens, outputTokens, costUsdMilli, processPid,
-                disposition, error);
+                disposition, error, wait);
     }
 
     private static AgentTurnOperationHandler.Evidence evidence(

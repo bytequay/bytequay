@@ -218,6 +218,37 @@ public final class SqliteStageResumeRearmStore
         armStage(intent, next, now);
     }
 
+    /** Restores an existing UI-owned gate without creating asynchronous work. */
+    public void materializePassiveWait(
+            Intent intent,
+            StageKind kind,
+            StageCheckpoint checkpoint,
+            Instant now)
+    {
+        requireOwner(intent, kind, checkpoint);
+        String waitKind;
+        if (kind == StageKind.PLAN
+                && checkpoint == StageCheckpoint.AWAITING_APPROVAL) {
+            waitKind = "PLAN_APPROVAL";
+        }
+        else if (kind == StageKind.LOCAL_DEVELOPMENT
+                && checkpoint == StageCheckpoint.LOCAL_REVIEW) {
+            waitKind = "LOCAL_REVIEW";
+        }
+        else {
+            throw new IllegalArgumentException(
+                    "checkpoint is not a passive resume wait");
+        }
+        jdbc.update("""
+                INSERT OR IGNORE INTO stage_resume_passive_wait_v263(
+                    handoff_id, wait_kind, stage_id, stage_generation,
+                    checkpoint, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, intent.handoffId(), waitKind, intent.stageId(),
+                intent.stageGeneration(), checkpoint.name(), now.toEpochMilli());
+        complete(intent, now);
+    }
+
     public void materializeRemoteFeedback(Intent intent, Instant now)
     {
         requireOwner(intent, StageKind.REMOTE_DEVELOPMENT,

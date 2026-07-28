@@ -17,6 +17,8 @@ import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.WorktreeWriterLeaseManager;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ToolExposurePolicy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -264,6 +266,36 @@ class TestAgentTurnOperationHandler
         DispatchTicket.DispatchResult result = handler.execute(context);
 
         assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.CANCELED);
+        assertThat(provider.session.canceled).isTrue();
+    }
+
+    @Test
+    void userWaitStopsProviderButSucceedsTheExactTurn()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = envelope(TASK_TURN, false);
+        ActiveAgentContextRegistry contexts = new ActiveAgentContextRegistry();
+        AgentTurnOperationHandler.ExactTurn turn = turn(TASK_TURN, launchInput());
+        AgentTurnOperationHandler handler = new AgentTurnOperationHandler(
+                (kind, id) -> kind == turn.ownerKind() && id.equals(turn.turnId())
+                        ? Optional.of(turn) : Optional.empty(),
+                provider, writers, contexts, new ToolExposurePolicy(), MAPPER);
+        provider.onStart = () -> assertThat(contexts.requestStop(
+                "trunk-1",
+                AgentTurnOperationHandler.mcpAgentKey(
+                        TASK_TURN, "task-turn-1", "operation-1"),
+                "USER_WAIT:QUESTION:question-1")).isTrue();
+
+        DispatchTicket.DispatchResult result = handler.execute(context(envelope));
+
+        AgentTurnOperationHandler.RawResult payload = MAPPER.readValue(
+                result.payloadJson(), AgentTurnOperationHandler.RawResult.class);
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+        assertThat(payload.disposition())
+                .isEqualTo(AgentTurnOperationHandler.Disposition.USER_WAIT);
+        assertThat(payload.userWait())
+                .isEqualTo(new AgentTurnOperationHandler.UserWaitRef(
+                        "QUESTION", "question-1"));
         assertThat(provider.session.canceled).isTrue();
     }
 

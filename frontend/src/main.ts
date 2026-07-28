@@ -5474,6 +5474,19 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('threads:permissions', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/permissions`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/threads/${id}/permissions returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('threads:files', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
@@ -5529,17 +5542,21 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   ipcMain.handle('threads:decide', async (_event, payload: unknown) => {
-    const { id, callId, decision, preApprove } =
+    const { id, callId, decision, preApprove, expectedRevision } =
       (payload ?? {}) as {
         id?: string;
         callId?: string;
         decision?: string;
         preApprove?: { toolName?: string; count?: number };
+        expectedRevision?: number;
       };
     if (!id || !callId || !decision) {
       throw new Error('id, callId, and decision are required');
     }
     const body: Record<string, unknown> = { callId, decision };
+    if (Number.isInteger(expectedRevision) && expectedRevision >= 0) {
+      body.expectedRevision = expectedRevision;
+    }
     if (preApprove && preApprove.toolName && preApprove.count) {
       body.preApproveToolName = preApprove.toolName;
       body.preApproveCount = preApprove.count;

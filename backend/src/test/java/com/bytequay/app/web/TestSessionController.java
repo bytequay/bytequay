@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.beans.session.SessionDto;
+import com.bytequay.app.developmentflow.compatibility.V2AgentRunProjection;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.InvestigationReviewData.AgentReviewRow;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewRoundRow;
@@ -23,19 +24,77 @@ import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.runs.SessionControlService;
 import com.bytequay.app.service.runs.SessionProjectionService;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestSessionController
 {
+    @Test
+    void typedReviewSeatTurnsDoNotBecomeWorkspaceSessions()
+    {
+        AgentRunService runs = mock(AgentRunService.class);
+        InvestigationReviewStore reviews = mock(InvestigationReviewStore.class);
+        SessionControlService controls = mock(SessionControlService.class);
+        V2AgentRunProjection v2 = mock(V2AgentRunProjection.class);
+        AgentRun seat = new AgentRun(
+                "v2-ticket:review-seat", "task-1",
+                AgentRun.KIND_PANEL_REVIEW, null, null, "round-1", null,
+                AgentRun.STATUS_RUNNING, 1, null, "Investigate", null,
+                Instant.EPOCH, null, "workspace-1", "trunk-1", "openai",
+                null, 0, 0, 0, 1, "Review", null, null);
+        when(v2.listByWorkspace("workspace-1")).thenReturn(List.of(seat));
+        when(v2.findById(seat.id())).thenReturn(Optional.of(seat));
+        SessionProjectionService projections =
+                new SessionProjectionService(runs, reviews);
+        ReflectionTestUtils.setField(projections, "v2Runs", v2);
+        SessionController controller = new SessionController(
+                projections, controls);
+
+        assertThat(controller.list("workspace-1")).isEmpty();
+        assertThatThrownBy(() -> controller.get(seat.id()))
+                .isInstanceOf(NoSuchElementException.class)
+                .hasMessageContaining("no session");
+    }
+
+    @Test
+    void v2SessionDetailNeverReadsOrMutatesLegacyAgentRuns()
+    {
+        AgentRunService runs = mock(AgentRunService.class);
+        InvestigationReviewStore reviews = mock(InvestigationReviewStore.class);
+        SessionControlService controls = mock(SessionControlService.class);
+        V2AgentRunProjection v2 = mock(V2AgentRunProjection.class);
+        AgentRun typed = new AgentRun(
+                "v2-ticket:ticket-1", "task-1", AgentRun.KIND_DEV,
+                AgentRun.SOURCE_LOCAL, "stage-1", null, "stage-1",
+                AgentRun.STATUS_RUNNING, 1, null, "Implement", null,
+                Instant.EPOCH, null, "workspace-1", "trunk-1", "openai",
+                null, 0, 0, 0, 1, "Implement", null, null);
+        when(v2.findById(typed.id())).thenReturn(Optional.of(typed));
+        SessionProjectionService projections =
+                new SessionProjectionService(runs, reviews);
+        ReflectionTestUtils.setField(projections, "v2Runs", v2);
+        SessionController controller = new SessionController(
+                projections, controls);
+
+        assertThat(controller.get(typed.id()).id()).isEqualTo(typed.id());
+        assertThatThrownBy(() -> controller.pause(typed.id()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("owning task or stage");
+
+        verifyNoInteractions(runs, reviews, controls);
+    }
+
     @Test
     void oneStableReviewSessionRepresentsTheLatestRoundAndHidesVerifierRuns()
     {

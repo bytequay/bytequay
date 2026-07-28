@@ -136,6 +136,10 @@ public class SessionController
     private SessionProjection requireControllableSession(String id)
     {
         SessionProjection session = sessions.require(id);
+        if (session.typedV2()) {
+            throw new IllegalStateException(
+                    "V2 sessions are controlled from their owning task or stage");
+        }
         if (session.durableReview()) {
             throw new IllegalStateException(
                     "review sessions are controlled from the pull request review panel");

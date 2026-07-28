@@ -27,6 +27,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -174,6 +177,44 @@ class TestTaskCommandExecutor
         }
     }
 
+    @Test
+    void siblingTasksDoNotShareACommandStripe()
+            throws Exception
+    {
+        TaskCommandExecutor isolatedExecutor =
+                new TaskCommandExecutor(new TestTransactionManager());
+        CountDownLatch aEntered = new CountDownLatch(1);
+        CountDownLatch releaseA = new CountDownLatch(1);
+        CountDownLatch bEntered = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> a = pool.submit(() -> isolatedExecutor.executeVoid("task-a", () -> {
+                aEntered.countDown();
+                try {
+                    assertThat(releaseA.await(10, TimeUnit.SECONDS)).isTrue();
+                }
+                catch (InterruptedException e) {
+                    java.lang.Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                }
+            }));
+            Future<?> b = pool.submit(() -> {
+                assertThat(aEntered.await(10, TimeUnit.SECONDS)).isTrue();
+                isolatedExecutor.executeVoid("task-b", bEntered::countDown);
+                return null;
+            });
+
+            assertThat(bEntered.await(10, TimeUnit.SECONDS)).isTrue();
+            releaseA.countDown();
+            a.get(10, TimeUnit.SECONDS);
+            b.get(10, TimeUnit.SECONDS);
+        }
+        finally {
+            releaseA.countDown();
+            pool.shutdownNow();
+        }
+    }
+
     private String seedTask()
     {
         Instant now = Instant.parse("2026-07-25T09:00:00Z");
@@ -189,5 +230,24 @@ class TestTaskCommandExecutor
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, null, now, null, null, null, null, null));
         return taskId;
+    }
+
+    private static final class TestTransactionManager
+            extends AbstractPlatformTransactionManager
+    {
+        @Override
+        protected Object doGetTransaction()
+        {
+            return new Object();
+        }
+
+        @Override
+        protected void doBegin(Object transaction, TransactionDefinition definition) {}
+
+        @Override
+        protected void doCommit(DefaultTransactionStatus status) {}
+
+        @Override
+        protected void doRollback(DefaultTransactionStatus status) {}
     }
 }

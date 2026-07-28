@@ -170,6 +170,31 @@ class TestStageSteeringService
     }
 
     @Test
+    void pendingTaskCanQueueSteeringForItsExactOpenStage()
+    {
+        UUID stageId = UUID.randomUUID();
+        when(stageStore.findStageById(stageId)).thenReturn(Optional.of(
+                stage(stageId, "task-7", StageState.OPEN)));
+        when(taskStore.findTaskById("task-7")).thenReturn(Optional.of(
+                task("task-7", "thread-9").withStatus(TaskStatus.PENDING)));
+        when(threadStore.findThreadById("thread-9")).thenReturn(Optional.of(thread("thread-9")));
+        schedulerSession("queued-run");
+        when(scheduler.enqueueStageTurn(
+                any(), any(), eq("task-7"), eq(stageId.toString()), any(), eq("queued-run")))
+                .thenReturn("queued-steer");
+
+        StageSteeringService.SteerResult result = service.steer(
+                stageId, "Apply this when the current work starts", null);
+
+        assertThat(result.turnId()).isEqualTo("queued-steer");
+        verify(scheduler).enqueueStageTurn(
+                any(), eq("Apply this when the current work starts"), eq("task-7"),
+                eq(stageId.toString()), any(TurnInitiator.class), eq("queued-run"));
+        verify(iterationService).begin(
+                "task-7", "queued-steer", IterationService.TRIGGER_USER_STEERING);
+    }
+
+    @Test
     void foldsPastedImagesIntoTheTurnInput()
     {
         UUID stageId = UUID.randomUUID();

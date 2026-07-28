@@ -197,6 +197,117 @@ public abstract class StageManager
         return resolveResultInCommand(command, cause, proofId, source, target).result();
     }
 
+    /**
+     * Arms the first exact asynchronous result after a Stage has been opened.
+     * Stage identity must exist before a typed Turn can reference it, so this
+     * is a separate same-checkpoint owner command rather than part of create.
+     */
+    protected final CommandResult<State> requestInitialResultInCommand(
+            Command command,
+            InitialResultOwner resultOwner,
+            ResultFence pendingResult,
+            String cause,
+            StageCheckpoint checkpoint)
+    {
+        requireNonNull(command, "command is null");
+        requireNonNull(resultOwner, "resultOwner is null");
+        requireNonNull(pendingResult, "pendingResult is null");
+        requireText(cause, "cause");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        if (pendingResult.taskEpoch() != command.expectedTaskEpoch()
+                || !command.stageId().equals(pendingResult.stageId())
+                || pendingResult.stageGeneration()
+                    != command.expectedStageGeneration()) {
+            throw rejected(INVALID_STATE,
+                    "Requested result targets another Stage owner");
+        }
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), command.stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            State state = requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(),
+                    command.stageId(), command.expectedStageGeneration(),
+                    command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                    command.expectedStageVersion(), checkpoint, cause,
+                    pendingResult, null).state();
+            if (!pendingResult.equals(state.pendingResult())) {
+                throw rejected(COMMAND_ID_CONFLICT,
+                        "Result request id was used for another operation");
+            }
+            return CommandResult.duplicate(state);
+        }
+
+        OwnerState owner = loadOwner(command.taskId(), command.stageId());
+        validate(command, owner);
+        if (!accepts(owner.taskLifecycle())) {
+            throw rejected(INVALID_STATE,
+                    kind + " Stage cannot run while Task is "
+                            + owner.taskLifecycle());
+        }
+        State current = owner.stage();
+        if (current.checkpoint() != checkpoint || current.pendingResult() != null) {
+            throw rejected(INVALID_STATE,
+                    "Cannot request result from " + current.checkpoint());
+        }
+        State requested = new State(
+                current.id(), current.taskId(), current.kind(), current.generation(),
+                current.version() + 1, current.checkpoint(), null, pendingResult);
+        return CommandResult.applied(store.requestInitialResult(
+                command.commandId(), cause, command.actor(),
+                command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                command.expectedStageVersion(), checkpoint, resultOwner,
+                pendingResult, current, requested));
+    }
+
+    /** Accepts one result and atomically arms the next owner operation. */
+    protected final CommandResult<State> acceptResultAndRequestNextInCommand(
+            ResultCommand acceptedCommand,
+            ResultFence nextResult,
+            String cause,
+            StageCheckpoint source,
+            StageCheckpoint target)
+    {
+        requireNonNull(acceptedCommand, "acceptedCommand is null");
+        requireNonNull(nextResult, "nextResult is null");
+        TaskCommandExecutor.requireCurrent(acceptedCommand.taskId());
+        ResultFence accepted = acceptedCommand.resultFence();
+        if (nextResult.taskEpoch() != accepted.taskEpoch()
+                || !accepted.stageId().equals(nextResult.stageId())
+                || nextResult.stageGeneration() != accepted.stageGeneration()) {
+            throw rejected(INVALID_STATE,
+                    "Next result targets another Stage owner");
+        }
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                acceptedCommand.taskId(), accepted.stageId(),
+                acceptedCommand.commandId());
+        if (duplicate.isPresent()) {
+            State state = requireReceipt(
+                    duplicate.orElseThrow(), acceptedCommand.actor(),
+                    acceptedCommand.taskId(), accepted.stageId(),
+                    accepted.stageGeneration(), null, null, null, null,
+                    cause, accepted, null).state();
+            if (!nextResult.equals(state.pendingResult())) {
+                throw rejected(COMMAND_ID_CONFLICT,
+                        "Result command id was used for another successor");
+            }
+            return CommandResult.duplicate(state);
+        }
+
+        OwnerState owner = loadOwner(acceptedCommand.taskId(), accepted.stageId());
+        State current = owner.stage();
+        if (!matchesResult(owner, accepted)
+                || current.checkpoint() != source
+                || !source.allowsStructuralTransition(target)) {
+            return CommandResult.superseded(store.recordSuperseded(
+                    acceptedCommand.commandId(), cause, acceptedCommand.actor(),
+                    null, null, null, null, accepted, null, current));
+        }
+        return applied(
+                acceptedCommand.commandId(), cause, acceptedCommand.actor(),
+                null, null, null, null,
+                current, target, nextResult, accepted, null);
+    }
+
     protected final ResultResolution acceptResultForHandoffInCommand(
             ResultCommand command,
             String cause,
@@ -781,6 +892,22 @@ public abstract class StageManager
         }
     }
 
+    /** Exact typed Turn that owns a Stage's first asynchronous result. */
+    public record InitialResultOwner(InitialResultOwnerKind kind, String id)
+    {
+        public InitialResultOwner
+        {
+            requireNonNull(kind, "kind is null");
+            requireText(id, "id");
+        }
+    }
+
+    public enum InitialResultOwnerKind
+    {
+        TASK_TURN,
+        STAGE_TURN
+    }
+
     public record OwnerState(
             String taskId,
             TaskLifecycle taskLifecycle,
@@ -1010,6 +1137,28 @@ public abstract class StageManager
                 ResultFence subjectFence,
                 String proofId,
                 State current);
+
+        /**
+         * Records the first pending result after Stage creation without a
+         * fake same-checkpoint transition. The dedicated immutable receipt
+         * breaks the Stage-to-typed-Turn foreign-key cycle at version zero.
+         */
+        default State requestInitialResult(
+                String commandId,
+                String cause,
+                String actor,
+                long expectedTaskEpoch,
+                long expectedStageGeneration,
+                long expectedStageVersion,
+                StageCheckpoint checkpoint,
+                InitialResultOwner resultOwner,
+                ResultFence pendingResult,
+                State expected,
+                State requested)
+        {
+            throw new UnsupportedOperationException(
+                    "Initial Stage result requests are not supported");
+        }
     }
 
     private static void requireText(String value, String name)

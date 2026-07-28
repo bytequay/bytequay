@@ -179,6 +179,12 @@ class SqliteThreadStore
     }
 
     @Override
+    public Optional<String> findTurnVersion(String threadId)
+    {
+        return threads.findById(threadId).map(ThreadEntity::getTurnVersion);
+    }
+
+    @Override
     public Optional<PlanningSnapshot> findPlanningSnapshot(String threadId)
     {
         return threads.findById(threadId)

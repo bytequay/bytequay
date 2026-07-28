@@ -229,6 +229,90 @@ class TestSqliteTaskStore
                 "SELECT COUNT(*) FROM pragma_foreign_key_check", Integer.class)).isZero();
     }
 
+    @Test
+    void policyCommandsAppendAndSelectRevisionsWithoutInvalidatingFrozenAutomation()
+    {
+        Path file = tempDir.resolve("task-policy.db");
+        SQLiteDataSource dataSource = database(file);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        seedActiveTask(jdbc, "task-policy", "plan-policy", 1);
+        migrate(file, "249");
+        TaskCommandExecutor commands = new TaskCommandExecutor(
+                new DataSourceTransactionManager(dataSource));
+        TaskManager manager = new TaskManager(commands, new V2TaskStore(jdbc));
+        TaskManager.PolicyCommand first = new TaskManager.PolicyCommand(
+                new TaskManager.Command(
+                        "revise-policy-1", "user", "task-policy", 1, 1),
+                "policy-2", true, true, 2, 4, 5, true, "permission-2");
+
+        TaskManager.PolicyRevision selected = manager.revisePolicy(first).state();
+
+        assertThat(selected)
+                .returns("policy-2", TaskManager.PolicyRevision::id)
+                .returns(2, TaskManager.PolicyRevision::revision)
+                .returns(true, TaskManager.PolicyRevision::autoMerge)
+                .returns(2, TaskManager.PolicyRevision::minApprovals);
+        assertThat(new V2TaskStore(new JdbcTemplate(dataSource))
+                .findById("task-policy").orElseThrow().version()).isEqualTo(2);
+        assertThat(manager.revisePolicy(first).disposition().name())
+                .isEqualTo("DUPLICATE");
+        assertThat(count(jdbc, "task_policy_command_receipt", "task-policy"))
+                .isEqualTo(1);
+        assertThatThrownBy(() -> manager.requestPause(new TaskManager.Command(
+                "revise-policy-1", "user", "task-policy", 1, 2)))
+                .isInstanceOfSatisfying(CommandRejectedException.class,
+                        failure -> assertThat(failure.reason().name())
+                                .isEqualTo("COMMAND_ID_CONFLICT"));
+        assertThatThrownBy(() -> manager.revisePolicy(new TaskManager.PolicyCommand(
+                new TaskManager.Command(
+                        "stale-policy", "user", "task-policy", 1, 1),
+                "policy-stale", true, false, 1, 4, 5, true, null)))
+                .isInstanceOfSatisfying(CommandRejectedException.class,
+                        failure -> assertThat(failure.reason()).isEqualTo(STALE_VERSION));
+        assertThatThrownBy(() -> jdbc.update("""
+                UPDATE task_policy_revision SET min_approvals = 0
+                WHERE id = 'policy-2'
+                """)).isInstanceOf(DataAccessException.class);
+        assertThatThrownBy(() -> jdbc.update("""
+                UPDATE tasks
+                SET policy_revision_id = 'policy-1', aggregate_version = 3
+                WHERE id = 'task-policy'
+                """)).isInstanceOf(DataAccessException.class);
+
+        jdbc.update("""
+                INSERT INTO task_automation_policy(
+                    id, task_id, revision, source, auto_approve, auto_merge,
+                    keep_draft, minimum_write_approvals,
+                    max_merge_queue_reenqueues, require_low_risk,
+                    require_small_effort, stewardship_exception,
+                    created_by, created_at_ms)
+                VALUES ('automation-1', 'task-policy', 1, 'PUBLISH', 1, 1,
+                    0, 2, 2, 1, 1, 0, 'system', 10)
+                """);
+        TaskManager.PolicyRevision changed = manager.revisePolicy(
+                new TaskManager.PolicyCommand(
+                        new TaskManager.Command(
+                                "revise-policy-2", "user", "task-policy", 1, 2),
+                        "policy-3", false, false, 1, 6, 7, false, null))
+                .state();
+
+        assertThat(changed.id()).isEqualTo("policy-3");
+        assertThat(jdbc.queryForMap("""
+                SELECT revision, auto_approve, auto_merge,
+                       minimum_write_approvals
+                FROM task_automation_policy
+                WHERE task_id = 'task-policy'
+                ORDER BY revision DESC LIMIT 1
+                """))
+                .containsEntry("revision", 2)
+                .containsEntry("auto_approve", 0)
+                .containsEntry("auto_merge", 0)
+                .containsEntry("minimum_write_approvals", 1);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM pragma_foreign_key_check", Integer.class)).isZero();
+    }
+
     private static SQLiteDataSource database(Path file)
     {
         String url = "jdbc:sqlite:" + file + "?foreign_keys=ON&busy_timeout=30000";

@@ -100,7 +100,8 @@ public class SqlitePublishResultStore
                 JOIN promotion_manifest manifest
                   ON manifest.id = authorization.manifest_id
                 JOIN tasks task ON task.id = operation.task_id
-                JOIN task_policy_revision policy ON policy.id = task.policy_revision_id
+                JOIN task_policy_revision policy
+                  ON policy.id = authorization.policy_revision_id
                 JOIN dispatch_ticket ticket
                   ON ticket.operation_id = operation.operation_id
                 LEFT JOIN task_command_receipt receipt

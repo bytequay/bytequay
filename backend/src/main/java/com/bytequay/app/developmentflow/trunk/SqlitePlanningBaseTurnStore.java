@@ -85,13 +85,16 @@ public class SqlitePlanningBaseTurnStore
                        EXISTS (
                            SELECT 1
                            FROM planning_base_refresh_operation preceding
+                           JOIN trunk_planning_base_request_receipt preceding_request
+                             ON preceding_request.planning_operation_id = preceding.id
+                           JOIN trunk_planning_base_request_receipt request
+                             ON request.planning_operation_id = operation.id
                            WHERE preceding.trunk_id = operation.trunk_id
                              AND preceding.id <> operation.id
                              AND preceding.status IN ('REQUESTED', 'SUCCEEDED')
-                             AND preceding.launched_thread_turn_id IS NULL
-                             AND (preceding.requested_at_ms < operation.requested_at_ms
-                               OR (preceding.requested_at_ms = operation.requested_at_ms
-                                 AND preceding.id < operation.id)))
+                             AND preceding.launch_disposition = 'PENDING'
+                             AND preceding_request.returned_trunk_version
+                                   < request.returned_trunk_version)
                            AS unlaunched_predecessor
                 FROM planning_base_refresh_operation operation
                 WHERE operation.operation_id = ?
@@ -128,7 +131,7 @@ public class SqlitePlanningBaseTurnStore
                   ON ticket.id = operation.dispatch_ticket_id
                 WHERE operation.operation_id = ?
                   AND operation.status = 'SUCCEEDED'
-                  AND operation.launched_thread_turn_id IS NULL
+                  AND operation.launch_disposition = 'PENDING'
                   AND ticket.status = 'SUCCEEDED'
                   AND ticket.delivery_acceptance = 'ACCEPTED'
                 """, (rs, row) -> new LaunchCandidate(
@@ -154,9 +157,10 @@ public class SqlitePlanningBaseTurnStore
         requireNonNull(launchedAt, "launchedAt is null");
         int changed = jdbc.update("""
                 UPDATE planning_base_refresh_operation
-                SET launched_thread_turn_id = ?, launched_at_ms = ?
+                SET launch_disposition = 'LAUNCHED',
+                    launched_thread_turn_id = ?, launched_at_ms = ?
                 WHERE id = ? AND operation_id = ? AND status = 'SUCCEEDED'
-                  AND launched_thread_turn_id IS NULL
+                  AND launch_disposition = 'PENDING'
                   AND reserved_thread_turn_id = ?
                   AND EXISTS (
                       SELECT 1 FROM thread_turn turn
@@ -190,11 +194,13 @@ public class SqlitePlanningBaseTurnStore
                 FROM planning_base_refresh_operation operation
                 JOIN dispatch_ticket ticket
                   ON ticket.id = operation.dispatch_ticket_id
+                JOIN trunk_planning_base_request_receipt request
+                  ON request.planning_operation_id = operation.id
                 WHERE operation.status = 'SUCCEEDED'
-                  AND operation.launched_thread_turn_id IS NULL
+                  AND operation.launch_disposition = 'PENDING'
                   AND ticket.status = 'SUCCEEDED'
                   AND ticket.delivery_acceptance = 'ACCEPTED'
-                ORDER BY operation.requested_at_ms, operation.id
+                ORDER BY request.returned_trunk_version
                 LIMIT ?
                 """, (rs, row) -> rs.getString("operation_id"), limit);
     }

@@ -332,7 +332,7 @@ final class V2TrunkStore
                              AND other.id <> operation.id
                              AND (other.status = 'REQUESTED'
                                OR (other.status = 'SUCCEEDED'
-                                 AND other.launched_thread_turn_id IS NULL))))
+                                 AND other.launch_disposition = 'PENDING'))))
                            AS other_live_work
                 FROM planning_base_refresh_operation operation
                 JOIN threads trunk ON trunk.id = operation.trunk_id
@@ -436,6 +436,68 @@ final class V2TrunkStore
                 """, Integer.class,
                 trunkId, commandId, trunkId, commandId);
         return used != null && used == 1;
+    }
+
+    @Override
+    public boolean isPlanningLaunchPending(
+            String planningOperationId, String trunkId, String turnId)
+    {
+        requireTransaction();
+        Integer pending = jdbc.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM planning_base_refresh_operation operation
+                    JOIN dispatch_ticket ticket
+                      ON ticket.id = operation.dispatch_ticket_id
+                    WHERE operation.id = ? AND operation.trunk_id = ?
+                      AND operation.reserved_thread_turn_id = ?
+                      AND operation.status = 'SUCCEEDED'
+                      AND operation.launch_disposition = 'PENDING'
+                      AND ticket.status = 'SUCCEEDED'
+                      AND ticket.delivery_acceptance = 'ACCEPTED')
+                """, Integer.class, planningOperationId, trunkId, turnId);
+        return pending != null && pending == 1;
+    }
+
+    @Override
+    public void markPlanningLaunch(
+            String planningOperationId, String turnId, Instant launchedAt)
+    {
+        requireTransaction();
+        int changed = jdbc.update("""
+                UPDATE planning_base_refresh_operation
+                SET launch_disposition = 'LAUNCHED',
+                    launched_thread_turn_id = ?, launched_at_ms = ?
+                WHERE id = ? AND status = 'SUCCEEDED'
+                  AND launch_disposition = 'PENDING'
+                  AND reserved_thread_turn_id = ?
+                  AND EXISTS (
+                    SELECT 1 FROM thread_turn turn
+                    WHERE turn.id = ?
+                      AND turn.trunk_id = planning_base_refresh_operation.trunk_id
+                      AND turn.planning_operation_id = planning_base_refresh_operation.id)
+                """, turnId, launchedAt.toEpochMilli(), planningOperationId,
+                turnId, turnId);
+        if (changed != 1) {
+            throw concurrent("Planning launch disposition changed before commit");
+        }
+    }
+
+    @Override
+    public int suppressPlanningLaunches(
+            String trunkId, String reason, Instant suppressedAt)
+    {
+        requireTransaction();
+        return jdbc.update("""
+                UPDATE planning_base_refresh_operation
+                SET launch_disposition = 'SUPPRESSED',
+                    launch_disposition_reason = ?, launched_at_ms = ?
+                WHERE trunk_id = ? AND status IN ('REQUESTED', 'SUCCEEDED')
+                  AND launch_disposition = 'PENDING'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM thread_turn turn
+                    WHERE turn.id = planning_base_refresh_operation.reserved_thread_turn_id)
+                """, reason, suppressedAt.toEpochMilli(), trunkId);
     }
 
     private boolean planningRuntimeExists()
@@ -623,7 +685,14 @@ final class V2TrunkStore
     {
         return jdbc.query("""
                 SELECT outcome.trunk_id, outcome.summary_state,
-                       outcome.summary_thread_turn_id,
+                       (SELECT summary.task_turn_id
+                        FROM task_outcome_summary_operation summary
+                        WHERE summary.task_outcome_id = outcome.id
+                          AND (summary.id = outcome.summary_operation_id
+                            OR (outcome.summary_state = 'FALLBACK'
+                              AND summary.status = 'SUCCEEDED'))
+                        ORDER BY summary.semantic_attempt DESC LIMIT 1)
+                          AS summary_task_turn_id,
                        outcome.summary_operation_id, outcome.summary_text,
                        outcome.summary_digest, outcome.summary_updated_at_ms
                 FROM task_outcome outcome
@@ -637,7 +706,7 @@ final class V2TrunkStore
                 """, (rs, row) -> new TrunkManager.TaskOutcomeSummaryState(
                         taskOutcomeId, rs.getString("trunk_id"),
                         rs.getString("summary_state"),
-                        rs.getString("summary_thread_turn_id"),
+                        rs.getString("summary_task_turn_id"),
                         rs.getString("summary_operation_id"),
                         rs.getString("summary_text"),
                         rs.getString("summary_digest"),
@@ -650,44 +719,13 @@ final class V2TrunkStore
     }
 
     @Override
-    public TrunkManager.TaskOutcomeSummaryState bindTaskOutcomeSummary(
-            TrunkManager.TaskOutcomeSummaryBinding binding,
-            TrunkManager.TaskOutcomeSummaryState current)
-    {
-        requireTransaction();
-        if (!binding.taskOutcomeId().equals(current.taskOutcomeId())
-                || current.summaryThreadTurnId() != null
-                || !"FALLBACK".equals(current.summaryState())) {
-            throw new IllegalArgumentException(
-                    "TaskOutcome summary binding fence is inconsistent");
-        }
-        int changed = jdbc.update("""
-                UPDATE task_outcome
-                SET summary_thread_turn_id = ?
-                WHERE id = ? AND trunk_id = ?
-                  AND summary_state = 'FALLBACK'
-                  AND summary_thread_turn_id IS NULL
-                """, binding.turnId(), binding.taskOutcomeId(),
-                current.trunkId());
-        if (changed != 1) {
-            throw concurrent(
-                    "TaskOutcome changed before summary Turn binding");
-        }
-        return new TrunkManager.TaskOutcomeSummaryState(
-                current.taskOutcomeId(), current.trunkId(),
-                current.summaryState(), binding.turnId(),
-                current.summaryOperationId(), current.summaryText(),
-                current.summaryDigest(), current.summaryUpdatedAt());
-    }
-
-    @Override
     public TrunkManager.TaskOutcomeSummaryState enrichTaskOutcomeSummary(
             TrunkManager.TaskOutcomeSummaryFact fact,
             TrunkManager.TaskOutcomeSummaryState current)
     {
         requireTransaction();
         if (!fact.taskOutcomeId().equals(current.taskOutcomeId())
-                || !fact.turnId().equals(current.summaryThreadTurnId())
+                || !fact.turnId().equals(current.summaryTaskTurnId())
                 || !"FALLBACK".equals(current.summaryState())) {
             throw new IllegalArgumentException(
                     "TaskOutcome summary result fence is inconsistent");
@@ -699,10 +737,16 @@ final class V2TrunkStore
                     summary_updated_at_ms = ?
                 WHERE id = ? AND trunk_id = ?
                   AND summary_state = 'FALLBACK'
-                  AND summary_thread_turn_id = ?
+                  AND EXISTS (
+                    SELECT 1 FROM task_outcome_summary_operation summary
+                    WHERE summary.task_outcome_id = task_outcome.id
+                      AND summary.task_turn_id = ?
+                      AND summary.id = ?
+                      AND summary.status = 'SUCCEEDED')
                 """, fact.summaryText(), fact.summaryDigest(),
                 fact.operationId(), fact.finishedAt().toEpochMilli(),
-                fact.taskOutcomeId(), current.trunkId(), fact.turnId());
+                fact.taskOutcomeId(), current.trunkId(), fact.turnId(),
+                fact.operationId());
         if (changed != 1) {
             throw concurrent(
                     "TaskOutcome changed before summary enrichment");
@@ -1009,7 +1053,7 @@ final class V2TrunkStore
                            WHERE planning.trunk_id = turn.trunk_id
                              AND (planning.status = 'REQUESTED'
                                OR (planning.status = 'SUCCEEDED'
-                                 AND planning.launched_thread_turn_id IS NULL)))
+                                 AND planning.launch_disposition = 'PENDING')))
                 """ : "";
         return jdbc.query("""
                 SELECT trunk.id AS trunk_id, trunk.lifecycle_state,

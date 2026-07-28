@@ -207,6 +207,11 @@ public final class PlanningBaseTurnRuntime
         }
     }
 
+    public int suppressPending(String trunkId, String reason)
+    {
+        return trunks.suppressPlanningLaunches(trunkId, reason, clock.instant());
+    }
+
     private void launchReady(String operationId)
     {
         SqlitePlanningBaseTurnStore.LaunchCandidate candidate =
@@ -233,21 +238,32 @@ public final class PlanningBaseTurnRuntime
                             "V2 Trunk disappeared before launch"));
             String prompt = movement(candidate.previousBaseSha(), candidate.baseSha())
                     + intent.prompt();
-            turnId = turns.request(new ThreadTurnHandoff.Request(
+            TrunkManager.ThreadTurnCommand command = turns.prepare(
+                    new ThreadTurnHandoff.Request(
                     candidate.launchCommandId(), candidate.actor(),
                     candidate.trunkId(), candidate.workspaceId(), current.version(),
                     intent.purpose(), intent.transport(), intent.provider(),
                     intent.credentialAccount(), intent.model(),
                     intent.reasoningEffort(), Path.of(candidate.worktreePath()),
                     intent.systemPrompt(), intent.userMessage(), prompt,
-                    candidate.planningOperationId(), candidate.baseSha()))
-                    .state().turnId();
+                    candidate.planningOperationId(), candidate.baseSha()));
+            Optional<CommandResult<TrunkManager.ThreadTurnRequestReceipt>> launched =
+                    trunks.launchPlanningTurn(
+                            candidate.planningOperationId(), command);
+            if (launched.isEmpty()) {
+                return;
+            }
+            turnId = launched.orElseThrow().state().turnId();
         }
         if (!candidate.reservedThreadTurnId().equals(turnId)) {
             throw new IllegalStateException(
                     "planning launch did not use its reserved ThreadTurn id");
         }
-        store.markLaunched(candidate, turnId, clock.instant());
+        if (existing != null) {
+            // Upgrade/crash repair for a ThreadTurn committed by the former
+            // two-step handoff. New launches commit both records atomically.
+            store.markLaunched(candidate, turnId, clock.instant());
+        }
     }
 
     private Path repositoryRoot(String workspaceId)

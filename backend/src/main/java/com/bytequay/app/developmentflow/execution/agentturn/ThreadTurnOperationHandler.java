@@ -142,7 +142,7 @@ public final class ThreadTurnOperationHandler
         try (AgentTurnProviderSession.Session session = provider.open(request, observer)) {
             String agentKey = mcpAgentKey(turn.turnId(), turn.operationId());
             activeContexts.put(
-                    turn.trunkId(), agentKey, context(turn),
+                    turn.trunkId(), agentKey, context(),
                     new PermissionResolver.RunningScope(
                             ThreadScope.TRUNK,
                             null, null, turn.turnId()),
@@ -222,18 +222,13 @@ public final class ThreadTurnOperationHandler
         return null;
     }
 
-    private ResolvedAgentContext context(ExactTurn turn)
+    private ResolvedAgentContext context()
     {
-        boolean completionSummary =
-                "TASK_COMPLETION_SUMMARY".equals(turn.purpose());
-        RoleDefinition role = RoleRegistry.definition(
-                completionSummary ? ByteQuayRole.BRAIN : ByteQuayRole.TRUNK);
+        RoleDefinition role = RoleRegistry.definition(ByteQuayRole.TRUNK);
         return new ResolvedAgentContext(
                 role.role(), role.version(), role.permissionRole(), null,
                 role.capabilities(), List.of(), List.of(),
-                role.resources(), completionSummary
-                        ? tools.completionSummaryTools()
-                        : tools.activeTools(ByteQuayRole.TRUNK, null));
+                role.resources(), tools.activeTools(ByteQuayRole.TRUNK, null));
     }
 
     private DispatchTicket.DispatchResult providerResult(

@@ -35,6 +35,7 @@ import static com.bytequay.app.developmentflow.execution.DispatchTicket.OwnerKin
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.OwnerKind.TASK_TURN;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.STAGE_OPERATION_KIND;
 import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.TASK_OPERATION_KIND;
+import static com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler.TASK_OUTCOME_SUMMARY_OPERATION_KIND;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -91,6 +92,30 @@ class TestAgentTurnOperationHandler
         assertThat(decoded.payload().providerSessionId()).isEqualTo("session-1");
         assertThat(decoded.payload().disposition())
                 .isEqualTo(AgentTurnOperationHandler.Disposition.PROVIDER_SUCCEEDED);
+    }
+
+    @Test
+    void executesTerminalTaskOutcomeSummaryAsANonExclusiveTaskTurn()
+            throws Exception
+    {
+        DispatchTicket.DispatchEnvelope envelope = summaryEnvelope();
+        AgentTurnOperationHandler handler = handler(summaryTurn());
+
+        DispatchTicket.DispatchResult result = handler.execute(context(envelope));
+
+        assertThat(result.outcome()).isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
+        assertThat(provider.request.access())
+                .isEqualTo(AgentTurnProviderSession.Access.READ_ONLY);
+        assertThat(provider.request.toolEndpoint().ownerKind()).isEqualTo(TASK_TURN);
+        assertThat(provider.request.toolEndpoint().profile())
+                .isEqualTo(AgentTurnProviderSession.ToolProfile.TASK_BRAIN_READ_ONLY);
+        assertThat(envelope.capacityRequest().exclusiveTask()).isFalse();
+        verify(writers, never()).acquire(any(), any());
+        AgentTurnOwnerResultCodec.OwnerResult decoded =
+                new AgentTurnOwnerResultCodec(MAPPER).decode(
+                        envelope.owner(), envelope.fence(), result);
+        assertThat(decoded.payload().purpose())
+                .isEqualTo("TASK_COMPLETION_SUMMARY");
     }
 
     @Test
@@ -353,6 +378,30 @@ class TestAgentTurnOperationHandler
                 capacity);
     }
 
+    private static DispatchTicket.DispatchEnvelope summaryEnvelope()
+    {
+        DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
+                1L, null, null, "operation-1", 1, null, null, null);
+        CapacityManager.CapacityRequest capacity = new CapacityManager.CapacityRequest(
+                "operation-1",
+                CapacityManager.WorkflowSource.V2,
+                Set.of(
+                        CapacityManager.CapacityLane.CLI,
+                        CapacityManager.CapacityLane.REVIEW),
+                new CapacityManager.CapacityScope(
+                        "workspace-1", "trunk-1", "task-1", 1L),
+                false,
+                false,
+                false);
+        return new DispatchTicket.DispatchEnvelope(
+                TASK_OUTCOME_SUMMARY_OPERATION_KIND,
+                DispatchTicket.AsyncFamily.AGENT_TURN,
+                new DispatchTicket.OwnerReference(
+                        TASK_TURN, "task-turn-1", "TASK_OUTCOME_SUMMARY_RESULT"),
+                fence,
+                capacity);
+    }
+
     private static AgentTurnOperationHandler.ExactTurn turn(
             DispatchTicket.OwnerKind ownerKind, String launchInput)
     {
@@ -382,6 +431,35 @@ class TestAgentTurnOperationHandler
                 "base-1",
                 stage ? null : "codex",
                 stage ? null : "gpt-5.6");
+    }
+
+    private static AgentTurnOperationHandler.ExactTurn summaryTurn()
+    {
+        return new AgentTurnOperationHandler.ExactTurn(
+                TASK_TURN,
+                "task-turn-1",
+                "task-1",
+                1,
+                null,
+                null,
+                "TASK_COMPLETION_SUMMARY",
+                "QUEUED",
+                "operation-1",
+                1,
+                null,
+                null,
+                null,
+                launchInput(),
+                WORKTREE,
+                "COMPLETED",
+                null,
+                null,
+                false,
+                null,
+                null,
+                null,
+                "codex",
+                "gpt-5.6");
     }
 
     private static AgentTurnOperationHandler.ExactTurn withCurrentFingerprint(

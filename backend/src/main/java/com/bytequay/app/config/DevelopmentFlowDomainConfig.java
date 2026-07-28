@@ -67,6 +67,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.util.List;
 
 /**
  * Production command-side graph for the V2 domain owners and their atomic
@@ -384,10 +385,21 @@ public class DevelopmentFlowDomainConfig
             TaskCommandExecutor commands,
             CleanupStageManager cleanup,
             TaskManager tasks,
+            TrunkManager trunks,
             ReviewBuildOutcomeService reviewOutcomes)
     {
+        CleanupCompletionHandoff.PostCompletionHook trunkDelivery = completion -> {
+            String outcomeId = "TASK_OUTCOME:" + completion.taskId();
+            trunks.acceptTaskOutcome(new TrunkManager.TaskOutcomeFact(
+                    outcomeId, "TRUNK_OUTCOME:" + outcomeId,
+                    "v2-task-outcome", completion.completedAt()));
+        };
+        CleanupCompletionHandoff.PostCompletionHook reviewBuildDelivery =
+                completion -> reviewOutcomes.acceptTaskOutcome(completion.taskId());
         return new CleanupCompletionHandoff(
-                commands, cleanup, tasks, reviewOutcomes);
+                commands, cleanup, tasks,
+                List.of(trunkDelivery, reviewBuildDelivery),
+                Clock.systemUTC());
     }
 
     @Bean

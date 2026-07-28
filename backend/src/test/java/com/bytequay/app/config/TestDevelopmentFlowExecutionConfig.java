@@ -73,6 +73,9 @@ import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseRefreshOperationHandler;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseTurnRuntime;
 import com.bytequay.app.developmentflow.trunk.SqlitePlanningBaseTurnStore;
+import com.bytequay.app.developmentflow.trunk.SqliteTaskOutcomeSummaryStore;
+import com.bytequay.app.developmentflow.trunk.TaskOutcomeSummaryResultDeliveryPort;
+import com.bytequay.app.developmentflow.trunk.TaskOutcomeSummaryRuntime;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
@@ -239,6 +242,9 @@ class TestDevelopmentFlowExecutionConfig
                 .isSameAs(turns);
         assertThat(registry.require(AgentTurnOperationHandler.STAGE_OPERATION_KIND))
                 .isSameAs(turns);
+        assertThat(registry.require(
+                AgentTurnOperationHandler.TASK_OUTCOME_SUMMARY_OPERATION_KIND))
+                .isSameAs(turns);
         assertThat(registry.require(ThreadTurnOperationHandler.OPERATION_KIND))
                 .isSameAs(threadTurns);
         assertThat(registry.require(
@@ -305,6 +311,8 @@ class TestDevelopmentFlowExecutionConfig
                 mock(RemoteDevelopmentStageManager.class),
                 mock(SqliteMergeOperationStore.class),
                 reviewTurns,
+                mock(SqliteTaskOutcomeSummaryStore.class),
+                mock(TaskOutcomeSummaryRuntime.class),
                 mock(JdbcTemplate.class),
                 new ObjectMapper());
 
@@ -328,6 +336,7 @@ class TestDevelopmentFlowExecutionConfig
                 RemoteDevelopmentRuntimeCoordinator.EFFECT_CALLBACK,
                 RemoteDevelopmentRuntimeCoordinator.MARK_READY_CALLBACK,
                 ThreadTurnOperationHandler.CALLBACK_ROUTE,
+                TaskOutcomeSummaryResultDeliveryPort.CALLBACK_ROUTE,
                 RemoteObservationOperationHandler.CALLBACK_ROUTE,
                 "REMOTE_CI_RERUN_RESULT",
                 "REMOTE_CI_VALIDATION_RESULT",
@@ -537,6 +546,10 @@ class TestDevelopmentFlowExecutionConfig
                 .withBean(TrunkManager.class, () -> mock(TrunkManager.class))
                 .withBean(TrunkManager.Store.class,
                         () -> mock(TrunkManager.Store.class))
+                .withBean(SqliteTaskOutcomeSummaryStore.class,
+                        () -> mock(SqliteTaskOutcomeSummaryStore.class))
+                .withBean(TaskOutcomeSummaryRuntime.class,
+                        () -> mock(TaskOutcomeSummaryRuntime.class))
                 .withBean(SqlitePlanningBaseTurnStore.class,
                         () -> mock(SqlitePlanningBaseTurnStore.class))
                 .withBean(ThreadTurnHandoff.class,

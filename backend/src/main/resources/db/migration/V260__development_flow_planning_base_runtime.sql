@@ -28,6 +28,9 @@ CREATE TABLE planning_base_refresh_operation (
     error_message            TEXT,
     requested_at_ms          INTEGER NOT NULL,
     completed_at_ms          INTEGER,
+    launch_disposition       TEXT    NOT NULL DEFAULT 'PENDING' CHECK (
+        launch_disposition IN ('PENDING', 'LAUNCHED', 'SUPPRESSED')),
+    launch_disposition_reason TEXT,
     launched_thread_turn_id  TEXT UNIQUE REFERENCES thread_turn(id),
     launched_at_ms           INTEGER,
     UNIQUE (trunk_id, command_id),
@@ -36,10 +39,17 @@ CREATE TABLE planning_base_refresh_operation (
         (result_worktree_path IS NOT NULL
           AND result_base_ref IS NOT NULL
           AND result_base_sha IS NOT NULL)),
-    CHECK ((launched_thread_turn_id IS NULL) = (launched_at_ms IS NULL)),
-    CHECK (launched_thread_turn_id IS NULL OR (
-        status = 'SUCCEEDED'
-        AND launched_thread_turn_id = reserved_thread_turn_id))
+    CHECK ((launch_disposition = 'PENDING'
+            AND launch_disposition_reason IS NULL
+            AND launched_thread_turn_id IS NULL AND launched_at_ms IS NULL)
+        OR (launch_disposition = 'LAUNCHED'
+            AND launch_disposition_reason IS NULL
+            AND status = 'SUCCEEDED'
+            AND launched_thread_turn_id = reserved_thread_turn_id
+            AND launched_at_ms IS NOT NULL)
+        OR (launch_disposition = 'SUPPRESSED'
+            AND launch_disposition_reason IS NOT NULL
+            AND launched_thread_turn_id IS NULL AND launched_at_ms IS NOT NULL))
 );
 CREATE INDEX idx_planning_base_refresh_ready
     ON planning_base_refresh_operation(status, completed_at_ms, id);
@@ -173,8 +183,8 @@ CREATE TRIGGER planning_base_refresh_terminal_immutable
 BEFORE UPDATE ON planning_base_refresh_operation
 WHEN OLD.status <> 'REQUESTED'
   AND NOT (OLD.status = 'SUCCEEDED'
-      AND OLD.launched_thread_turn_id IS NULL
-      AND NEW.launched_thread_turn_id IS NOT NULL
+      AND OLD.launch_disposition = 'PENDING'
+      AND NEW.launch_disposition IN ('LAUNCHED', 'SUPPRESSED')
       AND NEW.launched_at_ms IS NOT NULL
       AND NEW.status = OLD.status
       AND NEW.raw_outcome = OLD.raw_outcome
@@ -183,7 +193,13 @@ WHEN OLD.status <> 'REQUESTED'
       AND NEW.result_base_ref = OLD.result_base_ref
       AND NEW.result_base_sha = OLD.result_base_sha
       AND NEW.error_message IS OLD.error_message
-      AND NEW.completed_at_ms = OLD.completed_at_ms)
+      AND NEW.completed_at_ms = OLD.completed_at_ms
+      AND ((NEW.launch_disposition = 'LAUNCHED'
+              AND NEW.launch_disposition_reason IS NULL
+              AND NEW.launched_thread_turn_id = OLD.reserved_thread_turn_id)
+          OR (NEW.launch_disposition = 'SUPPRESSED'
+              AND NEW.launch_disposition_reason IS NOT NULL
+              AND NEW.launched_thread_turn_id IS NULL)))
 BEGIN SELECT RAISE(ABORT, 'Terminal Planning-base Operation is immutable'); END;
 
 CREATE TRIGGER planning_base_refresh_delete_immutable

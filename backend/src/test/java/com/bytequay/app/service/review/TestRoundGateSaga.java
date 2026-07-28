@@ -134,6 +134,24 @@ class TestRoundGateSaga
     }
 
     @Test
+    void duplicateAuthorizationDeliveryDoesNotRepeatCompletedEffects()
+            throws Exception
+    {
+        saga.approve(ROUND_ID);
+        RoundGateAuthorizedEvent event = new RoundGateAuthorizedEvent(
+                "task-1", ROUND_ID, gates.authorization.token());
+
+        saga.onAuthorized(event);
+        saga.onAuthorized(event);
+
+        verify(git, times(1)).push(WORKTREE);
+        verify(roundMachine, times(1)).postInCommand(
+                "task-1", ROUND_ID, gates.authorization.token(), "round_gate_posted");
+        assertThat(gates.findAuthorization(gates.authorization.token()).orElseThrow().active())
+                .isFalse();
+    }
+
+    @Test
     void expiredPushClaimUsesTheRemoteHeadInsteadOfPushingAgain()
             throws Exception
     {

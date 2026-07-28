@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.agents;
 
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.service.tools.PermissionResolver;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
@@ -22,16 +24,51 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class ActiveAgentContextRegistry
 {
-    private final ConcurrentHashMap<Key, ResolvedAgentContext> active = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Key, Entry> active = new ConcurrentHashMap<>();
 
     public void put(String threadId, String agentKey, ResolvedAgentContext context)
     {
-        active.put(new Key(threadId, agentKey), context);
+        put(threadId, agentKey, context, PermissionResolver.RunningScope.NONE);
+    }
+
+    public void put(
+            String threadId,
+            String agentKey,
+            ResolvedAgentContext context,
+            PermissionResolver.RunningScope scope)
+    {
+        put(threadId, agentKey, context, scope, null);
+    }
+
+    public void put(
+            String threadId,
+            String agentKey,
+            ResolvedAgentContext context,
+            PermissionResolver.RunningScope scope,
+            TypedOwner typedOwner)
+    {
+        active.put(new Key(threadId, agentKey),
+                new Entry(context, scope, typedOwner));
     }
 
     public Optional<ResolvedAgentContext> find(String threadId, String agentKey)
     {
-        return Optional.ofNullable(active.get(new Key(threadId, agentKey)));
+        return Optional.ofNullable(active.get(new Key(threadId, agentKey)))
+                .map(Entry::context);
+    }
+
+    public Optional<PermissionResolver.RunningScope> findScope(
+            String threadId, String agentKey)
+    {
+        return Optional.ofNullable(active.get(new Key(threadId, agentKey)))
+                .map(Entry::scope)
+                .filter(scope -> scope.scope() != null);
+    }
+
+    public Optional<TypedOwner> findTypedOwner(String threadId, String agentKey)
+    {
+        return Optional.ofNullable(active.get(new Key(threadId, agentKey)))
+                .map(Entry::typedOwner);
     }
 
     public void remove(String threadId, String agentKey)
@@ -45,4 +82,23 @@ public class ActiveAgentContextRegistry
     }
 
     private record Key(String threadId, String agentKey) {}
+
+    private record Entry(
+            ResolvedAgentContext context,
+            PermissionResolver.RunningScope scope,
+            TypedOwner typedOwner) {}
+
+    public record TypedOwner(
+            DispatchTicket.OwnerKind kind,
+            String turnId,
+            String operationId)
+    {
+        public TypedOwner
+        {
+            if (kind == null || turnId == null || turnId.isBlank()
+                    || operationId == null || operationId.isBlank()) {
+                throw new IllegalArgumentException("typed owner is incomplete");
+            }
+        }
+    }
 }

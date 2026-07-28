@@ -17,12 +17,14 @@ import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionContext;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
+import com.bytequay.app.domain.ThreadScope;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.bytequay.app.service.agents.ToolExposurePolicy;
 import com.bytequay.app.service.skills.ByteQuayRole;
 import com.bytequay.app.service.skills.RoleDefinition;
 import com.bytequay.app.service.skills.RoleRegistry;
+import com.bytequay.app.service.tools.PermissionResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -138,7 +140,14 @@ public final class ThreadTurnOperationHandler
         }
         try (AgentTurnProviderSession.Session session = provider.open(request, observer)) {
             String agentKey = mcpAgentKey(turn.turnId(), turn.operationId());
-            activeContexts.put(turn.trunkId(), agentKey, trunkContext());
+            activeContexts.put(
+                    turn.trunkId(), agentKey, trunkContext(),
+                    new PermissionResolver.RunningScope(
+                            ThreadScope.TRUNK,
+                            null, null, turn.turnId()),
+                    new ActiveAgentContextRegistry.TypedOwner(
+                            DispatchTicket.OwnerKind.THREAD_TURN,
+                            turn.turnId(), turn.operationId()));
             try {
                 context.onCancellation(session::cancel);
                 AgentTurnProviderSession.Result result = session.startAndAwait(null);

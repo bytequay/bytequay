@@ -73,13 +73,16 @@ public enum StageCheckpoint
             case ADDRESSING_LOCAL_FEEDBACK -> target == IMPLEMENTING;
             case PUBLISHING -> target == COMPLETED;
             case WAITING_CI -> target == AWAITING_READY;
-            case AWAITING_READY -> target == WAITING_REMOTE_REVIEW;
+            case AWAITING_READY -> target == WAITING_REMOTE_REVIEW
+                    || target == WAITING_CI;
             case WAITING_REMOTE_REVIEW -> target == ADDRESSING_REMOTE_FEEDBACK
-                    || target == READY_TO_MERGE;
+                    || target == READY_TO_MERGE
+                    || target == WAITING_CI;
             case ADDRESSING_REMOTE_FEEDBACK -> target == WAITING_CI
                     || target == WAITING_REMOTE_REVIEW;
-            case READY_TO_MERGE -> target == MERGING;
-            case MERGING -> target == READY_TO_MERGE || target == COMPLETED;
+            case READY_TO_MERGE -> target == MERGING || target == WAITING_CI;
+            case MERGING -> target == READY_TO_MERGE || target == COMPLETED
+                    || target == WAITING_CI;
             case WAITING_QUIESCENCE -> target == CLEANING;
             case CLEANING -> target == COMPLETED;
             case COMPLETED -> false;

@@ -76,6 +76,11 @@ final class V2StageStore
             "INSERT INTO stage_command_receipt(",
             "INSERT INTO remote_stage_runtime_receipt(");
 
+    private static final String REMOTE_OBSERVATION_RECEIPT_INSERT =
+            RECEIPT_INSERT.replace(
+                    "INSERT INTO stage_command_receipt(",
+                    "INSERT INTO remote_observation_stage_receipt(");
+
     private final JdbcTemplate jdbc;
 
     V2StageStore(JdbcTemplate jdbc)
@@ -166,6 +171,15 @@ final class V2StageStore
                     taskId, stageId, commandId);
             if (remote.isPresent()) {
                 return remote;
+            }
+        }
+        if (tableAvailable("remote_observation_stage_receipt")) {
+            Optional<StageManager.CommandReceipt> remoteObservation = queryReceipt(
+                    "SELECT * FROM remote_observation_stage_receipt"
+                            + " WHERE task_id = ? AND stage_id = ? AND command_id = ?",
+                    taskId, stageId, commandId);
+            if (remoteObservation.isPresent()) {
+                return remoteObservation;
             }
         }
         return queryInitialRequest(
@@ -834,9 +848,11 @@ final class V2StageStore
         jdbc.update(connection -> {
             String insert = isLocalCause(cause)
                     ? LOCAL_RECEIPT_INSERT
-                    : isRemoteRuntimeCause(cause)
-                            ? REMOTE_RECEIPT_INSERT
-                            : RECEIPT_INSERT;
+                    : isRemoteObservationCause(cause)
+                            ? REMOTE_OBSERVATION_RECEIPT_INSERT
+                            : isRemoteRuntimeCause(cause)
+                                    ? REMOTE_RECEIPT_INSERT
+                                    : RECEIPT_INSERT;
             PreparedStatement statement = connection.prepareStatement(insert);
             int index = 1;
             statement.setString(index++, id());
@@ -892,8 +908,18 @@ final class V2StageStore
             }
         }
         if (tableAvailable("remote_stage_runtime_receipt")) {
-            return queryReceipt(
+            Optional<StageManager.CommandReceipt> remote = queryReceipt(
                     "SELECT * FROM remote_stage_runtime_receipt"
+                            + " WHERE stage_id = ? AND disposition = 'APPLIED'"
+                            + " AND returned_version = ?",
+                    stageId, version);
+            if (remote.isPresent()) {
+                return remote;
+            }
+        }
+        if (tableAvailable("remote_observation_stage_receipt")) {
+            return queryReceipt(
+                    "SELECT * FROM remote_observation_stage_receipt"
                             + " WHERE stage_id = ? AND disposition = 'APPLIED'"
                             + " AND returned_version = ?",
                     stageId, version);
@@ -932,6 +958,13 @@ final class V2StageStore
                 || cause.equals("COMPLETE_REMOTE_FEEDBACK_NO_PUSH")
                 || cause.equals("COMPLETE_REMOTE_MARK_READY")
                 || cause.equals("ACCEPT_REMOTE_READINESS");
+    }
+
+    private static boolean isRemoteObservationCause(String cause)
+    {
+        return cause.equals("ACCEPT_REMOTE_CI")
+                || cause.equals("ACCEPT_OBSERVED_READY")
+                || cause.equals("ACCEPT_REMOTE_HEAD_CHANGE");
     }
 
     private Optional<StageManager.CommandReceipt> queryInitialRequest(

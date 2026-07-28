@@ -986,6 +986,22 @@ class TestPRService
     }
 
     @Test
+    void durablePublishProjectsThePrWithoutWritingTheLegacyStage()
+    {
+        pr(PR.STATUS_LOCAL_OPEN);
+        when(store.commitsFor("pr1")).thenReturn(List.of());
+
+        PR published = commands.execute("task1", () ->
+                service.recordPublishedInCommand(
+                        "pr1", "o/r", 145,
+                        "https://github.com/o/r/pull/145"));
+
+        assertThat(published.status()).isEqualTo(PR.STATUS_REMOTE_DRAFTED);
+        verify(stageStore, never()).findStageByType(any(), any());
+        verify(stageStore, never()).recordEvent(any(), any(), any(), any());
+    }
+
+    @Test
     void recordProgressDualWritesOneLocalPrAndDevelopmentMilestone()
     {
         pr(PR.STATUS_LOCAL_DRAFTED);

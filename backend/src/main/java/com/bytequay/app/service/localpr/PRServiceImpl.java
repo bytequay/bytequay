@@ -1044,10 +1044,33 @@ class PRServiceImpl
             throw conflict("PR " + prId + " is not task-owned");
         }
         TaskCommandExecutor.requireCurrent(pr.taskId());
-        return recordPush(pr, repo, remotePrNumber, remotePrUrl);
+        return recordPush(pr, repo, remotePrNumber, remotePrUrl, true);
+    }
+
+    @Override
+    @Transactional
+    public PR recordPublishedInCommand(
+            String prId, String repo, int remotePrNumber, String remotePrUrl)
+    {
+        PR pr = require(prId);
+        if (pr.taskId() == null) {
+            throw conflict("PR " + prId + " is not task-owned");
+        }
+        TaskCommandExecutor.requireCurrent(pr.taskId());
+        return recordPush(pr, repo, remotePrNumber, remotePrUrl, false);
     }
 
     private PR recordPush(PR pr, String repo, int remotePrNumber, String remotePrUrl)
+    {
+        return recordPush(pr, repo, remotePrNumber, remotePrUrl, true);
+    }
+
+    private PR recordPush(
+            PR pr,
+            String repo,
+            int remotePrNumber,
+            String remotePrUrl,
+            boolean recordLegacyStageEvent)
     {
         String prId = pr.id();
         Instant when = now();
@@ -1074,7 +1097,10 @@ class PRServiceImpl
                 "deletions", deletions);
         appendEvent(prId, PRTimelineEntry.TYPE_PULL_REQUEST_CREATED, PRTimelineEntry.ACTOR_USER,
                 /* localOnly */ false, when, payload);
-        recordPullRequestCreated(pr, remotePrNumber, remotePrUrl, additions, deletions);
+        if (recordLegacyStageEvent) {
+            recordPullRequestCreated(
+                    pr, remotePrNumber, remotePrUrl, additions, deletions);
+        }
         return transition(prId, PR.STATUS_REMOTE_DRAFTED, PRTimelineEntry.ACTOR_USER);
     }
 

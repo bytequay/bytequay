@@ -20,6 +20,8 @@ import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandle
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.PublishRawResult;
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.RemoteReference;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -49,6 +51,8 @@ public final class PublishResultDeliveryPort
     private final LocalDevelopmentStageManager local;
     private final LocalToRemoteHandoff handoff;
     private final RemoteObservationRuntimeCoordinator observations;
+    private final PRService prs;
+    private final TaskStore tasks;
     private final Store store;
     private final ObjectMapper json;
     private final ObjectReader resultReader;
@@ -59,6 +63,8 @@ public final class PublishResultDeliveryPort
             LocalDevelopmentStageManager local,
             LocalToRemoteHandoff handoff,
             RemoteObservationRuntimeCoordinator observations,
+            PRService prs,
+            TaskStore tasks,
             Store store,
             ObjectMapper json,
             Clock clock)
@@ -67,6 +73,8 @@ public final class PublishResultDeliveryPort
         this.local = requireNonNull(local, "local is null");
         this.handoff = requireNonNull(handoff, "handoff is null");
         this.observations = requireNonNull(observations, "observations is null");
+        this.prs = requireNonNull(prs, "prs is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
         this.store = requireNonNull(store, "store is null");
         this.json = requireNonNull(json, "json is null");
         this.resultReader = json.readerFor(PublishRawResult.class)
@@ -147,6 +155,13 @@ public final class PublishResultDeliveryPort
         String bindingId = id("remote-pr-binding", context.operationId());
         store.completePublished(
                 context, bindingId, result.remote(), rawResult.evidenceJson(), now);
+        prs.recordPublishedInCommand(
+                context.prId(), result.remote().repositoryId(),
+                result.remote().number(), result.remote().url());
+        tasks.markPushed(context.taskId(), now);
+        tasks.linkPullRequest(context.taskId(), result.remote().number(), "draft");
+        tasks.linkTaskToPr(context.taskId(),
+                result.remote().repositoryId() + "#" + result.remote().number());
 
         String remoteStageId = id("remote-stage", context.operationId());
         String commandId = id("accept-published", context.operationId());

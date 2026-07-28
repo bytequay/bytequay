@@ -1,0 +1,149 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.developmentflow.stage;
+
+import com.bytequay.app.developmentflow.stage.RemoteObservationConsumer.Candidate;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.ReadinessEvidence;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.RemoteContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteMergeRuntimeStore.AuthorityKind;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
+
+import java.util.Objects;
+
+import static com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator.id;
+import static java.util.Objects.requireNonNull;
+
+/** Explicit owner-to-owner commands emitted while one accepted snapshot is folded. */
+public final class RemoteObservationDomainHooks
+{
+    private static final String ACTOR = "remote-observer";
+
+    private final SqliteRemoteDevelopmentRuntimeStore store;
+    private final RemoteDevelopmentStageManager remote;
+    private final RemoteCiRepairRuntimeCoordinator ciRepair;
+    private final BranchSyncRuntimeCoordinator branchSync;
+    private final RemoteMergeObservationCoordinator mergeObservation;
+    private final RemoteMergeRuntimeCoordinator merges;
+
+    public RemoteObservationDomainHooks(
+            SqliteRemoteDevelopmentRuntimeStore store,
+            RemoteDevelopmentStageManager remote,
+            RemoteCiRepairRuntimeCoordinator ciRepair,
+            BranchSyncRuntimeCoordinator branchSync,
+            RemoteMergeObservationCoordinator mergeObservation,
+            RemoteMergeRuntimeCoordinator merges)
+    {
+        this.store = requireNonNull(store, "store is null");
+        this.remote = requireNonNull(remote, "remote is null");
+        this.ciRepair = requireNonNull(ciRepair, "ciRepair is null");
+        this.branchSync = requireNonNull(branchSync, "branchSync is null");
+        this.mergeObservation = requireNonNull(
+                mergeObservation, "mergeObservation is null");
+        this.merges = requireNonNull(merges, "merges is null");
+    }
+
+    public void acceptCiInCommand(Candidate candidate)
+    {
+        requireCurrent(candidate);
+        ciRepair.acceptObservationInCommand(candidate);
+        RemoteContext context = store.requireContext(
+                candidate.context().taskId(), candidate.context().stageId());
+        boolean changed = !Objects.equals(
+                candidate.context().currentHeadSha(), candidate.evidence().headSha())
+                || !Objects.equals(candidate.context().currentBaseSha(),
+                        candidate.evidence().baseSha());
+        if (changed && !"WAITING_CI".equals(context.checkpoint())) {
+            remote.acceptHeadChangeInCommand(
+                    gate(context, candidate.evidence().snapshotId(),
+                            candidate.evidence().headSha(),
+                            candidate.evidence().baseSha(), "accept-head-change"),
+                    StageCheckpoint.valueOf(context.checkpoint()));
+            context = store.requireContext(
+                    candidate.context().taskId(), candidate.context().stageId());
+        }
+        if (candidate.ciEvaluation().outcome()
+                != RemoteCiPolicy.PolicyOutcome.ACCEPTED) {
+            return;
+        }
+        if ("WAITING_CI".equals(context.checkpoint())) {
+            remote.acceptCiEvidenceInCommand(gate(
+                    context, candidate.evidence().ciEvaluationId(),
+                    candidate.evidence().headSha(), candidate.evidence().baseSha(),
+                    "accept-ci"));
+            context = store.requireContext(
+                    candidate.context().taskId(), candidate.context().stageId());
+        }
+        if (candidate.observation().prState()
+                == RemoteObservationOperationHandler.PrState.OPEN
+                && "AWAITING_READY".equals(context.checkpoint())) {
+            remote.acceptObservedReadyInCommand(gate(
+                    context, candidate.evidence().snapshotId(),
+                    candidate.evidence().headSha(), candidate.evidence().baseSha(),
+                    "accept-open-pr"));
+        }
+    }
+
+    public void acceptBranchInCommand(Candidate candidate)
+    {
+        requireCurrent(candidate);
+        branchSync.acceptObservationInCommand(candidate);
+    }
+
+    public void acceptMergeInCommand(Candidate candidate)
+    {
+        requireCurrent(candidate);
+        mergeObservation.acceptInCommand(candidate);
+    }
+
+    public void acceptReadinessInCommand(
+            Candidate candidate, ReadinessEvidence readiness)
+    {
+        requireCurrent(candidate);
+        requireNonNull(readiness, "readiness is null");
+        var policy = store.requireAutomationPolicy(candidate.context().taskId());
+        if (!policy.autoMerge() || policy.stewardshipException()) {
+            return;
+        }
+        String subject = readiness.id();
+        merges.startInCommand(new RemoteMergeRuntimeCoordinator.Command(
+                id("auto-merge-command", subject), "auto-merge-policy",
+                candidate.context().taskId(), candidate.context().stageId(),
+                readiness.id(), id("auto-merge-authorization", subject),
+                id("auto-merge-operation", subject),
+                id("auto-merge-ticket", subject), AuthorityKind.AUTO_MERGE_POLICY,
+                3));
+    }
+
+    private static RemoteDevelopmentStageManager.RemoteGateCommand gate(
+            RemoteContext context,
+            String proofId,
+            String headSha,
+            String baseSha,
+            String commandKind)
+    {
+        return new RemoteDevelopmentStageManager.RemoteGateCommand(
+                new StageManager.Command(
+                        id(commandKind, proofId), ACTOR, context.taskId(),
+                        context.taskEpoch(), context.stageId(),
+                        context.stageGeneration(), context.stageVersion()),
+                proofId, headSha, baseSha);
+    }
+
+    private static void requireCurrent(Candidate candidate)
+    {
+        requireNonNull(candidate, "candidate is null");
+        TaskCommandExecutor.requireCurrent(candidate.context().taskId());
+    }
+}

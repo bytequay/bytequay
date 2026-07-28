@@ -970,6 +970,97 @@ public class SqliteRemoteDevelopmentRuntimeStore
     }
 
     @Override
+    public Optional<RemoteGateEvidence> findAcceptedCi(
+            String taskId, String stageId, long stageGeneration, String evidenceId)
+    {
+        return jdbc.query("""
+                SELECT ci.task_id, ci.task_epoch,
+                       ci.remote_development_stage_id,
+                       ci.stage_generation, ci.id,
+                       ci.head_sha, ci.base_sha
+                FROM remote_ci_evaluation ci
+                JOIN remote_development_stage remote
+                  ON remote.stage_id = ci.remote_development_stage_id
+                WHERE ci.task_id = ?
+                  AND ci.remote_development_stage_id = ?
+                  AND ci.stage_generation = ? AND ci.id = ?
+                  AND ci.policy_outcome = 'ACCEPTED'
+                  AND ci.remote_pr_snapshot_id = remote.accepted_snapshot_id
+                  AND ci.head_sha = remote.current_head_sha
+                  AND ci.base_sha = remote.current_base_sha
+                """, (rs, row) -> new RemoteGateEvidence(
+                        rs.getString("task_id"), rs.getLong("task_epoch"),
+                        rs.getString("remote_development_stage_id"),
+                        rs.getLong("stage_generation"), rs.getString("id"),
+                        rs.getString("head_sha"), rs.getString("base_sha")),
+                taskId, stageId, stageGeneration, evidenceId)
+                .stream().findFirst();
+    }
+
+    @Override
+    public Optional<RemoteGateEvidence> findObservedReady(
+            String taskId, String stageId, long stageGeneration, String snapshotId)
+    {
+        return jdbc.query("""
+                SELECT snapshot.task_id, snapshot.task_epoch,
+                       snapshot.remote_development_stage_id,
+                       snapshot.stage_generation, snapshot.id,
+                       snapshot.head_sha, snapshot.base_sha
+                FROM remote_pr_snapshot snapshot
+                JOIN remote_development_stage remote
+                  ON remote.stage_id = snapshot.remote_development_stage_id
+                JOIN remote_ci_evaluation ci
+                  ON ci.remote_pr_snapshot_id = snapshot.id
+                 AND ci.policy_outcome = 'ACCEPTED'
+                WHERE snapshot.task_id = ?
+                  AND snapshot.remote_development_stage_id = ?
+                  AND snapshot.stage_generation = ? AND snapshot.id = ?
+                  AND snapshot.pr_state = 'OPEN'
+                  AND remote.accepted_snapshot_id = snapshot.id
+                  AND remote.current_head_sha = snapshot.head_sha
+                  AND remote.current_base_sha = snapshot.base_sha
+                ORDER BY ci.evaluated_at_ms DESC LIMIT 1
+                """, (rs, row) -> new RemoteGateEvidence(
+                        rs.getString("task_id"), rs.getLong("task_epoch"),
+                        rs.getString("remote_development_stage_id"),
+                        rs.getLong("stage_generation"), rs.getString("id"),
+                        rs.getString("head_sha"), rs.getString("base_sha")),
+                taskId, stageId, stageGeneration, snapshotId)
+                .stream().findFirst();
+    }
+
+    @Override
+    public Optional<RemoteGateEvidence> findHeadChange(
+            String taskId, String stageId, long stageGeneration, String snapshotId)
+    {
+        return jdbc.query("""
+                SELECT snapshot.task_id, snapshot.task_epoch,
+                       snapshot.remote_development_stage_id,
+                       snapshot.stage_generation, snapshot.id,
+                       snapshot.head_sha, snapshot.base_sha
+                FROM remote_pr_snapshot snapshot
+                JOIN remote_development_stage remote
+                  ON remote.stage_id = snapshot.remote_development_stage_id
+                WHERE snapshot.task_id = ?
+                  AND snapshot.remote_development_stage_id = ?
+                  AND snapshot.stage_generation = ? AND snapshot.id = ?
+                  AND remote.accepted_snapshot_id = snapshot.id
+                  AND remote.current_head_sha = snapshot.head_sha
+                  AND remote.current_base_sha = snapshot.base_sha
+                  AND EXISTS (
+                      SELECT 1 FROM remote_head_evidence_invalidation invalidation
+                      WHERE invalidation.remote_development_stage_id = remote.stage_id
+                        AND invalidation.accepted_snapshot_id = snapshot.id)
+                """, (rs, row) -> new RemoteGateEvidence(
+                        rs.getString("task_id"), rs.getLong("task_epoch"),
+                        rs.getString("remote_development_stage_id"),
+                        rs.getLong("stage_generation"), rs.getString("id"),
+                        rs.getString("head_sha"), rs.getString("base_sha")),
+                taskId, stageId, stageGeneration, snapshotId)
+                .stream().findFirst();
+    }
+
+    @Override
     public Optional<RemoteGateEvidence> findReadyEvidence(
             String taskId, String stageId, long stageGeneration, String evidenceId)
     {

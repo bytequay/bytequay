@@ -234,6 +234,17 @@ public class SqliteRemoteMergeRuntimeStore
                 stageId, headSha, baseSha).stream().findFirst();
     }
 
+    public List<String> findLiveMergeOperationIds(String stageId)
+    {
+        requireText(stageId, "stageId");
+        return jdbc.query("""
+                SELECT operation_id FROM remote_merge_operation
+                WHERE remote_development_stage_id = ?
+                  AND status NOT IN ('SUCCEEDED', 'FAILED', 'BLOCKED', 'CANCELED')
+                ORDER BY requested_at_ms, id
+                """, (rs, row) -> rs.getString("operation_id"), stageId);
+    }
+
     private static StartContext mapStartContext(ResultSet rs)
             throws SQLException
     {

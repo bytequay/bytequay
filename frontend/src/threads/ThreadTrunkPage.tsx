@@ -17,6 +17,7 @@ import type {
   ThreadMessageDto,
   ThreadSettingsDto,
   ThreadTurnDto,
+  TypedPermissionRequestDto,
   WorkUnitTaskDto,
 } from '../types';
 import TrunkChat from './TrunkChat';
@@ -94,6 +95,8 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const { tasks, error: tasksError, refresh: refreshTasks } = useThreadTasks(threadId);
   const [turns, setTurns] = useState<ThreadTurnDto[] | null>(null);
   const [messages, setMessages] = useState<ThreadMessageDto[] | null>(null);
+  const [typedPermissions, setTypedPermissions] =
+    useState<TypedPermissionRequestDto[]>([]);
   // Pagination cursor for the transcript — tracks the smallest seq
   // currently loaded. The chat starts with a tail window and the
   // user expands the history via the "Load earlier" button.
@@ -230,9 +233,17 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   // actually approve it — otherwise the agent loops on an unanswerable
   // prompt. Scoped to taskId===null so per-task prompts stay in the task
   // window.
-  const pendingPermission = useMemo<PendingPermission | null>(
-    () => findPendingPermission(trunkMessages),
-    [trunkMessages]);
+  const pendingPermission = useMemo<PendingPermission | null>(() => {
+    const typed = typedPermissions[0];
+    if (typed !== undefined) {
+      return {
+        callId: typed.callId,
+        toolName: typed.toolName,
+        summary: typed.parametersJson,
+      };
+    }
+    return findPendingPermission(trunkMessages);
+  }, [trunkMessages, typedPermissions]);
   // Shell-style ↑/↓ recall of prior trunk prompts, newest-first.
   const priorPrompts = useMemo(
     () => trunkMessages
@@ -305,24 +316,40 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     catch { /* keep last good list */ }
   }, [threadId]);
 
+  const refreshTypedPermissions = useCallback(async () => {
+    try {
+      setTypedPermissions(await window.bridge.getTypedPermissions(threadId));
+    }
+    catch { /* keep last good list */ }
+  }, [threadId]);
+
+  useEffect(() => {
+    void refreshTypedPermissions();
+  }, [refreshTypedPermissions]);
+
   const onDecidePermission = useCallback(async (
     callId: string,
     decision: 'ALLOW' | 'DENY',
     preApprove?: { toolName: string; count: number },
   ) => {
     try {
-      const result = await window.bridge.decideTaskPermission(threadId, callId, decision, preApprove);
+      const revision = typedPermissions.find(
+        permission => permission.callId === callId)?.answerRevision;
+      const result = await window.bridge.decideTaskPermission(
+        threadId, callId, decision, preApprove, revision);
       if (result.status === 'already_resolved') {
         setSendError('This prompt already timed out before your click landed — it was not applied.');
       }
       // Pull the decision row back so the card clears and the unblocked
       // turn's output resumes streaming.
-      await Promise.all([refreshMessages(), loadThread()]);
+      await Promise.all([
+        refreshMessages(), refreshTypedPermissions(), loadThread(),
+      ]);
     }
     catch (e) {
       setSendError(e instanceof Error ? e.message : String(e));
     }
-  }, [threadId, refreshMessages, loadThread]);
+  }, [threadId, typedPermissions, refreshMessages, refreshTypedPermissions, loadThread]);
 
   const loadOlderMessages = useCallback(async () => {
     if (loadedFromSeq === null || loadingOlder) return;
@@ -397,6 +424,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     const handle = window.setInterval(() => {
       void refreshMessages();
       void refreshTurns();
+      void refreshTypedPermissions();
       // A trunk turn can spawn a Task (create_task), and a running Task
       // advances PENDING → RUNNING → terminal on its own. Poll the task
       // list too so the freshly-created task surfaces in the rail and the
@@ -405,7 +433,8 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
       void loadThread();
     }, 2_500);
     return () => window.clearInterval(handle);
-  }, [hasInFlight, sending, refreshMessages, refreshTurns, refreshTasks, loadThread]);
+  }, [hasInFlight, sending, refreshMessages, refreshTurns,
+    refreshTypedPermissions, refreshTasks, loadThread]);
 
   const onInterrupt = useCallback(async () => {
     if (interrupting) return;

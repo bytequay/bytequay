@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -41,5 +42,29 @@ class TestActiveAgentContextRegistry
 
         registry.remove("thread-1", "trunk");
         assertThat(registry.find("thread-1", "trunk")).isEmpty();
+    }
+
+    @Test
+    void exactProviderStopRecordsOneReasonAndRunsOnce()
+    {
+        ResolvedAgentContext context = new ResolvedAgentContext(
+                ByteQuayRole.TRUNK, "1", AgentRole.TRUNK, null,
+                Set.of(), List.of(), Set.of(), Set.of());
+        registry.put("thread-1", "agent-1", context);
+        AtomicInteger stops = new AtomicInteger();
+
+        assertThat(registry.requestStop(
+                "thread-1", "agent-1", "before-session")).isFalse();
+        assertThat(registry.attachStop(
+                "thread-1", "agent-1", stops::incrementAndGet)).isTrue();
+        assertThat(registry.attachStop(
+                "thread-1", "agent-1", stops::incrementAndGet)).isFalse();
+        assertThat(registry.requestStop(
+                "thread-1", "agent-1", "USER_WAIT:question-1")).isTrue();
+        assertThat(registry.requestStop(
+                "thread-1", "agent-1", "USER_WAIT:question-2")).isFalse();
+        assertThat(stops).hasValue(1);
+        assertThat(registry.stopReason("thread-1", "agent-1"))
+                .contains("USER_WAIT:question-1");
     }
 }

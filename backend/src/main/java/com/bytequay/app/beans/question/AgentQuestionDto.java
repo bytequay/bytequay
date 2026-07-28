@@ -29,6 +29,8 @@ public record AgentQuestionDto(
         String status,
         String answerOptionId,
         String answerFreeForm,
+        int answerRevision,
+        String answerActor,
         long createdAt,
         Long answeredAt)
 {
@@ -52,6 +54,8 @@ public record AgentQuestionDto(
                 q.status(),
                 q.answerOptionId(),
                 q.answerFreeForm(),
+                q.answerRevision(),
+                q.answerActor(),
                 q.createdAt().toEpochMilli(),
                 q.answeredAt() == null ? null : q.answeredAt().toEpochMilli());
     }

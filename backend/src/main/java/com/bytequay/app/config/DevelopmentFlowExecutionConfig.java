@@ -54,6 +54,7 @@ import com.bytequay.app.developmentflow.execution.remote.SqliteRemoteMarkReadyOp
 import com.bytequay.app.developmentflow.persistence.SqliteAgentTurnOperationStore;
 import com.bytequay.app.developmentflow.persistence.SqliteReviewAssignmentTurnStore;
 import com.bytequay.app.developmentflow.persistence.SqliteThreadTurnOperationStore;
+import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.stage.BranchSyncResultDeliveryPort;
 import com.bytequay.app.developmentflow.stage.BranchSyncRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
@@ -104,6 +105,7 @@ import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnResultDeliveryPort;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
+import com.bytequay.app.developmentflow.userwait.V2UserWaitResultDeliveryPort;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -188,6 +190,7 @@ public class DevelopmentFlowExecutionConfig
             SqliteMergeOperationStore mergeOperations,
             SqliteReviewAssignmentTurnStore reviewAssignmentTurns,
             SqliteTaskOutcomeSummaryStore outcomeSummaries,
+            V2UserWaitStore userWaits,
             TaskOutcomeSummaryRuntime outcomeSummaryRuntime,
             ObjectProvider<ReviewAssignmentTurnContinuation> reviewContinuation,
             JdbcTemplate jdbc,
@@ -247,7 +250,7 @@ public class DevelopmentFlowExecutionConfig
                 new ReviewAssignmentTurnResultDeliveryPort(
                         reviewAssignmentTurns, json, Clock.systemUTC(),
                         reviewContinuation::getObject);
-        return new ResultDeliveryRouter(Map.ofEntries(
+        ResultDeliveryRouter routes = new ResultDeliveryRouter(Map.ofEntries(
                 Map.entry(PlanningBaseRefreshOperationHandler.CALLBACK_ROUTE,
                         planningBase),
                 Map.entry(PlanRuntimeCoordinator.PROVISION_CALLBACK, plan),
@@ -287,6 +290,8 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry(ReviewAssignmentTurnOperationHandler.CALLBACK_ROUTE,
                         reviews),
                 Map.entry(MergeOperationHandler.CALLBACK_ROUTE, merge)));
+        return new V2UserWaitResultDeliveryPort(
+                userWaits, routes, json, Clock.systemUTC());
     }
 
     @Bean
@@ -672,10 +677,11 @@ public class DevelopmentFlowExecutionConfig
             TaskManager.Store store,
             DispatchTicketControl tickets,
             RemoteCiRepairRuntimeCoordinator ciRepair,
-            JdbcTemplate jdbc)
+            JdbcTemplate jdbc,
+            V2UserWaitStore userWaits)
     {
         return new V2TaskControlService(
-                tasks, store, tickets, ciRepair, jdbc);
+                tasks, store, tickets, ciRepair, jdbc, userWaits);
     }
 
     @Bean

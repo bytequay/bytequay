@@ -69,6 +69,22 @@ public final class V2ThreadControlService
 
     public String send(Thread thread, String input, TurnInitiator initiator)
     {
+        return send(thread, input, initiator, UUID.randomUUID().toString());
+    }
+
+    /** Restart-safe attended continuation of one durable typed user wait. */
+    public String continueUserWait(Thread thread, String input, String commandId)
+    {
+        requireText(commandId, "commandId");
+        return send(
+                thread, input, TurnInitiator.attended("typed-user-wait"),
+                commandId);
+    }
+
+    private String send(
+            Thread thread, String input, TurnInitiator initiator,
+            String commandId)
+    {
         requireNonNull(thread, "thread is null");
         requireText(input, "input");
         requireNonNull(initiator, "initiator is null");
@@ -82,7 +98,6 @@ public final class V2ThreadControlService
                 thread.workspaceId(), thread.id(), audience, thread.title());
         String systemPrompt = AgentContextCompiler.compilePrompt(
                 roles.trunkTemplate(), null, memory, List.of()).systemPrompt();
-        String commandId = UUID.randomUUID().toString();
         PlanningBaseTurnRuntime.Receipt result = planning.request(
                 new PlanningBaseTurnRuntime.Request(
                         commandId,

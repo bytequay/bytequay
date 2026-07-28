@@ -2266,6 +2266,8 @@ export type AgentQuestionDto = {
   status: string;
   answerOptionId: string | null;
   answerFreeForm: string | null;
+  answerRevision?: number;
+  answerActor?: string | null;
   createdAt: number;
   answeredAt: number | null;
 };
@@ -2333,6 +2335,21 @@ export type ThreadMessageDto = {
   tokensOut: number | null;
   costUsdMilli: number | null;
   ts: string;
+};
+
+/** Durable V2 permission prompt projected from its exact typed Turn. */
+export type TypedPermissionRequestDto = {
+  id: string;
+  callId: string;
+  ownerKind: 'THREAD_TURN' | 'TASK_TURN' | 'STAGE_TURN' | 'REVIEW_ASSIGNMENT_TURN';
+  turnId: string;
+  operationId: string;
+  capability: string;
+  toolName: string;
+  parametersJson: string;
+  state: string;
+  answerRevision: number;
+  requestedAt: number;
 };
 
 /** Per-thread scope settings — the resolved view the trunk shows.
@@ -4098,6 +4115,8 @@ export type Bridge = {
   /** Recent scheduler turns, newest first. Used to distinguish
    *  queued work from an active CLI/API run. */
   getTaskTurns: (id: string) => Promise<ThreadTurnDto[]>;
+  /** Open durable V2 permission prompts owned anywhere under this Trunk. */
+  getTypedPermissions: (id: string) => Promise<TypedPermissionRequestDto[]>;
   /** Recent scheduler events, newest first. Explains queued/running/
    *  cancelled transitions without reading backend logs. */
   getTaskTurnEvents: (id: string) => Promise<ThreadTurnEventDto[]>;
@@ -4123,6 +4142,7 @@ export type Bridge = {
     callId: string,
     decision: 'ALLOW' | 'DENY',
     preApprove?: { toolName: string; count: number },
+    expectedRevision?: number,
   ) => Promise<{ status: 'recorded' | 'already_resolved' }>;
   /** Cancel the in-flight turn (Ctrl+C semantics). The session
    *  itself stays alive — the user can send another turn. */

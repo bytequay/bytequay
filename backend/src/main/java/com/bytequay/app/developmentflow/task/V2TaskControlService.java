@@ -15,6 +15,7 @@ package com.bytequay.app.developmentflow.task;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
+import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.server.ResponseStatusException;
@@ -46,7 +47,25 @@ public final class V2TaskControlService
     private final DispatchTicketControl tickets;
     private final RemoteCiRepairRuntimeCoordinator ciRepair;
     private final JdbcTemplate jdbc;
+    private final V2UserWaitStore userWaits;
 
+    public V2TaskControlService(
+            TaskManager tasks,
+            TaskManager.Store store,
+            DispatchTicketControl tickets,
+            RemoteCiRepairRuntimeCoordinator ciRepair,
+            JdbcTemplate jdbc,
+            V2UserWaitStore userWaits)
+    {
+        this.tasks = requireNonNull(tasks, "tasks is null");
+        this.store = requireNonNull(store, "store is null");
+        this.tickets = requireNonNull(tickets, "tickets is null");
+        this.ciRepair = requireNonNull(ciRepair, "ciRepair is null");
+        this.jdbc = requireNonNull(jdbc, "jdbc is null");
+        this.userWaits = requireNonNull(userWaits, "userWaits is null");
+    }
+
+    /** Compatibility constructor for focused tests outside Spring. */
     public V2TaskControlService(
             TaskManager tasks,
             TaskManager.Store store,
@@ -54,11 +73,8 @@ public final class V2TaskControlService
             RemoteCiRepairRuntimeCoordinator ciRepair,
             JdbcTemplate jdbc)
     {
-        this.tasks = requireNonNull(tasks, "tasks is null");
-        this.store = requireNonNull(store, "store is null");
-        this.tickets = requireNonNull(tickets, "tickets is null");
-        this.ciRepair = requireNonNull(ciRepair, "ciRepair is null");
-        this.jdbc = requireNonNull(jdbc, "jdbc is null");
+        this(tasks, store, tickets, ciRepair, jdbc,
+                new V2UserWaitStore(jdbc));
     }
 
     public TaskManager.State cancel(String taskId)
@@ -67,10 +83,12 @@ public final class V2TaskControlService
         if (current.lifecycle() == TaskLifecycle.CANCELING
                 || current.lifecycle() == TaskLifecycle.CLEANING
                 || current.lifecycle() == TaskLifecycle.CANCELED) {
+            terminateWaits(taskId, "Task canceled");
             cancelLiveTickets(taskId);
             return current;
         }
         TaskManager.State requested = tasks.requestCancel(command(current)).state();
+        terminateWaits(taskId, "Task canceled");
         cancelLiveTickets(taskId);
         return requested;
     }
@@ -80,10 +98,12 @@ public final class V2TaskControlService
         TaskManager.State current = requireTask(taskId);
         if (current.lifecycle() == TaskLifecycle.PAUSING
                 || current.lifecycle() == TaskLifecycle.PAUSED) {
+            terminateWaits(taskId, "Task paused");
             cancelLiveTickets(taskId);
             return current;
         }
         TaskManager.State requested = tasks.requestPause(command(current)).state();
+        terminateWaits(taskId, "Task paused");
         cancelLiveTickets(taskId);
         return requested;
     }
@@ -223,6 +243,12 @@ public final class V2TaskControlService
     private void cancelLiveTickets(String taskId)
     {
         liveTicketIds(taskId).forEach(tickets::requestCancel);
+    }
+
+    private void terminateWaits(String taskId, String reason)
+    {
+        userWaits.cancelOpenWaitsForTask(
+                taskId, ACTOR, reason, Instant.now());
     }
 
     private List<String> liveTicketIds(String taskId)

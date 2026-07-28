@@ -22,11 +22,13 @@ import com.bytequay.app.beans.mcp.RunShellArgs;
 import com.bytequay.app.beans.mcp.ServerInfo;
 import com.bytequay.app.beans.mcp.ToolCallParams;
 import com.bytequay.app.beans.mcp.ToolDescriptor;
+import com.bytequay.app.developmentflow.userwait.V2UserWaitService;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ResolvedAgentContext;
+import com.bytequay.app.service.mcp.approval.ApprovalContext;
 import com.bytequay.app.service.skills.ByteQuayRole;
 import com.bytequay.app.service.threads.LogicLoopThreadAgent;
 import com.bytequay.app.service.tools.AgentRole;
@@ -47,6 +49,7 @@ import org.springframework.web.context.request.async.DeferredResult;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -86,6 +89,7 @@ public class McpServiceImpl
     private final McpResponses responses;
     private final ThreadStore threadStore;
     private final ActiveAgentContextRegistry activeContexts;
+    private final V2UserWaitService v2Waits;
     private final Map<String, ToolHandler> handlersByName;
 
     @Autowired
@@ -95,13 +99,15 @@ public class McpServiceImpl
             McpResponses responses,
             ThreadStore threadStore,
             List<ToolHandler> handlers,
-            ActiveAgentContextRegistry activeContexts)
+            ActiveAgentContextRegistry activeContexts,
+            V2UserWaitService v2Waits)
     {
         this.registry = requireNonNull(registry, "registry is null");
         this.permissions = requireNonNull(permissions, "permissions is null");
         this.responses = requireNonNull(responses, "responses is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.activeContexts = requireNonNull(activeContexts, "activeContexts is null");
+        this.v2Waits = v2Waits;
         // Build the strategy map at construction. Spring injects
         // every ToolHandler bean; failing fast on a duplicate name
         // catches an accidental two-bean-registers-the-same-tool
@@ -127,7 +133,7 @@ public class McpServiceImpl
             List<ToolHandler> handlers)
     {
         this(registry, permissions, responses, threadStore, handlers,
-                new ActiveAgentContextRegistry());
+                new ActiveAgentContextRegistry(), null);
     }
 
     @Override
@@ -346,6 +352,12 @@ public class McpServiceImpl
                             + activeContext.get().roleReference() + " in this turn")));
             return;
         }
+        if (agentKey != null && agentKey.startsWith("v2-")
+                && activeContexts.findTypedOwner(threadId, agentKey).isEmpty()) {
+            deferred.setResult(responses.toolResponse(id, responses.deny(
+                    "V2 tool call has no exact typed Turn owner")));
+            return;
+        }
         Set<SecurityType> grants = permissions.grants(threadId, agentKey);
         if (!grants.contains(spec.security())) {
             deferred.setResult(responses.toolResponse(id, responses.deny(
@@ -361,9 +373,21 @@ public class McpServiceImpl
         Optional<ToolOutcome> outcome = registry.invoke(
                 name, new ToolCall(
                         threadId, params.arguments(), role,
-                        scope.taskId(), scope.stageId(), scope.agentRunId(), scope.scope()));
+                        scope.taskId(), scope.stageId(), scope.agentRunId(), scope.scope(),
+                        agentKey, rpcCallId(id)));
         if (outcome.isPresent()) {
+            if (outcome.get() instanceof ToolOutcome.WaitForUser wait) {
+                stopAfterResponse(
+                        deferred, threadId, agentKey, wait.waitId());
+            }
             deferred.setResult(adaptOutcome(id, outcome.get()));
+            return;
+        }
+        if (ApprovalPromptHandler.NAME.equals(name)
+                && activeContexts.findTypedOwner(threadId, agentKey).isPresent()) {
+            handleTypedApproval(
+                    threadId, scope.taskId(), agentKey, id, params, role, grants,
+                    deferred);
             return;
         }
         ToolHandler handler = handlersByName.get(name);
@@ -379,6 +403,128 @@ public class McpServiceImpl
                 deferred);
     }
 
+    private void handleTypedApproval(
+            String threadId,
+            String taskId,
+            String agentKey,
+            JsonNode id,
+            ToolCallParams params,
+            AgentRole role,
+            Set<SecurityType> grants,
+            DeferredResult<JsonNode> deferred)
+    {
+        if (v2Waits == null) {
+            deferred.setResult(responses.toolResponse(id, responses.deny(
+                    "typed permission service is unavailable")));
+            return;
+        }
+        ApprovalPromptArgs args;
+        try {
+            args = responses.bindArgs(
+                    params.arguments(), ApprovalPromptArgs.class);
+        }
+        catch (JsonProcessingException e) {
+            deferred.setResult(responses.error(
+                    id, -32602, "invalid approval_prompt args: " + e.getMessage()));
+            return;
+        }
+        String callId = args.toolUseId() == null ? "" : args.toolUseId().strip();
+        String toolName = args.toolName() == null ? "" : args.toolName().strip();
+        if (callId.isEmpty() || toolName.isEmpty()) {
+            deferred.setResult(responses.error(
+                    id, -32602, "tool_name and tool_use_id are required"));
+            return;
+        }
+        ToolHandler configured = handlersByName.get(ApprovalPromptHandler.NAME);
+        if (!(configured instanceof ApprovalPromptHandler approval)) {
+            deferred.setResult(responses.toolResponse(id, responses.deny(
+                    "typed approval policy is unavailable")));
+            return;
+        }
+        Optional<JsonNode> policy = approval.evaluatePolicy(new ApprovalContext(
+                threadId, taskId, agentKey, id, toolName, callId,
+                args.input(), grants));
+        if (policy.isPresent()) {
+            deferred.setResult(policy.orElseThrow());
+            return;
+        }
+        SecurityType capability = registry.byName(toolName)
+                .map(ToolSpec::security)
+                .orElseGet(() -> targetCapability(toolName));
+        V2UserWaitService.PermissionPrompt prompt = v2Waits.requestPermission(
+                threadId, agentKey, callId, capability.name(), toolName,
+                args.input(), policySnapshot(role, grants));
+        switch (prompt.state()) {
+            case ALLOWED -> deferred.setResult(
+                    responses.toolResponse(id, responses.allow(args.input())));
+            case DENIED -> deferred.setResult(
+                    responses.toolResponse(id, responses.deny(
+                            prompt.detail() == null ? "user denied" : prompt.detail())));
+            case WAITING -> {
+                stopAfterResponse(
+                        deferred, threadId, agentKey,
+                        "PERMISSION:" + prompt.waitId());
+                deferred.setResult(responses.toolResponse(id, responses.deny(
+                        "Permission is waiting for the user. End this turn; "
+                                + "the decision resumes an exact successor turn.")));
+            }
+            case LEGACY -> throw new IllegalStateException(
+                    "typed approval lost its exact owner");
+        }
+    }
+
+    private void stopAfterResponse(
+            DeferredResult<JsonNode> deferred,
+            String threadId,
+            String agentKey,
+            String waitReference)
+    {
+        deferred.onCompletion(() -> {
+            if (!activeContexts.requestStop(
+                    threadId, agentKey, "USER_WAIT:" + waitReference)) {
+                log.warn("Typed user wait {} could not stop exact agent {} in thread {}",
+                        waitReference, agentKey, threadId);
+            }
+        });
+    }
+
+    private String policySnapshot(AgentRole role, Set<SecurityType> grants)
+    {
+        var node = responses.mapper().createObjectNode();
+        node.put("schema", "V2_PERMISSION_POLICY_V1");
+        node.put("role", role.name());
+        var granted = node.putArray("grants");
+        grants.stream().map(Enum::name).sorted().forEach(granted::add);
+        return node.toString();
+    }
+
+    private static SecurityType targetCapability(String toolName)
+    {
+        return switch (toolName.toLowerCase(Locale.ROOT)) {
+            case "edit", "write", "multiedit", "notebookedit" ->
+                    SecurityType.CODE_WRITE;
+            case "bash", "run_shell", "shell" -> SecurityType.CODE_EXEC;
+            case "git", "gitpush", "push" -> SecurityType.GIT_PUSH;
+            case "read", "grep", "glob", "webfetch", "websearch" ->
+                    SecurityType.CODE_READ;
+            default -> SecurityType.MCP;
+        };
+    }
+
+    private static String rpcCallId(JsonNode id)
+    {
+        if (id == null || id.isMissingNode() || id.isNull()) {
+            throw new IllegalArgumentException(
+                    "tools/call requires a stable JSON-RPC id");
+        }
+        String value = id.isTextual() ? id.asText() : id.toString();
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(
+                    "tools/call requires a stable JSON-RPC id");
+        }
+        return value;
+    }
+
     /** Adapt a registry handler's lane-neutral {@link ToolOutcome} to
      *  the MCP wire. A successful Completed echoes its text verbatim;
      *  an error Completed is wrapped as a deny envelope so the model
@@ -388,6 +534,9 @@ public class McpServiceImpl
     {
         if (outcome instanceof ToolOutcome.Completed(String text, boolean isError)) {
             return isError ? responses.toolResponse(id, responses.deny(text)) : responses.plainText(id, text);
+        }
+        if (outcome instanceof ToolOutcome.WaitForUser(String text, String ignored)) {
+            return responses.plainText(id, text);
         }
         throw new IllegalStateException("unhandled tool outcome: " + outcome);
     }

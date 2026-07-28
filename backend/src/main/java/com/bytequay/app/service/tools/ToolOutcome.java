@@ -21,11 +21,9 @@ package com.bytequay.app.service.tools;
  * (park / gate) in the lane while the handler stays a pure function
  * of its inputs.
  *
- * <p>Only {@link Completed} exists today, because only the AUTO read
- * tools have migrated onto the registry-dispatch path. Park / approval
- * variants land alongside the publishers and run_shell when those
- * tools migrate — until then they keep their hand-coded handlers in
- * the MCP controller.
+ * <p>{@link WaitForUser} tells the transport to return the tool response
+ * before stopping the exact typed provider. The durable question remains the
+ * workflow wait; no executor thread or capacity lease is retained.
  */
 public sealed interface ToolOutcome
 {
@@ -47,6 +45,18 @@ public sealed interface ToolOutcome
         public static Completed error(String message)
         {
             return new Completed(message, true);
+        }
+    }
+
+    record WaitForUser(String text, String waitId)
+            implements ToolOutcome
+    {
+        public WaitForUser
+        {
+            if (text == null || text.isBlank()
+                    || waitId == null || waitId.isBlank()) {
+                throw new IllegalArgumentException("user wait outcome is incomplete");
+            }
         }
     }
 }

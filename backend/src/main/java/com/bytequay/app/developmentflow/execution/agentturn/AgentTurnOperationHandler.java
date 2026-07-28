@@ -194,15 +194,30 @@ public final class AgentTurnOperationHandler
         try {
             try (AgentTurnProviderSession.Session session = provider.open(request, observer)) {
                 context.onCancellation(session::cancel);
+                if (!activeContexts.attachStop(
+                        turn.trunkId(), agentKey, session::cancel)) {
+                    throw new IllegalStateException(
+                            "typed Agent Turn provider stop hook was not attached");
+                }
                 ProviderRun run = writerLease == null
                         ? new ProviderRun(session.startAndAwait(null), null)
                         : runWithWriterFence(context, writerLease, session);
                 AgentTurnProviderSession.Result result = run.result();
                 context.recordUsage(
                         result.inputTokens(), result.outputTokens(), result.costUsdMilli());
+                Optional<String> stopReason = activeContexts.stopReason(
+                        turn.trunkId(), agentKey);
+                if (stopReason.isPresent()
+                        && stopReason.orElseThrow().startsWith("USER_WAIT:")) {
+                    return userWait(
+                            envelope, turn, input, run.writerFence(),
+                            userWaitRef(stopReason.orElseThrow()));
+                }
                 if (result.completion() == AgentTurnProviderSession.Completion.CANCELED) {
+                    String error = result.error() == null
+                            ? "provider session canceled" : result.error();
                     return canceled(envelope, turn, input, run.writerFence(),
-                            result.error() == null ? "provider session canceled" : result.error());
+                            error);
                 }
                 return providerResult(envelope, turn, input, run);
             }
@@ -396,6 +411,37 @@ public final class AgentTurnOperationHandler
                 error);
         return new DispatchTicket.DispatchResult(
                 envelope.fence(), CANCELED, json(payload), json(evidence), error);
+    }
+
+    private DispatchTicket.DispatchResult userWait(
+            DispatchTicket.DispatchEnvelope envelope,
+            ExactTurn turn,
+            LaunchInput input,
+            AgentTurnProviderSession.WriterFence writerFence,
+            UserWaitRef wait)
+    {
+        RawResult payload = new RawResult(
+                PAYLOAD_VERSION, turn.turnId(), turn.ownerKind(), turn.purpose(),
+                input.transport(), input.provider(), null, "", 0, 0, 0, null,
+                Disposition.USER_WAIT, null, wait);
+        Evidence evidence = new Evidence(
+                PAYLOAD_VERSION, Disposition.USER_WAIT, digest(turn.launchInput()),
+                writerFence, wait.kind() + ":" + wait.id());
+        return new DispatchTicket.DispatchResult(
+                envelope.fence(), SUCCEEDED, json(payload), json(evidence), null);
+    }
+
+    public static UserWaitRef userWaitRef(String reason)
+    {
+        requireText(reason, "reason");
+        String[] parts = reason.split(":", 3);
+        if (parts.length != 3 || !parts[0].equals("USER_WAIT")
+                || (!parts[1].equals("QUESTION")
+                    && !parts[1].equals("PERMISSION"))
+                || parts[2].isBlank()) {
+            throw new IllegalArgumentException("invalid typed user-wait reason");
+        }
+        return new UserWaitRef(parts[1], parts[2]);
     }
 
     private DispatchTicket.DispatchResult failure(
@@ -735,8 +781,30 @@ public final class AgentTurnOperationHandler
             long costUsdMilli,
             Long processPid,
             Disposition disposition,
-            String error)
+            String error,
+            UserWaitRef userWait)
     {
+        public RawResult(
+                int schemaVersion,
+                String turnId,
+                DispatchTicket.OwnerKind ownerKind,
+                String purpose,
+                AgentTurnProviderSession.Transport transport,
+                String provider,
+                String providerSessionId,
+                String finalText,
+                long inputTokens,
+                long outputTokens,
+                long costUsdMilli,
+                Long processPid,
+                Disposition disposition,
+                String error)
+        {
+            this(schemaVersion, turnId, ownerKind, purpose, transport, provider,
+                    providerSessionId, finalText, inputTokens, outputTokens,
+                    costUsdMilli, processPid, disposition, error, null);
+        }
+
         public RawResult
         {
             if (schemaVersion != PAYLOAD_VERSION) {
@@ -750,6 +818,22 @@ public final class AgentTurnOperationHandler
             }
             if (inputTokens < 0 || outputTokens < 0 || costUsdMilli < 0) {
                 throw new IllegalArgumentException("raw result usage must be non-negative");
+            }
+            if ((disposition == Disposition.USER_WAIT) != (userWait != null)) {
+                throw new IllegalArgumentException(
+                        "USER_WAIT disposition and reference disagree");
+            }
+        }
+    }
+
+    public record UserWaitRef(String kind, String id)
+    {
+        public UserWaitRef
+        {
+            requireText(kind, "kind");
+            requireText(id, "id");
+            if (!kind.equals("QUESTION") && !kind.equals("PERMISSION")) {
+                throw new IllegalArgumentException("unsupported user wait kind: " + kind);
             }
         }
     }
@@ -805,6 +889,7 @@ public final class AgentTurnOperationHandler
         PROVIDER_SUCCEEDED,
         PROVIDER_FAILED,
         PROVIDER_CANCELED,
+        USER_WAIT,
         OWNER_NOT_FOUND,
         STALE_FENCE,
         INVALID_LAUNCH_INPUT,

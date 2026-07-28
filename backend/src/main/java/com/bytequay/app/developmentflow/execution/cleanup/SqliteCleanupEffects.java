@@ -18,6 +18,7 @@ import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandle
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandler.Operation;
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandler.Step;
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationHandler.StepResult;
+import com.bytequay.app.developmentflow.persistence.V2UserWaitStore;
 import com.bytequay.app.service.local.GitRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -46,6 +47,7 @@ public class SqliteCleanupEffects
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final GitRunner git;
+    private final V2UserWaitStore userWaits;
 
     public SqliteCleanupEffects(
             JdbcTemplate jdbc,
@@ -56,6 +58,7 @@ public class SqliteCleanupEffects
         this.transactions = new TransactionTemplate(
                 requireNonNull(transactionManager, "transactionManager is null"));
         this.git = requireNonNull(git, "git is null");
+        this.userWaits = new V2UserWaitStore(jdbc);
     }
 
     @Override
@@ -215,23 +218,9 @@ public class SqliteCleanupEffects
                        SET status = 'DISMISSED', read_at_ms = COALESCE(read_at_ms, ?)
                      WHERE task_id = ? AND status = 'UNREAD'
                     """, now, operation.taskId());
-            jdbc.update("""
-                    UPDATE permission_request
-                       SET state = 'CANCELED',
-                           answer = COALESCE(answer, 'Cleanup canceled request'),
-                           answer_revision = answer_revision + 1,
-                           answered_at_ms = ?
-                     WHERE state = 'OPEN' AND (
-                         (turn_kind = 'TASK' AND EXISTS (
-                             SELECT 1 FROM task_turn turn
-                              WHERE turn.id = permission_request.turn_id
-                                AND turn.task_id = ?))
-                         OR (turn_kind = 'STAGE' AND EXISTS (
-                             SELECT 1 FROM stage_turn turn
-                             JOIN stage owner ON owner.id = turn.stage_id
-                              WHERE turn.id = permission_request.turn_id
-                                AND owner.task_id = ?)))
-                    """, now, operation.taskId(), operation.taskId());
+            int canceledWaits = userWaits.cancelOpenWaitsForTask(
+                    operation.taskId(), "cleanup", "Cleanup canceled request",
+                    Instant.ofEpochMilli(now));
             int notifications = count("""
                     SELECT COUNT(*) FROM notifications
                      WHERE task_id = ? AND status = 'DISMISSED'
@@ -263,7 +252,8 @@ public class SqliteCleanupEffects
                     "all Task-scoped notifications dismissed",
                     "all Task/Stage permission prompts canceled", now);
             return success(null, "dismissed notifications=" + notifications
-                    + ", permissions=" + permissions);
+                    + ", permissions=" + permissions
+                    + ", typed waits=" + canceledWaits);
         });
     }
 

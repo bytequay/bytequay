@@ -42,7 +42,8 @@ import com.fasterxml.jackson.databind.JsonNode;
  */
 public record ToolCall(
         String threadId, JsonNode arguments, AgentRole role,
-        String taskId, String stageId, String agentRunId, ThreadScope scope)
+        String taskId, String stageId, String agentRunId, ThreadScope scope,
+        String agentKey, String callId)
 {
     public ToolCall
     {
@@ -53,11 +54,15 @@ public record ToolCall(
         if (scope != ThreadScope.STAGE && stageId != null && !stageId.isBlank()) {
             throw new IllegalArgumentException(scope + " tool call forbids stageId");
         }
+        if (callId != null && callId.isBlank()) {
+            throw new IllegalArgumentException("callId must not be blank");
+        }
     }
 
     public String runtimeAgentKey()
     {
-        return PermissionResolver.agentKeyFor(scope, taskId);
+        return agentKey == null || agentKey.isBlank()
+                ? PermissionResolver.agentKeyFor(scope, taskId) : agentKey;
     }
 
     public String requireTaskId()
@@ -80,18 +85,28 @@ public record ToolCall(
             ThreadScope scope, String threadId, JsonNode arguments, AgentRole role,
             String taskId, String stageId, String agentRunId)
     {
-        this(threadId, arguments, role, taskId, stageId, agentRunId, scope);
+        this(threadId, arguments, role, taskId, stageId, agentRunId, scope, null,
+                null);
+    }
+
+    public ToolCall(
+            String threadId, JsonNode arguments, AgentRole role,
+            String taskId, String stageId, String agentRunId, ThreadScope scope)
+    {
+        this(threadId, arguments, role, taskId, stageId, agentRunId, scope, null,
+                null);
     }
 
     public ToolCall(
             ThreadScope scope, String threadId, JsonNode arguments, AgentRole role,
             String taskId, String stageId)
     {
-        this(threadId, arguments, role, taskId, stageId, null, scope);
+        this(threadId, arguments, role, taskId, stageId, null, scope, null,
+                null);
     }
 
     public ToolCall(ThreadScope scope, String threadId, JsonNode arguments, AgentRole role)
     {
-        this(threadId, arguments, role, null, null, null, scope);
+        this(threadId, arguments, role, null, null, null, scope, null, null);
     }
 }

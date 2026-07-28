@@ -15,6 +15,7 @@ package com.bytequay.app.beans.question;
 
 /** Body for answering an agent question — a picked option id and/or
  *  free-form text (at least one is required). */
-public record AnswerQuestionRequest(String answerOptionId, String answerFreeForm)
+public record AnswerQuestionRequest(
+        String answerOptionId, String answerFreeForm, Integer expectedRevision)
 {
 }

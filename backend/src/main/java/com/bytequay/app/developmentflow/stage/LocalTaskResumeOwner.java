@@ -58,9 +58,8 @@ final class LocalTaskResumeOwner
                         case IMPLEMENTING, ADDRESSING_BRAIN_FINDINGS,
                                 ADDRESSING_LOCAL_FEEDBACK ->
                                 store.materializeLocalTurn(intent, now);
-                        case LOCAL_REVIEW -> store.diagnose(
-                                intent, "USER_WAIT_OWNER_NOT_FROZEN",
-                                "Local Review wait has no exact typed question owner in V257",
+                        case LOCAL_REVIEW -> store.materializePassiveWait(
+                                intent, kind(), StageCheckpoint.LOCAL_REVIEW,
                                 now);
                         default -> store.diagnose(
                                 intent, "LOCAL_RESUME_CURSOR_UNSUPPORTED",

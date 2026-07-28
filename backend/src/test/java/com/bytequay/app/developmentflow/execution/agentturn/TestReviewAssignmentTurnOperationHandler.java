@@ -153,7 +153,8 @@ class TestReviewAssignmentTurnOperationHandler
                         "review role", "review the exact commit", endpoint));
         return new ReviewAssignmentTurnOperationHandler.ExactTurn(
                 "review-turn-1", "review-assignment-1", "review-round-1",
-                "review-1", "investigate", "REQUESTED", "review-operation-1",
+                "review-1", "investigate", "review-assignment-1", null,
+                "REQUESTED", "review-operation-1",
                 1, "head-1", input, "RUNNING", "ACTIVE", "workspace-1",
                 "trunk-1", "task-1", 1L, "ACTIVE", "head-1");
     }

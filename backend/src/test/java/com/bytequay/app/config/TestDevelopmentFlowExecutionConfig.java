@@ -105,6 +105,7 @@ import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
 import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -313,6 +314,7 @@ class TestDevelopmentFlowExecutionConfig
                 reviewTurns,
                 mock(SqliteTaskOutcomeSummaryStore.class),
                 mock(TaskOutcomeSummaryRuntime.class),
+                mock(ObjectProvider.class),
                 mock(JdbcTemplate.class),
                 new ObjectMapper());
 

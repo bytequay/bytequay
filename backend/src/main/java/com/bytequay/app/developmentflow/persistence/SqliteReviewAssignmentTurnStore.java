@@ -24,7 +24,10 @@ import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort.Re
 import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort.ResultReceipt;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.Admission;
+import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.FlowPhase;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.RetryCandidate;
+import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.RoundFlow;
+import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.TurnState;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -36,8 +39,12 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
+import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.ROUND_GUIDANCE;
+import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.guidanceMessageId;
+import static com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.guidanceTarget;
 import static java.util.Objects.requireNonNull;
 
 /** Exact SQLite admission, execution fence, and projection for review Turns. */
@@ -87,9 +94,96 @@ public class SqliteReviewAssignmentTurnStore
         if (admissions.isEmpty()) {
             throw new IllegalArgumentException("review admission is empty");
         }
+        jdbc.update("""
+                INSERT OR IGNORE INTO review_round_followup_v262(
+                    round_id, start_commit, phase, created_at_ms, updated_at_ms)
+                VALUES (?, ?, 'PRIMARY', ?, ?)
+                """, roundId, startCommit, requestedAt.toEpochMilli(),
+                requestedAt.toEpochMilli());
         for (Admission admission : admissions) {
             insertAdmission(scope, admission, requestedAt, false);
         }
+    }
+
+    @Override
+    @Transactional
+    public String admitFollowUp(
+            String roundId,
+            String startCommit,
+            Admission admission,
+            Instant requestedAt)
+    {
+        requireText(roundId, "roundId");
+        requireText(startCommit, "startCommit");
+        requireNonNull(admission, "admission is null");
+        requireNonNull(requestedAt, "requestedAt is null");
+        Scope scope = requireScope(roundId, startCommit);
+        String existing = logicalTurnId(admission).orElse(null);
+        if (existing != null) {
+            return existing;
+        }
+        String phase = jdbc.queryForObject("""
+                SELECT phase FROM review_round_followup_v262 WHERE round_id = ?
+                """, String.class, roundId);
+        boolean eligible = switch (admission.purpose()) {
+            case ROUND_GUIDANCE -> "PRIMARY".equals(phase)
+                    && exactGuidance(admission);
+            case "self-refutation" -> "SELF_REFUTATION".equals(phase)
+                    && hasPrimaryAssignment(admission.assignmentId());
+            case "blind-reconstruction" -> "VERIFYING".equals(phase)
+                    && exactVerifierAssignment(roundId, admission.assignmentId());
+            case "independent-verification" -> "VERIFYING".equals(phase)
+                    && exactVerifier(roundId, admission);
+            default -> false;
+        };
+        if (!eligible) {
+            throw new IllegalStateException(
+                    "review follow-up purpose is not eligible in phase " + phase);
+        }
+        insertAdmission(scope, admission, requestedAt, false);
+        return admission.turnId();
+    }
+
+    private boolean exactGuidance(Admission admission)
+    {
+        return count("""
+                SELECT COUNT(*)
+                FROM review_round_message message
+                JOIN review_assignment assignment
+                  ON assignment.id = message.assignment_id
+                WHERE message.id = ? AND message.target = ?
+                  AND message.status = 'processing'
+                  AND message.round_id = assignment.round_id
+                  AND assignment.id = ?
+                """, guidanceMessageId(admission.subjectKey()),
+                guidanceTarget(admission.subjectKey()),
+                admission.assignmentId()) == 1;
+    }
+
+    private boolean hasPrimaryAssignment(String assignmentId)
+    {
+        return count("""
+                SELECT COUNT(*) FROM review_assignment_turn
+                WHERE assignment_id = ? AND purpose = 'investigate'
+                """, assignmentId) > 0;
+    }
+
+    private boolean exactVerifierAssignment(String roundId, String assignmentId)
+    {
+        return count("""
+                SELECT COUNT(*) FROM review_round_followup_v262
+                WHERE round_id = ? AND verifier_assignment_id = ?
+                """, roundId, assignmentId) == 1;
+    }
+
+    private boolean exactVerifier(String roundId, Admission admission)
+    {
+        return count("""
+                SELECT COUNT(*) FROM review_round_followup_v262
+                WHERE round_id = ? AND verifier_assignment_id = ?
+                  AND verifier_run_id = ?
+                """, roundId, admission.assignmentId(),
+                admission.verifierRunId()) == 1;
     }
 
     @Override
@@ -98,7 +192,8 @@ public class SqliteReviewAssignmentTurnStore
     {
         requireText(assignmentId, "assignmentId");
         return jdbc.query("""
-                SELECT turn.assignment_id, turn.start_commit, turn.attempt,
+                SELECT turn.assignment_id, turn.start_commit, turn.purpose,
+                       turn.subject_key, turn.verifier_run_id, turn.attempt,
                        turn.launch_input
                 FROM review_assignment_turn turn
                 JOIN review_assignment assignment ON assignment.id = turn.assignment_id
@@ -111,10 +206,17 @@ public class SqliteReviewAssignmentTurnStore
                   AND turn.attempt = (
                       SELECT MAX(candidate.attempt)
                       FROM review_assignment_turn candidate
-                      WHERE candidate.assignment_id = turn.assignment_id)
+                      WHERE candidate.assignment_id = turn.assignment_id
+                        AND candidate.purpose = turn.purpose
+                        AND candidate.subject_key = turn.subject_key)
+                ORDER BY turn.finished_at_ms DESC, turn.requested_at_ms DESC
+                LIMIT 1
                 """, (rs, row) -> new RetryCandidate(
                         rs.getString("assignment_id"),
                         rs.getString("start_commit"),
+                        rs.getString("purpose"),
+                        rs.getString("subject_key"),
+                        rs.getString("verifier_run_id"),
                         rs.getInt("attempt"),
                         rs.getString("launch_input")), assignmentId)
                 .stream().findFirst();
@@ -127,15 +229,19 @@ public class SqliteReviewAssignmentTurnStore
         requireNonNull(admission, "admission is null");
         requireNonNull(requestedAt, "requestedAt is null");
         RetryState state = jdbc.query("""
-                SELECT assignment.round_id, turn.attempt, turn.status
+                SELECT assignment.round_id, turn.attempt, turn.status,
+                       turn.purpose, turn.subject_key
                 FROM review_assignment assignment
                 JOIN review_assignment_turn turn ON turn.assignment_id = assignment.id
                 WHERE assignment.id = ?
+                  AND turn.purpose = ? AND turn.subject_key = ?
                 ORDER BY turn.attempt DESC
                 LIMIT 1
                 """, (rs, row) -> new RetryState(
                         rs.getString("round_id"), rs.getInt("attempt"),
-                        rs.getString("status")), admission.assignmentId())
+                        rs.getString("status"), rs.getString("purpose"),
+                        rs.getString("subject_key")), admission.assignmentId(),
+                        admission.purpose(), admission.subjectKey())
                 .stream().findFirst()
                 .orElseThrow(() -> new IllegalStateException(
                         "review assignment has no prior Turn"));
@@ -164,6 +270,16 @@ public class SqliteReviewAssignmentTurnStore
                 SET status = 'queued'
                 WHERE id = ? AND status = 'errored'
                 """, admission.assignmentId());
+        jdbc.update("""
+                UPDATE review_round_followup_v262
+                SET phase = CASE ?
+                        WHEN 'investigate' THEN 'PRIMARY'
+                        WHEN 'round-guidance' THEN 'PRIMARY'
+                        WHEN 'self-refutation' THEN 'SELF_REFUTATION'
+                        ELSE 'VERIFYING' END,
+                    version = version + 1, updated_at_ms = ?
+                WHERE round_id = ? AND phase = 'BLOCKED'
+                """, admission.purpose(), requestedAt.toEpochMilli(), state.roundId());
         Scope scope = requireScope(state.roundId(), admission.startCommit());
         insertAdmission(scope, admission, requestedAt, true);
     }
@@ -186,6 +302,24 @@ public class SqliteReviewAssignmentTurnStore
     }
 
     @Override
+    @Transactional
+    public void cancelFlow(String roundId, Instant canceledAt)
+    {
+        requireText(roundId, "roundId");
+        requireNonNull(canceledAt, "canceledAt is null");
+        jdbc.update("""
+                UPDATE review_round_followup_v262
+                SET phase = 'CANCELED', version = version + 1, updated_at_ms = ?
+                WHERE round_id = ?
+                  AND phase NOT IN ('COMPLETED', 'CANCELED')
+                  AND EXISTS (
+                      SELECT 1 FROM review_round round
+                      WHERE round.id = review_round_followup_v262.round_id
+                        AND round.status = 'CANCELLED')
+                """, canceledAt.toEpochMilli(), roundId);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public boolean ownsRound(String roundId)
     {
@@ -200,12 +334,148 @@ public class SqliteReviewAssignmentTurnStore
 
     @Override
     @Transactional(readOnly = true)
+    public Optional<RoundFlow> flow(String roundId)
+    {
+        requireText(roundId, "roundId");
+        return jdbc.query("""
+                SELECT round_id, start_commit, phase, verifier_assignment_id,
+                       verifier_run_id, version
+                FROM review_round_followup_v262
+                WHERE round_id = ?
+                """, (rs, row) -> new RoundFlow(
+                rs.getString("round_id"), rs.getString("start_commit"),
+                FlowPhase.valueOf(rs.getString("phase")),
+                rs.getString("verifier_assignment_id"),
+                rs.getString("verifier_run_id"), rs.getLong("version")), roundId)
+                .stream().findFirst();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> incompleteRoundIds()
+    {
+        return jdbc.queryForList("""
+                SELECT round_id
+                FROM review_round_followup_v262
+                WHERE phase IN ('PRIMARY', 'SELF_REFUTATION', 'VERIFYING', 'FINALIZING')
+                ORDER BY created_at_ms, round_id
+                """, String.class);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<TurnState> turns(String roundId)
+    {
+        requireText(roundId, "roundId");
+        return jdbc.query("""
+                SELECT turn.id, turn.assignment_id, turn.purpose,
+                       turn.subject_key, turn.verifier_run_id, turn.attempt,
+                       turn.status, turn.launch_input,
+                       COALESCE(receipt.final_text, '') AS final_text,
+                       COALESCE(receipt.input_tokens, 0) AS input_tokens,
+                       COALESCE(receipt.output_tokens, 0) AS output_tokens,
+                       COALESCE(receipt.cost_usd_milli, 0) AS cost_usd_milli
+                FROM review_assignment_turn turn
+                JOIN review_assignment assignment ON assignment.id = turn.assignment_id
+                LEFT JOIN review_assignment_turn_result_receipt receipt
+                  ON receipt.turn_id = turn.id
+                 AND receipt.acceptance = 'ACCEPTED'
+                WHERE assignment.round_id = ?
+                  AND turn.attempt = (
+                      SELECT MAX(latest.attempt)
+                      FROM review_assignment_turn latest
+                      WHERE latest.assignment_id = turn.assignment_id
+                        AND latest.purpose = turn.purpose
+                        AND latest.subject_key = turn.subject_key)
+                ORDER BY turn.requested_at_ms, turn.id
+                """, (rs, row) -> new TurnState(
+                rs.getString("id"), rs.getString("assignment_id"),
+                rs.getString("purpose"), rs.getString("subject_key"),
+                rs.getString("verifier_run_id"), rs.getInt("attempt"),
+                rs.getString("status"), rs.getString("launch_input"),
+                rs.getString("final_text"), rs.getLong("input_tokens"),
+                rs.getLong("output_tokens"), rs.getLong("cost_usd_milli")),
+                roundId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<String> roundId(String turnId)
+    {
+        requireText(turnId, "turnId");
+        return jdbc.query("""
+                SELECT assignment.round_id
+                FROM review_assignment_turn turn
+                JOIN review_assignment assignment ON assignment.id = turn.assignment_id
+                WHERE turn.id = ?
+                """, (rs, row) -> rs.getString("round_id"), turnId)
+                .stream().findFirst();
+    }
+
+    @Override
+    @Transactional
+    public boolean movePhase(
+            String roundId, FlowPhase expected, FlowPhase next, Instant changedAt)
+    {
+        requireText(roundId, "roundId");
+        requireNonNull(expected, "expected is null");
+        requireNonNull(next, "next is null");
+        requireNonNull(changedAt, "changedAt is null");
+        if (!legalPhaseMove(expected, next)) {
+            throw new IllegalArgumentException(
+                    "illegal review follow-up phase " + expected + " -> " + next);
+        }
+        return jdbc.update("""
+                UPDATE review_round_followup_v262
+                SET phase = ?, version = version + 1, updated_at_ms = ?
+                WHERE round_id = ? AND phase = ?
+                """, next.name(), changedAt.toEpochMilli(), roundId,
+                expected.name()) == 1;
+    }
+
+    @Override
+    @Transactional
+    public void bindVerifier(
+            String roundId, String assignmentId, String runId, Instant changedAt)
+    {
+        requireText(roundId, "roundId");
+        requireText(assignmentId, "assignmentId");
+        requireText(runId, "runId");
+        requireNonNull(changedAt, "changedAt is null");
+        int updated = jdbc.update("""
+                UPDATE review_round_followup_v262
+                SET verifier_assignment_id = ?, verifier_run_id = ?,
+                    version = version + 1, updated_at_ms = ?
+                WHERE round_id = ? AND phase = 'VERIFYING'
+                  AND verifier_assignment_id IS NULL AND verifier_run_id IS NULL
+                  AND EXISTS (
+                      SELECT 1 FROM review_assignment assignment
+                      WHERE assignment.id = ? AND assignment.round_id = ?)
+                  AND EXISTS (
+                      SELECT 1 FROM agent_run run
+                      WHERE run.id = ? AND run.review_round_id = ?)
+                """, assignmentId, runId, changedAt.toEpochMilli(), roundId,
+                assignmentId, roundId, runId, roundId);
+        if (updated == 1) {
+            return;
+        }
+        RoundFlow current = flow(roundId).orElseThrow(() ->
+                new IllegalStateException("review follow-up flow disappeared"));
+        if (!assignmentId.equals(current.verifierAssignmentId())
+                || !runId.equals(current.verifierRunId())) {
+            throw new IllegalStateException("review verifier ownership is already bound");
+        }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Optional<ExactTurn> find(String turnId)
     {
         requireText(turnId, "turnId");
         String sql = """
                 SELECT turn.id AS turn_id, turn.assignment_id, assignment.round_id,
                        round.session_id AS review_id, turn.purpose,
+                       turn.subject_key, turn.verifier_run_id,
                        turn.status AS turn_status, turn.operation_id, turn.attempt,
                        turn.start_commit, turn.launch_input,
                        round.status AS round_status, session.status AS review_status,
@@ -308,7 +578,8 @@ public class SqliteReviewAssignmentTurnStore
         requireText(operationId, "operationId");
         requireNonNull(now, "now is null");
         String sql = """
-                SELECT round.session_id AS review_id, turn.assignment_id
+                SELECT round.session_id AS review_id, turn.assignment_id,
+                       turn.purpose, turn.subject_key, turn.verifier_run_id
                 FROM review_assignment_turn turn
                 JOIN review_assignment assignment ON assignment.id = turn.assignment_id
                 JOIN review_round round ON round.id = assignment.round_id
@@ -333,7 +604,9 @@ public class SqliteReviewAssignmentTurnStore
                       AND task.lifecycle_state = 'ACTIVE'))
                 """.formatted(CURRENT_HEAD);
         return jdbc.query(sql, (rs, row) -> new McpOwner(
-                rs.getString("review_id"), rs.getString("assignment_id")),
+                rs.getString("review_id"), rs.getString("assignment_id"),
+                rs.getString("purpose"), rs.getString("subject_key"),
+                rs.getString("verifier_run_id")),
                 turnId, operationId, now.toEpochMilli()).stream().findFirst();
     }
 
@@ -388,7 +661,12 @@ public class SqliteReviewAssignmentTurnStore
         }
 
         if (acceptance == DispatchTicket.Acceptance.ACCEPTED) {
-            projectAssignment(owner.assignmentId(), terminal, command.finalText());
+            projectAssignment(
+                    owner.assignmentId(), owner.purpose(), terminal, command.finalText());
+        }
+        if (ROUND_GUIDANCE.equals(owner.purpose())
+                && !"SUCCEEDED".equals(terminal)) {
+            projectGuidanceFailure(owner, terminal, command.error(), command.recordedAt());
         }
         String receiptId = "review-result:" + UUID.randomUUID();
         String evidence = evidence(receiptId, owner.roundId(), terminal);
@@ -458,18 +736,21 @@ public class SqliteReviewAssignmentTurnStore
         }
         int existing = count("""
                 SELECT COUNT(*) FROM review_assignment_turn
-                WHERE assignment_id = ?
-                """, admission.assignmentId());
+                WHERE assignment_id = ? AND purpose = ? AND subject_key = ?
+                """, admission.assignmentId(), admission.purpose(),
+                admission.subjectKey());
         if ((!retry && existing != 0) || (retry && existing == 0)) {
             throw new IllegalStateException("review assignment Turn admission is not exact");
         }
         jdbc.update("""
                 INSERT INTO review_assignment_turn(
-                    id, assignment_id, purpose, status, operation_id, attempt,
+                    id, assignment_id, purpose, subject_key, verifier_run_id,
+                    status, operation_id, attempt,
                     start_commit, delivery_lane, launch_input, requested_at_ms,
                     started_at_ms, finished_at_ms, error_message)
-                VALUES (?, ?, ?, 'REQUESTED', ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+                VALUES (?, ?, ?, ?, ?, 'REQUESTED', ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
                 """, admission.turnId(), admission.assignmentId(), admission.purpose(),
+                admission.subjectKey(), admission.verifierRunId(),
                 admission.operationId(), admission.attempt(), admission.startCommit(),
                 admission.transport().name(), admission.launchInput(),
                 requestedAt.toEpochMilli());
@@ -510,7 +791,8 @@ public class SqliteReviewAssignmentTurnStore
         return new ExactTurn(
                 rs.getString("turn_id"), rs.getString("assignment_id"),
                 rs.getString("round_id"), rs.getString("review_id"),
-                rs.getString("purpose"), rs.getString("turn_status"),
+                rs.getString("purpose"), rs.getString("subject_key"),
+                rs.getString("verifier_run_id"), rs.getString("turn_status"),
                 rs.getString("operation_id"), rs.getInt("attempt"),
                 rs.getString("start_commit"), rs.getString("launch_input"),
                 rs.getString("round_status"), rs.getString("review_status"),
@@ -523,7 +805,8 @@ public class SqliteReviewAssignmentTurnStore
     {
         String sql = """
                 SELECT turn.assignment_id, assignment.round_id,
-                       round.session_id AS review_id, turn.operation_id,
+                       round.session_id AS review_id, turn.purpose, turn.subject_key,
+                       turn.operation_id,
                        turn.attempt, turn.start_commit,
                        round.status AS round_status,
                        session.status AS review_status,
@@ -541,7 +824,9 @@ public class SqliteReviewAssignmentTurnStore
                 """.formatted(CURRENT_HEAD);
         return jdbc.query(sql, (rs, row) -> new ResultOwner(
                 rs.getString("assignment_id"), rs.getString("round_id"),
-                rs.getString("review_id"), rs.getString("operation_id"),
+                rs.getString("review_id"), rs.getString("purpose"),
+                rs.getString("subject_key"),
+                rs.getString("operation_id"),
                 rs.getInt("attempt"), rs.getString("start_commit"),
                 rs.getString("round_status"), rs.getString("review_status"),
                 rs.getString("owner_task_id"), nullableLong(rs, "task_epoch"),
@@ -563,11 +848,32 @@ public class SqliteReviewAssignmentTurnStore
                 .stream().findFirst();
     }
 
+    private Optional<String> logicalTurnId(Admission admission)
+    {
+        return jdbc.query("""
+                SELECT id FROM review_assignment_turn
+                WHERE assignment_id = ? AND purpose = ? AND subject_key = ?
+                  AND attempt = ?
+                """, (rs, row) -> rs.getString("id"), admission.assignmentId(),
+                admission.purpose(), admission.subjectKey(), admission.attempt())
+                .stream().findFirst();
+    }
+
     private void projectAssignment(
             String assignmentId,
-            String terminal,
-            String finalText)
+            String purpose,
+        String terminal,
+        String finalText)
     {
+        if (!"investigate".equals(purpose) && "SUCCEEDED".equals(terminal)) {
+            jdbc.update("""
+                    UPDATE review_assignment
+                    SET status = ?
+                    WHERE id = ? AND status IN ('queued', 'verifying', 'completed')
+                    """, Set.of("self-refutation", ROUND_GUIDANCE).contains(purpose)
+                    ? "completed" : "verifying", assignmentId);
+            return;
+        }
         String status = switch (terminal) {
             case "SUCCEEDED" -> "completed";
             case "CANCELED" -> "cancelled";
@@ -587,6 +893,24 @@ public class SqliteReviewAssignmentTurnStore
                 """, status, fallback, assignmentId);
     }
 
+    private void projectGuidanceFailure(
+            ResultOwner owner, String terminal, String error, Instant recordedAt)
+    {
+        String response = switch (terminal) {
+            case "CANCELED" -> "Guidance provider was cancelled before completing.";
+            case "SUPERSEDED" -> "Guidance became stale before it could complete.";
+            default -> "Guidance could not be processed: "
+                    + (error == null || error.isBlank()
+                    ? "provider failed" : error.strip());
+        };
+        jdbc.update("""
+                UPDATE review_round_message
+                SET status = 'failed', response = ?, completed_at_ms = ?
+                WHERE id = ? AND assignment_id = ? AND status = 'processing'
+                """, response, recordedAt.toEpochMilli(),
+                guidanceMessageId(owner.subjectKey()), owner.assignmentId());
+    }
+
     private void projectRound(String roundId, Instant recordedAt)
     {
         jdbc.update("""
@@ -598,26 +922,39 @@ public class SqliteReviewAssignmentTurnStore
                       AND receipt.acceptance = 'ACCEPTED')
                 WHERE id = ?
                 """, roundId);
+        jdbc.update("""
+                UPDATE agent_run
+                SET cost_usd_milli = (SELECT cost_cents * 10
+                        FROM review_round WHERE id = ?),
+                    tokens_in = (SELECT COALESCE(SUM(input_tokens), 0)
+                        FROM review_assignment_turn_result_receipt
+                        WHERE round_id = ? AND acceptance = 'ACCEPTED'),
+                    tokens_out = (SELECT COALESCE(SUM(output_tokens), 0)
+                        FROM review_assignment_turn_result_receipt
+                        WHERE round_id = ? AND acceptance = 'ACCEPTED')
+                WHERE id = (SELECT agent_run_id FROM review_round WHERE id = ?)
+                  AND status IN ('queued', 'running')
+                """, roundId, roundId, roundId, roundId);
         int liveLatest = count("""
                 SELECT COUNT(*)
-                FROM review_assignment assignment
+                FROM review_assignment_turn turn
+                JOIN review_assignment assignment ON assignment.id = turn.assignment_id
                 WHERE assignment.round_id = ?
-                  AND NOT EXISTS (
-                      SELECT 1 FROM review_assignment_turn turn
-                      WHERE turn.assignment_id = assignment.id
-                        AND turn.attempt = (
-                            SELECT MAX(latest.attempt)
-                            FROM review_assignment_turn latest
-                            WHERE latest.assignment_id = assignment.id)
-                        AND turn.status IN (
-                            'SUCCEEDED', 'FAILED', 'CANCELED', 'SUPERSEDED'))
+                  AND turn.attempt = (
+                      SELECT MAX(latest.attempt)
+                      FROM review_assignment_turn latest
+                      WHERE latest.assignment_id = turn.assignment_id
+                        AND latest.purpose = turn.purpose
+                        AND latest.subject_key = turn.subject_key)
+                  AND turn.status NOT IN (
+                      'SUCCEEDED', 'FAILED', 'CANCELED', 'SUPERSEDED')
                 """, roundId);
         if (liveLatest > 0) {
             return;
         }
-        int failures = latestStatusCount(roundId, "FAILED");
-        int cancellations = latestStatusCount(roundId, "CANCELED");
-        int superseded = latestStatusCount(roundId, "SUPERSEDED");
+        int failures = latestStatusCount(roundId, "FAILED", false);
+        int cancellations = latestStatusCount(roundId, "CANCELED", false);
+        int superseded = latestStatusCount(roundId, "SUPERSEDED", true);
         if (failures > 0 || cancellations > 0 || superseded > 0) {
             String roundStatus = failures > 0 || superseded > 0
                     ? "ERRORED" : "CANCELLED";
@@ -639,85 +976,35 @@ public class SqliteReviewAssignmentTurnStore
                     failures > 0 || superseded > 0
                             ? "Review investigation failed" : "Review cancelled",
                     recordedAt.toEpochMilli(), roundId);
+            jdbc.update("""
+                    UPDATE review_round_followup_v262
+                    SET phase = CASE WHEN (
+                            SELECT status FROM review_round WHERE id = ?)
+                            = 'CANCELLED' THEN 'CANCELED' ELSE 'BLOCKED' END,
+                        version = version + 1, updated_at_ms = ?
+                    WHERE round_id = ? AND phase NOT IN ('COMPLETED', 'CANCELED')
+                    """, roundId, recordedAt.toEpochMilli(), roundId);
             return;
         }
 
-        jdbc.update("""
-                UPDATE finding
-                SET verification_status = 'unknown',
-                    last_checked_commit = (
-                        SELECT start_commit FROM review_round WHERE id = ?)
-                WHERE round_id = ? AND lifecycle_status <> 'dropped'
-                """, roundId, roundId);
-        jdbc.update("""
-                UPDATE review_objective
-                SET resolution_status = CASE
-                    WHEN applicability_status <> 'applicable' THEN 'not-applicable'
-                    WHEN EXISTS (
-                        SELECT 1 FROM finding
-                        WHERE finding.objective_id = review_objective.id
-                          AND finding.lifecycle_status <> 'dropped') THEN 'unknown'
-                    WHEN EXISTS (
-                        SELECT 1
-                        FROM hypothesis
-                        JOIN review_assignment assignment
-                          ON assignment.id = hypothesis.assignment_id
-                        WHERE assignment.round_id = review_objective.round_id
-                          AND hypothesis.objective_id = review_objective.id)
-                        THEN 'investigated-clean'
-                    ELSE 'not-covered-budget'
-                END
-                WHERE round_id = ?
-                """, roundId);
-        int questions = count("""
-                SELECT COUNT(*) FROM review_objective
-                WHERE round_id = ?
-                  AND resolution_status IN ('unknown', 'not-covered-budget')
-                """, roundId);
-        String status = questions > 0 ? "COMPLETED_WITH_QUESTIONS" : "COMPLETED";
-        jdbc.update("""
-                UPDATE review_round
-                SET status = ?, end_commit = start_commit, finished_at_ms = ?,
-                    message_gate_open = 0, lifecycle_finalized = 1
-                WHERE id = ? AND status = 'RUNNING'
-                """, status, recordedAt.toEpochMilli(), roundId);
-        jdbc.update("""
-                UPDATE review_session
-                SET reviewed_head_commit = (
-                        SELECT start_commit FROM review_round WHERE id = ?),
-                    status = 'ACTIVE', updated_at_ms = ?
-                WHERE id = (SELECT session_id FROM review_round WHERE id = ?)
-                """, roundId, recordedAt.toEpochMilli(), roundId);
-        jdbc.update("""
-                UPDATE agent_run
-                SET status = 'succeeded',
-                    headline = (SELECT COUNT(*) || ' findings'
-                        FROM finding WHERE round_id = ?),
-                    cost_usd_milli = (SELECT cost_cents * 10
-                        FROM review_round WHERE id = ?),
-                    tokens_in = (SELECT COALESCE(SUM(input_tokens), 0)
-                        FROM review_assignment_turn_result_receipt WHERE round_id = ?),
-                    tokens_out = (SELECT COALESCE(SUM(output_tokens), 0)
-                        FROM review_assignment_turn_result_receipt WHERE round_id = ?),
-                    finished_at_ms = ?
-                WHERE id = (SELECT agent_run_id FROM review_round WHERE id = ?)
-                  AND status IN ('queued', 'running')
-                """, roundId, roundId, roundId, roundId,
-                recordedAt.toEpochMilli(), roundId);
     }
 
-    private int latestStatusCount(String roundId, String status)
+    private int latestStatusCount(
+            String roundId, String status, boolean includeGuidance)
     {
         return count("""
                 SELECT COUNT(*)
                 FROM review_assignment assignment
                 JOIN review_assignment_turn turn ON turn.assignment_id = assignment.id
                 WHERE assignment.round_id = ? AND turn.status = ?
+                  AND (? <> 0 OR turn.purpose <> 'round-guidance')
                   AND turn.attempt = (
                       SELECT MAX(latest.attempt)
                       FROM review_assignment_turn latest
-                      WHERE latest.assignment_id = assignment.id)
-                """, roundId, status);
+                      WHERE latest.assignment_id = assignment.id
+                        AND latest.purpose = turn.purpose
+                        AND latest.subject_key = turn.subject_key)
+                """, roundId, status, includeGuidance ? 1 : 0);
     }
 
     private String evidence(String receiptId, String roundId, String terminal)
@@ -755,6 +1042,26 @@ public class SqliteReviewAssignmentTurnStore
         };
     }
 
+    private static boolean legalPhaseMove(FlowPhase expected, FlowPhase next)
+    {
+        return switch (expected) {
+            case PRIMARY -> next == FlowPhase.SELF_REFUTATION
+                    || next == FlowPhase.VERIFYING
+                    || next == FlowPhase.BLOCKED
+                    || next == FlowPhase.CANCELED;
+            case SELF_REFUTATION -> next == FlowPhase.VERIFYING
+                    || next == FlowPhase.BLOCKED
+                    || next == FlowPhase.CANCELED;
+            case VERIFYING -> next == FlowPhase.FINALIZING
+                    || next == FlowPhase.BLOCKED
+                    || next == FlowPhase.CANCELED;
+            case FINALIZING -> next == FlowPhase.COMPLETED
+                    || next == FlowPhase.BLOCKED
+                    || next == FlowPhase.CANCELED;
+            case COMPLETED, BLOCKED, CANCELED -> false;
+        };
+    }
+
     private static Long nullableLong(ResultSet rs, String column)
             throws SQLException
     {
@@ -783,12 +1090,19 @@ public class SqliteReviewAssignmentTurnStore
             String taskId,
             Long taskEpoch) {}
 
-    private record RetryState(String roundId, int attempt, String status) {}
+    private record RetryState(
+            String roundId,
+            int attempt,
+            String status,
+            String purpose,
+            String subjectKey) {}
 
     private record ResultOwner(
             String assignmentId,
             String roundId,
             String reviewId,
+            String purpose,
+            String subjectKey,
             String operationId,
             int attempt,
             String startCommit,

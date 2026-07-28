@@ -305,6 +305,11 @@ public final class V2TaskCreationService
                     "suggested-change review builds are comment-only and cannot "
                             + "materialize a writable V2 Task");
         }
+        if (reviewSelection != null
+                && !reviewSelections.matchesCurrent(reviewSelection)) {
+            throw new IllegalStateException(
+                    "review build selection changed before V2 Task materialization");
+        }
         String prRepository = reviewSelection == null
                 ? workspace.fullName()
                 : reviewSelection.spawn().baseRepositoryId();

@@ -156,7 +156,7 @@ public class ReviewBuildSelectionStore
     }
 
     /** True only while every mutable source row is the exact frozen revision. */
-    boolean matchesCurrent(Selection selection)
+    public boolean matchesCurrent(Selection selection)
     {
         requireNonNull(selection, "selection is null");
         for (Finding frozen : selection.findings()) {

@@ -777,17 +777,32 @@ public final class V2LocalReviewControl
                 taskIdValue, reviewIdValue, roundIdValue, blocking));
     }
 
-    /** Continues the session with the most recently chosen advisory/blocking mode. */
+    /** Continues from the exact preceding request and preserves its mode. */
     public AgentReviewRequest continueAgentReview(
             String taskId, String reviewId, String reviewRoundId)
     {
         String taskIdValue = required(taskId, "taskId");
         String reviewIdValue = required(reviewId, "reviewId");
         String roundIdValue = required(reviewRoundId, "reviewRoundId");
-        return inCommand(taskIdValue, () -> requestAgentReviewInCommand(
-                taskIdValue, reviewIdValue, roundIdValue,
-                findAgentRequest(reviewIdValue)
-                        .map(AgentReviewRequest::blocking).orElse(false)));
+        return inCommand(taskIdValue, () -> {
+            AgentReviewRequest exact = findAgentRequestForRound(roundIdValue)
+                    .orElse(null);
+            if (exact != null) {
+                if (!reviewIdValue.equals(exact.reviewId())
+                        || !taskIdValue.equals(exact.taskId())) {
+                    throw conflict(
+                            "Agent review round already has another Local Review owner");
+                }
+                return exact;
+            }
+            AgentReviewRequest previous = findPriorAgentRequest(
+                    taskIdValue, reviewIdValue, roundIdValue)
+                    .orElseThrow(() -> conflict(
+                            "Agent review continuation has no exact prior Local Review request"));
+            return requestAgentReviewInCommand(
+                    taskIdValue, reviewIdValue, roundIdValue,
+                    previous.blocking());
+        });
     }
 
     private AgentReviewRequest requestAgentReviewInCommand(
@@ -938,8 +953,8 @@ public final class V2LocalReviewControl
             }
             List<Revision> revisions = new ArrayList<>();
             for (String findingId : selectedIds) {
-                Finding finding = requireFinding(reviewIdValue, findingId,
-                        frozen.headSha());
+                Finding finding = requireFinding(
+                        reviewIdValue, roundIdValue, findingId, frozen.headSha());
                 Revision existing = importedRevision(request.id(), finding.id())
                         .orElse(null);
                 if (existing != null) {
@@ -1569,16 +1584,62 @@ public final class V2LocalReviewControl
             return "BRAIN";
         }
         if (PRTimelineEntry.ACTOR_AGENT.equals(author)) {
-            return jdbc.query("""
+            List<String> sources = jdbc.query("""
                     SELECT CASE mode WHEN 'BLOCKING' THEN 'BLOCKING_REVIEW'
                            ELSE 'ADVISORY_REVIEW' END
                     FROM local_review_agent_request
                     WHERE task_id = ? AND pr_id = ? AND status = 'REQUESTED'
-                    ORDER BY requested_at_ms DESC, id DESC LIMIT 1
-                    """, (rs, row) -> rs.getString(1), subject.taskId(), subject.prId())
-                    .stream().findFirst().orElse("ADVISORY_REVIEW");
+                      AND task_epoch = ?
+                      AND local_development_stage_id = ?
+                      AND stage_generation = ?
+                      AND dev_report_id = ?
+                      AND code_fingerprint = ?
+                      AND head_sha = ? AND base_sha = ?
+                    """, (rs, row) -> rs.getString(1), subject.taskId(),
+                    subject.prId(), subject.taskEpoch(), subject.stageId(),
+                    subject.stageGeneration(), subject.devReportId(),
+                    subject.codeFingerprint(), subject.headSha(), subject.baseSha());
+            if (sources.size() != 1) {
+                throw conflict(
+                        "Agent local comment requires one exact active AgentReview request");
+            }
+            return sources.getFirst();
         }
         return "DEVELOPMENT";
+    }
+
+    private Optional<AgentReviewRequest> findPriorAgentRequest(
+            String taskId, String reviewId, String reviewRoundId)
+    {
+        return jdbc.query("""
+                SELECT request.id, request.review_id, request.review_round_id,
+                       request.task_id, request.mode, request.status
+                FROM review_round target
+                JOIN review_session review ON review.id = target.session_id
+                JOIN local_review_agent_request request
+                  ON request.review_id = review.id
+                 AND request.task_id = review.owner_task_id
+                JOIN review_round prior ON prior.id = request.review_round_id
+                WHERE target.id = ? AND target.session_id = ?
+                  AND review.owner_task_id = ?
+                  AND prior.session_id = target.session_id
+                  AND prior.rowid < target.rowid
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM local_review_agent_request later
+                      JOIN review_round later_round
+                        ON later_round.id = later.review_round_id
+                      WHERE later.review_id = review.id
+                        AND later_round.rowid >= target.rowid)
+                ORDER BY prior.rowid DESC
+                LIMIT 1
+                """, (rs, row) -> new AgentReviewRequest(
+                        rs.getString("id"), rs.getString("review_id"),
+                        rs.getString("review_round_id"),
+                        rs.getString("task_id"),
+                        "BLOCKING".equals(rs.getString("mode")),
+                        rs.getString("status")),
+                reviewRoundId, reviewId, taskId).stream().findFirst();
     }
 
     private Optional<AgentReviewRequest> findAgentRequest(String reviewId)
@@ -1631,7 +1692,8 @@ public final class V2LocalReviewControl
                 .stream().findFirst().orElseThrow();
     }
 
-    private Finding requireFinding(String reviewId, String findingId, String headSha)
+    private Finding requireFinding(
+            String reviewId, String reviewRoundId, String findingId, String headSha)
     {
         List<Finding> rows = jdbc.query("""
                 SELECT finding.id, finding.path, finding.start_line,
@@ -1640,6 +1702,7 @@ public final class V2LocalReviewControl
                 FROM finding
                 JOIN review_round round ON round.id = finding.round_id
                 WHERE finding.id = ? AND finding.session_id = ?
+                  AND finding.round_id = ?
                   AND lower(finding.lifecycle_status) <> 'dropped'
                   AND finding.last_checked_commit = ?
                   AND round.session_id = ?
@@ -1650,10 +1713,10 @@ public final class V2LocalReviewControl
                         integer(rs, "start_line"), integer(rs, "end_line"),
                         rs.getString("claim"), rs.getInt("severity"),
                         rs.getString("requested_action")),
-                findingId, reviewId, headSha, reviewId, headSha);
+                findingId, reviewId, reviewRoundId, headSha, reviewId, headSha);
         if (rows.size() != 1) {
             throw conflict("finding " + findingId
-                    + " is stale, dropped, or not from this completed review");
+                    + " is stale, dropped, or not from this exact completed review round");
         }
         Finding finding = rows.getFirst();
         if (finding.path() != null && (finding.startLine() == null

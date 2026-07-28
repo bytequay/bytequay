@@ -108,8 +108,10 @@ public class StageSteeringServiceImpl
     }
 
     @Override
-    public SteerResult steer(UUID stageId, String text, List<String> images)
+    public SteerResult steer(
+            UUID stageId, String text, List<String> images, Mode mode)
     {
+        requireNonNull(mode, "mode is null");
         String trimmed = text == null ? "" : text.strip();
         if (trimmed.isEmpty() && (images == null || images.isEmpty())) {
             throw status(400, "steering message is empty");
@@ -122,8 +124,12 @@ public class StageSteeringServiceImpl
             }
             String turnId = v2Steering.steer(
                     v2TaskId, stageId.toString(), trimmed, images,
-                    V2StageSteeringControl.Mode.APPEND);
+                    V2StageSteeringControl.Mode.valueOf(mode.name()));
             return new SteerResult(turnId);
+        }
+        if (mode != Mode.APPEND) {
+            throw status(422,
+                    "CANCEL_AND_REPLACE is available only for V2 stages");
         }
         String taskId = stageStore.findStageById(stageId)
                 .map(StageInstance::taskId)

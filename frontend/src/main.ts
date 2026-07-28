@@ -1343,13 +1343,19 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle('stages:steer', async (_event, stageId: string, text: string, images?: string[]) => {
+  ipcMain.handle('stages:steer', async (
+    _event,
+    stageId: string,
+    text: string,
+    images?: string[],
+    mode: 'APPEND' | 'CANCEL_AND_REPLACE' = 'APPEND',
+  ) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/stages/${encodeURIComponent(stageId)}/steer`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, images }),
+        body: JSON.stringify({ text, images, mode }),
       },
     );
     if (!res.ok) {

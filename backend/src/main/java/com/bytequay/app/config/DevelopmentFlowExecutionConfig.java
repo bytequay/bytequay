@@ -16,6 +16,12 @@ package com.bytequay.app.config;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
+import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
+import com.bytequay.app.developmentflow.execution.LegacyCapacityLeaseMaintainer;
+import com.bytequay.app.repository.ThreadSettingsStore;
+import com.bytequay.app.repository.ThreadStore;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,17 +30,29 @@ import java.time.Clock;
 import java.time.Duration;
 
 /**
- * Inert V2 execution wiring. Enabling it deliberately requires real policy,
- * operation-handler, and result-delivery beans from a later routing slice.
+ * Shared capacity wiring is always active during LEGACY/V2 coexistence.
+ * Enabling V2 dispatch still requires real handlers and delivery ports.
  */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(
-        name = "bytequay.development-flow.v2-dispatch-enabled",
-        havingValue = "true")
 public class DevelopmentFlowExecutionConfig
 {
     @Bean
-    public CapacityManager v2CapacityManager(
+    @ConditionalOnMissingBean(CapacityManager.CapacityPolicySource.class)
+    public CapacityManager.CapacityPolicySource developmentFlowCapacityPolicy(
+            ThreadStore threads,
+            ThreadSettingsStore settings,
+            @Value("${bytequay.development-flow.capacity.default-workspace-running-tasks:4}")
+            int defaultWorkspaceLimit,
+            @Value("${bytequay.development-flow.capacity.default-trunk-running-tasks:4}")
+            int defaultTrunkLimit)
+    {
+        return new DevelopmentFlowCapacityPolicySource(
+                threads, settings, defaultWorkspaceLimit, defaultTrunkLimit);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(CapacityManager.class)
+    public CapacityManager capacityManager(
             CapacityManager.CapacityLeaseStore leases,
             CapacityManager.CapacityPolicySource policies)
     {
@@ -42,7 +60,25 @@ public class DevelopmentFlowExecutionConfig
                 leases, policies, Clock.systemUTC(), Duration.ofSeconds(30));
     }
 
+    @Bean
+    @ConditionalOnMissingBean(LegacyCapacityBridge.class)
+    public LegacyCapacityBridge legacyCapacityBridge(CapacityManager capacityManager)
+    {
+        return new LegacyCapacityBridge(capacityManager);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(LegacyCapacityLeaseMaintainer.class)
+    public LegacyCapacityLeaseMaintainer legacyCapacityLeaseMaintainer(
+            LegacyCapacityBridge bridge)
+    {
+        return new LegacyCapacityLeaseMaintainer(bridge);
+    }
+
     @Bean(initMethod = "start", destroyMethod = "close")
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
     public ExecutionDispatcher v2ExecutionDispatcher(
             CapacityManager capacityManager,
             ExecutionPorts.DispatchTicketStore tickets,

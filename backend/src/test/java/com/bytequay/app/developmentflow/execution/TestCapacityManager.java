@@ -376,6 +376,140 @@ class TestCapacityManager
     }
 
     @Test
+    void bridgeAndV2ShareLaneWorkspaceTrunkAndTaskCaps()
+    {
+        Fixture fixture = fixture(policy(2, 1));
+        LegacyCapacityBridge bridge = new LegacyCapacityBridge(fixture.manager);
+
+        LegacyCapacityBridge.Permit first = bridge.tryAcquire(
+                request("legacy-a", LEGACY, CLI,
+                        "w1", "trunk-a", "task-a", false, false),
+                "legacy-a").orElseThrow();
+        assertDenied(fixture.tryAcquire(
+                request("v2-same-trunk", V2, API,
+                        "w1", "trunk-a", "task-b", false, false),
+                "dispatcher"), TRUNK_LIMIT);
+        assertDenied(fixture.tryAcquire(
+                request("v2-same-task", V2, API,
+                        "w1", "trunk-a", "task-a", false, false),
+                "dispatcher"), TASK_MUTATION_LIMIT);
+        assertAdmitted(fixture.tryAcquire(
+                request("v2-other-trunk", V2, API,
+                        "w1", "trunk-b", "task-b", false, false),
+                "dispatcher"));
+        assertDenied(fixture.tryAcquire(
+                request("legacy-workspace-full", LEGACY, API,
+                        "w1", "trunk-c", "task-c", false, false),
+                "legacy-c"), WORKSPACE_LIMIT);
+
+        assertThat(fixture.store.activeCount(NOW)).isEqualTo(2);
+        first.close();
+        assertThat(fixture.store.activeCount(NOW)).isEqualTo(1);
+    }
+
+    @Test
+    void releaseAndExpiryWakeRegisteredWaitersAndDeregistrationStopsHints()
+    {
+        Fixture fixture = fixture(policy(100, 100));
+        AtomicInteger wakes = new AtomicInteger();
+        CapacityManager.AvailabilityRegistration registration =
+                fixture.manager.onCapacityAvailable(wakes::incrementAndGet);
+        CapacityManager.CapacityLease first = fixture.tryAcquire(
+                request("first", LEGACY, CLI,
+                        "w1", "t1", "task-1", false, false),
+                "legacy").lease().orElseThrow();
+
+        fixture.manager.release(first.id(), "legacy");
+        assertThat(wakes).hasValue(1);
+
+        CapacityManager.CapacityLease expiring = fixture.tryAcquire(
+                request("expiring", LEGACY, CLI,
+                        "w1", "t1", "task-2", false, false),
+                "legacy").lease().orElseThrow();
+        fixture.clock.advance(Duration.ofSeconds(31));
+        assertThat(fixture.manager.expireLeases()).extracting(CapacityManager.CapacityLease::id)
+                .containsExactly(expiring.id());
+        assertThat(wakes).hasValue(2);
+
+        registration.close();
+        CapacityManager.CapacityLease afterClose = fixture.tryAcquire(
+                request("after-close", LEGACY, CLI,
+                        "w1", "t1", "task-3", false, false),
+                "legacy").lease().orElseThrow();
+        fixture.manager.release(afterClose.id(), "legacy");
+        assertThat(wakes).hasValue(2);
+    }
+
+    @Test
+    void bridgeStopsExactlyOnceAfterDefinitiveLeaseLoss()
+    {
+        Fixture fixture = fixture(policy(100, 100));
+        LegacyCapacityBridge bridge = new LegacyCapacityBridge(fixture.manager);
+        AtomicInteger stops = new AtomicInteger();
+        LegacyCapacityBridge.Permit permit = bridge.tryAcquire(
+                request("lost", LEGACY, CLI,
+                        "w1", "t1", "task-1", false, false),
+                "legacy",
+                stops::incrementAndGet).orElseThrow();
+
+        fixture.clock.advance(Duration.ofSeconds(31));
+        bridge.maintainLeases();
+        bridge.maintainLeases();
+
+        assertThat(stops).hasValue(1);
+        assertThat(bridge.activePermitCount()).isZero();
+        assertThatThrownBy(permit::lease).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void transientHeartbeatFailureRetriesBeforeExpiry()
+    {
+        Fixture fixture = fixture(policy(100, 100));
+        LegacyCapacityBridge bridge = new LegacyCapacityBridge(fixture.manager);
+        AtomicInteger stops = new AtomicInteger();
+        LegacyCapacityBridge.Permit permit = bridge.tryAcquire(
+                request("retry-heartbeat", LEGACY, API,
+                        "w1", "t1", "task-1", false, false),
+                "legacy",
+                stops::incrementAndGet).orElseThrow();
+
+        fixture.clock.advance(Duration.ofSeconds(10));
+        fixture.store.failNextHeartbeat();
+        bridge.maintainLeases();
+        assertThat(stops).hasValue(0);
+        assertThat(bridge.activePermitCount()).isEqualTo(1);
+
+        fixture.clock.advance(Duration.ofSeconds(5));
+        bridge.maintainLeases();
+        assertThat(permit.lease().expiresAt())
+                .isEqualTo(fixture.clock.instant().plusSeconds(30));
+        assertThat(stops).hasValue(0);
+        permit.close();
+    }
+
+    @Test
+    void failedCloseIsRetriedWithoutLeakingOrRenewingCompletedWork()
+    {
+        Fixture fixture = fixture(policy(100, 100));
+        LegacyCapacityBridge bridge = new LegacyCapacityBridge(fixture.manager);
+        LegacyCapacityBridge.Permit permit = bridge.tryAcquire(
+                request("release-retry", LEGACY, CLI,
+                        "w1", "t1", "task-1", false, false),
+                "legacy").orElseThrow();
+
+        fixture.store.failNextRelease();
+        assertThatThrownBy(permit::close)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("release failed");
+        assertThat(bridge.activePermitCount()).isEqualTo(1);
+
+        bridge.maintainLeases();
+
+        assertThat(bridge.activePermitCount()).isZero();
+        assertThat(fixture.store.activeCount(fixture.clock.instant())).isZero();
+    }
+
+    @Test
     void initialHardCeilingsCannotBeOverridden()
     {
         assertThatThrownBy(() -> CapacityManager.CapacityPolicy.initial(

@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.execution.CapacityManager;
+import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
@@ -51,6 +53,7 @@ import com.bytequay.app.service.runs.SessionBudgetPolicy;
 import com.bytequay.app.service.skills.ManagedSkillPolicy;
 import com.bytequay.app.service.tools.PermissionResolver;
 import com.bytequay.app.statemachine.StateMachine;
+import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -117,6 +120,9 @@ public class AgentScheduler
         implements ThreadTurnScheduler, ApplicationEventPublisherAware
 {
     private static final int RECOVERY_PAGE_SIZE = 1_000;
+    private static final int SHARED_CLI_LIMIT = 4;
+    private static final int SHARED_API_LIMIT = 6;
+    private static final long LEGACY_TASK_EPOCH = 1L;
     // Usually one or two follow-up turns. Keep the page large enough
     // for normal use, but bounded so a pathological thread cannot load
     // every durable queued turn in one SQLite read.
@@ -143,6 +149,8 @@ public class AgentScheduler
     private final TransactionTemplate detachedTransactions;
     private final SessionBudgetPolicy sessionBudgets;
     private final GitRunner git;
+    private final LegacyCapacityBridge legacyCapacity;
+    private final CapacityManager.AvailabilityRegistration capacityWakeRegistration;
     /** Agent metrics are cumulative; snapshot each turn's starting point so
      *  only that turn's delta is added to its public Session. */
     private final ConcurrentHashMap<String, AgentMetrics> usageBaselines = new ConcurrentHashMap<>();
@@ -165,7 +173,16 @@ public class AgentScheduler
      *  registry entry before cancellation reaches the scheduler. */
     private final ConcurrentHashMap<String, ThreadAgent> runningTurnSessions =
             new ConcurrentHashMap<>();
+    /** Exact shared-capacity permit for each locally reserved legacy turn. */
+    private final ConcurrentHashMap<String, LegacyCapacityBridge.Permit> capacityPermitsByTurnId =
+            new ConcurrentHashMap<>();
+    /** A denied turn is skipped until CapacityManager advances this version. */
+    private final Map<String, Long> capacityDeniedAtVersion = new HashMap<>();
+    /** Lease loss wins over a nominal provider success and fails the turn. */
+    private final Map<String, String> capacityFailuresByTurnId = new HashMap<>();
     private final Object lock = new Object();
+    private boolean draining;
+    private boolean drainRequested;
     /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
      *  null in POJO unit tests that construct the scheduler directly, where
      *  turn-finished side effects (mutex release) aren't under test. */
@@ -188,13 +205,43 @@ public class AgentScheduler
             PlatformTransactionManager transactionManager,
             SessionBudgetPolicy sessionBudgets,
             GitRunner git,
+            LegacyCapacityBridge legacyCapacity,
             @Value("${bytequay.threads.scheduler.max-cli-running:4}") int maxCliRunning,
             @Value("${bytequay.threads.scheduler.max-api-running:6}") int maxApiRunning)
     {
         this(threads, turns, events, sessions, stages, tasks,
                 managedSkillPolicy, contextCompiler, activeContexts, agentRuns,
                 agentRunStore, taskCommands, transactionManager, sessionBudgets,
-                git, maxCliRunning, maxApiRunning, true);
+                git, legacyCapacity,
+                sharedLimit(maxCliRunning, SHARED_CLI_LIMIT, "maxCliRunning"),
+                sharedLimit(maxApiRunning, SHARED_API_LIMIT, "maxApiRunning"),
+                true);
+    }
+
+    /** Production-shape constructor retained for focused tests. */
+    public AgentScheduler(
+            ThreadStore threads,
+            ThreadTurnStore turns,
+            ThreadTurnEventStore events,
+            ThreadRegistry sessions,
+            StageStore stages,
+            TaskStore tasks,
+            ManagedSkillPolicy managedSkillPolicy,
+            AgentContextCompiler contextCompiler,
+            ActiveAgentContextRegistry activeContexts,
+            AgentRunService agentRuns,
+            AgentRunStore agentRunStore,
+            TaskCommandExecutor taskCommands,
+            PlatformTransactionManager transactionManager,
+            SessionBudgetPolicy sessionBudgets,
+            GitRunner git,
+            int maxCliRunning,
+            int maxApiRunning)
+    {
+        this(threads, turns, events, sessions, stages, tasks,
+                managedSkillPolicy, contextCompiler, activeContexts, agentRuns,
+                agentRunStore, taskCommands, transactionManager, sessionBudgets,
+                git, null, maxCliRunning, maxApiRunning, true);
     }
 
     /** Dependency-light constructor retained for focused scheduler tests. */
@@ -217,7 +264,31 @@ public class AgentScheduler
         this(threads, turns, events, sessions, stages, tasks,
                 managedSkillPolicy, contextCompiler, activeContexts, agentRuns,
                 null, null, null, sessionBudgets, git,
-                maxCliRunning, maxApiRunning, true);
+                null, maxCliRunning, maxApiRunning, true);
+    }
+
+    /** Dependency-light constructor that exercises the mixed-version bridge. */
+    public AgentScheduler(
+            ThreadStore threads,
+            ThreadTurnStore turns,
+            ThreadTurnEventStore events,
+            ThreadRegistry sessions,
+            StageStore stages,
+            TaskStore tasks,
+            ManagedSkillPolicy managedSkillPolicy,
+            AgentContextCompiler contextCompiler,
+            ActiveAgentContextRegistry activeContexts,
+            AgentRunService agentRuns,
+            SessionBudgetPolicy sessionBudgets,
+            GitRunner git,
+            LegacyCapacityBridge legacyCapacity,
+            int maxCliRunning,
+            int maxApiRunning)
+    {
+        this(threads, turns, events, sessions, stages, tasks,
+                managedSkillPolicy, contextCompiler, activeContexts, agentRuns,
+                null, null, null, sessionBudgets, git,
+                legacyCapacity, maxCliRunning, maxApiRunning, true);
     }
 
     public AgentScheduler(
@@ -232,7 +303,7 @@ public class AgentScheduler
     {
         this(threads, turns, events, sessions, stages, tasks,
                 null, null, null, null, null, null, null, null, null,
-                maxCliRunning, maxApiRunning, true);
+                null, maxCliRunning, maxApiRunning, true);
     }
 
     private AgentScheduler(
@@ -251,6 +322,7 @@ public class AgentScheduler
             PlatformTransactionManager transactionManager,
             SessionBudgetPolicy sessionBudgets,
             GitRunner git,
+            LegacyCapacityBridge legacyCapacity,
             int maxCliRunning,
             int maxApiRunning,
             @SuppressWarnings("unused") boolean ignored)
@@ -276,8 +348,12 @@ public class AgentScheduler
         // Nullable: the minimal test constructor omits it, disabling per-round
         // HEAD-delta detection (codeChanged stays false).
         this.git = git;
+        this.legacyCapacity = legacyCapacity;
         lanes.put(CLI, new LaneState(checkedLimit(maxCliRunning, "maxCliRunning")));
         lanes.put(API, new LaneState(checkedLimit(maxApiRunning, "maxApiRunning")));
+        this.capacityWakeRegistration = legacyCapacity == null
+                ? () -> {}
+                : legacyCapacity.onCapacityAvailable(this::capacityAvailable);
     }
 
     @Override
@@ -546,7 +622,31 @@ public class AgentScheduler
      *  row dispatches without waiting for the next natural drain. */
     public void kickDrain()
     {
+        synchronized (lock) {
+            capacityDeniedAtVersion.clear();
+            lock.notifyAll();
+        }
         drain();
+    }
+
+    /** A CapacityManager release is only a wake hint; durable rows are re-read. */
+    private void capacityAvailable()
+    {
+        // Some cancellation/recovery paths release an exact lease while they
+        // already hold this monitor. Their caller drains after unlocking.
+        if (java.lang.Thread.holdsLock(lock)) {
+            return;
+        }
+        synchronized (lock) {
+            lock.notifyAll();
+        }
+        drain();
+    }
+
+    @PreDestroy
+    void closeCapacityWakeRegistration()
+    {
+        capacityWakeRegistration.close();
     }
 
     /** Never launch provider work for rows that can still roll back. */
@@ -605,8 +705,13 @@ public class AgentScheduler
             CompletableFuture<T> future = new CompletableFuture<>();
             futures.add(future);
             java.lang.Thread.startVirtualThread(() -> {
+                LegacyCapacityBridge.Permit permit;
                 try {
-                    acquireSlot(API);
+                    java.lang.Thread worker = java.lang.Thread.currentThread();
+                    permit = acquireSharedSlot(
+                            API,
+                            "legacy-api-call:" + UUID.randomUUID(),
+                            worker::interrupt);
                 }
                 catch (InterruptedException e) {
                     java.lang.Thread.currentThread().interrupt();
@@ -614,13 +719,15 @@ public class AgentScheduler
                     return;
                 }
                 try {
-                    future.complete(item.call());
+                    T result = item.call();
+                    requireLivePermit(permit);
+                    future.complete(result);
                 }
                 catch (Throwable t) {
                     future.completeExceptionally(t);
                 }
                 finally {
-                    releaseSlot(API);
+                    releaseSharedSlot(API, permit);
                 }
             });
         }
@@ -649,11 +756,18 @@ public class AgentScheduler
     public <T> T invokeCli(Callable<T> work)
     {
         requireNonNull(work, "work is null");
+        LegacyCapacityBridge.Permit permit = null;
         boolean acquired = false;
         try {
-            acquireSlot(CLI);
+            java.lang.Thread worker = java.lang.Thread.currentThread();
+            permit = acquireSharedSlot(
+                    CLI,
+                    "legacy-cli-call:" + UUID.randomUUID(),
+                    worker::interrupt);
             acquired = true;
-            return work.call();
+            T result = work.call();
+            requireLivePermit(permit);
+            return result;
         }
         catch (InterruptedException e) {
             java.lang.Thread.currentThread().interrupt();
@@ -667,8 +781,66 @@ public class AgentScheduler
         }
         finally {
             if (acquired) {
-                releaseSlot(CLI);
+                releaseSharedSlot(CLI, permit);
             }
+        }
+    }
+
+    private LegacyCapacityBridge.Permit acquireSharedSlot(
+            ThreadResourceLane resourceLane,
+            String operationId,
+            Runnable stopOnLeaseLoss)
+            throws InterruptedException
+    {
+        if (legacyCapacity == null) {
+            acquireSlot(resourceLane);
+            return null;
+        }
+        String leaseOwner = operationId;
+        CapacityManager.CapacityRequest request = unscopedLegacyRequest(
+                operationId, resourceLane);
+        while (true) {
+            long observedVersion = legacyCapacity.availabilityVersion();
+            acquireSlot(resourceLane);
+            Optional<LegacyCapacityBridge.Permit> permit;
+            try {
+                permit = legacyCapacity.tryAcquire(
+                        request, leaseOwner, stopOnLeaseLoss);
+            }
+            catch (RuntimeException e) {
+                releaseSlot(resourceLane);
+                throw e;
+            }
+            if (permit.isPresent()) {
+                return permit.orElseThrow();
+            }
+            releaseSlot(resourceLane);
+            synchronized (lock) {
+                while (legacyCapacity.availabilityVersion() == observedVersion) {
+                    lock.wait();
+                }
+            }
+        }
+    }
+
+    private void releaseSharedSlot(
+            ThreadResourceLane resourceLane,
+            LegacyCapacityBridge.Permit permit)
+    {
+        try {
+            if (permit != null) {
+                permit.close();
+            }
+        }
+        finally {
+            releaseSlot(resourceLane);
+        }
+    }
+
+    private static void requireLivePermit(LegacyCapacityBridge.Permit permit)
+    {
+        if (permit != null) {
+            permit.lease();
         }
     }
 
@@ -900,10 +1072,11 @@ public class AgentScheduler
         activeContexts.remove(
                 turn.threadId(),
                 PermissionResolver.agentKeyFor(turn.scope(), turn.taskId()));
+        releaseRecoveredCapacity(turn);
 
-        // Every locally dispatched turn is present in runningTurnSessions
-        // until completion. No entry means this durable orphan owns no local
-        // lane slot or agent-key gate to release.
+        // No provider entry means this durable orphan owns no local lane slot
+        // or agent-key gate, but it may own a durable shared-capacity lease
+        // left before registry/session publication.
         return stopped.applied();
     }
 
@@ -936,6 +1109,7 @@ public class AgentScheduler
     ThreadTurn recoverInterruptedTurn(ThreadTurn snapshot)
     {
         try {
+            releaseRecoveredCapacity(snapshot);
             if (snapshot.scope() != ThreadScope.TRUNK && taskCommands != null) {
                 return taskCommands.execute(
                         snapshot.requireTaskId(), () -> recoverInterruptedTurnInTransaction(snapshot.id()));
@@ -1018,7 +1192,10 @@ public class AgentScheduler
 
     private void recoverQueuedTurnsFromStore()
     {
-        recoverTurns(QUEUED, this::enqueuePersistedTurn);
+        recoverTurns(QUEUED, turn -> {
+            releaseRecoveredCapacity(turn);
+            enqueuePersistedTurn(turn);
+        });
     }
 
     private void recoverTurns(ThreadTurnStatus status, Consumer<ThreadTurn> action)
@@ -1083,22 +1260,45 @@ public class AgentScheduler
      * preserving synchronous enqueue semantics for callers. */
     private void drain()
     {
-        List<ThreadTurn> ready = new ArrayList<>();
         synchronized (lock) {
-            for (LaneState lane : lanes.values()) {
-                while (lane.running < lane.maxRunning) {
-                    Optional<ThreadTurn> maybeTurn = pollNextEligible(lane);
-                    if (maybeTurn.isEmpty()) {
-                        break;
+            if (draining) {
+                drainRequested = true;
+                return;
+            }
+            draining = true;
+        }
+        try {
+            while (true) {
+                List<ThreadTurn> ready = new ArrayList<>();
+                synchronized (lock) {
+                    drainRequested = false;
+                    for (LaneState lane : lanes.values()) {
+                        while (lane.running < lane.maxRunning) {
+                            Optional<ThreadTurn> maybeTurn = pollNextEligible(lane);
+                            if (maybeTurn.isEmpty()) {
+                                break;
+                            }
+                            ThreadTurn turn = maybeTurn.get();
+                            lane.running++;
+                            runningAgentKeys.add(agentKeyOf(turn));
+                            ready.add(turn);
+                        }
                     }
-                    ThreadTurn turn = maybeTurn.get();
-                    lane.running++;
-                    runningAgentKeys.add(agentKeyOf(turn));
-                    ready.add(turn);
+                }
+                ready.forEach(this::dispatch);
+                synchronized (lock) {
+                    if (!drainRequested) {
+                        draining = false;
+                        return;
+                    }
                 }
             }
         }
-        ready.forEach(this::dispatch);
+        finally {
+            synchronized (lock) {
+                draining = false;
+            }
+        }
     }
 
     private Optional<ThreadTurn> pollNextEligible(LaneState lane)
@@ -1106,6 +1306,12 @@ public class AgentScheduler
         Iterator<ThreadTurn> iterator = lane.queue.iterator();
         while (iterator.hasNext()) {
             ThreadTurn turn = iterator.next();
+            Long deniedVersion = capacityDeniedAtVersion.get(turn.id());
+            if (legacyCapacity != null
+                    && deniedVersion != null
+                    && deniedVersion == legacyCapacity.availabilityVersion()) {
+                continue;
+            }
             if (runningAgentKeys.contains(agentKeyOf(turn))) {
                 continue;
             }
@@ -1120,6 +1326,7 @@ public class AgentScheduler
             }
             iterator.remove();
             lane.knownTurnIds.remove(turn.id());
+            capacityDeniedAtVersion.remove(turn.id());
             ThreadTurn persisted = turns.findTurnById(turn.id()).orElse(null);
             if (persisted == null || persisted.status() != QUEUED) {
                 continue;
@@ -1180,7 +1387,7 @@ public class AgentScheduler
         };
     }
 
-    private static void removeQueuedTurns(LaneState lane, Set<String> turnIds)
+    private void removeQueuedTurns(LaneState lane, Set<String> turnIds)
     {
         Iterator<ThreadTurn> iterator = lane.queue.iterator();
         while (iterator.hasNext()) {
@@ -1188,12 +1395,16 @@ public class AgentScheduler
             if (turnIds.contains(turn.id())) {
                 iterator.remove();
                 lane.knownTurnIds.remove(turn.id());
+                capacityDeniedAtVersion.remove(turn.id());
             }
         }
     }
 
     private void dispatch(ThreadTurn queuedTurn)
     {
+        if (!acquireTurnCapacity(queuedTurn)) {
+            return;
+        }
         ThreadTurn runningTurn;
         try {
             runningTurn = admitDispatch(queuedTurn);
@@ -1212,6 +1423,11 @@ public class AgentScheduler
             return;
         }
         publishTurnStatus(runningTurn);
+        String capacityFailure = capacityFailure(runningTurn.id());
+        if (capacityFailure != null) {
+            completeTurn(runningTurn, null, new IllegalStateException(capacityFailure));
+            return;
+        }
 
         Thread thread = threads.findThreadById(runningTurn.threadId()).orElse(null);
         if (thread == null) {
@@ -1253,6 +1469,11 @@ public class AgentScheduler
             return;
         }
         runningTurnSessions.put(runningTurn.id(), session);
+        capacityFailure = capacityFailure(runningTurn.id());
+        if (capacityFailure != null) {
+            completeTurn(runningTurn, session, new IllegalStateException(capacityFailure));
+            return;
+        }
 
         CompletionStage<Void> completion;
         try {
@@ -1287,6 +1508,166 @@ public class AgentScheduler
             return;
         }
         completion.whenComplete((ignored, failure) -> completeTurn(runningTurn, session, failure));
+    }
+
+    private boolean acquireTurnCapacity(ThreadTurn queuedTurn)
+    {
+        if (legacyCapacity == null) {
+            return true;
+        }
+        long observedVersion = legacyCapacity.availabilityVersion();
+        Optional<LegacyCapacityBridge.Permit> permit;
+        try {
+            permit = legacyCapacity.tryAcquire(
+                    legacyRequest(queuedTurn),
+                    legacyTurnOwner(queuedTurn.id()),
+                    () -> stopTurnAfterCapacityLoss(queuedTurn.id()));
+        }
+        catch (RuntimeException e) {
+            recordSchedulerAlert(queuedTurn,
+                    "shared capacity admission failed: " + safeMessage(e));
+            deferForSharedCapacity(queuedTurn, observedVersion,
+                    "shared capacity admission failed; waiting to retry");
+            return false;
+        }
+        if (permit.isEmpty()) {
+            deferForSharedCapacity(queuedTurn, observedVersion,
+                    "waiting for shared "
+                            + queuedTurn.lane().name().toLowerCase(Locale.ROOT)
+                            + " capacity");
+            return false;
+        }
+        LegacyCapacityBridge.Permit acquired = permit.orElseThrow();
+        LegacyCapacityBridge.Permit existing = capacityPermitsByTurnId.putIfAbsent(
+                queuedTurn.id(), acquired);
+        if (existing != null) {
+            acquired.close();
+            throw new IllegalStateException(
+                    "turn already owns shared capacity: " + queuedTurn.id());
+        }
+        return true;
+    }
+
+    private void deferForSharedCapacity(
+            ThreadTurn turn,
+            long observedVersion,
+            String reason)
+    {
+        boolean requeued = false;
+        synchronized (lock) {
+            LaneState lane = lane(turn.lane());
+            lane.running = Math.max(0, lane.running - 1);
+            runningAgentKeys.remove(agentKeyOf(turn));
+            ThreadTurn persisted = turns.findTurnById(turn.id()).orElse(null);
+            if (persisted != null && persisted.status() == QUEUED
+                    && lane.knownTurnIds.add(persisted.id())) {
+                lane.queue.addLast(persisted);
+                capacityDeniedAtVersion.put(persisted.id(), observedVersion);
+                requeued = true;
+            }
+            lock.notifyAll();
+        }
+        if (requeued) {
+            appendEvent(turn, WAITING_FOR_CAPACITY, reason);
+        }
+        // The guarded drain skips this version-denied turn, but may admit a
+        // reserved Trunk-control turn or work in another scope/lane.
+        drain();
+    }
+
+    private CapacityManager.CapacityRequest legacyRequest(ThreadTurn turn)
+    {
+        CapacityManager.CapacityLane capacityLane = capacityLane(turn.lane());
+        String operationId = legacyTurnOperation(turn.id());
+        if (turn.scope() == ThreadScope.TRUNK) {
+            Thread trunk = threads.findThreadById(turn.threadId())
+                    .orElseThrow(() -> new NoSuchElementException(
+                            "no trunk for capacity: " + turn.threadId()));
+            return new CapacityManager.CapacityRequest(
+                    operationId,
+                    CapacityManager.WorkflowSource.LEGACY,
+                    Set.of(capacityLane),
+                    new CapacityManager.CapacityScope(
+                            trunk.workspaceId(), trunk.id(), null, null),
+                    true,
+                    false,
+                    false);
+        }
+
+        Task task = tasks.findTaskById(turn.requireTaskId())
+                .orElseThrow(() -> new NoSuchElementException(
+                        "no task for capacity: " + turn.requireTaskId()));
+        Thread trunk = threads.findThreadById(task.threadId())
+                .orElseThrow(() -> new NoSuchElementException(
+                        "no trunk for capacity: " + task.threadId()));
+        Thread runtimeThread = threads.findThreadById(turn.threadId()).orElse(trunk);
+        boolean writer = runtimeThread.kind() != ThreadKind.BRAIN_AGENT;
+        return new CapacityManager.CapacityRequest(
+                operationId,
+                CapacityManager.WorkflowSource.LEGACY,
+                Set.of(capacityLane),
+                new CapacityManager.CapacityScope(
+                        trunk.workspaceId(), trunk.id(), task.id(), LEGACY_TASK_EPOCH),
+                false,
+                true,
+                writer);
+    }
+
+    private static CapacityManager.CapacityRequest unscopedLegacyRequest(
+            String operationId,
+            ThreadResourceLane resourceLane)
+    {
+        return new CapacityManager.CapacityRequest(
+                operationId,
+                CapacityManager.WorkflowSource.LEGACY,
+                Set.of(capacityLane(resourceLane)),
+                new CapacityManager.CapacityScope(null, null, null, null),
+                false,
+                false,
+                false);
+    }
+
+    private static CapacityManager.CapacityLane capacityLane(
+            ThreadResourceLane resourceLane)
+    {
+        return switch (resourceLane) {
+            case CLI -> CapacityManager.CapacityLane.CLI;
+            case API -> CapacityManager.CapacityLane.API;
+        };
+    }
+
+    private static String legacyTurnOperation(String turnId)
+    {
+        return "legacy-thread-turn:" + turnId;
+    }
+
+    private static String legacyTurnOwner(String turnId)
+    {
+        return "agent-scheduler:" + turnId;
+    }
+
+    private void stopTurnAfterCapacityLoss(String turnId)
+    {
+        ThreadAgent session;
+        synchronized (lock) {
+            ThreadTurn current = turns.findTurnById(turnId).orElse(null);
+            if (current == null || (current.status() != QUEUED && current.status() != RUNNING)) {
+                return;
+            }
+            capacityFailuresByTurnId.putIfAbsent(
+                    turnId, "shared capacity lease was lost");
+            session = runningTurnSessions.get(turnId);
+        }
+        if (session != null) {
+            session.interrupt();
+        }
+    }
+
+    private String capacityFailure(String turnId)
+    {
+        synchronized (lock) {
+            return capacityFailuresByTurnId.get(turnId);
+        }
     }
 
     /** The QUEUED -> RUNNING edge for a task-owned turn is one task command:
@@ -1366,6 +1747,7 @@ public class AgentScheduler
             runningAgentKeys.remove(agentKeyOf(turn));
             lock.notifyAll();
         }
+        releaseTurnCapacity(turn);
         if (requeue) {
             enqueuePersistedTurn(turn);
         }
@@ -1385,13 +1767,14 @@ public class AgentScheduler
         // without throwing (a subprocess that exited non-zero and went
         // ERRORED internally), fall back to its retained failure detail so
         // the turn records the real cause instead of an empty message.
-        String errorMessage = unwrapped != null
+        String providerErrorMessage = unwrapped != null
                 ? unwrapped.getMessage()
                 : (providerFailed && session != null ? session.lastErrorDetail() : null);
         boolean cancelled;
         boolean failed;
         boolean codeChanged;
         String cancelReason;
+        String capacityFailure;
         ThreadTurn finished;
         TurnTransition completion;
         synchronized (lock) {
@@ -1401,14 +1784,16 @@ public class AgentScheduler
             // its terminal row after this block — never misclassify the gap
             // between those two states as an orphan.
             cancelReason = cancelReasonsByTurnId.remove(runningTurn.id());
+            capacityFailure = capacityFailuresByTurnId.remove(runningTurn.id());
             cancelled = cancelReason != null;
-            failed = !cancelled && providerFailed;
+            failed = !cancelled && (providerFailed || capacityFailure != null);
             codeChanged = !cancelled && detectedCodeChanged;
             completion = transitionTurn(
                     runningTurn,
                     cancelled ? CANCELLED : failed ? FAILED : COMPLETED,
                     runningTurn.startedAt(), now,
-                    cancelled ? cancelReason : errorMessage,
+                    cancelled ? cancelReason
+                            : capacityFailure != null ? capacityFailure : providerErrorMessage,
                     true);
             finished = completion.turn();
             runningTurnSessions.remove(runningTurn.id());
@@ -1474,6 +1859,7 @@ public class AgentScheduler
             // the lane capacity with turns.
             lock.notifyAll();
         }
+        releaseTurnCapacity(runningTurn);
         drain();
 
         // Outside the lock: let listeners react to a finished turn. Task
@@ -1498,6 +1884,51 @@ public class AgentScheduler
                             new TaskTurnFinishedEvent(taskId, finished.id(), failed, codeChanged));
                 }
             }
+        }
+    }
+
+    private void releaseTurnCapacity(ThreadTurn turn)
+    {
+        LegacyCapacityBridge.Permit permit = capacityPermitsByTurnId.remove(turn.id());
+        synchronized (lock) {
+            capacityFailuresByTurnId.remove(turn.id());
+        }
+        if (permit == null) {
+            return;
+        }
+        try {
+            permit.close();
+        }
+        catch (RuntimeException e) {
+            recordSchedulerAlert(turn,
+                    "shared capacity release failed: " + safeMessage(e));
+        }
+    }
+
+    private void releaseRecoveredCapacity(ThreadTurn turn)
+    {
+        if (legacyCapacity == null) {
+            return;
+        }
+        LegacyCapacityBridge.Permit permit = capacityPermitsByTurnId.remove(turn.id());
+        try {
+            if (permit != null) {
+                permit.close();
+            }
+            else {
+                legacyCapacity.releaseOperation(
+                        legacyTurnOperation(turn.id()),
+                        legacyTurnOwner(turn.id()));
+            }
+        }
+        catch (RuntimeException e) {
+            // The bridge retains an exact pending release for its maintenance
+            // tick. Until then the old lease still blocks new admission.
+            recordSchedulerAlert(turn,
+                    "shared capacity recovery release failed: " + safeMessage(e));
+        }
+        synchronized (lock) {
+            capacityFailuresByTurnId.remove(turn.id());
         }
     }
 
@@ -1832,6 +2263,16 @@ public class AgentScheduler
     {
         if (value <= 0) {
             throw new IllegalArgumentException(name + " must be positive");
+        }
+        return value;
+    }
+
+    private static int sharedLimit(int value, int expected, String name)
+    {
+        checkedLimit(value, name);
+        if (value != expected) {
+            throw new IllegalArgumentException(
+                    name + " must match the shared CapacityManager ceiling " + expected);
         }
         return value;
     }

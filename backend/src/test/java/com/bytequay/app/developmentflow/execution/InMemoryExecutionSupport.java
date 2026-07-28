@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 final class InMemoryExecutionSupport
 {
@@ -76,6 +77,13 @@ final class InMemoryExecutionSupport
         private final Map<String, Long> writerTokens = new LinkedHashMap<>();
 
         @Override
+        public synchronized <T> T inAdmissionTransaction(
+                Function<CapacityManager.CapacityLeaseStore, T> work)
+        {
+            return work.apply(this);
+        }
+
+        @Override
         public synchronized List<CapacityManager.CapacityLease> listActive(Instant now)
         {
             return leases.values().stream()
@@ -121,6 +129,7 @@ final class InMemoryExecutionSupport
                     : null;
             CapacityManager.CapacityLease lease = new CapacityManager.CapacityLease(
                     draft.id(),
+                    draft.ticketId(),
                     request.operationId(),
                     request.source(),
                     request.lanes(),
@@ -133,6 +142,7 @@ final class InMemoryExecutionSupport
                     draft.acquiredAt(),
                     draft.acquiredAt(),
                     draft.expiresAt(),
+                    null,
                     null);
             leases.put(lease.id(), lease);
             return Optional.of(lease);
@@ -152,7 +162,7 @@ final class InMemoryExecutionSupport
                 return Optional.empty();
             }
             CapacityManager.CapacityLease updated = copy(
-                    current, heartbeatAt, expiresAt, null);
+                    current, heartbeatAt, expiresAt, null, null);
             leases.put(leaseId, updated);
             return Optional.of(updated);
         }
@@ -171,7 +181,11 @@ final class InMemoryExecutionSupport
                 return false;
             }
             leases.put(leaseId, copy(
-                    current, current.heartbeatAt(), current.expiresAt(), releasedAt));
+                    current,
+                    current.heartbeatAt(),
+                    current.expiresAt(),
+                    releasedAt,
+                    "RELEASED"));
             return true;
         }
 
@@ -182,7 +196,11 @@ final class InMemoryExecutionSupport
             leases.replaceAll((id, current) -> {
                 if (current.releasedAt() == null && !current.expiresAt().isAfter(now)) {
                     CapacityManager.CapacityLease updated = copy(
-                            current, current.heartbeatAt(), current.expiresAt(), now);
+                            current,
+                            current.heartbeatAt(),
+                            current.expiresAt(),
+                            now,
+                            "EXPIRED");
                     expired.add(updated);
                     return updated;
                 }
@@ -200,10 +218,12 @@ final class InMemoryExecutionSupport
                 CapacityManager.CapacityLease current,
                 Instant heartbeatAt,
                 Instant expiresAt,
-                Instant releasedAt)
+                Instant releasedAt,
+                String releaseReason)
         {
             return new CapacityManager.CapacityLease(
                     current.id(),
+                    current.ticketId(),
                     current.operationId(),
                     current.source(),
                     current.lanes(),
@@ -216,14 +236,29 @@ final class InMemoryExecutionSupport
                     current.acquiredAt(),
                     heartbeatAt,
                     expiresAt,
-                    releasedAt);
+                    releasedAt,
+                    releaseReason);
         }
     }
 
     static final class TicketStore
             implements ExecutionPorts.DispatchTicketStore
     {
+        private static final String UNSCOPED = "\u0000";
+        private static final Comparator<DispatchTicket> TICKET_FIFO = Comparator
+                .comparing(DispatchTicket::createdAt)
+                .thenComparing(DispatchTicket::id);
+        private static final Comparator<ExecutionPorts.TicketScanCursor> CURSOR_ORDER =
+                Comparator.comparingInt(ExecutionPorts.TicketScanCursor::candidateRound)
+                        .thenComparingInt(ExecutionPorts.TicketScanCursor::trunkRound)
+                        .thenComparing(ExecutionPorts.TicketScanCursor::workspaceOrderKey)
+                        .thenComparing(ExecutionPorts.TicketScanCursor::trunkOrderKey)
+                        .thenComparing(ExecutionPorts.TicketScanCursor::createdAt)
+                        .thenComparing(ExecutionPorts.TicketScanCursor::ticketId);
+
         private final Map<String, DispatchTicket> tickets = new LinkedHashMap<>();
+        private final Map<String, DispatchDeliveryClaim> deliveryClaims =
+                new LinkedHashMap<>();
 
         synchronized void put(DispatchTicket ticket)
         {
@@ -231,14 +266,89 @@ final class InMemoryExecutionSupport
         }
 
         @Override
-        public synchronized List<DispatchTicket> findEligible(Instant now, int limit)
+        public synchronized ExecutionPorts.TicketScanPage findEligiblePage(
+                Instant now,
+                ExecutionPorts.TicketScanCursor cursor,
+                int limit)
         {
-            return tickets.values().stream()
+            if (limit < 1) {
+                throw new IllegalArgumentException("limit must be positive");
+            }
+            Map<ScopeKey, List<DispatchTicket>> byTrunk = new LinkedHashMap<>();
+            tickets.values().stream()
                     .filter(ticket -> ticket.isEligibleAt(now))
-                    .sorted(Comparator.comparing(DispatchTicket::createdAt)
-                            .thenComparing(DispatchTicket::id))
+                    .forEach(ticket -> byTrunk.computeIfAbsent(
+                                    scope(ticket), ignored -> new ArrayList<>())
+                            .add(ticket));
+
+            Map<String, List<ScopeKey>> scopesByWorkspace = new LinkedHashMap<>();
+            byTrunk.keySet().forEach(scope -> scopesByWorkspace
+                    .computeIfAbsent(scope.workspaceKey(), ignored -> new ArrayList<>())
+                    .add(scope));
+            scopesByWorkspace.values().forEach(scopes -> scopes.sort(
+                    Comparator.comparing(ScopeKey::trunkKey)));
+
+            List<RankedTicket> ranked = new ArrayList<>();
+            scopesByWorkspace.forEach((workspaceKey, workspaceScopes) -> {
+                for (int trunkRound = 0; trunkRound < workspaceScopes.size(); trunkRound++) {
+                    ScopeKey scope = workspaceScopes.get(trunkRound);
+                    Map<ScanClass, DispatchTicket> classHeads = new LinkedHashMap<>();
+                    byTrunk.get(scope).stream()
+                            .sorted(TICKET_FIFO)
+                            .forEach(ticket -> classHeads.putIfAbsent(
+                                    scanClass(ticket), ticket));
+                    List<DispatchTicket> heads = classHeads.values().stream()
+                            .sorted(TICKET_FIFO)
+                            .toList();
+                    for (int candidateRound = 0;
+                            candidateRound < heads.size();
+                            candidateRound++) {
+                        DispatchTicket ticket = heads.get(candidateRound);
+                        ranked.add(new RankedTicket(
+                                ticket,
+                                new ExecutionPorts.TicketScanCursor(
+                                        candidateRound,
+                                        trunkRound,
+                                        workspaceKey,
+                                        scope.trunkKey(),
+                                        ticket.createdAt(),
+                                        ticket.id())));
+                    }
+                }
+            });
+            List<RankedTicket> page = ranked.stream()
+                    .sorted(Comparator.comparing(RankedTicket::cursor, CURSOR_ORDER))
+                    .filter(candidate -> cursor == null
+                            || CURSOR_ORDER.compare(candidate.cursor(), cursor) > 0)
                     .limit(limit)
                     .toList();
+            return new ExecutionPorts.TicketScanPage(
+                    page.stream().map(RankedTicket::ticket).toList(),
+                    page.isEmpty() ? null : page.get(page.size() - 1).cursor());
+        }
+
+        private static ScopeKey scope(DispatchTicket ticket)
+        {
+            CapacityManager.CapacityScope scope =
+                    ticket.envelope().capacityRequest().scope();
+            return new ScopeKey(
+                    orderKey(scope.workspaceId()), orderKey(scope.trunkId()));
+        }
+
+        private static ScanClass scanClass(DispatchTicket ticket)
+        {
+            if (ticket.state() == DispatchTicket.State.RESULT_PENDING) {
+                return ScanClass.DELIVERY;
+            }
+            if (ticket.envelope().capacityRequest().trunkControl()) {
+                return ScanClass.TRUNK_CONTROL;
+            }
+            return ScanClass.ORDINARY;
+        }
+
+        private static String orderKey(String value)
+        {
+            return value == null ? UNSCOPED : value;
         }
 
         @Override
@@ -248,6 +358,19 @@ final class InMemoryExecutionSupport
                     .filter(ticket -> ticket.hasExpiredClaimAt(now))
                     .sorted(Comparator.comparing(DispatchTicket::claimExpiresAt)
                             .thenComparing(DispatchTicket::id))
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public synchronized List<DispatchDeliveryClaim> findExpiredDeliveryClaims(
+                Instant now,
+                int limit)
+        {
+            return deliveryClaims.values().stream()
+                    .filter(claim -> claim.isExpiredAt(now))
+                    .sorted(Comparator.comparing(DispatchDeliveryClaim::expiresAt)
+                            .thenComparing(DispatchDeliveryClaim::ticketId))
                     .limit(limit)
                     .toList();
         }
@@ -268,6 +391,9 @@ final class InMemoryExecutionSupport
             if (current == null || current.version() != expectedVersion) {
                 return false;
             }
+            if (deliveryClaims.containsKey(ticketId)) {
+                return false;
+            }
             if (!ticketId.equals(replacement.id())
                     || replacement.version() != expectedVersion + 1) {
                 throw new IllegalArgumentException("invalid ticket replacement");
@@ -276,10 +402,120 @@ final class InMemoryExecutionSupport
             return true;
         }
 
+        @Override
+        public synchronized Optional<DispatchDeliveryClaim> claimDelivery(
+                String ticketId,
+                long ticketVersion,
+                String claimOwner,
+                Instant claimedAt,
+                Instant expiresAt)
+        {
+            DispatchTicket ticket = tickets.get(ticketId);
+            if (ticket == null
+                    || ticket.version() != ticketVersion
+                    || ticket.state() != DispatchTicket.State.RESULT_PENDING
+                    || deliveryClaims.containsKey(ticketId)) {
+                return Optional.empty();
+            }
+            DispatchDeliveryClaim claim = new DispatchDeliveryClaim(
+                    ticketId,
+                    ticketVersion,
+                    claimOwner,
+                    claimedAt,
+                    claimedAt,
+                    expiresAt);
+            deliveryClaims.put(ticketId, claim);
+            return Optional.of(claim);
+        }
+
+        @Override
+        public synchronized Optional<DispatchDeliveryClaim> heartbeatDeliveryClaim(
+                DispatchDeliveryClaim claim,
+                Instant heartbeatAt,
+                Instant expiresAt)
+        {
+            DispatchDeliveryClaim current = deliveryClaims.get(claim.ticketId());
+            if (!sameDeliveryClaim(current, claim) || current.isExpiredAt(heartbeatAt)) {
+                return Optional.empty();
+            }
+            DispatchDeliveryClaim updated = new DispatchDeliveryClaim(
+                    current.ticketId(),
+                    current.ticketVersion(),
+                    current.claimOwner(),
+                    current.claimedAt(),
+                    heartbeatAt,
+                    expiresAt);
+            deliveryClaims.put(updated.ticketId(), updated);
+            return Optional.of(updated);
+        }
+
+        @Override
+        public synchronized boolean replaceTicketAndReleaseDeliveryClaim(
+                DispatchDeliveryClaim claim,
+                DispatchTicket replacement)
+        {
+            DispatchDeliveryClaim currentClaim = deliveryClaims.get(claim.ticketId());
+            DispatchTicket currentTicket = tickets.get(claim.ticketId());
+            if (!sameDeliveryClaim(currentClaim, claim)
+                    || currentTicket == null
+                    || !claim.owns(currentTicket)) {
+                return false;
+            }
+            if (!claim.ticketId().equals(replacement.id())
+                    || replacement.version() != claim.ticketVersion() + 1) {
+                throw new IllegalArgumentException("invalid delivery ticket replacement");
+            }
+            deliveryClaims.remove(claim.ticketId());
+            tickets.put(claim.ticketId(), replacement);
+            return true;
+        }
+
+        @Override
+        public synchronized boolean releaseExpiredDeliveryClaim(
+                DispatchDeliveryClaim claim,
+                Instant expiredAt)
+        {
+            DispatchDeliveryClaim current = deliveryClaims.get(claim.ticketId());
+            if (!sameDeliveryClaim(current, claim) || !current.isExpiredAt(expiredAt)) {
+                return false;
+            }
+            deliveryClaims.remove(claim.ticketId());
+            return true;
+        }
+
+        synchronized Optional<DispatchDeliveryClaim> getDeliveryClaim(String ticketId)
+        {
+            return Optional.ofNullable(deliveryClaims.get(ticketId));
+        }
+
+        private static boolean sameDeliveryClaim(
+                DispatchDeliveryClaim left,
+                DispatchDeliveryClaim right)
+        {
+            return left != null
+                    && left.ticketId().equals(right.ticketId())
+                    && left.ticketVersion() == right.ticketVersion()
+                    && left.claimOwner().equals(right.claimOwner())
+                    && left.claimedAt().equals(right.claimedAt());
+        }
+
         synchronized DispatchTicket get(String ticketId)
         {
             return tickets.get(ticketId);
         }
+
+        private enum ScanClass
+        {
+            ORDINARY,
+            TRUNK_CONTROL,
+            DELIVERY
+        }
+
+        private record ScopeKey(String workspaceKey, String trunkKey) {}
+
+        private record RankedTicket(
+                DispatchTicket ticket,
+                ExecutionPorts.TicketScanCursor cursor) {}
     }
 
     static class DirectExecutorService

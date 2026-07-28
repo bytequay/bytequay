@@ -134,6 +134,9 @@ public class StageServiceImpl
     {
         Task task = taskStore.findTaskById(taskId)
                 .orElseThrow(() -> notFound("no task: " + taskId));
+        if (v2Projection != null && v2Projection.isV2Task(taskId)) {
+            return v2Projection.brain(task);
+        }
         List<StageInstance> allStages = stageStore.findStagesByTask(taskId);
         List<StageEvent> allEvents = stageStore.findEventsByTask(taskId);
 

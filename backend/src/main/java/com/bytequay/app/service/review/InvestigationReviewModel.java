@@ -35,6 +35,17 @@ interface InvestigationReviewModel
 
     ProviderChoice chooseVerifier(ProviderChoice investigator, String requiredRunner);
 
+    default ReviewTurnPrompt investigationPrompt(
+            String reviewId,
+            InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewObjectiveRow> objectives,
+            String coverageContext,
+            String persona)
+    {
+        throw new UnsupportedOperationException(
+                "this review model cannot freeze a provider Turn prompt");
+    }
+
     RunOutcome investigate(
             ProviderChoice provider, String reviewId, String assignmentId,
             InvestigationReviewContext.Snapshot snapshot,
@@ -80,5 +91,9 @@ interface InvestigationReviewModel
         {
             applicability = applicability == null ? List.of() : List.copyOf(applicability);
         }
+    }
+
+    record ReviewTurnPrompt(String systemPrompt, String prompt)
+    {
     }
 }

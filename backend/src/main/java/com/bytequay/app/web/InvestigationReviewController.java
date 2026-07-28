@@ -170,6 +170,14 @@ public class InvestigationReviewController
         return reviews.cancelRound(roundId);
     }
 
+    @PostMapping("/api/agent-reviews/{reviewId}/assignments/{assignmentId}/retry")
+    public InvestigationReviewData retryAssignment(
+            @PathVariable String reviewId,
+            @PathVariable String assignmentId)
+    {
+        return reviews.retryAssignment(reviewId, assignmentId);
+    }
+
     @GetMapping("/api/reviewer-defs")
     public List<ReviewerDefRow> reviewerDefs()
     {

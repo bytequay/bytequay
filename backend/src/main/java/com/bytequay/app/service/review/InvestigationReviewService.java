@@ -51,8 +51,10 @@ import com.bytequay.app.service.review.DeterministicReviewCoverage.CoverageRepor
 import com.bytequay.app.service.review.DeterministicReviewCoverage.FailureClassResult;
 import com.bytequay.app.service.review.DeterministicReviewCoverage.SweepResult;
 import com.bytequay.app.service.review.InvestigationReviewModel.ReviewKnowledge;
+import com.bytequay.app.service.review.InvestigationReviewModel.ReviewTurnPrompt;
 import com.bytequay.app.service.review.InvestigationReviewRunner.ProviderChoice;
 import com.bytequay.app.service.review.InvestigationReviewRunner.RunOutcome;
+import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime.Seat;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -70,6 +72,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
@@ -129,6 +132,7 @@ public class InvestigationReviewService
     private final ConcurrentHashMap<String, Integer> inFlightBudgetFloors =
             new ConcurrentHashMap<>();
     private final Set<String> cancellationSideEffectsDone = ConcurrentHashMap.newKeySet();
+    private ReviewAssignmentTurnRuntime typedReviewTurns;
 
     @Autowired
     public InvestigationReviewService(
@@ -166,6 +170,12 @@ public class InvestigationReviewService
         this.workspaces = workspaces;
     }
 
+    @Autowired(required = false)
+    public void setReviewAssignmentTurnRuntime(ReviewAssignmentTurnRuntime typedReviewTurns)
+    {
+        this.typedReviewTurns = requireNonNull(typedReviewTurns, "typedReviewTurns is null");
+    }
+
     /** A local provider process cannot survive a sidecar restart. Reconcile
      * persisted live rows once the app is ready so they never remain queued
      * forever or block a later round behind work that no longer exists. */
@@ -173,6 +183,9 @@ public class InvestigationReviewService
     public void reconcileInterruptedRounds()
     {
         for (ReviewRoundRow round : store.liveRounds()) {
+            if (typedReviewTurns != null && typedReviewTurns.ownsRound(round.id())) {
+                continue;
+            }
             try {
                 reconcileInterruptedRound(round);
             }
@@ -293,7 +306,8 @@ public class InvestigationReviewService
     public InvestigationReviewData start(String prId, StartOptions options)
     {
         PR pr = requirePr(prId);
-        if (pr.taskId() != null && tasks.isV2Task(pr.taskId())) {
+        boolean typed = pr.taskId() != null && tasks.isV2Task(pr.taskId());
+        if (typed && typedReviewTurns == null) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "V2 Task review requires its typed Review assignment handoff");
@@ -330,7 +344,7 @@ public class InvestigationReviewService
                 node.put("roundId", work.round().id());
                 node.put("reviewClass", plan.reviewClass());
             });
-            launch(work);
+            launchRound(work);
         }
         catch (RuntimeException e) {
             abandonPreparedRound(work, "initial review setup failed");
@@ -568,7 +582,7 @@ public class InvestigationReviewService
         AgentReviewRow review = requireReview(reviewId);
         RoundWork work = prepareRound(review, kind, findingIds, options, seed, costCapCents);
         try {
-            launch(work);
+            launchRound(work);
         }
         catch (RuntimeException e) {
             abandonPreparedRound(work, "review launch failed");
@@ -710,7 +724,7 @@ public class InvestigationReviewService
                     "SUPPORTED", finding.claim(), finding.severity());
             reviewEvent(review.prId(), "answered", "you",
                     node -> node.put("findingId", findingId));
-            launch(work);
+            launchRound(work);
         }
         catch (RuntimeException e) {
             abandonPreparedRound(work, "answer continuation setup failed");
@@ -880,6 +894,9 @@ public class InvestigationReviewService
         if (!finished) {
             return false;
         }
+        if (typedReviewTurns != null && typedReviewTurns.ownsRound(round.id())) {
+            typedReviewTurns.cancelRound(round.id());
+        }
         try {
             Set<String> runIds = runs.findByReviewRound(round.id()).stream()
                     .map(AgentRun::id).collect(Collectors.toCollection(LinkedHashSet::new));
@@ -895,6 +912,25 @@ public class InvestigationReviewService
             }
         }
         return finished;
+    }
+
+    public InvestigationReviewData retryAssignment(
+            String reviewId, String assignmentId)
+    {
+        AgentReviewRow review = requireReview(reviewId);
+        if (typedReviewTurns == null || !isTypedReview(review)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "only a typed V2 review assignment can be retried here");
+        }
+        boolean exact = store.assignments(review.id()).stream()
+                .anyMatch(assignment -> assignment.id().equals(assignmentId));
+        if (!exact) {
+            throw new IllegalArgumentException(
+                    "assignment does not belong to review " + reviewId);
+        }
+        typedReviewTurns.retryAssignment(assignmentId);
+        return detail(review);
     }
 
     private void finalizeCancelledAfterSideEffects(String roundId)
@@ -1003,7 +1039,7 @@ public class InvestigationReviewService
             AgentReviewRow review, PR pr, String roundId, int budget)
     {
         AgentRun run;
-        if (review.ownerTaskId() != null) {
+        if (review.ownerTaskId() != null && !isTypedReview(review)) {
             run = runs.openTaskArtifact(review.ownerTaskId(), AgentRun.KIND_PANEL_REVIEW,
                     null, roundId, budget);
         }
@@ -1449,7 +1485,45 @@ public class InvestigationReviewService
                 syncStandaloneOwner(review, current.status(), current.errorMessage()));
     }
 
-    private void launch(RoundWork work)
+    private void launchRound(RoundWork work)
+    {
+        if (!isTypedReview(work.review())) {
+            launchLegacy(work);
+            return;
+        }
+        if (typedReviewTurns == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "V2 Task review requires its typed Review assignment handoff");
+        }
+        CoverageReport coverage = persistMandatorySweeps(
+                work, work.assignments().get(0).id());
+        List<ReviewObjectiveRow> applicableObjectives = work.objectives().stream()
+                .filter(objective -> "applicable".equals(objective.applicabilityStatus()))
+                .toList();
+        String context = investigationContext(work, coverage.promptContext());
+        Path workingDirectory = work.snapshot().localRoot() == null
+                ? Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize()
+                : work.snapshot().localRoot().toAbsolutePath().normalize();
+        List<Seat> seats = work.assignments().stream()
+                .map(assignment -> {
+                    ReviewTurnPrompt prompt = runner.investigationPrompt(
+                            work.review().id(), work.snapshot(), applicableObjectives,
+                            context, assignment.reviewerDef().persona());
+                    return new Seat(
+                            assignment.id(), assignment.provider(), workingDirectory, prompt);
+                })
+                .toList();
+        typedReviewTurns.admit(
+                work.round().id(), work.round().startCommit(), seats);
+    }
+
+    private boolean isTypedReview(AgentReviewRow review)
+    {
+        return review.ownerTaskId() != null && tasks.isV2Task(review.ownerTaskId());
+    }
+
+    private void launchLegacy(RoundWork work)
     {
         Thread worker = Thread.ofVirtual().unstarted(() -> {
             try {

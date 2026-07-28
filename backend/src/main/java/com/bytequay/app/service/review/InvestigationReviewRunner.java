@@ -21,6 +21,7 @@ import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.agents.TurnRunner;
 import com.bytequay.app.service.agents.TurnSpec;
 import com.bytequay.app.service.review.InvestigationReviewModel.ReviewKnowledge;
+import com.bytequay.app.service.review.InvestigationReviewModel.ReviewTurnPrompt;
 import com.bytequay.app.service.skills.CavemanPrompt;
 import com.bytequay.app.service.threads.AgentScheduler;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
@@ -151,6 +152,21 @@ public class InvestigationReviewRunner
             List<ReviewObjectiveRow> objectives, String coverageContext,
             String persona, int costCapCents)
     {
+        ReviewTurnPrompt launch = investigationPrompt(
+                reviewId, snapshot, objectives, coverageContext, persona);
+        return runPrepared(
+                provider, reviewId, assignmentId, snapshot,
+                launch.systemPrompt(), launch.prompt(), false, costCapCents);
+    }
+
+    @Override
+    public ReviewTurnPrompt investigationPrompt(
+            String reviewId,
+            InvestigationReviewContext.Snapshot snapshot,
+            List<ReviewObjectiveRow> objectives,
+            String coverageContext,
+            String persona)
+    {
         String system = """
                 You are a bounded code investigator. Use the supplied tools; do not emit findings only in prose.
                 First record_assignment. Work cheap-first: at most 6 hypotheses, triage to 3 active,
@@ -198,7 +214,7 @@ public class InvestigationReviewRunner
                 execute read_diff/read_file/search_diff, record_finding only if it meets the merge-blocking policy, then
                 record_evidence for both supporting and counter-evidence considered.
                 """;
-        return run(provider, reviewId, assignmentId, snapshot, system, prompt, false, costCapCents);
+        return new ReviewTurnPrompt(CavemanPrompt.wrap(system), prompt);
     }
 
     @Override
@@ -369,6 +385,16 @@ public class InvestigationReviewRunner
             String prompt, boolean verifier, int costCapCents)
     {
         String styledSystem = CavemanPrompt.wrap(system);
+        return runPrepared(
+                provider, reviewId, assignmentId, snapshot,
+                styledSystem, prompt, verifier, costCapCents);
+    }
+
+    private RunOutcome runPrepared(
+            ProviderChoice provider, String reviewId, String assignmentId,
+            InvestigationReviewContext.Snapshot snapshot, String styledSystem,
+            String prompt, boolean verifier, int costCapCents)
+    {
         return "cli".equals(provider.runner())
                 ? runCli(provider, reviewId, assignmentId, snapshot,
                         styledSystem + "\n\n" + prompt, costCapCents)

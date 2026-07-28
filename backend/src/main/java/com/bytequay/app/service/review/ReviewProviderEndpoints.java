@@ -13,11 +13,15 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
+import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.agents.TurnSpec;
+import com.bytequay.app.service.review.InvestigationReviewRunner.ProviderChoice;
+import com.bytequay.app.service.workmodel.WorkModelCatalog;
 import org.springframework.stereotype.Component;
 
 import java.util.Locale;
@@ -56,6 +60,59 @@ public class ReviewProviderEndpoints
             String authToken,
             String modelId)
     {
+    }
+
+    /** Frozen provider identity used by one durable V2 review seat. */
+    public record AgentLaunch(
+            AgentTurnProviderSession.Transport transport,
+            String provider,
+            String credentialAccount,
+            String model)
+    {
+    }
+
+    public AgentLaunch freeze(ProviderChoice choice)
+    {
+        requireNonNull(choice, "choice is null");
+        if ("cli".equals(choice.runner())) {
+            String provider = switch (choice.providerId()) {
+                case "claude-cli" -> "claude-code";
+                case "codex-cli" -> "codex";
+                default -> throw new IllegalStateException(
+                        "Unsupported CLI review provider: " + choice.providerId());
+            };
+            WorkModelCatalog.CatalogAgent catalog = WorkModelCatalog.agent(provider);
+            if (catalog == null) {
+                throw new IllegalStateException("No model catalog for " + provider);
+            }
+            return new AgentLaunch(
+                    AgentTurnProviderSession.Transport.CLI,
+                    provider,
+                    null,
+                    catalog.defaultModel().id());
+        }
+
+        String provider = switch (choice.providerId().toLowerCase(Locale.ROOT)) {
+            case "claude", "anthropic" -> "anthropic";
+            case "openai" -> "openai";
+            case "deepseek" -> "deepseek";
+            default -> throw new IllegalStateException(
+                    "Unsupported API review provider: " + choice.providerId());
+        };
+        String account = credentials.getDefault(CredentialType.AI, provider)
+                .or(() -> credentials.get(CredentialType.AI, provider))
+                .map(Credential::instanceName)
+                .orElseThrow(() -> new IllegalStateException(
+                        "No " + provider + " API account is configured"));
+        WorkModelCatalog.CatalogProvider catalog = WorkModelCatalog.provider(provider);
+        if (catalog == null) {
+            throw new IllegalStateException("No model catalog for " + provider);
+        }
+        return new AgentLaunch(
+                AgentTurnProviderSession.Transport.API,
+                provider,
+                account,
+                modelFor(modelPrefix(provider), catalog.defaultModel().id()));
     }
 
     public Endpoint resolve(String providerId)
@@ -98,5 +155,15 @@ public class ReviewProviderEndpoints
                 .filter(m -> !m.isBlank())
                 .filter(m -> m.toLowerCase(Locale.ROOT).startsWith(familyPrefix))
                 .orElse(fallback);
+    }
+
+    private static String modelPrefix(String provider)
+    {
+        return switch (provider) {
+            case "anthropic" -> "claude-";
+            case "openai" -> "gpt-";
+            case "deepseek" -> "deepseek-";
+            default -> throw new IllegalArgumentException("unknown provider " + provider);
+        };
     }
 }

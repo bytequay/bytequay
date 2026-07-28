@@ -46,6 +46,12 @@ public final class CliAgentTurnProviderSession
             "{\"autoMemoryEnabled\":false,\"attribution\":{\"commit\":\"\"}}";
     private static final String CLAUDE_READ_ONLY_TOOLS =
             "Read,Glob,Grep,WebFetch,WebSearch";
+    private static final String CLAUDE_REVIEW_TOOLS =
+            "mcp__bytequay__record_assignment,mcp__bytequay__record_hypothesis,"
+            + "mcp__bytequay__record_step,mcp__bytequay__read_diff,"
+            + "mcp__bytequay__read_file,mcp__bytequay__search_diff,"
+            + "mcp__bytequay__record_evidence,mcp__bytequay__record_finding,"
+            + "mcp__bytequay__record_verification";
 
     private final ObjectMapper mapper;
     private final Function<CliProvider, String> binary;
@@ -112,6 +118,10 @@ public final class CliAgentTurnProviderSession
             }
             if (request.access() == READ_ONLY) {
                 argv.add("--tools", CLAUDE_READ_ONLY_TOOLS);
+            }
+            if (request.toolEndpoint().profile()
+                    == ToolProfile.REVIEW_ASSIGNMENT_READ_ONLY) {
+                argv.add("--allowedTools", CLAUDE_REVIEW_TOOLS);
             }
             if (request.systemPrompt() != null) {
                 argv.add("--append-system-prompt", request.systemPrompt());

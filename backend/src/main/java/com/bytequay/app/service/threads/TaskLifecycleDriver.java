@@ -236,6 +236,9 @@ public class TaskLifecycleDriver
 
     private void handleLocalReviewSubmitted(LocalReviewSubmittedEvent event)
     {
+        if (taskStore.isV2Task(event.taskId())) {
+            return;
+        }
         taskStore.findTaskById(event.taskId()).ifPresent(task -> {
             if (task.phase() == TaskPhase.INTERNAL_REVIEW) {
                 // The submission is durable. Let the active Brain pass finish;
@@ -536,7 +539,7 @@ public class TaskLifecycleDriver
      *  Development and back through Brain review. */
     void reconcileLocalTask(Task task)
     {
-        if (taskStore.isV2Task(task.id())) {
+        if (task != null && taskStore.isV2Task(task.id())) {
             return;
         }
         if (isParkedOrTerminal(task)) {

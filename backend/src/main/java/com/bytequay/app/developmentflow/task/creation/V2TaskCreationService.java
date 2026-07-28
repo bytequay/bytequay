@@ -136,9 +136,6 @@ public final class V2TaskCreationService
     {
         requireNonNull(trunk, "trunk is null");
         requireNonNull(request, "request is null");
-        if (!routes(trunk.workspaceId())) {
-            throw new IllegalStateException("Workspace is not routed to V2");
-        }
         requireText(trunk.id(), "trunk.id");
         if (!trunk.workspaceId().equals(request.workspaceId())) {
             throw new IllegalArgumentException(
@@ -146,7 +143,12 @@ public final class V2TaskCreationService
         }
         Path repositoryRoot = Path.of(requireText(request.workingDir(), "workingDir"))
                 .toAbsolutePath().normalize();
-        prepareTrunk(trunk.id(), trunk.workspaceId());
+        if (!isV2Trunk(trunk.id(), trunk.workspaceId())) {
+            if (!routes(trunk.workspaceId())) {
+                throw new IllegalStateException("Trunk is not routed to V2");
+            }
+            prepareTrunk(trunk.id(), trunk.workspaceId());
+        }
 
         for (int attempt = 1; attempt <= CONCURRENT_CREATION_ATTEMPTS; attempt++) {
             try {
@@ -160,6 +162,15 @@ public final class V2TaskCreationService
             }
         }
         throw new IllegalStateException("unreachable Task creation retry state");
+    }
+
+    private boolean isV2Trunk(String trunkId, String workspaceId)
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM threads
+                WHERE id = ? AND workspace_id = ? AND turn_version = 'V2'
+                """, Integer.class, trunkId, workspaceId);
+        return count != null && count == 1;
     }
 
     private Task createAttempt(

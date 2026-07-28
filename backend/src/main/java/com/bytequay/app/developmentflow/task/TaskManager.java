@@ -32,6 +32,7 @@ import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -78,6 +79,11 @@ public final class TaskManager
                     receipt.state().id(), command.commandId()).isPresent()) {
                 throw rejected(COMMAND_ID_CONFLICT,
                         "Command id is also used by an ordinary Task command");
+            }
+            if (store.hasPolicyCommandReceipt(
+                    receipt.state().id(), command.commandId())) {
+                throw rejected(COMMAND_ID_CONFLICT,
+                        "Command id is also used by a Task policy command");
             }
             if (authorization.disposition() != CommandResult.Disposition.DUPLICATE) {
                 throw rejected(COMMAND_ID_CONFLICT,
@@ -181,6 +187,62 @@ public final class TaskManager
                 TaskLifecycle.ACTIVE,
                 TaskLifecycle.PAUSED,
                 TaskLifecycle.ARCHIVED);
+    }
+
+    /** Appends and atomically selects one immutable Task policy revision. */
+    public CommandResult<PolicyRevision> revisePolicy(PolicyCommand command)
+    {
+        requireNonNull(command, "command is null");
+        return commands.execute(command.task().taskId(), () -> {
+            Optional<PolicyCommandReceipt> duplicate = store.findPolicyCommand(
+                    command.task().taskId(), command.task().commandId());
+            if (duplicate.isPresent()) {
+                PolicyCommandReceipt receipt = duplicate.orElseThrow();
+                if (!receipt.matches(command)) {
+                    throw rejected(COMMAND_ID_CONFLICT,
+                            "Task policy command id was used with other input");
+                }
+                return CommandResult.duplicate(receipt.policy());
+            }
+            if (store.findCommandResult(
+                    command.task().taskId(), command.task().commandId()).isPresent()
+                    || store.hasTaskCreationReceipt(
+                            command.task().taskId(), command.task().commandId())) {
+                throw rejected(COMMAND_ID_CONFLICT,
+                        "Command id is already used by another Task command");
+            }
+            State current = load(command.task().taskId());
+            validateExpected(command.task(), current);
+            if (current.lifecycle().isTerminal()
+                    || current.lifecycle() == TaskLifecycle.CLEANING) {
+                throw rejected(INVALID_STATE,
+                        "Terminal Task policy cannot be revised");
+            }
+            PolicyRevision previous = store.findPolicy(current.id())
+                    .orElseThrow(() -> rejected(
+                            INVALID_STATE, "Current Task policy is missing"));
+            if (!previous.trunkId().equals(current.trunkId())) {
+                throw rejected(INVALID_STATE,
+                        "Current Task policy belongs to another Trunk");
+            }
+            State updated = new State(
+                    current.id(), current.trunkId(), current.lifecycle(),
+                    current.epoch(), current.version() + 1,
+                    current.currentStageId(), current.pendingBrainResult(),
+                    current.lastBrainVerdict(), current.lastBrainResult(),
+                    current.terminalIntent());
+            PolicyRevision selected = store.revisePolicy(
+                    command, previous, current, updated);
+            return CommandResult.applied(selected);
+        });
+    }
+
+    public PolicyRevision policy(String taskId)
+    {
+        requireText(taskId, "taskId");
+        return store.findPolicy(taskId)
+                .orElseThrow(() -> rejected(NOT_FOUND,
+                        "No current Task policy: " + taskId));
     }
 
     AcceptedPause requirePauseCompletionInCommand(PauseCompletionCommand command)
@@ -1195,6 +1257,10 @@ public final class TaskManager
             throw rejected(COMMAND_ID_CONFLICT,
                     "Command id was already used to create this Task");
         }
+        if (store.hasPolicyCommandReceipt(taskId, commandId)) {
+            throw rejected(COMMAND_ID_CONFLICT,
+                    "Command id was already used to revise Task policy");
+        }
         return store.findCommandResult(taskId, commandId);
     }
 
@@ -1337,6 +1403,93 @@ public final class TaskManager
             if (expectedVersion < 0) {
                 throw new IllegalArgumentException("expectedVersion is negative");
             }
+        }
+    }
+
+    public record PolicyCommand(
+            Command task,
+            String policyId,
+            boolean autoApprove,
+            boolean autoMerge,
+            int minApprovals,
+            int maxBrainRounds,
+            int maxCiFixPushes,
+            boolean requireRemoteBranchCleanup,
+            String permissionPolicyRef)
+    {
+        public PolicyCommand
+        {
+            requireNonNull(task, "task is null");
+            requireText(policyId, "policyId");
+            if (autoMerge && !autoApprove) {
+                throw new IllegalArgumentException(
+                        "auto-merge requires auto-approve");
+            }
+            if (minApprovals < 0 || maxBrainRounds < 0 || maxCiFixPushes < 0) {
+                throw new IllegalArgumentException("Task policy budget is negative");
+            }
+        }
+    }
+
+    public record PolicyRevision(
+            String id,
+            String taskId,
+            String trunkId,
+            int revision,
+            boolean autoApprove,
+            boolean autoMerge,
+            int minApprovals,
+            int maxBrainRounds,
+            int maxCiFixPushes,
+            boolean requireRemoteBranchCleanup,
+            String permissionPolicyRef)
+    {
+        public PolicyRevision
+        {
+            requireText(id, "id");
+            requireText(taskId, "taskId");
+            requireText(trunkId, "trunkId");
+            if (revision < 1 || minApprovals < 0
+                    || maxBrainRounds < 0 || maxCiFixPushes < 0
+                    || autoMerge && !autoApprove) {
+                throw new IllegalArgumentException("Task policy revision is invalid");
+            }
+        }
+    }
+
+    public record PolicyCommandReceipt(
+            String commandId,
+            String actor,
+            long expectedEpoch,
+            long expectedVersion,
+            String previousPolicyId,
+            PolicyRevision policy)
+    {
+        public PolicyCommandReceipt
+        {
+            requireText(commandId, "commandId");
+            requireText(actor, "actor");
+            requireText(previousPolicyId, "previousPolicyId");
+            requireNonNull(policy, "policy is null");
+        }
+
+        private boolean matches(PolicyCommand command)
+        {
+            return commandId.equals(command.task().commandId())
+                    && actor.equals(command.task().actor())
+                    && expectedEpoch == command.task().expectedEpoch()
+                    && expectedVersion == command.task().expectedVersion()
+                    && policy.id().equals(command.policyId())
+                    && policy.autoApprove() == command.autoApprove()
+                    && policy.autoMerge() == command.autoMerge()
+                    && policy.minApprovals() == command.minApprovals()
+                    && policy.maxBrainRounds() == command.maxBrainRounds()
+                    && policy.maxCiFixPushes() == command.maxCiFixPushes()
+                    && policy.requireRemoteBranchCleanup()
+                        == command.requireRemoteBranchCleanup()
+                    && Objects.equals(
+                            policy.permissionPolicyRef(),
+                            command.permissionPolicyRef());
         }
     }
 
@@ -2411,6 +2564,32 @@ public final class TaskManager
         Optional<State> findById(String taskId);
 
         Optional<CommandReceipt> findCommandResult(String taskId, String commandId);
+
+        default Optional<PolicyRevision> findPolicy(String taskId)
+        {
+            return Optional.empty();
+        }
+
+        default Optional<PolicyCommandReceipt> findPolicyCommand(
+                String taskId, String commandId)
+        {
+            return Optional.empty();
+        }
+
+        default boolean hasPolicyCommandReceipt(String taskId, String commandId)
+        {
+            return findPolicyCommand(taskId, commandId).isPresent();
+        }
+
+        default PolicyRevision revisePolicy(
+                PolicyCommand command,
+                PolicyRevision previous,
+                State expected,
+                State updated)
+        {
+            throw new UnsupportedOperationException(
+                    "Task policy revision is not supported");
+        }
 
         boolean matchesRepositoryRoot(TaskCreationInput input, Path repositoryRoot);
 

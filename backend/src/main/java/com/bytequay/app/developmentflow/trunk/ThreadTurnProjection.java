@@ -52,6 +52,7 @@ public class ThreadTurnProjection
                        turn.operation_id, turn.attempt, turn.delivery_lane,
                        turn.requested_at_ms, turn.started_at_ms,
                        turn.finished_at_ms, turn.error_message,
+                       request.actor, message.body AS user_message,
                        ticket.id AS ticket_id, ticket.status AS ticket_status,
                        ticket.cancel_requested_at_ms
                 FROM thread_turn turn
@@ -61,6 +62,8 @@ public class ThreadTurnProjection
                   ON ticket.owner_kind = 'THREAD_TURN'
                  AND ticket.owner_id = turn.id
                  AND ticket.operation_id = turn.operation_id
+                JOIN thread_message message
+                  ON message.turn_id = turn.id AND message.seq = 1
                 WHERE turn.trunk_id = ?
                 ORDER BY request.returned_trunk_version DESC
                 LIMIT ?
@@ -69,6 +72,7 @@ public class ThreadTurnProjection
                         rs.getString("turn_id"), rs.getString("purpose"),
                         rs.getString("status"), rs.getString("operation_id"),
                         rs.getInt("attempt"), rs.getString("delivery_lane"),
+                        rs.getString("actor"), rs.getString("user_message"),
                         rs.getString("ticket_id"),
                         rs.getString("ticket_status"),
                         instant(rs.getObject("requested_at_ms")),
@@ -175,6 +179,8 @@ public class ThreadTurnProjection
             String operationId,
             int attempt,
             String deliveryLane,
+            String actor,
+            String userMessage,
             String ticketId,
             String ticketStatus,
             Instant requestedAt,

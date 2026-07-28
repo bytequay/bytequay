@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.developmentflow.stage.V2LocalReviewControl;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
@@ -24,6 +25,7 @@ import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskPhaseMachine;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -50,6 +52,7 @@ public class ReviewCommentServiceImpl
     private final RoundGateSaga roundGate;
     private final PRService prService;
     private final TaskStore taskStore;
+    private V2LocalReviewControl v2LocalReview;
 
     public ReviewCommentServiceImpl(
             StageStore stageStore,
@@ -63,6 +66,12 @@ public class ReviewCommentServiceImpl
         this.roundGate = requireNonNull(roundGate, "roundGate is null");
         this.prService = requireNonNull(prService, "prService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+    }
+
+    @Autowired(required = false)
+    void setV2LocalReview(V2LocalReviewControl v2LocalReview)
+    {
+        this.v2LocalReview = requireNonNull(v2LocalReview, "v2LocalReview is null");
     }
 
     @Override
@@ -176,6 +185,14 @@ public class ReviewCommentServiceImpl
             throw status(400, "taskId is required");
         }
         String bodyValue = nullToEmpty(body).strip();
+        if (taskStore.isV2Task(taskIdValue)) {
+            if (v2LocalReview == null) {
+                throw status(503, "V2 Local Review submission is not configured");
+            }
+            V2LocalReviewControl.Submission submitted = v2LocalReview.submit(
+                    taskIdValue, bodyValue, verdict, commentIds);
+            return new SubmitResult(submitted.submitted(), submitted.turnId());
+        }
         return TaskPhaseMachine.withTaskLock(taskIdValue,
                 () -> submitReviewLocked(taskIdValue, bodyValue, verdict, commentIds));
     }

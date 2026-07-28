@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
@@ -79,6 +80,44 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestThreadServiceScheduler
 {
+    @Test
+    void v2TrunkSendUsesTypedRouteWithoutSchedulerOrRegistry()
+    {
+        ThreadStore store = Mockito.mock(ThreadStore.class);
+        ThreadRegistry registry = Mockito.mock(ThreadRegistry.class);
+        ThreadTurnScheduler scheduler = Mockito.mock(ThreadTurnScheduler.class);
+        V2ThreadControlService typed = Mockito.mock(V2ThreadControlService.class);
+        Thread trunk = thread("trunk-v2");
+        Mockito.when(store.findThreadById("trunk-v2"))
+                .thenReturn(Optional.of(trunk));
+        Mockito.when(store.findTurnVersion("trunk-v2"))
+                .thenReturn(Optional.of("V2"));
+        Mockito.when(typed.send(trunk, "plan this", TurnInitiator.user()))
+                .thenReturn("thread-turn-v2");
+        ThreadService service = new ThreadService(
+                store,
+                Mockito.mock(TaskStore.class),
+                Mockito.mock(ThreadGroupStore.class),
+                Mockito.mock(ThreadTurnStore.class),
+                Mockito.mock(ThreadTurnEventStore.class),
+                registry,
+                Mockito.mock(McpPermissionGate.class),
+                scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                new GitRunner(),
+                noopWorktreeService(),
+                new RoleSkillService(new ConceptRegistry()),
+                stubIdGenerator(), Mockito.mock(PullRequestService.class),
+                Mockito.mock(WorkspaceDataPurger.class),
+                Mockito.mock(CheckpointSummariser.class));
+        service.setV2ThreadControls(typed);
+
+        assertThat(service.sendTrunk("trunk-v2", "plan this"))
+                .isEqualTo("thread-turn-v2");
+        Mockito.verify(typed).send(trunk, "plan this", TurnInitiator.user());
+        Mockito.verifyNoInteractions(scheduler, registry);
+    }
+
     @Test
     void permissionBudgetStaysOnTheTaskAgentThatRaisedThePrompt()
     {

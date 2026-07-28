@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.stage;
 
+import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
+import com.bytequay.app.developmentflow.stage.V2StageSteeringControl;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
@@ -35,6 +37,7 @@ import com.bytequay.app.service.threads.ThreadTurnScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -67,6 +70,8 @@ public class StageSteeringServiceImpl
     private final IterationService iterationService;
     private final ChatAttachmentStore attachmentStore;
     private final ObjectMapper mapper;
+    private V2ControlRouteStore v2Routes;
+    private V2StageSteeringControl v2Steering;
 
     public StageSteeringServiceImpl(
             StageStore stageStore,
@@ -90,12 +95,35 @@ public class StageSteeringServiceImpl
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
+    @Autowired
+    void setV2Routes(V2ControlRouteStore v2Routes)
+    {
+        this.v2Routes = requireNonNull(v2Routes, "v2Routes is null");
+    }
+
+    @Autowired(required = false)
+    void setV2Steering(V2StageSteeringControl v2Steering)
+    {
+        this.v2Steering = requireNonNull(v2Steering, "v2Steering is null");
+    }
+
     @Override
     public SteerResult steer(UUID stageId, String text, List<String> images)
     {
         String trimmed = text == null ? "" : text.strip();
         if (trimmed.isEmpty() && (images == null || images.isEmpty())) {
             throw status(400, "steering message is empty");
+        }
+        String v2TaskId = v2Routes == null
+                ? null : v2Routes.taskForStage(stageId.toString()).orElse(null);
+        if (v2TaskId != null) {
+            if (v2Steering == null) {
+                throw status(503, "V2 Stage steering is not configured");
+            }
+            String turnId = v2Steering.steer(
+                    v2TaskId, stageId.toString(), trimmed, images,
+                    V2StageSteeringControl.Mode.APPEND);
+            return new SteerResult(turnId);
         }
         String taskId = stageStore.findStageById(stageId)
                 .map(StageInstance::taskId)

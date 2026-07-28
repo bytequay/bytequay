@@ -17,6 +17,7 @@ import com.bytequay.app.developmentflow.execution.merge.SqliteMergeOperationStor
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteMergeRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteMergeRuntimeStore.TerminalContext;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -58,9 +59,23 @@ public final class RemoteTerminalObservationCoordinator
 
     public Result accept(String snapshotId)
     {
+        return accept(snapshotId, false);
+    }
+
+    /** Reconciles terminal truth without nesting the observation Task command. */
+    public Result acceptInCommand(String snapshotId)
+    {
+        return accept(snapshotId, true);
+    }
+
+    private Result accept(String snapshotId, boolean inCommand)
+    {
         TerminalContext context = store.findTerminalContext(snapshotId)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "snapshot is not accepted merged/closed remote truth"));
+        if (inCommand) {
+            TaskCommandExecutor.requireCurrent(context.taskId());
+        }
         if (context.accepted()) {
             reconcileMerge(context);
             return new Result(true, context.terminalObservationId(), null);
@@ -69,7 +84,7 @@ public final class RemoteTerminalObservationCoordinator
                 "remote-terminal-command", context.snapshotId());
         String cleanupStageId = SqliteMergeOperationStore.id(
                 "remote-terminal-cleanup", context.taskId(), context.snapshotId());
-        RemoteTerminalToCleanupHandoff.Result accepted = handoff.accept(
+        RemoteTerminalToCleanupHandoff.Command command =
                 new RemoteTerminalToCleanupHandoff.Command(
                         new RemoteDevelopmentStageManager.TerminalObservationCommand(
                                 new StageManager.Command(
@@ -81,7 +96,10 @@ public final class RemoteTerminalObservationCoordinator
                         new TaskManager.TerminalCleanupCommand(
                                 commandId, ACTOR, context.taskId(),
                                 context.taskEpoch(), context.taskVersion(),
-                                cleanupStageId, context.cleanupGeneration())));
+                                cleanupStageId, context.cleanupGeneration()));
+        RemoteTerminalToCleanupHandoff.Result accepted = inCommand
+                ? handoff.acceptInCommand(command)
+                : handoff.accept(command);
         TerminalContext persisted = store.findTerminalContext(snapshotId)
                 .filter(TerminalContext::accepted)
                 .orElseThrow(() -> new IllegalStateException(

@@ -153,6 +153,27 @@ class TestDevelopmentFlowRemoteReviewMergeProtocolMigration
     }
 
     @Test
+    void greenCiMarksDraftReadyWithoutAutoApprove()
+            throws Exception
+    {
+        String url = remoteUrl("policy-mark-ready.db", 1);
+        migrate(url, "250");
+        try (Connection connection = connect(url)) {
+            insertRemoteOwner(connection, 1);
+            insertCiPolicy(connection, 1);
+            insertPolicy(connection, 1, 1, 0, 0, 0, 0, 1);
+            insertSnapshot(connection, 1, 1, "head-1", "base-1", "DRAFT",
+                    "MERGEABLE", "NONE", "UNSUPPORTED", 0, 0, 0, 0);
+            acceptSnapshot(connection, 1, 1, "head-1", "base-1");
+            insertGreenCi(connection, 1, 1, "head-1", "base-1");
+
+            execute(connection, markReadyAuthorizationSql(
+                    "ready-without-auto-approve", 1, 1,
+                    "AUTO_APPROVE_POLICY", null));
+        }
+    }
+
+    @Test
     void freezesTypedFeedbackAndRecoversAuthorizedEffectsWithoutSecondConsent()
             throws Exception
     {

@@ -179,6 +179,7 @@ public final class RemoteObservationOperationHandler
             int unresolvedThreadCount,
             int unresolvedCommentCount,
             List<RemoteCiPolicy.Check> checks,
+            List<FeedbackFact> feedback,
             String rawEvidence,
             long observedAtMs)
     {
@@ -195,6 +196,7 @@ public final class RemoteObservationOperationHandler
             requireNonNull(mergeability, "mergeability is null");
             requireNonNull(mergeQueueState, "mergeQueueState is null");
             checks = List.copyOf(requireNonNull(checks, "checks is null"));
+            feedback = feedback == null ? List.of() : List.copyOf(feedback);
             if (effectiveApprovalCount < 0 || writeApprovalCount < 0
                     || changesRequestedCount < 0 || requestedReviewerCount < 0
                     || unresolvedThreadCount < 0 || unresolvedCommentCount < 0
@@ -203,6 +205,99 @@ public final class RemoteObservationOperationHandler
                         "Remote observation counts are invalid");
             }
         }
+
+        /** Compatibility constructor for observations produced before feedback identities. */
+        public Observation(
+                int schemaVersion,
+                String observationKey,
+                String headSha,
+                String baseSha,
+                PrState prState,
+                Mergeability mergeability,
+                MergeQueueState mergeQueueState,
+                int effectiveApprovalCount,
+                int writeApprovalCount,
+                int changesRequestedCount,
+                int requestedReviewerCount,
+                int unresolvedThreadCount,
+                int unresolvedCommentCount,
+                List<RemoteCiPolicy.Check> checks,
+                String rawEvidence,
+                long observedAtMs)
+        {
+            this(schemaVersion, observationKey, headSha, baseSha, prState,
+                    mergeability, mergeQueueState, effectiveApprovalCount,
+                    writeApprovalCount, changesRequestedCount,
+                    requestedReviewerCount, unresolvedThreadCount,
+                    unresolvedCommentCount, checks, List.of(), rawEvidence,
+                    observedAtMs);
+        }
+    }
+
+    /** One externally identified feedback fact inside an immutable snapshot. */
+    public record FeedbackFact(
+            FeedbackKind kind,
+            String externalKey,
+            String actorLogin,
+            boolean ownAction,
+            String threadId,
+            String commentId,
+            String reviewId,
+            String requestedReviewer,
+            String body,
+            FeedbackVerdict verdict,
+            String rawEvidence)
+    {
+        public FeedbackFact
+        {
+            requireNonNull(kind, "kind is null");
+            requireText(externalKey, "externalKey");
+            if (body != null && body.isBlank()) {
+                throw new IllegalArgumentException("feedback body is blank");
+            }
+            switch (kind) {
+                case INLINE_COMMENT -> {
+                    requireText(threadId, "threadId");
+                    requireText(commentId, "commentId");
+                    requireText(body, "body");
+                }
+                case TOP_LEVEL_COMMENT -> {
+                    requireText(commentId, "commentId");
+                    requireText(body, "body");
+                }
+                case REVIEW_BODY -> {
+                    requireText(reviewId, "reviewId");
+                    requireText(body, "body");
+                }
+                case REVIEW_VERDICT -> {
+                    requireText(reviewId, "reviewId");
+                    requireNonNull(verdict, "verdict is null");
+                }
+                case REQUESTED_REVIEW ->
+                        requireText(requestedReviewer, "requestedReviewer");
+                case THREAD_RESOLVED, THREAD_REOPENED ->
+                        requireText(threadId, "threadId");
+            }
+        }
+    }
+
+    public enum FeedbackKind
+    {
+        INLINE_COMMENT,
+        TOP_LEVEL_COMMENT,
+        REVIEW_BODY,
+        REVIEW_VERDICT,
+        REQUESTED_REVIEW,
+        THREAD_RESOLVED,
+        THREAD_REOPENED
+    }
+
+    public enum FeedbackVerdict
+    {
+        APPROVED,
+        CHANGES_REQUESTED,
+        COMMENTED,
+        DISMISSED
     }
 
     public enum PrState

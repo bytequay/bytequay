@@ -174,9 +174,13 @@ class TestDevelopmentFlowCanaryGuardsMigration
                 new DevelopmentFlowCanaryRoute(false, false, "workspace-1");
         DevelopmentFlowCanaryRoute allowListed =
                 new DevelopmentFlowCanaryRoute(true, true, " workspace-1, workspace-2 ");
+        DevelopmentFlowCanaryRoute allWorkspaces =
+                new DevelopmentFlowCanaryRoute(true, true, "*");
         assertThat(disabled.routesNewTaskToV2("workspace-1")).isFalse();
         assertThat(allowListed.routesNewTaskToV2("workspace-1")).isTrue();
         assertThat(allowListed.routesNewTaskToV2("workspace-3")).isFalse();
+        assertThat(allWorkspaces.routesNewTaskToV2("workspace-3")).isTrue();
+        assertThat(allWorkspaces.routesNewTaskToV2(null)).isFalse();
         assertThat(allowListed.snapshot().workspaceAllowList())
                 .containsExactlyInAnyOrder("workspace-1", "workspace-2");
     }

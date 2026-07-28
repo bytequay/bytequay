@@ -143,6 +143,11 @@ final class V2TrunkStore
                        authorization.assignment_head_sha AS assignment_head_sha,
                        authorization.engine_snapshot AS engine_snapshot,
                        authorization.work_model_snapshot AS work_model_snapshot,
+                       authorization.task_name AS task_name,
+                       authorization.task_type AS task_type,
+                       authorization.linked_issue_number AS linked_issue_number,
+                       authorization.opening_prompt AS opening_prompt,
+                       authorization.task_origin AS task_origin,
                        authorization.recorded_at_ms AS authorization_recorded_at_ms,
                        assignment.kind AS assignment_kind,
                        assignment.source_id AS source_id,
@@ -280,9 +285,11 @@ final class V2TrunkStore
                     publish_repository_id, base_source, base_repository_id,
                     base_ref, planning_base_sha, assignment_base_sha,
                     assignment_head_sha, engine_snapshot, work_model_snapshot,
+                    task_name, task_type, linked_issue_number, opening_prompt,
+                    task_origin,
                     recorded_at_ms)
                 VALUES (?, ?, ?, ?, ?, 'AUTHORIZED', ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 assignment.identity().creationAuthorizationId(), expected.id(),
                 input.workspaceId(), command.commandId(), command.actor(),
@@ -294,7 +301,11 @@ final class V2TrunkStore
                 repositories.baseRepositoryId(), base.baseRef(), planningBase(input),
                 assignmentBase(input), assignmentHead(input),
                 input.engine().canonicalValue(),
-                input.workModel().value(), recordedAt);
+                input.workModel().value(), input.presentation().name(),
+                input.presentation().taskType(),
+                input.presentation().linkedIssueNumber(),
+                input.presentation().openingPrompt(),
+                input.presentation().origin(), recordedAt);
         return updated;
     }
 
@@ -489,6 +500,15 @@ final class V2TrunkStore
                 && same(row, "assignment_head_sha", assignmentHead(input))
                 && same(row, "engine_snapshot", input.engine().canonicalValue())
                 && same(row, "work_model_snapshot", input.workModel().value())
+                && same(row, "task_name", input.presentation().name())
+                && same(row, "task_type", input.presentation().taskType())
+                && Objects.equals(
+                        nullableNumber(row, "linked_issue_number"),
+                        input.presentation().linkedIssueNumber() == null
+                                ? null
+                                : input.presentation().linkedIssueNumber().longValue())
+                && same(row, "opening_prompt", input.presentation().openingPrompt())
+                && same(row, "task_origin", input.presentation().origin())
                 && number(row, "authorization_recorded_at_ms")
                         == input.createdAt().toEpochMilli()
                 && same(row, "assignment_kind", assignment.kind().name())

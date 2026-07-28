@@ -773,7 +773,7 @@ class TestPlanRuntimeCoordinator
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("237").load().migrate();
+        Flyway.configure().dataSource(url, "", "").target("246").load().migrate();
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;

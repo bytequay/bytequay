@@ -92,11 +92,18 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteFeedbackLo
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeStore;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.V2TaskControlService;
+import com.bytequay.app.developmentflow.trunk.PlanningBaseRefreshOperationHandler;
+import com.bytequay.app.developmentflow.trunk.PlanningBaseTurnRuntime;
+import com.bytequay.app.developmentflow.trunk.SqlitePlanningBaseTurnStore;
+import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
+import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnResultDeliveryPort;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
+import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadSettingsStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ToolExposurePolicy;
@@ -109,13 +116,19 @@ import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.review.ReviewAssignmentTurnResultDeliveryPort;
 import com.bytequay.app.service.review.ReviewAssignmentTurnRuntime;
 import com.bytequay.app.service.review.ReviewProviderEndpoints;
+import com.bytequay.app.service.skills.RoleRegistry;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.bytequay.app.service.threads.WorktreeService;
+import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
+import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
+import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Clock;
@@ -141,11 +154,13 @@ import static java.util.Objects.requireNonNull;
 public class DevelopmentFlowExecutionConfig
 {
     @Bean
+    @Primary
     @ConditionalOnMissingBean(ExecutionPorts.ResultDeliveryPort.class)
     @ConditionalOnProperty(
             name = "bytequay.development-flow.v2-dispatch-enabled",
             havingValue = "true")
     public ExecutionPorts.ResultDeliveryPort v2ResultDelivery(
+            PlanningBaseTurnRuntime planningBase,
             PlanRuntimeCoordinator planRuntime,
             LocalDevelopmentRuntimeCoordinator localRuntime,
             RemoteFeedbackRuntimeCoordinator remoteFeedbackRuntime,
@@ -219,6 +234,8 @@ public class DevelopmentFlowExecutionConfig
                 new ReviewAssignmentTurnResultDeliveryPort(
                         reviewAssignmentTurns, json, Clock.systemUTC());
         return new ResultDeliveryRouter(Map.ofEntries(
+                Map.entry(PlanningBaseRefreshOperationHandler.CALLBACK_ROUTE,
+                        planningBase),
                 Map.entry(PlanRuntimeCoordinator.PROVISION_CALLBACK, plan),
                 Map.entry(PlanRuntimeCoordinator.TURN_CALLBACK, taskTurns),
                 Map.entry(LocalDevelopmentRuntimeCoordinator.TURN_CALLBACK,
@@ -319,6 +336,21 @@ public class DevelopmentFlowExecutionConfig
     {
         return new ThreadTurnOperationHandler(
                 operations, provider, activeContexts, tools, json,
+                Clock.systemUTC());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(PlanningBaseRefreshOperationHandler.class)
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
+    public PlanningBaseRefreshOperationHandler v2PlanningBaseRefreshOperationHandler(
+            SqlitePlanningBaseTurnStore operations,
+            WorktreeService worktrees,
+            ObjectMapper json)
+    {
+        return new PlanningBaseRefreshOperationHandler(
+                operations, worktrees::refreshPlanningWorktree, json,
                 Clock.systemUTC());
     }
 
@@ -481,6 +513,7 @@ public class DevelopmentFlowExecutionConfig
             ProvisionTaskOperationHandler provisioning,
             AgentTurnOperationHandler agentTurns,
             ThreadTurnOperationHandler threadTurns,
+            PlanningBaseRefreshOperationHandler planningBase,
             ReviewAssignmentTurnOperationHandler reviewTurns,
             LocalValidationOperationHandler localValidation,
             PublishOperationHandler publish,
@@ -497,6 +530,8 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry(AgentTurnOperationHandler.TASK_OPERATION_KIND, agentTurns),
                 Map.entry(AgentTurnOperationHandler.STAGE_OPERATION_KIND, agentTurns),
                 Map.entry(ThreadTurnOperationHandler.OPERATION_KIND, threadTurns),
+                Map.entry(PlanningBaseRefreshOperationHandler.OPERATION_KIND,
+                        planningBase),
                 Map.entry(ReviewAssignmentTurnOperationHandler.OPERATION_KIND,
                         reviewTurns),
                 Map.entry(LocalValidationOperationHandler.OPERATION_KIND,
@@ -615,6 +650,42 @@ public class DevelopmentFlowExecutionConfig
     {
         return new V2TaskControlService(
                 tasks, store, dispatcher, ciRepair, jdbc);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(PlanningBaseTurnRuntime.class)
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
+    public PlanningBaseTurnRuntime v2PlanningBaseTurnRuntime(
+            TrunkManager trunks,
+            TrunkManager.Store trunkStore,
+            SqlitePlanningBaseTurnStore planningStore,
+            ThreadTurnHandoff turns,
+            WorkspaceRepositoryResolver repositories,
+            WatchedRepoStore watchedRepos,
+            ObjectMapper json)
+    {
+        return new PlanningBaseTurnRuntime(
+                trunks, trunkStore, planningStore, turns, repositories,
+                watchedRepos, json, Clock.systemUTC());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(V2ThreadControlService.class)
+    @ConditionalOnProperty(
+            name = "bytequay.development-flow.v2-dispatch-enabled",
+            havingValue = "true")
+    public V2ThreadControlService v2ThreadControlService(
+            PlanningBaseTurnRuntime planning,
+            ThreadTurnProjection projection,
+            ExecutionDispatcher dispatcher,
+            ThreadEngineOverrides engines,
+            RoleRegistry roles,
+            SessionKnowledgeProvider knowledge)
+    {
+        return new V2ThreadControlService(
+                planning, projection, dispatcher, engines, roles, knowledge);
     }
 
     @Bean

@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.developmentflow.trunk;
 
-import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
 import com.bytequay.app.domain.Thread;
@@ -24,21 +23,14 @@ import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.TurnInitiator;
-import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.WorkModelKind;
-import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.agents.AgentContextCompiler;
 import com.bytequay.app.service.skills.RoleRegistry;
-import com.bytequay.app.service.threads.WorktreeService;
 import com.bytequay.app.service.workmodel.SessionAudience;
 import com.bytequay.app.service.workmodel.ThreadEngineOverrides;
 import com.bytequay.app.service.workspaces.SessionKnowledgeProvider;
-import com.bytequay.app.service.workspaces.WorkspaceRepositoryResolver;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -52,40 +44,25 @@ import static java.util.Objects.requireNonNull;
  */
 public final class V2ThreadControlService
 {
-    private final ThreadTurnHandoff handoff;
+    private final PlanningBaseTurnRuntime planning;
     private final ThreadTurnProjection projection;
-    private final TrunkManager.Store trunks;
     private final ExecutionDispatcher dispatcher;
     private final ThreadEngineOverrides engines;
-    private final WorkspaceRepositoryResolver repositories;
-    private final WatchedRepoStore watchedRepos;
-    private final WorktreeService worktrees;
-    private final ThreadStore threads;
     private final RoleRegistry roles;
     private final SessionKnowledgeProvider knowledge;
 
     public V2ThreadControlService(
-            ThreadTurnHandoff handoff,
+            PlanningBaseTurnRuntime planning,
             ThreadTurnProjection projection,
-            TrunkManager.Store trunks,
             ExecutionDispatcher dispatcher,
             ThreadEngineOverrides engines,
-            WorkspaceRepositoryResolver repositories,
-            WatchedRepoStore watchedRepos,
-            WorktreeService worktrees,
-            ThreadStore threads,
             RoleRegistry roles,
             SessionKnowledgeProvider knowledge)
     {
-        this.handoff = requireNonNull(handoff, "handoff is null");
+        this.planning = requireNonNull(planning, "planning is null");
         this.projection = requireNonNull(projection, "projection is null");
-        this.trunks = requireNonNull(trunks, "trunks is null");
         this.dispatcher = requireNonNull(dispatcher, "dispatcher is null");
         this.engines = requireNonNull(engines, "engines is null");
-        this.repositories = requireNonNull(repositories, "repositories is null");
-        this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
-        this.worktrees = requireNonNull(worktrees, "worktrees is null");
-        this.threads = requireNonNull(threads, "threads is null");
         this.roles = requireNonNull(roles, "roles is null");
         this.knowledge = requireNonNull(knowledge, "knowledge is null");
     }
@@ -101,29 +78,22 @@ public final class V2ThreadControlService
                 .orElseThrow(() -> new IllegalStateException(
                         "V2 Trunk has no frozen " + audience + " engine: " + thread.id()));
         requireEngine(engine, thread.id());
-        PlanningContext planning = planningContext(thread);
         String memory = knowledge.renderForThread(
                 thread.workspaceId(), thread.id(), audience, thread.title());
         String systemPrompt = AgentContextCompiler.compilePrompt(
                 roles.trunkTemplate(), null, memory, List.of()).systemPrompt();
-        String prompt = planning.baseMovementNote() == null
-                ? input
-                : planning.baseMovementNote() + "\n\n" + input;
-        TrunkManager.State state = trunks.findById(thread.id())
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "no V2 Trunk: " + thread.id()));
         String commandId = UUID.randomUUID().toString();
-        CommandResult<TrunkManager.ThreadTurnRequestReceipt> result = handoff.request(
-                new ThreadTurnHandoff.Request(
+        PlanningBaseTurnRuntime.Receipt result = planning.request(
+                new PlanningBaseTurnRuntime.Request(
                         commandId,
                         initiator.attended() ? "user" : "system:" + source(initiator),
-                        thread.id(), thread.workspaceId(), state.version(),
+                        thread.id(), thread.workspaceId(),
                         "TRUNK_CONVERSATION", transport(engine),
                         engine.agentOrProvider(),
                         engine.kind() == WorkModelKind.API ? engine.account() : null,
-                        engine.model(), engine.reasoningEffort(), planning.workingDirectory(),
-                        systemPrompt, input, prompt));
-        return result.state().turnId();
+                        engine.model(), engine.reasoningEffort(), systemPrompt,
+                        input, input));
+        return result.turnId();
     }
 
     public List<ThreadMessage> history(String trunkId)
@@ -149,42 +119,6 @@ public final class V2ThreadControlService
     public void interrupt(String trunkId)
     {
         projection.cancelableTicketIds(trunkId).forEach(dispatcher::requestCancel);
-    }
-
-    private PlanningContext planningContext(Thread thread)
-    {
-        WorkspaceRepositoryResolver.RepositoryIdentity repository =
-                repositories.resolve(thread.workspaceId());
-        WatchedRepo watched = watchedRepos.find(repository.owner(), repository.repo())
-                .orElseThrow(() -> new IllegalStateException(
-                        "workspace repository has no watched clone: " + repository.fullName()));
-        if (watched.localClonePath() == null || watched.localClonePath().isBlank()) {
-            throw new IllegalStateException(
-                    "workspace repository has no verified local clone: " + repository.fullName());
-        }
-        Path root = Path.of(watched.localClonePath()).toAbsolutePath().normalize();
-        if (!Files.isDirectory(root)) {
-            throw new IllegalStateException(
-                    "workspace repository clone is unavailable: " + root);
-        }
-        String before = threads.findPlanningSnapshot(thread.id())
-                .filter(snapshot -> root.toString().equals(snapshot.repoRoot()))
-                .map(ThreadStore.PlanningSnapshot::baseSha)
-                .orElse(null);
-        WorktreeService.PlanningSync ready = worktrees
-                .syncPlanningWorktree(root, thread.id(), before)
-                .orElseThrow(() -> new IllegalStateException(
-                        "planning snapshot unavailable for Trunk " + thread.id()));
-        if (!ready.baseSha().equals(before)) {
-            threads.setPlanningSnapshot(thread.id(),
-                    new ThreadStore.PlanningSnapshot(root.toString(), ready.baseSha()));
-        }
-        String movement = before == null || ready.baseSha().equals(before)
-                ? null
-                : "[Planning base updated " + shortSha(before) + " -> "
-                        + shortSha(ready.baseSha()) + ": re-verify earlier file and line assumptions.]";
-        return new PlanningContext(
-                ready.worktree().toAbsolutePath().normalize(), movement);
     }
 
     private static ThreadTurn projectedTurn(
@@ -243,11 +177,6 @@ public final class V2ThreadControlService
                 ? "unattended" : initiator.source();
     }
 
-    private static String shortSha(String sha)
-    {
-        return sha.length() <= 12 ? sha : sha.substring(0, 12);
-    }
-
     private static void requireText(String value, String name)
     {
         requireNonNull(value, name + " is null");
@@ -255,6 +184,4 @@ public final class V2ThreadControlService
             throw new IllegalArgumentException(name + " is blank");
         }
     }
-
-    private record PlanningContext(Path workingDirectory, String baseMovementNote) {}
 }

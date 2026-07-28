@@ -200,6 +200,21 @@ class TestTaskCreationValues
                 .hasMessageContaining("absolute");
     }
 
+    @Test
+    void canonicalEngineSnapshotIncludesProviderModelAndValue()
+    {
+        TaskCreationInput.EngineSnapshot original = new TaskCreationInput.EngineSnapshot(
+                "openai", "review-model", "same-value");
+
+        assertThat(original.canonicalValue())
+                .isNotEqualTo(new TaskCreationInput.EngineSnapshot(
+                        "other", "review-model", "same-value").canonicalValue())
+                .isNotEqualTo(new TaskCreationInput.EngineSnapshot(
+                        "openai", "other-model", "same-value").canonicalValue())
+                .isNotEqualTo(new TaskCreationInput.EngineSnapshot(
+                        "openai", "review-model", "other-value").canonicalValue());
+    }
+
     private static TaskCreationInput input(
             TaskAssignment assignment, TaskCreationInput.CreationBase base)
     {

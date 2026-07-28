@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.execution.CapacityManager;
+import com.bytequay.app.developmentflow.execution.InMemoryExecutionSupport;
+import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.PermissionDecision;
@@ -62,6 +65,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -1069,6 +1073,136 @@ class TestAgentScheduler
     }
 
     @Test
+    void durableTurnAcquiresAndExactlyReleasesSharedLegacyCapacity()
+    {
+        CapacityFixture capacity = capacityFixture();
+        TestHarness harness = new TestHarness(4, 6, capacity.bridge(), true);
+        Thread thread = thread("capacity-thread", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        harness.tasks.setThreadId("capacity-task", thread.id());
+
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                thread, "implement", "capacity-task");
+
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(capacity.store().activeCount(capacity.clock().instant())).isEqualTo(1);
+
+        session.completeNext();
+
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                .isEqualTo(COMPLETED);
+        assertThat(capacity.store().activeCount(capacity.clock().instant())).isZero();
+    }
+
+    @Test
+    void sharedDenialDoesNotSpinAndReservedTrunkControlStillRuns()
+    {
+        CapacityFixture capacity = capacityFixture();
+        List<CapacityManager.CapacityLease> occupied = new ArrayList<>();
+        for (int index = 0; index < 3; index++) {
+            CapacityManager.CapacityRequest request = unscopedV2Cli("occupied-" + index);
+            occupied.add(capacity.manager().tryAcquireForTicket(
+                    "ticket-" + index, request, "dispatcher").lease().orElseThrow());
+        }
+        int beforeScheduler = capacity.store().admissionTransactions();
+        TestHarness harness = new TestHarness(4, 6, capacity.bridge(), true);
+        Thread thread = thread("capacity-control-thread", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        harness.tasks.setThreadId("waiting-task", thread.id());
+
+        String waiting = harness.scheduler.enqueueTaskTurn(
+                thread, "task work", "waiting-task");
+        String control = harness.scheduler.enqueueTrunkTurn(thread, "control");
+
+        assertThat(harness.turns.findTurnById(waiting).orElseThrow().status())
+                .isEqualTo(QUEUED);
+        assertThat(harness.turns.findTurnById(control).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(session.inputs).containsExactly("control");
+        assertThat(capacity.store().admissionTransactions()).isEqualTo(beforeScheduler + 2);
+        assertThat(capacity.store().activeCount(capacity.clock().instant())).isEqualTo(4);
+
+        capacity.manager().release(occupied.getFirst().id(), "dispatcher");
+
+        assertThat(harness.turns.findTurnById(waiting).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(session.inputs).containsExactly("control", "task work");
+        assertThat(capacity.store().admissionTransactions()).isEqualTo(beforeScheduler + 3);
+        assertThat(capacity.store().activeCount(capacity.clock().instant())).isEqualTo(4);
+
+        session.completeNext();
+        session.completeNext();
+        for (CapacityManager.CapacityLease lease : occupied.subList(1, occupied.size())) {
+            capacity.manager().release(lease.id(), "dispatcher");
+        }
+        assertThat(capacity.store().activeCount(capacity.clock().instant())).isZero();
+    }
+
+    @Test
+    void definitiveLeaseLossInterruptsAndFailsTheExactTurn()
+    {
+        CapacityFixture capacity = capacityFixture();
+        TestHarness harness = new TestHarness(4, 6, capacity.bridge(), true);
+        Thread thread = thread("capacity-loss-thread", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        harness.tasks.setThreadId("capacity-loss-task", thread.id());
+        String turnId = harness.scheduler.enqueueTaskTurn(
+                thread, "long work", "capacity-loss-task");
+
+        capacity.clock().advance(Duration.ofSeconds(31));
+        capacity.bridge().maintainLeases();
+
+        ThreadTurn failed = harness.turns.findTurnById(turnId).orElseThrow();
+        assertThat(session.interrupts).isEqualTo(1);
+        assertThat(failed.status()).isEqualTo(FAILED);
+        assertThat(failed.errorMessage()).isEqualTo("shared capacity lease was lost");
+        assertThat(capacity.store().activeCount(capacity.clock().instant())).isZero();
+    }
+
+    @Test
+    void startupRecoveryReleasesThenReacquiresTheStableTurnLease()
+    {
+        CapacityFixture capacity = capacityFixture();
+        String turnId = "restart-turn";
+        CapacityManager.CapacityRequest oldRequest = new CapacityManager.CapacityRequest(
+                "legacy-thread-turn:" + turnId,
+                CapacityManager.WorkflowSource.LEGACY,
+                Set.of(CapacityManager.CapacityLane.CLI),
+                new CapacityManager.CapacityScope(
+                        "ws-default", "restart-thread", "restart-task", 1L),
+                false,
+                true,
+                true);
+        CapacityManager.CapacityLease oldLease = capacity.manager().tryAcquire(
+                oldRequest, "agent-scheduler:" + turnId).lease().orElseThrow();
+        assertThat(oldLease.operationId()).isEqualTo("legacy-thread-turn:" + turnId);
+        TestHarness harness = new TestHarness(4, 6, capacity.bridge(), true);
+        Thread thread = thread("restart-thread", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        harness.tasks.setThreadId("restart-task", thread.id());
+        ThreadTurn interrupted = taskTurn(
+                turnId,
+                thread.id(),
+                "restart-task",
+                RUNNING,
+                "restart-run",
+                Instant.parse("2026-07-28T00:00:00Z"));
+        harness.turns.saveTurn(interrupted);
+
+        harness.scheduler.recoverQueuedTurns();
+
+        assertThat(harness.turns.findTurnById(turnId).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(session.inputs).containsExactly("input");
+        assertThat(capacity.store().activeCount(capacity.clock().instant())).isEqualTo(1);
+        assertThat(capacity.store().admissionTransactions()).isEqualTo(3);
+
+        session.completeNext();
+        assertThat(capacity.store().activeCount(capacity.clock().instant())).isZero();
+    }
+
+    @Test
     void cancelQueuedTurnsRemovesOnlyQueuedTurnsForTask()
     {
         TestHarness harness = new TestHarness(1, 4);
@@ -1520,6 +1654,40 @@ class TestAgentScheduler
                 /* activeTask */ null);
     }
 
+    private static CapacityFixture capacityFixture()
+    {
+        InMemoryExecutionSupport.MutableClock clock =
+                new InMemoryExecutionSupport.MutableClock(
+                        Instant.parse("2026-07-28T00:00:00Z"));
+        InMemoryExecutionSupport.CapacityStore store =
+                new InMemoryExecutionSupport.CapacityStore();
+        CapacityManager manager = new CapacityManager(
+                store,
+                () -> CapacityManager.CapacityPolicy.initial(4, 4, Map.of()),
+                clock,
+                Duration.ofSeconds(30));
+        return new CapacityFixture(
+                clock, store, manager, new LegacyCapacityBridge(manager));
+    }
+
+    private static CapacityManager.CapacityRequest unscopedV2Cli(String operationId)
+    {
+        return new CapacityManager.CapacityRequest(
+                operationId,
+                CapacityManager.WorkflowSource.V2,
+                Set.of(CapacityManager.CapacityLane.CLI),
+                new CapacityManager.CapacityScope(null, null, null, null),
+                false,
+                false,
+                false);
+    }
+
+    private record CapacityFixture(
+            InMemoryExecutionSupport.MutableClock clock,
+            InMemoryExecutionSupport.CapacityStore store,
+            CapacityManager manager,
+            LegacyCapacityBridge bridge) {}
+
     private static final class TestHarness
     {
         private final InMemoryTaskStore threads = new InMemoryTaskStore();
@@ -1532,12 +1700,21 @@ class TestAgentScheduler
 
         private TestHarness(int maxCliRunning, int maxApiRunning)
         {
-            this(maxCliRunning, maxApiRunning, null);
+            this(maxCliRunning, maxApiRunning, null, null);
         }
 
         private TestHarness(int maxCliRunning, int maxApiRunning, AgentRunService agentRuns)
         {
-            this(maxCliRunning, maxApiRunning, agentRuns, null);
+            this(maxCliRunning, maxApiRunning, agentRuns, null, null);
+        }
+
+        private TestHarness(
+                int maxCliRunning,
+                int maxApiRunning,
+                LegacyCapacityBridge legacyCapacity,
+                @SuppressWarnings("unused") boolean bridgeEnabled)
+        {
+            this(maxCliRunning, maxApiRunning, null, null, legacyCapacity);
         }
 
         private TestHarness(
@@ -1546,7 +1723,18 @@ class TestAgentScheduler
                 AgentRunService agentRuns,
                 SessionBudgetPolicy sessionBudgets)
         {
-            this(maxCliRunning, maxApiRunning, agentRuns, sessionBudgets, null, null);
+            this(maxCliRunning, maxApiRunning, agentRuns, sessionBudgets, null);
+        }
+
+        private TestHarness(
+                int maxCliRunning,
+                int maxApiRunning,
+                AgentRunService agentRuns,
+                SessionBudgetPolicy sessionBudgets,
+                LegacyCapacityBridge legacyCapacity)
+        {
+            this(maxCliRunning, maxApiRunning, agentRuns, sessionBudgets,
+                    null, null, legacyCapacity);
         }
 
         private TestHarness(
@@ -1557,11 +1745,24 @@ class TestAgentScheduler
                 AgentRunStore agentRunStore,
                 TaskCommandExecutor commands)
         {
+            this(maxCliRunning, maxApiRunning, agentRuns, sessionBudgets,
+                    agentRunStore, commands, null);
+        }
+
+        private TestHarness(
+                int maxCliRunning,
+                int maxApiRunning,
+                AgentRunService agentRuns,
+                SessionBudgetPolicy sessionBudgets,
+                AgentRunStore agentRunStore,
+                TaskCommandExecutor commands,
+                LegacyCapacityBridge legacyCapacity)
+        {
             scheduler = agentRunStore == null && commands == null
                     ? new AgentScheduler(
                             threads, turns, events, registry, stageStore,
                             tasks, null, null, null, agentRuns, sessionBudgets, null,
-                            maxCliRunning, maxApiRunning)
+                            legacyCapacity, maxCliRunning, maxApiRunning)
                     : new AgentScheduler(
                             threads, turns, events, registry, stageStore,
                             tasks, null, null, null, agentRuns, agentRunStore,
@@ -1718,6 +1919,7 @@ class TestAgentScheduler
         private final Map<String, TaskStatus> statuses = new LinkedHashMap<>();
         private final Map<String, TaskPhase> phases = new LinkedHashMap<>();
         private final Map<String, String> livenessPointers = new LinkedHashMap<>();
+        private final Map<String, String> threadIds = new LinkedHashMap<>();
 
         private void setStatus(String taskId, TaskStatus status)
         {
@@ -1745,10 +1947,16 @@ class TestAgentScheduler
             phases.put(taskId, phase);
         }
 
+        private void setThreadId(String taskId, String threadId)
+        {
+            threadIds.put(taskId, threadId);
+        }
+
         @Override public void saveTask(Task task) { statuses.put(task.id(), task.status()); }
         @Override public Optional<Task> findTaskById(String id) {
             Task task = mock(Task.class);
             when(task.id()).thenReturn(id);
+            when(task.threadId()).thenReturn(threadIds.get(id));
             when(task.status()).thenReturn(statuses.getOrDefault(id, TaskStatus.IDLE));
             when(task.phase()).thenReturn(phases.get(id));
             return Optional.of(task);

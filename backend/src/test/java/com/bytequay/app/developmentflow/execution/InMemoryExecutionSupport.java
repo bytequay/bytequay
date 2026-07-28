@@ -28,21 +28,21 @@ import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
-final class InMemoryExecutionSupport
+public final class InMemoryExecutionSupport
 {
     private InMemoryExecutionSupport() {}
 
-    static final class MutableClock
+    public static final class MutableClock
             extends Clock
     {
         private Instant instant;
 
-        MutableClock(Instant instant)
+        public MutableClock(Instant instant)
         {
             this.instant = instant;
         }
 
-        void advance(Duration duration)
+        public void advance(Duration duration)
         {
             instant = instant.plus(duration);
         }
@@ -69,17 +69,22 @@ final class InMemoryExecutionSupport
         }
     }
 
-    static final class CapacityStore
+    public static final class CapacityStore
             implements CapacityManager.CapacityLeaseStore
     {
         private final Map<String, CapacityManager.CapacityLease> leases =
                 new LinkedHashMap<>();
         private final Map<String, Long> writerTokens = new LinkedHashMap<>();
+        private boolean failNextHeartbeat;
+        private boolean failNextRelease;
+        private int admissionTransactions;
 
         @Override
         public synchronized <T> T inAdmissionTransaction(
                 Function<CapacityManager.CapacityLeaseStore, T> work)
         {
+            admissionTransactions++;
+            notifyAll();
             return work.apply(this);
         }
 
@@ -155,6 +160,10 @@ final class InMemoryExecutionSupport
                 Instant heartbeatAt,
                 Instant expiresAt)
         {
+            if (failNextHeartbeat) {
+                failNextHeartbeat = false;
+                throw new IllegalStateException("test heartbeat failed");
+            }
             CapacityManager.CapacityLease current = leases.get(leaseId);
             if (current == null
                     || !current.leaseOwner().equals(leaseOwner)
@@ -173,6 +182,10 @@ final class InMemoryExecutionSupport
                 String leaseOwner,
                 Instant releasedAt)
         {
+            if (failNextRelease) {
+                failNextRelease = false;
+                throw new IllegalStateException("test release failed");
+            }
             CapacityManager.CapacityLease current = leases.get(leaseId);
             if (current == null || current.releasedAt() != null) {
                 return true;
@@ -209,9 +222,37 @@ final class InMemoryExecutionSupport
             return expired;
         }
 
-        synchronized int activeCount(Instant now)
+        public synchronized int activeCount(Instant now)
         {
             return listActive(now).size();
+        }
+
+        public synchronized int admissionTransactions()
+        {
+            return admissionTransactions;
+        }
+
+        public synchronized boolean awaitAdmissionTransactions(int count, Duration timeout)
+                throws InterruptedException
+        {
+            long remainingNanos = timeout.toNanos();
+            long deadline = System.nanoTime() + remainingNanos;
+            while (admissionTransactions < count && remainingNanos > 0) {
+                long millis = Math.max(1L, TimeUnit.NANOSECONDS.toMillis(remainingNanos));
+                wait(millis);
+                remainingNanos = deadline - System.nanoTime();
+            }
+            return admissionTransactions >= count;
+        }
+
+        synchronized void failNextHeartbeat()
+        {
+            failNextHeartbeat = true;
+        }
+
+        synchronized void failNextRelease()
+        {
+            failNextRelease = true;
         }
 
         private static CapacityManager.CapacityLease copy(

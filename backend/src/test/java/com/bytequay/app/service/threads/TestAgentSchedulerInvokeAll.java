@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.execution.CapacityManager;
+import com.bytequay.app.developmentflow.execution.InMemoryExecutionSupport;
+import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -20,8 +23,12 @@ import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -50,6 +57,26 @@ class TestAgentSchedulerInvokeAll
                 mock(StageStore.class),
                 mock(TaskStore.class),
                 /* maxCliRunning */ 1,
+                maxApi);
+    }
+
+    private AgentScheduler scheduler(int maxApi, LegacyCapacityBridge bridge)
+    {
+        return new AgentScheduler(
+                mock(ThreadStore.class),
+                mock(ThreadTurnStore.class),
+                mock(ThreadTurnEventStore.class),
+                mock(ThreadRegistry.class),
+                mock(StageStore.class),
+                mock(TaskStore.class),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                bridge,
+                /* maxCliRunning */ 4,
                 maxApi);
     }
 
@@ -132,5 +159,61 @@ class TestAgentSchedulerInvokeAll
         assertEquals("boom", failure.getMessage());
         // The healthy items still ran to completion first.
         assertEquals(2, completed.get());
+    }
+
+    @Test
+    void sharedCapacityDenialWaitsForAReleaseHintWithoutBusySpinning()
+            throws Exception
+    {
+        Instant now = Instant.parse("2026-07-28T00:00:00Z");
+        InMemoryExecutionSupport.MutableClock clock =
+                new InMemoryExecutionSupport.MutableClock(now);
+        InMemoryExecutionSupport.CapacityStore store =
+                new InMemoryExecutionSupport.CapacityStore();
+        CapacityManager manager = new CapacityManager(
+                store,
+                () -> CapacityManager.CapacityPolicy.initial(4, 4, Map.of()),
+                clock,
+                Duration.ofSeconds(30));
+        LegacyCapacityBridge bridge = new LegacyCapacityBridge(manager);
+        AgentScheduler scheduler = scheduler(6, bridge);
+        List<CapacityManager.CapacityLease> v2Leases = new ArrayList<>();
+        for (int index = 0; index < 5; index++) {
+            CapacityManager.CapacityRequest request = v2ApiRequest("v2-" + index);
+            v2Leases.add(manager.tryAcquireForTicket(
+                    "ticket-" + index, request, "dispatcher").lease().orElseThrow());
+        }
+        int admissionsBeforeWait = store.admissionTransactions();
+        AtomicInteger calls = new AtomicInteger();
+
+        CompletableFuture<List<Integer>> waiting = CompletableFuture.supplyAsync(() ->
+                scheduler.invokeAll(List.of(() -> calls.incrementAndGet())));
+        assertTrue(store.awaitAdmissionTransactions(
+                admissionsBeforeWait + 1, Duration.ofSeconds(2)));
+
+        assertEquals(0, calls.get());
+        assertEquals(admissionsBeforeWait + 1, store.admissionTransactions());
+        assertEquals(5, store.activeCount(now));
+
+        manager.release(v2Leases.getFirst().id(), "dispatcher");
+        assertEquals(List.of(1), waiting.get(2, TimeUnit.SECONDS));
+        assertTrue(store.activeCount(now) <= 4);
+        assertTrue(store.admissionTransactions() <= admissionsBeforeWait + 2);
+
+        for (CapacityManager.CapacityLease lease : v2Leases.subList(1, v2Leases.size())) {
+            manager.release(lease.id(), "dispatcher");
+        }
+    }
+
+    private static CapacityManager.CapacityRequest v2ApiRequest(String operationId)
+    {
+        return new CapacityManager.CapacityRequest(
+                operationId,
+                CapacityManager.WorkflowSource.V2,
+                Set.of(CapacityManager.CapacityLane.API),
+                new CapacityManager.CapacityScope(null, null, null, null),
+                false,
+                false,
+                false);
     }
 }

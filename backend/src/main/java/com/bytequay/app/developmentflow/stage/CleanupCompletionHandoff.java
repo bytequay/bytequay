@@ -17,6 +17,7 @@ import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
+import java.util.List;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -27,21 +28,55 @@ public final class CleanupCompletionHandoff
     private final TaskCommandExecutor commands;
     private final CleanupStageManager cleanup;
     private final TaskManager tasks;
+    private final List<TaskOutcomeConsumer> outcomeConsumers;
 
     public CleanupCompletionHandoff(
             TaskCommandExecutor commands,
             CleanupStageManager cleanup,
             TaskManager tasks)
     {
+        this(commands, cleanup, tasks, ignored -> {});
+    }
+
+    public CleanupCompletionHandoff(
+            TaskCommandExecutor commands,
+            CleanupStageManager cleanup,
+            TaskManager tasks,
+            TaskOutcomeConsumer... outcomeConsumers)
+    {
         this.commands = requireNonNull(commands, "commands is null");
         this.cleanup = requireNonNull(cleanup, "cleanup is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.outcomeConsumers = List.of(requireNonNull(
+                outcomeConsumers, "outcomeConsumers is null"));
     }
 
     public Result accept(Command command)
     {
         requireNonNull(command, "command is null");
-        return commands.execute(command.task().taskId(), () -> acceptInCommand(command));
+        Result result = commands.execute(
+                command.task().taskId(), () -> acceptInCommand(command));
+        // The Task command commits TaskOutcome first. The review owner then
+        // consumes that durable fact synchronously; retry/restart recovery is
+        // safe because its receipt is idempotent.
+        RuntimeException firstFailure = null;
+        for (TaskOutcomeConsumer consumer : outcomeConsumers) {
+            try {
+                consumer.acceptTaskOutcome(command.task().taskId());
+            }
+            catch (RuntimeException failure) {
+                if (firstFailure == null) {
+                    firstFailure = failure;
+                }
+                else {
+                    firstFailure.addSuppressed(failure);
+                }
+            }
+        }
+        if (firstFailure != null) {
+            throw firstFailure;
+        }
+        return result;
     }
 
     private Result acceptInCommand(Command command)
@@ -86,5 +121,11 @@ public final class CleanupCompletionHandoff
             requireNonNull(stage, "stage is null");
             requireNonNull(task, "task is null");
         }
+    }
+
+    @FunctionalInterface
+    public interface TaskOutcomeConsumer
+    {
+        void acceptTaskOutcome(String taskId);
     }
 }

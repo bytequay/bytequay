@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.domain.ReviewRound;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
@@ -23,6 +24,7 @@ import com.bytequay.app.repository.ValidationPassStore;
 import com.bytequay.app.service.WorkspaceBehaviorService;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Instant;
 import java.util.List;
@@ -48,8 +50,13 @@ class TestTaskIdleArchiver
     private final WorkspaceBehaviorService behavior = mock(
             WorkspaceBehaviorService.class, Mockito.RETURNS_DEEP_STUBS);
     private final TaskPhaseMachine machine = mock(TaskPhaseMachine.class);
+    private final V2TaskControlService v2Controls = mock(V2TaskControlService.class);
+    @SuppressWarnings("unchecked")
+    private final ObjectProvider<V2TaskControlService> v2Provider =
+            mock(ObjectProvider.class);
     private final TaskIdleArchiver archiver = new TaskIdleArchiver(
-            taskStore, turnStore, roundStore, validationStore, behavior, machine);
+            taskStore, turnStore, roundStore, validationStore, behavior, machine,
+            v2Provider);
 
     @Test
     void archivesOnlyDormantIdleTasksPastTheCadence()
@@ -82,16 +89,21 @@ class TestTaskIdleArchiver
     }
 
     @Test
-    void v2TaskIsOwnedByTheV2MaintenancePath()
+    void routesV2IdleCandidatesThroughTypedTaskControls()
     {
         when(behavior.get().archiveIdleAfter()).thenReturn("1h");
         Task task = task("v2", NOW.minusSeconds(200_000));
+        when(v2Provider.getIfAvailable()).thenReturn(v2Controls);
+        when(v2Controls.idleArchiveCandidates(
+                NOW.minusSeconds(3600), NOW, 200)).thenReturn(List.of("v2"));
         when(taskStore.listByStatuses(eq(Set.of(TaskStatus.IDLE)), eq(200)))
                 .thenReturn(List.of(task));
         when(taskStore.isV2Task("v2")).thenReturn(true);
 
         archiver.sweepOnce(NOW);
 
+        verify(v2Controls).archiveIfIdle(
+                "v2", NOW.minusSeconds(3600), NOW);
         verify(machine, never()).archiveIdle(any());
         verify(roundStore, never()).findLiveByTask(any());
     }

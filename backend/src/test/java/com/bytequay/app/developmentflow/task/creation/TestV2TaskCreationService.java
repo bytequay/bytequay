@@ -115,7 +115,7 @@ class TestV2TaskCreationService
         });
 
         V2TaskCreationService service = new V2TaskCreationService(
-                new DevelopmentFlowCanaryRoute(true, true, WORKSPACE),
+                new DevelopmentFlowCanaryRoute(true, WORKSPACE),
                 handoff, jdbc, threads, tasks, engines, repositories, relations,
                 mock(PullRequestRepository.class), mock(PatResolver.class),
                 mock(ReviewBuildSelectionStore.class), new ObjectMapper(), projection);

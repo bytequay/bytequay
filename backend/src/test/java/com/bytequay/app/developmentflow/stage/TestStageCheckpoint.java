@@ -120,7 +120,8 @@ class TestStageCheckpoint
         edges.put(StageCheckpoint.ADDRESSING_REMOTE_FEEDBACK,
                 Set.of(StageCheckpoint.WAITING_CI));
         edges.put(StageCheckpoint.READY_TO_MERGE, Set.of(StageCheckpoint.MERGING));
-        edges.put(StageCheckpoint.MERGING, Set.of(StageCheckpoint.COMPLETED));
+        edges.put(StageCheckpoint.MERGING, Set.of(
+                StageCheckpoint.READY_TO_MERGE, StageCheckpoint.COMPLETED));
         edges.put(StageCheckpoint.WAITING_QUIESCENCE, Set.of(StageCheckpoint.CLEANING));
         edges.put(StageCheckpoint.CLEANING, Set.of(StageCheckpoint.COMPLETED));
         edges.put(StageCheckpoint.COMPLETED, Set.of());

@@ -669,6 +669,17 @@ public interface PullRequestRepository
     }
 
     /**
+     * Adds the exact pull request head to the merge queue. GitHub rejects the
+     * mutation if the PR moved after the caller proved {@code expectedHeadOid}.
+     */
+    default MergeResult enqueuePullRequest(
+            String pat, String pullRequestNodeId, String expectedHeadOid)
+    {
+        throw new UnsupportedOperationException(
+                "exact-head enqueuePullRequest not implemented");
+    }
+
+    /**
      * Removes a PR from its repo's merge queue. Mirrors github.com's
      * "Remove from queue" button on the merge bar. Goes through the
      * GraphQL {@code dequeuePullRequest} mutation, which needs the merge

@@ -422,6 +422,36 @@ class TestExecutionDispatcher
     }
 
     @Test
+    void cancellationRearmsAManuallyParkedReconciliation()
+    {
+        try (Fixture fixture = fixture(
+                new InMemoryExecutionSupport.DirectExecutorService(), 4)) {
+            CountingHandler handler = fixture.register("parked-cancel");
+            DispatchTicket requested = requested(
+                    "parked-cancel", "parked-cancel", VALIDATION, false);
+            CapacityManager.CapacityLease seedLease =
+                    fixture.capacityManager.tryAcquireForTicket(
+                            requested.id(), requested.envelope().capacityRequest(),
+                            "seed-worker").lease().orElseThrow();
+            DispatchTicket parked = requested.claim(
+                            "seed-worker", seedLease.id(), NOW.plusSeconds(10))
+                    .markRunning(NOW)
+                    .manualReconciliation("manual probe required");
+            fixture.capacityManager.release(seedLease.id(), "seed-worker");
+            fixture.put(parked);
+
+            assertThat(fixture.dispatcher.requestCancel("parked-cancel")).isTrue();
+            assertThat(fixture.ticket("parked-cancel").nextAttemptAt())
+                    .isEqualTo(NOW);
+            fixture.dispatcher.runMaintenance();
+
+            assertThat(handler.reconcileCalls).isEqualTo(1);
+            assertThat(fixture.ticket("parked-cancel").state())
+                    .isEqualTo(RESULT_PENDING);
+        }
+    }
+
+    @Test
     void canceledStuckExecutionExpiresIntoReconciliation()
             throws Exception
     {

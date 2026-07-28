@@ -1339,9 +1339,19 @@ final class V2TaskStore
                     evidence_json, accepted, recorded_at_ms)
                 VALUES (?, ?, ?, ?, ?, ?, NULL, 1, ?)
                 """,
-                id(), updated.id(), updated.terminalIntent().name(), cause, proofId,
+                id(), updated.id(), updated.terminalIntent().name(),
+                remoteTerminalSource(cause), proofId,
                 resultFence == null ? null : resultFence.expectedHeadSha(),
                 System.currentTimeMillis());
+    }
+
+    private static String remoteTerminalSource(String cause)
+    {
+        return switch (cause) {
+            case "OPEN_MERGED_CLEANUP", "OPEN_REMOTE_CLOSED_CLEANUP" ->
+                    "REMOTE_OBSERVATION";
+            default -> cause;
+        };
     }
 
     private void recordTransition(

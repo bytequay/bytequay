@@ -222,7 +222,7 @@ public record DispatchTicket(
                 claimOwner,
                 capacityLeaseId,
                 claimExpiresAt,
-                nextAttemptAt,
+                state == State.RECONCILE_WAIT ? now : nextAttemptAt,
                 infrastructureAttempts,
                 startedAt,
                 now,

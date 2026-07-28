@@ -14,7 +14,7 @@
 package com.bytequay.app.developmentflow.trunk;
 
 import com.bytequay.app.developmentflow.CommandResult;
-import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.TurnInitiator;
@@ -70,7 +70,7 @@ class TestV2ThreadControlService
 
         V2ThreadControlService service = new V2ThreadControlService(
                 planning, mock(ThreadTurnProjection.class),
-                mock(ExecutionDispatcher.class), engines, roles, knowledge);
+                mock(DispatchTicketControl.class), engines, roles, knowledge);
 
         assertThat(service.send(thread, "plan the next task", TurnInitiator.user()))
                 .isEqualTo("turn-1");
@@ -92,19 +92,19 @@ class TestV2ThreadControlService
     {
         PlanningBaseTurnRuntime planning = mock(PlanningBaseTurnRuntime.class);
         ThreadTurnProjection projection = mock(ThreadTurnProjection.class);
-        ExecutionDispatcher dispatcher = mock(ExecutionDispatcher.class);
+        DispatchTicketControl tickets = mock(DispatchTicketControl.class);
         when(projection.cancelableTicketIds("trunk-1"))
                 .thenReturn(List.of("ticket-1"));
         V2ThreadControlService service = new V2ThreadControlService(
-                planning, projection, dispatcher,
+                planning, projection, tickets,
                 mock(ThreadEngineOverrides.class), mock(RoleRegistry.class),
                 mock(SessionKnowledgeProvider.class));
 
         service.interrupt("trunk-1");
 
-        InOrder order = inOrder(planning, dispatcher);
+        InOrder order = inOrder(planning, tickets);
         order.verify(planning).suppressPending(
                 "trunk-1", "User canceled before provider launch");
-        order.verify(dispatcher).requestCancel("ticket-1");
+        order.verify(tickets).requestCancel("ticket-1");
     }
 }

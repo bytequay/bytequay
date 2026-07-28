@@ -81,6 +81,10 @@ final class V2TaskStore
             "INSERT INTO task_command_receipt(",
             "INSERT INTO task_brain_request_receipt(");
 
+    private static final String BRAIN_BUDGET_RECEIPT_INSERT = RECEIPT_INSERT.replace(
+            "INSERT INTO task_command_receipt(",
+            "INSERT INTO task_brain_budget_receipt(");
+
     private final JdbcTemplate jdbc;
 
     V2TaskStore(JdbcTemplate jdbc)
@@ -136,13 +140,25 @@ final class V2TaskStore
         Optional<TaskManager.CommandReceipt> shared = queryReceipt(
                 RECEIPT_SELECT + " WHERE task_id = ? AND command_id = ?",
                 taskId, commandId);
-        if (shared.isPresent() || !brainReceiptsAvailable()) {
+        if (shared.isPresent()) {
             return shared;
         }
-        return queryReceipt(
-                "SELECT * FROM task_brain_request_receipt"
-                        + " WHERE task_id = ? AND command_id = ?",
-                taskId, commandId);
+        if (tableAvailable("task_brain_request_receipt")) {
+            Optional<TaskManager.CommandReceipt> request = queryReceipt(
+                    "SELECT * FROM task_brain_request_receipt"
+                            + " WHERE task_id = ? AND command_id = ?",
+                    taskId, commandId);
+            if (request.isPresent()) {
+                return request;
+            }
+        }
+        if (tableAvailable("task_brain_budget_receipt")) {
+            return queryReceipt(
+                    "SELECT * FROM task_brain_budget_receipt"
+                            + " WHERE task_id = ? AND command_id = ?",
+                    taskId, commandId);
+        }
+        return Optional.empty();
     }
 
     @Override
@@ -1226,10 +1242,13 @@ final class V2TaskStore
             TaskManager.State state)
     {
         jdbc.update(connection -> {
-            PreparedStatement statement = connection.prepareStatement(
-                    cause.equals("REQUEST_BRAIN_REVIEW")
-                            ? BRAIN_RECEIPT_INSERT
-                            : RECEIPT_INSERT);
+            String insert = switch (cause) {
+                case "REQUEST_BRAIN_REVIEW" -> BRAIN_RECEIPT_INSERT;
+                case "ACCEPT_BRAIN_BUDGET_EXHAUSTION" ->
+                        BRAIN_BUDGET_RECEIPT_INSERT;
+                default -> RECEIPT_INSERT;
+            };
+            PreparedStatement statement = connection.prepareStatement(insert);
             int index = 1;
             statement.setString(index++, id());
             statement.setString(index++, state.id());
@@ -1274,22 +1293,35 @@ final class V2TaskStore
                           AND returned_version = ?
                         """,
                 taskId, version);
-        if (shared.isPresent() || !brainReceiptsAvailable()) {
+        if (shared.isPresent()) {
             return shared;
         }
-        return queryReceipt(
-                "SELECT * FROM task_brain_request_receipt"
-                        + " WHERE task_id = ? AND disposition = 'APPLIED'"
-                        + " AND returned_version = ?",
-                taskId, version);
+        if (tableAvailable("task_brain_request_receipt")) {
+            Optional<TaskManager.CommandReceipt> request = queryReceipt(
+                    "SELECT * FROM task_brain_request_receipt"
+                            + " WHERE task_id = ? AND disposition = 'APPLIED'"
+                            + " AND returned_version = ?",
+                    taskId, version);
+            if (request.isPresent()) {
+                return request;
+            }
+        }
+        if (tableAvailable("task_brain_budget_receipt")) {
+            return queryReceipt(
+                    "SELECT * FROM task_brain_budget_receipt"
+                            + " WHERE task_id = ? AND disposition = 'APPLIED'"
+                            + " AND returned_version = ?",
+                    taskId, version);
+        }
+        return Optional.empty();
     }
 
-    private boolean brainReceiptsAvailable()
+    private boolean tableAvailable(String table)
     {
         Integer count = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM sqlite_master
-                WHERE type = 'table' AND name = 'task_brain_request_receipt'
-                """, Integer.class);
+                WHERE type = 'table' AND name = ?
+                """, Integer.class, table);
         return count != null && count == 1;
     }
 

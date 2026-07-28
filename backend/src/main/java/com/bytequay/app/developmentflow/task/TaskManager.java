@@ -921,6 +921,51 @@ public final class TaskManager
                 result, verdict, accepted.disposition(), accepted.state()));
     }
 
+    /**
+     * Terminalizes one exhausted Brain episode in Task state. The caller must
+     * first persist the exact BUDGET_EXHAUSTED episode, failed TaskTurn, and
+     * open blocker named by {@code blockerId} in this command transaction.
+     */
+    public CommandResult<State> acceptBrainBudgetExhaustionInCommand(
+            ResultCommand command, String blockerId)
+    {
+        requireNonNull(command, "command is null");
+        requireText(blockerId, "blockerId");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+
+        Optional<CommandReceipt> duplicate = findCommandResult(
+                command.taskId(), command.commandId());
+        if (duplicate.isPresent()) {
+            return CommandResult.duplicate(requireReceipt(
+                    duplicate.orElseThrow(),
+                    "ACCEPT_BRAIN_BUDGET_EXHAUSTION", command.actor(),
+                    null, null, command.resultFence(), null, blockerId,
+                    null, null, null).state());
+        }
+
+        State current = load(command.taskId());
+        ResultFence result = command.resultFence();
+        if (current.lifecycle() != TaskLifecycle.ACTIVE
+                || current.epoch() != result.taskEpoch()
+                || !same(current.currentStageId(), result.stageId())
+                || !same(current.pendingBrainResult(), result)) {
+            return CommandResult.superseded(store.recordSuperseded(
+                    command.commandId(), "ACCEPT_BRAIN_BUDGET_EXHAUSTION",
+                    command.actor(), null, null, result, null, blockerId,
+                    null, null, null, current));
+        }
+
+        State updated = new State(
+                current.id(), current.trunkId(), current.lifecycle(), current.epoch(),
+                current.version() + 1, current.currentStageId(), null,
+                current.lastBrainVerdict(), current.lastBrainResult(),
+                current.terminalIntent());
+        return CommandResult.applied(store.commit(
+                command.commandId(), "ACCEPT_BRAIN_BUDGET_EXHAUSTION",
+                command.actor(), null, null, result, null, blockerId,
+                null, null, null, current, updated));
+    }
+
     /** Only CleanupCompletionHandoff can obtain the proof required by this command. */
     public CommandResult<State> acceptCleanupCompletionInCommand(
             Command command, CleanupStageManager.AcceptedCompletion completion)

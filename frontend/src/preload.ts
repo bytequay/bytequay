@@ -1003,8 +1003,13 @@ const bridge: Bridge = {
   getAgentRun: (runId: string) => ipcRenderer.invoke('runs:get', runId),
   getTaskRounds: (taskId: string) => ipcRenderer.invoke('rounds:forTask', taskId),
   approveRound: (roundId: string) => ipcRenderer.invoke('rounds:approve', roundId),
-  steerStage: (stageId: string, text: string, images?: string[]): Promise<{ turnId: string }> =>
-    ipcRenderer.invoke('stages:steer', stageId, text, images),
+  steerStage: (
+    stageId: string,
+    text: string,
+    images?: string[],
+    mode: 'APPEND' | 'CANCEL_AND_REPLACE' = 'APPEND',
+  ): Promise<{ turnId: string }> =>
+    ipcRenderer.invoke('stages:steer', stageId, text, images, mode),
   approvePlan: (planStageId: string) => ipcRenderer.invoke('plans:approve', planStageId),
   replan: (taskId: string) => ipcRenderer.invoke('plans:replan', taskId),
   updateFollowup: (planStageId: string, followupEventId: string, status: 'addressed' | 'dismissed') =>

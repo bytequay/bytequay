@@ -4371,7 +4371,12 @@ export type Bridge = {
    *  task's dev thread. `images` are pasted-screenshot data URLs, saved and
    *  folded into the turn the same way trunk/task-brain sends do. Returns
    *  the enqueued turn id. */
-  steerStage: (stageId: string, text: string, images?: string[]) => Promise<{ turnId: string }>;
+  steerStage: (
+    stageId: string,
+    text: string,
+    images?: string[],
+    mode?: 'APPEND' | 'CANCEL_AND_REPLACE',
+  ) => Promise<{ turnId: string }>;
   /** Approve the task's plan: closes the PlanStage, opens the
    *  DevelopmentStage, and returns its id (+ redirect path) so the view can
    *  auto-navigate to the dev stage detail page. */

@@ -25,6 +25,12 @@ import java.util.UUID;
  */
 public interface StageSteeringService
 {
+    enum Mode
+    {
+        APPEND,
+        CANCEL_AND_REPLACE
+    }
+
     /** The handle a steering request returns: the enqueued dev-agent turn. */
     record SteerResult(String turnId) {}
 
@@ -40,5 +46,11 @@ public interface StageSteeringService
      *                turn the same way trunk/task-brain sends do; may be null/empty
      * @return the enqueued turn's id
      */
-    SteerResult steer(UUID stageId, String text, List<String> images);
+    default SteerResult steer(UUID stageId, String text, List<String> images)
+    {
+        return steer(stageId, text, images, Mode.APPEND);
+    }
+
+    SteerResult steer(
+            UUID stageId, String text, List<String> images, Mode mode);
 }

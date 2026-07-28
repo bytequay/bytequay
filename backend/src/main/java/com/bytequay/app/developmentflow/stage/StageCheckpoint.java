@@ -76,7 +76,8 @@ public enum StageCheckpoint
             case AWAITING_READY -> target == WAITING_REMOTE_REVIEW;
             case WAITING_REMOTE_REVIEW -> target == ADDRESSING_REMOTE_FEEDBACK
                     || target == READY_TO_MERGE;
-            case ADDRESSING_REMOTE_FEEDBACK -> target == WAITING_CI;
+            case ADDRESSING_REMOTE_FEEDBACK -> target == WAITING_CI
+                    || target == WAITING_REMOTE_REVIEW;
             case READY_TO_MERGE -> target == MERGING;
             case MERGING -> target == COMPLETED;
             case WAITING_QUIESCENCE -> target == CLEANING;

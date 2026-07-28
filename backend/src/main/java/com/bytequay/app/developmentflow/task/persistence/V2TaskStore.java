@@ -85,6 +85,10 @@ final class V2TaskStore
             "INSERT INTO task_command_receipt(",
             "INSERT INTO task_brain_budget_receipt(");
 
+    private static final String REMOTE_BRAIN_RECEIPT_INSERT = RECEIPT_INSERT.replace(
+            "INSERT INTO task_command_receipt(",
+            "INSERT INTO remote_task_brain_receipt(");
+
     private final JdbcTemplate jdbc;
 
     V2TaskStore(JdbcTemplate jdbc)
@@ -153,8 +157,17 @@ final class V2TaskStore
             }
         }
         if (tableAvailable("task_brain_budget_receipt")) {
-            return queryReceipt(
+            Optional<TaskManager.CommandReceipt> budget = queryReceipt(
                     "SELECT * FROM task_brain_budget_receipt"
+                            + " WHERE task_id = ? AND command_id = ?",
+                    taskId, commandId);
+            if (budget.isPresent()) {
+                return budget;
+            }
+        }
+        if (tableAvailable("remote_task_brain_receipt")) {
+            return queryReceipt(
+                    "SELECT * FROM remote_task_brain_receipt"
                             + " WHERE task_id = ? AND command_id = ?",
                     taskId, commandId);
         }
@@ -1325,7 +1338,12 @@ final class V2TaskStore
     {
         jdbc.update(connection -> {
             String insert = switch (cause) {
-                case "REQUEST_BRAIN_REVIEW" -> BRAIN_RECEIPT_INSERT;
+                case "REQUEST_BRAIN_REVIEW" -> isRemoteBrainResult(
+                        resultFence, proofId)
+                        ? REMOTE_BRAIN_RECEIPT_INSERT : BRAIN_RECEIPT_INSERT;
+                case "ACCEPT_BRAIN_VERDICT" -> isRemoteBrainResult(
+                        resultFence, null)
+                        ? REMOTE_BRAIN_RECEIPT_INSERT : RECEIPT_INSERT;
                 case "ACCEPT_BRAIN_BUDGET_EXHAUSTION" ->
                         BRAIN_BUDGET_RECEIPT_INSERT;
                 default -> RECEIPT_INSERT;
@@ -1389,13 +1407,38 @@ final class V2TaskStore
             }
         }
         if (tableAvailable("task_brain_budget_receipt")) {
-            return queryReceipt(
+            Optional<TaskManager.CommandReceipt> budget = queryReceipt(
                     "SELECT * FROM task_brain_budget_receipt"
+                            + " WHERE task_id = ? AND disposition = 'APPLIED'"
+                            + " AND returned_version = ?",
+                    taskId, version);
+            if (budget.isPresent()) {
+                return budget;
+            }
+        }
+        if (tableAvailable("remote_task_brain_receipt")) {
+            return queryReceipt(
+                    "SELECT * FROM remote_task_brain_receipt"
                             + " WHERE task_id = ? AND disposition = 'APPLIED'"
                             + " AND returned_version = ?",
                     taskId, version);
         }
         return Optional.empty();
+    }
+
+    private boolean isRemoteBrainResult(ResultFence fence, String proofId)
+    {
+        if (fence == null || !tableAvailable("remote_feedback_brain_episode")) {
+            return false;
+        }
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM remote_feedback_brain_episode episode
+                JOIN task_turn turn ON turn.id = episode.task_turn_id
+                WHERE turn.operation_id = ?
+                  AND (? IS NULL OR episode.id = ?)
+                """, Integer.class, fence.operationId(), proofId, proofId);
+        return count != null && count == 1;
     }
 
     private boolean tableAvailable(String table)

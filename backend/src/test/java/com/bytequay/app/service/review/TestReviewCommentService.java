@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.developmentflow.stage.V2LocalReviewControl;
 import com.bytequay.app.domain.PR;
 import com.bytequay.app.domain.PRComment;
 import com.bytequay.app.domain.PRTimelineEntry;
@@ -109,6 +110,28 @@ class TestReviewCommentService
                 "fix this",
                 null);
         verify(stageStore, never()).saveReviewComment(any());
+    }
+
+    @Test
+    void v2SubmissionRoutesOnlyToTypedLocalReview()
+    {
+        V2LocalReviewControl typed = mock(V2LocalReviewControl.class);
+        when(taskStore.isV2Task("task-v2")).thenReturn(true);
+        when(typed.submit(
+                "task-v2", "Please revise", "REQUEST_CHANGES", List.of("c-1")))
+                .thenReturn(new V2LocalReviewControl.Submission(1, "turn-v2"));
+        service.setV2LocalReview(typed);
+
+        ReviewCommentService.SubmitResult result = service.submitReview(
+                "task-v2", " Please revise ", "REQUEST_CHANGES", List.of("c-1"));
+
+        assertThat(result.submitted()).isEqualTo(1);
+        assertThat(result.turnId()).isEqualTo("turn-v2");
+        verify(typed).submit(
+                "task-v2", "Please revise", "REQUEST_CHANGES", List.of("c-1"));
+        verify(prService, never()).recordLocalReviewSubmission(
+                any(), any(), any(), any(), any());
+        verify(prService, never()).findByTask(anyString());
     }
 
     @Test

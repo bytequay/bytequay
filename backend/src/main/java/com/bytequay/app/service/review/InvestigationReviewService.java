@@ -292,12 +292,16 @@ public class InvestigationReviewService
 
     public InvestigationReviewData start(String prId, StartOptions options)
     {
+        PR pr = requirePr(prId);
+        if (pr.taskId() != null && tasks.isV2Task(pr.taskId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "V2 Task review requires its typed Review assignment handoff");
+        }
         Optional<AgentReviewRow> existing = store.findActiveReviewByPr(prId);
         if (existing.isPresent()) {
-            PR pr = requirePr(prId);
             return detail(ensureOwnership(existing.get(), pr, options));
         }
-        PR pr = requirePr(prId);
         ReviewOwnership ownership = ownershipFor(pr, options);
         InvestigationReviewContext.Snapshot snapshot = fullReviewSnapshot(
                 pr, ownership.workspaceId() != null || ownership.taskId() != null);

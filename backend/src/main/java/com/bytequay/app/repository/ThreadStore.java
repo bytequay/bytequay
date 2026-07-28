@@ -47,6 +47,12 @@ public interface ThreadStore
     /** Single-row lookup by id. Empty when no such thread exists. */
     Optional<Thread> findThreadById(String id);
 
+    /** Immutable conversation-runtime discriminator for an existing Trunk. */
+    default Optional<String> findTurnVersion(String threadId)
+    {
+        return Optional.empty();
+    }
+
     /** The SHA the thread's planning worktree currently sits on; refreshed
      *  by the turn-start sync whenever the fetched base moved. */
     default Optional<PlanningSnapshot> findPlanningSnapshot(String threadId)

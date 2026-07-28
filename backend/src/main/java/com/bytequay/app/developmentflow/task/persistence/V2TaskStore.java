@@ -139,6 +139,214 @@ final class V2TaskStore
     }
 
     @Override
+    public Optional<TaskManager.PolicyRevision> findPolicy(String taskId)
+    {
+        return jdbc.query("""
+                SELECT policy.id, policy.trunk_id, policy.revision,
+                       policy.auto_approve, policy.auto_merge,
+                       policy.min_approvals, policy.max_brain_rounds,
+                       policy.max_ci_fix_pushes,
+                       policy.require_remote_branch_cleanup,
+                       policy.permission_policy_ref
+                FROM tasks task
+                JOIN task_policy_revision policy
+                  ON policy.id = task.policy_revision_id
+                WHERE task.id = ? AND task.workflow_version = 'V2'
+                """, (rs, row) -> policy(rs, taskId), taskId)
+                .stream().findFirst();
+    }
+
+    @Override
+    public Optional<TaskManager.PolicyCommandReceipt> findPolicyCommand(
+            String taskId, String commandId)
+    {
+        if (!tableAvailable("task_policy_command_receipt")) {
+            return Optional.empty();
+        }
+        return jdbc.query("""
+                SELECT receipt.command_id, receipt.actor,
+                       receipt.expected_task_epoch,
+                       receipt.expected_task_version,
+                       receipt.previous_policy_revision_id,
+                       policy.id, policy.trunk_id, policy.revision,
+                       policy.auto_approve, policy.auto_merge,
+                       policy.min_approvals, policy.max_brain_rounds,
+                       policy.max_ci_fix_pushes,
+                       policy.require_remote_branch_cleanup,
+                       policy.permission_policy_ref
+                FROM task_policy_command_receipt receipt
+                JOIN task_policy_revision policy
+                  ON policy.id = receipt.selected_policy_revision_id
+                WHERE receipt.task_id = ? AND receipt.command_id = ?
+                """, (rs, row) -> new TaskManager.PolicyCommandReceipt(
+                        rs.getString("command_id"), rs.getString("actor"),
+                        rs.getLong("expected_task_epoch"),
+                        rs.getLong("expected_task_version"),
+                        rs.getString("previous_policy_revision_id"),
+                        policy(rs, taskId)), taskId, commandId)
+                .stream().findFirst();
+    }
+
+    @Override
+    public boolean hasPolicyCommandReceipt(String taskId, String commandId)
+    {
+        if (!tableAvailable("task_policy_command_receipt")) {
+            return false;
+        }
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM task_policy_command_receipt
+                WHERE task_id = ? AND command_id = ?
+                """, Integer.class, taskId, commandId);
+        return count != null && count == 1;
+    }
+
+    @Override
+    public TaskManager.PolicyRevision revisePolicy(
+            TaskManager.PolicyCommand command,
+            TaskManager.PolicyRevision previous,
+            TaskManager.State expected,
+            TaskManager.State updated)
+    {
+        requireTransaction();
+        validateCommit(
+                command.task().expectedEpoch(), command.task().expectedVersion(),
+                expected, updated);
+        if (!previous.id().equals(findPolicy(expected.id())
+                .map(TaskManager.PolicyRevision::id).orElse(null))) {
+            throw concurrent("Task policy changed before revision: " + expected.id());
+        }
+        long now = System.currentTimeMillis();
+        int inserted = jdbc.update("""
+                INSERT INTO task_policy_revision(
+                    id, trunk_id, revision, source, auto_approve, auto_merge,
+                    min_approvals, max_brain_rounds, max_ci_fix_pushes,
+                    require_remote_branch_cleanup, permission_policy_ref,
+                    created_by, created_at_ms)
+                SELECT ?, task.thread_id,
+                       COALESCE((SELECT MAX(policy.revision) + 1
+                           FROM task_policy_revision policy
+                           WHERE policy.trunk_id = task.thread_id), 1),
+                       'TASK_POLICY_COMMAND', ?, ?, ?, ?, ?, ?, ?, ?, ?
+                FROM tasks task
+                WHERE task.id = ? AND task.workflow_version = 'V2'
+                  AND task.thread_id = ? AND task.policy_revision_id = ?
+                  AND task.lifecycle_state = ? AND task.epoch = ?
+                  AND task.aggregate_version = ?
+                """,
+                command.policyId(), command.autoApprove() ? 1 : 0,
+                command.autoMerge() ? 1 : 0, command.minApprovals(),
+                command.maxBrainRounds(), command.maxCiFixPushes(),
+                command.requireRemoteBranchCleanup() ? 1 : 0,
+                command.permissionPolicyRef(), command.task().actor(), now,
+                expected.id(), expected.trunkId(), previous.id(),
+                expected.lifecycle().name(), expected.epoch(), expected.version());
+        if (inserted != 1) {
+            throw concurrent("Task changed before policy revision: " + expected.id());
+        }
+
+        String intentId = preparePolicySelection(
+                command, previous, expected, now);
+        int changed = jdbc.update("""
+                UPDATE tasks
+                SET policy_revision_id = ?, aggregate_version = ?
+                WHERE id = ? AND workflow_version = 'V2' AND thread_id = ?
+                  AND policy_revision_id = ? AND lifecycle_state = ?
+                  AND epoch = ? AND aggregate_version = ?
+                """,
+                command.policyId(), updated.version(), expected.id(),
+                expected.trunkId(), previous.id(), expected.lifecycle().name(),
+                expected.epoch(), expected.version());
+        if (changed != 1) {
+            throw concurrent("Task changed before policy selection: " + expected.id());
+        }
+
+        appendAutomationPolicy(command, now);
+        recordTransition(
+                command.task().commandId(), "REVISE_POLICY",
+                command.task().actor(), expected, updated);
+        jdbc.update("""
+                INSERT INTO task_policy_command_receipt(
+                    id, intent_id, task_id, command_id, actor,
+                    expected_task_epoch, expected_task_version,
+                    previous_policy_revision_id, selected_policy_revision_id,
+                    returned_task_version, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                id(), intentId, expected.id(), command.task().commandId(),
+                command.task().actor(), command.task().expectedEpoch(),
+                command.task().expectedVersion(), previous.id(),
+                command.policyId(), updated.version(), now);
+        return findPolicy(expected.id())
+                .orElseThrow(() -> new DataIntegrityViolationException(
+                        "Selected Task policy is missing: " + command.policyId()));
+    }
+
+    private String preparePolicySelection(
+            TaskManager.PolicyCommand command,
+            TaskManager.PolicyRevision previous,
+            TaskManager.State expected,
+            long now)
+    {
+        String intentId = id();
+        jdbc.update("""
+                INSERT INTO task_policy_command_intent(
+                    id, task_id, command_id, actor,
+                    expected_task_epoch, expected_task_version,
+                    previous_policy_revision_id, selected_policy_revision_id,
+                    recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                intentId, expected.id(), command.task().commandId(),
+                command.task().actor(), command.task().expectedEpoch(),
+                command.task().expectedVersion(), previous.id(),
+                command.policyId(), now);
+        return intentId;
+    }
+
+    private void appendAutomationPolicy(
+            TaskManager.PolicyCommand command, long now)
+    {
+        jdbc.update("""
+                INSERT INTO task_automation_policy(
+                    id, task_id, revision, source, auto_approve, auto_merge,
+                    keep_draft, minimum_write_approvals,
+                    max_merge_queue_reenqueues, require_low_risk,
+                    require_small_effort, stewardship_exception,
+                    created_by, created_at_ms)
+                SELECT ?, current.task_id, current.revision + 1,
+                       'TASK_POLICY_COMMAND', ?, ?, current.keep_draft, ?,
+                       current.max_merge_queue_reenqueues,
+                       current.require_low_risk, current.require_small_effort,
+                       CASE WHEN ? = 1 OR ? = 1
+                           THEN 0 ELSE current.stewardship_exception END, ?, ?
+                FROM task_automation_policy current
+                WHERE current.id = (
+                    SELECT latest.id FROM task_automation_policy latest
+                    WHERE latest.task_id = ?
+                    ORDER BY latest.revision DESC LIMIT 1)
+                """,
+                id(), command.autoApprove() ? 1 : 0,
+                command.autoMerge() ? 1 : 0, command.minApprovals(),
+                command.autoApprove() ? 1 : 0,
+                command.autoMerge() ? 1 : 0,
+                command.task().actor(), now, command.task().taskId());
+    }
+
+    private static TaskManager.PolicyRevision policy(
+            ResultSet rs, String taskId)
+            throws SQLException
+    {
+        return new TaskManager.PolicyRevision(
+                rs.getString("id"), taskId, rs.getString("trunk_id"),
+                rs.getInt("revision"), rs.getBoolean("auto_approve"),
+                rs.getBoolean("auto_merge"), rs.getInt("min_approvals"),
+                rs.getInt("max_brain_rounds"),
+                rs.getInt("max_ci_fix_pushes"),
+                rs.getBoolean("require_remote_branch_cleanup"),
+                rs.getString("permission_policy_ref"));
+    }
+
+    @Override
     public Optional<TaskManager.CommandReceipt> findCommandResult(
             String taskId, String commandId)
     {

@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.stage;
 
+import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
+import com.bytequay.app.developmentflow.stage.V2StageSteeringControl;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.StageInstance;
 import com.bytequay.app.domain.StageState;
@@ -141,6 +143,34 @@ class TestStageSteeringService
                 any(), any(), any(), any(), any());
         verify(iterationService).begin(
                 "task-7", "turn-3", IterationService.TRIGGER_USER_STEERING);
+    }
+
+    @Test
+    void v2StageRoutesOnlyToTypedControl()
+    {
+        UUID stageId = UUID.randomUUID();
+        V2ControlRouteStore routes = mock(V2ControlRouteStore.class);
+        V2StageSteeringControl typed = mock(V2StageSteeringControl.class);
+        when(routes.taskForStage(stageId.toString()))
+                .thenReturn(Optional.of("task-v2"));
+        when(typed.steer(
+                "task-v2", stageId.toString(), "change course", List.of(),
+                V2StageSteeringControl.Mode.APPEND)).thenReturn("stage-turn-v2");
+        service.setV2Routes(routes);
+        service.setV2Steering(typed);
+
+        StageSteeringService.SteerResult result = service.steer(
+                stageId, " change course ", List.of());
+
+        assertThat(result.turnId()).isEqualTo("stage-turn-v2");
+        verify(typed).steer(
+                "task-v2", stageId.toString(), "change course", List.of(),
+                V2StageSteeringControl.Mode.APPEND);
+        verify(stageStore, never()).findStageById(any());
+        verify(agentRuns, never()).openSchedulerSessionInCommand(
+                any(), any(), any(), any(), any());
+        verify(scheduler, never()).enqueueStageTurn(
+                any(), any(), any(), any(), any(), any());
     }
 
     @Test

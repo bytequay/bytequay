@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.developmentflow.task.creation.V2TaskCreationService;
+import com.bytequay.app.developmentflow.trunk.V2ThreadControlService;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.PullRequestCommit;
@@ -149,6 +150,8 @@ public class ThreadService
     private WorkModelService workModels;
     /** Optional production cutover boundary; direct POJO tests stay legacy. */
     private V2TaskCreationService v2TaskCreation;
+    /** Typed Trunk runtime, supplied only when the V2 dispatcher graph exists. */
+    private V2ThreadControlService v2ThreadControls;
     private TransactionTemplate legacyTaskTransactions;
     /** Wired by Spring via {@link ApplicationEventPublisherAware}; stays
      *  null in POJO unit tests that construct this service directly, where
@@ -219,6 +222,13 @@ public class ThreadService
                 v2TaskCreation, "v2TaskCreation is null");
         this.legacyTaskTransactions = new TransactionTemplate(requireNonNull(
                 transactionManager, "transactionManager is null"));
+    }
+
+    @Autowired(required = false)
+    void setV2ThreadControls(V2ThreadControlService v2ThreadControls)
+    {
+        this.v2ThreadControls = requireNonNull(
+                v2ThreadControls, "v2ThreadControls is null");
     }
 
     @Override
@@ -450,6 +460,10 @@ public class ThreadService
         Thread current = store.findThreadById(threadId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no thread: " + threadId));
+        if (isV2Trunk(threadId)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "V2 Trunk engines are frozen at creation");
+        }
         Thread next = new Thread(
                 current.id(), current.kind(), current.provider(), current.agentSessionId(),
                 current.title(), current.status(),
@@ -468,6 +482,10 @@ public class ThreadService
      *  subprocess turn. Running turns keep the command they already spawned. */
     public void updateTrunkWorkModel(String threadId, WorkModel resolved)
     {
+        if (isV2Trunk(threadId)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "V2 Trunk engines are frozen at creation");
+        }
         registry.updateTrunkWorkModel(threadId, resolved);
     }
 
@@ -638,7 +656,11 @@ public class ThreadService
     {
         requireNonNull(request, "request is null");
         Thread thread = requireTask(threadId);
-        if (v2TaskCreation != null && v2TaskCreation.routes(thread.workspaceId())) {
+        if (isV2Trunk(thread.id())) {
+            if (v2TaskCreation == null) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(503),
+                        "V2 Task creation is not configured");
+            }
             return v2TaskCreation.create(thread, request);
         }
         if (legacyTaskTransactions != null) {
@@ -848,6 +870,9 @@ public class ThreadService
 
     public List<ThreadMessage> history(String threadId)
     {
+        if (isV2Trunk(threadId)) {
+            return requireV2ThreadControls().history(threadId);
+        }
         return store.listMessages(threadId);
     }
 
@@ -857,19 +882,30 @@ public class ThreadService
     public boolean isWorkModelAgentLocked(String threadId)
     {
         requireTask(threadId);
+        if (isV2Trunk(threadId)) {
+            return !requireV2ThreadControls().history(threadId).isEmpty();
+        }
         return store.countUserMessages(threadId) > 0;
     }
 
     /** Recent scheduler turns for one thread, newest first. */
     public List<ThreadTurn> turns(String threadId)
     {
-        return turnStore.listTurnsByTaskId(requireTask(threadId).id(), TURN_HISTORY_LIMIT);
+        Thread thread = requireTask(threadId);
+        if (isV2Trunk(thread.id())) {
+            return requireV2ThreadControls().turns(thread.id(), TURN_HISTORY_LIMIT);
+        }
+        return turnStore.listTurnsByTaskId(thread.id(), TURN_HISTORY_LIMIT);
     }
 
     /** Recent scheduler events for one thread, newest first. */
     public List<ThreadTurnEvent> turnEvents(String threadId)
     {
-        return turnEventStore.listEventsByTaskId(requireTask(threadId).id(), TURN_EVENT_HISTORY_LIMIT);
+        Thread thread = requireTask(threadId);
+        if (isV2Trunk(thread.id())) {
+            return requireV2ThreadControls().turnEvents(thread.id());
+        }
+        return turnEventStore.listEventsByTaskId(thread.id(), TURN_EVENT_HISTORY_LIMIT);
     }
 
     /** Queued/running turns across all threads, oldest first. */
@@ -898,6 +934,10 @@ public class ThreadService
             throw new IllegalArgumentException(
                     "task " + taskId + " does not belong to thread " + threadId);
         }
+        if (taskStore.isV2Task(task.id())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "V2 Task follow-ups must target its current Stage");
+        }
         return scheduler.enqueueTaskTurn(thread, input, task.id());
     }
 
@@ -907,15 +947,23 @@ public class ThreadService
      *  rather than any Task's segment. */
     public String sendTrunk(String threadId, String input)
     {
-        return scheduler.enqueueTrunkTurn(requireTask(threadId), input);
+        Thread thread = requireTask(threadId);
+        if (isV2Trunk(thread.id())) {
+            return requireV2ThreadControls().send(thread, input, TurnInitiator.user());
+        }
+        return scheduler.enqueueTrunkTurn(thread, input);
     }
 
     /** Background counterpart to {@link #sendTrunk}; the durable initiator
      *  keeps approval policy in unattended mode. */
     public String sendTrunkUnattended(String threadId, String input, String source)
     {
-        return scheduler.enqueueTrunkTurn(
-                requireTask(threadId), input, TurnInitiator.unattended(source));
+        Thread thread = requireTask(threadId);
+        TurnInitiator initiator = TurnInitiator.unattended(source);
+        if (isV2Trunk(thread.id())) {
+            return requireV2ThreadControls().send(thread, input, initiator);
+        }
+        return scheduler.enqueueTrunkTurn(thread, input, initiator);
     }
 
     public void interruptTrunk(String threadId)
@@ -923,6 +971,10 @@ public class ThreadService
         requireNonNull(threadId, "threadId is null");
         Thread thread = requireTask(threadId);
         requireTrunkThread(thread);
+        if (isV2Trunk(thread.id())) {
+            requireV2ThreadControls().interrupt(thread.id());
+            return;
+        }
         registry.findTrunk(threadId)
                 .orElseGet(() -> registry.getOrCreateTrunk(thread))
                 .interrupt();
@@ -960,6 +1012,10 @@ public class ThreadService
     {
         requireNonNull(threadId, "threadId is null");
         Thread thread = requireTask(threadId);
+        if (isV2Trunk(thread.id())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "V2 jump-in requires typed Task and Stage quiescence");
+        }
         if (thread.status() == ThreadStatus.RUNNING) {
             // Interrupt every live stage-agent so a mid-flight CLI exits at
             // its next tool boundary and releases its worktree lease.
@@ -991,12 +1047,20 @@ public class ThreadService
     {
         Thread thread = store.findThreadById(threadId)
                 .orElseThrow(() -> new NoSuchElementException("no thread: " + threadId));
+        if (isV2Trunk(thread.id())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "V2 Trunk turns resume through their durable dispatcher owner");
+        }
         registry.getOrCreateTrunkAgent(thread).resume();
     }
 
     public void stop(String threadId)
     {
-        requireTask(threadId);
+        Thread thread = requireTask(threadId);
+        if (isV2Trunk(thread.id())) {
+            requireV2ThreadControls().interrupt(thread.id());
+            return;
+        }
         scheduler.cancelQueuedTurns(threadId);
         // Stop every live Task agent before evicting — a thread may have
         // several Tasks running. evict() then drops all of
@@ -1033,6 +1097,10 @@ public class ThreadService
         Optional<Thread> existing = store.findThreadById(threadId);
         if (existing.isEmpty()) {
             return;
+        }
+        if (isV2Trunk(threadId)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "V2 Trunk deletion requires typed Cleanup completion");
         }
         // Refuse while any task is still in flight — running / queued
         // tasks hold worktrees and live agent processes, and deleting
@@ -1072,6 +1140,10 @@ public class ThreadService
         requireNonNull(threadId, "threadId is null");
         if (store.findThreadById(threadId).isEmpty()) {
             return;
+        }
+        if (isV2Trunk(threadId)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "V2 Trunk purge requires typed Cleanup quiescence");
         }
         teardownAndDelete(threadId, taskStore.listTasksByThread(threadId));
     }
@@ -1122,6 +1194,20 @@ public class ThreadService
         }
         dataPurger.purgeThreadScoped(threadId, allTasks.stream().map(Task::id).toList());
         store.deleteThread(threadId);
+    }
+
+    private boolean isV2Trunk(String threadId)
+    {
+        return store.findTurnVersion(threadId).filter("V2"::equals).isPresent();
+    }
+
+    private V2ThreadControlService requireV2ThreadControls()
+    {
+        if (v2ThreadControls == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(503),
+                    "V2 Trunk runtime is not configured");
+        }
+        return v2ThreadControls;
     }
 
     private void stopQuietly(String threadId, ThreadAgent agent)
@@ -1626,6 +1712,10 @@ public class ThreadService
     {
         Thread thread = requireTask(threadId);
         requireTrunkThread(thread);
+        if (isV2Trunk(thread.id())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "V2 Trunk live events use the durable turn projection");
+        }
         return registry.getOrCreateTrunkAgent(thread).subscribeToEvents(listener);
     }
 
@@ -1637,6 +1727,10 @@ public class ThreadService
     {
         if (agentKey == null || agentKey.isBlank()) {
             throw new NoSuchElementException("permission call has no agent key");
+        }
+        if (isV2Trunk(threadId)) {
+            throw new NoSuchElementException(
+                    "V2 permission calls use the typed execution endpoint");
         }
         return registry.findByAgentKey(threadId, agentKey)
                 .orElseThrow(() -> new NoSuchElementException(

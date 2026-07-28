@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
+import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.ListPullRequestsQuery;
@@ -123,6 +124,7 @@ public class TaskService
     private final TaskRuntimeStopReconciler stopReconciler;
     private final Executor pauseTeardownExecutor;
     private V2DevelopmentFlowProjection v2Projection;
+    private V2TaskControlService v2Controls;
     /** Generation token for the one committed Pause teardown still allowed to
      *  touch a task's runtime. Resume/Cancel remove it under the task lock. */
     private final ConcurrentHashMap<String, Object> pauseTeardownTokens = new ConcurrentHashMap<>();
@@ -216,6 +218,12 @@ public class TaskService
         this.v2Projection = requireNonNull(v2Projection, "v2Projection is null");
     }
 
+    @Autowired(required = false)
+    void setV2Controls(V2TaskControlService v2Controls)
+    {
+        this.v2Controls = requireNonNull(v2Controls, "v2Controls is null");
+    }
+
     /** All tasks for a thread, ordered by seq ascending. 404 if the
      *  thread doesn't exist (so callers can't probe arbitrary ids). */
     public List<Task> listTasksForThread(String threadId)
@@ -232,6 +240,9 @@ public class TaskService
     public boolean isAutoApprove(String threadId, String taskId)
     {
         requireTask(threadId, taskId);
+        if (taskStore.isV2Task(taskId)) {
+            return requireV2Controls().isAutoApprove(taskId);
+        }
         return taskStore.isAutoApprove(taskId);
     }
 
@@ -240,6 +251,9 @@ public class TaskService
     public int getMinApprovals(String threadId, String taskId)
     {
         requireTask(threadId, taskId);
+        if (taskStore.isV2Task(taskId)) {
+            return requireV2Controls().minApprovals(taskId);
+        }
         return taskStore.minApprovals(taskId);
     }
 
@@ -249,6 +263,9 @@ public class TaskService
     {
         requireTask(threadId, taskId);
         int clamped = Math.clamp(minApprovals, 0, 2);
+        if (taskStore.isV2Task(taskId)) {
+            return requireV2Controls().setMinApprovals(taskId, clamped);
+        }
         taskStore.setMinApprovals(taskId, clamped);
         return taskStore.minApprovals(taskId);
     }
@@ -259,6 +276,9 @@ public class TaskService
     public boolean setAutoApprove(String threadId, String taskId, boolean enabled)
     {
         requireTask(threadId, taskId);
+        if (taskStore.isV2Task(taskId)) {
+            return requireV2Controls().setAutoApprove(taskId, enabled);
+        }
         taskStore.setAutoApprove(taskId, enabled);
         // Turning it on clears any gate already parked, not just future ones —
         // AutoApproveGateListener sweeps the task's parked non-merge gates.
@@ -272,6 +292,9 @@ public class TaskService
     public boolean isAutoMerge(String threadId, String taskId)
     {
         requireTask(threadId, taskId);
+        if (taskStore.isV2Task(taskId)) {
+            return requireV2Controls().isAutoMerge(taskId);
+        }
         return taskStore.isAutoMerge(taskId);
     }
 
@@ -283,6 +306,9 @@ public class TaskService
     public boolean setAutoMerge(String threadId, String taskId, boolean enabled)
     {
         requireTask(threadId, taskId);
+        if (taskStore.isV2Task(taskId)) {
+            return requireV2Controls().setAutoMerge(taskId, enabled);
+        }
         taskStore.setAutoMerge(taskId, enabled);
         if (enabled) {
             taskStore.setAutoApprove(taskId, true);
@@ -354,6 +380,10 @@ public class TaskService
     public Task setWorkModel(String threadId, String taskId, WorkModel workModel)
     {
         Task current = requireTask(threadId, taskId);
+        if (taskStore.isV2Task(taskId)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "V2 Task engines are frozen at creation");
+        }
         Task next = current.withWorkModel(workModel);
         taskStore.saveTask(next);
         return next;
@@ -407,6 +437,11 @@ public class TaskService
     private Task shipOrParkAndStartNext(
             String threadId, String taskId, ShipRequest request, ParkMode mode, boolean approvedParked)
     {
+        if (taskStore.isV2Task(taskId)) {
+            requireTask(threadId, taskId);
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "V2 Task promotion is owned by Local Development");
+        }
         return TaskExternalEffectGate.withEffectGate(taskId, () ->
                 shipOrParkAndStartNextLocked(threadId, taskId, request, mode, approvedParked));
     }
@@ -756,6 +791,11 @@ public class TaskService
     {
         try {
             for (Task candidate : taskStore.findByLinkedPrNumber(prNumber)) {
+                if (taskStore.isV2Task(candidate.id())) {
+                    // Typed Remote Development owns V2 terminal evidence and
+                    // Cleanup admission. A legacy webhook must not seal it.
+                    continue;
+                }
                 TaskExternalEffectGate.withEffectGate(candidate.id(), () -> {
                     RemoteTerminalResult result = commands.execute(candidate.id(),
                             () -> finishOneForRemotePrInCommand(
@@ -817,7 +857,9 @@ public class TaskService
     {
         try {
             for (Task task : taskStore.findByLinkedPrNumber(prNumber)) {
-                if (task.status() == TaskStatus.IN_REVIEW && repoMatches(task, repoFullName)) {
+                if (!taskStore.isV2Task(task.id())
+                        && task.status() == TaskStatus.IN_REVIEW
+                        && repoMatches(task, repoFullName)) {
                     taskStore.authorizeMerge(task.id(), Instant.now());
                 }
             }
@@ -837,6 +879,11 @@ public class TaskService
      */
     public Task cancelTask(String threadId, String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            requireTask(threadId, taskId);
+            requireV2Controls().cancel(taskId);
+            return projectV2Task(taskId);
+        }
         return TaskExternalEffectGate.withEffectGate(taskId, () -> {
             Task task = commands.execute(taskId, () -> cancelTaskInCommand(taskId));
             return finishCancelRuntime(threadId, task);
@@ -915,6 +962,11 @@ public class TaskService
      */
     public Task pauseTask(String threadId, String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            requireTask(threadId, taskId);
+            requireV2Controls().pause(taskId);
+            return projectV2Task(taskId);
+        }
         return TaskExternalEffectGate.withEffectGate(taskId, () -> pauseTaskCommand(threadId, taskId));
     }
 
@@ -1000,6 +1052,11 @@ public class TaskService
     /** Compatibility wrapper for the nested task URL. */
     public Task resumeTask(String threadId, String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            requireTask(threadId, taskId);
+            requireV2Controls().resume(taskId);
+            return projectV2Task(taskId);
+        }
         return TaskExternalEffectGate.withEffectGate(
                 taskId, () -> resumeTaskCommand(taskId, threadId, false));
     }
@@ -1010,6 +1067,10 @@ public class TaskService
      */
     public Task resumeTask(String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            requireV2Controls().resume(taskId);
+            return projectV2Task(taskId);
+        }
         return TaskExternalEffectGate.withEffectGate(
                 taskId, () -> resumeTaskCommand(taskId, null, false));
     }
@@ -1019,6 +1080,11 @@ public class TaskService
      *  because recovery causes a remote GitHub Actions rerun. */
     public Task retryFailedCi(String threadId, String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            requireTask(threadId, taskId);
+            requireV2Controls().retryFailedCi(taskId);
+            return projectV2Task(taskId);
+        }
         return TaskExternalEffectGate.withEffectGate(
                 taskId, () -> resumeTaskCommand(taskId, threadId, true));
     }
@@ -1207,6 +1273,9 @@ public class TaskService
      */
     public Task completeRequestedResume(String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            return projectV2Task(taskId);
+        }
         return TaskExternalEffectGate.withEffectGate(
                 taskId, () -> completeRequestedResumeLocked(taskId));
     }
@@ -1313,6 +1382,9 @@ public class TaskService
      */
     public Task completeRequestedRecovery(String taskId)
     {
+        if (taskStore.isV2Task(taskId)) {
+            return projectV2Task(taskId);
+        }
         return TaskExternalEffectGate.withEffectGate(
                 taskId, () -> completeRequestedRecoveryLocked(taskId));
     }
@@ -1386,6 +1458,23 @@ public class TaskService
         return taskStore.findTaskById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no task: " + taskId));
+    }
+
+    private V2TaskControlService requireV2Controls()
+    {
+        if (v2Controls == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(503),
+                    "V2 Task controls are not configured");
+        }
+        return v2Controls;
+    }
+
+    private Task projectV2Task(String taskId)
+    {
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        return v2Projection == null ? task : v2Projection.project(task);
     }
 
     private RecoveryCompletion completeRequestedRecoveryInCommand(

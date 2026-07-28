@@ -110,6 +110,7 @@ public class DevelopmentFlowExecutionConfig
     public ExecutionDispatcher v2ExecutionDispatcher(
             CapacityManager capacityManager,
             ExecutionPorts.DispatchTicketStore tickets,
+            ExecutionPorts.DispatchWakeStore wakes,
             ExecutionPorts.OperationHandlerRegistry handlers,
             ExecutionPorts.ResultDeliveryPort resultDelivery,
             ExecutionPorts.ExecutionEvidencePort evidence)
@@ -117,6 +118,7 @@ public class DevelopmentFlowExecutionConfig
         return new ExecutionDispatcher(
                 capacityManager,
                 tickets,
+                wakes,
                 handlers,
                 resultDelivery,
                 evidence,

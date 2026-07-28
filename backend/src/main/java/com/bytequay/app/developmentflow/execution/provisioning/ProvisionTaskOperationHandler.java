@@ -39,6 +39,8 @@ public final class ProvisionTaskOperationHandler
 {
     public static final String OPERATION_KIND = "PROVISION_TASK";
     public static final String CALLBACK_ROUTE = "TASK_PROVISION_RESULT";
+    public static final String SOURCE_PROOF_SCHEMA = "PROVISION_SOURCE_PROOF_V1";
+    public static final long SOURCE_PROOF_LOG_SEQUENCE = 0;
 
     private final OperationStore operations;
     private final ProvisioningGit git;
@@ -82,24 +84,35 @@ public final class ProvisionTaskOperationHandler
                 envelope.fence().operationId());
         MutationTarget target = validate(envelope, request);
         cancelBeforeMutation(context);
+        Thread executionThread = Thread.currentThread();
+        context.onCancellation(executionThread::interrupt);
 
         WorktreeWriterLeaseManager.Lease lease = writers.acquire(
                 context, target.worktreePath().toString());
         ProvisioningGit.Probe before = git.probe(target);
+        Optional<ResolvedSource> priorSource = requirePriorSourceProof(
+                request, target, operations.findPriorSourceProof(request.operationId()));
         if (before.state() == ProvisioningGit.ProbeState.EXACT) {
-            return exactResult(context, request, target, before.headSha());
+            return exactResult(
+                    context, request, target, before.headSha(), priorSource);
         }
         requireAbsent(before);
 
         ResolvedSource source;
-        try {
-            source = resolveSource(context, lease, request, target);
+        if (priorSource.isPresent()) {
+            source = priorSource.orElseThrow();
         }
-        catch (ProvisioningGit.MutationFailure failure) {
-            return recoverAfterMutationFailure(
-                    context, request, target, null, failure);
+        else {
+            try {
+                source = resolveSource(context, lease, request, target);
+            }
+            catch (ProvisioningGit.MutationFailure failure) {
+                return recoverAfterMutationFailure(
+                        context, request, target, null, priorSource, failure);
+            }
         }
 
+        recordSourceProof(context, request, target, source);
         cancelBeforeMutation(context);
         try {
             mutate(context, lease, fence -> {
@@ -112,7 +125,7 @@ public final class ProvisionTaskOperationHandler
         }
         catch (ProvisioningGit.MutationFailure failure) {
             return recoverAfterMutationFailure(
-                    context, request, target, source, failure);
+                    context, request, target, source, priorSource, failure);
         }
 
         cancelBeforeMutation(context);
@@ -194,6 +207,7 @@ public final class ProvisionTaskOperationHandler
             ProvisionRequest request,
             MutationTarget target,
             ResolvedSource source,
+            Optional<ResolvedSource> priorSource,
             ProvisioningGit.MutationFailure failure)
             throws Exception
     {
@@ -208,7 +222,8 @@ public final class ProvisionTaskOperationHandler
                 return success(
                         context, request, target, source.baseSha(), source.headSha());
             }
-            return exactResult(context, request, target, after.headSha());
+            return exactResult(
+                    context, request, target, after.headSha(), priorSource);
         }
         if (after.state() == ProvisioningGit.ProbeState.ABSENT) {
             throw new ExecutionPorts.RetryableExecutionException(
@@ -223,23 +238,120 @@ public final class ProvisionTaskOperationHandler
             ExecutionContext context,
             ProvisionRequest request,
             MutationTarget target,
-            String observedHead)
+            String observedHead,
+            Optional<ResolvedSource> priorSource)
             throws JsonProcessingException, ExecutionPorts.IndeterminateExecutionException
     {
-        String base = switch (request.baseSource()) {
-            case PLANNING_SNAPSHOT -> request.expectedBaseSha();
-            case FRESH_REMOTE_BASE -> observedHead;
-            case EXISTING_PR_HEAD -> request.expectedBaseSha();
+        ResolvedSource source = switch (request.baseSource()) {
+            case PLANNING_SNAPSHOT -> new ResolvedSource(
+                    request.expectedBaseSha(), request.expectedBaseSha());
+            case FRESH_REMOTE_BASE -> priorSource.orElseThrow(() -> indeterminate(
+                    "exact fresh-base target has no prior durable source proof"));
+            case EXISTING_PR_HEAD -> new ResolvedSource(
+                    request.expectedBaseSha(), request.expectedHeadSha());
         };
-        String requiredHead = request.baseSource() == BaseSource.EXISTING_PR_HEAD
-                ? request.expectedHeadSha()
-                : base;
         requireExactHead(
-                ProvisioningGit.Probe.exact(observedHead), requiredHead);
-        if (request.baseSource() != BaseSource.FRESH_REMOTE_BASE) {
-            requireLocalCommit(target.repositoryRoot(), base, "provisioning base");
+                ProvisioningGit.Probe.exact(observedHead), source.headSha());
+        requireLocalCommit(
+                target.repositoryRoot(), source.baseSha(), "provisioning base");
+        return success(
+                context, request, target, source.baseSha(), source.headSha());
+    }
+
+    private Optional<ResolvedSource> requirePriorSourceProof(
+            ProvisionRequest request,
+            MutationTarget target,
+            Optional<ProvisionSourceProof> proof)
+            throws ExecutionPorts.IndeterminateExecutionException
+    {
+        if (proof.isEmpty()) {
+            return Optional.empty();
         }
-        return success(context, request, target, base, observedHead);
+        ProvisionSourceProof durable = proof.orElseThrow();
+        ProvisionSourceEvidence evidence = durable.evidence();
+        String expectedHeadRepository = request.baseSource() == BaseSource.EXISTING_PR_HEAD
+                ? request.assignmentHeadRepositoryId()
+                : null;
+        String expectedHeadRef = request.baseSource() == BaseSource.EXISTING_PR_HEAD
+                ? request.headRef()
+                : null;
+        if (!SOURCE_PROOF_SCHEMA.equals(evidence.schema())
+                || !durable.executionId().equals(evidence.executionId())
+                || !request.operationId().equals(evidence.operationId())
+                || request.attempt() != evidence.operationAttempt()
+                || !request.taskId().equals(evidence.taskId())
+                || request.taskEpoch() != evidence.taskEpoch()
+                || request.baseSource() != evidence.baseSource()
+                || !request.repositoryId().equals(evidence.repositoryId())
+                || !request.baseRepositoryId().equals(evidence.baseRepositoryId())
+                || !request.baseRef().equals(evidence.baseRef())
+                || !Objects.equals(expectedHeadRepository, evidence.headRepositoryId())
+                || !Objects.equals(expectedHeadRef, evidence.headRef())
+                || !request.branchName().equals(evidence.branchName())
+                || !request.worktreePath().equals(evidence.worktreePath())) {
+            throw indeterminate(
+                    "prior provisioning source proof does not match the exact operation");
+        }
+        ResolvedSource source = new ResolvedSource(
+                evidence.baseSha(), evidence.headSha());
+        switch (request.baseSource()) {
+            case PLANNING_SNAPSHOT -> requireFrozenSource(
+                    source, request.expectedBaseSha(), request.expectedBaseSha());
+            case FRESH_REMOTE_BASE -> requireFrozenSource(
+                    source, source.baseSha(), source.baseSha());
+            case EXISTING_PR_HEAD -> requireFrozenSource(
+                    source, request.expectedBaseSha(), request.expectedHeadSha());
+        }
+        requireLocalCommit(
+                target.repositoryRoot(), source.baseSha(), "proven provisioning base");
+        requireLocalCommit(
+                target.repositoryRoot(), source.headSha(), "proven provisioning head");
+        return Optional.of(source);
+    }
+
+    private void recordSourceProof(
+            ExecutionContext context,
+            ProvisionRequest request,
+            MutationTarget target,
+            ResolvedSource source)
+            throws JsonProcessingException
+    {
+        ProvisionSourceEvidence evidence = new ProvisionSourceEvidence(
+                SOURCE_PROOF_SCHEMA,
+                context.executionId(),
+                request.operationId(),
+                request.attempt(),
+                request.taskId(),
+                request.taskEpoch(),
+                request.baseSource(),
+                request.repositoryId(),
+                request.baseRepositoryId(),
+                request.baseRef(),
+                request.baseSource() == BaseSource.EXISTING_PR_HEAD
+                        ? request.assignmentHeadRepositoryId()
+                        : null,
+                request.baseSource() == BaseSource.EXISTING_PR_HEAD
+                        ? request.headRef()
+                        : null,
+                target.branchName(),
+                target.worktreePath().toString(),
+                source.baseSha(),
+                source.headSha());
+        context.appendLog(
+                SOURCE_PROOF_LOG_SEQUENCE, json.writeValueAsString(evidence));
+    }
+
+    private static void requireFrozenSource(
+            ResolvedSource source,
+            String expectedBase,
+            String expectedHead)
+            throws ExecutionPorts.IndeterminateExecutionException
+    {
+        if (!Objects.equals(expectedBase, source.baseSha())
+                || !Objects.equals(expectedHead, source.headSha())) {
+            throw indeterminate(
+                    "prior provisioning source proof has different frozen SHAs");
+        }
     }
 
     private DispatchTicket.DispatchResult success(
@@ -527,6 +639,12 @@ public final class ProvisionTaskOperationHandler
     public interface OperationStore
     {
         ProvisionRequest requireByOperationId(String operationId);
+
+        /** Returns only a valid source proof from an earlier infrastructure attempt. */
+        default Optional<ProvisionSourceProof> findPriorSourceProof(String operationId)
+        {
+            return Optional.empty();
+        }
     }
 
     public interface ProvisioningGit
@@ -721,6 +839,88 @@ public final class ProvisionTaskOperationHandler
             String baseSha,
             String headSha,
             String codeFingerprint) {}
+
+    public record ProvisionSourceProof(
+            String executionId,
+            int infrastructureAttempt,
+            ProvisionSourceEvidence evidence)
+    {
+        public ProvisionSourceProof
+        {
+            requireText(executionId, "executionId");
+            requireNonNull(evidence, "evidence is null");
+            if (infrastructureAttempt < 1) {
+                throw new IllegalArgumentException(
+                        "infrastructureAttempt must be positive");
+            }
+        }
+    }
+
+    public record ProvisionSourceEvidence(
+            String schema,
+            String executionId,
+            String operationId,
+            int operationAttempt,
+            String taskId,
+            long taskEpoch,
+            BaseSource baseSource,
+            String repositoryId,
+            String baseRepositoryId,
+            String baseRef,
+            String headRepositoryId,
+            String headRef,
+            String branchName,
+            String worktreePath,
+            String baseSha,
+            String headSha)
+    {
+        public ProvisionSourceEvidence
+        {
+            requireText(schema, "schema");
+            requireText(executionId, "executionId");
+            requireText(operationId, "operationId");
+            requireText(taskId, "taskId");
+            requireNonNull(baseSource, "baseSource is null");
+            requireText(repositoryId, "repositoryId");
+            requireText(baseRepositoryId, "baseRepositoryId");
+            requireText(baseRef, "baseRef");
+            requireText(branchName, "branchName");
+            requireText(worktreePath, "worktreePath");
+            requireText(baseSha, "baseSha");
+            requireText(headSha, "headSha");
+            if (operationAttempt < 1 || taskEpoch < 1) {
+                throw new IllegalArgumentException(
+                        "operationAttempt and taskEpoch must be positive");
+            }
+            if (baseSource == BaseSource.EXISTING_PR_HEAD) {
+                requireText(headRepositoryId, "headRepositoryId");
+                requireText(headRef, "headRef");
+            }
+            else if (headRepositoryId != null || headRef != null) {
+                throw new IllegalArgumentException(
+                        "only existing-PR source proof may carry a head ref");
+            }
+        }
+
+        public boolean sameSourceAs(ProvisionSourceEvidence other)
+        {
+            return other != null
+                    && operationId.equals(other.operationId)
+                    && operationAttempt == other.operationAttempt
+                    && taskId.equals(other.taskId)
+                    && taskEpoch == other.taskEpoch
+                    && baseSource == other.baseSource
+                    && repositoryId.equals(other.repositoryId)
+                    && baseRepositoryId.equals(other.baseRepositoryId)
+                    && baseRef.equals(other.baseRef)
+                    && Objects.equals(headRepositoryId, other.headRepositoryId)
+                    && Objects.equals(headRef, other.headRef)
+                    && branchName.equals(other.branchName)
+                    && worktreePath.equals(other.worktreePath)
+                    && baseSha.equals(other.baseSha)
+                    && headSha.equals(other.headSha);
+        }
+    }
 
     private record ResolvedSource(String baseSha, String headSha)
     {

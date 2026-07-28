@@ -16,7 +16,10 @@ package com.bytequay.app.developmentflow.execution;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.BaseSource;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.MutationTarget;
+import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.OperationStore;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.ProvisionRequest;
+import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.ProvisionSourceEvidence;
+import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.ProvisionSourceProof;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler.ProvisioningGit;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -34,6 +37,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static com.bytequay.app.developmentflow.execution.CapacityManager.CapacityLane.LOCAL_GIT;
 import static com.bytequay.app.developmentflow.execution.CapacityManager.WorkflowSource.V2;
@@ -82,6 +91,7 @@ class TestProvisionTaskOperationHandler
         ProvisionTaskOperationHandler handler = handler(request, git);
 
         try (ContextFixture fixture = context(request)) {
+            git.beforeCreate = () -> assertThat(fixture.evidence().logs).hasSize(1);
             DispatchTicket.DispatchResult result = handler.execute(fixture.context());
 
             assertResult(result, BASE_SHA, BASE_SHA);
@@ -102,6 +112,7 @@ class TestProvisionTaskOperationHandler
         ProvisionTaskOperationHandler handler = handler(request, git);
 
         try (ContextFixture fixture = context(request)) {
+            git.beforeCreate = () -> assertThat(fixture.evidence().logs).hasSize(1);
             DispatchTicket.DispatchResult result = handler.execute(fixture.context());
 
             assertResult(result, BASE_SHA, BASE_SHA);
@@ -109,6 +120,17 @@ class TestProvisionTaskOperationHandler
             assertThat(git.resolvedRemoteBranches).containsExactly("origin:main");
             assertThat(git.createdHeads).containsExactly(BASE_SHA);
             assertThat(git.mutationTokens).containsExactly(1L, 1L);
+            assertThat(fixture.evidence().logs).hasSize(1);
+            ProvisionSourceEvidence sourceProof = json.readValue(
+                    fixture.evidence().logs.getFirst().payloadJson(),
+                    ProvisionSourceEvidence.class);
+            assertThat(sourceProof.schema())
+                    .isEqualTo(ProvisionTaskOperationHandler.SOURCE_PROOF_SCHEMA);
+            assertThat(sourceProof.executionId()).isEqualTo("execution-1");
+            assertThat(sourceProof.operationId()).isEqualTo(OPERATION_ID);
+            assertThat(sourceProof.operationAttempt()).isEqualTo(1);
+            assertThat(sourceProof.baseSha()).isEqualTo(BASE_SHA);
+            assertThat(sourceProof.headSha()).isEqualTo(BASE_SHA);
         }
     }
 
@@ -152,6 +174,34 @@ class TestProvisionTaskOperationHandler
             assertThat(git.probeCalls).isZero();
             assertThat(git.fetches).isEmpty();
             assertThat(git.createdHeads).isEmpty();
+        }
+    }
+
+    @Test
+    void cancellationInterruptsBlockingGitMutationAndDoesNotContinueToCreate()
+            throws Exception
+    {
+        ProvisionRequest request = request(BaseSource.FRESH_REMOTE_BASE);
+        FakeGit git = new FakeGit();
+        git.remotes.put("acme/widget", "origin");
+        git.remoteBranches.put("origin:main", BASE_SHA);
+        git.blockFetch = true;
+        ProvisionTaskOperationHandler handler = handler(request, git);
+
+        try (ContextFixture fixture = context(request);
+                ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<DispatchTicket.DispatchResult> result = executor.submit(
+                    () -> handler.execute(fixture.context()));
+            assertThat(git.fetchStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+            fixture.cancellation().cancel();
+
+            assertThatThrownBy(() -> result.get(5, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(ExecutionPorts.OperationCanceledException.class);
+            assertThat(git.fetchInterrupted).isTrue();
+            assertThat(git.createdHeads).isEmpty();
+            assertThat(fixture.evidence().logs).isEmpty();
         }
     }
 
@@ -235,8 +285,29 @@ class TestProvisionTaskOperationHandler
     }
 
     @Test
-    void restartReconcileAdoptsOnlyExactFreshTargetWithoutAnotherFetch()
+    void restartReconcileAdoptsOnlyFreshTargetWithPriorDurableSourceProof()
             throws Exception
+    {
+        ProvisionRequest request = request(BaseSource.FRESH_REMOTE_BASE);
+        FakeGit git = new FakeGit();
+        git.probe = ProvisioningGit.Probe.exact(HEAD_SHA);
+        git.localCommits.add(HEAD_SHA);
+        ProvisionTaskOperationHandler restarted = handler(
+                request,
+                git,
+                Optional.of(sourceProof(request, "execution-previous", HEAD_SHA, HEAD_SHA)));
+
+        try (ContextFixture fixture = context(request)) {
+            DispatchTicket.DispatchResult result = restarted.reconcile(fixture.context());
+
+            assertResult(result, HEAD_SHA, HEAD_SHA);
+            assertThat(git.fetches).isEmpty();
+            assertThat(git.createdHeads).isEmpty();
+        }
+    }
+
+    @Test
+    void restartRejectsExactFreshTargetWithoutPriorDurableSourceProof()
     {
         ProvisionRequest request = request(BaseSource.FRESH_REMOTE_BASE);
         FakeGit git = new FakeGit();
@@ -244,9 +315,9 @@ class TestProvisionTaskOperationHandler
         ProvisionTaskOperationHandler restarted = handler(request, git);
 
         try (ContextFixture fixture = context(request)) {
-            DispatchTicket.DispatchResult result = restarted.reconcile(fixture.context());
-
-            assertResult(result, HEAD_SHA, HEAD_SHA);
+            assertThatThrownBy(() -> restarted.reconcile(fixture.context()))
+                    .isInstanceOf(ExecutionPorts.IndeterminateExecutionException.class)
+                    .hasMessageContaining("no prior durable source proof");
             assertThat(git.fetches).isEmpty();
             assertThat(git.createdHeads).isEmpty();
         }
@@ -271,8 +342,61 @@ class TestProvisionTaskOperationHandler
 
     private ProvisionTaskOperationHandler handler(ProvisionRequest request, FakeGit git)
     {
+        return handler(request, git, Optional.empty());
+    }
+
+    private ProvisionTaskOperationHandler handler(
+            ProvisionRequest request,
+            FakeGit git,
+            Optional<ProvisionSourceProof> priorSourceProof)
+    {
+        OperationStore store = new OperationStore()
+        {
+            @Override
+            public ProvisionRequest requireByOperationId(String operationId)
+            {
+                return request;
+            }
+
+            @Override
+            public Optional<ProvisionSourceProof> findPriorSourceProof(
+                    String operationId)
+            {
+                return priorSourceProof;
+            }
+        };
         return new ProvisionTaskOperationHandler(
-                ignored -> request, git, writers, json);
+                store, git, writers, json);
+    }
+
+    private ProvisionSourceProof sourceProof(
+            ProvisionRequest request,
+            String executionId,
+            String baseSha,
+            String headSha)
+    {
+        ProvisionSourceEvidence evidence = new ProvisionSourceEvidence(
+                ProvisionTaskOperationHandler.SOURCE_PROOF_SCHEMA,
+                executionId,
+                request.operationId(),
+                request.attempt(),
+                request.taskId(),
+                request.taskEpoch(),
+                request.baseSource(),
+                request.repositoryId(),
+                request.baseRepositoryId(),
+                request.baseRef(),
+                request.baseSource() == BaseSource.EXISTING_PR_HEAD
+                        ? request.assignmentHeadRepositoryId()
+                        : null,
+                request.baseSource() == BaseSource.EXISTING_PR_HEAD
+                        ? request.headRef()
+                        : null,
+                request.branchName(),
+                request.worktreePath(),
+                baseSha,
+                headSha);
+        return new ProvisionSourceProof(executionId, 1, evidence);
     }
 
     private ContextFixture context(ProvisionRequest request)
@@ -311,16 +435,17 @@ class TestProvisionTaskOperationHandler
                         request.attempt(), null, request.expectedHeadSha(), envelopeBase),
                 capacityRequest);
         ExecutionContext.Cancellation cancellation = new ExecutionContext.Cancellation();
+        RecordingEvidence evidence = new RecordingEvidence();
         ExecutionContext context = new ExecutionContext(
                 envelope,
                 lease,
                 cancellation,
-                new NoopEvidence(),
+                evidence,
                 "execution-1",
                 clock,
                 () -> capacity.requireExactLeaseForTicket(
                         ticketId, lease.id(), capacityRequest, owner));
-        return new ContextFixture(context, cancellation, lease, owner);
+        return new ContextFixture(context, cancellation, evidence, lease, owner);
     }
 
     private ProvisionRequest request(BaseSource source)
@@ -410,17 +535,20 @@ class TestProvisionTaskOperationHandler
     {
         private final ExecutionContext context;
         private final ExecutionContext.Cancellation cancellation;
+        private final RecordingEvidence evidence;
         private final CapacityManager.CapacityLease lease;
         private final String owner;
 
         private ContextFixture(
                 ExecutionContext context,
                 ExecutionContext.Cancellation cancellation,
+                RecordingEvidence evidence,
                 CapacityManager.CapacityLease lease,
                 String owner)
         {
             this.context = context;
             this.cancellation = cancellation;
+            this.evidence = evidence;
             this.lease = lease;
             this.owner = owner;
         }
@@ -433,6 +561,11 @@ class TestProvisionTaskOperationHandler
         ExecutionContext.Cancellation cancellation()
         {
             return cancellation;
+        }
+
+        RecordingEvidence evidence()
+        {
+            return evidence;
         }
 
         @Override
@@ -454,9 +587,14 @@ class TestProvisionTaskOperationHandler
         private final List<String> resolvedRemoteBranches = new ArrayList<>();
         private final List<String> createdHeads = new ArrayList<>();
         private final List<Long> mutationTokens = new ArrayList<>();
+        private final CountDownLatch fetchStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseFetch = new CountDownLatch(1);
         private int probeCalls;
         private boolean failAfterCreate;
         private boolean conflictAfterCreate;
+        private boolean blockFetch;
+        private volatile boolean fetchInterrupted;
+        private Runnable beforeCreate = () -> {};
 
         @Override
         public Probe probe(MutationTarget target)
@@ -498,6 +636,18 @@ class TestProvisionTaskOperationHandler
         {
             requireFence(target, fence);
             fetches.add(remote);
+            fetchStarted.countDown();
+            if (blockFetch) {
+                try {
+                    releaseFetch.await();
+                }
+                catch (InterruptedException interrupted) {
+                    fetchInterrupted = true;
+                    Thread.currentThread().interrupt();
+                    throw new MutationFailure(
+                            "simulated interrupted fetch", interrupted);
+                }
+            }
         }
 
         @Override
@@ -507,6 +657,7 @@ class TestProvisionTaskOperationHandler
                 WorktreeWriterLeaseManager.MutationFence fence)
         {
             requireFence(target, fence);
+            beforeCreate.run();
             createdHeads.add(headSha);
             probe = conflictAfterCreate
                     ? Probe.conflict("wrong HEAD")
@@ -536,9 +687,11 @@ class TestProvisionTaskOperationHandler
         }
     }
 
-    private static final class NoopEvidence
+    private static final class RecordingEvidence
             implements ExecutionPorts.ExecutionEvidencePort
     {
+        private final List<LogEntry> logs = new ArrayList<>();
+
         @Override
         public String start(
                 DispatchTicket ticket,
@@ -558,7 +711,10 @@ class TestProvisionTaskOperationHandler
                 String executionId, long processPid, String logReference) {}
 
         @Override public void appendLog(
-                String executionId, long sequence, String payloadJson, Instant createdAt) {}
+                String executionId, long sequence, String payloadJson, Instant createdAt)
+        {
+            logs.add(new LogEntry(executionId, sequence, payloadJson, createdAt));
+        }
 
         @Override public void recordUsage(
                 String executionId, long inputTokens, long outputTokens, long costUsdMilli) {}
@@ -568,5 +724,11 @@ class TestProvisionTaskOperationHandler
                 DispatchTicket.DispatchResult result,
                 String failure,
                 Instant finishedAt) {}
+
+        private record LogEntry(
+                String executionId,
+                long sequence,
+                String payloadJson,
+                Instant createdAt) {}
     }
 }

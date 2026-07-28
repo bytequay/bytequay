@@ -2245,18 +2245,23 @@ public class GitRunner
                 () -> drainSilently(process.getInputStream()));
         Thread stderrDrain = Thread.ofVirtual().start(
                 () -> drainSilently(process.getErrorStream()));
-        boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
-        if (!finished) {
-            process.destroyForcibly();
-            stdoutDrain.interrupt();
-            stderrDrain.interrupt();
-            throw new IOException("git " + args + " timed out after " + timeoutSeconds + "s");
+        try {
+            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+            if (!finished) {
+                stopProcessTree(process, stdoutDrain, stderrDrain);
+                throw new IOException(
+                        "git " + args + " timed out after " + timeoutSeconds + "s");
+            }
+            // join() lets the drainers finish copying anything still in
+            // flight after git exited; bounded by 5s in case a drainer
+            // somehow gets stuck (shouldn't, but cheap insurance).
+            stdoutDrain.join(5_000);
+            stderrDrain.join(5_000);
         }
-        // join() lets the drainers finish copying anything still in
-        // flight after git exited; bounded by 5s in case a drainer
-        // somehow gets stuck (shouldn't, but cheap insurance).
-        stdoutDrain.join(5_000);
-        stderrDrain.join(5_000);
+        catch (InterruptedException interrupted) {
+            stopProcessTree(process, stdoutDrain, stderrDrain);
+            throw interrupted;
+        }
         String stdout = bufferedOutput.remove(stdoutDrain);
         String stderr = bufferedOutput.remove(stderrDrain);
         return new GitResult(
@@ -2264,6 +2269,31 @@ public class GitRunner
                 stdout == null ? "" : stdout,
                 stderr == null ? "" : stderr,
                 ImmutableList.copyOf(args));
+    }
+
+    private void stopProcessTree(
+            Process process,
+            Thread stdoutDrain,
+            Thread stderrDrain)
+    {
+        List<ProcessHandle> descendants;
+        try {
+            descendants = process.descendants().toList();
+        }
+        catch (RuntimeException unavailable) {
+            // Some macOS sandboxes deny the sysctl used by descendants().
+            // The exact process must still be stopped on cancellation.
+            descendants = List.of();
+        }
+        process.destroy();
+        descendants.reversed().forEach(ProcessHandle::destroyForcibly);
+        if (process.isAlive()) {
+            process.destroyForcibly();
+        }
+        stdoutDrain.interrupt();
+        stderrDrain.interrupt();
+        bufferedOutput.remove(stdoutDrain);
+        bufferedOutput.remove(stderrDrain);
     }
 
     /** Per-thread capture of what a drainer read. ConcurrentHashMap
@@ -2276,7 +2306,11 @@ public class GitRunner
     {
         try (in) {
             byte[] bytes = in.readAllBytes();
-            bufferedOutput.put(Thread.currentThread(), new String(bytes, StandardCharsets.UTF_8));
+            if (!Thread.currentThread().isInterrupted()) {
+                bufferedOutput.put(
+                        Thread.currentThread(),
+                        new String(bytes, StandardCharsets.UTF_8));
+            }
         }
         catch (IOException e) {
             // Process killed or stream closed — leave the entry

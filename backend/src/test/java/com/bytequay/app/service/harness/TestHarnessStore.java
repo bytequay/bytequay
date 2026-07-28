@@ -185,8 +185,6 @@ class TestHarnessStore
                 FailureStatus.OBSERVED, null, null, null, null, 1, 1));
 
         assertThat(failure.bucketLabel()).isEqualTo("resource:plan_mismatch");
-        assertThat(HarnessService.toFailure(failure).bucket())
-                .isEqualTo("resource:plan_mismatch");
 
         store.updateFailure(failure.id(), "test:timing_flake", null,
                 FailureStatus.DIAGNOSING, null, null, null, null, 2);

@@ -60,7 +60,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
         try (Connection connection = connect(url)) {
             seedApprovedLocalSubject(connection, false, worktree.toString());
         }
-        migrate(url, "250");
+        migrate(url, "259");
 
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
@@ -1506,7 +1506,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                 """);
     }
 
-    private static void seedApprovedLocalSubject(Connection connection)
+    static void seedApprovedLocalSubject(Connection connection)
             throws SQLException
     {
         seedApprovedLocalSubject(connection, false);
@@ -1660,7 +1660,9 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     engine_snapshot, work_model_snapshot, created_at_ms)
                 VALUES ('task-1', 'assignment-1', 'policy-1', 'DIRECT_USER',
                     'acme/widget', %s, '%s', 'base-1',
-                    'engine-v1', 'model-v1', 3)
+                    'engine-v1',
+                    '{"kind":"API","agentOrProvider":"openai","model":"review-model","account":null,"reasoningEffort":null}',
+                    3)
                 """.formatted(upstreamRepository, publishRepository));
         execute(connection, """
                 INSERT INTO task_brain(

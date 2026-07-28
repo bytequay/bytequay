@@ -160,6 +160,7 @@ public final class V2PrRemoteControlService
         if (!expected.sameSubject(current) || !proof.matches(current)) {
             throw conflict("Local Review changed while Approve & ship was starting");
         }
+        requireNoBlockingAgentReview(current);
         requireConsent(current, humanOverride);
 
         Instant now = clock.instant();
@@ -331,6 +332,8 @@ public final class V2PrRemoteControlService
                   AND revision.code_fingerprint = ?
                   AND revision.head_sha = ? AND revision.base_sha = ?
                   AND revision.state IN ('DRAFT', 'PENDING', 'SUBMITTED')
+                  AND (revision.author_kind = 'USER'
+                       OR revision.state = 'SUBMITTED')
                 ORDER BY revision.created_at_ms, revision.id
                 """, (rs, row) -> new OverrideItem(
                         "LOCAL_FEEDBACK", rs.getString("blocker_id"),
@@ -347,6 +350,32 @@ public final class V2PrRemoteControlService
         }
         items.addAll(feedback);
         return List.copyOf(items);
+    }
+
+    private void requireNoBlockingAgentReview(PublishCandidate candidate)
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*)
+                FROM local_review_agent_request request
+                JOIN task_blocker blocker ON blocker.id = request.task_blocker_id
+                WHERE request.task_id = ?
+                  AND request.task_epoch = ?
+                  AND request.local_development_stage_id = ?
+                  AND request.stage_generation = ?
+                  AND request.dev_report_id = ?
+                  AND request.code_fingerprint = ?
+                  AND request.head_sha = ? AND request.base_sha = ?
+                  AND request.mode = 'BLOCKING'
+                  AND request.status = 'REQUESTED'
+                  AND blocker.blocker_type = 'LOCAL_AGENT_REVIEW_BLOCKING'
+                  AND blocker.status = 'OPEN'
+                """, Integer.class, candidate.taskId(), candidate.taskEpoch(),
+                candidate.stageId(), candidate.stageGeneration(),
+                candidate.devReportId(), candidate.codeFingerprint(),
+                candidate.headSha(), candidate.baseSha());
+        if (count != null && count > 0) {
+            throw conflict("Approve & ship is waiting for the blocking AgentReview");
+        }
     }
 
     private PublishCandidate requirePublishCandidate(String taskId, String prId)

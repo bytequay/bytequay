@@ -86,6 +86,7 @@ public final class LocalDevelopmentRuntimeCoordinator
     private final Clock clock;
     private final int serverPort;
     private SqliteStageSteeringStore steering;
+    private V2LocalReviewControl localReview;
 
     public LocalDevelopmentRuntimeCoordinator(
             TaskCommandExecutor commands,
@@ -174,6 +175,12 @@ public final class LocalDevelopmentRuntimeCoordinator
             throw new IllegalStateException("Current Local steering was superseded");
         }
         return new SteeringAdmission(turnId, operationId, ticketId);
+    }
+
+    @Autowired(required = false)
+    public void setV2LocalReview(V2LocalReviewControl localReview)
+    {
+        this.localReview = requireNonNull(localReview, "localReview is null");
     }
 
     public InitialImplementationReceipt startInitialImplementation(
@@ -316,6 +323,12 @@ public final class LocalDevelopmentRuntimeCoordinator
         if (result.outcome() != SUCCEEDED) {
             String terminal = result.outcome() == CANCELED ? "CANCELED" : "FAILED";
             store.finishStageTurn(context, terminal, result.payload().error(), now);
+            if (localReview != null && context.localFeedbackBatchId() != null) {
+                localReview.rejectFeedbackResultInCommand(
+                        context.taskId(), context.localFeedbackBatchId(),
+                        context.turnId(), terminal, result.payload().error(),
+                        context.isCurrent());
+            }
             CommandResult<StageManager.State> cleared = clearResult(context);
             DispatchTicket.Acceptance acceptance = cleared.disposition()
                     == CommandResult.Disposition.SUPERSEDED ? SUPERSEDED : ACCEPTED;
@@ -330,6 +343,11 @@ public final class LocalDevelopmentRuntimeCoordinator
                 result.payload().finalText());
         if (!context.isCurrent()) {
             store.finishStageTurn(context, "SUPERSEDED", "stale Local subject", now);
+            if (localReview != null && context.localFeedbackBatchId() != null) {
+                localReview.rejectFeedbackResultInCommand(
+                        context.taskId(), context.localFeedbackBatchId(),
+                        context.turnId(), "SUPERSEDED", "stale Local subject", false);
+            }
             clearResult(context);
             StageTurnDeliveryReceipt recorded = new StageTurnDeliveryReceipt(
                     turnId, context.operationId(), result.outcome().name(), rawDigest,
@@ -340,7 +358,15 @@ public final class LocalDevelopmentRuntimeCoordinator
 
         CodeSubject output = observe(Path.of(context.worktreePath()), context.baseSha());
         store.finishStageTurn(context, "SUCCEEDED", null, now);
+        if (localReview != null && context.localFeedbackBatchId() != null) {
+            localReview.acceptFeedbackResultInCommand(
+                    context.taskId(), context.localFeedbackBatchId(), context.turnId());
+        }
         DevReport report = store.insertDevReport(context, development, output, now);
+        if (localReview != null) {
+            localReview.carryFeedbackToCurrentSubjectInCommand(
+                    context.taskId(), context.turnId());
+        }
         CommandResult<StageManager.State> accepted = acceptCodeResult(context, report.id());
         if (accepted.disposition() == CommandResult.Disposition.SUPERSEDED) {
             throw new IllegalStateException(
@@ -548,6 +574,9 @@ public final class LocalDevelopmentRuntimeCoordinator
                 acceptance = stage.disposition()
                         == CommandResult.Disposition.SUPERSEDED
                         ? SUPERSEDED : ACCEPTED;
+                if (acceptance == ACCEPTED && localReview != null) {
+                    localReview.admitQueuedInCommand(context.taskId());
+                }
             }
             BrainTurnDeliveryReceipt recorded = new BrainTurnDeliveryReceipt(
                     turnId, context.operationId(), result.outcome().name(), rawDigest,
@@ -593,6 +622,9 @@ public final class LocalDevelopmentRuntimeCoordinator
                     local.acceptBrainApprovalInCommand(proof);
             if (stage.disposition() == CommandResult.Disposition.SUPERSEDED) {
                 throw new IllegalStateException("Local Brain approval was superseded");
+            }
+            if (localReview != null) {
+                localReview.admitQueuedInCommand(context.taskId());
             }
         }
         else {

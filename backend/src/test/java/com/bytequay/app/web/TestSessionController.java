@@ -24,7 +24,6 @@ import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.runs.SessionControlService;
 import com.bytequay.app.service.runs.SessionProjectionService;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.List;
@@ -56,8 +55,7 @@ class TestSessionController
         when(v2.listByWorkspace("workspace-1")).thenReturn(List.of(seat));
         when(v2.findById(seat.id())).thenReturn(Optional.of(seat));
         SessionProjectionService projections =
-                new SessionProjectionService(runs, reviews);
-        ReflectionTestUtils.setField(projections, "v2Runs", v2);
+                new SessionProjectionService(runs, reviews, v2);
         SessionController controller = new SessionController(
                 projections, controls);
 
@@ -82,12 +80,16 @@ class TestSessionController
                 null, 0, 0, 0, 1, "Implement", null, null);
         when(v2.findById(typed.id())).thenReturn(Optional.of(typed));
         SessionProjectionService projections =
-                new SessionProjectionService(runs, reviews);
-        ReflectionTestUtils.setField(projections, "v2Runs", v2);
+                new SessionProjectionService(runs, reviews, v2);
         SessionController controller = new SessionController(
                 projections, controls);
 
-        assertThat(controller.get(typed.id()).id()).isEqualTo(typed.id());
+        SessionDto detail = controller.get(typed.id());
+        assertThat(detail.id()).isEqualTo(typed.id());
+        assertThat(detail.controls().pause()).isFalse();
+        assertThat(detail.controls().resume()).isFalse();
+        assertThat(detail.controls().stop()).isFalse();
+        assertThat(detail.controls().restart()).isFalse();
         assertThatThrownBy(() -> controller.pause(typed.id()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("owning task or stage");
@@ -119,7 +121,9 @@ class TestSessionController
         when(reviews.findReview("review-1")).thenReturn(Optional.of(review));
         when(reviews.rounds("review-1")).thenReturn(List.of(firstRound, latestRound));
         SessionControlService controls = mock(SessionControlService.class);
-        SessionProjectionService projections = new SessionProjectionService(runs, reviews);
+        V2AgentRunProjection v2 = mock(V2AgentRunProjection.class);
+        SessionProjectionService projections =
+                new SessionProjectionService(runs, reviews, v2);
         SessionController controller = new SessionController(projections, controls);
 
         List<SessionDto> sessions = controller.list("workspace-1");

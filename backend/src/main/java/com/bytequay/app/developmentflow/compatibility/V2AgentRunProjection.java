@@ -40,13 +40,20 @@ public final class V2AgentRunProjection
                        trunk.workspace_id) AS workspace_id,
                    COALESCE(ticket.trunk_id, review.owner_thread_id) AS trunk_id,
                    COALESCE(ticket.task_id, review.owner_task_id) AS task_id,
-                   ticket.stage_id,
-                   round.id AS review_round_id,
+                   COALESCE(ticket.stage_id,
+                       task_turn.trigger_stage_id) AS stage_id,
+                   COALESCE(round.id,
+                       feedback.remote_feedback_batch_id) AS review_round_id,
                    owner.kind AS stage_kind,
                    COALESCE(thread_turn.purpose, task_turn.purpose,
                        stage_turn.purpose, review_turn.purpose) AS purpose,
+                   COALESCE(thread_turn.attempt, task_turn.attempt,
+                       stage_turn.attempt, review_turn.attempt) AS turn_attempt,
                    COALESCE(thread_turn.status, task_turn.status,
                        stage_turn.status, review_turn.status) AS turn_status,
+                   ticket.status AS ticket_status,
+                   execution.status AS execution_status,
+                   task.lifecycle_state AS task_lifecycle,
                    COALESCE(thread_turn.launch_input, task_turn.launch_input,
                        stage_turn.launch_input,
                        review_turn.launch_input) AS launch_input,
@@ -66,10 +73,51 @@ public final class V2AgentRunProjection
                        review_turn.error_message, ticket.last_error,
                        execution.error_message) AS error_message,
                    execution.provider,
-                   COALESCE(accounting.attempts, 0) AS attempts,
-                   COALESCE(accounting.cost_usd_milli, 0) AS cost_usd_milli,
-                   COALESCE(accounting.tokens_in, 0) AS tokens_in,
-                   COALESCE(accounting.tokens_out, 0) AS tokens_out
+                   COALESCE(execution.infrastructure_attempt, 0)
+                       AS infrastructure_attempt,
+                   CASE
+                     WHEN ticket.owner_kind = 'THREAD_TURN' AND EXISTS (
+                       SELECT 1 FROM thread_question question
+                       WHERE question.turn_id = thread_turn.id
+                         AND question.state = 'OPEN') THEN 'QUESTION'
+                     WHEN ticket.owner_kind = 'TASK_TURN' AND EXISTS (
+                       SELECT 1 FROM task_question question
+                       WHERE question.turn_id = task_turn.id
+                         AND question.state = 'OPEN') THEN 'QUESTION'
+                     WHEN ticket.owner_kind = 'STAGE_TURN' AND EXISTS (
+                       SELECT 1 FROM stage_question question
+                       WHERE question.turn_id = stage_turn.id
+                         AND question.state = 'OPEN') THEN 'QUESTION'
+                     WHEN ticket.owner_kind = 'REVIEW_ASSIGNMENT_TURN'
+                       AND EXISTS (
+                         SELECT 1 FROM review_assignment_question question
+                         WHERE question.turn_id = review_turn.id
+                           AND question.state = 'OPEN') THEN 'QUESTION'
+                     WHEN EXISTS (
+                       SELECT 1 FROM permission_request permission
+                       WHERE permission.turn_id = ticket.owner_id
+                         AND permission.operation_id = ticket.operation_id
+                         AND permission.state = 'OPEN') THEN 'PERMISSION'
+                     ELSE NULL
+                   END AS user_wait_kind,
+                   EXISTS (
+                       SELECT 1 FROM typed_user_wait_result result
+                       WHERE result.operation_id = ticket.operation_id
+                         AND result.owner_kind = ticket.owner_kind
+                         AND result.turn_id = ticket.owner_id)
+                       AS user_wait_recorded,
+                   COALESCE((
+                       SELECT SUM(item.cost_usd_milli)
+                       FROM agent_execution item
+                       WHERE item.ticket_id = ticket.id), 0) AS cost_usd_milli,
+                   COALESCE((
+                       SELECT SUM(item.tokens_in)
+                       FROM agent_execution item
+                       WHERE item.ticket_id = ticket.id), 0) AS tokens_in,
+                   COALESCE((
+                       SELECT SUM(item.tokens_out)
+                       FROM agent_execution item
+                       WHERE item.ticket_id = ticket.id), 0) AS tokens_out
             FROM dispatch_ticket ticket
             LEFT JOIN thread_turn
               ON ticket.owner_kind = 'THREAD_TURN'
@@ -87,35 +135,28 @@ public final class V2AgentRunProjection
               ON ticket.owner_kind = 'REVIEW_ASSIGNMENT_TURN'
              AND review_turn.id = ticket.owner_id
              AND review_turn.operation_id = ticket.operation_id
-            LEFT JOIN stage owner ON owner.id = ticket.stage_id
+            LEFT JOIN stage owner ON owner.id = COALESCE(
+                ticket.stage_id, task_turn.trigger_stage_id)
             LEFT JOIN tasks task ON task.id = ticket.task_id
             LEFT JOIN threads trunk ON trunk.id = ticket.trunk_id
             LEFT JOIN review_assignment assignment
               ON assignment.id = review_turn.assignment_id
             LEFT JOIN review_round round ON round.id = assignment.round_id
             LEFT JOIN review_session review ON review.id = round.session_id
+            LEFT JOIN remote_feedback_stage_turn_request feedback
+              ON feedback.stage_turn_id = stage_turn.id
             LEFT JOIN agent_execution execution ON execution.id = (
                 SELECT candidate.id
                 FROM agent_execution candidate
                 WHERE candidate.ticket_id = ticket.id
                 ORDER BY candidate.infrastructure_attempt DESC
                 LIMIT 1)
-            LEFT JOIN (
-                SELECT ticket_id, COUNT(*) AS attempts,
-                       SUM(cost_usd_milli) AS cost_usd_milli,
-                       SUM(tokens_in) AS tokens_in,
-                       SUM(tokens_out) AS tokens_out
-                FROM agent_execution
-                GROUP BY ticket_id) accounting
-              ON accounting.ticket_id = ticket.id
             WHERE ticket.async_family = 'AGENT_TURN'
               AND (
-                  (thread_turn.id IS NOT NULL AND trunk.turn_version = 'V2')
-                  OR (task_turn.id IS NOT NULL
-                      AND task.workflow_version = 'V2')
+                  thread_turn.id IS NOT NULL
+                  OR task_turn.id IS NOT NULL
                   OR (stage_turn.id IS NOT NULL
-                      AND owner.task_id = task.id
-                      AND task.workflow_version = 'V2')
+                      AND owner.task_id = task.id)
                   OR review_turn.id IS NOT NULL)
               %s
             ORDER BY ticket.created_at_ms DESC, ticket.id DESC
@@ -142,6 +183,13 @@ public final class V2AgentRunProjection
         requireText(taskId, "taskId");
         return query("AND COALESCE(ticket.task_id, review.owner_task_id) = ?",
                 taskId);
+    }
+
+    public List<AgentRun> listByTrunk(String trunkId)
+    {
+        requireText(trunkId, "trunkId");
+        return query("AND COALESCE(ticket.trunk_id, review.owner_thread_id) = ?",
+                trunkId);
     }
 
     public Optional<AgentRun> findById(String sessionId)
@@ -171,41 +219,52 @@ public final class V2AgentRunProjection
         String purpose = rs.getString("purpose");
         String stageKind = rs.getString("stage_kind");
         String ownerKind = rs.getString("owner_kind");
-        int attempts = rs.getInt("attempts");
+        int attempt = rs.getInt("turn_attempt");
         long requestedAt = rs.getLong("requested_at_ms");
         Long startedAt = nullableLong(rs, "started_at_ms");
         Long finishedAt = nullableLong(rs, "finished_at_ms");
         String error = rs.getString("error_message");
-        String projectedStatus = status(turnStatus);
+        String waitKind = rs.getString("user_wait_kind");
+        String projectedStatus = status(
+                turnStatus, rs.getString("ticket_status"),
+                rs.getString("execution_status"),
+                rs.getString("task_lifecycle"), waitKind,
+                rs.getBoolean("user_wait_recorded"));
+        FrozenLaunch launch = launch(rs.getString("launch_input"));
         return new AgentRun(
                 ID_PREFIX + rs.getString("ticket_id"),
                 rs.getString("task_id"), kind(ownerKind, purpose, stageKind),
                 source(stageKind), rs.getString("stage_id"),
                 rs.getString("review_round_id"), rs.getString("stage_id"),
-                projectedStatus, attempts, null, headline(purpose), null,
+                projectedStatus, attempt, null, headline(purpose), null,
                 instant(startedAt == null ? requestedAt : startedAt),
                 terminal(projectedStatus) && finishedAt != null
                         ? instant(finishedAt) : null,
                 rs.getString("workspace_id"), rs.getString("trunk_id"),
-                rs.getString("provider"), null,
+                firstText(launch.provider(), rs.getString("provider")),
+                launch.model(),
                 rs.getLong("cost_usd_milli"), rs.getLong("tokens_in"),
-                rs.getLong("tokens_out"), attempts == 0 ? 0 : 1,
-                launchInput(rs.getString("launch_input")), null,
-                outcome(turnStatus, error));
+                rs.getLong("tokens_out"),
+                rs.getInt("infrastructure_attempt"),
+                launch.prompt(), pauseReason(projectedStatus, waitKind),
+                terminal(projectedStatus) ? outcome(turnStatus, error) : null);
     }
 
-    private String launchInput(String raw)
+    private FrozenLaunch launch(String raw)
     {
         if (raw == null || raw.isBlank()) {
-            return raw;
+            return new FrozenLaunch(raw, null, null);
         }
         try {
             JsonNode value = json.readTree(raw);
-            return value.path("prompt").asText(
-                    value.path("userMessage").asText(raw));
+            return new FrozenLaunch(
+                    value.path("prompt").asText(
+                            value.path("userMessage").asText(raw)),
+                    nullableText(value.path("provider").asText(null)),
+                    nullableText(value.path("model").asText(null)));
         }
         catch (Exception ignored) {
-            return raw;
+            return new FrozenLaunch(raw, null, null);
         }
     }
 
@@ -222,7 +281,13 @@ public final class V2AgentRunProjection
         if ("PLAN".equals(stageKind) || normalized.contains("PLAN")) {
             return AgentRun.KIND_PLAN;
         }
-        if (normalized.contains("CI") || normalized.contains("REPAIR")) {
+        if ("BRANCH_CONFLICT_REPAIR".equals(normalized)) {
+            return AgentRun.KIND_BRANCH_GUARD;
+        }
+        if ("ADDRESS_REMOTE_FEEDBACK".equals(normalized)) {
+            return AgentRun.KIND_REVIEW_ROUND;
+        }
+        if (normalized.contains("CI")) {
             return AgentRun.KIND_CI_FIX;
         }
         if (normalized.contains("REVIEW")) {
@@ -239,14 +304,70 @@ public final class V2AgentRunProjection
         return stageKind == null ? null : AgentRun.SOURCE_LOCAL;
     }
 
-    private static String status(String value)
+    private static String status(
+            String turn, String ticket, String execution,
+            String taskLifecycle, String userWaitKind,
+            boolean userWaitRecorded)
     {
-        return switch (text(value)) {
+        String terminal = terminalStatus(turn, ticket);
+        if (terminal != null
+                && !(userWaitRecorded && userWaitKind != null)) {
+            return terminal;
+        }
+        if ("PAUSING".equals(taskLifecycle) || "PAUSED".equals(taskLifecycle)) {
+            return AgentRun.STATUS_PAUSED;
+        }
+        if (userWaitKind != null) {
+            return AgentRun.STATUS_AWAITING_GATE;
+        }
+        if ("STARTING".equals(execution) || "RUNNING".equals(execution)) {
+            return AgentRun.STATUS_RUNNING;
+        }
+        return switch (text(ticket)) {
+            case "REQUESTED", "RETRY_WAIT", "RECONCILE_WAIT" ->
+                    AgentRun.STATUS_QUEUED;
+            case "RESULT_PENDING", "CLAIMED", "RUNNING", "DELIVERING" ->
+                    AgentRun.STATUS_RUNNING;
+            case "FAILED" -> AgentRun.STATUS_FAILED;
+            case "CANCELED" -> AgentRun.STATUS_CANCELLED;
+            default -> switch (text(turn)) {
             case "REQUESTED", "QUEUED" -> AgentRun.STATUS_QUEUED;
             case "CLAIMED", "RUNNING" -> AgentRun.STATUS_RUNNING;
             case "SUCCEEDED" -> AgentRun.STATUS_SUCCEEDED;
             case "FAILED" -> AgentRun.STATUS_FAILED;
             default -> AgentRun.STATUS_CANCELLED;
+            };
+        };
+    }
+
+    private static String terminalStatus(String turn, String ticket)
+    {
+        if (!"SUCCEEDED".equals(ticket)
+                && !"FAILED".equals(ticket)
+                && !"CANCELED".equals(ticket)) {
+            return null;
+        }
+        return switch (text(turn)) {
+            case "SUCCEEDED" -> AgentRun.STATUS_SUCCEEDED;
+            case "FAILED" -> AgentRun.STATUS_FAILED;
+            case "CANCELED", "SUPERSEDED" -> AgentRun.STATUS_CANCELLED;
+            default -> switch (ticket) {
+                case "FAILED" -> AgentRun.STATUS_FAILED;
+                case "CANCELED" -> AgentRun.STATUS_CANCELLED;
+                default -> AgentRun.STATUS_SUCCEEDED;
+            };
+        };
+    }
+
+    private static String pauseReason(String status, String userWaitKind)
+    {
+        if (AgentRun.STATUS_PAUSED.equals(status)) {
+            return "Task is paused";
+        }
+        return switch (text(userWaitKind)) {
+            case "QUESTION" -> "Waiting for user";
+            case "PERMISSION" -> "Waiting for permission";
+            default -> null;
         };
     }
 
@@ -278,8 +399,11 @@ public final class V2AgentRunProjection
                 || AgentRun.STATUS_CANCELLED.equals(status);
     }
 
-    private static String ticketId(String sessionId)
+    static String ticketId(String sessionId)
     {
+        if (!isV2Id(sessionId)) {
+            throw new IllegalArgumentException("not a V2 run id: " + sessionId);
+        }
         return sessionId.substring(ID_PREFIX.length());
     }
 
@@ -300,6 +424,16 @@ public final class V2AgentRunProjection
         return value == null ? "" : value;
     }
 
+    private static String nullableText(String value)
+    {
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private static String firstText(String preferred, String fallback)
+    {
+        return preferred == null ? fallback : preferred;
+    }
+
     private static void requireText(String value, String name)
     {
         requireNonNull(value, name + " is null");
@@ -307,4 +441,6 @@ public final class V2AgentRunProjection
             throw new IllegalArgumentException(name + " must not be blank");
         }
     }
+
+    private record FrozenLaunch(String prompt, String provider, String model) {}
 }

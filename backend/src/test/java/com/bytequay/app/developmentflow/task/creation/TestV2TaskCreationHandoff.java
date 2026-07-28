@@ -380,11 +380,15 @@ class TestV2TaskCreationHandoff
     private static CreationRuntime runtime(SQLiteDataSource dataSource)
     {
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        DataSourceTransactionManager transactionManager =
+                new DataSourceTransactionManager(dataSource);
         TrunkManager.Store trunkStore;
         TaskManager.Store taskStore;
         try (AnnotationConfigApplicationContext context =
                 new AnnotationConfigApplicationContext()) {
             context.registerBean(JdbcTemplate.class, () -> jdbc);
+            context.registerBean(DataSourceTransactionManager.class,
+                    () -> transactionManager);
             context.scan(
                     "com.bytequay.app.developmentflow.trunk.persistence",
                     "com.bytequay.app.developmentflow.task.persistence");
@@ -392,8 +396,7 @@ class TestV2TaskCreationHandoff
             trunkStore = context.getBean(TrunkManager.Store.class);
             taskStore = context.getBean(TaskManager.Store.class);
         }
-        TaskCommandExecutor commands = new TaskCommandExecutor(
-                new DataSourceTransactionManager(dataSource));
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactionManager);
         TrunkManager trunks = new TrunkManager(commands, trunkStore);
         TaskManager tasks = new TaskManager(commands, taskStore);
         return new CreationRuntime(

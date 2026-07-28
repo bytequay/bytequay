@@ -179,6 +179,43 @@ Acceptance gate:
   Task isolation cases are executable
 - no production behavior changes
 
+### Baseline wave record
+
+The first executable-baseline wave landed on 2026-07-28. It deliberately
+preserves LEGACY runtime behavior. Migration V222 adds immutable Task workflow
+routing and additive Thread turn routing, both defaulting to LEGACY, while the
+existing focused suites now lock these current boundaries:
+
+| Area | Characterization locked by the wave | Target slice |
+| --- | --- | --- |
+| Routing | historical upgrade, LEGACY defaults, explicit V2 inserts, invalid-value rejection, immutable Task routing, and restart | 1 |
+| Task and Stage lifecycle | steering reaches the exact pending Stage, sibling Task command stripes are independent, canceled state survives a late merge, and one Task's completed addressing Turn cannot drive its sibling | 2, 5, 9 |
+| Capacity and recovery | cancellation releases the CLI lane, the API lane admits six and queues the seventh, and an expired validation lease is reclaimed once after service recreation | 3, 5 |
+| Brain and remote effects | a verdict from another run cannot reach the live round, stale gate proof is rejected, duplicate authorization repeats no Git/GitHub effect, and observed merged/closed truth clears standing authorization | 5, 8, 9 |
+
+The wave also made the remaining migration gaps explicit; these are target
+work, not accepted V2 behavior:
+
+- Slice 2 and Slice 5 must add exact Task ownership, command idempotency, and
+  epoch/generation fences. Current completion paths can still double-apply a
+  duplicate delivery, a stale pre-cancel snapshot can race cancellation, and
+  steering does not yet implement append or cancel-and-replace.
+- Slice 3 must replace independent scheduler, validation, and review admission
+  with CapacityManager, including Workspace/Trunk caps, fair admission, and a
+  reserved Trunk-control permit. The current SQLite write pool also serializes
+  production database commands even though the Task command stripes are
+  independent.
+- Slice 8 must fail closed while mergeability is unknown and bind readiness,
+  approval, and merge authorization to an exact head SHA. Current remote PR
+  facts do not yet carry enough identity for that proof.
+- Slice 9 must replace immediate terminal sealing and branch reaping with a
+  durable Cleanup Stage. Late merge observation after cancellation must not
+  silently delete the remote branch.
+
+Slice 0 remains open until the shared end-to-end fixture, restart and ambiguous
+effect helpers, compatibility snapshots, complete regression-to-scenario map,
+and full executor/admission inventory are also checked in.
+
 ## Slice 1 — additive persistence spine
 
 Goal: establish identity and routing without switching behavior.

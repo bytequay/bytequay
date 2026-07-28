@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.developmentflow.stage.V2LocalReviewControl;
 import com.bytequay.app.domain.InvestigationReviewData;
 import com.bytequay.app.domain.InvestigationReviewData.ReviewerDefRow;
 import com.bytequay.app.service.review.InvestigationReviewMcpService;
@@ -178,6 +179,16 @@ public class InvestigationReviewController
         return reviews.retryAssignment(reviewId, assignmentId);
     }
 
+    @PostMapping("/api/agent-reviews/{reviewId}/rounds/{reviewRoundId}/import-local-findings")
+    public V2LocalReviewControl.Submission importLocalFindings(
+            @PathVariable String reviewId,
+            @PathVariable String reviewRoundId,
+            @RequestBody ImportLocalFindingsRequest body)
+    {
+        return reviews.importLocalFindings(
+                reviewId, reviewRoundId, body == null ? null : body.findingIds());
+    }
+
     @GetMapping("/api/reviewer-defs")
     public List<ReviewerDefRow> reviewerDefs()
     {
@@ -224,4 +235,6 @@ public class InvestigationReviewController
     public record RoundBudgetRequest(Integer costCapCents) {}
 
     public record AnswerRequest(String text) {}
+
+    public record ImportLocalFindingsRequest(List<String> findingIds) {}
 }

@@ -15,6 +15,7 @@ package com.bytequay.app.service.review;
 
 import com.bytequay.app.beans.localpr.PRCommentDto;
 import com.bytequay.app.beans.localpr.PRTimelineEntryDto;
+import com.bytequay.app.developmentflow.stage.V2LocalReviewControl;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.InvestigationReviewData;
 import com.bytequay.app.domain.InvestigationReviewData.ActivityFactRow;
@@ -133,6 +134,7 @@ public class InvestigationReviewService
             new ConcurrentHashMap<>();
     private final Set<String> cancellationSideEffectsDone = ConcurrentHashMap.newKeySet();
     private ReviewAssignmentTurnRuntime typedReviewTurns;
+    private V2LocalReviewControl v2LocalReview;
 
     @Autowired
     public InvestigationReviewService(
@@ -174,6 +176,12 @@ public class InvestigationReviewService
     public void setReviewAssignmentTurnRuntime(ReviewAssignmentTurnRuntime typedReviewTurns)
     {
         this.typedReviewTurns = requireNonNull(typedReviewTurns, "typedReviewTurns is null");
+    }
+
+    @Autowired(required = false)
+    public void setV2LocalReview(V2LocalReviewControl v2LocalReview)
+    {
+        this.v2LocalReview = requireNonNull(v2LocalReview, "v2LocalReview is null");
     }
 
     /** A local provider process cannot survive a sidecar restart. Reconcile
@@ -307,14 +315,40 @@ public class InvestigationReviewService
     {
         PR pr = requirePr(prId);
         boolean typed = pr.taskId() != null && tasks.isV2Task(pr.taskId());
+        boolean typedLocal = typed
+                && PR.ORIGIN_TASK.equals(pr.origin())
+                && PR.STATUS_LOCAL_OPEN.equals(pr.status());
         if (typed && typedReviewTurns == null) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "V2 Task review requires its typed Review assignment handoff");
         }
+        if (typedLocal && v2LocalReview == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "V2 Task review requires its Local Review owner");
+        }
         Optional<AgentReviewRow> existing = store.findActiveReviewByPr(prId);
         if (existing.isPresent()) {
-            return detail(ensureOwnership(existing.get(), pr, options));
+            AgentReviewRow owned = ensureOwnership(existing.get(), pr, options);
+            if (typedLocal && "ACTIVE".equals(owned.status())) {
+                store.rounds(owned.id()).stream()
+                        .filter(round -> Set.of("QUEUED", "RUNNING")
+                                .contains(round.status()))
+                        .reduce((left, right) -> right)
+                        .ifPresent(round -> {
+                            if (options != null && options.blocking() != null) {
+                                v2LocalReview.requestAgentReview(
+                                        pr.taskId(), owned.id(), round.id(),
+                                        options.blocking());
+                            }
+                            else {
+                                v2LocalReview.continueAgentReview(
+                                        pr.taskId(), owned.id(), round.id());
+                            }
+                        });
+            }
+            return detail(owned);
         }
         ReviewOwnership ownership = ownershipFor(pr, options);
         InvestigationReviewContext.Snapshot snapshot = fullReviewSnapshot(
@@ -339,6 +373,11 @@ public class InvestigationReviewService
             throw e;
         }
         try {
+            if (typedLocal) {
+                v2LocalReview.requestAgentReview(
+                        pr.taskId(), review.id(), work.round().id(), options != null
+                                && Boolean.TRUE.equals(options.blocking()));
+            }
             reviewEvent(pr.id(), "started", "you", node -> {
                 node.put("reviewId", review.id());
                 node.put("roundId", work.round().id());
@@ -347,6 +386,11 @@ public class InvestigationReviewService
             launchRound(work);
         }
         catch (RuntimeException e) {
+            if (typedLocal && v2LocalReview != null) {
+                v2LocalReview.cancelAgentReviewRound(
+                        review.id(), work.round().id(),
+                        "initial AgentReview launch failed");
+            }
             abandonPreparedRound(work, "initial review setup failed");
             store.deleteReview(review.id());
             syncStandaloneOwner(review, ThreadStatus.ERRORED,
@@ -879,13 +923,35 @@ public class InvestigationReviewService
                 .orElseThrow(() -> new IllegalArgumentException("unknown round " + roundId));
         AgentReviewRow review = requireReview(round.reviewId());
         if (!stopRound(round, "review round stopped by user")) {
+            if (v2LocalReview != null && isTypedReview(review)) {
+                v2LocalReview.cancelAgentReviewRound(
+                        review.id(), round.id(),
+                        "AgentReview attachment closed by user");
+            }
             return detail(review);
         }
         reviewEvent(review.prId(), "round-cancelled", "you",
                 node -> node.put("roundId", round.id()));
+        if (v2LocalReview != null && isTypedReview(review)) {
+            v2LocalReview.cancelAgentReviewRound(
+                    review.id(), round.id(), "AgentReview canceled by user");
+        }
         syncStandaloneOwnerAfterRound(review, ThreadStatus.COMPLETED, null);
         finalizeCancelledAfterSideEffects(round.id());
         return detail(review);
+    }
+
+    public V2LocalReviewControl.Submission importLocalFindings(
+            String reviewId, String reviewRoundId, List<String> findingIds)
+    {
+        AgentReviewRow review = requireReview(reviewId);
+        if (!isTypedReview(review) || v2LocalReview == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "selected finding import requires a V2 Task Local Review");
+        }
+        return v2LocalReview.importSelectedFindings(
+                reviewId, reviewRoundId, findingIds);
     }
 
     private boolean stopRound(ReviewRoundRow round, String reason)
@@ -3073,11 +3139,17 @@ public class InvestigationReviewService
         return Set.copyOf(lines);
     }
 
-    public record StartOptions(String runner, String providerId, String workspaceId)
+    public record StartOptions(
+            String runner, String providerId, String workspaceId, Boolean blocking)
     {
         public StartOptions(String runner, String providerId)
         {
-            this(runner, providerId, null);
+            this(runner, providerId, null, null);
+        }
+
+        public StartOptions(String runner, String providerId, String workspaceId)
+        {
+            this(runner, providerId, workspaceId, null);
         }
     }
 

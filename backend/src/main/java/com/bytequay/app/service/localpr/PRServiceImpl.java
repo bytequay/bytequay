@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.localpr;
 
+import com.bytequay.app.developmentflow.stage.V2LocalReviewControl;
 import com.bytequay.app.domain.DiffSide;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PR;
@@ -90,6 +91,7 @@ class PRServiceImpl
     private final TaskCommandExecutor commands;
     private final ApplicationEventPublisher events;
     private final Clock clock;
+    private V2LocalReviewControl v2LocalReview;
 
     @Autowired
     PRServiceImpl(
@@ -119,6 +121,12 @@ class PRServiceImpl
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.events = requireNonNull(events, "events is null");
         this.clock = requireNonNull(clock, "clock is null");
+    }
+
+    @Autowired(required = false)
+    void setV2LocalReview(V2LocalReviewControl v2LocalReview)
+    {
+        this.v2LocalReview = requireNonNull(v2LocalReview, "v2LocalReview is null");
     }
 
     @Override
@@ -1160,6 +1168,13 @@ class PRServiceImpl
             String parentCommentId)
     {
         PR pr = require(prId);
+        if (v2LocalReview != null
+                && PRComment.ORIGIN_LOCAL.equals(origin)
+                && v2LocalReview.handles(pr)) {
+            return v2LocalReview.addComment(
+                    pr, origin, scope, filePath, lineNumber, side,
+                    startLine, startSide, author, body, parentCommentId);
+        }
         if (pr.taskId() == null) {
             return addComment(pr, origin, scope, filePath, lineNumber, side,
                     startLine, startSide, author, body, parentCommentId);
@@ -1308,6 +1323,10 @@ class PRServiceImpl
     @Override
     public void deleteDraftComment(String commentId)
     {
+        if (v2LocalReview != null && v2LocalReview.ownsComment(commentId)) {
+            v2LocalReview.deleteDraftComment(commentId);
+            return;
+        }
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         if (!PRComment.ORIGIN_LOCAL.equals(comment.origin()) ||
@@ -1465,6 +1484,9 @@ class PRServiceImpl
     @Override
     public PRComment resolveComment(String commentId)
     {
+        if (v2LocalReview != null && v2LocalReview.ownsComment(commentId)) {
+            return v2LocalReview.resolveComment(commentId);
+        }
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         PRComment saved = store.saveComment(comment.withResolved(now(), PRTimelineEntry.ACTOR_USER));
@@ -1481,6 +1503,9 @@ class PRServiceImpl
     @Override
     public PRComment reopenComment(String commentId)
     {
+        if (v2LocalReview != null && v2LocalReview.ownsComment(commentId)) {
+            return v2LocalReview.reopenComment(commentId);
+        }
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         PR pr = require(comment.prId());
@@ -1562,6 +1587,9 @@ class PRServiceImpl
     @Override
     public PRComment dismissComment(String commentId)
     {
+        if (v2LocalReview != null && v2LocalReview.ownsComment(commentId)) {
+            return v2LocalReview.dismissComment(commentId);
+        }
         PRComment comment = store.findCommentById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("unknown comment: " + commentId));
         PRComment saved = store.saveComment(comment.withDismissed(now()));
@@ -1674,6 +1702,9 @@ class PRServiceImpl
     @Override
     public PRComment editCommentBody(String commentId, String body)
     {
+        if (v2LocalReview != null && v2LocalReview.ownsComment(commentId)) {
+            return v2LocalReview.editComment(commentId, body);
+        }
         if (body == null || body.isBlank()) {
             throw new IllegalArgumentException("comment body is required");
         }

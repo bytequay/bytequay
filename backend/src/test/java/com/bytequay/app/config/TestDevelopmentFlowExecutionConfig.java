@@ -71,7 +71,7 @@ class TestDevelopmentFlowExecutionConfig
     }
 
     @Test
-    void enablingRequiresRealPolicyHandlersAndDeliveryPorts()
+    void enablingProvidesDeliveryButStillRequiresRealHandlersAndWakeStore()
     {
         Method dispatcher = Arrays.stream(
                         DevelopmentFlowExecutionConfig.class.getDeclaredMethods())
@@ -87,9 +87,9 @@ class TestDevelopmentFlowExecutionConfig
         assertThat(Arrays.stream(
                         DevelopmentFlowExecutionConfig.class.getDeclaredMethods())
                 .map(Method::getReturnType))
+                .contains(ExecutionPorts.ResultDeliveryPort.class)
                 .doesNotContain(
                         ExecutionPorts.OperationHandlerRegistry.class,
-                        ExecutionPorts.ResultDeliveryPort.class,
                         ExecutionPorts.DispatchWakeStore.class);
     }
 

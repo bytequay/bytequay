@@ -118,6 +118,100 @@ public class SqlitePlanRuntimeStore
                 receipt.recordedAt().toEpochMilli());
     }
 
+    public Optional<ReplanDraftReceipt> findReplanDraftReceipt(
+            String replanRequestId)
+    {
+        return jdbc.query("""
+                SELECT replan_request_id, task_id, task_epoch, plan_stage_id,
+                    plan_stage_generation, draft_turn_id, draft_operation_id,
+                    draft_ticket_id, recorded_at_ms
+                FROM task_replan_plan_receipt
+                WHERE replan_request_id = ?
+                """, (rs, row) -> new ReplanDraftReceipt(
+                        rs.getString("replan_request_id"), rs.getString("task_id"),
+                        rs.getLong("task_epoch"), rs.getString("plan_stage_id"),
+                        rs.getLong("plan_stage_generation"),
+                        rs.getString("draft_turn_id"),
+                        rs.getString("draft_operation_id"),
+                        rs.getString("draft_ticket_id"),
+                        instant(rs, "recorded_at_ms")), replanRequestId)
+                .stream().findFirst();
+    }
+
+    public ReplanDraftContext requireReplanDraftContext(
+            String taskId,
+            String replanRequestId,
+            String planStageId,
+            long planStageGeneration)
+    {
+        List<ReplanDraftContext> rows = jdbc.query("""
+                SELECT task.id AS task_id, task.epoch AS task_epoch,
+                    task.thread_id AS trunk_id, trunk.workspace_id,
+                    stage.id AS stage_id, stage.generation,
+                    stage.version AS stage_version, replan.reason,
+                    context.work_model_snapshot, brain.provider, brain.model,
+                    brain.role_skill, code.worktree_path,
+                    subject.code_fingerprint, subject.head_sha, subject.base_sha
+                FROM task_replan_request replan
+                JOIN tasks task ON task.id = replan.task_id
+                JOIN threads trunk ON trunk.id = task.thread_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage ON stage.id = current.stage_id
+                JOIN plan_stage plan ON plan.stage_id = stage.id
+                JOIN task_creation_context context ON context.task_id = task.id
+                JOIN task_brain brain ON brain.task_id = task.id
+                JOIN task_code_identity code ON code.task_id = task.id
+                JOIN task_current_code_subject_v230 subject
+                  ON subject.task_id = task.id
+                WHERE task.id = ? AND replan.id = ? AND stage.id = ?
+                  AND stage.generation = ?
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND task.epoch = replan.target_task_epoch
+                  AND replan.status = 'APPLIED'
+                  AND replan.new_plan_stage_id = stage.id
+                  AND replan.new_plan_generation = stage.generation
+                  AND current.stage_generation = stage.generation
+                  AND stage.kind = 'PLAN' AND stage.checkpoint = 'DRAFTING'
+                  AND stage.version = 0 AND stage.completed_at_ms IS NULL
+                  AND plan.task_id = task.id
+                  AND plan.opened_for_epoch = task.epoch
+                """, (rs, row) -> new ReplanDraftContext(
+                        new BrainLaunchContext(
+                                rs.getString("task_id"), rs.getString("trunk_id"),
+                                rs.getString("workspace_id"),
+                                rs.getString("work_model_snapshot"),
+                                rs.getString("provider"), rs.getString("model"),
+                                rs.getString("role_skill"),
+                                rs.getString("worktree_path")),
+                        rs.getLong("task_epoch"), rs.getString("stage_id"),
+                        rs.getLong("generation"), rs.getLong("stage_version"),
+                        rs.getString("reason"), rs.getString("code_fingerprint"),
+                        rs.getString("head_sha"), rs.getString("base_sha")),
+                taskId, replanRequestId, planStageId, planStageGeneration);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "Applied replan does not own one unarmed Plan Stage");
+        }
+        return rows.getFirst();
+    }
+
+    public void insertReplanDraftReceipt(ReplanDraftReceipt receipt)
+    {
+        requireTransaction();
+        jdbc.update("""
+                INSERT INTO task_replan_plan_receipt(
+                    replan_request_id, task_id, task_epoch, plan_stage_id,
+                    plan_stage_generation, draft_turn_id, draft_operation_id,
+                    draft_ticket_id, recorded_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, receipt.replanRequestId(), receipt.taskId(),
+                receipt.taskEpoch(), receipt.planStageId(),
+                receipt.planStageGeneration(), receipt.draftTurnId(),
+                receipt.draftOperationId(), receipt.draftTicketId(),
+                receipt.recordedAt().toEpochMilli());
+    }
+
     public void insertTurn(TurnRequest turn)
     {
         requireTransaction();
@@ -894,8 +988,11 @@ public class SqlitePlanRuntimeStore
         return jdbc.query("""
                 SELECT approval.id AS approval_id, approval.approval_kind,
                     approval.actor, approval.policy_revision_id,
-                    approval.approved_at_ms, plan.task_id, plan.stage_id,
-                    plan.generation, stage.version AS plan_stage_version,
+                    approval.approved_at_ms, plan.task_id,
+                    task_receipt.returned_epoch AS task_epoch,
+                    task_receipt.returned_version AS task_version, plan.stage_id,
+                    plan.generation,
+                    plan_receipt.returned_version AS plan_stage_version,
                     revision.id AS revision_id,
                     revision.content_digest, review.id AS self_review_id,
                     task_receipt.next_stage_id,
@@ -904,19 +1001,26 @@ public class SqlitePlanRuntimeStore
                 JOIN plan_revision revision
                   ON revision.id = approval.plan_revision_id
                 JOIN plan_stage plan ON plan.stage_id = revision.plan_stage_id
-                JOIN stage ON stage.id = plan.stage_id
                 JOIN plan_self_review review ON review.id = approval.self_review_id
                 JOIN task_command_receipt task_receipt
                   ON task_receipt.task_id = plan.task_id
                  AND task_receipt.proof_id = approval.id
                  AND task_receipt.cause = 'OPEN_LOCAL_DEVELOPMENT'
                  AND task_receipt.disposition = 'APPLIED'
+                JOIN stage_command_receipt plan_receipt
+                  ON plan_receipt.stage_id = plan.stage_id
+                 AND plan_receipt.task_id = plan.task_id
+                 AND plan_receipt.command_id = task_receipt.command_id
+                 AND plan_receipt.proof_id = approval.id
+                 AND plan_receipt.cause = 'APPROVE_PLAN'
+                 AND plan_receipt.disposition = 'APPLIED'
                 WHERE approval.id = ?
                 """, (rs, row) -> new AcceptedApproval(
                         rs.getString("approval_id"),
                         rs.getString("approval_kind"), rs.getString("actor"),
                         rs.getString("policy_revision_id"),
                         instant(rs, "approved_at_ms"), rs.getString("task_id"),
+                        rs.getLong("task_epoch"), rs.getLong("task_version"),
                         rs.getString("stage_id"), rs.getLong("generation"),
                         rs.getLong("plan_stage_version"),
                         rs.getString("revision_id"),
@@ -1159,6 +1263,28 @@ public class SqlitePlanRuntimeStore
             String draftTicketId,
             Instant recordedAt) {}
 
+    public record ReplanDraftContext(
+            BrainLaunchContext brain,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            long stageVersion,
+            String reason,
+            String codeFingerprint,
+            String headSha,
+            String baseSha) {}
+
+    public record ReplanDraftReceipt(
+            String replanRequestId,
+            String taskId,
+            long taskEpoch,
+            String planStageId,
+            long planStageGeneration,
+            String draftTurnId,
+            String draftOperationId,
+            String draftTicketId,
+            Instant recordedAt) {}
+
     public record TurnRequest(
             String turnId,
             String operationId,
@@ -1371,6 +1497,8 @@ public class SqlitePlanRuntimeStore
             String policyRevisionId,
             Instant approvedAt,
             String taskId,
+            long taskEpoch,
+            long taskVersion,
             String planStageId,
             long planStageGeneration,
             long planStageVersion,

@@ -15,13 +15,16 @@ package com.bytequay.app.developmentflow.stage;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteLocalDevelopmentRuntimeStore;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.creation.TaskAssignment;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
+import com.bytequay.app.service.checks.CodeFingerprints;
 import com.bytequay.app.service.ids.IdGenerator;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
@@ -304,6 +307,114 @@ class TestPlanRuntimeCoordinator
                 .containsEntry("version", 8);
         assertThat(count(jdbc, "plan_revision")).isEqualTo(3);
         assertThat(count(jdbc, "plan_self_review")).isEqualTo(3);
+
+        Map<String, Object> approvalOwner = jdbc.queryForMap("""
+                SELECT task.epoch, task.aggregate_version,
+                       stage.id AS stage_id, stage.generation, stage.version
+                FROM tasks task
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage ON stage.id = current.stage_id
+                WHERE task.id = ?
+                """, bootstrap.taskId());
+        SqlitePlanRuntimeStore.AcceptedApproval approval = plan.approvePlan(
+                new PlanRuntimeCoordinator.PlanApprovalCommand(
+                        "approve-edited-plan", "user", bootstrap.taskId(),
+                        ((Number) approvalOwner.get("epoch")).longValue(),
+                        ((Number) approvalOwner.get("aggregate_version")).longValue(),
+                        (String) approvalOwner.get("stage_id"),
+                        ((Number) approvalOwner.get("generation")).longValue(),
+                        ((Number) approvalOwner.get("version")).longValue(),
+                        edit.revisionId(), edit.selfReviewId()));
+
+        assertThat(approval.kind()).isEqualTo("HUMAN");
+        assertThat(jdbc.queryForMap("""
+                SELECT task.aggregate_version, stage.kind, stage.checkpoint,
+                       stage.version
+                FROM tasks task
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage ON stage.id = current.stage_id
+                WHERE task.id = ?
+                """, bootstrap.taskId()))
+                .containsEntry("aggregate_version", 2)
+                .containsEntry("kind", "LOCAL_DEVELOPMENT")
+                .containsEntry("checkpoint", "IMPLEMENTING")
+                .containsEntry("version", 1);
+        assertThat(count(jdbc, "local_initial_implementation_receipt")).isOne();
+        assertThat(countWhere(jdbc, "stage_turn", "status = 'QUEUED'"))
+                .isOne();
+
+        SqlitePlanRuntimeStore.AcceptedApproval approvalReplay = runtime(
+                bootstrap.dataSource()).plan().approvePlan(
+                        new PlanRuntimeCoordinator.PlanApprovalCommand(
+                                "approve-edited-plan", "user", bootstrap.taskId(),
+                                ((Number) approvalOwner.get("epoch")).longValue(),
+                                ((Number) approvalOwner.get("aggregate_version")).longValue(),
+                                (String) approvalOwner.get("stage_id"),
+                                ((Number) approvalOwner.get("generation")).longValue(),
+                                ((Number) approvalOwner.get("version")).longValue(),
+                                edit.revisionId(), edit.selfReviewId()));
+        assertThat(approvalReplay).isEqualTo(approval);
+        assertThat(count(jdbc, "local_initial_implementation_receipt")).isOne();
+    }
+
+    @Test
+    void policyApprovalStartsLocalUnlessStewardshipIsOpen()
+            throws Exception
+    {
+        Bootstrapped automatic = bootstrap("plan-auto-approval.db", true);
+        RunningTurn draft = startCurrentTurn(
+                automatic.jdbc(), automatic.taskId());
+        automatic.runtime().plan().recordPlan(
+                draft.turnId(), draft.operationId(), automatic.taskId(),
+                "1. Implement.\n2. Validate.");
+        deliverSucceeded(automatic.runtime().plan(), automatic.jdbc(), draft);
+        RunningTurn review = startCurrentTurn(
+                automatic.jdbc(), automatic.taskId());
+        automatic.runtime().plan().recordSelfReview(
+                review.turnId(), review.operationId(), automatic.taskId(),
+                "APPROVED", List.of(), List.of(), List.of());
+        deliverSucceeded(automatic.runtime().plan(), automatic.jdbc(), review);
+
+        assertThat(countWhere(
+                automatic.jdbc(), "plan_approval", "approval_kind = 'POLICY'"))
+                .isOne();
+        assertThat(count(automatic.jdbc(), "local_initial_implementation_receipt"))
+                .isOne();
+        assertThat(automatic.jdbc().queryForMap("""
+                SELECT stage.kind, stage.checkpoint, stage.version
+                FROM task_current_stage current
+                JOIN stage ON stage.id = current.stage_id
+                WHERE current.task_id = ?
+                """, automatic.taskId()))
+                .containsEntry("kind", "LOCAL_DEVELOPMENT")
+                .containsEntry("checkpoint", "IMPLEMENTING")
+                .containsEntry("version", 1);
+
+        Bootstrapped stewardship = bootstrap("plan-stewardship.db", true);
+        RunningTurn stewardshipDraft = startCurrentTurn(
+                stewardship.jdbc(), stewardship.taskId());
+        stewardship.runtime().plan().recordPlan(
+                stewardshipDraft.turnId(), stewardshipDraft.operationId(),
+                stewardship.taskId(), "1. Implement carefully.\n2. Validate.");
+        deliverSucceeded(
+                stewardship.runtime().plan(), stewardship.jdbc(),
+                stewardshipDraft);
+        RunningTurn stewardshipReview = startCurrentTurn(
+                stewardship.jdbc(), stewardship.taskId());
+        stewardship.runtime().plan().recordSelfReview(
+                stewardshipReview.turnId(), stewardshipReview.operationId(),
+                stewardship.taskId(), "APPROVED", List.of(), List.of(),
+                List.of("User must confirm the data migration"));
+        deliverSucceeded(
+                stewardship.runtime().plan(), stewardship.jdbc(),
+                stewardshipReview);
+
+        assertThat(count(stewardship.jdbc(), "plan_approval")).isZero();
+        assertThat(stewardship.jdbc().queryForObject("""
+                SELECT checkpoint FROM stage
+                WHERE id = (SELECT stage_id FROM task_current_stage WHERE task_id = ?)
+                """, String.class, stewardship.taskId()))
+                .isEqualTo("AWAITING_APPROVAL");
     }
 
     @Test
@@ -369,7 +480,108 @@ class TestPlanRuntimeCoordinator
                 .isOne();
     }
 
+    @Test
+    void satisfiedReplanOpensANewEpochAndArmsOneFreshDraft()
+            throws Exception
+    {
+        Bootstrapped bootstrap = bootstrap("plan-replan.db");
+        JdbcTemplate jdbc = bootstrap.jdbc();
+        PlanRuntimeCoordinator runtime = bootstrap.runtime().plan();
+        RunningTurn draft = startCurrentTurn(jdbc, bootstrap.taskId());
+        runtime.recordPlan(
+                draft.turnId(), draft.operationId(), bootstrap.taskId(),
+                "1. Implement the first approach.\n2. Validate it.");
+        deliverSucceeded(runtime, jdbc, draft);
+        RunningTurn review = startCurrentTurn(jdbc, bootstrap.taskId());
+        runtime.recordSelfReview(
+                review.turnId(), review.operationId(), bootstrap.taskId(),
+                "APPROVED", List.of(), List.of(), List.of());
+        deliverSucceeded(runtime, jdbc, review);
+        finalizePendingTickets(jdbc);
+
+        Map<String, Object> source = jdbc.queryForMap("""
+                SELECT task.epoch, task.aggregate_version,
+                       stage.id AS stage_id, stage.generation, stage.version
+                FROM tasks task
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage ON stage.id = current.stage_id
+                WHERE task.id = ?
+                """, bootstrap.taskId());
+        String barrierId = "replan-barrier";
+        String replanId = "replan-request";
+        String commandId = "apply-replan";
+        String newPlanId = "replacement-plan";
+        long epoch = ((Number) source.get("epoch")).longValue();
+        long generation = ((Number) source.get("generation")).longValue();
+        jdbc.update("""
+                INSERT INTO task_quiescence_barrier(
+                    id, task_id, task_epoch, reason, status, requested_at_ms)
+                VALUES (?, ?, ?, 'REPLAN', 'REQUESTED', ?)
+                """, barrierId, bootstrap.taskId(), epoch, NOW.toEpochMilli());
+        jdbc.update("""
+                INSERT INTO task_replan_request(
+                    id, task_id, source_stage_id, source_generation,
+                    source_task_epoch, target_task_epoch,
+                    quiescence_barrier_id, command_id, reason, requested_by,
+                    status, requested_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 'REQUESTED', ?)
+                """, replanId, bootstrap.taskId(), source.get("stage_id"),
+                generation, epoch, epoch + 1, barrierId, commandId,
+                "the first approach exposed a design flaw", NOW.toEpochMilli());
+        jdbc.update("""
+                UPDATE task_replan_request SET status = 'QUIESCING' WHERE id = ?
+                """, replanId);
+        jdbc.update("""
+                UPDATE task_quiescence_barrier
+                SET status = 'SATISFIED', completed_at_ms = ?, evidence = ?
+                WHERE id = ?
+                """, NOW.plusSeconds(10).toEpochMilli(), "quiesced", barrierId);
+
+        TaskManager.ReplanCommand command = new TaskManager.ReplanCommand(
+                commandId, "user", bootstrap.taskId(),
+                ((Number) source.get("aggregate_version")).longValue(), epoch,
+                (String) source.get("stage_id"), generation,
+                ((Number) source.get("version")).longValue(), replanId,
+                barrierId, newPlanId, generation + 1);
+        ReplanHandoff.Result accepted = bootstrap.runtime().replan().accept(command);
+
+        assertThat(accepted.task().epoch()).isEqualTo(epoch + 1);
+        assertThat(jdbc.queryForMap("""
+                SELECT stage.kind, stage.generation, stage.version,
+                       stage.checkpoint, turn.task_epoch,
+                       turn.trigger_stage_generation, turn.purpose,
+                       ticket.status AS ticket_status
+                FROM task_current_stage current
+                JOIN stage ON stage.id = current.stage_id
+                JOIN stage_initial_result_request request
+                  ON request.stage_id = stage.id
+                JOIN task_turn turn ON turn.id = request.turn_id
+                JOIN dispatch_ticket ticket ON ticket.operation_id = turn.operation_id
+                WHERE current.task_id = ?
+                """, bootstrap.taskId()))
+                .containsEntry("kind", "PLAN")
+                .containsEntry("generation", 2)
+                .containsEntry("version", 1)
+                .containsEntry("checkpoint", "DRAFTING")
+                .containsEntry("task_epoch", 2)
+                .containsEntry("trigger_stage_generation", 2)
+                .containsEntry("purpose", "PLAN_DRAFT")
+                .containsEntry("ticket_status", "REQUESTED");
+        assertThat(count(jdbc, "task_replan_plan_receipt")).isOne();
+
+        ReplanHandoff.Result replay = bootstrap.runtime().replan().accept(command);
+        assertThat(replay.plan().disposition().name()).isEqualTo("DUPLICATE");
+        assertThat(count(jdbc, "task_replan_plan_receipt")).isOne();
+        assertThat(countWhere(jdbc, "task_turn", "task_epoch = 2")).isOne();
+    }
+
     private Bootstrapped bootstrap(String name)
+            throws Exception
+    {
+        return bootstrap(name, false);
+    }
+
+    private Bootstrapped bootstrap(String name, boolean autoApprove)
             throws Exception
     {
         Path repositoryRoot = tempDir.resolve(name + "-repo").toAbsolutePath();
@@ -378,7 +590,7 @@ class TestPlanRuntimeCoordinator
         seedTrunk(jdbc, repositoryRoot);
         Runtime runtime = runtime(dataSource);
         TaskCreationHandoff.Result created = runtime.creation().create(
-                creationCommand(repositoryRoot));
+                creationCommand(repositoryRoot, autoApprove));
         String taskId = created.task().task().id();
         String operationId = created.task().receipt().operationId();
         ProvisionTaskOperationHandler.ProvisionEvidence evidence =
@@ -561,7 +773,7 @@ class TestPlanRuntimeCoordinator
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("235").load().migrate();
+        Flyway.configure().dataSource(url, "", "").target("237").load().migrate();
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;
@@ -575,6 +787,7 @@ class TestPlanRuntimeCoordinator
         StageManager.Store stageStore;
         PlanStageManager.ApprovalStore approvalStore;
         PlanStageManager.RevisionStore revisionStore;
+        LocalDevelopmentStageManager.EvidenceStore localEvidence;
         try (AnnotationConfigApplicationContext context =
                 new AnnotationConfigApplicationContext()) {
             context.registerBean(JdbcTemplate.class, () -> jdbc);
@@ -588,6 +801,8 @@ class TestPlanRuntimeCoordinator
             stageStore = context.getBean(StageManager.Store.class);
             approvalStore = context.getBean(PlanStageManager.ApprovalStore.class);
             revisionStore = context.getBean(PlanStageManager.RevisionStore.class);
+            localEvidence = context.getBean(
+                    LocalDevelopmentStageManager.EvidenceStore.class);
         }
         TaskCommandExecutor commands = new TaskCommandExecutor(
                 new DataSourceTransactionManager(dataSource));
@@ -595,13 +810,28 @@ class TestPlanRuntimeCoordinator
         TaskManager tasks = new TaskManager(commands, taskStore);
         PlanStageManager plan = new PlanStageManager(
                 commands, stageStore, approvalStore, revisionStore);
+        LocalDevelopmentStageManager local = new LocalDevelopmentStageManager(
+                commands, stageStore, localEvidence);
+        PlanToLocalHandoff planToLocal = new PlanToLocalHandoff(
+                commands, plan, tasks, local);
+        GitRunner git = new GitRunner();
+        ObjectMapper json = new ObjectMapper();
+        LocalDevelopmentRuntimeCoordinator localRuntime =
+                new LocalDevelopmentRuntimeCoordinator(
+                        commands, tasks, local,
+                        new SqliteLocalDevelopmentRuntimeStore(jdbc),
+                        new CodeFingerprints(git), git, json,
+                        Clock.fixed(NOW.plusSeconds(60), ZoneOffset.UTC), 53123);
         TaskCreationHandoff creation = new TaskCreationHandoff(
                 commands, trunks, tasks, new IdGenerator(ignored -> 1));
         PlanRuntimeCoordinator coordinator = new PlanRuntimeCoordinator(
                 commands, tasks, plan, new SqlitePlanRuntimeStore(jdbc),
-                new ObjectMapper(), Clock.fixed(NOW.plusSeconds(60), ZoneOffset.UTC),
-                53123);
-        return new Runtime(creation, coordinator);
+                planToLocal, localRuntime, json,
+                Clock.fixed(NOW.plusSeconds(60), ZoneOffset.UTC), 53123);
+        ReplanHandoff replan = new ReplanHandoff(
+                commands, plan, tasks, plan,
+                coordinator::startReplanDraftInCommand);
+        return new Runtime(creation, coordinator, replan);
     }
 
     private static void seedTrunk(JdbcTemplate jdbc, Path repositoryRoot)
@@ -634,6 +864,12 @@ class TestPlanRuntimeCoordinator
 
     private static TaskCreationHandoff.Command creationCommand(Path repositoryRoot)
     {
+        return creationCommand(repositoryRoot, false);
+    }
+
+    private static TaskCreationHandoff.Command creationCommand(
+            Path repositoryRoot, boolean autoApprove)
+    {
         TaskAssignment.Direct repositories = new TaskAssignment.Direct(REPOSITORY);
         TaskAssignment assignment = new TaskAssignment.NewFromTrunk(
                 new TaskAssignment.Identity(
@@ -642,7 +878,7 @@ class TestPlanRuntimeCoordinator
         TaskCreationInput input = new TaskCreationInput(
                 WORKSPACE, assignment,
                 new TaskCreationInput.TaskPolicy(
-                        "policy-plan", TRUNK, 1, "TRUNK", true, false,
+                        "policy-plan", TRUNK, 1, "TRUNK", autoApprove, false,
                         1, 3, 3, true, Optional.of("permissions"), "user", NOW),
                 new TaskCreationInput.FreshRemoteBase(repositories, "main"),
                 new TaskCreationInput.EngineSnapshot(
@@ -701,6 +937,29 @@ class TestPlanRuntimeCoordinator
                 """, error, operationId);
     }
 
+    private static void finalizePendingTickets(JdbcTemplate jdbc)
+    {
+        jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'SUCCEEDED',
+                    pending_result_outcome = NULL,
+                    pending_result_payload = NULL,
+                    pending_result_evidence = NULL,
+                    pending_result_error = NULL,
+                    pending_result_task_epoch = NULL,
+                    pending_result_stage_id = NULL,
+                    pending_result_stage_generation = NULL,
+                    pending_result_operation_id = NULL,
+                    pending_result_attempt = NULL,
+                    pending_result_expected_code_fingerprint = NULL,
+                    pending_result_expected_head_sha = NULL,
+                    pending_result_expected_base_sha = NULL,
+                    delivery_acceptance = 'ACCEPTED',
+                    delivery_evidence = '{}', completed_at_ms = ?
+                WHERE status = 'RESULT_PENDING'
+                """, NOW.plusSeconds(5).toEpochMilli());
+    }
+
     private static int count(JdbcTemplate jdbc, String table)
     {
         return jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class);
@@ -715,7 +974,8 @@ class TestPlanRuntimeCoordinator
 
     private record Runtime(
             TaskCreationHandoff creation,
-            PlanRuntimeCoordinator plan) {}
+            PlanRuntimeCoordinator plan,
+            ReplanHandoff replan) {}
 
     private record Bootstrapped(
             SQLiteDataSource dataSource,

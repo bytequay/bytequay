@@ -30,6 +30,7 @@ import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.service.threads.ChatAttachmentStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.security.MessageDigest;
@@ -65,6 +66,7 @@ public final class V2StageSteeringRuntime
     private final ObjectProvider<RemoteFeedbackRuntimeCoordinator> remoteFeedback;
     private final Clock clock;
 
+    @Autowired
     public V2StageSteeringRuntime(
             TaskCommandExecutor commands,
             StageManager.Store stages,

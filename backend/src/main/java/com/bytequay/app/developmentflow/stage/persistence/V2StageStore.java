@@ -195,6 +195,15 @@ final class V2StageStore
                 return steering;
             }
         }
+        if (tableAvailable("stage_resume_rearm_successor_v257")) {
+            Optional<StageManager.CommandReceipt> resumed = queryResumeRearm(
+                    "WHERE intent.task_id = ? AND intent.stage_id = ?"
+                            + " AND successor.command_id = ?",
+                    taskId, stageId, commandId);
+            if (resumed.isPresent()) {
+                return resumed;
+            }
+        }
         return queryInitialRequest(
                 "WHERE task_id = ? AND stage_id = ? AND command_id = ?",
                 taskId, stageId, commandId)
@@ -943,13 +952,64 @@ final class V2StageStore
             }
         }
         if (tableAvailable("stage_steering_transition_receipt_v257")) {
-            return queryReceipt(
+            Optional<StageManager.CommandReceipt> steering = queryReceipt(
                     "SELECT * FROM stage_steering_transition_receipt_v257"
                             + " WHERE stage_id = ? AND disposition = 'APPLIED'"
                             + " AND returned_version = ?",
                     stageId, version);
+            if (steering.isPresent()) {
+                return steering;
+            }
+        }
+        if (tableAvailable("stage_resume_rearm_successor_v257")) {
+            return queryResumeRearm(
+                    "WHERE intent.stage_id = ?"
+                            + " AND successor.returned_stage_version = ?",
+                    stageId, version);
         }
         return Optional.empty();
+    }
+
+    private Optional<StageManager.CommandReceipt> queryResumeRearm(
+            String suffix, Object... arguments)
+    {
+        return jdbc.query("""
+                SELECT intent.task_id, intent.task_epoch, intent.stage_id,
+                       intent.stage_kind, intent.stage_generation,
+                       intent.stage_version, intent.restore_checkpoint,
+                       intent.code_fingerprint, intent.head_sha, intent.base_sha,
+                       successor.command_id, successor.owner_id,
+                       successor.operation_id, successor.semantic_attempt,
+                       successor.returned_stage_version
+                FROM stage_resume_rearm_successor_v257 successor
+                JOIN stage_resume_rearm_intent_v257 intent
+                  ON intent.handoff_id = successor.handoff_id
+                """ + suffix + " AND successor.status = 'ARMED'"
+                        + " AND successor.returned_stage_version IS NOT NULL",
+                (rs, row) -> {
+                    ResultFence pending = new ResultFence(
+                            rs.getLong("task_epoch"), rs.getString("stage_id"),
+                            rs.getLong("stage_generation"),
+                            rs.getString("operation_id"),
+                            rs.getInt("semantic_attempt"),
+                            rs.getString("code_fingerprint"),
+                            rs.getString("head_sha"), rs.getString("base_sha"));
+                    StageCheckpoint checkpoint = StageCheckpoint.valueOf(
+                            rs.getString("restore_checkpoint"));
+                    StageManager.State state = new StageManager.State(
+                            rs.getString("stage_id"), rs.getString("task_id"),
+                            StageKind.valueOf(rs.getString("stage_kind")),
+                            rs.getLong("stage_generation"),
+                            rs.getLong("returned_stage_version"), checkpoint,
+                            null, pending);
+                    return new StageManager.CommandReceipt(
+                            state.taskId(), state, "REARM_STAGE_OWNER",
+                            "stage-resume-owner", rs.getLong("task_epoch"),
+                            rs.getLong("stage_generation"),
+                            rs.getLong("stage_version"), checkpoint, pending,
+                            rs.getString("owner_id"),
+                            CommandResult.Disposition.APPLIED);
+                }, arguments).stream().findFirst();
     }
 
     private boolean localReceiptsAvailable()

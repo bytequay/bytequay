@@ -662,7 +662,14 @@ CREATE TABLE stage_resume_rearm_intent_v257 (
     status              TEXT    NOT NULL CHECK (status IN ('PENDING', 'MATERIALIZED')),
     accepted_at_ms      INTEGER NOT NULL CHECK (accepted_at_ms >= 0),
     materialized_at_ms  INTEGER,
+    diagnostic_code     TEXT,
+    diagnostic_detail   TEXT,
+    diagnosed_at_ms     INTEGER,
     CHECK ((status = 'PENDING') = (materialized_at_ms IS NULL)),
+    CHECK ((diagnostic_code IS NULL AND diagnostic_detail IS NULL
+            AND diagnosed_at_ms IS NULL)
+        OR (status = 'PENDING' AND diagnostic_code IS NOT NULL
+            AND diagnostic_detail IS NOT NULL AND diagnosed_at_ms IS NOT NULL)),
     FOREIGN KEY (stage_id, task_id, stage_kind, stage_generation)
         REFERENCES stage(id, task_id, kind, generation) ON DELETE CASCADE
         DEFERRABLE INITIALLY DEFERRED
@@ -721,3 +728,371 @@ CREATE TRIGGER stage_resume_rearm_terminal_immutable_v257
 BEFORE UPDATE ON stage_resume_rearm_intent_v257
 WHEN OLD.status = 'MATERIALIZED'
 BEGIN SELECT RAISE(ABORT, 'materialized resume rearm intent is immutable'); END;
+
+-- The exact Stage owner reserves one deterministic successor before creating
+-- typed work.  PREPARED is visible only inside the owner command transaction;
+-- a crash rolls it back with the work.  ARMED is the immutable restart proof.
+CREATE TABLE stage_resume_rearm_successor_v257 (
+    handoff_id             TEXT NOT NULL PRIMARY KEY
+        REFERENCES stage_resume_rearm_intent_v257(handoff_id) ON DELETE CASCADE,
+    command_id             TEXT NOT NULL UNIQUE,
+    owner_kind             TEXT NOT NULL CHECK (owner_kind IN (
+        'TASK_TURN', 'STAGE_TURN', 'REMOTE_OBSERVATION')),
+    owner_id               TEXT NOT NULL UNIQUE,
+    operation_id           TEXT UNIQUE,
+    dispatch_ticket_id     TEXT UNIQUE,
+    purpose                TEXT NOT NULL,
+    semantic_attempt       INTEGER CHECK (semantic_attempt > 0),
+    status                 TEXT NOT NULL CHECK (status IN ('PREPARED', 'ARMED')),
+    returned_stage_version INTEGER CHECK (returned_stage_version >= 0),
+    created_at_ms          INTEGER NOT NULL CHECK (created_at_ms >= 0),
+    armed_at_ms            INTEGER,
+    CHECK (operation_id IS NOT NULL AND dispatch_ticket_id IS NOT NULL
+        AND semantic_attempt IS NOT NULL),
+    CHECK ((status = 'PREPARED' AND armed_at_ms IS NULL
+            AND returned_stage_version IS NULL)
+        OR (status = 'ARMED' AND armed_at_ms IS NOT NULL)),
+    CHECK (returned_stage_version IS NULL
+        OR owner_kind IN ('TASK_TURN', 'STAGE_TURN'))
+);
+
+CREATE TRIGGER stage_resume_rearm_successor_insert_v257
+BEFORE INSERT ON stage_resume_rearm_successor_v257
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM stage_resume_rearm_intent_v257 intent
+    JOIN task_resume_handoff_v256 handoff ON handoff.id = intent.handoff_id
+    JOIN tasks task ON task.id = intent.task_id
+    JOIN task_current_stage current ON current.task_id = task.id
+    JOIN stage owner ON owner.id = current.stage_id
+    JOIN task_current_code_subject_v230 code ON code.task_id = task.id
+    WHERE intent.handoff_id = NEW.handoff_id AND intent.status = 'PENDING'
+      AND handoff.status = 'ACCEPTED'
+      AND task.workflow_version = 'V2' AND task.lifecycle_state = 'ACTIVE'
+      AND task.epoch = intent.task_epoch
+      AND current.stage_id = intent.stage_id
+      AND current.stage_generation = intent.stage_generation
+      AND owner.kind = intent.stage_kind
+      AND owner.generation = intent.stage_generation
+      AND owner.version = intent.stage_version
+      AND owner.checkpoint = intent.restore_checkpoint
+      AND owner.completed_at_ms IS NULL AND owner.end_reason IS NULL
+      AND code.code_fingerprint = intent.code_fingerprint
+      AND code.head_sha = intent.head_sha AND code.base_sha = intent.base_sha)
+BEGIN SELECT RAISE(ABORT, 'Resume successor owner fence is stale'); END;
+
+CREATE TRIGGER stage_resume_rearm_successor_identity_v257
+BEFORE UPDATE OF handoff_id, command_id, owner_kind, owner_id, operation_id,
+        dispatch_ticket_id, purpose, semantic_attempt, created_at_ms
+ON stage_resume_rearm_successor_v257
+BEGIN SELECT RAISE(ABORT, 'Resume successor identity is immutable'); END;
+
+CREATE TRIGGER stage_resume_rearm_successor_transition_v257
+BEFORE UPDATE OF status ON stage_resume_rearm_successor_v257
+WHEN OLD.status <> 'PREPARED' OR NEW.status <> 'ARMED'
+  OR NEW.armed_at_ms IS NULL
+BEGIN SELECT RAISE(ABORT, 'illegal resume successor transition'); END;
+
+CREATE TRIGGER stage_resume_rearm_successor_terminal_v257
+BEFORE UPDATE ON stage_resume_rearm_successor_v257
+WHEN OLD.status = 'ARMED'
+BEGIN SELECT RAISE(ABORT, 'armed resume successor is immutable'); END;
+
+CREATE TRIGGER stage_resume_rearm_materialize_v257
+BEFORE UPDATE OF status ON stage_resume_rearm_intent_v257
+WHEN NEW.status = 'MATERIALIZED' AND NOT EXISTS (
+    SELECT 1
+    FROM stage_resume_rearm_successor_v257 successor
+    JOIN tasks task ON task.id = OLD.task_id
+    JOIN task_current_stage current ON current.task_id = task.id
+    JOIN stage owner ON owner.id = current.stage_id
+    WHERE successor.handoff_id = OLD.handoff_id
+      AND successor.status = 'ARMED'
+      AND task.workflow_version = 'V2' AND task.lifecycle_state = 'ACTIVE'
+      AND task.epoch = OLD.task_epoch
+      AND current.stage_id = OLD.stage_id
+      AND current.stage_generation = OLD.stage_generation
+      AND owner.kind = OLD.stage_kind
+      AND owner.generation = OLD.stage_generation
+      AND owner.checkpoint = OLD.restore_checkpoint
+      AND owner.completed_at_ms IS NULL AND owner.end_reason IS NULL
+      AND ((successor.owner_kind = 'REMOTE_OBSERVATION'
+            AND OLD.stage_kind = 'REMOTE_DEVELOPMENT'
+            AND OLD.restore_checkpoint IN (
+                'WAITING_CI', 'AWAITING_READY', 'WAITING_REMOTE_REVIEW',
+                'READY_TO_MERGE')
+            AND successor.purpose = 'REMOTE_OBSERVATION'
+            AND successor.returned_stage_version IS NULL
+            AND EXISTS (
+                SELECT 1 FROM remote_observation_operation operation
+                JOIN dispatch_ticket ticket
+                  ON ticket.id = successor.dispatch_ticket_id
+                WHERE operation.id = successor.owner_id
+                  AND operation.operation_id = successor.operation_id
+                  AND operation.semantic_attempt = successor.semantic_attempt
+                  AND operation.task_id = OLD.task_id
+                  AND operation.task_epoch = OLD.task_epoch
+                  AND operation.remote_development_stage_id = OLD.stage_id
+                  AND operation.stage_generation = OLD.stage_generation
+                  AND operation.expected_head_sha = OLD.head_sha
+                  AND operation.expected_base_sha = OLD.base_sha
+                  AND operation.status = 'DISPATCHED'
+                  AND ticket.operation_id = successor.operation_id
+                  AND ticket.async_family = 'REMOTE_OBSERVATION'
+                  AND ticket.owner_kind = 'STAGE'
+                  AND ticket.owner_id = OLD.stage_id
+                  AND ticket.task_id = OLD.task_id
+                  AND ticket.task_epoch = OLD.task_epoch
+                  AND ticket.stage_id = OLD.stage_id
+                  AND ticket.stage_generation = OLD.stage_generation
+                  AND ticket.attempt = successor.semantic_attempt
+                  AND ticket.expected_code_fingerprint IS NULL
+                  AND ticket.expected_head_sha = OLD.head_sha
+                  AND ticket.expected_base_sha = OLD.base_sha
+                  AND ticket.status = 'REQUESTED'))
+        OR (successor.owner_kind = 'TASK_TURN'
+            AND OLD.stage_kind = 'PLAN'
+            AND OLD.restore_checkpoint = 'DRAFTING'
+            AND successor.purpose = 'PLAN_DRAFT'
+            AND successor.returned_stage_version = owner.version
+            AND EXISTS (
+                SELECT 1 FROM task_turn turn
+                JOIN dispatch_ticket ticket
+                  ON ticket.id = successor.dispatch_ticket_id
+                WHERE turn.id = successor.owner_id
+                  AND turn.operation_id = successor.operation_id
+                  AND turn.attempt = successor.semantic_attempt
+                  AND turn.task_id = OLD.task_id
+                  AND turn.task_epoch = OLD.task_epoch
+                  AND turn.trigger_stage_id = OLD.stage_id
+                  AND turn.trigger_stage_generation = OLD.stage_generation
+                  AND turn.purpose = successor.purpose
+                  AND turn.expected_code_fingerprint = OLD.code_fingerprint
+                  AND turn.expected_head_sha = OLD.head_sha
+                  AND turn.expected_base_sha = OLD.base_sha
+                  AND turn.status = 'REQUESTED'
+                  AND ticket.operation_id = successor.operation_id
+                  AND ticket.async_family = 'AGENT_TURN'
+                  AND ticket.owner_kind = 'TASK_TURN'
+                  AND ticket.owner_id = successor.owner_id
+                  AND ticket.task_id = OLD.task_id
+                  AND ticket.task_epoch = OLD.task_epoch
+                  AND ticket.stage_id = OLD.stage_id
+                  AND ticket.stage_generation = OLD.stage_generation
+                  AND ticket.attempt = successor.semantic_attempt
+                  AND ticket.expected_code_fingerprint = OLD.code_fingerprint
+                  AND ticket.expected_head_sha = OLD.head_sha
+                  AND ticket.expected_base_sha = OLD.base_sha
+                  AND ticket.status = 'REQUESTED'))
+        OR (successor.owner_kind = 'STAGE_TURN'
+            AND ((OLD.stage_kind = 'LOCAL_DEVELOPMENT'
+                  AND (OLD.restore_checkpoint = 'IMPLEMENTING'
+                       AND successor.purpose = 'IMPLEMENT_LOCAL_PLAN'
+                    OR OLD.restore_checkpoint = 'ADDRESSING_BRAIN_FINDINGS'
+                       AND successor.purpose = 'ADDRESS_BRAIN_FINDINGS'
+                    OR OLD.restore_checkpoint = 'ADDRESSING_LOCAL_FEEDBACK'
+                       AND successor.purpose = 'ADDRESS_LOCAL_FEEDBACK')
+                  AND successor.returned_stage_version = owner.version)
+              OR (OLD.stage_kind = 'REMOTE_DEVELOPMENT'
+                  AND OLD.restore_checkpoint = 'ADDRESSING_REMOTE_FEEDBACK'
+                  AND successor.purpose = 'ADDRESS_REMOTE_FEEDBACK'
+                  AND successor.returned_stage_version IS NULL))
+            AND EXISTS (
+                SELECT 1 FROM stage_turn turn
+                JOIN dispatch_ticket ticket
+                  ON ticket.id = successor.dispatch_ticket_id
+                WHERE turn.id = successor.owner_id
+                  AND turn.operation_id = successor.operation_id
+                  AND turn.attempt = successor.semantic_attempt
+                  AND turn.stage_id = OLD.stage_id
+                  AND turn.stage_generation = OLD.stage_generation
+                  AND turn.task_epoch = OLD.task_epoch
+                  AND turn.purpose = successor.purpose
+                  AND turn.expected_code_fingerprint = OLD.code_fingerprint
+                  AND turn.expected_head_sha = OLD.head_sha
+                  AND turn.expected_base_sha = OLD.base_sha
+                  AND turn.status = 'QUEUED'
+                  AND ticket.operation_id = successor.operation_id
+                  AND ticket.async_family = 'AGENT_TURN'
+                  AND ticket.owner_kind = 'STAGE_TURN'
+                  AND ticket.owner_id = successor.owner_id
+                  AND ticket.task_id = OLD.task_id
+                  AND ticket.task_epoch = OLD.task_epoch
+                  AND ticket.stage_id = OLD.stage_id
+                  AND ticket.stage_generation = OLD.stage_generation
+                  AND ticket.attempt = successor.semantic_attempt
+                  AND ticket.expected_code_fingerprint = OLD.code_fingerprint
+                  AND ticket.expected_head_sha = OLD.head_sha
+                  AND ticket.expected_base_sha = OLD.base_sha
+                  AND ticket.status = 'REQUESTED'))))
+BEGIN SELECT RAISE(ABORT, 'Resume materialization lacks its exact successor'); END;
+
+-- Plan continuation attempts are admitted only through the exact prepared
+-- resume successor.  Ordinary Plan drafting/self-review remains attempt one.
+DROP TRIGGER plan_task_turn_insert;
+CREATE TRIGGER plan_task_turn_insert
+BEFORE INSERT ON task_turn
+WHEN NEW.purpose IN ('PLAN_DRAFT', 'PLAN_SELF_REVIEW')
+BEGIN
+    SELECT CASE WHEN
+        NEW.status <> 'REQUESTED'
+        OR (NEW.attempt <> 1 AND NOT EXISTS (
+            SELECT 1
+            FROM stage_resume_rearm_successor_v257 successor
+            JOIN stage_resume_rearm_intent_v257 intent
+              ON intent.handoff_id = successor.handoff_id
+            WHERE successor.status = 'PREPARED'
+              AND successor.owner_kind = 'TASK_TURN'
+              AND successor.owner_id = NEW.id
+              AND successor.operation_id = NEW.operation_id
+              AND successor.semantic_attempt = NEW.attempt
+              AND successor.purpose = NEW.purpose
+              AND intent.status = 'PENDING'
+              AND intent.task_id = NEW.task_id
+              AND intent.task_epoch = NEW.task_epoch
+              AND intent.stage_id = NEW.trigger_stage_id
+              AND intent.stage_generation = NEW.trigger_stage_generation))
+        OR NEW.trigger_stage_id IS NULL
+        OR NEW.expected_code_fingerprint IS NULL
+        OR NEW.expected_head_sha IS NULL
+        OR NEW.expected_base_sha IS NULL
+        OR NEW.delivery_lane NOT IN ('CLI', 'API')
+        OR NOT json_valid(NEW.launch_input)
+        OR json_extract(NEW.launch_input, '$.schemaVersion') <> 1
+        OR json_extract(NEW.launch_input, '$.transport') <> NEW.delivery_lane
+        OR json_extract(NEW.launch_input, '$.toolEndpoint.ownerKind') <> 'TASK_TURN'
+        OR json_extract(NEW.launch_input, '$.toolEndpoint.ownerId') <> NEW.id
+        OR json_extract(NEW.launch_input, '$.toolEndpoint.operationId') <> NEW.operation_id
+        OR json_extract(NEW.launch_input, '$.toolEndpoint.profile') <> 'TASK_BRAIN_READ_ONLY'
+        OR json_extract(NEW.launch_input, '$.toolEndpoint.approvalPromptTool')
+            <> 'mcp__bytequay__approval_prompt'
+        OR json_extract(NEW.launch_input, '$.toolEndpoint.url') NOT LIKE
+            '%/api/v2/task-turns/' || NEW.id || '/operations/' || NEW.operation_id || '/mcp'
+        OR length(trim(json_extract(NEW.launch_input, '$.prompt'))) = 0
+        OR NOT EXISTS (
+            SELECT 1
+            FROM tasks task
+            JOIN task_current_stage current ON current.task_id = task.id
+            JOIN stage s ON s.id = current.stage_id
+            JOIN plan_stage plan ON plan.stage_id = s.id
+            JOIN task_code_identity code ON code.task_id = task.id
+            JOIN task_brain brain ON brain.task_id = task.id
+            WHERE task.id = NEW.task_id
+              AND task.workflow_version = 'V2'
+              AND task.lifecycle_state = 'ACTIVE'
+              AND task.epoch = NEW.task_epoch
+              AND current.stage_id = NEW.trigger_stage_id
+              AND current.stage_generation = NEW.trigger_stage_generation
+              AND s.kind = 'PLAN' AND s.completed_at_ms IS NULL
+              AND s.checkpoint IN ('DRAFTING', 'SELF_REVIEW')
+              AND plan.task_id = task.id
+              AND plan.generation = s.generation
+              AND plan.opened_for_epoch = task.epoch
+              AND code.code_fingerprint = NEW.expected_code_fingerprint
+              AND code.local_head_sha = NEW.expected_head_sha
+              AND code.base_sha = NEW.expected_base_sha
+              AND code.worktree_path = json_extract(NEW.launch_input, '$.workingDirectory')
+              AND brain.provider = json_extract(NEW.launch_input, '$.provider')
+              AND brain.model = json_extract(NEW.launch_input, '$.model'))
+    THEN RAISE(ABORT, 'Plan TaskTurn does not match its frozen owner') END;
+END;
+
+-- A paused feedback Turn, like a steered Turn, may have no repair result.
+-- Its accepted resume handoff is the exact additional predecessor proof.
+DROP TRIGGER remote_feedback_stage_turn_request_insert;
+CREATE TRIGGER remote_feedback_stage_turn_request_insert
+BEFORE INSERT ON remote_feedback_stage_turn_request
+WHEN NOT EXISTS (
+    SELECT 1
+    FROM remote_feedback_batch batch
+    JOIN remote_development_stage remote
+      ON remote.stage_id = batch.remote_development_stage_id
+    JOIN tasks task ON task.id = batch.task_id
+    JOIN task_current_stage current ON current.task_id = task.id
+    JOIN stage owner ON owner.id = remote.stage_id
+    JOIN stage_turn turn ON turn.id = NEW.stage_turn_id
+    WHERE batch.id = NEW.remote_feedback_batch_id
+      AND batch.status IN ('FROZEN', 'ADDRESSING')
+      AND batch.task_id = NEW.task_id
+      AND batch.task_epoch = NEW.task_epoch
+      AND batch.stage_generation = NEW.stage_generation
+      AND batch.remote_development_stage_id = NEW.remote_development_stage_id
+      AND remote.current_head_sha = batch.head_sha
+      AND remote.current_base_sha = batch.base_sha
+      AND task.workflow_version = 'V2'
+      AND task.lifecycle_state = 'ACTIVE' AND task.epoch = NEW.task_epoch
+      AND current.stage_id = remote.stage_id
+      AND current.stage_generation = remote.generation
+      AND owner.checkpoint = 'ADDRESSING_REMOTE_FEEDBACK'
+      AND owner.completed_at_ms IS NULL
+      AND turn.stage_id = remote.stage_id
+      AND turn.stage_generation = remote.generation
+      AND turn.task_epoch = NEW.task_epoch
+      AND turn.purpose = 'ADDRESS_REMOTE_FEEDBACK'
+      AND turn.attempt = NEW.semantic_attempt
+      AND turn.expected_base_sha = batch.base_sha
+      AND turn.status = 'QUEUED'
+      AND ((NEW.semantic_attempt = 1 AND NEW.predecessor_turn_id IS NULL
+            AND turn.expected_head_sha = batch.head_sha)
+        OR (NEW.semantic_attempt > 1 AND EXISTS (
+            SELECT 1 FROM remote_feedback_stage_turn_request previous
+            JOIN stage_turn previous_turn
+              ON previous_turn.id = previous.stage_turn_id
+            JOIN remote_feedback_repair_result previous_repair
+              ON previous_repair.repair_stage_turn_id = previous.stage_turn_id
+            WHERE previous.remote_feedback_batch_id = batch.id
+              AND previous.semantic_attempt = NEW.semantic_attempt - 1
+              AND previous.stage_turn_id = NEW.predecessor_turn_id
+              AND turn.expected_head_sha = previous_repair.proposed_head_sha
+              AND turn.expected_code_fingerprint = previous_repair.code_fingerprint
+              AND previous_turn.status IN (
+                  'SUCCEEDED', 'FAILED', 'CANCELED', 'SUPERSEDED')))
+        OR (NEW.semantic_attempt > 1 AND EXISTS (
+            SELECT 1 FROM remote_feedback_stage_turn_request previous
+            JOIN stage_turn previous_turn
+              ON previous_turn.id = previous.stage_turn_id
+            JOIN stage_steering_request_v257 steering
+              ON steering.predecessor_owner_id = previous.stage_turn_id
+             AND steering.predecessor_operation_id = previous_turn.operation_id
+            JOIN remote_stage_steering_handoff_v257 handoff
+              ON handoff.request_id = steering.id
+            WHERE previous.remote_feedback_batch_id = batch.id
+              AND previous.semantic_attempt = NEW.semantic_attempt - 1
+              AND previous.stage_turn_id = NEW.predecessor_turn_id
+              AND steering.status = 'PENDING'
+              AND steering.stage_id = NEW.remote_development_stage_id
+              AND steering.stage_generation = NEW.stage_generation
+              AND steering.predecessor_purpose = 'ADDRESS_REMOTE_FEEDBACK'
+              AND handoff.owner_family = 'REMOTE_FEEDBACK'
+              AND handoff.status = 'PARKED'
+              AND previous_turn.status IN (
+                  'SUCCEEDED', 'FAILED', 'CANCELED', 'SUPERSEDED')
+              AND turn.expected_head_sha = previous_turn.expected_head_sha
+              AND turn.expected_code_fingerprint =
+                  previous_turn.expected_code_fingerprint))
+        OR (NEW.semantic_attempt > 1 AND EXISTS (
+            SELECT 1 FROM remote_feedback_stage_turn_request previous
+            JOIN stage_turn previous_turn
+              ON previous_turn.id = previous.stage_turn_id
+            JOIN stage_resume_rearm_successor_v257 successor
+              ON successor.owner_id = NEW.stage_turn_id
+             AND successor.operation_id = turn.operation_id
+             AND successor.semantic_attempt = NEW.semantic_attempt
+            JOIN stage_resume_rearm_intent_v257 intent
+              ON intent.handoff_id = successor.handoff_id
+            WHERE previous.remote_feedback_batch_id = batch.id
+              AND previous.semantic_attempt = NEW.semantic_attempt - 1
+              AND previous.stage_turn_id = NEW.predecessor_turn_id
+              AND previous_turn.status = 'CANCELED'
+              AND successor.status = 'PREPARED'
+              AND successor.owner_kind = 'STAGE_TURN'
+              AND successor.purpose = 'ADDRESS_REMOTE_FEEDBACK'
+              AND intent.status = 'PENDING'
+              AND intent.task_id = NEW.task_id
+              AND intent.stage_id = NEW.remote_development_stage_id
+              AND intent.stage_generation = NEW.stage_generation
+              AND intent.restore_checkpoint = 'ADDRESSING_REMOTE_FEEDBACK'
+              AND turn.expected_head_sha = previous_turn.expected_head_sha
+              AND turn.expected_code_fingerprint =
+                  previous_turn.expected_code_fingerprint))))
+BEGIN SELECT RAISE(ABORT, 'Remote feedback StageTurn lacks its exact batch and owner'); END;

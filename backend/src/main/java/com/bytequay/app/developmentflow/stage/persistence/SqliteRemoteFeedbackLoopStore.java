@@ -262,6 +262,58 @@ public class SqliteRemoteFeedbackLoopStore
         }
     }
 
+    public void supersedeUndeliveredStageTurn(
+            StageTurnContext context, Instant at)
+    {
+        requireTransaction();
+        jdbc.update("""
+                UPDATE stage_turn
+                SET status = 'SUPERSEDED',
+                    started_at_ms = COALESCE(started_at_ms, requested_at_ms),
+                    finished_at_ms = ?,
+                    error_message = 'replaced by durable user steering'
+                WHERE id = ? AND operation_id = ?
+                  AND status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
+                """, at.toEpochMilli(), context.turnId(), context.operationId());
+    }
+
+    public void insertRepairForSteering(
+            StageTurnContext context,
+            String repairId,
+            String proposedHeadSha,
+            String codeFingerprint,
+            String summary,
+            String resultDigest,
+            List<ReplyDraft> drafts,
+            Instant at)
+    {
+        requireTransaction();
+        jdbc.update("""
+                INSERT INTO remote_feedback_repair_result(
+                    id, remote_feedback_batch_id, repair_stage_turn_id,
+                    task_id, task_epoch, remote_development_stage_id,
+                    stage_generation, subject_head_sha, proposed_head_sha,
+                    base_sha, code_fingerprint, summary, result_digest,
+                    completed_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, repairId, context.batchId(), context.turnId(),
+                context.taskId(), context.taskEpoch(), context.stageId(),
+                context.stageGeneration(), context.subjectHeadSha(), proposedHeadSha,
+                context.baseSha(), codeFingerprint, summary, resultDigest,
+                at.toEpochMilli());
+        for (ReplyDraft draft : drafts) {
+            jdbc.update("""
+                    INSERT INTO remote_feedback_reply_draft(
+                        id, remote_feedback_batch_id, repair_result_id,
+                        batch_item_ordinal, kind, body, body_digest,
+                        external_target, ordinal)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, draft.id(), context.batchId(), repairId,
+                    draft.batchItemOrdinal(), draft.kind(), draft.body(),
+                    draft.bodyDigest(), draft.externalTarget(), draft.ordinal());
+        }
+    }
+
     public ValidationRequest insertRepairAndValidation(
             StageTurnContext context,
             String repairId,

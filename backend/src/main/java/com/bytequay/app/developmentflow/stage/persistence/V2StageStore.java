@@ -81,6 +81,10 @@ final class V2StageStore
                     "INSERT INTO stage_command_receipt(",
                     "INSERT INTO remote_observation_stage_receipt(");
 
+    private static final String STEERING_RECEIPT_INSERT = RECEIPT_INSERT.replace(
+            "INSERT INTO stage_command_receipt(",
+            "INSERT INTO stage_steering_transition_receipt_v257(");
+
     private final JdbcTemplate jdbc;
 
     V2StageStore(JdbcTemplate jdbc)
@@ -180,6 +184,15 @@ final class V2StageStore
                     taskId, stageId, commandId);
             if (remoteObservation.isPresent()) {
                 return remoteObservation;
+            }
+        }
+        if (tableAvailable("stage_steering_transition_receipt_v257")) {
+            Optional<StageManager.CommandReceipt> steering = queryReceipt(
+                    "SELECT * FROM stage_steering_transition_receipt_v257"
+                            + " WHERE task_id = ? AND stage_id = ? AND command_id = ?",
+                    taskId, stageId, commandId);
+            if (steering.isPresent()) {
+                return steering;
             }
         }
         return queryInitialRequest(
@@ -848,6 +861,8 @@ final class V2StageStore
         jdbc.update(connection -> {
             String insert = isLocalCause(cause)
                     ? LOCAL_RECEIPT_INSERT
+                    : cause.equals("ADMIT_LOCAL_STEERING")
+                            ? STEERING_RECEIPT_INSERT
                     : isRemoteObservationCause(cause)
                             ? REMOTE_OBSERVATION_RECEIPT_INSERT
                             : isRemoteRuntimeCause(cause)
@@ -918,8 +933,18 @@ final class V2StageStore
             }
         }
         if (tableAvailable("remote_observation_stage_receipt")) {
-            return queryReceipt(
+            Optional<StageManager.CommandReceipt> observation = queryReceipt(
                     "SELECT * FROM remote_observation_stage_receipt"
+                            + " WHERE stage_id = ? AND disposition = 'APPLIED'"
+                            + " AND returned_version = ?",
+                    stageId, version);
+            if (observation.isPresent()) {
+                return observation;
+            }
+        }
+        if (tableAvailable("stage_steering_transition_receipt_v257")) {
+            return queryReceipt(
+                    "SELECT * FROM stage_steering_transition_receipt_v257"
                             + " WHERE stage_id = ? AND disposition = 'APPLIED'"
                             + " AND returned_version = ?",
                     stageId, version);

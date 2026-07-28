@@ -40,6 +40,75 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
     private Path tempDir;
 
     @Test
+    void expiredPublishClaimCanOnlyBeRecoveredByProbeBeforeReexecution()
+            throws Exception
+    {
+        String url = migrated("publish-expired-claim.db");
+        try (Connection connection = connect(url)) {
+            seedApprovedLocalSubject(connection);
+            execute(connection, manifestSql("manifest-1", 1, 1));
+            insertStandingPublishAuthorization(connection);
+            execute(connection, """
+                    UPDATE stage SET version = 1, checkpoint = 'PUBLISHING'
+                    WHERE id = 'local-stage-1'
+                    """);
+            execute(connection, """
+                    INSERT INTO stage_transition(
+                        id, stage_id, command_id, generation, from_checkpoint,
+                        to_checkpoint, stage_version, cause, actor, occurred_at_ms)
+                    VALUES ('publish-transition-1', 'local-stage-1',
+                        'approve-and-ship-command-1', 1, 'LOCAL_REVIEW',
+                        'PUBLISHING', 1, 'AUTHORIZE_PUBLISH', 'policy', 31)
+                    """);
+            execute(connection, authorizePublishReceiptSql(
+                    "publish-receipt-1", "authorization-1"));
+            execute(connection, """
+                    INSERT INTO publish_operation(
+                        id, publish_authorization_id, local_development_stage_id,
+                        task_id, task_epoch, stage_generation, operation_id,
+                        semantic_attempt, code_fingerprint, expected_head_sha,
+                        expected_base_sha, status, requested_at_ms)
+                    VALUES ('publish-operation-1', 'authorization-1',
+                        'local-stage-1', 'task-1', 1, 1,
+                        'publish-operation-id-1', 1, 'fp-1', 'head-1',
+                        'base-1', 'REQUESTED', 32)
+                    """);
+            insertPublishSteps(connection);
+            insertPublishTicket(connection);
+            execute(connection, """
+                    UPDATE publish_operation SET status = 'DISPATCHED'
+                    WHERE id = 'publish-operation-1'
+                    """);
+        }
+
+        migrate(url, "238");
+        try (Connection connection = connect(url)) {
+            execute(connection, claimStepSql(1, 100));
+            assertFails(connection, expiredProbeStepSql(1, 199));
+            assertFails(connection, expiredExecuteStepSql(1, 200));
+            execute(connection, expiredProbeStepSql(1, 200));
+            assertThat(text(connection, """
+                    SELECT claim_mode || '|' || attempt_count
+                    FROM publish_effect_step
+                    WHERE publish_operation_id = 'publish-operation-1'
+                      AND ordinal = 1
+                    """)).isEqualTo("PROBE|2");
+            execute(connection, """
+                    UPDATE publish_effect_step
+                    SET status = 'FAILED', claim_mode = NULL, claim_owner = NULL,
+                        claimed_at_ms = NULL, lease_until_ms = NULL,
+                        last_error = 'probe proved remote effect absent',
+                        completed_at_ms = 201
+                    WHERE publish_operation_id = 'publish-operation-1'
+                      AND ordinal = 1
+                    """);
+            execute(connection, claimStepSql(1, 202));
+            execute(connection, completeStepSql(1, 203));
+            assertFails(connection, probeStepSql(2, 204));
+        }
+    }
+
+    @Test
     void canonicalFeedbackBatchDrivesRealStageManagerAndIsolatesNewerRevision()
             throws Exception
     {
@@ -1653,6 +1722,30 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                 UPDATE publish_effect_step
                 SET status = 'CLAIMED', attempt_count = attempt_count + 1,
                     claim_mode = 'PROBE', claim_owner = 'worker',
+                    claimed_at_ms = %s, lease_until_ms = %s,
+                    evidence = NULL, last_error = NULL, completed_at_ms = NULL
+                WHERE publish_operation_id = 'publish-operation-1' AND ordinal = %s
+                """.formatted(at, at + 100, ordinal);
+    }
+
+    private static String expiredProbeStepSql(int ordinal, long at)
+    {
+        return """
+                UPDATE publish_effect_step
+                SET status = 'CLAIMED', attempt_count = attempt_count + 1,
+                    claim_mode = 'PROBE', claim_owner = 'recovery-worker',
+                    claimed_at_ms = %s, lease_until_ms = %s,
+                    evidence = NULL, last_error = NULL, completed_at_ms = NULL
+                WHERE publish_operation_id = 'publish-operation-1' AND ordinal = %s
+                """.formatted(at, at + 100, ordinal);
+    }
+
+    private static String expiredExecuteStepSql(int ordinal, long at)
+    {
+        return """
+                UPDATE publish_effect_step
+                SET status = 'CLAIMED', attempt_count = attempt_count + 1,
+                    claim_mode = 'EXECUTE', claim_owner = 'recovery-worker',
                     claimed_at_ms = %s, lease_until_ms = %s,
                     evidence = NULL, last_error = NULL, completed_at_ms = NULL
                 WHERE publish_operation_id = 'publish-operation-1' AND ordinal = %s

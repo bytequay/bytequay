@@ -17,6 +17,7 @@ import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.stage.CancellationToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteStageResumeRearmStore;
 import com.bytequay.app.developmentflow.stage.persistence.StagePersistenceTestSupport;
 import com.bytequay.app.developmentflow.task.TaskControlHandoff;
 import com.bytequay.app.developmentflow.task.TaskControlMaintainer;
@@ -509,6 +510,138 @@ class TestSqliteTaskStore
     }
 
     @Test
+    void resumeOwnerMaterializesOnePlanSuccessorOnlyAfterActiveAndRollsBackFaults()
+    {
+        Path file = tempDir.resolve("resume-rearm.db");
+        SQLiteDataSource dataSource = database(file);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        seedActiveTaskWithCode(jdbc, "task-resume", "plan-resume", 1);
+        seedActiveTaskWithCode(jdbc, "task-fault", "plan-fault", 2);
+        seedActiveTaskWithCode(jdbc, "task-sibling", "plan-sibling", 3);
+        migrate(file, "257");
+        seedCanceledPlanTurn(jdbc, "task-resume", "plan-resume", "current");
+        seedCanceledPlanTurn(jdbc, "task-fault", "plan-fault", "fault");
+
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
+        V2TaskStore taskStore = new V2TaskStore(jdbc);
+        TaskManager tasks = new TaskManager(commands, taskStore);
+        TaskControlHandoff controls = new TaskControlHandoff(commands, tasks);
+        SqliteTaskControlRuntimeStore controlsStore =
+                new SqliteTaskControlRuntimeStore(jdbc, transactions);
+        SqliteStageResumeRearmStore rearms =
+                new SqliteStageResumeRearmStore(jdbc);
+        Instant now = Instant.now().minusMillis(100);
+
+        TaskResumeOwner planOwner = new TaskResumeOwner()
+        {
+            @Override
+            public StageKind kind()
+            {
+                return StageKind.PLAN;
+            }
+
+            @Override
+            public Acceptance accept(Request request)
+            {
+                return rearms.accept(request, kind());
+            }
+        };
+        TaskControlMaintainer noOwner = new TaskControlMaintainer(
+                controlsStore, controls, List.of(), List.of(), ignored -> {});
+        TaskControlMaintainer withOwner = new TaskControlMaintainer(
+                controlsStore, controls, List.of(planOwner), List.of(), ignored -> {});
+
+        pauseAndRequestResume(jdbc, tasks, noOwner, "task-resume", now);
+        TaskResumeOwner.Request parked = resumeRequest(jdbc, "task-resume");
+        commands.execute("task-resume", () ->
+                rearms.accept(parked, StageKind.PLAN));
+        assertThat(taskStore.findById("task-resume").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.RESUMING);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM stage_resume_rearm_successor_v257
+                WHERE handoff_id = ?
+                """, Integer.class, parked.handoffId())).isZero();
+
+        withOwner.maintain(now.plusMillis(1));
+        assertThat(taskStore.findById("task-resume").orElseThrow().lifecycle())
+                .isEqualTo(TaskLifecycle.ACTIVE);
+        SqliteStageResumeRearmStore.Intent intent = rearms
+                .pending(StageKind.PLAN, 10).stream()
+                .filter(candidate -> candidate.taskId().equals("task-resume"))
+                .findFirst().orElseThrow();
+        commands.executeVoid("task-resume", () ->
+                rearms.materializePlanDraft(intent, now.plusMillis(2)));
+
+        assertThat(jdbc.queryForMap("""
+                SELECT intent.status, successor.status AS successor_status,
+                       successor.semantic_attempt, successor.owner_kind
+                FROM stage_resume_rearm_intent_v257 intent
+                JOIN stage_resume_rearm_successor_v257 successor
+                  ON successor.handoff_id = intent.handoff_id
+                WHERE intent.task_id = 'task-resume'
+                """))
+                .containsEntry("status", "MATERIALIZED")
+                .containsEntry("successor_status", "ARMED")
+                .containsEntry("semantic_attempt", 2)
+                .containsEntry("owner_kind", "TASK_TURN");
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM task_turn
+                WHERE task_id = 'task-resume' AND purpose = 'PLAN_DRAFT'
+                  AND status = 'REQUESTED'
+                """, Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM task_turn
+                WHERE task_id = 'task-sibling'
+                """, Integer.class)).isZero();
+        SqliteStageResumeRearmStore restarted =
+                new SqliteStageResumeRearmStore(new JdbcTemplate(dataSource));
+        assertThat(restarted.pending(StageKind.PLAN, 10))
+                .noneMatch(candidate -> candidate.taskId().equals("task-resume"));
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM stage_resume_rearm_successor_v257
+                WHERE handoff_id = ?
+                """, Integer.class, parked.handoffId())).isEqualTo(1);
+
+        pauseAndRequestResume(
+                jdbc, tasks, noOwner, "task-fault", now.plusMillis(3));
+        withOwner.maintain(now.plusMillis(4));
+        SqliteStageResumeRearmStore.Intent fault = rearms
+                .pending(StageKind.PLAN, 10).stream()
+                .filter(candidate -> candidate.taskId().equals("task-fault"))
+                .findFirst().orElseThrow();
+        jdbc.execute("""
+                CREATE TRIGGER fail_resume_ticket
+                BEFORE INSERT ON dispatch_ticket
+                WHEN EXISTS (
+                    SELECT 1 FROM stage_resume_rearm_successor_v257 successor
+                    WHERE successor.operation_id = NEW.operation_id
+                      AND successor.status = 'PREPARED')
+                BEGIN SELECT RAISE(ABORT, 'injected resume ticket failure'); END
+                """);
+        assertThatThrownBy(() -> commands.executeVoid("task-fault", () ->
+                rearms.materializePlanDraft(fault, now.plusMillis(5))))
+                .isInstanceOf(DataAccessException.class);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM stage_resume_rearm_successor_v257
+                WHERE handoff_id = ?
+                """, Integer.class, fault.handoffId())).isZero();
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM task_turn
+                WHERE task_id = 'task-fault' AND attempt = 2
+                """, Integer.class)).isZero();
+        jdbc.execute("DROP TRIGGER fail_resume_ticket");
+        commands.executeVoid("task-fault", () ->
+                rearms.materializePlanDraft(fault, now.plusMillis(6)));
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM stage_resume_rearm_successor_v257
+                WHERE handoff_id = ? AND status = 'ARMED'
+                """, Integer.class, fault.handoffId())).isEqualTo(1);
+    }
+
+    @Test
     void policyCommandsAppendAndSelectRevisionsWithoutInvalidatingFrozenAutomation()
     {
         Path file = tempDir.resolve("task-policy.db");
@@ -599,6 +732,117 @@ class TestSqliteTaskStore
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;
+    }
+
+    private static void pauseAndRequestResume(
+            JdbcTemplate jdbc, TaskManager tasks, TaskControlMaintainer maintainer,
+            String taskId, Instant now)
+    {
+        long version = taskVersion(jdbc, taskId);
+        tasks.requestPause(new TaskManager.Command(
+                "pause-" + taskId, "user", taskId, 1, version));
+        maintainer.maintain(now);
+        tasks.requestResume(new TaskManager.Command(
+                "resume-" + taskId, "user", taskId, 1,
+                taskVersion(jdbc, taskId)));
+        maintainer.maintain(now.plusMillis(1));
+    }
+
+    private static long taskVersion(JdbcTemplate jdbc, String taskId)
+    {
+        return jdbc.queryForObject(
+                "SELECT aggregate_version FROM tasks WHERE id = ?",
+                Long.class, taskId);
+    }
+
+    private static TaskResumeOwner.Request resumeRequest(
+            JdbcTemplate jdbc, String taskId)
+    {
+        return jdbc.queryForObject("""
+                SELECT id, task_id, task_epoch, task_version, stage_id,
+                       stage_kind, stage_generation, stage_version,
+                       restore_checkpoint, reconciliation_id,
+                       code_fingerprint, head_sha, base_sha
+                FROM task_resume_handoff_v256
+                WHERE task_id = ? AND status = 'PENDING'
+                """, (rs, row) -> new TaskResumeOwner.Request(
+                        rs.getString("id"), rs.getString("task_id"),
+                        rs.getLong("task_epoch"), rs.getLong("task_version"),
+                        rs.getString("stage_id"),
+                        StageKind.valueOf(rs.getString("stage_kind")),
+                        rs.getLong("stage_generation"),
+                        rs.getLong("stage_version"),
+                        StageCheckpoint.valueOf(
+                                rs.getString("restore_checkpoint")),
+                        rs.getString("reconciliation_id"),
+                        rs.getString("code_fingerprint"),
+                        rs.getString("head_sha"), rs.getString("base_sha")),
+                taskId);
+    }
+
+    private static void seedCanceledPlanTurn(
+            JdbcTemplate jdbc, String taskId, String stageId, String suffix)
+    {
+        String turnId = "plan-turn-" + suffix;
+        String operationId = "plan-operation-" + suffix;
+        String ticketId = "plan-ticket-" + suffix;
+        jdbc.update("""
+                INSERT INTO task_brain(
+                    id, task_id, provider, model, engine_snapshot, created_at_ms)
+                VALUES (?, ?, 'openai', 'model', 'engine', 10)
+                """, "brain-" + suffix, taskId);
+        String launch = """
+                {"schemaVersion":1,"transport":"API","provider":"openai",
+                 "model":"model","workingDirectory":"%s","prompt":"draft",
+                 "toolEndpoint":{"serverName":"bytequay",
+                 "url":"http://127.0.0.1:8080/api/v2/task-turns/%s/operations/%s/mcp",
+                 "ownerKind":"TASK_TURN","ownerId":"%s",
+                 "operationId":"%s","profile":"TASK_BRAIN_READ_ONLY",
+                 "approvalPromptTool":"mcp__bytequay__approval_prompt"}}
+                """.formatted("/tmp/" + taskId, turnId, operationId,
+                turnId, operationId);
+        jdbc.update("""
+                INSERT INTO task_turn(
+                    id, task_id, purpose, status, operation_id, attempt,
+                    task_epoch, trigger_stage_id, trigger_stage_generation,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, delivery_lane, launch_input,
+                    requested_at_ms)
+                VALUES (?, ?, 'PLAN_DRAFT', 'REQUESTED', ?, 1, 1, ?, 1,
+                    'fp-code', 'base-code', 'base-code', 'API', ?, 11)
+                """, turnId, taskId, operationId, stageId, launch);
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    exclusive_task, writer_required, workspace_id, trunk_id,
+                    task_id, task_epoch, stage_id, stage_generation, attempt,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, status, created_at_ms)
+                VALUES (?, ?, 'EXECUTE_TASK_TURN', 'AGENT_TURN',
+                    'TASK_TURN', ?, 'TASK_TURN_RESULT', 2, 1, 0,
+                    'workspace-1', 'trunk-1', ?, 1, ?, 1, 1,
+                    'fp-code', 'base-code', 'base-code', 'REQUESTED', 11)
+                """, ticketId, operationId, turnId, taskId, stageId);
+        jdbc.update("""
+                UPDATE task_turn SET status = 'CANCELED', started_at_ms = 12,
+                    finished_at_ms = 13, error_message = 'paused'
+                WHERE id = ?
+                """, turnId);
+        jdbc.update("""
+                UPDATE dispatch_ticket SET version = version + 1,
+                    status = 'CANCELED', cancel_requested_at_ms = 12,
+                    delivery_acceptance = 'ACCEPTED',
+                    delivery_evidence = 'paused', completed_at_ms = 13
+                WHERE id = ?
+                """, ticketId);
+        jdbc.update("""
+                INSERT INTO plan_task_turn_delivery_receipt(
+                    task_turn_id, operation_id, raw_outcome,
+                    raw_evidence_digest, acceptance, domain_result,
+                    recorded_at_ms)
+                VALUES (?, ?, 'CANCELED', ?, 'ACCEPTED', 'TURN_CANCELED', 13)
+                """, turnId, operationId, "d".repeat(64));
     }
 
     private static void migrate(Path file, String target)

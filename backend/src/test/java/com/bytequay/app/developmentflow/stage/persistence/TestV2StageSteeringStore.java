@@ -22,10 +22,16 @@ import com.bytequay.app.developmentflow.stage.V2StageSteeringControl;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.LocalTurn;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Predecessor;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageSteeringStore.Request;
+import com.bytequay.app.developmentflow.task.TaskControlHandoff;
+import com.bytequay.app.developmentflow.task.TaskControlMaintainer;
+import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.TaskResumeOwner;
+import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -156,6 +162,98 @@ class TestV2StageSteeringStore
                 """, Integer.class)).isZero();
     }
 
+    @Test
+    void localResumeRearmsOnlyTheUniqueHighestCanceledSemanticAttempt()
+    {
+        Fixture fixture = fixture("local-resume.db", false);
+        terminalizePredecessor(fixture.jdbc());
+        fixture.commands().executeVoid("task-1", () ->
+                fixture.local().clearImplementationTurnInCommand(
+                        new StageManager.ResultCommand(
+                                "clear-attempt-1", "test", "task-1", fence("1")),
+                        "request-1"));
+        seedSecondImplementation(fixture.jdbc());
+        long stageVersion = fixture.jdbc().queryForObject(
+                "SELECT version FROM stage WHERE id = 'local-stage-1'",
+                Long.class);
+        fixture.commands().executeVoid("task-1", () ->
+                fixture.local().requestImplementationInCommand(
+                        new StageManager.Command(
+                                "arm-attempt-2", "test", "task-1", 1,
+                                "local-stage-1", 1, stageVersion),
+                        historyFence(), "request-history"));
+        terminalizeHistory(fixture.jdbc());
+        fixture.commands().executeVoid("task-1", () ->
+                fixture.local().clearImplementationTurnInCommand(
+                        new StageManager.ResultCommand(
+                                "clear-attempt-2", "test", "task-1",
+                                historyFence()),
+                        "request-history"));
+
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(fixture.dataSource());
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
+        TaskManager tasks = new TaskManager(
+                commands, taskStore(fixture.jdbc(), transactions));
+        SqliteTaskControlRuntimeStore controlStore =
+                new SqliteTaskControlRuntimeStore(fixture.jdbc(), transactions);
+        TaskControlHandoff controls = new TaskControlHandoff(commands, tasks);
+        SqliteStageResumeRearmStore rearms =
+                new SqliteStageResumeRearmStore(fixture.jdbc());
+        TaskResumeOwner owner = new TaskResumeOwner()
+        {
+            @Override
+            public StageKind kind()
+            {
+                return StageKind.LOCAL_DEVELOPMENT;
+            }
+
+            @Override
+            public Acceptance accept(TaskResumeOwner.Request request)
+            {
+                return rearms.accept(request, kind());
+            }
+        };
+        TaskControlMaintainer withoutOwner = new TaskControlMaintainer(
+                controlStore, controls, List.of(), List.of(), ignored -> {});
+        TaskControlMaintainer withOwner = new TaskControlMaintainer(
+                controlStore, controls, List.of(owner), List.of(), ignored -> {});
+        Instant now = Instant.ofEpochMilli(100);
+
+        tasks.requestPause(new TaskManager.Command(
+                "pause-local", "user", "task-1", 1,
+                taskVersion(fixture.jdbc())));
+        withoutOwner.maintain(now);
+        tasks.requestResume(new TaskManager.Command(
+                "resume-local", "user", "task-1", 1,
+                taskVersion(fixture.jdbc())));
+        withoutOwner.maintain(now.plusMillis(1));
+        withOwner.maintain(now.plusMillis(2));
+        SqliteStageResumeRearmStore.Intent intent = rearms
+                .pending(StageKind.LOCAL_DEVELOPMENT, 10).getFirst();
+        commands.executeVoid("task-1", () ->
+                rearms.materializeLocalTurn(intent, now.plusMillis(3)));
+
+        assertThat(fixture.jdbc().queryForMap("""
+                SELECT intent.status, successor.status AS successor_status,
+                       successor.semantic_attempt, successor.owner_kind
+                FROM stage_resume_rearm_intent_v257 intent
+                JOIN stage_resume_rearm_successor_v257 successor
+                  ON successor.handoff_id = intent.handoff_id
+                WHERE intent.task_id = 'task-1'
+                """))
+                .containsEntry("status", "MATERIALIZED")
+                .containsEntry("successor_status", "ARMED")
+                .containsEntry("semantic_attempt", 3)
+                .containsEntry("owner_kind", "STAGE_TURN");
+        assertThat(fixture.jdbc().queryForObject("""
+                SELECT COUNT(*) FROM stage_turn
+                WHERE stage_id = 'local-stage-1'
+                  AND purpose = 'IMPLEMENT_LOCAL_PLAN'
+                  AND attempt = 3 AND status = 'QUEUED'
+                """, Integer.class)).isOne();
+    }
+
     private Fixture fixture(String name, boolean sibling)
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
@@ -182,7 +280,7 @@ class TestV2StageSteeringStore
             arm(commands, local, "2");
         }
         return new Fixture(
-                url, jdbc, commands, local,
+                url, dataSource, jdbc, commands, local,
                 new SqliteStageSteeringStore(jdbc));
     }
 
@@ -219,6 +317,13 @@ class TestV2StageSteeringStore
                 "fingerprint-" + suffix, "base-" + suffix, "base-" + suffix);
     }
 
+    private static ResultFence historyFence()
+    {
+        return new ResultFence(
+                1, "local-stage-1", 1, "operation-history", 2,
+                "fingerprint-1", "base-1", "base-1");
+    }
+
     private static LocalTurn replacementTurn()
     {
         return new LocalTurn(
@@ -243,6 +348,80 @@ class TestV2StageSteeringStore
                     delivery_evidence = 'replaced', completed_at_ms = 8
                 WHERE id = 'ticket-1'
                 """);
+    }
+
+    private static void terminalizeHistory(JdbcTemplate jdbc)
+    {
+        jdbc.update("""
+                UPDATE stage_turn SET status = 'CANCELED', started_at_ms = 18,
+                    finished_at_ms = 18, error_message = 'paused'
+                WHERE id = 'turn-history'
+                """);
+        jdbc.update("""
+                UPDATE dispatch_ticket SET version = version + 1,
+                    status = 'CANCELED', cancel_requested_at_ms = 18,
+                    delivery_acceptance = 'SUPERSEDED',
+                    delivery_evidence = 'paused', completed_at_ms = 18
+                WHERE id = 'ticket-history'
+                """);
+    }
+
+    private static void seedSecondImplementation(JdbcTemplate jdbc)
+    {
+        jdbc.update("""
+                INSERT INTO stage_turn(
+                    id, stage_id, stage_generation, purpose, status, operation_id,
+                    attempt, task_epoch, expected_code_fingerprint,
+                    expected_head_sha, expected_base_sha, delivery_lane,
+                    launch_input, requested_at_ms)
+                VALUES ('turn-history', 'local-stage-1', 1,
+                    'IMPLEMENT_LOCAL_PLAN', 'QUEUED', 'operation-history',
+                    2, 1, 'fingerprint-1', 'base-1', 'base-1', 'API', '{}', 17)
+                """);
+        jdbc.update("""
+                INSERT INTO local_stage_turn_request(
+                    id, command_id, stage_turn_id, task_id,
+                    local_development_stage_id, task_epoch, stage_generation,
+                    kind, queue_mode, prompt_digest, requested_by, requested_at_ms)
+                VALUES ('request-history', 'persist-history', 'turn-history',
+                    'task-1', 'local-stage-1', 1, 1, 'IMPLEMENTATION',
+                    'IMMEDIATE', ?, 'test', 17)
+                """, "f".repeat(64));
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family, owner_kind,
+                    owner_id, callback_route, lane_mask, exclusive_task,
+                    writer_required, workspace_id, trunk_id, task_id, task_epoch,
+                    stage_id, stage_generation, attempt,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, status, created_at_ms)
+                VALUES ('ticket-history', 'operation-history',
+                    'EXECUTE_STAGE_TURN', 'AGENT_TURN', 'STAGE_TURN',
+                    'turn-history', 'STAGE_TURN_RESULT', 2, 1, 1,
+                    'workspace-1', 'trunk-1', 'task-1', 1, 'local-stage-1', 1,
+                    2, 'fingerprint-1', 'base-1', 'base-1', 'REQUESTED', 17)
+                """);
+    }
+
+    private static TaskManager.Store taskStore(
+            JdbcTemplate jdbc, DataSourceTransactionManager transactions)
+    {
+        try (AnnotationConfigApplicationContext context =
+                new AnnotationConfigApplicationContext()) {
+            context.registerBean(JdbcTemplate.class, () -> jdbc);
+            context.registerBean(
+                    DataSourceTransactionManager.class, () -> transactions);
+            context.scan("com.bytequay.app.developmentflow.task.persistence");
+            context.refresh();
+            return context.getBean(TaskManager.Store.class);
+        }
+    }
+
+    private static long taskVersion(JdbcTemplate jdbc)
+    {
+        return jdbc.queryForObject(
+                "SELECT aggregate_version FROM tasks WHERE id = 'task-1'",
+                Long.class);
     }
 
     private static void insertWriterLeases(JdbcTemplate jdbc)
@@ -448,7 +627,8 @@ class TestV2StageSteeringStore
     }
 
     private record Fixture(
-            String url, JdbcTemplate jdbc, TaskCommandExecutor commands,
+            String url, SQLiteDataSource dataSource, JdbcTemplate jdbc,
+            TaskCommandExecutor commands,
             LocalDevelopmentStageManager local,
             SqliteStageSteeringStore steering) {}
 }

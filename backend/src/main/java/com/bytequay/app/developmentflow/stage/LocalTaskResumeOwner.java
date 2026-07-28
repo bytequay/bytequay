@@ -13,21 +13,30 @@
  */
 package com.bytequay.app.developmentflow.stage;
 
+import com.bytequay.app.developmentflow.execution.ExecutionPorts;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteStageResumeRearmStore;
 import com.bytequay.app.developmentflow.task.TaskResumeOwner;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.springframework.stereotype.Component;
+
+import java.time.Instant;
 
 import static java.util.Objects.requireNonNull;
 
 @Component
 final class LocalTaskResumeOwner
-        implements TaskResumeOwner
+        implements TaskResumeOwner, ExecutionPorts.MaintenanceWork
 {
-    private final SqliteStageResumeRearmStore store;
+    private static final int LIMIT = 32;
 
-    LocalTaskResumeOwner(SqliteStageResumeRearmStore store)
+    private final SqliteStageResumeRearmStore store;
+    private final TaskCommandExecutor commands;
+
+    LocalTaskResumeOwner(
+            SqliteStageResumeRearmStore store, TaskCommandExecutor commands)
     {
         this.store = requireNonNull(store, "store is null");
+        this.commands = requireNonNull(commands, "commands is null");
     }
 
     @Override
@@ -35,4 +44,37 @@ final class LocalTaskResumeOwner
 
     @Override
     public Acceptance accept(Request request) { return store.accept(request, kind()); }
+
+    @Override
+    public void maintain(Instant now)
+    {
+        for (var intent : store.pending(kind(), LIMIT)) {
+            if (!intent.taskLifecycle().equals("ACTIVE")) {
+                continue;
+            }
+            try {
+                commands.executeVoid(intent.taskId(), () -> {
+                    switch (intent.restoreCheckpoint()) {
+                        case IMPLEMENTING, ADDRESSING_BRAIN_FINDINGS,
+                                ADDRESSING_LOCAL_FEEDBACK ->
+                                store.materializeLocalTurn(intent, now);
+                        case LOCAL_REVIEW -> store.diagnose(
+                                intent, "USER_WAIT_OWNER_NOT_FROZEN",
+                                "Local Review wait has no exact typed question owner in V257",
+                                now);
+                        default -> store.diagnose(
+                                intent, "LOCAL_RESUME_CURSOR_UNSUPPORTED",
+                                "No exact Local continuation is frozen for "
+                                        + intent.restoreCheckpoint(), now);
+                    }
+                });
+            }
+            catch (IllegalStateException ambiguous) {
+                commands.executeVoid(intent.taskId(), () ->
+                        store.diagnose(intent,
+                                "LOCAL_RESUME_PREDECESSOR_AMBIGUOUS",
+                                ambiguous.getMessage(), now));
+            }
+        }
+    }
 }

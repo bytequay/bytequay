@@ -28,6 +28,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -51,6 +53,9 @@ public final class CapacityManager
     private final Clock clock;
     private final Duration leaseDuration;
     private final Supplier<String> idSupplier;
+    private final CopyOnWriteArrayList<Runnable> availabilityListeners =
+            new CopyOnWriteArrayList<>();
+    private final AtomicLong availabilityVersion = new AtomicLong();
 
     private long workspaceCursor;
     private final Map<String, Long> trunkCursors = new HashMap<>();
@@ -89,8 +94,11 @@ public final class CapacityManager
             throw new IllegalArgumentException(
                     "V2 capacity requires its exact DispatchTicket id");
         }
+        CapacityPolicy policy = requireNonNull(
+                policies.current(request), "current policy is null");
         return store.inAdmissionTransaction(
-                transaction -> tryAcquire(transaction, null, request, leaseOwner));
+                transaction -> tryAcquire(
+                        transaction, null, request, leaseOwner, policy));
     }
 
     public Admission tryAcquireForTicket(
@@ -107,19 +115,23 @@ public final class CapacityManager
             throw new IllegalArgumentException(
                     "DispatchTicket capacity requires a V2 request");
         }
+        CapacityPolicy policy = requireNonNull(
+                policies.current(request), "current policy is null");
         return store.inAdmissionTransaction(
                 transaction -> tryAcquire(
-                        transaction, ticketId, request, leaseOwner));
+                        transaction, ticketId, request, leaseOwner, policy));
     }
 
     private Admission tryAcquire(
             CapacityLeaseStore transaction,
             String ticketId,
             CapacityRequest request,
-            String leaseOwner)
+            String leaseOwner,
+            CapacityPolicy policy)
     {
         requireNonNull(request, "request is null");
         requireNonNull(leaseOwner, "leaseOwner is null");
+        requireNonNull(policy, "policy is null");
         if (leaseOwner.isBlank()) {
             throw new IllegalArgumentException("leaseOwner must not be blank");
         }
@@ -133,7 +145,6 @@ public final class CapacityManager
             return Admission.denied(Denial.OPERATION_ALREADY_LEASED);
         }
 
-        CapacityPolicy policy = requireNonNull(policies.current(), "current policy is null");
         List<CapacityLease> active = transaction.listActive(now);
 
         for (CapacityLane lane : request.lanes()) {
@@ -201,18 +212,93 @@ public final class CapacityManager
         return store.heartbeat(leaseId, leaseOwner, now, now.plus(leaseDuration));
     }
 
-    /** Idempotently releases a lease. */
-    public synchronized void release(String leaseId, String leaseOwner)
+    /** Idempotently releases a lease and wakes capacity waiters on change. */
+    public boolean release(String leaseId, String leaseOwner)
     {
         requireNonNull(leaseId, "leaseId is null");
         requireNonNull(leaseOwner, "leaseOwner is null");
-        store.release(leaseId, leaseOwner, clock.instant());
+        boolean released;
+        synchronized (this) {
+            released = store.release(leaseId, leaseOwner, clock.instant());
+        }
+        if (released) {
+            signalCapacityAvailable();
+        }
+        return released;
     }
 
     /** Expires durable leases after restart or a lost worker. */
-    public synchronized List<CapacityLease> expireLeases()
+    public List<CapacityLease> expireLeases()
     {
-        return List.copyOf(store.expire(clock.instant()));
+        List<CapacityLease> expired;
+        synchronized (this) {
+            expired = List.copyOf(store.expire(clock.instant()));
+        }
+        if (!expired.isEmpty()) {
+            signalCapacityAvailable();
+        }
+        return expired;
+    }
+
+    /**
+     * Releases a restart/orphaned LEGACY operation only when its stable
+     * operation id and owner still identify the live lease.
+     */
+    public boolean releaseLegacyOperation(String operationId, String leaseOwner)
+    {
+        requireNonNull(operationId, "operationId is null");
+        requireNonNull(leaseOwner, "leaseOwner is null");
+        if (operationId.isBlank() || leaseOwner.isBlank()) {
+            throw new IllegalArgumentException(
+                    "operationId and leaseOwner must not be blank");
+        }
+        Instant now = clock.instant();
+        boolean released = store.inAdmissionTransaction(transaction ->
+                transaction.findActiveByOperation(operationId, now)
+                        .filter(lease -> lease.source() == WorkflowSource.LEGACY)
+                        .filter(lease -> lease.leaseOwner().equals(leaseOwner))
+                        .map(lease -> transaction.release(
+                                lease.id(), leaseOwner, now))
+                        .orElse(false));
+        if (released) {
+            signalCapacityAvailable();
+        }
+        return released;
+    }
+
+    /** Monotonic hint used to avoid a missed release/requeue wake race. */
+    public long availabilityVersion()
+    {
+        return availabilityVersion.get();
+    }
+
+    /**
+     * Registers a best-effort in-process wake hint. Durable queues remain
+     * authoritative; listener failures never fail lease release.
+     */
+    public AvailabilityRegistration onCapacityAvailable(Runnable listener)
+    {
+        requireNonNull(listener, "listener is null");
+        availabilityListeners.add(listener);
+        return () -> availabilityListeners.remove(listener);
+    }
+
+    Instant currentInstant()
+    {
+        return clock.instant();
+    }
+
+    private void signalCapacityAvailable()
+    {
+        availabilityVersion.incrementAndGet();
+        for (Runnable listener : availabilityListeners) {
+            try {
+                listener.run();
+            }
+            catch (RuntimeException ignored) {
+                // A listener is only a wake hint. Its durable owner retries.
+            }
+        }
     }
 
     Duration leaseDuration()
@@ -826,6 +912,20 @@ public final class CapacityManager
     public interface CapacityPolicySource
     {
         CapacityPolicy current();
+
+        default CapacityPolicy current(CapacityRequest request)
+        {
+            requireNonNull(request, "request is null");
+            return current();
+        }
+    }
+
+    @FunctionalInterface
+    public interface AvailabilityRegistration
+            extends AutoCloseable
+    {
+        @Override
+        void close();
     }
 
     /** Persistence only; callers must not make policy decisions here. */

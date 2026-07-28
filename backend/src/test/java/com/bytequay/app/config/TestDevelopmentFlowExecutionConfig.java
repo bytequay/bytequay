@@ -16,23 +16,36 @@ package com.bytequay.app.config;
 import com.bytequay.app.developmentflow.execution.CapacityManager;
 import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
+import com.bytequay.app.developmentflow.execution.LegacyCapacityBridge;
+import com.bytequay.app.developmentflow.execution.LegacyCapacityLeaseMaintainer;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadSettings;
+import com.bytequay.app.repository.ThreadSettingsStore;
+import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import java.lang.reflect.Method;
+import java.time.Instant;
 import java.util.Arrays;
+import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TestDevelopmentFlowExecutionConfig
 {
     @Test
-    void v2DispatcherIsAbsentByDefault()
+    void sharedCapacityIsAlwaysOnButV2DispatcherIsAbsentByDefault()
     {
-        new ApplicationContextRunner()
+        contextRunner()
                 .withUserConfiguration(DevelopmentFlowExecutionConfig.class)
                 .run(context -> {
-                    assertThat(context).doesNotHaveBean(CapacityManager.class);
+                    assertThat(context).hasSingleBean(CapacityManager.class);
+                    assertThat(context).hasSingleBean(LegacyCapacityBridge.class);
+                    assertThat(context).hasSingleBean(LegacyCapacityLeaseMaintainer.class);
                     assertThat(context).doesNotHaveBean(ExecutionDispatcher.class);
                 });
     }
@@ -55,7 +68,42 @@ class TestDevelopmentFlowExecutionConfig
                 .map(Method::getReturnType))
                 .doesNotContain(
                         ExecutionPorts.OperationHandlerRegistry.class,
-                        ExecutionPorts.ResultDeliveryPort.class,
-                        CapacityManager.CapacityPolicySource.class);
+                        ExecutionPorts.ResultDeliveryPort.class);
+    }
+
+    @Test
+    void policyProjectsExplicitSettingsAndMigratedParallelSlots()
+    {
+        ThreadStore threads = mock(ThreadStore.class);
+        ThreadSettingsStore settings = mock(ThreadSettingsStore.class);
+        Thread trunk = mock(Thread.class);
+        when(threads.findThreadById("trunk")).thenReturn(Optional.of(trunk));
+        when(trunk.parallelSlots()).thenReturn(3);
+        DevelopmentFlowCapacityPolicySource source =
+                new DevelopmentFlowCapacityPolicySource(threads, settings, 4, 4);
+        CapacityManager.CapacityRequest request = new CapacityManager.CapacityRequest(
+                "legacy",
+                CapacityManager.WorkflowSource.LEGACY,
+                Set.of(CapacityManager.CapacityLane.CLI),
+                new CapacityManager.CapacityScope("workspace", "trunk", null, null),
+                true,
+                false,
+                false);
+
+        assertThat(source.current(request).trunkLimit("trunk")).isEqualTo(3);
+
+        when(settings.find("trunk")).thenReturn(Optional.of(new ThreadSettings(
+                "trunk", 2, null, null, null, Instant.EPOCH)));
+        assertThat(source.current(request).trunkLimit("trunk")).isEqualTo(2);
+    }
+
+    private static ApplicationContextRunner contextRunner()
+    {
+        return new ApplicationContextRunner()
+                .withBean(ThreadStore.class, () -> mock(ThreadStore.class))
+                .withBean(ThreadSettingsStore.class, () -> mock(ThreadSettingsStore.class))
+                .withBean(
+                        CapacityManager.CapacityLeaseStore.class,
+                        () -> mock(CapacityManager.CapacityLeaseStore.class));
     }
 }

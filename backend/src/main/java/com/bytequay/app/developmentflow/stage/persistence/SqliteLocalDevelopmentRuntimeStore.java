@@ -726,6 +726,30 @@ public class SqliteLocalDevelopmentRuntimeStore
         return blockerId;
     }
 
+    public void supersedeBrain(BrainTurnContext context, String detail, Instant at)
+    {
+        requireTransaction();
+        int turn = jdbc.update("""
+                UPDATE task_turn
+                SET status = 'SUPERSEDED',
+                    started_at_ms = COALESCE(started_at_ms, requested_at_ms),
+                    finished_at_ms = ?, error_message = ?
+                WHERE id = ? AND operation_id = ?
+                  AND status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
+                  AND finished_at_ms IS NULL
+                """, at.toEpochMilli(), detail, context.turnId(), context.operationId());
+        int episode = jdbc.update("""
+                UPDATE brain_review_episode
+                SET status = 'SUPERSEDED', completed_at_ms = ?, error_message = ?
+                WHERE id = ? AND task_turn_id = ?
+                  AND status IN ('REQUESTED', 'REVIEWING')
+                """, at.toEpochMilli(), detail, context.episodeId(), context.turnId());
+        if (turn != 1 || episode != 1) {
+            throw new IllegalStateException(
+                    "Development Brain changed before supersession");
+        }
+    }
+
     public void insertBrainFixTurn(BrainFixTurn turn)
     {
         requireTransaction();

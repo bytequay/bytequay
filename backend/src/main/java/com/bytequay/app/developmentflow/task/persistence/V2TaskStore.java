@@ -76,6 +76,10 @@ final class V2TaskStore
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
+    private static final String BRAIN_RECEIPT_INSERT = RECEIPT_INSERT.replace(
+            "INSERT INTO task_command_receipt(",
+            "INSERT INTO task_brain_request_receipt(");
+
     private final JdbcTemplate jdbc;
 
     V2TaskStore(JdbcTemplate jdbc)
@@ -110,11 +114,7 @@ final class V2TaskStore
         }
 
         BaseState persisted = base.orElseThrow();
-        Optional<TaskManager.CommandReceipt> projection = queryReceipt(
-                RECEIPT_SELECT + """
-                        WHERE task_id = ? AND disposition = 'APPLIED'
-                          AND returned_version = ?
-                        """,
+        Optional<TaskManager.CommandReceipt> projection = findProjection(
                 taskId, persisted.version());
         if (projection.isEmpty()) {
             return Optional.of(persisted.withProtocolState(null, null, null));
@@ -132,8 +132,15 @@ final class V2TaskStore
     public Optional<TaskManager.CommandReceipt> findCommandResult(
             String taskId, String commandId)
     {
-        return queryReceipt(
+        Optional<TaskManager.CommandReceipt> shared = queryReceipt(
                 RECEIPT_SELECT + " WHERE task_id = ? AND command_id = ?",
+                taskId, commandId);
+        if (shared.isPresent() || !brainReceiptsAvailable()) {
+            return shared;
+        }
+        return queryReceipt(
+                "SELECT * FROM task_brain_request_receipt"
+                        + " WHERE task_id = ? AND command_id = ?",
                 taskId, commandId);
     }
 
@@ -1099,7 +1106,10 @@ final class V2TaskStore
             TaskManager.State state)
     {
         jdbc.update(connection -> {
-            PreparedStatement statement = connection.prepareStatement(RECEIPT_INSERT);
+            PreparedStatement statement = connection.prepareStatement(
+                    cause.equals("REQUEST_BRAIN_REVIEW")
+                            ? BRAIN_RECEIPT_INSERT
+                            : RECEIPT_INSERT);
             int index = 1;
             statement.setString(index++, id());
             statement.setString(index++, state.id());
@@ -1133,6 +1143,34 @@ final class V2TaskStore
     {
         return jdbc.query(sql, (rs, row) -> receipt(rs), arguments)
                 .stream().findFirst();
+    }
+
+    private Optional<TaskManager.CommandReceipt> findProjection(
+            String taskId, long version)
+    {
+        Optional<TaskManager.CommandReceipt> shared = queryReceipt(
+                RECEIPT_SELECT + """
+                        WHERE task_id = ? AND disposition = 'APPLIED'
+                          AND returned_version = ?
+                        """,
+                taskId, version);
+        if (shared.isPresent() || !brainReceiptsAvailable()) {
+            return shared;
+        }
+        return queryReceipt(
+                "SELECT * FROM task_brain_request_receipt"
+                        + " WHERE task_id = ? AND disposition = 'APPLIED'"
+                        + " AND returned_version = ?",
+                taskId, version);
+    }
+
+    private boolean brainReceiptsAvailable()
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type = 'table' AND name = 'task_brain_request_receipt'
+                """, Integer.class);
+        return count != null && count == 1;
     }
 
     private static TaskManager.CommandReceipt receipt(ResultSet rs)

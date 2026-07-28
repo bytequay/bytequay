@@ -68,6 +68,10 @@ final class V2StageStore
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
+    private static final String LOCAL_RECEIPT_INSERT = RECEIPT_INSERT.replace(
+            "INSERT INTO stage_command_receipt(",
+            "INSERT INTO local_stage_command_receipt(");
+
     private final JdbcTemplate jdbc;
 
     V2StageStore(JdbcTemplate jdbc)
@@ -105,10 +109,7 @@ final class V2StageStore
         }
 
         BaseOwner persisted = base.orElseThrow();
-        Optional<StageManager.CommandReceipt> projection = queryReceipt(
-                RECEIPT_SELECT
-                        + " WHERE stage_id = ? AND disposition = 'APPLIED'"
-                        + " AND returned_version = ?",
+        Optional<StageManager.CommandReceipt> projection = findProjection(
                 stageId, persisted.version());
         StageManager.State stage = projection
                 .map(StageManager.CommandReceipt::state)
@@ -126,8 +127,15 @@ final class V2StageStore
     public Optional<StageManager.CommandReceipt> findCommandResult(
             String taskId, String stageId, String commandId)
     {
-        return queryReceipt(
+        Optional<StageManager.CommandReceipt> shared = queryReceipt(
                 RECEIPT_SELECT
+                        + " WHERE task_id = ? AND stage_id = ? AND command_id = ?",
+                taskId, stageId, commandId);
+        if (shared.isPresent() || !localReceiptsAvailable()) {
+            return shared;
+        }
+        return queryReceipt(
+                "SELECT * FROM local_stage_command_receipt"
                         + " WHERE task_id = ? AND stage_id = ? AND command_id = ?",
                 taskId, stageId, commandId);
     }
@@ -391,6 +399,57 @@ final class V2StageStore
                 .stream().findFirst();
     }
 
+    @Override
+    public Optional<LocalDevelopmentStageManager.ReplacementEvidence> findReplacement(
+            String taskId, String stageId, long stageGeneration, String requestId)
+    {
+        return jdbc.query("""
+                SELECT request.task_id, request.local_development_stage_id,
+                       request.stage_generation, request.id,
+                       previous.task_epoch AS previous_task_epoch,
+                       previous.operation_id AS previous_operation_id,
+                       previous.attempt AS previous_attempt,
+                       previous.expected_code_fingerprint AS previous_fingerprint,
+                       previous.expected_head_sha AS previous_head,
+                       previous.expected_base_sha AS previous_base,
+                       next.task_epoch AS next_task_epoch,
+                       next.operation_id AS next_operation_id,
+                       next.attempt AS next_attempt,
+                       next.expected_code_fingerprint AS next_fingerprint,
+                       next.expected_head_sha AS next_head,
+                       next.expected_base_sha AS next_base
+                FROM local_stage_turn_request request
+                JOIN stage_turn previous
+                  ON previous.id = request.predecessor_turn_id
+                JOIN stage_turn next ON next.id = request.stage_turn_id
+                WHERE request.task_id = ?
+                  AND request.local_development_stage_id = ?
+                  AND request.stage_generation = ?
+                  AND request.id = ?
+                  AND request.queue_mode = 'CANCEL_AND_REPLACE'
+                """,
+                (rs, row) -> new LocalDevelopmentStageManager.ReplacementEvidence(
+                        rs.getString("task_id"),
+                        rs.getString("local_development_stage_id"),
+                        rs.getLong("stage_generation"),
+                        rs.getString("id"),
+                        new ResultFence(
+                                rs.getLong("previous_task_epoch"), stageId,
+                                stageGeneration, rs.getString("previous_operation_id"),
+                                rs.getInt("previous_attempt"),
+                                rs.getString("previous_fingerprint"),
+                                rs.getString("previous_head"),
+                                rs.getString("previous_base")),
+                        new ResultFence(
+                                rs.getLong("next_task_epoch"), stageId,
+                                stageGeneration, rs.getString("next_operation_id"),
+                                rs.getInt("next_attempt"),
+                                rs.getString("next_fingerprint"),
+                                rs.getString("next_head"),
+                                rs.getString("next_base"))),
+                taskId, stageId, stageGeneration, requestId).stream().findFirst();
+    }
+
     private void insertSubtype(StageManager.State state)
     {
         String table = switch (state.kind()) {
@@ -451,7 +510,8 @@ final class V2StageStore
             long now)
     {
         jdbc.update(connection -> {
-            PreparedStatement statement = connection.prepareStatement(RECEIPT_INSERT);
+            PreparedStatement statement = connection.prepareStatement(
+                    isLocalCause(cause) ? LOCAL_RECEIPT_INSERT : RECEIPT_INSERT);
             int index = 1;
             statement.setString(index++, id());
             statement.setString(index++, state.id());
@@ -482,6 +542,44 @@ final class V2StageStore
     {
         return jdbc.query(sql, (rs, row) -> receipt(rs), arguments)
                 .stream().findFirst();
+    }
+
+    private Optional<StageManager.CommandReceipt> findProjection(
+            String stageId, long version)
+    {
+        Optional<StageManager.CommandReceipt> shared = queryReceipt(
+                RECEIPT_SELECT
+                        + " WHERE stage_id = ? AND disposition = 'APPLIED'"
+                        + " AND returned_version = ?",
+                stageId, version);
+        if (shared.isPresent() || !localReceiptsAvailable()) {
+            return shared;
+        }
+        return queryReceipt(
+                "SELECT * FROM local_stage_command_receipt"
+                        + " WHERE stage_id = ? AND disposition = 'APPLIED'"
+                        + " AND returned_version = ?",
+                stageId, version);
+    }
+
+    private boolean localReceiptsAvailable()
+    {
+        Integer count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM sqlite_master
+                WHERE type = 'table' AND name = 'local_stage_command_receipt'
+                """, Integer.class);
+        return count != null && count == 1;
+    }
+
+    private static boolean isLocalCause(String cause)
+    {
+        return switch (cause) {
+            case "REQUEST_LOCAL_RESULT", "REPLACE_LOCAL_RESULT",
+                    "CLEAR_LOCAL_RESULT", "BEGIN_LOCAL_VALIDATION",
+                    "ACCEPT_BRAIN_BUDGET_EXHAUSTION",
+                    "ACCEPT_LOCAL_CODE_RESULT" -> true;
+            default -> false;
+        };
     }
 
     private static StageManager.CommandReceipt receipt(ResultSet rs)

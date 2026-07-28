@@ -10,7 +10,8 @@ BEFORE UPDATE OF status ON publish_effect_step
 WHEN NEW.status = 'CLAIMED'
   AND (OLD.status NOT IN ('REQUESTED', 'CLAIMED', 'FAILED', 'INDETERMINATE')
     OR NEW.attempt_count <> OLD.attempt_count + 1
-    OR NEW.attempt_count > NEW.attempt_limit
+    OR (NEW.attempt_count > NEW.attempt_limit
+        AND NEW.claim_mode <> 'PROBE')
     OR NEW.claim_owner IS NULL OR length(NEW.claim_owner) = 0
     OR NEW.claimed_at_ms IS NULL OR NEW.lease_until_ms <= NEW.claimed_at_ms
     OR NEW.evidence IS NOT NULL OR NEW.last_error IS NOT NULL

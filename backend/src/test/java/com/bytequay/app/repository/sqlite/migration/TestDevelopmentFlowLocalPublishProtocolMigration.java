@@ -83,6 +83,7 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
 
         migrate(url, "238");
         try (Connection connection = connect(url)) {
+            assertFails(connection, probeStepSql(1, 99));
             execute(connection, claimStepSql(1, 100));
             assertFails(connection, expiredProbeStepSql(1, 199));
             assertFails(connection, expiredExecuteStepSql(1, 200));
@@ -104,7 +105,19 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     """);
             execute(connection, claimStepSql(1, 202));
             execute(connection, completeStepSql(1, 203));
-            assertFails(connection, probeStepSql(2, 204));
+
+            execute(connection, claimStepSql(2, 204));
+            execute(connection, failStepSql(2, 205));
+            execute(connection, claimStepSql(2, 206));
+            execute(connection, failStepSql(2, 207));
+            execute(connection, claimStepSql(2, 208));
+            execute(connection, expiredProbeStepSql(2, 308));
+            assertThat(number(connection, """
+                    SELECT attempt_count FROM publish_effect_step
+                    WHERE publish_operation_id = 'publish-operation-1'
+                      AND ordinal = 2
+                    """)).isEqualTo(4);
+            execute(connection, completeStepSql(2, 309));
         }
     }
 
@@ -1762,6 +1775,18 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                     completed_at_ms = %s
                 WHERE publish_operation_id = 'publish-operation-1' AND ordinal = %s
                 """.formatted(ordinal, at + 1, ordinal);
+    }
+
+    private static String failStepSql(int ordinal, long at)
+    {
+        return """
+                UPDATE publish_effect_step
+                SET status = 'FAILED', claim_mode = NULL, claim_owner = NULL,
+                    claimed_at_ms = NULL, lease_until_ms = NULL,
+                    evidence = NULL, last_error = 'definite miss',
+                    completed_at_ms = %s
+                WHERE publish_operation_id = 'publish-operation-1' AND ordinal = %s
+                """.formatted(at, ordinal);
     }
 
     private static String remoteBindingSql(String id, String headSha)

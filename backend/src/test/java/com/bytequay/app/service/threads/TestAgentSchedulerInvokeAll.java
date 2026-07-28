@@ -23,6 +23,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -68,25 +71,43 @@ class TestAgentSchedulerInvokeAll
     }
 
     @Test
-    void concurrencyNeverExceedsTheApiLaneCap()
+    void concurrencyFillsButNeverExceedsTheApiLaneCap()
+            throws Exception
     {
-        int cap = 3;
+        int cap = 6;
         AgentScheduler scheduler = scheduler(cap);
         AtomicInteger running = new AtomicInteger();
         AtomicInteger peak = new AtomicInteger();
+        CountDownLatch capacityReached = new CountDownLatch(cap);
+        CountDownLatch release = new CountDownLatch(1);
         List<Callable<Integer>> work = new ArrayList<>();
-        for (int i = 0; i < 12; i++) {
+        for (int i = 0; i < cap + 1; i++) {
             work.add(() -> {
                 int now = running.incrementAndGet();
                 peak.accumulateAndGet(now, Math::max);
-                Thread.sleep(20);
-                running.decrementAndGet();
-                return now;
+                capacityReached.countDown();
+                try {
+                    assertTrue(release.await(2, TimeUnit.SECONDS));
+                    return now;
+                }
+                finally {
+                    running.decrementAndGet();
+                }
             });
         }
-        scheduler.invokeAll(work);
-        assertTrue(peak.get() <= cap,
-                "peak concurrency " + peak.get() + " exceeded the API lane cap " + cap);
+        CompletableFuture<List<Integer>> batch = CompletableFuture.supplyAsync(
+                () -> scheduler.invokeAll(work));
+        try {
+            assertTrue(capacityReached.await(2, TimeUnit.SECONDS));
+            assertEquals(cap, running.get());
+            assertEquals(cap, peak.get());
+        }
+        finally {
+            release.countDown();
+        }
+
+        assertEquals(cap + 1, batch.get(2, TimeUnit.SECONDS).size());
+        assertEquals(cap, peak.get());
     }
 
     @Test

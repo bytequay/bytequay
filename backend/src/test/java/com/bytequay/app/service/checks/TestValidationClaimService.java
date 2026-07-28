@@ -270,6 +270,7 @@ class TestValidationClaimService
     {
         String taskId = seedTask("/tmp/capacity-denied-validation-worktree");
         String fingerprint = "fp-" + taskId;
+        String claimKey = "dev-round:" + taskId + ":0:" + fingerprint;
         ValidationPassService checks = mock(ValidationPassService.class);
         when(checks.runChecks(taskId)).thenReturn(List.of());
         CodeFingerprints fingerprints = mock(CodeFingerprints.class);
@@ -278,7 +279,7 @@ class TestValidationClaimService
         ScheduledFuture<?> renewal = mock(ScheduledFuture.class);
         doReturn(renewal).when(registry)
                 .scheduleLeaseRenewal(any(Runnable.class), anyLong());
-        when(registry.submitIfAbsent(any(), any(), any(Runnable.class)))
+        when(registry.submitIfAbsent(eq(claimKey), any(), any(Runnable.class)))
                 .thenReturn(false)
                 .thenAnswer(invocation -> {
                     invocation.<Runnable>getArgument(2).run();
@@ -290,7 +291,6 @@ class TestValidationClaimService
 
         service.claimAndRunDevRound(taskId);
 
-        String claimKey = "dev-round:" + taskId + ":0:" + fingerprint;
         ValidationClaim waiting = store.findByClaimKey(claimKey).orElseThrow();
         assertThat(waiting.endedAt()).isNull();
         assertThat(waiting.ownerId()).isNull();
@@ -298,8 +298,8 @@ class TestValidationClaimService
         service.reconcileClaims();
 
         assertThat(store.findByClaimKey(claimKey).orElseThrow().isTerminalGreen()).isTrue();
-        verify(registry, times(2))
-                .submitIfAbsent(eq(claimKey), any(), any(Runnable.class));
+        verify(registry, times(2)).submitIfAbsent(
+                eq(claimKey), any(), any(Runnable.class));
         verify(checks).runChecks(taskId);
         verify(renewal).cancel(false);
     }

@@ -12,30 +12,42 @@
  * limitations under the License.
  */
 import { useState } from 'react';
+import {
+  EscalationQueue,
+  FailureTable,
+  isEscalated,
+  type FailureActions,
+} from './WorkspaceHarnessFailures';
+import { KnowledgeBase } from './WorkspaceHarnessKnowledge';
 import type {
   CiHarnessBootstrapProfileDto,
-  CiHarnessFailureDto,
+  CiHarnessCycleDetailDto,
   CiHarnessMilestoneDto,
   CiHarnessRuleDto,
   CiHarnessWatchSnapshotDto,
 } from './workspaceApi';
 
-export function HarnessDashboard({ snapshot, rules, busy, onApproveRule }: {
+export type HarnessActions = FailureActions & {
+  onApproveRule: (ruleId: string) => void;
+  onRetireRule: (ruleId: string) => void;
+};
+
+export function HarnessDashboard({ snapshot, rules, actions, cycleDetail, onCloseCycle }: {
   snapshot: CiHarnessWatchSnapshotDto;
   rules: CiHarnessRuleDto[];
-  busy: boolean;
-  onApproveRule: (ruleId: string) => void;
+  actions: HarnessActions;
+  cycleDetail: CiHarnessCycleDetailDto | null;
+  onCloseCycle: () => void;
 }) {
   const stats = snapshot.stats;
-  const candidates = rules.filter(rule => rule.status === 'candidate');
-  const hasEscalation = snapshot.failures.some(row => {
-    const status = row.status.toLowerCase();
-    return status.includes('escalat') || status.includes('attention');
-  });
+  const hasEscalation = snapshot.failures.some(isEscalated);
   const showBootstrapProfile = snapshot.bootstrapProfile !== null && (
     snapshot.status === 'bootstrap'
     || (snapshot.status === 'watching' && snapshot.cycles.length === 0 && snapshot.failures.length === 0)
   );
+  if (cycleDetail !== null) {
+    return <CycleDetail detail={cycleDetail} actions={actions} onClose={onCloseCycle} />;
+  }
   return (
     <main className="ci-harness-dashboard">
       <div className="ci-harness-pinned">
@@ -50,33 +62,61 @@ export function HarnessDashboard({ snapshot, rules, busy, onApproveRule }: {
         </section>
       </div>
       {showBootstrapProfile && <BootstrapTrustCard profile={snapshot.bootstrapProfile} />}
-      {hasEscalation && <EscalationCard failures={snapshot.failures} />}
+      <EscalationQueue failures={snapshot.failures} actions={actions} />
       {snapshot.status === 'handoff' && <HandoffProofCard snapshot={snapshot} />}
       {snapshot.status === 'green' && <GreenCompletionCard />}
-      {snapshot.failures.length > 0 && <FailureTable rows={snapshot.failures} />}
-      {candidates.length > 0 && (
-        <section className="ci-harness-rules">
-          <header><h2>Candidate rules</h2><span>{candidates.length}</span></header>
-          {candidates.map(rule => (
-            <article key={rule.id}>
-              <span><strong>{rule.bucket}</strong><code>{rule.binding}</code>
-                <small>{rule.scope ?? 'repository'} · {rule.origin} · priority {rule.priority}</small></span>
-              <code className="ci-harness-rules__matcher">{rule.matcherPattern}</code>
-              <small>{rule.hits} evidence hit{rule.hits === 1 ? '' : 's'}</small>
-              <button type="button" disabled={busy} onClick={() => onApproveRule(rule.id)}>Approve rule</button>
-            </article>
-          ))}
-        </section>
-      )}
-      <section className="ci-harness-feed">
-        <header><h2>Milestones</h2><span>{snapshot.milestones.length}</span></header>
-        {snapshot.milestones.map(item => <Milestone key={item.id} item={item} />)}
-        {snapshot.milestones.length === 0 && <p className="ci-harness-empty-feed">No milestones recorded yet.</p>}
-      </section>
+      {snapshot.failures.length > 0 && <FailureTable rows={snapshot.failures} actions={actions} />}
+      <KnowledgeBase rules={rules} busy={actions.busy}
+        onApprove={actions.onApproveRule} onRetire={actions.onRetireRule} />
+      <MilestoneFeed milestones={snapshot.milestones} />
       {(snapshot.runStatusTail ?? '').length > 0 && (
         <details className="ci-harness-run-tail"><summary>Latest run status</summary><pre>{snapshot.runStatusTail}</pre></details>
       )}
     </main>
+  );
+}
+
+function CycleDetail({ detail, actions, onClose }: {
+  detail: CiHarnessCycleDetailDto;
+  actions: HarnessActions;
+  onClose: () => void;
+}) {
+  const cycle = detail.cycle;
+  return (
+    <main className="ci-harness-dashboard is-cycle">
+      <div className="ci-harness-pinned">
+        <section className="ci-harness-cycle-head">
+          <button type="button" onClick={onClose}>← Back to watch</button>
+          <div><strong>Cycle {cycle.ordinal}</strong>
+            <small>{cycle.status} · {cycle.triggerKind}
+              {cycle.headSha === null ? '' : ` · ${cycle.headSha.slice(0, 7)}`}
+              {' · '}{money(cycle.costMilliUsd)}</small></div>
+          <span className="ci-harness-cycle-head__phases">
+            {cycle.phaseStates.map(phase => (
+              <i key={phase.phase} className={`is-${phase.status}`}>{phase.phase}</i>
+            ))}
+          </span>
+        </section>
+      </div>
+      {cycle.netNeutralProof !== null && (
+        <ProofCard backupRef={cycle.backupRef} proof={cycle.netNeutralProof} />
+      )}
+      <FailureTable rows={detail.failures} actions={actions} heading="Failures in this cycle" />
+      <MilestoneFeed milestones={detail.milestones} />
+      {(cycle.runStatusTail ?? '').length > 0 && (
+        <details className="ci-harness-run-tail"><summary>Run status</summary><pre>{cycle.runStatusTail}</pre></details>
+      )}
+    </main>
+  );
+}
+
+function MilestoneFeed({ milestones }: { milestones: CiHarnessMilestoneDto[] }) {
+  return (
+    <section className="ci-harness-feed">
+      <header><h2>Milestones</h2><span>{milestones.length}</span></header>
+      {milestones.map(item => <Milestone key={item.id} item={item} />)}
+      {milestones.length === 0 && <p className="ci-harness-empty-feed">No milestones recorded yet.</p>}
+    </section>
   );
 }
 
@@ -90,7 +130,7 @@ function HarnessBanner({ snapshot, hasEscalation }: {
   );
   if (snapshot.status === 'needs_attention' || hasEscalation) return (
     <section className="ci-harness-banner is-warning"><strong>Needs you</strong>
-      <span>The harness paused instead of guessing. Review the escalated failure below.</span></section>
+      <span>The harness paused instead of guessing. Resolve the escalations below.</span></section>
   );
   if (snapshot.status === 'handoff') return (
     <section className="ci-harness-banner is-handoff"><strong>Ready for handoff · nothing was pushed</strong>
@@ -142,27 +182,25 @@ function ProfileValue({ value }: { value: unknown }) {
   return <span>{formatValue(value)}</span>;
 }
 
-function EscalationCard({ failures }: { failures: CiHarnessFailureDto[] }) {
-  const failure = failures.find(row => row.status.toLowerCase().includes('escalat')
-    || row.status.toLowerCase().includes('attention')) ?? failures[0];
-  if (failure === undefined) return null;
+function HandoffProofCard({ snapshot }: { snapshot: CiHarnessWatchSnapshotDto }) {
   return (
-    <section className="ci-harness-escalation-card">
-      <header><span aria-hidden>!</span><div><h2>{failure.jobName}</h2><small>{failure.module} · {failure.bucket}</small></div></header>
-      <strong>{failure.signature}</strong>
-      {failure.targetSubject !== null && <p>Proposed semantic owner <code>{failure.targetSubject}</code></p>}
-      <pre>{failure.logExcerpt}</pre>
-      <small>The harness paused for judgement; it did not apply an unverified guess.</small>
-    </section>
+    <>
+      <ProofCard backupRef={snapshot.backupRef} proof={snapshot.netNeutralProof} />
+      {snapshot.handoffCommand !== null && (
+        <section className="ci-harness-proof-card__command"><CopyCommand command={snapshot.handoffCommand} /></section>
+      )}
+    </>
   );
 }
 
-function HandoffProofCard({ snapshot }: { snapshot: CiHarnessWatchSnapshotDto }) {
-  const proof = snapshot.netNeutralProof;
+function ProofCard({ backupRef, proof }: {
+  backupRef: string | null;
+  proof: CiHarnessWatchSnapshotDto['netNeutralProof'];
+}) {
   return (
     <section className="ci-harness-proof-card">
       <header><h2>History rewrite proof</h2><span>local handoff</span></header>
-      {snapshot.backupRef !== null && <div><small>Backup ref</small><code>{snapshot.backupRef}</code></div>}
+      {backupRef !== null && <div><small>Backup ref</small><code>{backupRef}</code></div>}
       {proof === null ? <p>No history rewrite proof was recorded.</p> : (
         <>
           <div className="ci-harness-proof-card__heads">
@@ -178,7 +216,6 @@ function HandoffProofCard({ snapshot }: { snapshot: CiHarnessWatchSnapshotDto })
           {proof.detail !== null && <p>{proof.detail}</p>}
         </>
       )}
-      {snapshot.handoffCommand !== null && <CopyCommand command={snapshot.handoffCommand} />}
     </section>
   );
 }
@@ -198,29 +235,20 @@ function Stat({ label, value, detail }: { label: string; value: string; detail: 
   return <div><small>{label}</small><strong>{value}</strong><span>{detail}</span></div>;
 }
 
-function FailureTable({ rows }: { rows: CiHarnessFailureDto[] }) {
-  return (
-    <section className="ci-harness-failures">
-      <header><h2>Failures</h2><span>{rows.length}</span></header>
-      <div role="table">
-        {rows.map(row => (
-          <div role="row" key={row.id}>
-            <code>{row.module}</code><strong>{row.signature}</strong><i>{row.bucket}</i>
-            <span>{row.ruleId ?? row.targetSubject ?? 'unrouted'}</span>
-            <b className={`is-${row.status.toLowerCase()}`}>{row.status.replace('_', ' ')}</b>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function Milestone({ item }: { item: CiHarnessMilestoneDto }) {
+  const conversational = item.kind === 'question' || item.kind === 'answer';
   return (
-    <article className={`ci-harness-milestone is-${milestoneTone(item.kind)}`}>
+    <article className={`ci-harness-milestone is-${milestoneTone(item.kind)}${
+      conversational ? ` is-${item.kind}` : ''}`}>
       <span className="ci-harness-milestone__dot" />
-      <div><strong>{item.message}</strong>{item.detailJson !== null && <p>{detailText(item.detailJson)}</p>}
-        <small>{formatTime(item.createdAtMs)}{item.phase === null ? '' : ` · ${item.phase}`}</small></div>
+      <div>
+        {conversational
+          ? <p className="ci-harness-milestone__prose">{item.message}</p>
+          : <strong>{item.message}</strong>}
+        {!conversational && item.detailJson !== null && <p>{detailText(item.detailJson)}</p>}
+        <small>{item.kind === 'question' ? 'You · ' : item.kind === 'answer' ? 'Harness · ' : ''}
+          {formatTime(item.createdAtMs)}{item.phase === null || conversational ? '' : ` · ${item.phase}`}</small>
+      </div>
     </article>
   );
 }

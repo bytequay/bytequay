@@ -21,6 +21,8 @@ import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandle
 import com.bytequay.app.developmentflow.execution.publish.PublishOperationHandler.RemoteReference;
 import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort.Context;
 import com.bytequay.app.developmentflow.stage.PublishResultDeliveryPort.Receipt;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.localpr.PRService;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +47,7 @@ import static com.bytequay.app.developmentflow.stage.StageKind.REMOTE_DEVELOPMEN
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -59,6 +62,8 @@ class TestPublishResultDeliveryPort
     private LocalDevelopmentStageManager local;
     private LocalToRemoteHandoff handoff;
     private RemoteObservationRuntimeCoordinator observations;
+    private PRService prs;
+    private TaskStore tasks;
     private PublishResultDeliveryPort delivery;
 
     @BeforeEach
@@ -68,9 +73,11 @@ class TestPublishResultDeliveryPort
         local = mock(LocalDevelopmentStageManager.class);
         handoff = mock(LocalToRemoteHandoff.class);
         observations = mock(RemoteObservationRuntimeCoordinator.class);
+        prs = mock(PRService.class);
+        tasks = mock(TaskStore.class);
         delivery = new PublishResultDeliveryPort(
                 new TaskCommandExecutor(new NoopTransactions()),
-                local, handoff, observations, store, JSON,
+                local, handoff, observations, prs, tasks, store, JSON,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -100,6 +107,12 @@ class TestPublishResultDeliveryPort
         verify(handoff).acceptInCommand(any());
         verify(observations).requestObservationInCommand(
                 "task-1", remote.id());
+        verify(prs).recordPublishedInCommand(
+                "pr-1", "acme/widget", 17,
+                "https://github.com/acme/widget/pull/17");
+        verify(tasks).markPushed("task-1", NOW);
+        verify(tasks).linkPullRequest("task-1", 17, "draft");
+        verify(tasks).linkTaskToPr("task-1", "acme/widget#17");
     }
 
     @Test
@@ -122,6 +135,9 @@ class TestPublishResultDeliveryPort
         assertThat(store.remoteInitialized).isZero();
         assertThat(store.receipt.orElseThrow().remoteStageId()).isNull();
         verify(observations, never()).requestObservationInCommand(any(), any());
+        verify(prs).recordPublishedInCommand(
+                "pr-1", "acme/widget", 17,
+                "https://github.com/acme/widget/pull/17");
     }
 
     @Test
@@ -191,6 +207,7 @@ class TestPublishResultDeliveryPort
                 .hasMessageContaining("identity");
         assertThat(store.published).isZero();
         assertThat(store.receipt).isEmpty();
+        verify(prs, never()).recordPublishedInCommand(any(), any(), anyInt(), any());
     }
 
     private static DispatchTicket.DispatchResult succeeded()

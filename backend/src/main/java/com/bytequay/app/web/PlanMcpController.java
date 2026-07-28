@@ -13,7 +13,10 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
 import com.bytequay.app.developmentflow.stage.PlanMcpService;
+import com.bytequay.app.service.mcp.McpService;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -23,11 +26,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.async.DeferredResult;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.time.Clock;
 
 import static java.util.Objects.requireNonNull;
 
-/** Exact operation-scoped Streamable-HTTP endpoint for V2 Plan TaskTurns. */
+/** Exact operation-scoped Streamable-HTTP endpoint for every V2 TaskTurn. */
 @RestController
 @RequestMapping("/api/v2/task-turns/{turnId}/operations/{operationId}/mcp")
 @ConditionalOnProperty(
@@ -36,15 +42,33 @@ import static java.util.Objects.requireNonNull;
 public final class PlanMcpController
 {
     private static final String SESSION_HEADER = "Mcp-Session-Id";
-    private final PlanMcpService service;
+    private final PlanMcpService plans;
+    private final McpService tools;
+    private final AgentTurnOperationHandler.Store turns;
+    private final Clock clock;
 
-    public PlanMcpController(PlanMcpService service)
+    public PlanMcpController(
+            PlanMcpService plans,
+            McpService tools,
+            AgentTurnOperationHandler.Store turns)
     {
-        this.service = requireNonNull(service, "service is null");
+        this(plans, tools, turns, Clock.systemUTC());
+    }
+
+    PlanMcpController(
+            PlanMcpService plans,
+            McpService tools,
+            AgentTurnOperationHandler.Store turns,
+            Clock clock)
+    {
+        this.plans = requireNonNull(plans, "plans is null");
+        this.tools = requireNonNull(tools, "tools is null");
+        this.turns = requireNonNull(turns, "turns is null");
+        this.clock = requireNonNull(clock, "clock is null");
     }
 
     @PostMapping
-    public JsonNode handle(
+    public DeferredResult<JsonNode> handle(
             @PathVariable String turnId,
             @PathVariable String operationId,
             @RequestBody JsonNode request,
@@ -65,6 +89,22 @@ public final class PlanMcpController
         if (request.path("method").asText("").startsWith("notifications/")) {
             response.setStatus(HttpServletResponse.SC_ACCEPTED);
         }
-        return service.handle(turnId, operationId, request);
+        AgentTurnOperationHandler.McpContext context = turns.authorizeMcp(
+                        DispatchTicket.OwnerKind.TASK_TURN,
+                        turnId, operationId, clock.instant())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404),
+                        "TaskTurn operation is not active"));
+        if (context.purpose().equals("PLAN_DRAFT")
+                || context.purpose().equals("PLAN_SELF_REVIEW")) {
+            DeferredResult<JsonNode> result = new DeferredResult<>();
+            result.setResult(plans.handle(turnId, operationId, request));
+            return result;
+        }
+        return tools.handle(
+                context.trunkId(),
+                AgentTurnOperationHandler.mcpAgentKey(
+                        DispatchTicket.OwnerKind.TASK_TURN, turnId, operationId),
+                request);
     }
 }

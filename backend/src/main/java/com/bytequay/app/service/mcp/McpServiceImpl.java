@@ -27,6 +27,7 @@ import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
 import com.bytequay.app.service.agents.ResolvedAgentContext;
+import com.bytequay.app.service.skills.ByteQuayRole;
 import com.bytequay.app.service.threads.LogicLoopThreadAgent;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.AgentToolRegistry;
@@ -199,8 +200,13 @@ public class McpServiceImpl
     /** The connecting thread's kind, or null when it can't be resolved
      *  (an unknown / blank thread id) — {@link ToolSpec#availableToKind}
      *  treats null as "fails any kind-restricted tool". */
-    private ThreadKind kindFor(String threadId)
+    private ThreadKind kindFor(String threadId, String agentKey)
     {
+        Optional<ResolvedAgentContext> active = activeContexts.find(threadId, agentKey);
+        if (active.isPresent()
+                && active.orElseThrow().role() == ByteQuayRole.BRAIN) {
+            return ThreadKind.BRAIN_AGENT;
+        }
         if (threadId == null || threadId.isBlank()) {
             return null;
         }
@@ -217,7 +223,7 @@ public class McpServiceImpl
         // resolved against THIS agent's running turn (agentKey), not just
         // the thread, so concurrent Task agents list their own tools.
         AgentRole role = permissions.roleFor(threadId, agentKey);
-        ThreadKind kind = kindFor(threadId);
+        ThreadKind kind = kindFor(threadId, agentKey);
         Set<SecurityType> grants = permissions.grants(threadId, agentKey);
         Set<String> activeToolNames = activeContexts.find(threadId, agentKey)
                 .map(ResolvedAgentContext::toolNames)
@@ -305,7 +311,7 @@ public class McpServiceImpl
             return;
         }
         AgentRole role = permissions.roleFor(threadId, agentKey);
-        ThreadKind kind = kindFor(threadId);
+        ThreadKind kind = kindFor(threadId, agentKey);
         if (!spec.availableTo(role)) {
             // The roles array on @AgentTool is both a discovery filter
             // (tools/list hides tools the role can't see) and a call-

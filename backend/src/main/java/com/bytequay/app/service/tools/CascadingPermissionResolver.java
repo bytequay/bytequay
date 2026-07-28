@@ -21,7 +21,10 @@ import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.repository.PermissionGrantStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.agents.ActiveAgentContextRegistry;
+import com.bytequay.app.service.agents.ResolvedAgentContext;
 import com.google.common.collect.ImmutableSet;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.EnumSet;
@@ -68,38 +71,56 @@ public class CascadingPermissionResolver
     private final ThreadStore threadStore;
     private final ThreadTurnStore turnStore;
     private final PermissionGrantStore grantStore;
+    private final ActiveAgentContextRegistry activeContexts;
 
+    @Autowired
+    public CascadingPermissionResolver(
+            ThreadStore threadStore,
+            ThreadTurnStore turnStore,
+            PermissionGrantStore grantStore,
+            ActiveAgentContextRegistry activeContexts)
+    {
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.grantStore = requireNonNull(grantStore, "grantStore is null");
+        this.activeContexts = requireNonNull(activeContexts, "activeContexts is null");
+    }
+
+    /** Compatibility constructor for focused legacy permission tests. */
     public CascadingPermissionResolver(
             ThreadStore threadStore,
             ThreadTurnStore turnStore,
             PermissionGrantStore grantStore)
     {
-        this.threadStore = requireNonNull(threadStore, "threadStore is null");
-        this.turnStore = requireNonNull(turnStore, "turnStore is null");
-        this.grantStore = requireNonNull(grantStore, "grantStore is null");
+        this(threadStore, turnStore, grantStore, new ActiveAgentContextRegistry());
     }
 
     @Override
     public AgentRole roleFor(String threadId, String agentKey)
     {
-        return roleForTurn(runningTurn(threadId, agentKey));
+        return activeContexts.find(threadId, agentKey)
+                .map(ResolvedAgentContext::permissionRole)
+                .orElseGet(() -> roleForTurn(runningTurn(threadId, agentKey)));
     }
 
     @Override
     public RunningScope runningScope(String threadId, String agentKey)
     {
-        return runningTurn(threadId, agentKey)
+        return activeContexts.findScope(threadId, agentKey)
+                .orElseGet(() -> runningTurn(threadId, agentKey)
                 .map(turn -> new RunningScope(
                         turn.scope(), turn.taskId(), turn.stageId(), turn.agentRunId()))
-                .orElse(RunningScope.NONE);
+                .orElse(RunningScope.NONE));
     }
 
     @Override
     public Set<SecurityType> grants(String threadId, String agentKey)
     {
+        Optional<ResolvedAgentContext> active = activeContexts.find(threadId, agentKey);
         Optional<ThreadTurn> turn = runningTurn(threadId, agentKey);
         Set<SecurityType> effective = EnumSet.noneOf(SecurityType.class);
-        effective.addAll(RoleCapabilities.forRole(roleForTurn(turn)));
+        effective.addAll(active.map(ResolvedAgentContext::capabilities)
+                .orElseGet(() -> RoleCapabilities.forRole(roleForTurn(turn))));
 
         // Global first, then narrower scopes. Each deny subtracts and
         // stays subtracted — walking order doesn't matter for a pure
@@ -119,9 +140,13 @@ public class CascadingPermissionResolver
 
         // Task-scoped denies target the task the running turn belongs to —
         // the same stamped fact that drives the role.
-        turn.filter(value -> value.scope() != ThreadScope.TRUNK)
-                .map(ThreadTurn::requireTaskId)
-                .ifPresent(taskId -> applyDenials(effective, grantStore.findForScope("task", taskId)));
+        Optional<String> taskId = activeContexts.findScope(threadId, agentKey)
+                .filter(scope -> scope.scope() != ThreadScope.TRUNK)
+                .map(RunningScope::taskId)
+                .or(() -> turn.filter(value -> value.scope() != ThreadScope.TRUNK)
+                        .map(ThreadTurn::requireTaskId));
+        taskId.ifPresent(id ->
+                applyDenials(effective, grantStore.findForScope("task", id)));
 
         return ImmutableSet.copyOf(effective);
     }

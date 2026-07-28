@@ -286,9 +286,12 @@ public class DevelopmentFlowExecutionConfig
             SqliteAgentTurnOperationStore operations,
             AgentTurnProviderSession provider,
             WorktreeWriterLeaseManager writers,
+            ActiveAgentContextRegistry activeContexts,
+            ToolExposurePolicy tools,
             ObjectMapper json)
     {
-        return new AgentTurnOperationHandler(operations, provider, writers, json);
+        return new AgentTurnOperationHandler(
+                operations, provider, writers, activeContexts, tools, json);
     }
 
     @Bean

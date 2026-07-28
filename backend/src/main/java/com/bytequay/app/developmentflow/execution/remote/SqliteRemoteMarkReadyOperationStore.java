@@ -23,6 +23,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -50,12 +51,17 @@ public class SqliteRemoteMarkReadyOperationStore
                        operation.task_id, operation.task_epoch,
                        operation.remote_development_stage_id,
                        operation.stage_generation, operation.semantic_attempt,
+                       binding.remote_repository_id, binding.remote_pr_number,
                        operation.head_sha, operation.base_sha, operation.status,
                        operation.attempt_count, operation.attempt_limit,
                        operation.result_snapshot_id, operation.evidence
                 FROM remote_mark_ready_operation operation
                 JOIN remote_mark_ready_dispatch dispatch
                   ON dispatch.remote_mark_ready_operation_id = operation.id
+                JOIN remote_development_stage remote
+                  ON remote.stage_id = operation.remote_development_stage_id
+                JOIN remote_pr_binding binding
+                  ON binding.id = remote.remote_pr_binding_id
                 WHERE operation.operation_id = ?
                 """, (rs, row) -> operation(rs), operationId);
         if (rows.size() != 1) {
@@ -143,6 +149,40 @@ public class SqliteRemoteMarkReadyOperationStore
         finishClaim(id, attempt, "INDETERMINATE", evidence, evidence, completedAt);
     }
 
+    @Override
+    public Optional<RemoteMarkReadyOperationHandler.Observation>
+            findAcceptedReadyObservation(Operation operation)
+    {
+        requireNonNull(operation, "operation is null");
+        return jdbc.query("""
+                SELECT snapshot.id,
+                       COALESCE(NULLIF(snapshot.raw_evidence, ''),
+                           'accepted non-Draft Remote observation') AS evidence
+                FROM remote_development_stage remote
+                JOIN remote_pr_snapshot snapshot
+                  ON snapshot.id = remote.accepted_snapshot_id
+                WHERE remote.stage_id = ?
+                  AND remote.task_id = ?
+                  AND remote.generation = ?
+                  AND remote.current_head_sha = ?
+                  AND remote.current_base_sha = ?
+                  AND snapshot.task_epoch = ?
+                  AND snapshot.stage_generation = ?
+                  AND snapshot.remote_repository_id = ?
+                  AND snapshot.remote_pr_number = ?
+                  AND snapshot.head_sha = ?
+                  AND snapshot.base_sha = ?
+                  AND snapshot.pr_state = 'OPEN'
+                """, (rs, row) -> new RemoteMarkReadyOperationHandler.Observation(
+                        true, rs.getString("id"),
+                        rs.getString("evidence")),
+                operation.stageId(), operation.taskId(), operation.stageGeneration(),
+                operation.headSha(), operation.baseSha(), operation.taskEpoch(),
+                operation.stageGeneration(), operation.repositoryId(),
+                operation.pullRequestNumber(), operation.headSha(),
+                operation.baseSha()).stream().findFirst();
+    }
+
     private void finishClaim(
             String id,
             int attempt,
@@ -174,6 +214,8 @@ public class SqliteRemoteMarkReadyOperationStore
                 rs.getString("task_id"), rs.getLong("task_epoch"),
                 rs.getString("remote_development_stage_id"),
                 rs.getLong("stage_generation"), rs.getInt("semantic_attempt"),
+                rs.getString("remote_repository_id"),
+                rs.getInt("remote_pr_number"),
                 rs.getString("head_sha"), rs.getString("base_sha"),
                 Status.valueOf(rs.getString("status")), rs.getInt("attempt_count"),
                 rs.getInt("attempt_limit"), rs.getString("result_snapshot_id"),

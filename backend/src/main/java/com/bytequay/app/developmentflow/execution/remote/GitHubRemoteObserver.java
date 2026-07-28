@@ -30,6 +30,7 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.CollaboratorPermissionService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -68,6 +69,7 @@ public final class GitHubRemoteObserver
     private final ObjectMapper json;
     private final Clock clock;
 
+    @Autowired
     public GitHubRemoteObserver(
             PullRequestRepository pullRequests,
             PatResolver pats,

@@ -90,6 +90,97 @@ class TestDevelopmentFlowTaskCreationProtocolMigration
     }
 
     @Test
+    void v231BackfillsEveryRequestedTicketAndRequiresTheExactCreationWake()
+            throws Exception
+    {
+        String url = url("dispatch-wake-upgrade.db");
+        migrate(url, "229");
+        try (Connection connection = connect(url)) {
+            seedDirectTrunk(connection, "workspace-1", "trunk-1", "acme/widget");
+            execute(connection, policySql("policy-1", "trunk-1", 1));
+            createNewTask(connection, new NewTask(
+                    "task-1", 1, "create-command-1", "trunk-1", "workspace-1",
+                    "policy-1", "acme/widget", "base-1"));
+            execute(connection, """
+                    INSERT INTO dispatch_ticket(
+                        id, operation_id, operation_kind, async_family,
+                        owner_kind, owner_id, callback_route, lane_mask,
+                        exclusive_task, workspace_id, trunk_id, task_id,
+                        task_epoch, attempt, status, created_at_ms)
+                    VALUES ('validation-ticket', 'validation-operation',
+                        'VALIDATE_CODE', 'VALIDATION', 'TASK', 'task-1',
+                        'TASK_VALIDATION_RESULT', 4, 1, 'workspace-1',
+                        'trunk-1', 'task-1', 1, 1, 'REQUESTED', 5)
+                    """);
+            execute(connection, """
+                    INSERT INTO dispatch_ticket(
+                        id, operation_id, operation_kind, async_family,
+                        owner_kind, owner_id, callback_route, lane_mask,
+                        exclusive_task, workspace_id, trunk_id, task_id,
+                        task_epoch, attempt, status, created_at_ms)
+                    VALUES ('terminal-ticket', 'terminal-operation',
+                        'VALIDATE_CODE', 'VALIDATION', 'TASK', 'task-1',
+                        'TASK_VALIDATION_RESULT', 4, 1, 'workspace-1',
+                        'trunk-1', 'task-1', 1, 1, 'REQUESTED', 6)
+                    """);
+            execute(connection, """
+                    UPDATE dispatch_ticket
+                    SET version = 1, status = 'CANCELED', completed_at_ms = 7,
+                        delivery_acceptance = 'SUPERSEDED'
+                    WHERE id = 'terminal-ticket'
+                    """);
+        }
+
+        migrate(url, "231");
+        migrate(url, "231");
+        try (Connection connection = connect(url)) {
+            assertThat(text(connection, """
+                    SELECT group_concat(aggregate_id || '|' || payload || '|' || status, ',')
+                    FROM (SELECT aggregate_id, payload, status FROM outbox
+                          WHERE aggregate_kind = 'DISPATCH_TICKET'
+                          ORDER BY aggregate_id)
+                    """)).isEqualTo(
+                    "provision-ticket-task-1|provision-ticket-task-1|PENDING,"
+                            + "validation-ticket|validation-ticket|PENDING");
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM outbox
+                    WHERE aggregate_id = 'terminal-ticket'
+                    """)).isZero();
+            assertFails(connection, """
+                    INSERT INTO outbox(
+                        id, dedup_key, aggregate_kind, aggregate_id, topic,
+                        payload, status, attempts, available_at_ms, created_at_ms)
+                    VALUES (
+                        'V2_DISPATCH_TICKET_REQUESTED:terminal-ticket',
+                        'V2_DISPATCH_TICKET_REQUESTED:terminal-ticket',
+                        'DISPATCH_TICKET', 'terminal-ticket',
+                        'V2_DISPATCH_TICKET_REQUESTED', 'terminal-ticket',
+                        'PENDING', 0, 6, 6)
+                    """);
+            assertFails(connection, """
+                    UPDATE outbox
+                    SET status = 'DELIVERED', delivered_at_ms = 8
+                    WHERE aggregate_id = 'validation-ticket'
+                    """);
+
+            execute(connection, "DROP TRIGGER dispatch_ticket_requested_wake_insert");
+            assertThatThrownBy(() -> createNewTask(connection, new NewTask(
+                    "task-2", 2, "create-command-2", "trunk-1", "workspace-1",
+                    "policy-1", "acme/widget", "base-2")))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("DispatchTicket wake");
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM tasks WHERE id = 'task-2'
+                    """)).isZero();
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM dispatch_ticket WHERE task_id = 'task-2'
+                    """)).isZero();
+            assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
+                    .isZero();
+        }
+    }
+
+    @Test
     void createsZeroTaskAndParallelSiblingTasksThroughExactTrunkAuthorizations()
             throws Exception
     {

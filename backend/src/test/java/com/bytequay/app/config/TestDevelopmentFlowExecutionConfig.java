@@ -80,13 +80,15 @@ class TestDevelopmentFlowExecutionConfig
                 ExecutionPorts.OperationHandlerRegistry.class,
                 ExecutionPorts.ResultDeliveryPort.class,
                 ExecutionPorts.ExecutionEvidencePort.class,
-                ExecutionPorts.DispatchTicketStore.class);
+                ExecutionPorts.DispatchTicketStore.class,
+                ExecutionPorts.DispatchWakeStore.class);
         assertThat(Arrays.stream(
                         DevelopmentFlowExecutionConfig.class.getDeclaredMethods())
                 .map(Method::getReturnType))
                 .doesNotContain(
                         ExecutionPorts.OperationHandlerRegistry.class,
-                        ExecutionPorts.ResultDeliveryPort.class);
+                        ExecutionPorts.ResultDeliveryPort.class,
+                        ExecutionPorts.DispatchWakeStore.class);
     }
 
     @Test

@@ -389,6 +389,7 @@ public final class InMemoryExecutionSupport
         private final Map<String, DispatchTicket> tickets = new LinkedHashMap<>();
         private final Map<String, DispatchDeliveryClaim> deliveryClaims =
                 new LinkedHashMap<>();
+        private boolean scanEnabled = true;
 
         synchronized void put(DispatchTicket ticket)
         {
@@ -403,6 +404,9 @@ public final class InMemoryExecutionSupport
         {
             if (limit < 1) {
                 throw new IllegalArgumentException("limit must be positive");
+            }
+            if (!scanEnabled) {
+                return new ExecutionPorts.TicketScanPage(List.of(), null);
             }
             Map<ScopeKey, List<DispatchTicket>> byTrunk = new LinkedHashMap<>();
             tickets.values().stream()
@@ -634,6 +638,11 @@ public final class InMemoryExecutionSupport
             return tickets.get(ticketId);
         }
 
+        synchronized void setScanEnabled(boolean scanEnabled)
+        {
+            this.scanEnabled = scanEnabled;
+        }
+
         private enum ScanClass
         {
             ORDINARY,
@@ -646,6 +655,94 @@ public final class InMemoryExecutionSupport
         private record RankedTicket(
                 DispatchTicket ticket,
                 ExecutionPorts.TicketScanCursor cursor) {}
+    }
+
+    static final class WakeStore
+            implements ExecutionPorts.DispatchWakeStore
+    {
+        private final Map<String, Wake> wakes = new LinkedHashMap<>();
+        private boolean failNextClaim;
+
+        @Override
+        public synchronized void enqueue(String ticketId, Instant createdAt)
+        {
+            wakes.putIfAbsent(ticketId, new Wake(ticketId));
+        }
+
+        @Override
+        public synchronized List<ExecutionPorts.DispatchWakeClaim> claimAvailable(
+                String claimOwner,
+                Instant claimedAt,
+                Instant expiresAt,
+                int limit)
+        {
+            if (failNextClaim) {
+                failNextClaim = false;
+                throw new IllegalStateException("test wake claim failed");
+            }
+            List<ExecutionPorts.DispatchWakeClaim> claimed = new ArrayList<>();
+            for (Wake wake : wakes.values()) {
+                if (claimed.size() == limit) {
+                    break;
+                }
+                if (wake.delivered
+                        || (wake.claim != null && wake.claim.expiresAt().isAfter(claimedAt))) {
+                    continue;
+                }
+                wake.claim = new ExecutionPorts.DispatchWakeClaim(
+                        "wake:" + wake.ticketId,
+                        wake.ticketId,
+                        ++wake.attempt,
+                        claimOwner,
+                        claimedAt,
+                        expiresAt);
+                claimed.add(wake.claim);
+            }
+            return List.copyOf(claimed);
+        }
+
+        @Override
+        public synchronized boolean markDelivered(
+                ExecutionPorts.DispatchWakeClaim claim,
+                Instant deliveredAt)
+        {
+            Wake wake = wakes.get(claim.ticketId());
+            if (wake == null || wake.claim == null || !wake.claim.equals(claim)) {
+                return false;
+            }
+            wake.delivered = true;
+            wake.claim = null;
+            return true;
+        }
+
+        synchronized boolean isDelivered(String ticketId)
+        {
+            Wake wake = wakes.get(ticketId);
+            return wake != null && wake.delivered;
+        }
+
+        synchronized int size()
+        {
+            return wakes.size();
+        }
+
+        synchronized void failNextClaim()
+        {
+            failNextClaim = true;
+        }
+
+        private static final class Wake
+        {
+            private final String ticketId;
+            private int attempt;
+            private ExecutionPorts.DispatchWakeClaim claim;
+            private boolean delivered;
+
+            private Wake(String ticketId)
+            {
+                this.ticketId = ticketId;
+            }
+        }
     }
 
     static class DirectExecutorService

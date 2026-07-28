@@ -52,6 +52,54 @@ class TestExecutionDispatcher
     private static final Instant NOW = Instant.parse("2026-07-28T00:00:00Z");
 
     @Test
+    void expiredWakeClaimRecoversAfterRestartWithoutDuplicateExecution()
+    {
+        SharedState state = sharedState(4);
+        CountingHandler handler = new CountingHandler();
+        state.handlers.put("validation", handler);
+        state.tickets.put(requested("wake-restart", "validation", VALIDATION, false));
+        state.tickets.setScanEnabled(false);
+        state.wakes.enqueue("wake-restart", NOW);
+        state.wakes.enqueue("wake-restart", NOW);
+        assertThat(state.wakes.size()).isOne();
+        assertThat(state.wakes.claimAvailable(
+                "dead-dispatcher", NOW, NOW.plusSeconds(10), 10)).hasSize(1);
+
+        try (ExecutionDispatcher replacement = dispatcher(
+                state, "replacement", new InMemoryExecutionSupport.DirectExecutorService())) {
+            replacement.runMaintenance();
+            assertThat(handler.executeCalls).isZero();
+
+            state.clock.advance(Duration.ofSeconds(10));
+            replacement.runMaintenance();
+            assertThat(handler.executeCalls).isOne();
+            assertThat(state.tickets.get("wake-restart").state()).isEqualTo(RESULT_PENDING);
+            assertThat(state.wakes.isDelivered("wake-restart")).isTrue();
+
+            replacement.runMaintenance();
+            assertThat(handler.executeCalls).isOne();
+        }
+    }
+
+    @Test
+    void wakeStorageFailureDoesNotBlockThePeriodicTicketRecoveryScan()
+    {
+        SharedState state = sharedState(4);
+        CountingHandler handler = new CountingHandler();
+        state.handlers.put("validation", handler);
+        state.tickets.put(requested("scan-recovery", "validation", VALIDATION, false));
+        state.wakes.failNextClaim();
+
+        try (ExecutionDispatcher dispatcher = dispatcher(
+                state, "dispatcher", new InMemoryExecutionSupport.DirectExecutorService())) {
+            dispatcher.runMaintenance();
+            assertThat(handler.executeCalls).isOne();
+            assertThat(state.tickets.get("scan-recovery").state())
+                    .isEqualTo(RESULT_PENDING);
+        }
+    }
+
+    @Test
     void durableCapacityWaitConsumesNeitherWorkerNorLease()
     {
         try (Fixture fixture = fixture(new InMemoryExecutionSupport.DirectExecutorService(), 1)) {
@@ -1093,6 +1141,7 @@ class TestExecutionDispatcher
                 capacityStore,
                 capacityManager,
                 new InMemoryExecutionSupport.TicketStore(),
+                new InMemoryExecutionSupport.WakeStore(),
                 new LinkedHashMap<>(),
                 new RecordingDelivery(),
                 new RecordingEvidence());
@@ -1116,6 +1165,7 @@ class TestExecutionDispatcher
         return new ExecutionDispatcher(
                 state.capacityManager,
                 state.tickets,
+                state.wakes,
                 operationKind -> {
                     ExecutionPorts.OperationHandler handler = state.handlers.get(operationKind);
                     if (handler == null) {
@@ -1368,6 +1418,7 @@ class TestExecutionDispatcher
             InMemoryExecutionSupport.CapacityStore capacityStore,
             CapacityManager capacityManager,
             InMemoryExecutionSupport.TicketStore tickets,
+            InMemoryExecutionSupport.WakeStore wakes,
             Map<String, ExecutionPorts.OperationHandler> handlers,
             RecordingDelivery delivery,
             RecordingEvidence evidence) {}

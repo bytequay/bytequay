@@ -16,6 +16,7 @@ package com.bytequay.app.developmentflow.execution;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -39,8 +40,34 @@ import static java.util.Objects.requireNonNull;
 public final class ExecutionDispatcher
         implements AutoCloseable
 {
+    private static final ExecutionPorts.DispatchWakeStore NO_WAKES =
+            new ExecutionPorts.DispatchWakeStore()
+            {
+                @Override
+                public void enqueue(String ticketId, Instant createdAt) {}
+
+                @Override
+                public List<ExecutionPorts.DispatchWakeClaim> claimAvailable(
+                        String claimOwner,
+                        Instant claimedAt,
+                        Instant expiresAt,
+                        int limit)
+                {
+                    return List.of();
+                }
+
+                @Override
+                public boolean markDelivered(
+                        ExecutionPorts.DispatchWakeClaim claim,
+                        Instant deliveredAt)
+                {
+                    return false;
+                }
+            };
+
     private final CapacityManager capacityManager;
     private final ExecutionPorts.DispatchTicketStore tickets;
+    private final ExecutionPorts.DispatchWakeStore wakes;
     private final ExecutionPorts.OperationHandlerRegistry handlers;
     private final ExecutionPorts.ResultDeliveryPort resultDelivery;
     private final ExecutionPorts.ExecutionEvidencePort evidence;
@@ -73,6 +100,28 @@ public final class ExecutionDispatcher
         this(
                 capacityManager,
                 tickets,
+                NO_WAKES,
+                handlers,
+                resultDelivery,
+                evidence,
+                clock,
+                config);
+    }
+
+    public ExecutionDispatcher(
+            CapacityManager capacityManager,
+            ExecutionPorts.DispatchTicketStore tickets,
+            ExecutionPorts.DispatchWakeStore wakes,
+            ExecutionPorts.OperationHandlerRegistry handlers,
+            ExecutionPorts.ResultDeliveryPort resultDelivery,
+            ExecutionPorts.ExecutionEvidencePort evidence,
+            Clock clock,
+            Config config)
+    {
+        this(
+                capacityManager,
+                tickets,
+                wakes,
                 handlers,
                 resultDelivery,
                 evidence,
@@ -100,6 +149,33 @@ public final class ExecutionDispatcher
         this(
                 capacityManager,
                 tickets,
+                NO_WAKES,
+                handlers,
+                resultDelivery,
+                evidence,
+                clock,
+                config,
+                operationExecutor,
+                maintenanceExecutor,
+                () -> config.dispatcherId() + ":" + UUID.randomUUID());
+    }
+
+    ExecutionDispatcher(
+            CapacityManager capacityManager,
+            ExecutionPorts.DispatchTicketStore tickets,
+            ExecutionPorts.DispatchWakeStore wakes,
+            ExecutionPorts.OperationHandlerRegistry handlers,
+            ExecutionPorts.ResultDeliveryPort resultDelivery,
+            ExecutionPorts.ExecutionEvidencePort evidence,
+            Clock clock,
+            Config config,
+            ExecutorService operationExecutor,
+            ScheduledExecutorService maintenanceExecutor)
+    {
+        this(
+                capacityManager,
+                tickets,
+                wakes,
                 handlers,
                 resultDelivery,
                 evidence,
@@ -122,8 +198,36 @@ public final class ExecutionDispatcher
             ScheduledExecutorService maintenanceExecutor,
             Supplier<String> claimOwnerSupplier)
     {
+        this(
+                capacityManager,
+                tickets,
+                NO_WAKES,
+                handlers,
+                resultDelivery,
+                evidence,
+                clock,
+                config,
+                operationExecutor,
+                maintenanceExecutor,
+                claimOwnerSupplier);
+    }
+
+    ExecutionDispatcher(
+            CapacityManager capacityManager,
+            ExecutionPorts.DispatchTicketStore tickets,
+            ExecutionPorts.DispatchWakeStore wakes,
+            ExecutionPorts.OperationHandlerRegistry handlers,
+            ExecutionPorts.ResultDeliveryPort resultDelivery,
+            ExecutionPorts.ExecutionEvidencePort evidence,
+            Clock clock,
+            Config config,
+            ExecutorService operationExecutor,
+            ScheduledExecutorService maintenanceExecutor,
+            Supplier<String> claimOwnerSupplier)
+    {
         this.capacityManager = requireNonNull(capacityManager, "capacityManager is null");
         this.tickets = requireNonNull(tickets, "tickets is null");
+        this.wakes = requireNonNull(wakes, "wakes is null");
         this.handlers = requireNonNull(handlers, "handlers is null");
         this.resultDelivery = requireNonNull(resultDelivery, "resultDelivery is null");
         this.evidence = requireNonNull(evidence, "evidence is null");
@@ -171,6 +275,7 @@ public final class ExecutionDispatcher
             capacityManager.expireLeases();
             recoverExpiredClaims();
             recoverExpiredDeliveryClaims();
+            drainDispatchWakes();
             dispatchEligibleTickets();
         }
         finally {
@@ -243,13 +348,67 @@ public final class ExecutionDispatcher
         return found.tickets();
     }
 
+    private void drainDispatchWakes()
+    {
+        Instant claimedAt = clock.instant();
+        List<ExecutionPorts.DispatchWakeClaim> claims;
+        try {
+            claims = requireNonNull(
+                    wakes.claimAvailable(
+                            newClaimOwner(),
+                            claimedAt,
+                            claimedAt.plus(config.claimLeaseDuration()),
+                            config.scanLimit()),
+                    "wake claims are null");
+        }
+        catch (RuntimeException failure) {
+            recordInfrastructureFailure(null, failure);
+            return;
+        }
+        List<WakeCandidate> candidates = new ArrayList<>();
+        for (ExecutionPorts.DispatchWakeClaim claim : claims) {
+            try {
+                Optional<DispatchTicket> ticket = tickets.findById(claim.ticketId())
+                        .filter(candidate -> candidate.isEligibleAt(clock.instant()));
+                if (ticket.isPresent()) {
+                    candidates.add(new WakeCandidate(claim, ticket.orElseThrow()));
+                }
+                else {
+                    wakes.markDelivered(claim, clock.instant());
+                }
+            }
+            catch (RuntimeException failure) {
+                // The exact wake claim expires for restart recovery. The
+                // normal ticket scan below remains the correctness backstop.
+                recordInfrastructureFailure(claim.ticketId(), failure);
+            }
+        }
+        List<WakeCandidate> ordered;
+        try {
+            ordered = capacityManager.fairOrder(
+                    candidates,
+                    candidate -> candidate.ticket().envelope().capacityRequest(),
+                    candidate -> candidate.ticket().createdAt(),
+                    candidate -> candidate.ticket().id());
+        }
+        catch (RuntimeException failure) {
+            recordInfrastructureFailure(null, failure);
+            return;
+        }
+        for (WakeCandidate candidate : ordered) {
+            try {
+                tryDispatch(candidate.ticket());
+                wakes.markDelivered(candidate.claim(), clock.instant());
+            }
+            catch (RuntimeException failure) {
+                recordInfrastructureFailure(candidate.claim().ticketId(), failure);
+            }
+        }
+    }
+
     private void tryDispatch(DispatchTicket candidate)
     {
-        String claimOwner = requireNonNull(
-                claimOwnerSupplier.get(), "generated claim owner is null");
-        if (claimOwner.isBlank()) {
-            throw new IllegalStateException("generated claim owner must not be blank");
-        }
+        String claimOwner = newClaimOwner();
         Instant claimedAt = clock.instant();
         Instant claimExpiry = claimedAt.plus(config.claimLeaseDuration());
         if (candidate.state() == DispatchTicket.State.RESULT_PENDING) {
@@ -276,6 +435,16 @@ public final class ExecutionDispatcher
             return;
         }
         submitClaim(Claim.from(claimed));
+    }
+
+    private String newClaimOwner()
+    {
+        String claimOwner = requireNonNull(
+                claimOwnerSupplier.get(), "generated claim owner is null");
+        if (claimOwner.isBlank()) {
+            throw new IllegalStateException("generated claim owner must not be blank");
+        }
+        return claimOwner;
     }
 
     private void submitClaim(Claim claim)
@@ -975,6 +1144,17 @@ public final class ExecutionDispatcher
             if (executionId != null && executionId.isBlank()) {
                 throw new IllegalArgumentException("executionId must not be blank");
             }
+        }
+    }
+
+    private record WakeCandidate(
+            ExecutionPorts.DispatchWakeClaim claim,
+            DispatchTicket ticket)
+    {
+        private WakeCandidate
+        {
+            requireNonNull(claim, "claim is null");
+            requireNonNull(ticket, "ticket is null");
         }
     }
 

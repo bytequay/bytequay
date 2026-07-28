@@ -80,6 +80,52 @@ public final class ExecutionPorts
                 Instant expiredAt);
     }
 
+    /** Advisory committed wakes for exact DispatchTickets. */
+    public interface DispatchWakeStore
+    {
+        /** Idempotently records the one typed wake for an existing ticket. */
+        void enqueue(String ticketId, Instant createdAt);
+
+        /** Claims pending or exactly expired wakes without claiming a ticket. */
+        List<DispatchWakeClaim> claimAvailable(
+                String claimOwner,
+                Instant claimedAt,
+                Instant expiresAt,
+                int limit);
+
+        /** Delivers only the same durable wake claim. */
+        boolean markDelivered(DispatchWakeClaim claim, Instant deliveredAt);
+    }
+
+    public record DispatchWakeClaim(
+            String wakeId,
+            String ticketId,
+            int attempt,
+            String claimOwner,
+            Instant claimedAt,
+            Instant expiresAt)
+    {
+        public DispatchWakeClaim
+        {
+            requireText(wakeId, "wakeId");
+            requireText(ticketId, "ticketId");
+            requireText(claimOwner, "claimOwner");
+            requireNonNull(claimedAt, "claimedAt is null");
+            requireNonNull(expiresAt, "expiresAt is null");
+            if (attempt < 1 || !expiresAt.isAfter(claimedAt)) {
+                throw new IllegalArgumentException("wake claim evidence is invalid");
+            }
+        }
+
+        private static void requireText(String value, String name)
+        {
+            requireNonNull(value, name + " is null");
+            if (value.isBlank()) {
+                throw new IllegalArgumentException(name + " must not be blank");
+            }
+        }
+    }
+
     public record TicketScanPage(
             List<DispatchTicket> tickets,
             TicketScanCursor nextCursor)

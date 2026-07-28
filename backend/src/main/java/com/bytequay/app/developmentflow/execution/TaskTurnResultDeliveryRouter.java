@@ -15,7 +15,10 @@ package com.bytequay.app.developmentflow.execution;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Set;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.REJECTED;
 import static java.util.Objects.requireNonNull;
@@ -55,19 +58,55 @@ public final class TaskTurnResultDeliveryRouter
         if (owner.kind() != DispatchTicket.OwnerKind.TASK_TURN) {
             return rejected("non-TaskTurn owner");
         }
+        ExecutionPorts.ResultDeliveryPort port = route(owner, expectedFence);
+        if (port == null) {
+            return rejected("unknown TaskTurn purpose");
+        }
+        return port.deliver(owner, expectedFence, rawResult);
+    }
+
+    @Override
+    public void afterDeliveryCommitted(
+            DispatchTicket.OwnerReference owner,
+            DispatchTicket.OperationFence expectedFence,
+            DispatchTicket.DispatchResult rawResult,
+            DispatchTicket.DeliveryReceipt receipt)
+            throws Exception
+    {
+        ExecutionPorts.ResultDeliveryPort port = route(owner, expectedFence);
+        if (port != null) {
+            port.afterDeliveryCommitted(owner, expectedFence, rawResult, receipt);
+        }
+    }
+
+    @Override
+    public void recoverCommittedDeliveries(int limit)
+            throws Exception
+    {
+        Set<ExecutionPorts.ResultDeliveryPort> visited =
+                Collections.newSetFromMap(new IdentityHashMap<>());
+        for (ExecutionPorts.ResultDeliveryPort port : routes.values()) {
+            if (visited.add(port)) {
+                port.recoverCommittedDeliveries(limit);
+            }
+        }
+    }
+
+    private ExecutionPorts.ResultDeliveryPort route(
+            DispatchTicket.OwnerReference owner,
+            DispatchTicket.OperationFence expectedFence)
+    {
+        if (owner == null || expectedFence == null
+                || owner.kind() != DispatchTicket.OwnerKind.TASK_TURN) {
+            return null;
+        }
         String purpose = jdbc.query("""
                 SELECT purpose FROM task_turn
                 WHERE id = ? AND operation_id = ?
                 """, (rs, row) -> rs.getString("purpose"),
                 owner.id(), expectedFence.operationId())
                 .stream().findFirst().orElse(null);
-        ExecutionPorts.ResultDeliveryPort port = purpose == null
-                ? null
-                : routes.get(purpose);
-        if (port == null) {
-            return rejected("unknown TaskTurn purpose");
-        }
-        return port.deliver(owner, expectedFence, rawResult);
+        return purpose == null ? null : routes.get(purpose);
     }
 
     private static DispatchTicket.DeliveryReceipt rejected(String result)

@@ -51,9 +51,35 @@ class TestTaskTurnResultDeliveryRouter
                 VALUES ('turn-1', 'operation-1', 'PLAN_DRAFT')
                 """);
         AtomicInteger deliveries = new AtomicInteger();
-        ExecutionPorts.ResultDeliveryPort plan = (owner, fence, result) -> {
-            deliveries.incrementAndGet();
-            return new DispatchTicket.DeliveryReceipt(ACCEPTED, "plan");
+        AtomicInteger committed = new AtomicInteger();
+        AtomicInteger recovered = new AtomicInteger();
+        ExecutionPorts.ResultDeliveryPort plan = new ExecutionPorts.ResultDeliveryPort()
+        {
+            @Override
+            public DispatchTicket.DeliveryReceipt deliver(
+                    DispatchTicket.OwnerReference owner,
+                    DispatchTicket.OperationFence fence,
+                    DispatchTicket.DispatchResult result)
+            {
+                deliveries.incrementAndGet();
+                return new DispatchTicket.DeliveryReceipt(ACCEPTED, "plan");
+            }
+
+            @Override
+            public void afterDeliveryCommitted(
+                    DispatchTicket.OwnerReference owner,
+                    DispatchTicket.OperationFence fence,
+                    DispatchTicket.DispatchResult result,
+                    DispatchTicket.DeliveryReceipt receipt)
+            {
+                committed.incrementAndGet();
+            }
+
+            @Override
+            public void recoverCommittedDeliveries(int limit)
+            {
+                recovered.incrementAndGet();
+            }
         };
         TaskTurnResultDeliveryRouter router = new TaskTurnResultDeliveryRouter(
                 jdbc, Map.of("PLAN_DRAFT", plan));
@@ -69,6 +95,15 @@ class TestTaskTurnResultDeliveryRouter
                 fence, result).acceptance())
                 .isEqualTo(ACCEPTED);
         assertThat(deliveries).hasValue(1);
+
+        DispatchTicket.OwnerReference owner = new DispatchTicket.OwnerReference(
+                TASK_TURN, "turn-1", "TASK_TURN_RESULT");
+        DispatchTicket.DeliveryReceipt receipt =
+                new DispatchTicket.DeliveryReceipt(ACCEPTED, "plan");
+        router.afterDeliveryCommitted(owner, fence, result, receipt);
+        router.recoverCommittedDeliveries(10);
+        assertThat(committed).hasValue(1);
+        assertThat(recovered).hasValue(1);
 
         assertThat(router.deliver(
                 new DispatchTicket.OwnerReference(

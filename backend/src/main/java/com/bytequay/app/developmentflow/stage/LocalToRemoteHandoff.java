@@ -48,7 +48,8 @@ public final class LocalToRemoteHandoff
         return commands.execute(command.published().taskId(), () -> acceptInCommand(command));
     }
 
-    private Result acceptInCommand(Command command)
+    /** Used by result delivery while it already owns the Task command stripe. */
+    Result acceptInCommand(Command command)
     {
         LocalDevelopmentStageManager.PublicationResult publication =
                 local.acceptPublishedForHandoffInCommand(command.published());

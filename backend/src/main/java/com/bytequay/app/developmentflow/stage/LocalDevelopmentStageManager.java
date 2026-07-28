@@ -363,6 +363,16 @@ public final class LocalDevelopmentStageManager
                 result, Optional.of(new AcceptedCompletion(command, result)));
     }
 
+    /** Accepts a definite publish failure and returns the Local Stage to review. */
+    PublishFailureResult acceptPublishFailureInCommand(ResultCommand command)
+    {
+        ResultResolution resolution = acceptResultForHandoffInCommand(
+                command, "ACCEPT_PUBLISH_FAILURE",
+                StageCheckpoint.PUBLISHING, StageCheckpoint.LOCAL_REVIEW);
+        return new PublishFailureResult(
+                resolution.result(), resolution.wasAccepted());
+    }
+
     @Override
     protected boolean accepts(TaskLifecycle lifecycle)
     {
@@ -593,6 +603,14 @@ public final class LocalDevelopmentStageManager
                     && accepted.isPresent())) {
                 throw new IllegalArgumentException("Publication proof is inconsistent");
             }
+        }
+    }
+
+    record PublishFailureResult(CommandResult<State> stage, boolean accepted)
+    {
+        PublishFailureResult
+        {
+            requireNonNull(stage, "stage is null");
         }
     }
 

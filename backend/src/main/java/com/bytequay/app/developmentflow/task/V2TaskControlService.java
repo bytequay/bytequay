@@ -13,14 +13,21 @@
  */
 package com.bytequay.app.developmentflow.task;
 
+import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.CONCURRENT_UPDATE;
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.INVALID_STATE;
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.NOT_FOUND;
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.STALE_EPOCH;
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.STALE_VERSION;
 import static java.util.Objects.requireNonNull;
 import static org.springframework.http.HttpStatus.CONFLICT;
 
@@ -32,6 +39,7 @@ import static org.springframework.http.HttpStatus.CONFLICT;
 public final class V2TaskControlService
 {
     private static final String ACTOR = "user";
+    private static final String IDLE_ARCHIVER = "task-idle-archiver";
 
     private final TaskManager tasks;
     private final TaskManager.Store store;
@@ -88,6 +96,37 @@ public final class V2TaskControlService
             return current;
         }
         return tasks.requestResume(command(current)).state();
+    }
+
+    public List<String> idleArchiveCandidates(
+            Instant cutoff, Instant observedAt, int limit)
+    {
+        return store.findIdleArchiveCandidates(cutoff, observedAt, limit);
+    }
+
+    /** Rechecks typed liveness inside the Task command before recording ARCHIVING. */
+    public boolean archiveIfIdle(
+            String taskId, Instant cutoff, Instant observedAt)
+    {
+        requireNonNull(taskId, "taskId is null");
+        TaskManager.State current = store.findById(taskId).orElse(null);
+        if (current == null) {
+            return false;
+        }
+        try {
+            return tasks.requestArchiveIfIdle(
+                    command(current, IDLE_ARCHIVER), cutoff, observedAt).isPresent();
+        }
+        catch (CommandRejectedException raced) {
+            if (raced.reason() == STALE_VERSION
+                    || raced.reason() == STALE_EPOCH
+                    || raced.reason() == INVALID_STATE
+                    || raced.reason() == NOT_FOUND
+                    || raced.reason() == CONCURRENT_UPDATE) {
+                return false;
+            }
+            throw raced;
+        }
     }
 
     /** One explicit user action extends each independent CI repair budget once. */
@@ -209,8 +248,14 @@ public final class V2TaskControlService
 
     private static TaskManager.Command command(TaskManager.State state)
     {
+        return command(state, ACTOR);
+    }
+
+    private static TaskManager.Command command(
+            TaskManager.State state, String actor)
+    {
         return new TaskManager.Command(
-                UUID.randomUUID().toString(), ACTOR, state.id(),
+                UUID.randomUUID().toString(), actor, state.id(),
                 state.epoch(), state.version());
     }
 }

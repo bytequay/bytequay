@@ -79,6 +79,21 @@ public final class ProvisionTaskOperationHandler
             throws Exception
     {
         requireNonNull(context, "context is null");
+        try {
+            return provisionExact(context);
+        }
+        catch (RuntimeException failure) {
+            if (context.isCancellationRequested()) {
+                throw new ExecutionPorts.OperationCanceledException(
+                        "provisioning was canceled during Git inspection");
+            }
+            throw failure;
+        }
+    }
+
+    private DispatchTicket.DispatchResult provisionExact(ExecutionContext context)
+            throws Exception
+    {
         DispatchTicket.DispatchEnvelope envelope = context.envelope();
         ProvisionRequest request = operations.requireByOperationId(
                 envelope.fence().operationId());

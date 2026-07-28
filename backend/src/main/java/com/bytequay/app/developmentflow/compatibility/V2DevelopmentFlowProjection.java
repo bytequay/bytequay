@@ -23,7 +23,6 @@ import com.bytequay.app.beans.stage.StageDto;
 import com.bytequay.app.beans.stage.StageEventDto;
 import com.bytequay.app.beans.stage.TaskBrainViewData;
 import com.bytequay.app.beans.trace.LinkedActivePr;
-import com.bytequay.app.domain.BranchGuard;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
@@ -53,10 +52,12 @@ public final class V2DevelopmentFlowProjection
             Set.of("COMPLETED", "CANCELED", "REMOTE_CLOSED");
 
     private final JdbcTemplate jdbc;
+    private final V2BranchGuardProjection branchGuards;
 
     public V2DevelopmentFlowProjection(JdbcTemplate jdbc)
     {
         this.jdbc = requireNonNull(jdbc, "jdbc is null");
+        this.branchGuards = new V2BranchGuardProjection(jdbc);
     }
 
     public boolean isV2Task(String taskId)
@@ -158,7 +159,7 @@ public final class V2DevelopmentFlowProjection
                         null),
                 new TaskBrainViewData.Scrubbers(List.copyOf(scrubber), List.of()),
                 List.of(),
-                BranchGuard.disabled(task.id()),
+                branchGuards.project(task.id()),
                 null,
                 devPhases(row));
     }

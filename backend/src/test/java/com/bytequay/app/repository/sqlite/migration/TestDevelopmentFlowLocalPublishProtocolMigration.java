@@ -13,9 +13,18 @@
  */
 package com.bytequay.app.repository.sqlite.migration;
 
+import com.bytequay.app.developmentflow.CommandRejectedException;
+import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
+import com.bytequay.app.developmentflow.stage.StageCheckpoint;
+import com.bytequay.app.developmentflow.stage.StageManager;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -29,6 +38,117 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
 {
     @TempDir
     private Path tempDir;
+
+    @Test
+    void canonicalFeedbackBatchDrivesRealStageManagerAndIsolatesNewerRevision()
+            throws Exception
+    {
+        String url = migrated("typed-feedback.db");
+        try (Connection connection = connect(url)) {
+            seedApprovedLocalSubject(connection);
+            execute(connection, """
+                    INSERT INTO local_review_submission(
+                        id, task_id, pr_id, submission_seq, root_ids_json,
+                        root_snapshot_json, submitted_through_ms, created_at_ms)
+                    VALUES ('submission-1', 'task-1', 'pr-1', 1,
+                        '["thread-1"]', '{"thread-1":"first comment"}', 20, 20)
+                    """);
+            execute(connection, """
+                    INSERT INTO local_review_submission(
+                        id, task_id, pr_id, submission_seq, root_ids_json,
+                        root_snapshot_json, submitted_through_ms, created_at_ms)
+                    VALUES ('submission-2', 'task-1', 'pr-1', 2,
+                        '["thread-1"]', '{"thread-1":"second comment"}', 22, 22)
+                    """);
+            execute(connection, """
+                    INSERT INTO local_review_thread(
+                        id, pr_id, task_id, local_development_stage_id,
+                        task_epoch, stage_generation, scope, source,
+                        created_by, created_at_ms)
+                    VALUES ('thread-1', 'pr-1', 'task-1', 'local-stage-1',
+                        1, 1, 'PR', 'USER', 'user', 20)
+                    """);
+            execute(connection, commentRevisionSql(
+                    "revision-1", 1, null, "first comment", "digest-1", "SUBMITTED", 20));
+            execute(connection, feedbackBatchSql("batch-1", "submission-1", 1, 21));
+            execute(connection, feedbackItemSql(
+                    "batch-1", "revision-1", "digest-1", "first comment", 21));
+            execute(connection, commentRevisionSql(
+                    "revision-2", 2, "revision-1", "second comment",
+                    "digest-2", "SUBMITTED", 22));
+            execute(connection, feedbackBatchSql("batch-2", "submission-2", 2, 23));
+            execute(connection, feedbackItemSql(
+                    "batch-2", "revision-2", "digest-2", "second comment", 23));
+        }
+
+        migrate(url, "230");
+        migrate(url, "230");
+        try (Connection connection = connect(url)) {
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM local_feedback_batch
+                    WHERE content_digest IS NULL
+                    """)).isEqualTo(2);
+            freezeBatch(connection, "batch-1", 24);
+            String firstDigest = text(connection, """
+                    SELECT content_digest FROM local_feedback_batch WHERE id = 'batch-1'
+                    """);
+            freezeBatch(connection, "batch-2", 25);
+            String secondDigest = text(connection, """
+                    SELECT content_digest FROM local_feedback_batch WHERE id = 'batch-2'
+                    """);
+            assertThat(firstDigest).isNotEqualTo(secondDigest);
+            assertThat(text(connection, """
+                    SELECT content_digest FROM local_feedback_batch WHERE id = 'batch-1'
+                    """)).isEqualTo(firstDigest);
+            assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
+                    .isZero();
+        }
+
+        SQLiteDataSource dataSource = new SQLiteDataSource();
+        dataSource.setUrl(url);
+        try (StageStores stores = stageStores(dataSource)) {
+            TaskCommandExecutor commands = new TaskCommandExecutor(
+                    new DataSourceTransactionManager(dataSource));
+            LocalDevelopmentStageManager manager = new LocalDevelopmentStageManager(
+                    commands, stores.stage(), stores.evidence());
+            JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+            String firstDigest = jdbc.queryForObject("""
+                    SELECT content_digest FROM local_feedback_batch WHERE id = 'batch-1'
+                    """, String.class);
+            String secondDigest = jdbc.queryForObject("""
+                    SELECT content_digest FROM local_feedback_batch WHERE id = 'batch-2'
+                    """, String.class);
+            StageManager.Command stage = new StageManager.Command(
+                    "submit-feedback", "user", "task-1", 1,
+                    "local-stage-1", 1, 0);
+            assertThatThrownBy(() -> manager.submitLocalFeedback(
+                    new LocalDevelopmentStageManager.FeedbackCommand(
+                            stage, "batch-1", "submission-1", secondDigest)))
+                    .isInstanceOf(CommandRejectedException.class);
+            assertThatThrownBy(() -> manager.submitLocalFeedback(
+                    new LocalDevelopmentStageManager.FeedbackCommand(
+                            new StageManager.Command(
+                                    "stale-generation", "user", "task-1", 1,
+                                    "local-stage-1", 2, 0),
+                            "batch-1", "submission-1", firstDigest)))
+                    .isInstanceOf(CommandRejectedException.class);
+
+            var applied = manager.submitLocalFeedback(
+                    new LocalDevelopmentStageManager.FeedbackCommand(
+                            stage, "batch-1", "submission-1", firstDigest));
+            assertThat(applied.state().checkpoint())
+                    .isEqualTo(StageCheckpoint.ADDRESSING_LOCAL_FEEDBACK);
+            assertThat(manager.submitLocalFeedback(
+                    new LocalDevelopmentStageManager.FeedbackCommand(
+                            stage, "batch-1", "submission-1", firstDigest))
+                    .disposition().name()).isEqualTo("DUPLICATE");
+            assertThat(stores.evidence().findLocalFeedback(
+                    "task-1", "local-stage-1", 1, "batch-2")).isEmpty();
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM stage_command_receipt WHERE command_id = ?",
+                    Integer.class, "submit-feedback")).isOne();
+        }
+    }
 
     @Test
     void upgradesPopulatedV227AndKeepsLegacyStoresWritableAcrossRestart()
@@ -1357,6 +1477,62 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
                 """.formatted(id, revision, previous, body, digest, state, at, at);
     }
 
+    private static String feedbackBatchSql(
+            String batchId, String submissionId, int sequence, long at)
+    {
+        return """
+                INSERT INTO local_feedback_batch(
+                    id, local_development_stage_id, task_id, task_epoch,
+                    stage_generation, pr_id, dev_report_id, source_submission_id,
+                    sequence, code_fingerprint, head_sha, base_sha,
+                    status, created_at_ms)
+                VALUES ('%s', 'local-stage-1', 'task-1', 1, 1,
+                    'pr-1', 'report-1', '%s', %s, 'fp-1', 'head-1', 'base-1',
+                    'BUILDING', %s)
+                """.formatted(batchId, submissionId, sequence, at);
+    }
+
+    private static String feedbackItemSql(
+            String batchId, String revisionId, String bodyDigest,
+            String body, long at)
+    {
+        return """
+                INSERT INTO local_feedback_batch_item(
+                    batch_id, position, thread_id, comment_revision_id,
+                    body_digest, frozen_body, frozen_thread_content,
+                    selected_by, selected_at_ms)
+                VALUES ('%s', 1, 'thread-1', '%s', '%s', '%s',
+                    'thread snapshot for %s', 'user', %s)
+                """.formatted(batchId, revisionId, bodyDigest, body, revisionId, at);
+    }
+
+    private static void freezeBatch(Connection connection, String batchId, long at)
+            throws SQLException
+    {
+        execute(connection, """
+                UPDATE local_feedback_batch
+                SET status = 'FROZEN', frozen_at_ms = %s,
+                    content_digest = (
+                        SELECT content_digest
+                        FROM local_feedback_batch_digest_v230
+                        WHERE batch_id = '%s')
+                WHERE id = '%s'
+                """.formatted(at, batchId, batchId));
+    }
+
+    private static StageStores stageStores(SQLiteDataSource dataSource)
+    {
+        AnnotationConfigApplicationContext context =
+                new AnnotationConfigApplicationContext();
+        context.registerBean(JdbcTemplate.class, () -> new JdbcTemplate(dataSource));
+        context.scan("com.bytequay.app.developmentflow.stage.persistence");
+        context.refresh();
+        return new StageStores(
+                context,
+                context.getBean(StageManager.Store.class),
+                context.getBean(LocalDevelopmentStageManager.EvidenceStore.class));
+    }
+
     private static String manifestSql(String id, int revision, int clean)
     {
         return """
@@ -1666,5 +1842,18 @@ class TestDevelopmentFlowLocalPublishProtocolMigration
     {
         assertThatThrownBy(() -> execute(connection, sql))
                 .isInstanceOf(SQLException.class);
+    }
+
+    private record StageStores(
+            AnnotationConfigApplicationContext context,
+            StageManager.Store stage,
+            LocalDevelopmentStageManager.EvidenceStore evidence)
+            implements AutoCloseable
+    {
+        @Override
+        public void close()
+        {
+            context.close();
+        }
     }
 }

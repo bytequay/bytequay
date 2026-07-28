@@ -316,8 +316,40 @@ final class V2StageStore
     public Optional<LocalDevelopmentStageManager.FeedbackEvidence> findLocalFeedback(
             String taskId, String stageId, long stageGeneration, String batchId)
     {
-        // V228 has no immutable batch-level content digest required by the command.
-        return Optional.empty();
+        return jdbc.query("""
+                SELECT batch.task_id, batch.local_development_stage_id,
+                       batch.stage_generation, batch.id,
+                       batch.source_submission_id, batch.content_digest
+                FROM local_feedback_batch batch
+                JOIN local_feedback_batch_digest_v230 digest
+                  ON digest.batch_id = batch.id
+                JOIN tasks task ON task.id = batch.task_id
+                JOIN task_current_stage current ON current.task_id = task.id
+                JOIN stage owner ON owner.id = current.stage_id
+                WHERE batch.task_id = ?
+                  AND batch.local_development_stage_id = ?
+                  AND batch.stage_generation = ?
+                  AND batch.id = ?
+                  AND batch.source_submission_id IS NOT NULL
+                  AND batch.content_digest = digest.content_digest
+                  AND batch.status IN ('FROZEN', 'QUEUED', 'DISPATCHED')
+                  AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                  AND task.epoch = batch.task_epoch
+                  AND current.stage_id = batch.local_development_stage_id
+                  AND current.stage_generation = batch.stage_generation
+                  AND owner.generation = batch.stage_generation
+                  AND owner.checkpoint = 'LOCAL_REVIEW'
+                  AND owner.completed_at_ms IS NULL
+                """,
+                (rs, row) -> new LocalDevelopmentStageManager.FeedbackEvidence(
+                        rs.getString("task_id"),
+                        rs.getString("local_development_stage_id"),
+                        rs.getLong("stage_generation"),
+                        rs.getString("id"),
+                        rs.getString("source_submission_id"),
+                        rs.getString("content_digest")),
+                taskId, stageId, stageGeneration, batchId).stream().findFirst();
     }
 
     @Override

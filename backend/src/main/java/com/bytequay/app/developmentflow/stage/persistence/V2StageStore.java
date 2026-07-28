@@ -72,6 +72,10 @@ final class V2StageStore
             "INSERT INTO stage_command_receipt(",
             "INSERT INTO local_stage_command_receipt(");
 
+    private static final String REMOTE_RECEIPT_INSERT = RECEIPT_INSERT.replace(
+            "INSERT INTO stage_command_receipt(",
+            "INSERT INTO remote_stage_runtime_receipt(");
+
     private final JdbcTemplate jdbc;
 
     V2StageStore(JdbcTemplate jdbc)
@@ -153,6 +157,15 @@ final class V2StageStore
                     taskId, stageId, commandId);
             if (local.isPresent()) {
                 return local;
+            }
+        }
+        if (tableAvailable("remote_stage_runtime_receipt")) {
+            Optional<StageManager.CommandReceipt> remote = queryReceipt(
+                    "SELECT * FROM remote_stage_runtime_receipt"
+                            + " WHERE task_id = ? AND stage_id = ? AND command_id = ?",
+                    taskId, stageId, commandId);
+            if (remote.isPresent()) {
+                return remote;
             }
         }
         return queryInitialRequest(
@@ -819,8 +832,12 @@ final class V2StageStore
             long now)
     {
         jdbc.update(connection -> {
-            PreparedStatement statement = connection.prepareStatement(
-                    isLocalCause(cause) ? LOCAL_RECEIPT_INSERT : RECEIPT_INSERT);
+            String insert = isLocalCause(cause)
+                    ? LOCAL_RECEIPT_INSERT
+                    : isRemoteRuntimeCause(cause)
+                            ? REMOTE_RECEIPT_INSERT
+                            : RECEIPT_INSERT;
+            PreparedStatement statement = connection.prepareStatement(insert);
             int index = 1;
             statement.setString(index++, id());
             statement.setString(index++, state.id());
@@ -861,22 +878,40 @@ final class V2StageStore
                         + " WHERE stage_id = ? AND disposition = 'APPLIED'"
                         + " AND returned_version = ?",
                 stageId, version);
-        if (shared.isPresent() || !localReceiptsAvailable()) {
+        if (shared.isPresent()) {
             return shared;
         }
-        return queryReceipt(
-                "SELECT * FROM local_stage_command_receipt"
-                        + " WHERE stage_id = ? AND disposition = 'APPLIED'"
-                        + " AND returned_version = ?",
-                stageId, version);
+        if (localReceiptsAvailable()) {
+            Optional<StageManager.CommandReceipt> local = queryReceipt(
+                    "SELECT * FROM local_stage_command_receipt"
+                            + " WHERE stage_id = ? AND disposition = 'APPLIED'"
+                            + " AND returned_version = ?",
+                    stageId, version);
+            if (local.isPresent()) {
+                return local;
+            }
+        }
+        if (tableAvailable("remote_stage_runtime_receipt")) {
+            return queryReceipt(
+                    "SELECT * FROM remote_stage_runtime_receipt"
+                            + " WHERE stage_id = ? AND disposition = 'APPLIED'"
+                            + " AND returned_version = ?",
+                    stageId, version);
+        }
+        return Optional.empty();
     }
 
     private boolean localReceiptsAvailable()
     {
+        return tableAvailable("local_stage_command_receipt");
+    }
+
+    private boolean tableAvailable(String table)
+    {
         Integer count = jdbc.queryForObject("""
                 SELECT COUNT(*) FROM sqlite_master
-                WHERE type = 'table' AND name = 'local_stage_command_receipt'
-                """, Integer.class);
+                WHERE type = 'table' AND name = ?
+                """, Integer.class, table);
         return count != null && count == 1;
     }
 
@@ -889,6 +924,14 @@ final class V2StageStore
                     "ACCEPT_LOCAL_CODE_RESULT" -> true;
             default -> false;
         };
+    }
+
+    private static boolean isRemoteRuntimeCause(String cause)
+    {
+        return cause.equals("COMPLETE_REMOTE_FEEDBACK_PUSH")
+                || cause.equals("COMPLETE_REMOTE_FEEDBACK_NO_PUSH")
+                || cause.equals("COMPLETE_REMOTE_MARK_READY")
+                || cause.equals("ACCEPT_REMOTE_READINESS");
     }
 
     private Optional<StageManager.CommandReceipt> queryInitialRequest(

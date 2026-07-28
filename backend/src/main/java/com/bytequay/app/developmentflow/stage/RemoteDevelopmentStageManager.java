@@ -20,6 +20,7 @@ import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
+import java.util.Objects;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -117,6 +118,37 @@ public final class RemoteDevelopmentStageManager
                 StageCheckpoint.WAITING_CI);
     }
 
+    /** Completes one fully applied feedback batch from its immutable effect proof. */
+    public CommandResult<State> completeRemoteFeedback(
+            FeedbackCompletionCommand command)
+    {
+        requireNonNull(command, "command is null");
+        return execute(command.stage(), () -> completeRemoteFeedbackInCommand(command));
+    }
+
+    public CommandResult<State> completeRemoteFeedbackInCommand(
+            FeedbackCompletionCommand command)
+    {
+        requireNonNull(command, "command is null");
+        FeedbackCompletionEvidence persisted = evidence.findCompletedRemoteFeedback(
+                        command.stage().taskId(), command.stage().stageId(),
+                        command.stage().expectedStageGeneration(), command.batchId())
+                .orElseThrow(() -> rejected(
+                        "Exact completed Remote feedback batch is missing"));
+        if (!persisted.matches(command)) {
+            throw rejected("Remote feedback completion does not match current exact head");
+        }
+        String cause = command.pushed()
+                ? "COMPLETE_REMOTE_FEEDBACK_PUSH"
+                : "COMPLETE_REMOTE_FEEDBACK_NO_PUSH";
+        StageCheckpoint target = command.pushed()
+                ? StageCheckpoint.WAITING_CI
+                : StageCheckpoint.WAITING_REMOTE_REVIEW;
+        return moveWithProofInCommand(
+                command.stage(), command.batchId(), cause,
+                StageCheckpoint.ADDRESSING_REMOTE_FEEDBACK, target);
+    }
+
     public CommandResult<State> acceptReadiness(ResultCommand command)
     {
         return execute(command, () -> acceptReadinessInCommand(command));
@@ -127,6 +159,54 @@ public final class RemoteDevelopmentStageManager
         return acceptResultInCommand(
                 command,
                 "ACCEPT_READINESS",
+                StageCheckpoint.WAITING_REMOTE_REVIEW,
+                StageCheckpoint.READY_TO_MERGE);
+    }
+
+    /** Accepts an observed non-Draft snapshot after a durable mark-ready effect. */
+    public CommandResult<State> completeMarkReady(RemoteGateCommand command)
+    {
+        requireNonNull(command, "command is null");
+        return execute(command.stage(), () -> completeMarkReadyInCommand(command));
+    }
+
+    public CommandResult<State> completeMarkReadyInCommand(RemoteGateCommand command)
+    {
+        requireNonNull(command, "command is null");
+        RemoteGateEvidence persisted = evidence.findCompletedMarkReady(
+                        command.stage().taskId(), command.stage().stageId(),
+                        command.stage().expectedStageGeneration(), command.proofId())
+                .orElseThrow(() -> rejected(
+                        "Exact completed mark-ready operation is missing"));
+        if (!persisted.matches(command)) {
+            throw rejected("Mark-ready proof does not match the current exact head");
+        }
+        return moveWithProofInCommand(
+                command.stage(), command.proofId(), "COMPLETE_REMOTE_MARK_READY",
+                StageCheckpoint.AWAITING_READY,
+                StageCheckpoint.WAITING_REMOTE_REVIEW);
+    }
+
+    /** Promotes only fresh, ready exact-head evidence owned by this Stage. */
+    public CommandResult<State> acceptReadinessEvidence(RemoteGateCommand command)
+    {
+        requireNonNull(command, "command is null");
+        return execute(command.stage(), () -> acceptReadinessEvidenceInCommand(command));
+    }
+
+    public CommandResult<State> acceptReadinessEvidenceInCommand(
+            RemoteGateCommand command)
+    {
+        requireNonNull(command, "command is null");
+        RemoteGateEvidence persisted = evidence.findReadyEvidence(
+                        command.stage().taskId(), command.stage().stageId(),
+                        command.stage().expectedStageGeneration(), command.proofId())
+                .orElseThrow(() -> rejected("Fresh exact-head readiness proof is missing"));
+        if (!persisted.matches(command)) {
+            throw rejected("Readiness proof does not match the current exact head");
+        }
+        return moveWithProofInCommand(
+                command.stage(), command.proofId(), "ACCEPT_REMOTE_READINESS",
                 StageCheckpoint.WAITING_REMOTE_REVIEW,
                 StageCheckpoint.READY_TO_MERGE);
     }
@@ -242,6 +322,107 @@ public final class RemoteDevelopmentStageManager
                     && batchId.equals(command.batchId())
                     && observationId.equals(command.observationId())
                     && contentDigest.equals(command.contentDigest());
+        }
+    }
+
+    public record FeedbackCompletionCommand(
+            Command stage,
+            String batchId,
+            boolean pushed,
+            String resultHeadSha,
+            String resultSnapshotId)
+    {
+        public FeedbackCompletionCommand
+        {
+            requireNonNull(stage, "stage is null");
+            requireText(batchId, "batchId");
+            if (pushed) {
+                requireText(resultHeadSha, "resultHeadSha");
+                requireText(resultSnapshotId, "resultSnapshotId");
+            }
+            else if (resultHeadSha != null || resultSnapshotId != null) {
+                throw new IllegalArgumentException(
+                        "Reply-only completion cannot invent a new head");
+            }
+        }
+    }
+
+    public record FeedbackCompletionEvidence(
+            String taskId,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            String batchId,
+            boolean pushed,
+            String resultHeadSha,
+            String resultSnapshotId)
+    {
+        public FeedbackCompletionEvidence
+        {
+            requireText(taskId, "taskId");
+            requireText(stageId, "stageId");
+            requireText(batchId, "batchId");
+            if (taskEpoch < 1 || stageGeneration < 1) {
+                throw new IllegalArgumentException(
+                        "Remote feedback completion fence is invalid");
+            }
+        }
+
+        private boolean matches(FeedbackCompletionCommand command)
+        {
+            return taskId.equals(command.stage().taskId())
+                    && taskEpoch == command.stage().expectedTaskEpoch()
+                    && stageId.equals(command.stage().stageId())
+                    && stageGeneration == command.stage().expectedStageGeneration()
+                    && batchId.equals(command.batchId())
+                    && pushed == command.pushed()
+                    && Objects.equals(resultHeadSha, command.resultHeadSha())
+                    && Objects.equals(resultSnapshotId, command.resultSnapshotId());
+        }
+    }
+
+    public record RemoteGateCommand(
+            Command stage, String proofId, String headSha, String baseSha)
+    {
+        public RemoteGateCommand
+        {
+            requireNonNull(stage, "stage is null");
+            requireText(proofId, "proofId");
+            requireText(headSha, "headSha");
+            requireText(baseSha, "baseSha");
+        }
+    }
+
+    public record RemoteGateEvidence(
+            String taskId,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            String proofId,
+            String headSha,
+            String baseSha)
+    {
+        public RemoteGateEvidence
+        {
+            requireText(taskId, "taskId");
+            requireText(stageId, "stageId");
+            requireText(proofId, "proofId");
+            requireText(headSha, "headSha");
+            requireText(baseSha, "baseSha");
+            if (taskEpoch < 1 || stageGeneration < 1) {
+                throw new IllegalArgumentException("Remote gate fence is invalid");
+            }
+        }
+
+        private boolean matches(RemoteGateCommand command)
+        {
+            return taskId.equals(command.stage().taskId())
+                    && taskEpoch == command.stage().expectedTaskEpoch()
+                    && stageId.equals(command.stage().stageId())
+                    && stageGeneration == command.stage().expectedStageGeneration()
+                    && proofId.equals(command.proofId())
+                    && headSha.equals(command.headSha())
+                    && baseSha.equals(command.baseSha());
         }
     }
 
@@ -463,6 +644,24 @@ public final class RemoteDevelopmentStageManager
         Optional<FeedbackEvidence> findRemoteFeedback(
                 String taskId, String stageId, long stageGeneration, String batchId);
 
+        default Optional<FeedbackCompletionEvidence> findCompletedRemoteFeedback(
+                String taskId, String stageId, long stageGeneration, String batchId)
+        {
+            return Optional.empty();
+        }
+
+        default Optional<RemoteGateEvidence> findCompletedMarkReady(
+                String taskId, String stageId, long stageGeneration, String operationId)
+        {
+            return Optional.empty();
+        }
+
+        default Optional<RemoteGateEvidence> findReadyEvidence(
+                String taskId, String stageId, long stageGeneration, String evidenceId)
+        {
+            return Optional.empty();
+        }
+
         Optional<MergeAuthorizationEvidence> findMergeAuthorization(
                 String taskId, String stageId, long stageGeneration, String authorizationId);
 
@@ -479,6 +678,14 @@ public final class RemoteDevelopmentStageManager
                 @Override
                 public Optional<FeedbackEvidence> findRemoteFeedback(
                         String taskId, String stageId, long stageGeneration, String batchId)
+                {
+                    return Optional.empty();
+                }
+
+                @Override
+                public Optional<FeedbackCompletionEvidence> findCompletedRemoteFeedback(
+                        String taskId, String stageId, long stageGeneration,
+                        String batchId)
                 {
                     return Optional.empty();
                 }

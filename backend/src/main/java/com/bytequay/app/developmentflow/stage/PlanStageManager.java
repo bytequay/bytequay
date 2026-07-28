@@ -15,6 +15,7 @@ package com.bytequay.app.developmentflow.stage;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
 import com.bytequay.app.developmentflow.CommandResult;
+import com.bytequay.app.developmentflow.ResultFence;
 import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
@@ -80,6 +81,42 @@ public final class PlanStageManager
         return acceptResultInCommand(
                 command, "ACCEPT_DRAFTED",
                 StageCheckpoint.DRAFTING, StageCheckpoint.SELF_REVIEW);
+    }
+
+    public CommandResult<State> requestDraftInCommand(
+            Command command, String taskTurnId, ResultFence result)
+    {
+        return requestInitialResultInCommand(
+                command,
+                new InitialResultOwner(InitialResultOwnerKind.TASK_TURN, taskTurnId),
+                result, "REQUEST_PLAN_DRAFT", StageCheckpoint.DRAFTING);
+    }
+
+    public CommandResult<State> acceptDraftedAndRequestSelfReviewInCommand(
+            ResultCommand drafted,
+            ResultFence selfReview)
+    {
+        return acceptResultAndRequestNextInCommand(
+                drafted, selfReview, "ACCEPT_DRAFTED",
+                StageCheckpoint.DRAFTING, StageCheckpoint.SELF_REVIEW);
+    }
+
+    public CommandResult<State> acceptSelfReviewFindingsAndRequestDraftInCommand(
+            ResultCommand reviewed,
+            ResultFence nextDraft)
+    {
+        return acceptResultAndRequestNextInCommand(
+                reviewed, nextDraft, "ACCEPT_PLAN_BRAIN_FINDINGS",
+                StageCheckpoint.SELF_REVIEW, StageCheckpoint.DRAFTING);
+    }
+
+    public CommandResult<State> acceptSelfReviewApprovalInCommand(
+            ResultCommand reviewed)
+    {
+        return acceptResultInCommand(
+                reviewed, "ACCEPT_PLAN_BRAIN_APPROVAL",
+                StageCheckpoint.SELF_REVIEW,
+                StageCheckpoint.AWAITING_APPROVAL);
     }
 
     public CommandResult<State> acceptBrainFindingsInCommand(

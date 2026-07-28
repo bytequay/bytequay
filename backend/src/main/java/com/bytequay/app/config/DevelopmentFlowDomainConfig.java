@@ -19,6 +19,7 @@ import com.bytequay.app.developmentflow.stage.CleanupQuiescenceHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupStageManager;
 import com.bytequay.app.developmentflow.stage.LocalDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.LocalToRemoteHandoff;
+import com.bytequay.app.developmentflow.stage.PlanRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.PlanStageManager;
 import com.bytequay.app.developmentflow.stage.PlanToLocalHandoff;
 import com.bytequay.app.developmentflow.stage.ProvisionToPlanHandoff;
@@ -26,6 +27,7 @@ import com.bytequay.app.developmentflow.stage.RemoteDevelopmentStageManager;
 import com.bytequay.app.developmentflow.stage.RemoteTerminalToCleanupHandoff;
 import com.bytequay.app.developmentflow.stage.ReplanHandoff;
 import com.bytequay.app.developmentflow.stage.StageManager;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore;
 import com.bytequay.app.developmentflow.task.BrainVerdictHandoff;
 import com.bytequay.app.developmentflow.task.TaskControlHandoff;
 import com.bytequay.app.developmentflow.task.TaskManager;
@@ -33,9 +35,13 @@ import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.time.Clock;
 
 /**
  * Production command-side graph for the V2 domain owners and their atomic
@@ -78,6 +84,20 @@ public class DevelopmentFlowDomainConfig
             PlanStageManager.RevisionStore revisions)
     {
         return new PlanStageManager(commands, store, approvals, revisions);
+    }
+
+    @Bean
+    public PlanRuntimeCoordinator planRuntimeCoordinator(
+            TaskCommandExecutor commands,
+            TaskManager tasks,
+            PlanStageManager plan,
+            SqlitePlanRuntimeStore store,
+            ObjectMapper json,
+            @Value("${server.port:53123}") int serverPort)
+    {
+        return new PlanRuntimeCoordinator(
+                commands, tasks, plan, store, json,
+                Clock.systemUTC(), serverPort);
     }
 
     @Bean

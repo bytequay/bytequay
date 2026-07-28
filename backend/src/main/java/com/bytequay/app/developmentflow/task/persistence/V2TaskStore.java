@@ -614,6 +614,60 @@ final class V2TaskStore
     }
 
     @Override
+    public TaskManager.ProvisioningResult acceptProvisioningResult(
+            TaskManager.ProvisionedCode code)
+    {
+        requireTransaction();
+        long now = System.currentTimeMillis();
+        int accepted = jdbc.update("""
+                UPDATE provision_task_operation
+                SET status = 'ACCEPTED', result_base_sha = ?, result_head_sha = ?,
+                    result_code_fingerprint = ?, result_evidence = ?,
+                    completed_at_ms = ?, error_message = NULL
+                WHERE task_id = ? AND task_epoch = ? AND operation_id = ?
+                  AND semantic_attempt = ? AND repository_id = ?
+                  AND requested_branch_name = ? AND requested_worktree_path = ?
+                  AND status = 'DISPATCHED'
+                """,
+                code.baseSha(), code.headSha(), code.codeFingerprint(),
+                code.evidenceJson(), now, code.taskId(), code.taskEpoch(),
+                code.operationId(), code.attempt(), code.repositoryId(),
+                code.branchName(), code.worktreePath());
+        if (accepted != 1) {
+            throw concurrent("Provisioning operation changed before acceptance");
+        }
+        int inserted = jdbc.update("""
+                INSERT INTO task_code_identity(
+                    task_id, provision_operation_id, repository_id,
+                    upstream_repository_id, publish_repository_id, branch_name,
+                    worktree_path, base_sha, local_head_sha, code_fingerprint,
+                    version, created_at_ms, updated_at_ms)
+                SELECT operation.task_id, operation.id, context.repository_id,
+                    context.upstream_repository_id, context.publish_repository_id,
+                    operation.requested_branch_name,
+                    operation.requested_worktree_path,
+                    operation.result_base_sha, operation.result_head_sha,
+                    operation.result_code_fingerprint, 0, ?, ?
+                FROM provision_task_operation operation
+                JOIN task_creation_context context
+                  ON context.task_id = operation.task_id
+                WHERE operation.task_id = ? AND operation.task_epoch = ?
+                  AND operation.operation_id = ?
+                  AND operation.semantic_attempt = ?
+                  AND operation.status = 'ACCEPTED'
+                  AND operation.result_evidence = ?
+                """,
+                now, now, code.taskId(), code.taskEpoch(), code.operationId(),
+                code.attempt(), code.evidenceJson());
+        if (inserted != 1) {
+            throw concurrent("Task code identity changed before acceptance");
+        }
+        return findAcceptedProvisioningResult(code.taskId(), code.operationId())
+                .orElseThrow(() -> concurrent(
+                        "Accepted provisioning result disappeared"));
+    }
+
+    @Override
     public Optional<TaskManager.ReplanEvidence> findReplanEvidence(
             String taskId, String replanRequestId)
     {

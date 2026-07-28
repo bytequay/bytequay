@@ -398,6 +398,48 @@ public final class TaskManager
                 CommandResult.Disposition.APPLIED, accepted);
     }
 
+    /**
+     * Accepts the raw, strictly decoded provisioning result in the Task-owned
+     * store, freezes the Task code identity, and activates the initial Plan in
+     * the same command transaction. The caller may then ask PlanStageManager
+     * to create the Stage before the transaction commits.
+     */
+    public StageOpening acceptProvisionedCodeInCommand(
+            ProvisionedCode code,
+            String commandId,
+            String actor,
+            String planStageId,
+            long planStageGeneration)
+    {
+        requireNonNull(code, "code is null");
+        requireText(commandId, "commandId");
+        requireText(actor, "actor");
+        requireText(planStageId, "planStageId");
+        TaskCommandExecutor.requireCurrent(code.taskId());
+
+        State current = load(code.taskId());
+        if (current.lifecycle() != TaskLifecycle.PROVISIONING
+                || current.epoch() != code.taskEpoch()
+                || current.version() != 0
+                || current.currentStageId() != null) {
+            throw rejected(INVALID_STATE,
+                    "Provisioning result no longer owns an unstarted Task");
+        }
+        ProvisioningResult accepted = store.acceptProvisioningResult(code);
+        if (!accepted.matches(code)) {
+            throw rejected(INVALID_STATE,
+                    "Persisted provisioning result differs from decoded evidence");
+        }
+        return acceptProvisioningInCommand(new ProvisioningCommand(
+                commandId,
+                actor,
+                code.taskId(),
+                current.version(),
+                code.resultFence(),
+                planStageId,
+                planStageGeneration));
+    }
+
     /** Reads and freezes the exact satisfied replan request for one handoff. */
     public AcceptedReplan requireSatisfiedReplanInCommand(ReplanCommand command)
     {
@@ -1441,6 +1483,67 @@ public final class TaskManager
                     && resultHeadSha.equals(fence.expectedHeadSha())
                     && resultCodeFingerprint.equals(fence.expectedCodeFingerprint());
         }
+
+        private boolean matches(ProvisionedCode code)
+        {
+            return taskId.equals(code.taskId())
+                    && taskEpoch == code.taskEpoch()
+                    && operationId.equals(code.operationId())
+                    && attempt == code.attempt()
+                    && resultBaseSha.equals(code.baseSha())
+                    && resultHeadSha.equals(code.headSha())
+                    && resultCodeFingerprint.equals(code.codeFingerprint());
+        }
+    }
+
+    /** Strictly decoded discovered identity returned by ProvisionTaskOperation. */
+    public record ProvisionedCode(
+            String taskId,
+            long taskEpoch,
+            String operationId,
+            int attempt,
+            String repositoryId,
+            String branchName,
+            String worktreePath,
+            String baseSha,
+            String headSha,
+            String codeFingerprint,
+            String evidenceJson)
+    {
+        public ProvisionedCode
+        {
+            requireText(taskId, "taskId");
+            requireText(operationId, "operationId");
+            requireText(repositoryId, "repositoryId");
+            requireText(branchName, "branchName");
+            requireText(worktreePath, "worktreePath");
+            requireText(baseSha, "baseSha");
+            requireText(headSha, "headSha");
+            requireText(codeFingerprint, "codeFingerprint");
+            requireText(evidenceJson, "evidenceJson");
+            if (taskEpoch < 1 || attempt < 1) {
+                throw new IllegalArgumentException(
+                        "Provisioned code fence must be positive");
+            }
+            Path path = Path.of(worktreePath);
+            if (!path.isAbsolute() || !path.normalize().toString().equals(worktreePath)) {
+                throw new IllegalArgumentException(
+                        "worktreePath must be absolute and normalized");
+            }
+        }
+
+        public ResultFence resultFence()
+        {
+            return new ResultFence(
+                    taskEpoch,
+                    null,
+                    0,
+                    operationId,
+                    attempt,
+                    codeFingerprint,
+                    headSha,
+                    baseSha);
+        }
     }
 
     public record ReplanCommand(
@@ -2197,6 +2300,13 @@ public final class TaskManager
 
         Optional<ProvisioningResult> findAcceptedProvisioningResult(
                 String taskId, String operationId);
+
+        /** Accepts the operation and inserts immutable TaskCodeIdentity. */
+        default ProvisioningResult acceptProvisioningResult(ProvisionedCode code)
+        {
+            throw new UnsupportedOperationException(
+                    "Provisioning result acceptance is not supported");
+        }
 
         /**
          * Returns an exact request whose barrier is SATISFIED, whether the

@@ -423,6 +423,61 @@ class TestPlanRuntimeCoordinator
     }
 
     @Test
+    void enablingPolicyRedrivesAnAlreadyWaitingPlan()
+            throws Exception
+    {
+        Bootstrapped waiting = bootstrap("plan-policy-redrive.db", false);
+        RunningTurn draft = startCurrentTurn(waiting.jdbc(), waiting.taskId());
+        waiting.runtime().plan().recordPlan(
+                draft.turnId(), draft.operationId(), waiting.taskId(),
+                "1. Implement.\n2. Validate.");
+        deliverSucceeded(waiting.runtime().plan(), waiting.jdbc(), draft);
+        RunningTurn review = startCurrentTurn(waiting.jdbc(), waiting.taskId());
+        waiting.runtime().plan().recordSelfReview(
+                review.turnId(), review.operationId(), waiting.taskId(),
+                "APPROVED", List.of(), List.of(), List.of());
+        deliverSucceeded(waiting.runtime().plan(), waiting.jdbc(), review);
+
+        assertThat(waiting.jdbc().queryForObject("""
+                SELECT checkpoint FROM stage
+                WHERE id = (SELECT stage_id FROM task_current_stage WHERE task_id = ?)
+                """, String.class, waiting.taskId()))
+                .isEqualTo("AWAITING_APPROVAL");
+
+        Map<String, Object> owner = waiting.jdbc().queryForMap("""
+                SELECT epoch, aggregate_version FROM tasks WHERE id = ?
+                """, waiting.taskId());
+        TaskManager.PolicyRevision current = waiting.runtime().tasks()
+                .policy(waiting.taskId());
+        waiting.runtime().tasks().revisePolicy(new TaskManager.PolicyCommand(
+                new TaskManager.Command(
+                        "enable-plan-auto-approve", "user", waiting.taskId(),
+                        ((Number) owner.get("epoch")).longValue(),
+                        ((Number) owner.get("aggregate_version")).longValue()),
+                "policy-plan-redrive", true, false,
+                current.minApprovals(), current.maxBrainRounds(),
+                current.maxCiFixPushes(),
+                current.requireRemoteBranchCleanup(),
+                current.permissionPolicyRef()));
+
+        assertThat(waiting.runtime().plan()
+                .redrivePolicyApproval(waiting.taskId())).isTrue();
+        assertThat(waiting.jdbc().queryForMap("""
+                SELECT stage.kind, stage.checkpoint
+                FROM task_current_stage current
+                JOIN stage ON stage.id = current.stage_id
+                WHERE current.task_id = ?
+                """, waiting.taskId()))
+                .containsEntry("kind", "LOCAL_DEVELOPMENT")
+                .containsEntry("checkpoint", "IMPLEMENTING");
+        assertThat(runtime(waiting.dataSource()).plan()
+                .redrivePolicyApproval(waiting.taskId())).isFalse();
+        assertThat(countWhere(
+                waiting.jdbc(), "plan_approval", "approval_kind = 'POLICY'"))
+                .isOne();
+    }
+
+    @Test
     void retriesTheFirstSelfReviewFailureOnceThenBlocksAndClearsTheFence()
             throws Exception
     {
@@ -967,7 +1022,7 @@ class TestPlanRuntimeCoordinator
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
                 + "?foreign_keys=ON&busy_timeout=30000";
-        Flyway.configure().dataSource(url, "", "").target("246").load().migrate();
+        Flyway.configure().dataSource(url, "", "").target("249").load().migrate();
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url);
         return dataSource;

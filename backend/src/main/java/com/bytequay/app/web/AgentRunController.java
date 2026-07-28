@@ -20,7 +20,6 @@ import com.bytequay.app.developmentflow.compatibility.V2StageApiService;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.StageDetailService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -43,22 +42,19 @@ public class AgentRunController
 {
     private final AgentRunService runs;
     private final StageDetailService detailService;
-    private V2ControlRouteStore v2Routes;
-    private V2AgentRunProjection v2Runs;
-    private V2StageApiService v2Stages;
+    private final V2ControlRouteStore v2Routes;
+    private final V2AgentRunProjection v2Runs;
+    private final V2StageApiService v2Stages;
 
-    public AgentRunController(AgentRunService runs, StageDetailService detailService)
-    {
-        this.runs = requireNonNull(runs, "runs is null");
-        this.detailService = requireNonNull(detailService, "detailService is null");
-    }
-
-    @Autowired(required = false)
-    void setV2Reads(
+    public AgentRunController(
+            AgentRunService runs,
+            StageDetailService detailService,
             V2ControlRouteStore v2Routes,
             V2AgentRunProjection v2Runs,
             V2StageApiService v2Stages)
     {
+        this.runs = requireNonNull(runs, "runs is null");
+        this.detailService = requireNonNull(detailService, "detailService is null");
         this.v2Routes = requireNonNull(v2Routes, "v2Routes is null");
         this.v2Runs = requireNonNull(v2Runs, "v2Runs is null");
         this.v2Stages = requireNonNull(v2Stages, "v2Stages is null");
@@ -67,8 +63,8 @@ public class AgentRunController
     @GetMapping("/api/tasks/{taskId}/runs")
     public List<AgentRun> runsForTask(@PathVariable String taskId)
     {
-        if (v2Routes != null && v2Routes.isV2Task(taskId)) {
-            return requireV2Runs().listByTask(taskId);
+        if (v2Routes.isV2Task(taskId)) {
+            return v2Runs.listByTask(taskId);
         }
         return runs.findByTask(taskId, null, null);
     }
@@ -83,12 +79,12 @@ public class AgentRunController
     public StageDetailData log(@PathVariable String runId)
     {
         AgentRun run = findOrThrow(runId);
+        if (V2AgentRunProjection.isV2Id(runId)) {
+            return v2Stages.runDetail(runId);
+        }
         if (run.stageId() == null) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(409), "run has no stage-backed log: " + runId);
-        }
-        if (V2AgentRunProjection.isV2Id(runId)) {
-            return requireV2Stages().detail(run.taskId(), run.stageId());
         }
         return detailService.getDetail(UUID.fromString(run.stageId()));
     }
@@ -96,34 +92,12 @@ public class AgentRunController
     private AgentRun findOrThrow(String runId)
     {
         if (V2AgentRunProjection.isV2Id(runId)) {
-            return requireV2Runs().findById(runId)
+            return v2Runs.findById(runId)
                     .orElseThrow(() -> new ResponseStatusException(
                             HttpStatusCode.valueOf(404), "no run: " + runId));
         }
         return runs.findById(runId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no run: " + runId));
-    }
-
-    private V2AgentRunProjection requireV2Runs()
-    {
-        if (v2Runs == null) {
-            throw unavailable();
-        }
-        return v2Runs;
-    }
-
-    private V2StageApiService requireV2Stages()
-    {
-        if (v2Stages == null) {
-            throw unavailable();
-        }
-        return v2Stages;
-    }
-
-    private static ResponseStatusException unavailable()
-    {
-        return new ResponseStatusException(
-                HttpStatusCode.valueOf(503), "V2 run reads are not configured");
     }
 }

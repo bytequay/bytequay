@@ -555,6 +555,12 @@ export type WorkspaceSessionDto = {
   stageId: string | null;
   reviewRoundId?: string | null;
   durableReview: boolean;
+  controls: {
+    pause: boolean;
+    resume: boolean;
+    stop: boolean;
+    restart: boolean;
+  };
   costUsdMilli: number;
   tokensIn: number;
   tokensOut: number;

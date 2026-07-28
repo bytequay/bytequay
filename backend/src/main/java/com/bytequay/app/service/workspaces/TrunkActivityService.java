@@ -15,6 +15,8 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.beans.workspace.DistillRunDto;
 import com.bytequay.app.beans.workspace.TrunkActivityDto;
+import com.bytequay.app.developmentflow.compatibility.V2AgentRunProjection;
+import com.bytequay.app.developmentflow.userwait.V2UserWaitService;
 import com.bytequay.app.domain.AgentQuestion;
 import com.bytequay.app.domain.AgentRun;
 import com.bytequay.app.domain.BacklogItem;
@@ -38,9 +40,11 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -61,6 +65,8 @@ public class TrunkActivityService
     private final BacklogService backlog;
     private final ReviewRoundStore reviewRounds;
     private final WorkspaceKnowledgeService knowledge;
+    private final V2AgentRunProjection v2Runs;
+    private final V2UserWaitService v2Waits;
 
     public TrunkActivityService(
             ThreadService threads,
@@ -70,7 +76,9 @@ public class TrunkActivityService
             TaskStore tasks,
             BacklogService backlog,
             ReviewRoundStore reviewRounds,
-            WorkspaceKnowledgeService knowledge)
+            WorkspaceKnowledgeService knowledge,
+            V2AgentRunProjection v2Runs,
+            V2UserWaitService v2Waits)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.questions = requireNonNull(questions, "questions is null");
@@ -80,6 +88,8 @@ public class TrunkActivityService
         this.backlog = requireNonNull(backlog, "backlog is null");
         this.reviewRounds = requireNonNull(reviewRounds, "reviewRounds is null");
         this.knowledge = requireNonNull(knowledge, "knowledge is null");
+        this.v2Runs = requireNonNull(v2Runs, "v2Runs is null");
+        this.v2Waits = requireNonNull(v2Waits, "v2Waits is null");
     }
 
     public TrunkActivityDto get(String trunkId)
@@ -91,12 +101,28 @@ public class TrunkActivityService
         List<TrunkActivityDto.Item> pinned = new ArrayList<>();
         List<TrunkActivityDto.Item> timeline = new ArrayList<>();
 
-        for (AgentQuestion question : questions.listOpen(trunkId)) {
+        List<AgentQuestion> questionRows = new ArrayList<>(
+                v2Waits.listOpen(trunkId));
+        Set<String> questionIds = new HashSet<>();
+        questionRows.forEach(question -> questionIds.add(question.id()));
+        questions.listOpen(trunkId).stream()
+                .filter(question -> questionIds.add(question.id()))
+                .forEach(questionRows::add);
+        for (AgentQuestion question : questionRows) {
             pinned.add(item(
                     "question:" + question.id(), "question", question.question(),
                     question.context(), "needs-you", trunkPath, question.taskId(),
                     null, question.createdAt(), true));
         }
+        v2Waits.listOpenPermissions(trunkId).forEach(permission -> pinned.add(
+                item(
+                        "permission:" + permission.id(), "question",
+                        "Permission required",
+                        permission.toolName() == null
+                                ? permission.capability()
+                                : permission.toolName(),
+                        "needs-you", trunkPath, null, null,
+                        permission.requestedAt(), true)));
 
         List<Notification> notificationRows = notifications.listForThread(trunkId);
         for (Notification notification : notificationRows) {
@@ -120,7 +146,11 @@ public class TrunkActivityService
             }
         }
 
-        List<AgentRun> runRows = runs.findByThread(trunkId);
+        List<AgentRun> runRows = new ArrayList<>(runs.findByThread(trunkId));
+        v2Runs.listByTrunk(trunkId).stream()
+                // Review seats remain children of their stable ReviewSession.
+                .filter(run -> !AgentRun.KIND_PANEL_REVIEW.equals(run.kind()))
+                .forEach(runRows::add);
         for (AgentRun run : runRows) {
             String publicKind = publicRunKind(run.kind());
             if (publicKind == null) {

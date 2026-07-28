@@ -84,10 +84,30 @@ public final class V2StageApiService
     public StageDetailData detail(String taskId, String stageId)
     {
         StageFacts stage = requireStage(taskId, stageId);
-        List<StageDto> allStages = projection.stages(taskId);
         List<TurnFacts> turns = turns(stageId);
         List<ConversationRow> conversation = conversation(stageId, turns);
-        Usage usage = usage(stageId);
+        return detail(stage, turns, conversation, usage(stageId),
+                activeAgent(taskId, stage));
+    }
+
+    /** Stage-detail compatibility shape containing only one exact typed Turn. */
+    public StageDetailData runDetail(String runId)
+    {
+        RunFacts run = requireRun(runId);
+        StageFacts stage = requireStage(run.taskId(), run.stageId());
+        List<TurnFacts> turns = List.of(run.turn());
+        return detail(stage, turns, conversation(run), runUsage(run.ticketId()),
+                run.live());
+    }
+
+    private StageDetailData detail(
+            StageFacts stage,
+            List<TurnFacts> turns,
+            List<ConversationRow> conversation,
+            Usage usage,
+            boolean activeAgent)
+    {
+        List<StageDto> allStages = projection.stages(stage.taskId());
         long closedAt = stage.completedAtMs() == null
                 ? System.currentTimeMillis() : stage.completedAtMs();
         long wallTime = Math.max(0, (closedAt - stage.openedAtMs()) / 1000);
@@ -110,7 +130,7 @@ public final class V2StageApiService
                         stage.completedAtMs() == null ? null
                                 : instant(stage.completedAtMs()).toString(),
                         null, turns.size(), currentIteration(turns),
-                        activeAgent(taskId, stage),
+                        activeAgent,
                         new StageConfig(null, false),
                         new StageMetricsSubset(
                                 wallTime, turns.size(), usage.toolCalls(),
@@ -134,7 +154,7 @@ public final class V2StageApiService
                         CONTEXT_TOKEN_LIMIT, contextBand(usage.tokens())),
                 new Scrubber(scrubbers),
                 List.of(),
-                branchGuards.project(taskId),
+                branchGuards.project(stage.taskId()),
                 null,
                 List.of());
     }
@@ -294,6 +314,84 @@ public final class V2StageApiService
                 taskId, stageId, cursor);
     }
 
+    private RunFacts requireRun(String runId)
+    {
+        String ticketId = V2AgentRunProjection.ticketId(runId);
+        List<RunFacts> rows = jdbc.query("""
+                SELECT ticket.id AS ticket_id, ticket.owner_kind,
+                       ticket.owner_id,
+                       COALESCE(ticket.task_id, task_owned.task_id,
+                           stage_owner.task_id) AS task_id,
+                       COALESCE(ticket.stage_id,
+                           task_owned.trigger_stage_id,
+                           stage_owned.stage_id) AS stage_id,
+                       COALESCE(task_owned.id, stage_owned.id) AS turn_id,
+                       COALESCE(task_owned.purpose,
+                           stage_owned.purpose) AS purpose,
+                       COALESCE(task_owned.status,
+                           stage_owned.status) AS turn_status,
+                       COALESCE(task_owned.launch_input,
+                           stage_owned.launch_input) AS launch_input,
+                       COALESCE(task_owned.requested_at_ms,
+                           stage_owned.requested_at_ms) AS requested_at_ms,
+                       COALESCE(task_owned.started_at_ms,
+                           stage_owned.started_at_ms) AS started_at_ms,
+                       COALESCE(task_owned.finished_at_ms,
+                           stage_owned.finished_at_ms) AS finished_at_ms,
+                       COALESCE(task_owned.error_message,
+                           stage_owned.error_message) AS error_message,
+                       CASE WHEN ticket.status IN (
+                           'REQUESTED', 'RETRY_WAIT', 'RECONCILE_WAIT',
+                           'RESULT_PENDING', 'CLAIMED', 'RUNNING',
+                           'DELIVERING') THEN 1 ELSE 0 END AS live
+                FROM dispatch_ticket ticket
+                LEFT JOIN task_turn task_owned
+                  ON ticket.owner_kind = 'TASK_TURN'
+                 AND task_owned.id = ticket.owner_id
+                 AND task_owned.operation_id = ticket.operation_id
+                LEFT JOIN stage_turn stage_owned
+                  ON ticket.owner_kind = 'STAGE_TURN'
+                 AND stage_owned.id = ticket.owner_id
+                 AND stage_owned.operation_id = ticket.operation_id
+                LEFT JOIN stage stage_owner
+                  ON stage_owner.id = stage_owned.stage_id
+                LEFT JOIN tasks task ON task.id = COALESCE(
+                    ticket.task_id, task_owned.task_id, stage_owner.task_id)
+                WHERE ticket.id = ?
+                  AND ticket.async_family = 'AGENT_TURN'
+                  AND task.workflow_version = 'V2'
+                  AND (task_owned.id IS NOT NULL
+                    OR stage_owned.id IS NOT NULL)
+                """, (rs, row) -> new RunFacts(
+                        rs.getString("ticket_id"),
+                        rs.getString("owner_kind"),
+                        rs.getString("owner_id"),
+                        rs.getString("task_id"),
+                        rs.getString("stage_id"),
+                        new TurnFacts(
+                                rs.getString("turn_id"),
+                                rs.getString("purpose"),
+                                rs.getString("turn_status"),
+                                rs.getString("launch_input"),
+                                rs.getLong("requested_at_ms"),
+                                nullableLong(rs, "started_at_ms"),
+                                nullableLong(rs, "finished_at_ms"),
+                                rs.getString("error_message")),
+                        rs.getBoolean("live")), ticketId);
+        if (rows.size() != 1) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "run has no task/stage-backed V2 log: " + runId);
+        }
+        RunFacts run = rows.getFirst();
+        if (run.stageId() == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "run has no stage-backed V2 log: " + runId);
+        }
+        return run;
+    }
+
     private StageFacts requireStage(String taskId, String stageId)
     {
         List<StageFacts> rows = jdbc.query("""
@@ -403,6 +501,50 @@ public final class V2StageApiService
         return List.copyOf(rows);
     }
 
+    private List<ConversationRow> conversation(RunFacts run)
+    {
+        TurnFacts turn = run.turn();
+        List<ConversationRow> rows = new ArrayList<>();
+        rows.add(conversationRow(
+                "turn-user-" + turn.id(), "user", prompt(turn.launchInput()),
+                turn.requestedAtMs()));
+        String messageTable = switch (run.ownerKind()) {
+            case "TASK_TURN" -> "task_message";
+            case "STAGE_TURN" -> "stage_message";
+            default -> throw new IllegalArgumentException(
+                    "unsupported V2 run owner: " + run.ownerKind());
+        };
+        rows.addAll(jdbc.query("""
+                SELECT message.id, message.role, message.body,
+                       message.created_at_ms
+                FROM %s message
+                WHERE message.turn_id = ?
+                ORDER BY message.created_at_ms, message.seq
+                """.formatted(messageTable), (rs, row) -> conversationRow(
+                        rs.getString("id"), role(rs.getString("role")),
+                        rs.getString("body"), rs.getLong("created_at_ms")),
+                run.ownerId()));
+        rows.addAll(jdbc.query("""
+                SELECT execution.id, execution.raw_result,
+                       execution.finished_at_ms
+                FROM agent_execution execution
+                WHERE execution.ticket_id = ?
+                  AND execution.raw_result IS NOT NULL
+                  AND execution.finished_at_ms IS NOT NULL
+                ORDER BY execution.finished_at_ms, execution.id
+                """, (rs, row) -> {
+                    String body = finalText(rs.getString("raw_result"));
+                    return body.isBlank() ? null : conversationRow(
+                            "execution-assistant-" + rs.getString("id"),
+                            "agent", body, rs.getLong("finished_at_ms"));
+                }, run.ticketId()).stream()
+                .filter(row -> row != null)
+                .toList());
+        rows.sort(Comparator.comparing(ConversationRow::ts)
+                .thenComparing(ConversationRow::id));
+        return List.copyOf(rows);
+    }
+
     private String prompt(String launchInput)
     {
         try {
@@ -475,6 +617,28 @@ public final class V2StageApiService
                 """, (rs, row) -> new Usage(
                         rs.getLong("tokens"), rs.getLong("cost"),
                         rs.getInt("tool_calls")), stageId, stageId);
+    }
+
+    private Usage runUsage(String ticketId)
+    {
+        return jdbc.queryForObject("""
+                SELECT COALESCE(SUM(
+                           execution.tokens_in + execution.tokens_out), 0)
+                           AS tokens,
+                       COALESCE(SUM(execution.cost_usd_milli), 0) AS cost,
+                       (SELECT COUNT(*)
+                        FROM agent_execution_log log
+                        JOIN agent_execution logged
+                          ON logged.id = log.execution_id
+                        WHERE logged.ticket_id = ?
+                          AND json_valid(log.payload)
+                          AND json_extract(log.payload, '$.event') =
+                              'tool_started') AS tool_calls
+                FROM agent_execution execution
+                WHERE execution.ticket_id = ?
+                """, (rs, row) -> new Usage(
+                        rs.getLong("tokens"), rs.getLong("cost"),
+                        rs.getInt("tool_calls")), ticketId, ticketId);
     }
 
     private static StageFacts stageFacts(ResultSet rs, int row)
@@ -609,6 +773,10 @@ public final class V2StageApiService
             String error) {}
 
     private record Usage(long tokens, long costUsdMilli, int toolCalls) {}
+
+    private record RunFacts(
+            String ticketId, String ownerKind, String ownerId,
+            String taskId, String stageId, TurnFacts turn, boolean live) {}
 
     private record LogFacts(
             long rowId, String payload, long createdAtMs, String provider) {}

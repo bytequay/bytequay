@@ -50,14 +50,14 @@ class TestAgentRunApiRouting
         when(routes.isV2Task("task-v2")).thenReturn(true);
         when(v2Runs.listByTask("task-v2")).thenReturn(List.of(run));
         when(v2Runs.findById(run.id())).thenReturn(Optional.of(run));
-        when(v2Stages.detail("task-v2", run.stageId())).thenReturn(detail);
+        when(v2Stages.runDetail(run.id())).thenReturn(detail);
 
         assertThat(controller.runsForTask("task-v2")).containsExactly(run);
         assertThat(controller.run(run.id())).isSameAs(run);
         assertThat(controller.log(run.id())).isSameAs(detail);
 
         verify(v2Runs).listByTask("task-v2");
-        verify(v2Stages).detail("task-v2", run.stageId());
+        verify(v2Stages).runDetail(run.id());
         verifyNoInteractions(legacyRuns, legacyDetail);
     }
 
@@ -85,8 +85,7 @@ class TestAgentRunApiRouting
     private AgentRunController controller()
     {
         AgentRunController result = new AgentRunController(
-                legacyRuns, legacyDetail);
-        result.setV2Reads(routes, v2Runs, v2Stages);
+                legacyRuns, legacyDetail, routes, v2Runs, v2Stages);
         return result;
     }
 

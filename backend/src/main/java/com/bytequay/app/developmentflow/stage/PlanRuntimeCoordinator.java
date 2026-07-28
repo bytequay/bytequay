@@ -17,8 +17,14 @@ import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.provisioning.ProvisionTaskOperationHandler;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.BrainLaunchContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.McpContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.PlanSubmission;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ProvisionContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ProvisionReceipt;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.ReviewSubmission;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.TurnDeliveryContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.TurnDeliveryReceipt;
 import com.bytequay.app.developmentflow.stage.persistence.SqlitePlanRuntimeStore.TurnRequest;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.domain.WorkModel;
@@ -38,10 +44,13 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.ACCEPTED;
+import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.REJECTED;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.SUPERSEDED;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Outcome.SUCCEEDED;
 import static java.util.Objects.requireNonNull;
@@ -53,6 +62,7 @@ public final class PlanRuntimeCoordinator
     public static final String TURN_CALLBACK = "TASK_TURN_RESULT";
 
     private static final String PLAN_DRAFT = "PLAN_DRAFT";
+    private static final String PLAN_SELF_REVIEW = "PLAN_SELF_REVIEW";
     private final TaskCommandExecutor commands;
     private final TaskManager tasks;
     private final PlanStageManager plan;
@@ -105,7 +115,10 @@ public final class PlanRuntimeCoordinator
             return receipt(SUPERSEDED, "raw provision fence is stale");
         }
         if (rawResult.outcome() != SUCCEEDED) {
-            return receipt(ACCEPTED, "provision operation ended "
+            // Task-owned terminal provisioning recovery is a separate command.
+            // Until that command is installed, do not finalize the ticket and
+            // strand a PROVISIONING Task with no retry/recovery evidence.
+            return receipt(REJECTED, "provision operation requires explicit recovery: "
                     + rawResult.outcome().name());
         }
 
@@ -122,6 +135,381 @@ public final class PlanRuntimeCoordinator
         ProvisionReceipt accepted = commands.execute(owner.id(), () ->
                 acceptProvisioningInCommand(evidence, rawResult.evidenceJson()));
         return receipt(ACCEPTED, provisionReceiptJson(accepted));
+    }
+
+    public DispatchTicket.DeliveryReceipt deliverTaskTurn(
+            DispatchTicket.OwnerReference owner,
+            DispatchTicket.OperationFence expectedFence,
+            DispatchTicket.DispatchResult rawResult)
+    {
+        requireNonNull(owner, "owner is null");
+        requireNonNull(expectedFence, "expectedFence is null");
+        requireNonNull(rawResult, "rawResult is null");
+        if (owner.kind() != DispatchTicket.OwnerKind.TASK_TURN
+                || !TURN_CALLBACK.equals(owner.callbackRoute())
+                || !owner.id().equals(required(owner.id(), "owner.id"))) {
+            return receipt(SUPERSEDED, "Plan TaskTurn owner mismatch");
+        }
+        String taskId = store.findTurnDeliveryTaskId(
+                        owner.id(), expectedFence.operationId())
+                .orElse(null);
+        if (taskId == null) {
+            return receipt(REJECTED, "unknown Plan TaskTurn delivery owner");
+        }
+        String rawDigest = dispatchResultDigest(rawResult);
+        TurnDeliveryReceipt delivered = commands.execute(taskId, () ->
+                acceptTaskTurnInCommand(
+                        owner.id(), expectedFence, rawResult, rawDigest));
+        return receipt(
+                DispatchTicket.Acceptance.valueOf(delivered.acceptance()),
+                turnReceiptJson(delivered));
+    }
+
+    private TurnDeliveryReceipt acceptTaskTurnInCommand(
+            String turnId,
+            DispatchTicket.OperationFence expectedFence,
+            DispatchTicket.DispatchResult rawResult,
+            String rawDigest)
+    {
+        TaskCommandExecutor.requireCurrent(
+                store.findTurnDeliveryTaskId(turnId, expectedFence.operationId())
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Plan TaskTurn delivery owner disappeared")));
+        TurnDeliveryReceipt duplicate = store.findTurnDeliveryReceipt(turnId)
+                .orElse(null);
+        if (duplicate != null) {
+            if (!expectedFence.operationId().equals(duplicate.operationId())
+                    || !rawResult.outcome().name().equals(duplicate.rawOutcome())
+                    || !rawDigest.equals(duplicate.rawEvidenceDigest())) {
+                throw new IllegalArgumentException(
+                        "Plan TaskTurn was delivered with different raw evidence");
+            }
+            return duplicate;
+        }
+
+        TurnDeliveryContext context = store.requireTurnDelivery(
+                turnId, expectedFence.operationId());
+        if (!expectedFence.equals(context.operationFence())) {
+            throw new IllegalStateException(
+                    "Dispatcher expected fence differs from persisted Plan TaskTurn");
+        }
+        Instant now = clock.instant();
+        if (!expectedFence.equals(rawResult.fence()) || !context.isCurrentPlan()) {
+            store.finishTurn(context, "SUPERSEDED", "stale Plan result", now);
+            return recordTurnDelivery(
+                    context, rawResult, rawDigest, SUPERSEDED,
+                    "SUPERSEDED", now);
+        }
+        return switch (rawResult.outcome()) {
+            case SUCCEEDED -> acceptSuccessfulTurn(
+                    context, rawResult, rawDigest, now);
+            case FAILED, INDETERMINATE -> acceptFailedTurn(
+                    context, rawResult, rawDigest, "FAILED", "TURN_FAILED", now);
+            case CANCELED -> acceptFailedTurn(
+                    context, rawResult, rawDigest, "CANCELED", "TURN_CANCELED", now);
+        };
+    }
+
+    private TurnDeliveryReceipt acceptSuccessfulTurn(
+            TurnDeliveryContext context,
+            DispatchTicket.DispatchResult rawResult,
+            String rawDigest,
+            Instant now)
+    {
+        return switch (context.purpose()) {
+            case PLAN_DRAFT -> acceptDraftTurn(context, rawResult, rawDigest, now);
+            case PLAN_SELF_REVIEW -> acceptReviewTurn(
+                    context, rawResult, rawDigest, now);
+            default -> throw new IllegalStateException(
+                    "Unknown Plan TaskTurn purpose: " + context.purpose());
+        };
+    }
+
+    private TurnDeliveryReceipt acceptDraftTurn(
+            TurnDeliveryContext context,
+            DispatchTicket.DispatchResult rawResult,
+            String rawDigest,
+            Instant now)
+    {
+        PlanSubmission submission = store.findPlanSubmission(context.turnId())
+                .orElse(null);
+        if (submission == null) {
+            store.finishTurn(
+                    context, "FAILED", "successful Plan Turn recorded no revision", now);
+            store.openTurnFailure(
+                    context, "OPERATION_FAILED",
+                    "Plan TaskTurn succeeded without record_plan", now);
+            return recordTurnDelivery(
+                    context, rawResult, rawDigest, ACCEPTED,
+                    "PROTOCOL_BLOCKED", now);
+        }
+        requireSubmission(context, submission);
+
+        BrainLaunchContext brain = store.requireBrainLaunchContext(context.taskId());
+        String reviewTurnId = id("plan-review-turn", submission.revisionId());
+        String reviewOperationId = id(
+                "plan-review-operation", submission.revisionId());
+        TurnRequest review = turn(
+                brain, context.taskEpoch(), context.stageId(),
+                context.stageGeneration(), context.codeFingerprint(),
+                context.headSha(), context.baseSha(), PLAN_SELF_REVIEW,
+                reviewTurnId, reviewOperationId,
+                id("plan-review-ticket", submission.revisionId()),
+                reviewPrompt(context.taskId(), submission), now);
+        store.finishTurn(context, "SUCCEEDED", null, now);
+        store.insertTurn(review);
+        String selfReviewId = id("plan-self-review", submission.revisionId());
+        store.insertSelfReview(
+                selfReviewId, submission.revisionId(), review.turnId(),
+                context.taskEpoch(), submission.contentDigest(), now);
+        CommandResult<StageManager.State> accepted =
+                plan.acceptDraftedAndRequestSelfReviewInCommand(
+                        new StageManager.ResultCommand(
+                                id("deliver-plan-draft", context.turnId()),
+                                "v2-plan-runtime", context.taskId(), context.fence()),
+                        review.fence());
+        requireApplied(accepted, "Plan draft result");
+        return recordTurnDelivery(
+                context, rawResult, rawDigest, ACCEPTED,
+                "DRAFT_ACCEPTED", now);
+    }
+
+    private TurnDeliveryReceipt acceptReviewTurn(
+            TurnDeliveryContext context,
+            DispatchTicket.DispatchResult rawResult,
+            String rawDigest,
+            Instant now)
+    {
+        ReviewSubmission submission = store.findReviewSubmission(context.turnId())
+                .orElse(null);
+        store.finishTurn(context, "SUCCEEDED", null, now);
+        if (submission == null) {
+            SqlitePlanRuntimeStore.ReviewOwner owner =
+                    store.requireReviewOwner(context.turnId());
+            store.failSelfReview(
+                    context, "successful self-review Turn recorded no verdict", now);
+            store.openReviewFailure(
+                    context, owner.selfReviewId(), owner.revisionId(),
+                    owner.reviewedDigest(),
+                    "Plan self-review completed without a typed verdict", now);
+            return recordTurnDelivery(
+                    context, rawResult, rawDigest, ACCEPTED,
+                    "REVIEW_BLOCKED", now);
+        }
+        insertReviewFollowups(submission, context.turnId(), now);
+        store.completeSelfReview(submission, now);
+
+        return switch (submission.verdict()) {
+            case "APPROVED" -> {
+                CommandResult<StageManager.State> accepted =
+                        plan.acceptSelfReviewApprovalInCommand(
+                                new StageManager.ResultCommand(
+                                        id("deliver-plan-review", context.turnId()),
+                                        "v2-plan-runtime", context.taskId(),
+                                        context.fence()));
+                requireApplied(accepted, "Plan self-review approval");
+                yield recordTurnDelivery(
+                        context, rawResult, rawDigest, ACCEPTED,
+                        "REVIEW_APPROVED", now);
+            }
+            case "CHANGES_REQUESTED" -> {
+                BrainLaunchContext brain = store.requireBrainLaunchContext(
+                        context.taskId());
+                String draftTurnId = id(
+                        "plan-redraft-turn", submission.selfReviewId());
+                String draftOperationId = id(
+                        "plan-redraft-operation", submission.selfReviewId());
+                TurnRequest draft = turn(
+                        brain, context.taskEpoch(), context.stageId(),
+                        context.stageGeneration(), context.codeFingerprint(),
+                        context.headSha(), context.baseSha(), PLAN_DRAFT,
+                        draftTurnId, draftOperationId,
+                        id("plan-redraft-ticket", submission.selfReviewId()),
+                        redraftPrompt(context.taskId(), submission), now);
+                store.insertTurn(draft);
+                CommandResult<StageManager.State> accepted =
+                        plan.acceptSelfReviewFindingsAndRequestDraftInCommand(
+                                new StageManager.ResultCommand(
+                                        id("deliver-plan-review", context.turnId()),
+                                        "v2-plan-runtime", context.taskId(),
+                                        context.fence()),
+                                draft.fence());
+                requireApplied(accepted, "Plan self-review findings");
+                yield recordTurnDelivery(
+                        context, rawResult, rawDigest, ACCEPTED,
+                        "REVIEW_FINDINGS", now);
+            }
+            case "BLOCKED" -> {
+                store.openReviewFailure(
+                        context, submission.selfReviewId(),
+                        submission.revisionId(), submission.reviewedDigest(),
+                        "Plan self-review reported a blocking condition", now);
+                yield recordTurnDelivery(
+                        context, rawResult, rawDigest, ACCEPTED,
+                        "REVIEW_BLOCKED", now);
+            }
+            default -> throw new IllegalStateException(
+                    "Unknown persisted self-review verdict: "
+                            + submission.verdict());
+        };
+    }
+
+    private TurnDeliveryReceipt acceptFailedTurn(
+            TurnDeliveryContext context,
+            DispatchTicket.DispatchResult rawResult,
+            String rawDigest,
+            String terminalStatus,
+            String domainResult,
+            Instant now)
+    {
+        String error = rawResult.error() == null || rawResult.error().isBlank()
+                ? "Plan TaskTurn ended " + rawResult.outcome()
+                : rawResult.error();
+        store.finishTurn(context, terminalStatus, error, now);
+        if (PLAN_SELF_REVIEW.equals(context.purpose())) {
+            SqlitePlanRuntimeStore.ReviewOwner owner =
+                    store.requireReviewOwner(context.turnId());
+            store.failSelfReview(context, error, now);
+            store.openReviewFailure(
+                    context, owner.selfReviewId(), owner.revisionId(),
+                    owner.reviewedDigest(), error, now);
+        }
+        else {
+            store.openTurnFailure(context, "OPERATION_FAILED", error, now);
+        }
+        return recordTurnDelivery(
+                context, rawResult, rawDigest, ACCEPTED, domainResult, now);
+    }
+
+    private TurnDeliveryReceipt recordTurnDelivery(
+            TurnDeliveryContext context,
+            DispatchTicket.DispatchResult rawResult,
+            String rawDigest,
+            DispatchTicket.Acceptance acceptance,
+            String domainResult,
+            Instant now)
+    {
+        TurnDeliveryReceipt receipt = new TurnDeliveryReceipt(
+                context.turnId(), context.operationId(),
+                rawResult.outcome().name(), rawDigest, acceptance.name(),
+                domainResult, now);
+        store.insertTurnDeliveryReceipt(receipt);
+        return receipt;
+    }
+
+    /** Exact operation-scoped authorization used by initialize/tools-list. */
+    public McpAuthorization authorizeMcp(String turnId, String operationId)
+    {
+        String taskId = store.findMcpTaskId(
+                        required(turnId, "turnId"),
+                        required(operationId, "operationId"))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "TaskTurn MCP endpoint is not running"));
+        return commands.execute(taskId, () -> {
+            TaskCommandExecutor.requireCurrent(taskId);
+            McpContext context = store.authorizeMcp(turnId, operationId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "TaskTurn MCP endpoint is stale"));
+            return new McpAuthorization(context.taskId(), context.purpose());
+        });
+    }
+
+    public PlanSubmission recordPlan(
+            String turnId, String operationId, String taskId, String content)
+    {
+        required(taskId, "taskId");
+        String normalized = required(content, "content").strip();
+        String ownerTask = store.findMcpTaskId(
+                        required(turnId, "turnId"),
+                        required(operationId, "operationId"))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "TaskTurn MCP endpoint is not running"));
+        return commands.execute(ownerTask, () -> {
+            TaskCommandExecutor.requireCurrent(ownerTask);
+            McpContext context = store.authorizeMcp(turnId, operationId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "TaskTurn MCP endpoint is stale"));
+            if (!PLAN_DRAFT.equals(context.purpose())
+                    || !taskId.equals(context.taskId())
+                    || context.checkpoint() != StageCheckpoint.DRAFTING) {
+                throw new IllegalArgumentException(
+                        "record_plan is not authorized for this exact TaskTurn");
+            }
+            String contentDigest = digest(normalized);
+            PlanSubmission duplicate = store.findPlanSubmission(turnId).orElse(null);
+            if (duplicate != null) {
+                if (!operationId.equals(duplicate.operationId())
+                        || !contentDigest.equals(duplicate.contentDigest())
+                        || !normalized.equals(duplicate.content())
+                        || !"AGENT".equals(duplicate.source())) {
+                    throw new IllegalArgumentException(
+                            "record_plan was already called with different content");
+                }
+                return duplicate;
+            }
+            return store.insertPlanSubmission(
+                    context, id("plan-revision", operationId), normalized,
+                    contentDigest, "AGENT", clock.instant());
+        });
+    }
+
+    public ReviewSubmission recordSelfReview(
+            String turnId,
+            String operationId,
+            String taskId,
+            String verdict,
+            List<String> concerns,
+            List<String> followUps,
+            List<String> stewardship)
+    {
+        required(taskId, "taskId");
+        String normalizedVerdict = required(verdict, "verdict");
+        if (!Set.of("APPROVED", "CHANGES_REQUESTED", "BLOCKED")
+                .contains(normalizedVerdict)) {
+            throw new IllegalArgumentException("self-review verdict is invalid");
+        }
+        List<String> exactConcerns = strings(concerns, "concerns");
+        List<String> exactFollowUps = strings(followUps, "followUps");
+        List<String> exactStewardship = strings(stewardship, "stewardship");
+        if ("APPROVED".equals(normalizedVerdict) && !exactConcerns.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "an approved self-review cannot carry concerns");
+        }
+        String concernsJson = write(json.valueToTree(exactConcerns));
+        String followUpsJson = write(json.valueToTree(exactFollowUps));
+        String stewardshipJson = write(json.valueToTree(exactStewardship));
+        String ownerTask = store.findMcpTaskId(
+                        required(turnId, "turnId"),
+                        required(operationId, "operationId"))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "TaskTurn MCP endpoint is not running"));
+        return commands.execute(ownerTask, () -> {
+            TaskCommandExecutor.requireCurrent(ownerTask);
+            McpContext context = store.authorizeMcp(turnId, operationId)
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "TaskTurn MCP endpoint is stale"));
+            if (!"PLAN_SELF_REVIEW".equals(context.purpose())
+                    || !taskId.equals(context.taskId())
+                    || context.checkpoint() != StageCheckpoint.SELF_REVIEW) {
+                throw new IllegalArgumentException(
+                        "record_plan_self_review is not authorized for this TaskTurn");
+            }
+            ReviewSubmission duplicate = store.findReviewSubmission(turnId).orElse(null);
+            if (duplicate != null) {
+                if (!operationId.equals(duplicate.operationId())
+                        || !normalizedVerdict.equals(duplicate.verdict())
+                        || !concernsJson.equals(duplicate.concernsJson())
+                        || !followUpsJson.equals(duplicate.followUpsJson())
+                        || !stewardshipJson.equals(duplicate.stewardshipJson())) {
+                    throw new IllegalArgumentException(
+                            "record_plan_self_review already has another verdict");
+                }
+                return duplicate;
+            }
+            return store.insertReviewSubmission(
+                    context, normalizedVerdict, concernsJson, followUpsJson,
+                    stewardshipJson, clock.instant());
+        });
     }
 
     private ProvisionReceipt acceptProvisioningInCommand(
@@ -206,11 +594,38 @@ public final class PlanRuntimeCoordinator
             String prompt,
             Instant requestedAt)
     {
+        return turn(
+                new BrainLaunchContext(
+                        context.taskId(), context.trunkId(), context.workspaceId(),
+                        context.workModelSnapshot(), context.provider(), context.model(),
+                        context.roleSkill(), context.worktreePath()),
+                code.taskEpoch(), stageId, stageGeneration,
+                code.codeFingerprint(), code.headSha(), code.baseSha(), purpose,
+                turnId, operationId, ticketId, prompt, requestedAt);
+    }
+
+    private TurnRequest turn(
+            BrainLaunchContext context,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            String codeFingerprint,
+            String headSha,
+            String baseSha,
+            String purpose,
+            String turnId,
+            String operationId,
+            String ticketId,
+            String prompt,
+            Instant requestedAt)
+    {
         WorkModel model = decodeWorkModel(context.workModelSnapshot());
         if (!context.provider().equals(model.agentOrProvider())
                 || model.model() != null && !model.model().isBlank()
                     && !context.model().equals(model.model())
-                || model.kind() == WorkModelKind.CLI && model.account() != null) {
+                || model.kind() == WorkModelKind.CLI && model.account() != null
+                || model.kind() == WorkModelKind.CLI
+                    && !Set.of("codex", "claude-code").contains(context.provider())) {
             throw new IllegalStateException(
                     "Frozen Task Brain and work model do not identify one engine");
         }
@@ -238,8 +653,8 @@ public final class PlanRuntimeCoordinator
         endpoint.put("approvalPromptTool", "mcp__bytequay__approval_prompt");
         return new TurnRequest(
                 turnId, operationId, ticketId, purpose, context.workspaceId(),
-                context.trunkId(), context.taskId(), context.taskEpoch(), stageId,
-                stageGeneration, code.codeFingerprint(), code.headSha(), code.baseSha(),
+                context.trunkId(), context.taskId(), taskEpoch, stageId,
+                stageGeneration, codeFingerprint, headSha, baseSha,
                 lane, laneMask, write(launch), requestedAt);
     }
 
@@ -266,6 +681,130 @@ public final class PlanRuntimeCoordinator
                 + "Then call record_plan exactly once with task_id='"
                 + context.taskId() + "' and a finalized structured plan. "
                 + "Do not edit code, commit, push, or create remote effects.";
+    }
+
+    private static String reviewPrompt(String taskId, PlanSubmission submission)
+    {
+        return "Review candidate Plan revision " + submission.revision()
+                + " for Task " + taskId + " with digest "
+                + submission.contentDigest() + ".\n\n"
+                + submission.content()
+                + "\n\nPerform exactly one self-review. Call "
+                + "record_plan_self_review exactly once with the matching task_id, "
+                + "a typed verdict, and explicit concern, follow-up, and Project "
+                + "Stewardship arrays. Do not edit files or create remote effects.";
+    }
+
+    private static String redraftPrompt(
+            String taskId, ReviewSubmission submission)
+    {
+        return "Revise the current Plan for Task " + taskId
+                + " to address the exact self-review concerns below.\n\n"
+                + submission.concernsJson()
+                + "\n\nCall record_plan exactly once with a materially revised "
+                + "candidate Plan. Do not edit files or create remote effects.";
+    }
+
+    private void insertReviewFollowups(
+            ReviewSubmission submission, String createdBy, Instant createdAt)
+    {
+        insertFollowups(
+                submission, "CONCERN",
+                readStrings(submission.concernsJson()), createdBy, createdAt);
+        insertFollowups(
+                submission, "FOLLOW_UP",
+                readStrings(submission.followUpsJson()), createdBy, createdAt);
+        insertFollowups(
+                submission, "STEWARDSHIP",
+                readStrings(submission.stewardshipJson()), createdBy, createdAt);
+    }
+
+    private void insertFollowups(
+            ReviewSubmission submission,
+            String kind,
+            List<String> descriptions,
+            String createdBy,
+            Instant createdAt)
+    {
+        for (int index = 0; index < descriptions.size(); index++) {
+            store.insertFollowup(
+                    id("plan-followup-" + kind,
+                            submission.selfReviewId() + ":" + (index + 1)),
+                    submission.revisionId(), kind, descriptions.get(index),
+                    createdBy, createdAt);
+        }
+    }
+
+    private List<String> readStrings(String value)
+    {
+        try {
+            return json.readerForListOf(String.class).readValue(value);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException(
+                    "Persisted Plan protocol array is invalid", e);
+        }
+    }
+
+    private static void requireSubmission(
+            TurnDeliveryContext context, PlanSubmission submission)
+    {
+        if (!context.turnId().equals(submission.turnId())
+                || !context.operationId().equals(submission.operationId())
+                || !"AGENT".equals(submission.source())) {
+            throw new IllegalStateException(
+                    "Plan submission does not match its exact TaskTurn");
+        }
+    }
+
+    private static void requireApplied(
+            CommandResult<StageManager.State> result, String description)
+    {
+        if (result.disposition() == CommandResult.Disposition.SUPERSEDED) {
+            throw new IllegalStateException(description + " was superseded");
+        }
+    }
+
+    private String dispatchResultDigest(DispatchTicket.DispatchResult result)
+    {
+        ObjectNode node = json.createObjectNode();
+        node.put("outcome", result.outcome().name());
+        putNullable(node, "payload", result.payloadJson());
+        putNullable(node, "evidence", result.evidenceJson());
+        putNullable(node, "error", result.error());
+        ObjectNode fence = node.putObject("fence");
+        if (result.fence().taskEpoch() == null) {
+            fence.putNull("taskEpoch");
+        }
+        else {
+            fence.put("taskEpoch", result.fence().taskEpoch());
+        }
+        putNullable(fence, "stageId", result.fence().stageId());
+        if (result.fence().stageGeneration() == null) {
+            fence.putNull("stageGeneration");
+        }
+        else {
+            fence.put("stageGeneration", result.fence().stageGeneration());
+        }
+        fence.put("operationId", result.fence().operationId());
+        fence.put("attempt", result.fence().attempt());
+        putNullable(
+                fence, "expectedCodeFingerprint",
+                result.fence().expectedCodeFingerprint());
+        putNullable(fence, "expectedHeadSha", result.fence().expectedHeadSha());
+        putNullable(fence, "expectedBaseSha", result.fence().expectedBaseSha());
+        return digest(write(node));
+    }
+
+    private String turnReceiptJson(TurnDeliveryReceipt receipt)
+    {
+        ObjectNode node = json.createObjectNode();
+        node.put("schema", "PLAN_TASK_TURN_DELIVERY_V1");
+        node.put("turnId", receipt.turnId());
+        node.put("operationId", receipt.operationId());
+        node.put("acceptance", receipt.acceptance());
+        node.put("domainResult", receipt.domainResult());
+        return write(node);
     }
 
     private ProvisionTaskOperationHandler.ProvisionEvidence decodeProvisionEvidence(
@@ -405,4 +944,13 @@ public final class PlanRuntimeCoordinator
         }
         return value;
     }
+
+    private static List<String> strings(List<String> values, String name)
+    {
+        requireNonNull(values, name + " is null");
+        return values.stream().map(value -> required(value, name + " entry").strip())
+                .toList();
+    }
+
+    public record McpAuthorization(String taskId, String purpose) {}
 }

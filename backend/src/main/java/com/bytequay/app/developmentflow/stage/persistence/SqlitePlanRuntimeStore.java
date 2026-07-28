@@ -155,6 +155,25 @@ public class SqlitePlanRuntimeStore
     }
 
     /** Revalidates the operation-scoped endpoint and marks this exact Turn running. */
+    public Optional<String> findMcpTaskId(String turnId, String operationId)
+    {
+        return jdbc.query("""
+                SELECT turn.task_id
+                FROM task_turn turn
+                JOIN dispatch_ticket ticket
+                  ON ticket.operation_id = turn.operation_id
+                WHERE turn.id = ? AND turn.operation_id = ?
+                  AND turn.purpose IN ('PLAN_DRAFT', 'PLAN_SELF_REVIEW')
+                  AND turn.status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
+                  AND ticket.owner_kind = 'TASK_TURN'
+                  AND ticket.owner_id = turn.id
+                  AND ticket.callback_route = 'TASK_TURN_RESULT'
+                  AND ticket.status = 'RUNNING'
+                """, (rs, row) -> rs.getString("task_id"), turnId, operationId)
+                .stream().findFirst();
+    }
+
+    /** Revalidates the operation-scoped endpoint and marks this exact Turn running. */
     public Optional<McpContext> authorizeMcp(String turnId, String operationId)
     {
         requireTransaction();
@@ -233,7 +252,7 @@ public class SqlitePlanRuntimeStore
         return jdbc.query("""
                 SELECT submission.task_turn_id, submission.operation_id,
                     revision.id AS revision_id, revision.revision,
-                    revision.content_digest, revision.source,
+                    revision.content, revision.content_digest, revision.source,
                     submission.submitted_at_ms
                 FROM plan_turn_submission submission
                 JOIN plan_revision revision
@@ -244,6 +263,7 @@ public class SqlitePlanRuntimeStore
                         rs.getString("operation_id"),
                         rs.getString("revision_id"),
                         rs.getInt("revision"),
+                        rs.getString("content"),
                         rs.getString("content_digest"),
                         rs.getString("source"),
                         instant(rs, "submitted_at_ms")), turnId)
@@ -283,7 +303,36 @@ public class SqlitePlanRuntimeStore
                 revisionId, submittedAt.toEpochMilli());
         return new PlanSubmission(
                 context.turnId(), context.operationId(), revisionId, revision,
-                contentDigest, source, submittedAt);
+                content, contentDigest, source, submittedAt);
+    }
+
+    public BrainLaunchContext requireBrainLaunchContext(String taskId)
+    {
+        List<BrainLaunchContext> rows = jdbc.query("""
+                SELECT task.id AS task_id, task.thread_id AS trunk_id,
+                    trunk.workspace_id, context.work_model_snapshot,
+                    brain.provider, brain.model, brain.role_skill,
+                    code.worktree_path
+                FROM tasks task
+                JOIN threads trunk ON trunk.id = task.thread_id
+                JOIN task_creation_context context ON context.task_id = task.id
+                JOIN task_brain brain ON brain.task_id = task.id
+                JOIN task_code_identity code ON code.task_id = task.id
+                WHERE task.id = ? AND task.workflow_version = 'V2'
+                  AND task.lifecycle_state = 'ACTIVE'
+                """, (rs, row) -> new BrainLaunchContext(
+                        rs.getString("task_id"), rs.getString("trunk_id"),
+                        rs.getString("workspace_id"),
+                        rs.getString("work_model_snapshot"),
+                        rs.getString("provider"), rs.getString("model"),
+                        rs.getString("role_skill"), rs.getString("worktree_path")),
+                taskId);
+        if (rows.size() != 1) {
+            throw new IllegalStateException(
+                    "Expected one exact Task Brain launch context, found "
+                            + rows.size());
+        }
+        return rows.getFirst();
     }
 
     public Optional<ReviewSubmission> findReviewSubmission(String turnId)
@@ -370,6 +419,23 @@ public class SqlitePlanRuntimeStore
                     "Expected one exact Plan TaskTurn delivery, found " + rows.size());
         }
         return rows.getFirst();
+    }
+
+    public Optional<String> findTurnDeliveryTaskId(
+            String turnId, String operationId)
+    {
+        return jdbc.query("""
+                SELECT turn.task_id
+                FROM task_turn turn
+                JOIN dispatch_ticket ticket
+                  ON ticket.operation_id = turn.operation_id
+                WHERE turn.id = ? AND turn.operation_id = ?
+                  AND turn.purpose IN ('PLAN_DRAFT', 'PLAN_SELF_REVIEW')
+                  AND ticket.owner_kind = 'TASK_TURN'
+                  AND ticket.owner_id = turn.id
+                  AND ticket.callback_route = 'TASK_TURN_RESULT'
+                """, (rs, row) -> rs.getString("task_id"), turnId, operationId)
+                .stream().findFirst();
     }
 
     public Optional<TurnDeliveryReceipt> findTurnDeliveryReceipt(String turnId)
@@ -555,6 +621,26 @@ public class SqlitePlanRuntimeStore
                 """,
                 id("plan-failure-followup", selfReviewId), revisionId,
                 description, selfReviewId, blockerId, context.turnId(),
+                openedAt.toEpochMilli());
+    }
+
+    public void openTurnFailure(
+            TurnDeliveryContext context,
+            String blockerType,
+            String description,
+            Instant openedAt)
+    {
+        requireTransaction();
+        jdbc.update("""
+                INSERT INTO task_blocker(
+                    id, task_id, stage_id, owner_kind, owner_id,
+                    blocker_type, status, payload_json, opened_at_ms)
+                VALUES (?, ?, ?, 'STAGE', ?, ?, 'OPEN', ?, ?)
+                """,
+                id("plan-turn-blocker", context.turnId()), context.taskId(),
+                context.stageId(), context.stageId(),
+                required(blockerType, "blockerType"),
+                "{\"message\":" + quote(description) + "}",
                 openedAt.toEpochMilli());
     }
 
@@ -899,6 +985,13 @@ public class SqlitePlanRuntimeStore
                     taskEpoch, stageId, stageGeneration, operationId, 1,
                     codeFingerprint, headSha, baseSha);
         }
+
+        public DispatchTicket.OperationFence operationFence()
+        {
+            return new DispatchTicket.OperationFence(
+                    taskEpoch, stageId, stageGeneration, operationId, 1,
+                    codeFingerprint, headSha, baseSha);
+        }
     }
 
     public record PlanSubmission(
@@ -906,9 +999,20 @@ public class SqlitePlanRuntimeStore
             String operationId,
             String revisionId,
             int revision,
+            String content,
             String contentDigest,
             String source,
             Instant submittedAt) {}
+
+    public record BrainLaunchContext(
+            String taskId,
+            String trunkId,
+            String workspaceId,
+            String workModelSnapshot,
+            String provider,
+            String model,
+            String roleSkill,
+            String worktreePath) {}
 
     public record ReviewOwner(
             String selfReviewId, String revisionId, String reviewedDigest) {}
@@ -967,6 +1071,13 @@ public class SqlitePlanRuntimeStore
         public ResultFence fence()
         {
             return new ResultFence(
+                    taskEpoch, stageId, stageGeneration, operationId, 1,
+                    codeFingerprint, headSha, baseSha);
+        }
+
+        public DispatchTicket.OperationFence operationFence()
+        {
+            return new DispatchTicket.OperationFence(
                     taskEpoch, stageId, stageGeneration, operationId, 1,
                     codeFingerprint, headSha, baseSha);
         }

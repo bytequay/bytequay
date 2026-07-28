@@ -41,10 +41,7 @@ public final class PlanResultDeliveryPort
             case PlanRuntimeCoordinator.PROVISION_CALLBACK ->
                     runtime.deliverProvisioning(owner, expectedFence, rawResult);
             case PlanRuntimeCoordinator.TURN_CALLBACK ->
-                    new DispatchTicket.DeliveryReceipt(
-                            REJECTED,
-                            "{\"schema\":\"PLAN_DELIVERY_V1\","
-                                    + "\"result\":\"Plan TaskTurn delivery is not installed\"}");
+                    runtime.deliverTaskTurn(owner, expectedFence, rawResult);
             default -> new DispatchTicket.DeliveryReceipt(
                     REJECTED,
                     "{\"schema\":\"PLAN_DELIVERY_V1\","

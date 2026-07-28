@@ -96,7 +96,8 @@ class TestTerminalCleanupHandoffs
                                     .isEqualTo(CommandRejectedException.Reason.INVALID_STATE));
         }
 
-        RemoteTerminalToCleanupHandoff.Result result = handoff.accept(command);
+        RemoteTerminalToCleanupHandoff.Result result = executor.execute(
+                "task", () -> handoff.acceptInCommand(command));
         assertThat(result.remote().state().endReason()).isEqualTo(
                 outcome == RemoteDevelopmentStageManager.TerminalOutcome.MERGED
                         ? StageEndReason.REMOTE_MERGED

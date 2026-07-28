@@ -65,8 +65,11 @@ public final class RemoteMergeRuntimeCoordinator
         return commands.execute(command.taskId(), () -> startInCommand(command));
     }
 
-    private Result startInCommand(Command command)
+    /** Starts from an accepted-readiness hook without nesting a Task command. */
+    public Result startInCommand(Command command)
     {
+        requireNonNull(command, "command is null");
+        TaskCommandExecutor.requireCurrent(command.taskId());
         StartReceipt duplicate = store.findStart(command.authorizationId())
                 .orElse(null);
         if (duplicate != null) {

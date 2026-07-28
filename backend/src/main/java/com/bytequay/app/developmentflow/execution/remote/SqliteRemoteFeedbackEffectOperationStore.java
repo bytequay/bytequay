@@ -51,11 +51,17 @@ public class SqliteRemoteFeedbackEffectOperationStore
                        step.remote_feedback_authorization_id,
                        step.remote_feedback_batch_id, step.ordinal, step.kind,
                        step.remote_inbox_item_id, step.external_target,
+                       inbox.thread_id AS target_thread_id,
+                       inbox.comment_id AS target_comment_id,
                        step.review_action, payload.payload, step.payload_digest,
                        step.idempotency_key, step.status, step.attempt_count,
                        step.attempt_limit, batch.task_id, batch.task_epoch,
                        batch.remote_development_stage_id, batch.stage_generation,
                        authorization.head_sha, authorization.base_sha,
+                       binding.remote_repository_id,
+                       binding.head_repository_id,
+                       binding.remote_pr_number, identity.worktree_path,
+                       binding.remote_head_ref, authorization.authorized_at_ms,
                        step.external_effect_id, step.evidence
                 FROM remote_feedback_effect_dispatch dispatch
                 JOIN remote_feedback_effect_step step
@@ -66,6 +72,11 @@ public class SqliteRemoteFeedbackEffectOperationStore
                   ON batch.id = step.remote_feedback_batch_id
                 JOIN remote_feedback_authorization authorization
                   ON authorization.id = step.remote_feedback_authorization_id
+                LEFT JOIN remote_inbox_item inbox
+                  ON inbox.id = step.remote_inbox_item_id
+                JOIN remote_pr_binding binding
+                  ON binding.id = batch.remote_pr_binding_id
+                JOIN task_code_identity identity ON identity.task_id = batch.task_id
                 WHERE dispatch.operation_id = ?
                 """, (rs, row) -> effect(rs), operationId);
         if (rows.size() != 1) {
@@ -166,7 +177,10 @@ public class SqliteRemoteFeedbackEffectOperationStore
                 rs.getString("remote_feedback_batch_id"), rs.getInt("ordinal"),
                 EffectKind.valueOf(rs.getString("kind")),
                 rs.getString("remote_inbox_item_id"),
-                rs.getString("external_target"), rs.getString("review_action"),
+                rs.getString("external_target"),
+                rs.getString("target_thread_id"),
+                rs.getString("target_comment_id"),
+                rs.getString("review_action"),
                 rs.getString("payload"), rs.getString("payload_digest"),
                 rs.getString("idempotency_key"),
                 EffectStatus.valueOf(rs.getString("status")),
@@ -174,7 +188,13 @@ public class SqliteRemoteFeedbackEffectOperationStore
                 rs.getString("task_id"), rs.getLong("task_epoch"),
                 rs.getString("remote_development_stage_id"),
                 rs.getLong("stage_generation"), rs.getString("head_sha"),
-                rs.getString("base_sha"), rs.getString("external_effect_id"),
+                rs.getString("base_sha"),
+                rs.getString("remote_repository_id"),
+                rs.getString("head_repository_id"),
+                rs.getInt("remote_pr_number"), rs.getString("worktree_path"),
+                rs.getString("remote_head_ref"),
+                Instant.ofEpochMilli(rs.getLong("authorized_at_ms")),
+                rs.getString("external_effect_id"),
                 rs.getString("evidence"));
     }
 }

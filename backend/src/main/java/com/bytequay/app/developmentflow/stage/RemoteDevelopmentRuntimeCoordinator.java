@@ -16,9 +16,11 @@ package com.bytequay.app.developmentflow.stage;
 import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.AuthorityKind;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.EffectCompletion;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.EffectDeliveryContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.MarkReadyDeliveryContext;
+import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.MarkReadyDispatch;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.ReadinessEvidence;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.RemoteContext;
 import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteDevelopmentRuntimeStore.RuntimeDeliveryReceipt;
@@ -107,12 +109,70 @@ public final class RemoteDevelopmentRuntimeCoordinator
     public Optional<EffectCompletion> resumeFeedbackCompletion(
             String taskId, String batchId)
     {
-        return commands.execute(taskId, () -> {
-            Optional<EffectCompletion> completion =
-                    store.finishBatchIfEffectsProven(batchId, clock.instant());
-            completion.ifPresent(this::completeFeedbackStage);
-            return completion;
-        });
+        return commands.execute(taskId,
+                () -> resumeFeedbackCompletionInCommand(taskId, batchId));
+    }
+
+    public Optional<EffectCompletion> resumeFeedbackCompletionInCommand(
+            String taskId, String batchId)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        Optional<EffectCompletion> completion =
+                store.finishBatchIfEffectsProven(batchId, clock.instant());
+        completion.ifPresent(this::completeFeedbackStage);
+        return completion;
+    }
+
+    /** Explicit human/policy entry point for one exact Draft-to-ready effect. */
+    public Optional<MarkReadyDispatch> startMarkReady(
+            String taskId,
+            String stageId,
+            MarkReadyAuthority authority,
+            String actorId,
+            int attemptLimit)
+    {
+        return commands.execute(taskId, () -> startMarkReadyInCommand(
+                taskId, stageId, authority, actorId, attemptLimit));
+    }
+
+    public Optional<MarkReadyDispatch> startMarkReadyInCommand(
+            String taskId,
+            String stageId,
+            MarkReadyAuthority authority,
+            String actorId,
+            int attemptLimit)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        requireNonNull(authority, "authority is null");
+        if (attemptLimit < 1) {
+            throw new IllegalArgumentException("attemptLimit must be positive");
+        }
+        if (authority == MarkReadyAuthority.HUMAN
+                && (actorId == null || actorId.isBlank())) {
+            throw new IllegalArgumentException(
+                    "Human mark-ready requires an actor");
+        }
+        if (authority == MarkReadyAuthority.POLICY && actorId != null) {
+            throw new IllegalArgumentException(
+                    "Policy mark-ready cannot impersonate an actor");
+        }
+        RemoteContext context = store.requireContext(taskId, stageId);
+        Optional<MarkReadyDispatch> existing = store.findMarkReadyDispatch(
+                taskId, stageId, context.headSha(), context.baseSha());
+        if (existing.isPresent()) {
+            return existing;
+        }
+        if (!"AWAITING_READY".equals(context.checkpoint())) {
+            return Optional.empty();
+        }
+        String subject = context.snapshotId();
+        return Optional.of(store.authorizeMarkReady(
+                id("mark-ready-authorization", subject),
+                id("mark-ready-operation", subject), taskId, stageId,
+                authority == MarkReadyAuthority.HUMAN
+                        ? AuthorityKind.MANUAL
+                        : AuthorityKind.AUTO_APPROVE_POLICY,
+                actorId, attemptLimit, clock.instant()));
     }
 
     /** Proves readiness and advances the Stage only when every gate is true. */
@@ -123,27 +183,38 @@ public final class RemoteDevelopmentRuntimeCoordinator
             String automationEligibilityEvidenceId,
             String evidence)
     {
-        return commands.execute(taskId, () -> {
-            ReadinessEvidence readiness = store.proveReadiness(
-                    evidenceId, taskId, stageId, automationEligibilityEvidenceId,
-                    evidence, clock.instant());
-            if (readiness.ready()) {
-                RemoteContext context = store.requireContext(taskId, stageId);
-                CommandResult<StageManager.State> accepted =
-                        remote.acceptReadinessEvidenceInCommand(
-                                new RemoteDevelopmentStageManager.RemoteGateCommand(
-                                        stageCommand(context,
-                                                id("accept-remote-readiness", evidenceId)),
-                                        evidenceId, readiness.headSha(),
-                                        readiness.baseSha()));
-                if (accepted.disposition()
-                        == CommandResult.Disposition.SUPERSEDED) {
-                    throw new IllegalStateException(
-                            "Fresh readiness became stale inside its Task command");
-                }
+        return commands.execute(taskId, () -> proveReadinessInCommand(
+                evidenceId, taskId, stageId, automationEligibilityEvidenceId,
+                evidence));
+    }
+
+    public ReadinessEvidence proveReadinessInCommand(
+            String evidenceId,
+            String taskId,
+            String stageId,
+            String automationEligibilityEvidenceId,
+            String evidence)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        ReadinessEvidence readiness = store.proveReadiness(
+                evidenceId, taskId, stageId, automationEligibilityEvidenceId,
+                evidence, clock.instant());
+        if (readiness.ready()) {
+            RemoteContext context = store.requireContext(taskId, stageId);
+            CommandResult<StageManager.State> accepted =
+                    remote.acceptReadinessEvidenceInCommand(
+                            new RemoteDevelopmentStageManager.RemoteGateCommand(
+                                    stageCommand(context,
+                                            id("accept-remote-readiness", evidenceId)),
+                                    evidenceId, readiness.headSha(),
+                                    readiness.baseSha()));
+            if (accepted.disposition()
+                    == CommandResult.Disposition.SUPERSEDED) {
+                throw new IllegalStateException(
+                        "Fresh readiness became stale inside its Task command");
             }
-            return readiness;
-        });
+        }
+        return readiness;
     }
 
     private DispatchTicket.DeliveryReceipt deliverEffectInCommand(
@@ -193,6 +264,12 @@ public final class RemoteDevelopmentRuntimeCoordinator
                 acceptance.name(), evidence, now);
         store.insertRuntimeDeliveryReceipt(recorded);
         return receipt(acceptance, evidence);
+    }
+
+    public enum MarkReadyAuthority
+    {
+        HUMAN,
+        POLICY
     }
 
     private DispatchTicket.DeliveryReceipt deliverMarkReadyInCommand(

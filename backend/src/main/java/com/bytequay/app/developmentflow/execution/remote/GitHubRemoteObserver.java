@@ -21,6 +21,7 @@ import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrReviewThreadMessage;
+import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.repository.PullRequestRepository;
@@ -47,6 +48,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import static com.bytequay.app.developmentflow.stage.RemoteCiPolicy.CheckState.CANCELED;
@@ -107,6 +109,9 @@ public final class GitHubRemoteObserver
         String pat = pats.resolve(repository.fullName());
 
         requireActive(execution);
+        String viewer = requireText(
+                pullRequests.fetchUserProfile(pat).login(), "GitHub viewer login");
+        requireActive(execution);
         PrRawDetail detail = requireNonNull(
                 pullRequests.fetchPrDetail(pat, pullRequest),
                 "GitHub returned no pull request detail");
@@ -126,9 +131,24 @@ public final class GitHubRemoteObserver
         List<PrReviewThreadMessage> comments = List.copyOf(
                 pullRequests.fetchPrReviewComments(pat, pullRequest, Instant.EPOCH));
         requireActive(execution);
+        List<PrTimelineEvent> timeline = List.copyOf(
+                pullRequests.fetchPrTimeline(pat, pullRequest, Instant.EPOCH));
+        requireActive(execution);
+        List<PrTimelineEvent> issueComments = List.copyOf(
+                pullRequests.fetchPrIssueComments(pat, pullRequest, Instant.EPOCH));
+        requireActive(execution);
         MergeQueueInfo queue = requireNonNull(
                 pullRequests.fetchMergeQueueInfo(pat, pullRequest),
                 "GitHub returned no merge queue observation");
+        requireActive(execution);
+        PrRawDetail stableDetail = requireNonNull(
+                pullRequests.fetchPrDetail(pat, pullRequest),
+                "GitHub returned no pull request stability detail");
+        if (!Objects.equals(detail.headSha(), stableDetail.headSha())
+                || !Objects.equals(detail.baseSha(), stableDetail.baseSha())) {
+            throw new IllegalStateException(
+                    "GitHub pull request head moved during exact observation");
+        }
 
         List<PrReviewState> effective = effectiveReviews(reviews);
         int approvals = (int) effective.stream()
@@ -149,6 +169,9 @@ public final class GitHubRemoteObserver
                         comment.inReplyTo() == null
                                 ? comment.githubId() : comment.inReplyTo()))
                 .count();
+        List<RemoteObservationOperationHandler.FeedbackFact> feedback =
+                feedbackFacts(
+                        comments, threads, timeline, issueComments, viewer, json);
         long observedAt = clock.instant().toEpochMilli();
 
         Map<String, Object> raw = new LinkedHashMap<>();
@@ -159,6 +182,9 @@ public final class GitHubRemoteObserver
         raw.put("checks", checks);
         raw.put("reviewThreads", threads);
         raw.put("reviewComments", comments);
+        raw.put("timeline", timeline);
+        raw.put("issueComments", issueComments);
+        raw.put("viewer", viewer);
         raw.put("mergeQueue", queue);
         raw.put("observedAtMs", observedAt);
         String rawEvidence = write(raw);
@@ -180,8 +206,164 @@ public final class GitHubRemoteObserver
                 unresolvedRoots.size(),
                 unresolvedComments,
                 normalizeChecks(checks, json),
+                feedback,
                 rawEvidence,
                 observedAt);
+    }
+
+    static List<RemoteObservationOperationHandler.FeedbackFact> feedbackFacts(
+            List<PrReviewThreadMessage> comments,
+            List<ReviewThreadMeta> threads,
+            List<PrTimelineEvent> timeline,
+            List<PrTimelineEvent> issueComments,
+            String viewer,
+            ObjectMapper json)
+    {
+        requireNonNull(comments, "comments is null");
+        requireNonNull(threads, "threads is null");
+        requireNonNull(timeline, "timeline is null");
+        requireNonNull(issueComments, "issueComments is null");
+        requireText(viewer, "viewer");
+        requireNonNull(json, "json is null");
+
+        Map<Long, ReviewThreadMeta> threadByRoot = new HashMap<>();
+        for (ReviewThreadMeta thread : threads) {
+            threadByRoot.put(thread.rootCommentDatabaseId(), thread);
+        }
+        List<RemoteObservationOperationHandler.FeedbackFact> facts =
+                new ArrayList<>();
+        for (PrReviewThreadMessage comment : comments) {
+            long root = comment.inReplyTo() == null
+                    ? comment.githubId() : comment.inReplyTo();
+            ReviewThreadMeta thread = threadByRoot.get(root);
+            if (thread != null && thread.resolved()) {
+                continue;
+            }
+            String threadId = thread == null
+                    ? firstText(comment.graphqlNodeId(), "review-thread:" + root)
+                    : thread.graphqlNodeId();
+            if (comment.body() == null || comment.body().isBlank()) {
+                continue;
+            }
+            facts.add(fact(
+                    RemoteObservationOperationHandler.FeedbackKind.INLINE_COMMENT,
+                    "inline-comment:" + comment.githubId(), comment.author(),
+                    sameLogin(comment.author(), viewer), threadId,
+                    Long.toString(root),
+                    comment.reviewId() == null
+                            ? null : Long.toString(comment.reviewId()),
+                    null, comment.body(), null, write(json, comment)));
+        }
+        for (ReviewThreadMeta thread : threads) {
+            facts.add(fact(
+                    thread.resolved()
+                            ? RemoteObservationOperationHandler.FeedbackKind.THREAD_RESOLVED
+                            : RemoteObservationOperationHandler.FeedbackKind.THREAD_REOPENED,
+                    "thread-state:" + thread.graphqlNodeId(), thread.resolvedBy(),
+                    false, thread.graphqlNodeId(), null, null, null, null, null,
+                    write(json, thread)));
+        }
+        for (PrTimelineEvent event : issueComments) {
+            if (!"COMMENTED".equals(normalize(event.event()))
+                    || event.githubId() == null
+                    || event.body() == null || event.body().isBlank()) {
+                continue;
+            }
+            facts.add(fact(
+                    RemoteObservationOperationHandler.FeedbackKind.TOP_LEVEL_COMMENT,
+                    "top-level-comment:" + event.githubId(), event.actor(),
+                    sameLogin(event.actor(), viewer), null,
+                    Long.toString(event.githubId()), null, null, event.body(), null,
+                    write(json, event)));
+        }
+        for (PrTimelineEvent event : timeline) {
+            String kind = normalize(event.event());
+            if ("REVIEWED".equals(kind)) {
+                String reviewId = event.reviewId() == null
+                        ? event.githubId() == null ? null
+                                : Long.toString(event.githubId())
+                        : Long.toString(event.reviewId());
+                RemoteObservationOperationHandler.FeedbackVerdict verdict =
+                        feedbackVerdict(event.state());
+                if (reviewId == null || verdict == null) {
+                    continue;
+                }
+                boolean own = sameLogin(event.actor(), viewer);
+                if (event.body() != null && !event.body().isBlank()) {
+                    facts.add(fact(
+                            RemoteObservationOperationHandler.FeedbackKind.REVIEW_BODY,
+                            "review-body:" + reviewId, event.actor(), own,
+                            null, null, reviewId, null, event.body(), null,
+                            write(json, event)));
+                }
+                facts.add(fact(
+                        RemoteObservationOperationHandler.FeedbackKind.REVIEW_VERDICT,
+                        "review-verdict:" + reviewId, event.actor(), own,
+                        null, null, reviewId, null, null, verdict,
+                        write(json, event)));
+            }
+            else if ("REVIEW_REQUESTED".equals(kind)
+                    && event.requestedReviewer() != null
+                    && !event.requestedReviewer().isBlank()) {
+                String eventId = event.githubId() == null
+                        ? digest(write(json, event))
+                        : Long.toString(event.githubId());
+                facts.add(fact(
+                        RemoteObservationOperationHandler.FeedbackKind.REQUESTED_REVIEW,
+                        "requested-review:" + eventId, event.actor(),
+                        sameLogin(event.actor(), viewer), null, null, null,
+                        event.requestedReviewer(), null, null, write(json, event)));
+            }
+        }
+        return facts.stream()
+                .sorted(Comparator.comparing(
+                                RemoteObservationOperationHandler.FeedbackFact::externalKey)
+                        .thenComparing(fact -> fact.kind().name()))
+                .toList();
+    }
+
+    private static RemoteObservationOperationHandler.FeedbackFact fact(
+            RemoteObservationOperationHandler.FeedbackKind kind,
+            String externalKey,
+            String actor,
+            boolean ownAction,
+            String threadId,
+            String commentId,
+            String reviewId,
+            String requestedReviewer,
+            String body,
+            RemoteObservationOperationHandler.FeedbackVerdict verdict,
+            String rawEvidence)
+    {
+        return new RemoteObservationOperationHandler.FeedbackFact(
+                kind, externalKey, actor, ownAction, threadId, commentId,
+                reviewId, requestedReviewer, body, verdict, rawEvidence);
+    }
+
+    private static RemoteObservationOperationHandler.FeedbackVerdict
+            feedbackVerdict(String state)
+    {
+        return switch (normalize(state)) {
+            case "APPROVED" ->
+                    RemoteObservationOperationHandler.FeedbackVerdict.APPROVED;
+            case "CHANGES_REQUESTED" ->
+                    RemoteObservationOperationHandler.FeedbackVerdict.CHANGES_REQUESTED;
+            case "COMMENTED" ->
+                    RemoteObservationOperationHandler.FeedbackVerdict.COMMENTED;
+            case "DISMISSED" ->
+                    RemoteObservationOperationHandler.FeedbackVerdict.DISMISSED;
+            default -> null;
+        };
+    }
+
+    private static boolean sameLogin(String left, String right)
+    {
+        return left != null && right != null && left.equalsIgnoreCase(right);
+    }
+
+    private static String firstText(String first, String fallback)
+    {
+        return first == null || first.isBlank() ? fallback : first;
     }
 
     static List<PrReviewState> effectiveReviews(List<PrReviewState> reviews)
@@ -359,12 +541,13 @@ public final class GitHubRemoteObserver
         return value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
     }
 
-    private static void requireText(String value, String name)
+    private static String requireText(String value, String name)
     {
         requireNonNull(value, name + " is null");
         if (value.isBlank()) {
             throw new IllegalArgumentException(name + " must not be blank");
         }
+        return value;
     }
 
     private record IndexedReview(PrReviewState review, int index) {}

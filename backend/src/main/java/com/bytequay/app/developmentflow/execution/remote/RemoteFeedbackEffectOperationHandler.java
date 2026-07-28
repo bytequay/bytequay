@@ -228,6 +228,8 @@ public final class RemoteFeedbackEffectOperationHandler
             EffectKind kind,
             String remoteInboxItemId,
             String externalTarget,
+            String targetThreadId,
+            String targetCommentId,
             String reviewAction,
             String payload,
             String payloadDigest,
@@ -241,6 +243,12 @@ public final class RemoteFeedbackEffectOperationHandler
             long stageGeneration,
             String headSha,
             String baseSha,
+            String repositoryId,
+            String headRepositoryId,
+            int pullRequestNumber,
+            String worktreePath,
+            String headRef,
+            Instant authorizedAt,
             String externalEffectId,
             String evidence)
     {
@@ -248,6 +256,15 @@ public final class RemoteFeedbackEffectOperationHandler
         {
             requireNonNull(kind, "kind is null");
             requireNonNull(status, "status is null");
+            requireText(repositoryId, "repositoryId");
+            requireText(headRepositoryId, "headRepositoryId");
+            requireText(worktreePath, "worktreePath");
+            requireText(headRef, "headRef");
+            requireNonNull(authorizedAt, "authorizedAt is null");
+            if (pullRequestNumber < 1) {
+                throw new IllegalArgumentException(
+                        "pullRequestNumber must be positive");
+            }
         }
     }
 
@@ -272,6 +289,14 @@ public final class RemoteFeedbackEffectOperationHandler
         public RetryableEffectException(String message)
         {
             super(requireNonNull(message, "message is null"));
+        }
+    }
+
+    private static void requireText(String value, String name)
+    {
+        requireNonNull(value, name + " is null");
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(name + " is blank");
         }
     }
 }

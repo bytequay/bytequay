@@ -98,6 +98,48 @@ public class SqliteRemoteDevelopmentRuntimeStore
         return new IngestResult(item.id(), true);
     }
 
+    /** Versions one accepted external identity only when its semantic fact changed. */
+    public IngestResult ingestObserved(ObservedInboxItem observed)
+    {
+        requireTransaction();
+        requireNonNull(observed, "observed is null");
+        Optional<InboxItem> latest = jdbc.query("""
+                SELECT id, remote_development_stage_id, task_id, task_epoch,
+                       stage_generation, remote_pr_binding_id,
+                       remote_pr_snapshot_id, kind, external_key,
+                       external_revision, head_sha, base_sha, actor_login,
+                       provenance, ignored, thread_id, comment_id, review_id,
+                       requested_reviewer, body, body_digest, verdict,
+                       previous_head_sha, new_head_sha, observed_at_ms,
+                       raw_evidence
+                FROM remote_inbox_item
+                WHERE remote_pr_binding_id = ? AND external_key = ?
+                ORDER BY external_revision DESC LIMIT 1
+                """, (rs, row) -> inboxItem(rs), observed.remotePrBindingId(),
+                observed.externalKey()).stream().findFirst();
+        if (latest.filter(item -> sameFact(item, observed)).isPresent()) {
+            return new IngestResult(latest.orElseThrow().id(), false);
+        }
+        long revision = latest.map(InboxItem::externalRevision).orElse(0L) + 1;
+        String bodyDigest = observed.body() == null
+                ? null : digest(observed.body());
+        String identity = observed.remotePrBindingId() + "\u0000"
+                + observed.externalKey() + "\u0000" + revision + "\u0000"
+                + semanticIdentity(observed);
+        return ingest(new InboxItem(
+                "remote-inbox-" + digest(identity), observed.taskId(),
+                observed.taskEpoch(), observed.stageId(),
+                observed.stageGeneration(), observed.remotePrBindingId(),
+                observed.remotePrSnapshotId(), observed.kind(),
+                observed.externalKey(), revision, observed.headSha(),
+                observed.baseSha(), observed.actorLogin(), observed.provenance(),
+                observed.ignored(), observed.threadId(), observed.commentId(),
+                observed.reviewId(), observed.requestedReviewer(), observed.body(),
+                bodyDigest, observed.verdict(), observed.previousHeadSha(),
+                observed.newHeadSha(), observed.observedAt(),
+                observed.rawEvidence()));
+    }
+
     /** Freezes only the unbatched latest revisions visible in this transaction. */
     public Optional<FrozenBatch> freezeNextBatch(
             String batchId,
@@ -125,6 +167,8 @@ public class SqliteRemoteDevelopmentRuntimeStore
                   AND item.head_sha = ? AND item.base_sha = ?
                   AND item.ignored = 0
                   AND item.kind NOT IN ('HEAD_CHANGED', 'THREAD_RESOLVED')
+                  AND (item.kind <> 'REVIEW_VERDICT'
+                    OR item.verdict = 'CHANGES_REQUESTED')
                   AND item.external_revision = (
                       SELECT MAX(latest.external_revision)
                       FROM remote_inbox_item latest
@@ -190,6 +234,52 @@ public class SqliteRemoteDevelopmentRuntimeStore
         return Optional.of(new FrozenBatch(
                 batchId, sequence, context.snapshotId(), context.headSha(),
                 context.baseSha(), digest, List.copyOf(items)));
+    }
+
+    public Optional<OpenFeedbackBatch> findOpenFeedbackBatch(
+            String stageId, String headSha, String baseSha)
+    {
+        return jdbc.query("""
+                SELECT id, status, head_sha, base_sha
+                FROM remote_feedback_batch
+                WHERE remote_development_stage_id = ?
+                  AND head_sha = ? AND base_sha = ?
+                  AND status NOT IN ('COMPLETED', 'SUPERSEDED')
+                ORDER BY sequence LIMIT 1
+                """, (rs, row) -> new OpenFeedbackBatch(
+                        rs.getString("id"), rs.getString("status"),
+                        rs.getString("head_sha"), rs.getString("base_sha")),
+                stageId, headSha, baseSha).stream().findFirst();
+    }
+
+    public Optional<String> findFeedbackBatchAwaitingHead(
+            String stageId, String observedHeadSha, String baseSha)
+    {
+        return jdbc.query("""
+                SELECT batch.id
+                FROM remote_feedback_batch batch
+                JOIN remote_feedback_effect_step push
+                  ON push.remote_feedback_batch_id = batch.id
+                 AND push.kind = 'PUSH_COMMITS'
+                 AND push.status = 'SUCCEEDED'
+                WHERE batch.remote_development_stage_id = ?
+                  AND batch.status = 'APPLYING'
+                  AND push.external_effect_id = ?
+                  AND batch.base_sha = ?
+                ORDER BY batch.sequence LIMIT 1
+                """, (rs, row) -> rs.getString("id"), stageId,
+                observedHeadSha, baseSha).stream().findFirst();
+    }
+
+    public Optional<String> findAutomationEligibilityEvidenceId(
+            String taskId, long taskEpoch)
+    {
+        return jdbc.query("""
+                SELECT id FROM task_automation_eligibility_evidence
+                WHERE task_id = ? AND task_epoch = ?
+                ORDER BY recorded_at_ms DESC LIMIT 1
+                """, (rs, row) -> rs.getString("id"), taskId, taskEpoch)
+                .stream().findFirst();
     }
 
     public AutomationPolicy appendAutomationPolicy(
@@ -265,7 +355,7 @@ public class SqliteRemoteDevelopmentRuntimeStore
         RemoteContext context = requireContext(taskId, stageId);
         AutomationPolicy policy = requireAutomationPolicy(taskId);
         ReadinessInputs inputs = requireReadinessInputs(
-                context, policy, automationEligibilityEvidenceId);
+                context, automationEligibilityEvidenceId);
         boolean ready = inputs.prOpen()
                 && inputs.nonDraft()
                 && inputs.ciAccepted()
@@ -595,6 +685,38 @@ public class SqliteRemoteDevelopmentRuntimeStore
                 policy.revision());
     }
 
+    /** Returns the one mark-ready operation already frozen for this subject. */
+    public Optional<MarkReadyDispatch> findMarkReadyDispatch(
+            String taskId, String stageId, String headSha, String baseSha)
+    {
+        requireTransaction();
+        return jdbc.query("""
+                SELECT authorization.id AS authorization_id,
+                       operation.id AS mark_ready_operation_id,
+                       operation.operation_id, dispatch.dispatch_ticket_id,
+                       authorization.authority_kind, policy.revision
+                FROM remote_mark_ready_authorization authorization
+                JOIN remote_mark_ready_operation operation
+                  ON operation.mark_ready_authorization_id = authorization.id
+                JOIN remote_mark_ready_dispatch dispatch
+                  ON dispatch.remote_mark_ready_operation_id = operation.id
+                JOIN task_automation_policy policy
+                  ON policy.id = authorization.automation_policy_id
+                WHERE authorization.task_id = ?
+                  AND authorization.remote_development_stage_id = ?
+                  AND authorization.head_sha = ?
+                  AND authorization.base_sha = ?
+                ORDER BY authorization.authorized_at_ms DESC LIMIT 1
+                """, (rs, row) -> new MarkReadyDispatch(
+                        rs.getString("authorization_id"),
+                        rs.getString("mark_ready_operation_id"),
+                        rs.getString("operation_id"),
+                        rs.getString("dispatch_ticket_id"),
+                        AuthorityKind.valueOf(rs.getString("authority_kind")),
+                        rs.getInt("revision")),
+                taskId, stageId, headSha, baseSha).stream().findFirst();
+    }
+
     public EffectDeliveryContext requireEffectDelivery(String operationId)
     {
         List<EffectDeliveryContext> rows = jdbc.query("""
@@ -877,7 +999,6 @@ public class SqliteRemoteDevelopmentRuntimeStore
 
     private ReadinessInputs requireReadinessInputs(
             RemoteContext context,
-            AutomationPolicy policy,
             String eligibilityId)
     {
         List<ReadinessInputs> rows = jdbc.query("""
@@ -931,10 +1052,6 @@ public class SqliteRemoteDevelopmentRuntimeStore
                 context.snapshotId(), context.headSha(), context.baseSha());
         if (rows.size() != 1) {
             throw new IllegalStateException("Fresh exact-head CI evidence is missing");
-        }
-        if ((policy.requireLowRisk() || policy.requireSmallEffort())
-                && eligibilityId == null) {
-            throw new IllegalStateException("Configured automation eligibility is missing");
         }
         return rows.getFirst();
     }
@@ -1014,6 +1131,46 @@ public class SqliteRemoteDevelopmentRuntimeStore
                 rs.getString("previous_head_sha"), rs.getString("new_head_sha"),
                 Instant.ofEpochMilli(rs.getLong("observed_at_ms")),
                 rs.getString("raw_evidence"));
+    }
+
+    private static boolean sameFact(
+            InboxItem item, ObservedInboxItem observed)
+    {
+        return item.taskId().equals(observed.taskId())
+                && item.taskEpoch() == observed.taskEpoch()
+                && item.stageId().equals(observed.stageId())
+                && item.stageGeneration() == observed.stageGeneration()
+                && item.remotePrBindingId().equals(observed.remotePrBindingId())
+                && item.kind() == observed.kind()
+                && item.externalKey().equals(observed.externalKey())
+                && Objects.equals(item.actorLogin(), observed.actorLogin())
+                && item.provenance() == observed.provenance()
+                && item.ignored() == observed.ignored()
+                && Objects.equals(item.threadId(), observed.threadId())
+                && Objects.equals(item.commentId(), observed.commentId())
+                && Objects.equals(item.reviewId(), observed.reviewId())
+                && Objects.equals(
+                        item.requestedReviewer(), observed.requestedReviewer())
+                && Objects.equals(item.body(), observed.body())
+                && item.verdict() == observed.verdict()
+                && Objects.equals(
+                        item.previousHeadSha(), observed.previousHeadSha())
+                && Objects.equals(item.newHeadSha(), observed.newHeadSha());
+    }
+
+    private static String semanticIdentity(ObservedInboxItem observed)
+    {
+        return observed.kind() + "\u0000"
+                + Objects.toString(observed.actorLogin(), "") + "\u0000"
+                + observed.provenance() + "\u0000" + observed.ignored() + "\u0000"
+                + Objects.toString(observed.threadId(), "") + "\u0000"
+                + Objects.toString(observed.commentId(), "") + "\u0000"
+                + Objects.toString(observed.reviewId(), "") + "\u0000"
+                + Objects.toString(observed.requestedReviewer(), "") + "\u0000"
+                + Objects.toString(observed.body(), "") + "\u0000"
+                + Objects.toString(observed.verdict(), "") + "\u0000"
+                + Objects.toString(observed.previousHeadSha(), "") + "\u0000"
+                + Objects.toString(observed.newHeadSha(), "");
     }
 
     private static AutomationPolicy automationPolicy(ResultSet rs)
@@ -1196,6 +1353,57 @@ public class SqliteRemoteDevelopmentRuntimeStore
     }
 
     public record IngestResult(String itemId, boolean inserted) {}
+
+    public record ObservedInboxItem(
+            String taskId,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            String remotePrBindingId,
+            String remotePrSnapshotId,
+            InboxKind kind,
+            String externalKey,
+            String headSha,
+            String baseSha,
+            String actorLogin,
+            Provenance provenance,
+            boolean ignored,
+            String threadId,
+            String commentId,
+            String reviewId,
+            String requestedReviewer,
+            String body,
+            Verdict verdict,
+            String previousHeadSha,
+            String newHeadSha,
+            Instant observedAt,
+            String rawEvidence)
+    {
+        public ObservedInboxItem
+        {
+            requireText(taskId, "taskId");
+            requireText(stageId, "stageId");
+            requireText(remotePrBindingId, "remotePrBindingId");
+            requireText(remotePrSnapshotId, "remotePrSnapshotId");
+            requireNonNull(kind, "kind is null");
+            requireText(externalKey, "externalKey");
+            requireText(headSha, "headSha");
+            requireText(baseSha, "baseSha");
+            requireNonNull(provenance, "provenance is null");
+            requireNonNull(observedAt, "observedAt is null");
+            if (taskEpoch < 1 || stageGeneration < 1) {
+                throw new IllegalArgumentException(
+                        "Observed Remote inbox fence is invalid");
+            }
+            if (ignored != (provenance == Provenance.OWN_REPLY)) {
+                throw new IllegalArgumentException(
+                        "Only own mirrored Remote actions are ignored");
+            }
+        }
+    }
+
+    public record OpenFeedbackBatch(
+            String id, String status, String headSha, String baseSha) {}
 
     public record FrozenItem(
             String id,

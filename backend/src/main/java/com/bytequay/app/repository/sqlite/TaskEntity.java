@@ -200,10 +200,15 @@ class TaskEntity
     @Column(name = "epoch", nullable = false, insertable = false, updatable = false)
     private long epoch;
 
+    @Column(name = "workflow_version", nullable = false, insertable = false, updatable = false)
+    private String workflowVersion;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
     long getEpoch() { return epoch; }
+
+    String getWorkflowVersion() { return workflowVersion; }
 
     String getThreadId() { return threadId; }
     void setThreadId(String threadId) { this.threadId = threadId; }

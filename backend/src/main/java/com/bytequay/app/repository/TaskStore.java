@@ -198,6 +198,17 @@ public interface TaskStore
         return OptionalLong.empty();
     }
 
+    /** Immutable workflow route for this Task. Empty means the row is absent. */
+    default Optional<String> findWorkflowVersion(String taskId)
+    {
+        return Optional.empty();
+    }
+
+    default boolean isV2Task(String taskId)
+    {
+        return findWorkflowVersion(taskId).filter("V2"::equals).isPresent();
+    }
+
     /** Find the task whose dev branch matches {@code branchName} — the
      *  PR sync uses this to auto-link a PR (incl. manually-opened ones)
      *  to its task by head ref. Empty default for test stores; the

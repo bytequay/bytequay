@@ -18,6 +18,7 @@ import com.bytequay.app.beans.trace.MilestoneSummary;
 import com.bytequay.app.beans.trace.NextPossible;
 import com.bytequay.app.beans.trace.TaskTraceResponse;
 import com.bytequay.app.beans.trace.TraceEvent;
+import com.bytequay.app.developmentflow.compatibility.V2DevelopmentFlowProjection;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
@@ -28,6 +29,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -61,11 +63,18 @@ public class TaskTraceService
 
     private final TaskStore taskStore;
     private final PullRequestService pullRequests;
+    private V2DevelopmentFlowProjection v2Projection;
 
     public TaskTraceService(TaskStore taskStore, PullRequestService pullRequests)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+    }
+
+    @Autowired
+    void setV2Projection(V2DevelopmentFlowProjection v2Projection)
+    {
+        this.v2Projection = requireNonNull(v2Projection, "v2Projection is null");
     }
 
     public Optional<TaskTraceResponse> trace(String taskId)
@@ -75,6 +84,9 @@ public class TaskTraceService
             return Optional.empty();
         }
         Task task = taskOpt.get();
+        if (v2Projection != null && v2Projection.isV2Task(taskId)) {
+            return Optional.of(traceV2(taskId, v2Projection.traceFacts(task)));
+        }
         List<TaskPhaseEvent> events = taskStore.listPhaseEvents(taskId);
         TaskPhase currentPhase = task.phase();
         TaskMilestone currentMilestone = currentPhase == null ? null : TaskMilestone.of(currentPhase);
@@ -87,6 +99,69 @@ public class TaskTraceService
                 buildMilestoneSummary(events, currentMilestone),
                 buildNextPossible(currentPhase),
                 linkedActivePr(task, currentPhase)));
+    }
+
+    private static TaskTraceResponse traceV2(
+            String taskId, V2DevelopmentFlowProjection.TraceFacts facts)
+    {
+        TaskPhase currentPhase = facts.task().phase();
+        TaskMilestone currentMilestone = TaskMilestone.of(currentPhase);
+        List<TraceEvent> events = buildV2Events(facts.events());
+        return new TaskTraceResponse(
+                taskId,
+                currentPhase.name(),
+                currentMilestone.name(),
+                events,
+                buildV2MilestoneSummary(facts.events(), currentMilestone),
+                buildNextPossible(currentPhase),
+                facts.linkedActivePr());
+    }
+
+    private static List<TraceEvent> buildV2Events(
+            List<V2DevelopmentFlowProjection.PhaseFact> facts)
+    {
+        List<TraceEvent> out = new ArrayList<>(facts.size());
+        List<TaskPhase> visited = new ArrayList<>();
+        TaskPhase previous = null;
+        for (V2DevelopmentFlowProjection.PhaseFact fact : facts) {
+            TaskPhase phase = fact.phase();
+            TaskMilestone fromMilestone = previous == null ? null : TaskMilestone.of(previous);
+            TaskMilestone toMilestone = TaskMilestone.of(phase);
+            String label = switch (phase) {
+                case IMPLEMENTING -> visited.contains(phase) ? "Address" : "Implement";
+                case INTERNAL_REVIEW -> visited.contains(phase) ? "Re-review" : "Review";
+                default -> TaskFlowLabels.nodeLabel(phase);
+            };
+            out.add(new TraceEvent(
+                    out.size() + 1,
+                    previous == null ? null : previous.name(),
+                    phase.name(),
+                    fromMilestone == null ? null : fromMilestone.name(),
+                    toMilestone.name(),
+                    fact.actor(),
+                    fact.reason(),
+                    fact.occurredAt().toString(),
+                    label));
+            visited.add(phase);
+            previous = phase;
+        }
+        return List.copyOf(out);
+    }
+
+    private static List<MilestoneSummary> buildV2MilestoneSummary(
+            List<V2DevelopmentFlowProjection.PhaseFact> facts,
+            TaskMilestone currentMilestone)
+    {
+        Map<TaskMilestone, Integer> visits = new EnumMap<>(TaskMilestone.class);
+        TaskMilestone previous = null;
+        for (V2DevelopmentFlowProjection.PhaseFact fact : facts) {
+            TaskMilestone milestone = TaskMilestone.of(fact.phase());
+            if (milestone != previous) {
+                visits.merge(milestone, 1, Integer::sum);
+            }
+            previous = milestone;
+        }
+        return milestoneSummary(visits, currentMilestone);
     }
 
     /**
@@ -162,6 +237,12 @@ public class TaskTraceService
             }
         }
 
+        return milestoneSummary(visits, currentMilestone);
+    }
+
+    private static List<MilestoneSummary> milestoneSummary(
+            Map<TaskMilestone, Integer> visits, TaskMilestone currentMilestone)
+    {
         List<TaskMilestone> canon = TaskMilestone.CANONICAL;
         List<MilestoneSummary> out = new ArrayList<>(canon.size());
         for (int pos = 0; pos < canon.size(); pos++) {

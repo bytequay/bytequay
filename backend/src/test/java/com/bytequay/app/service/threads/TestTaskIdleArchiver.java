@@ -82,6 +82,21 @@ class TestTaskIdleArchiver
     }
 
     @Test
+    void v2TaskIsOwnedByTheV2MaintenancePath()
+    {
+        when(behavior.get().archiveIdleAfter()).thenReturn("1h");
+        Task task = task("v2", NOW.minusSeconds(200_000));
+        when(taskStore.listByStatuses(eq(Set.of(TaskStatus.IDLE)), eq(200)))
+                .thenReturn(List.of(task));
+        when(taskStore.isV2Task("v2")).thenReturn(true);
+
+        archiver.sweepOnce(NOW);
+
+        verify(machine, never()).archiveIdle(any());
+        verify(roundStore, never()).findLiveByTask(any());
+    }
+
+    @Test
     void neverCadenceSkipsTheSweep()
     {
         when(behavior.get().archiveIdleAfter()).thenReturn("never");

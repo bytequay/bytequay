@@ -122,6 +122,19 @@ class TestTaskCompletionAnnouncer
     }
 
     @Test
+    void legacyCompletionAnnouncerNeverWritesForAV2Task()
+    {
+        when(taskStore.findTaskByPendingCompletionSummaryTurnId(TURN))
+                .thenReturn(Optional.of(task(3L)));
+        when(taskStore.isV2Task(TASK)).thenReturn(true);
+
+        announcer.onTurnFinished(finished(false));
+
+        verify(threadStore, never()).appendMessage(any());
+        verify(taskStore, never()).clearPendingCompletionSummaryTurnId(any());
+    }
+
+    @Test
     void fallsBackWhenTheTurnFailed()
             throws Exception
     {

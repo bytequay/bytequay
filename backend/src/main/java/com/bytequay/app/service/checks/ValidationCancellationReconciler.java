@@ -93,6 +93,9 @@ public class ValidationCancellationReconciler
 
     private void reconcile(PendingValidationCancel pending, Instant now)
     {
+        if (pending.taskId() != null && taskStore.isV2Task(pending.taskId())) {
+            return;
+        }
         if (executorAbsent(pending, now)) {
             store.markSuperseded(pending.claimKey(), now);
             return;

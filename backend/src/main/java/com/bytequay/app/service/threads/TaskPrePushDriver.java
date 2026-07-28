@@ -86,6 +86,9 @@ public class TaskPrePushDriver
     public void reconcile()
     {
         for (Task task : taskStore.listByStatus(TaskStatus.IDLE, SCAN_LIMIT)) {
+            if (taskStore.isV2Task(task.id())) {
+                continue;
+            }
             try {
                 if (task.phase() == TaskPhase.INTERNAL_REVIEW) {
                     prSync.syncFromTask(task.id());

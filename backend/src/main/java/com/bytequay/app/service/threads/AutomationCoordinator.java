@@ -217,7 +217,8 @@ public class AutomationCoordinator
         List<Task> candidates = taskStore.listWithLinkedPr(CI_SCAN_LIMIT);
         int emitted = 0;
         for (Task task : candidates) {
-            if (isParkedOrTerminal(task)
+            if (taskStore.isV2Task(task.id())
+                    || isParkedOrTerminal(task)
                     || task.linkedPrNumber() == null
                     || task.workingDir() == null) {
                 continue;

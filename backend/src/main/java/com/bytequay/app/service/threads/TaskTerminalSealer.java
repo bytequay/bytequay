@@ -20,6 +20,7 @@ import com.bytequay.app.repository.LocalReviewSubmissionStore;
 import com.bytequay.app.repository.RoundGateStore;
 import com.bytequay.app.repository.StageStore;
 import com.bytequay.app.repository.TaskPushStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.review.ReviewRoundService;
 import com.bytequay.app.service.runs.AgentRunService;
 import com.bytequay.app.service.stage.StageStateMachine;
@@ -50,13 +51,15 @@ class TaskTerminalSealer
     private final TaskPushStore pushes;
     private final RoundGateStore roundGates;
     private final TaskCommandExecutor commands;
+    private final TaskStore tasks;
 
     TaskTerminalSealer(
             StageStore stageStore, StageStateMachine stageMachine,
             ReviewRoundService reviewRounds, AgentRunService agentRuns,
             LocalReviewSubmissionStore submissions, TaskPushStore pushes,
             RoundGateStore roundGates,
-            TaskCommandExecutor commands)
+            TaskCommandExecutor commands,
+            TaskStore tasks)
     {
         this.stageStore = requireNonNull(stageStore, "stageStore is null");
         this.stageMachine = requireNonNull(stageMachine, "stageMachine is null");
@@ -66,15 +69,22 @@ class TaskTerminalSealer
         this.pushes = requireNonNull(pushes, "pushes is null");
         this.roundGates = requireNonNull(roundGates, "roundGates is null");
         this.commands = requireNonNull(commands, "commands is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
     }
 
     void seal(String taskId, String reason)
     {
+        if (tasks.isV2Task(taskId)) {
+            return;
+        }
         commands.executeVoid(taskId, () -> sealInCommand(taskId, reason));
     }
 
     void sealInCommand(String taskId, String reason)
     {
+        if (tasks.isV2Task(taskId)) {
+            return;
+        }
         TaskCommandExecutor.requireCurrent(taskId);
         reviewRounds.closeOpenRoundsInCommand(taskId, reason);
         for (AgentRun run : agentRuns.liveRunsByTask(taskId)) {
@@ -97,6 +107,9 @@ class TaskTerminalSealer
     @EventListener
     void onTerminalSealing(TaskTerminalSealingEvent event)
     {
+        if (tasks.isV2Task(event.taskId())) {
+            return;
+        }
         sealInCommand(event.taskId(), event.reason());
     }
 }

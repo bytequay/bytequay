@@ -121,6 +121,20 @@ class TestTaskPhaseMachine
     }
 
     @Test
+    void legacyStateMachineRejectsAV2TaskBeforeAnyWrite()
+    {
+        when(taskStore.isV2Task("v2-task")).thenReturn(true);
+
+        assertThatThrownBy(() -> machine.transition(
+                "v2-task", TaskPhase.VALIDATING, "misrouted", Actor.AGENT))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("owned by TaskManager");
+
+        verify(taskStore, never()).findTaskById("v2-task");
+        verify(taskStore, never()).updatePhase(eq("v2-task"), any());
+    }
+
+    @Test
     void publicTransitionRejectsAnAmbientTransactionAndInCommandRequiresItsOwner()
     {
         when(taskStore.findTaskById("t1"))

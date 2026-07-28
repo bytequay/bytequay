@@ -386,6 +386,18 @@ class TestBranchGuardJob
         when(guards.findByTask(TASK_ID)).thenReturn(Optional.of(guard(BranchGuard.STATE_HEALTHY)));
     }
 
+    @Test
+    void legacyBranchGuardNeverClaimsAV2Task()
+            throws Exception
+    {
+        when(taskStore.isV2Task(TASK_ID)).thenReturn(true);
+
+        job(List.of()).checkOne(guard(BranchGuard.STATE_HEALTHY));
+
+        verify(guards, never()).findByTask(TASK_ID);
+        verify(git, never()).fetch(any());
+    }
+
     private BranchGuardJob job(List<ValidationCheck> checks)
     {
         return new BranchGuardJob(guards, taskStore, threadStore, scheduler, turnStore, git, checks,

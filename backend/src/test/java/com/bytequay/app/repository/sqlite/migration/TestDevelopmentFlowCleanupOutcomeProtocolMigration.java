@@ -14,18 +14,26 @@
 package com.bytequay.app.repository.sqlite.migration;
 
 import com.bytequay.app.developmentflow.execution.DispatchTicket;
+import com.bytequay.app.developmentflow.execution.DispatchTicketControl;
+import com.bytequay.app.developmentflow.execution.ExecutionDispatcher;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
 import com.bytequay.app.developmentflow.execution.cleanup.CleanupOperationResultDelivery;
 import com.bytequay.app.developmentflow.execution.cleanup.SqliteCleanupOperationStore;
+import com.bytequay.app.developmentflow.persistence.SqliteDispatchTicketStore;
 import com.bytequay.app.developmentflow.stage.CleanupCompletionHandoff;
 import com.bytequay.app.developmentflow.stage.CleanupStageManager;
+import com.bytequay.app.developmentflow.stage.RemoteCiRepairRuntimeCoordinator;
+import com.bytequay.app.developmentflow.stage.RemoteObservationRuntimeCoordinator;
 import com.bytequay.app.developmentflow.stage.StageCheckpoint;
 import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CleanupRecoveryAction;
+import com.bytequay.app.developmentflow.task.V2RecoveryControlService.CleanupRecoveryCommand;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore.ControlContext;
 import com.bytequay.app.developmentflow.trunk.SqliteTaskOutcomeSummaryStore;
@@ -38,8 +46,10 @@ import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.web.server.ResponseStatusException;
 import org.sqlite.SQLiteDataSource;
 
 import java.lang.reflect.Constructor;
@@ -64,6 +74,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.text;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 class TestDevelopmentFlowCleanupOutcomeProtocolMigration
 {
@@ -630,6 +641,121 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
             assertThat(number(connection, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
                     .isZero();
         }
+    }
+
+    @Test
+    void cleanupRetryIsExactIdempotentAndRestartSafe()
+            throws Exception
+    {
+        String url = remoteUrl("cleanup-control-retry.db", true);
+        migrate(url, "264");
+        try (Connection connection = connect(url)) {
+            claimStep(connection, 1, "EXECUTE", 100);
+            recordResult(connection, 1, 1, "EXECUTE", "SUCCEEDED", null,
+                    "admission guard", "step-1", null, 101);
+            finishSuccess(connection, 1, 102);
+            claimStep(connection, 2, "EXECUTE", 110);
+            recordResult(connection, 2, 1, "EXECUTE", "FAILED", null,
+                    "open work remains", "step-2-failed", "still open", 111);
+            openBlocker(connection, 2, 111);
+            finishFailure(connection, 2, "DETERMINATE", "still open", 112);
+            parkCleanupTicket(connection, 113);
+        }
+
+        SQLiteDataSource dataSource = dataSource(url);
+        V2RecoveryControlService first = recoveryService(dataSource);
+        CleanupRecoveryCommand retry = new CleanupRecoveryCommand(
+                "retry-command-1", CleanupRecoveryAction.RETRY,
+                "open work was reconciled");
+        assertThat(first.recoverCleanup("task-1", "cleanup-step-2", retry))
+                .satisfies(result -> {
+                    assertThat(result.created()).isTrue();
+                    assertThat(result.rearmed()).isTrue();
+                    assertThat(result.dispatchTicketId())
+                            .isEqualTo("cleanup-ticket-1");
+                });
+
+        V2RecoveryControlService restarted = recoveryService(dataSource);
+        assertThat(restarted.recoverCleanup(
+                "task-1", "cleanup-step-2", retry))
+                .satisfies(result -> {
+                    assertThat(result.created()).isFalse();
+                    assertThat(result.rearmed()).isFalse();
+                });
+
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM cleanup_step_retry_request
+                WHERE cleanup_step_id = 'cleanup-step-2'
+                """, Integer.class)).isOne();
+        assertThat(jdbc.queryForObject("""
+                SELECT next_attempt_at_ms IS NOT NULL
+                FROM dispatch_ticket WHERE id = 'cleanup-ticket-1'
+                """, Boolean.class)).isTrue();
+
+        assertThatThrownBy(() -> restarted.recoverCleanup(
+                "task-2", "cleanup-step-2",
+                new CleanupRecoveryCommand(
+                        "cross-task-command", CleanupRecoveryAction.RETRY,
+                        "wrong Task")))
+                .isInstanceOf(ResponseStatusException.class)
+                .satisfies(failure -> assertThat(
+                        ((ResponseStatusException) failure).getStatusCode().value())
+                        .isEqualTo(409));
+        assertThatThrownBy(() -> restarted.recoverCleanup(
+                "task-1", "cleanup-step-2",
+                new CleanupRecoveryCommand(
+                        "required-waiver-command",
+                        CleanupRecoveryAction.WAIVE_OPTIONAL,
+                        "skip required work")))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM cleanup_step_waiver", Integer.class))
+                .isZero();
+    }
+
+    @Test
+    void optionalCleanupWaiverRearmsOnlyItsPersistedTicket()
+            throws Exception
+    {
+        String url = remoteUrl("cleanup-control-waiver.db", false);
+        migrate(url, "264");
+        try (Connection connection = connect(url)) {
+            settleStepsBeforeRemoteBranch(connection);
+            claimStep(connection, 10, "EXECUTE", 260);
+            recordResult(connection, 10, 1, "EXECUTE", "FAILED", null,
+                    "remote branch deletion denied", "step-10-failed",
+                    "permission denied", 261);
+            openBlocker(connection, 10, 261);
+            finishFailure(connection, 10, "DETERMINATE", "permission denied", 262);
+            parkCleanupTicket(connection, 263);
+        }
+
+        SQLiteDataSource dataSource = dataSource(url);
+        CleanupRecoveryCommand waiver = new CleanupRecoveryCommand(
+                "waive-command-1", CleanupRecoveryAction.WAIVE_OPTIONAL,
+                "preserve the merged remote branch");
+        assertThat(recoveryService(dataSource).recoverCleanup(
+                "task-1", "cleanup-step-10", waiver))
+                .satisfies(result -> {
+                    assertThat(result.created()).isTrue();
+                    assertThat(result.rearmed()).isTrue();
+                });
+        assertThat(recoveryService(dataSource).recoverCleanup(
+                "task-1", "cleanup-step-10", waiver).created()).isFalse();
+
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        assertThat(jdbc.queryForObject("""
+                SELECT step.status || '|' || blocker.status
+                FROM cleanup_step step
+                JOIN task_blocker blocker
+                  ON blocker.owner_id = step.cleanup_operation_id
+                 AND blocker.subject_revision = CAST(step.ordinal AS TEXT)
+                WHERE step.id = 'cleanup-step-10'
+                """, String.class)).isEqualTo("WAIVED|WAIVED");
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM cleanup_step_waiver", Integer.class))
+                .isOne();
     }
 
     @Test
@@ -1434,6 +1560,109 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     resolution_evidence = 'cleanup decision recorded'
                 WHERE id = 'cleanup-blocker-%1$s'
                 """.formatted(ordinal, status, resolvedAt));
+    }
+
+    private static SQLiteDataSource dataSource(String url)
+    {
+        SQLiteDataSource dataSource = new SQLiteDataSource();
+        dataSource.setUrl(url + "?foreign_keys=ON&busy_timeout=30000");
+        return dataSource;
+    }
+
+    private static V2RecoveryControlService recoveryService(SQLiteDataSource dataSource)
+    {
+        DataSourceTransactionManager transactions =
+                new DataSourceTransactionManager(dataSource);
+        TaskCommandExecutor commands = new TaskCommandExecutor(transactions);
+        SqliteCleanupOperationStore cleanup =
+                new SqliteCleanupOperationStore(
+                        new JdbcTemplate(dataSource), transactions);
+        StaticListableBeanFactory beans = new StaticListableBeanFactory();
+        DispatchTicketControl tickets = new DispatchTicketControl(
+                new SqliteDispatchTicketStore(dataSource),
+                beans.getBeanProvider(ExecutionDispatcher.class));
+        return new V2RecoveryControlService(
+                commands,
+                mock(RemoteCiRepairRuntimeCoordinator.class),
+                mock(RemoteObservationRuntimeCoordinator.class),
+                cleanup,
+                tickets);
+    }
+
+    private static void parkCleanupTicket(Connection connection, int at)
+            throws Exception
+    {
+        execute(connection, """
+                UPDATE capacity_lease
+                   SET released_at_ms = %1$s,
+                       release_reason = 'Cleanup awaits owner recovery'
+                 WHERE id = 'cleanup-lease-1'
+                """.formatted(at));
+        execute(connection, """
+                UPDATE dispatch_ticket
+                   SET version = version + 1, status = 'RECONCILE_WAIT',
+                       claim_purpose = NULL, claim_owner = NULL,
+                       capacity_lease_id = NULL, claim_expires_at_ms = NULL,
+                       next_attempt_at_ms = NULL,
+                       last_error = 'Cleanup awaits owner recovery'
+                 WHERE id = 'cleanup-ticket-1'
+                """);
+    }
+
+    private static void settleStepsBeforeRemoteBranch(Connection connection)
+            throws Exception
+    {
+        for (int ordinal = 1; ordinal <= 5; ordinal++) {
+            int claimedAt = 100 + ordinal * 10;
+            claimStep(connection, ordinal, "EXECUTE", claimedAt);
+            recordResult(connection, ordinal, 1, "EXECUTE", "SUCCEEDED",
+                    null, "step complete", "step-" + ordinal, null,
+                    claimedAt + 1);
+            finishSuccess(connection, ordinal, claimedAt + 2);
+        }
+
+        claimStep(connection, 6, "EXECUTE", 170);
+        execute(connection, """
+                UPDATE notifications
+                   SET status = 'DISMISSED', read_at_ms = 171
+                 WHERE id = 'cleanup-notification-1'
+                """);
+        execute(connection, """
+                UPDATE permission_request
+                   SET state = 'CANCELED', answer = 'Cleanup canceled request',
+                       answer_revision = answer_revision + 1,
+                       answered_at_ms = 171
+                 WHERE id = 'cleanup-permission-1'
+                """);
+        execute(connection, """
+                INSERT INTO cleanup_interaction_dismissal_evidence(
+                    id, cleanup_step_id, cleanup_operation_id, task_id,
+                    task_epoch, dismissed_notification_count,
+                    canceled_permission_count, notification_scope_evidence,
+                    permission_scope_evidence, recorded_at_ms)
+                VALUES ('control-interactions', 'cleanup-step-6',
+                    'cleanup-operation-1', 'task-1', 1, 1, 1,
+                    'all Task notifications dismissed',
+                    'all Task permission prompts canceled', 171)
+                """);
+        recordResult(connection, 6, 1, "EXECUTE", "SUCCEEDED", null,
+                "interactions dismissed", "step-6", null, 172);
+        finishSuccess(connection, 6, 173);
+
+        claimStep(connection, 7, "EXECUTE", 180);
+        recordResult(connection, 7, 1, "EXECUTE", "SUCCEEDED", null,
+                "runtime leases released", "step-7", null, 181);
+        finishSuccess(connection, 7, 182);
+
+        claimStep(connection, 8, "EXECUTE", 190);
+        recordResult(connection, 8, 1, "EXECUTE", "SUCCEEDED",
+                "removed:/tmp/task-1", "worktree absent", "step-8", null, 191);
+        finishSuccess(connection, 8, 192);
+
+        claimStep(connection, 9, "EXECUTE", 200);
+        recordResult(connection, 9, 1, "EXECUTE", "SUCCEEDED",
+                "branch:dev/task-1", "local branch absent", "step-9", null, 201);
+        finishSuccess(connection, 9, 202);
     }
 
     private static void settleSuccessfulRuntimeCleanup(Connection connection)

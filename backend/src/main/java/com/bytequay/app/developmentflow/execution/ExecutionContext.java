@@ -64,6 +64,12 @@ public final class ExecutionContext
         return capacityLease;
     }
 
+    /** Durable identity of this exact infrastructure execution attempt. */
+    public String executionId()
+    {
+        return executionId;
+    }
+
     public long requireWriterFencingToken()
     {
         return requireWriterCapacityLease().writerFencingToken();

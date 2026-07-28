@@ -1,0 +1,889 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.developmentflow.stage;
+
+import com.bytequay.app.developmentflow.CommandRejectedException;
+import com.bytequay.app.developmentflow.CommandResult;
+import com.bytequay.app.developmentflow.ResultFence;
+import com.bytequay.app.developmentflow.task.TaskLifecycle;
+import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.service.threads.TaskCommandExecutor;
+
+import java.util.Optional;
+import java.util.function.Supplier;
+
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.COMMAND_ID_CONFLICT;
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.INVALID_STATE;
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.NOT_CURRENT_STAGE;
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.NOT_FOUND;
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.STALE_EPOCH;
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.STALE_GENERATION;
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.STALE_VERSION;
+import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.WRONG_STAGE_KIND;
+import static java.util.Objects.requireNonNull;
+
+/** Common exact-owner and transition enforcement for the four V2 Stage writers. */
+public abstract class StageManager
+{
+    private final TaskCommandExecutor commands;
+    private final Store store;
+    private final StageKind kind;
+
+    protected StageManager(TaskCommandExecutor commands, Store store, StageKind kind)
+    {
+        this.commands = requireNonNull(commands, "commands is null");
+        this.store = requireNonNull(store, "store is null");
+        this.kind = requireNonNull(kind, "kind is null");
+    }
+
+    final AcceptedSeal sealForTaskCancellationInCommand(
+            TaskManager.AcceptedCancellation accepted)
+    {
+        requireNonNull(accepted, "accepted is null");
+        CommandResult<State> stage = seal(
+                accepted.commandId(), accepted.actor(), accepted.taskId(),
+                accepted.taskEpoch(), accepted.sourceStageId(),
+                accepted.sourceStageGeneration(), accepted.sourceStageVersion(),
+                accepted.barrierId(), "SEAL_FOR_TASK_CANCELLATION",
+                StageEndReason.TASK_CANCELED, TaskLifecycle.CANCELING);
+        return new AcceptedSeal(
+                stage, accepted.taskId(), accepted.sourceStageId(),
+                accepted.sourceStageGeneration(), StageEndReason.TASK_CANCELED,
+                accepted.barrierId());
+    }
+
+    final AcceptedSeal sealForReplanInCommand(TaskManager.AcceptedReplan accepted)
+    {
+        requireNonNull(accepted, "accepted is null");
+        if (kind == StageKind.CLEANUP) {
+            throw rejected(INVALID_STATE, "Cleanup cannot be superseded by replan");
+        }
+        CommandResult<State> stage = seal(
+                accepted.commandId(), accepted.actor(), accepted.taskId(),
+                accepted.sourceTaskEpoch(), accepted.sourceStageId(),
+                accepted.sourceStageGeneration(), accepted.sourceStageVersion(),
+                accepted.replanRequestId(), "SEAL_FOR_REPLAN",
+                StageEndReason.SUPERSEDED_BY_REPLAN, TaskLifecycle.ACTIVE);
+        return new AcceptedSeal(
+                stage, accepted.taskId(), accepted.sourceStageId(),
+                accepted.sourceStageGeneration(), StageEndReason.SUPERSEDED_BY_REPLAN,
+                accepted.replanRequestId());
+    }
+
+    protected abstract boolean accepts(TaskLifecycle lifecycle);
+
+    final CommandResult<State> openInCommand(
+            TaskManager.StageOpening opening,
+            StageCheckpoint initialCheckpoint,
+            String cause)
+    {
+        requireNonNull(opening, "opening is null");
+        requireNonNull(initialCheckpoint, "initialCheckpoint is null");
+        TaskCommandExecutor.requireCurrent(opening.taskId());
+        if (opening.kind() != kind || !initialCheckpoint.belongsTo(kind)
+                || !opening.stageId().equals(opening.taskState().currentStageId())
+                || opening.taskEpoch() != opening.taskState().epoch()) {
+            throw rejected(INVALID_STATE, "Task did not authorize this Stage opening");
+        }
+
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                opening.taskId(), opening.stageId(), opening.commandId());
+        if (duplicate.isPresent()) {
+            return CommandResult.duplicate(requireReceipt(
+                    duplicate.orElseThrow(), opening.actor(), opening.taskId(), opening.stageId(),
+                    opening.stageGeneration(), null, null, null, null,
+                    cause, opening.subjectFence(),
+                    opening.proofId()).state());
+        }
+
+        State state = new State(
+                opening.stageId(),
+                opening.taskId(),
+                kind,
+                opening.stageGeneration(),
+                0,
+                initialCheckpoint,
+                null,
+                null);
+        return CommandResult.applied(store.create(
+                opening.commandId(), cause, opening.actor(),
+                null, null, null, null, opening.subjectFence(),
+                opening.proofId(), state));
+    }
+
+    protected final CommandResult<State> execute(
+            Command command, Supplier<CommandResult<State>> work)
+    {
+        requireNonNull(command, "command is null");
+        requireNonNull(work, "work is null");
+        return commands.execute(command.taskId(), work);
+    }
+
+    protected final CommandResult<State> execute(
+            ResultCommand command, Supplier<CommandResult<State>> work)
+    {
+        requireNonNull(command, "command is null");
+        requireNonNull(work, "work is null");
+        return commands.execute(command.taskId(), work);
+    }
+
+    protected final CommandResult<State> moveInCommand(
+            Command command,
+            String cause,
+            StageCheckpoint source,
+            StageCheckpoint target)
+    {
+        requireNonNull(command, "command is null");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), command.stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            return CommandResult.duplicate(requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(), command.stageId(),
+                    command.expectedStageGeneration(),
+                    command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                    command.expectedStageVersion(), source, cause, null, null)
+                    .state());
+        }
+
+        OwnerState owner = loadOwner(command.taskId(), command.stageId());
+        validate(command, owner);
+        if (!accepts(owner.taskLifecycle())) {
+            throw rejected(INVALID_STATE,
+                    kind + " Stage cannot run while Task is " + owner.taskLifecycle());
+        }
+        State current = owner.stage();
+        if (current.checkpoint() != source || !source.allowsStructuralTransition(target)) {
+            throw rejected(INVALID_STATE,
+                    "Cannot move " + kind + " Stage from " + current.checkpoint()
+                            + " to " + target);
+        }
+        return applied(
+                command.commandId(), cause, command.actor(),
+                command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                command.expectedStageVersion(), source,
+                current, target, current.pendingResult(), null, null);
+    }
+
+    protected final CommandResult<State> acceptResultInCommand(
+            ResultCommand command,
+            String cause,
+            StageCheckpoint source,
+            StageCheckpoint target)
+    {
+        return resolveResultInCommand(command, cause, source, target).result();
+    }
+
+    protected final ResultResolution acceptResultForHandoffInCommand(
+            ResultCommand command,
+            String cause,
+            StageCheckpoint source,
+            StageCheckpoint target)
+    {
+        return resolveResultInCommand(command, cause, source, target);
+    }
+
+    private ResultResolution resolveResultInCommand(
+            ResultCommand command,
+            String cause,
+            StageCheckpoint source,
+            StageCheckpoint target)
+    {
+        requireNonNull(command, "command is null");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), command.resultFence().stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            CommandReceipt receipt = requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(),
+                    command.resultFence().stageId(),
+                    command.resultFence().stageGeneration(),
+                    null, null, null, null, cause,
+                    command.resultFence(), null);
+            return new ResultResolution(
+                    CommandResult.duplicate(receipt.state()), receipt.disposition());
+        }
+
+        ResultFence result = command.resultFence();
+        OwnerState owner = loadOwner(command.taskId(), result.stageId());
+        State current = owner.stage();
+        if (!matchesResult(owner, result)
+                || current.checkpoint() != source
+                || !source.allowsStructuralTransition(target)) {
+            return new ResultResolution(CommandResult.superseded(store.recordSuperseded(
+                    command.commandId(), cause, command.actor(),
+                    null, null, null, null, result, null, current)),
+                    CommandResult.Disposition.SUPERSEDED);
+        }
+        return new ResultResolution(applied(
+                command.commandId(), cause, command.actor(),
+                null, null, null, null,
+                current, target, null, result, null),
+                CommandResult.Disposition.APPLIED);
+    }
+
+    /** Accept an unforgeable Brain fact emitted by TaskManager in this transaction. */
+    protected final CommandResult<State> acceptBrainVerdictInCommand(
+            TaskManager.AcceptedBrainVerdict accepted,
+            TaskManager.BrainVerdict expectedVerdict,
+            String cause,
+            StageCheckpoint source,
+            StageCheckpoint target)
+    {
+        requireNonNull(accepted, "accepted is null");
+        requireNonNull(expectedVerdict, "expectedVerdict is null");
+        if (accepted.verdict() != expectedVerdict) {
+            throw rejected(COMMAND_ID_CONFLICT,
+                    "Accepted Brain verdict does not match the Stage command");
+        }
+        TaskCommandExecutor.requireCurrent(accepted.taskId());
+        ResultFence fact = accepted.resultFence();
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                accepted.taskId(), fact.stageId(), accepted.commandId());
+        if (duplicate.isPresent()) {
+            return CommandResult.duplicate(requireReceipt(
+                    duplicate.orElseThrow(), accepted.actor(), accepted.taskId(), fact.stageId(),
+                    fact.stageGeneration(),
+                    null, null, null, null, cause, fact, null)
+                    .state());
+        }
+
+        OwnerState owner = loadOwner(accepted.taskId(), fact.stageId());
+        State current = owner.stage();
+        if (!matchesFact(owner, fact)
+                || current.checkpoint() != source
+                || !source.allowsStructuralTransition(target)) {
+            return CommandResult.superseded(store.recordSuperseded(
+                    accepted.commandId(), cause, accepted.actor(),
+                    null, null, null, null, fact, null, current));
+        }
+        return applied(
+                accepted.commandId(), cause, accepted.actor(),
+                null, null, null, null,
+                current, target, current.pendingResult(), fact, null);
+    }
+
+    protected final CommandResult<State> moveWithProofInCommand(
+            Command command,
+            String proofId,
+            String cause,
+            StageCheckpoint source,
+            StageCheckpoint target)
+    {
+        requireNonNull(command, "command is null");
+        requireText(proofId, "proofId");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), command.stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            return CommandResult.duplicate(requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(), command.stageId(),
+                    command.expectedStageGeneration(),
+                    command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                    command.expectedStageVersion(), source, cause, null, proofId).state());
+        }
+
+        OwnerState owner = loadOwner(command.taskId(), command.stageId());
+        validate(command, owner);
+        if (!accepts(owner.taskLifecycle())) {
+            throw rejected(INVALID_STATE,
+                    kind + " Stage cannot run while Task is " + owner.taskLifecycle());
+        }
+        State current = owner.stage();
+        if (current.checkpoint() != source || !source.allowsStructuralTransition(target)) {
+            throw rejected(INVALID_STATE,
+                    "Cannot move " + kind + " Stage from " + current.checkpoint()
+                            + " to " + target);
+        }
+        return applied(
+                command.commandId(), cause, command.actor(),
+                command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                command.expectedStageVersion(), source,
+                current, target, current.pendingResult(), null, proofId);
+    }
+
+    /** Replays a structural command before an external proof store is consulted. */
+    protected final Optional<CommandResult<State>> replayStructuralInCommand(
+            Command command,
+            String cause,
+            ResultFence subjectFence,
+            String proofId,
+            StageCheckpoint sourceCheckpoint)
+    {
+        requireNonNull(command, "command is null");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        return store.findCommandResult(
+                        command.taskId(), command.stageId(), command.commandId())
+                .map(receipt -> CommandResult.duplicate(requireReceipt(
+                        receipt, command.actor(), command.taskId(), command.stageId(),
+                        command.expectedStageGeneration(), command.expectedTaskEpoch(),
+                        command.expectedStageGeneration(), command.expectedStageVersion(),
+                        sourceCheckpoint, cause, subjectFence, proofId).state()));
+    }
+
+    /**
+     * Accept a persisted authorization and arm the exact asynchronous result
+     * that is allowed to complete the new checkpoint.
+     */
+    protected final CommandResult<State> moveWithProofAndPendingResultInCommand(
+            Command command,
+            ResultFence pendingResult,
+            String proofId,
+            String cause,
+            StageCheckpoint source,
+            StageCheckpoint target)
+    {
+        requireNonNull(command, "command is null");
+        requireNonNull(pendingResult, "pendingResult is null");
+        requireText(proofId, "proofId");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        if (pendingResult.taskEpoch() != command.expectedTaskEpoch()
+                || !command.stageId().equals(pendingResult.stageId())
+                || pendingResult.stageGeneration() != command.expectedStageGeneration()) {
+            throw rejected(INVALID_STATE, "Authorization result fence targets another owner");
+        }
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), command.stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            return CommandResult.duplicate(requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(), command.stageId(),
+                    command.expectedStageGeneration(),
+                    command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                    command.expectedStageVersion(), source,
+                    cause, pendingResult, proofId).state());
+        }
+
+        OwnerState owner = loadOwner(command.taskId(), command.stageId());
+        validate(command, owner);
+        if (!accepts(owner.taskLifecycle())) {
+            throw rejected(INVALID_STATE,
+                    kind + " Stage cannot run while Task is " + owner.taskLifecycle());
+        }
+        State current = owner.stage();
+        if (current.checkpoint() != source
+                || current.pendingResult() != null
+                || !source.allowsStructuralTransition(target)) {
+            throw rejected(INVALID_STATE,
+                    "Cannot arm " + kind + " Stage from " + current.checkpoint());
+        }
+        return applied(
+                command.commandId(), cause, command.actor(),
+                command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                command.expectedStageVersion(), source,
+                current, target, pendingResult, pendingResult, proofId);
+    }
+
+    protected final CommandResult<State> sealRemoteObservationInCommand(
+            Command command, String proofId, StageEndReason reason)
+    {
+        requireNonNull(command, "command is null");
+        requireText(proofId, "proofId");
+        if (kind != StageKind.REMOTE_DEVELOPMENT
+                || (reason != StageEndReason.REMOTE_MERGED
+                && reason != StageEndReason.REMOTE_CLOSED)) {
+            throw rejected(INVALID_STATE, "Remote observation can seal only Remote Development");
+        }
+        return seal(
+                command.commandId(), command.actor(), command.taskId(),
+                command.expectedTaskEpoch(), command.stageId(),
+                command.expectedStageGeneration(), command.expectedStageVersion(),
+                proofId, "ACCEPT_REMOTE_" + (reason == StageEndReason.REMOTE_MERGED
+                        ? "MERGED" : "CLOSED"), reason,
+                TaskLifecycle.ACTIVE, TaskLifecycle.PAUSED, TaskLifecycle.ARCHIVED);
+    }
+
+    private CommandResult<State> seal(
+            String commandId,
+            String actor,
+            String taskId,
+            long taskEpoch,
+            String stageId,
+            long stageGeneration,
+            long stageVersion,
+            String proofId,
+            String cause,
+            StageEndReason reason,
+            TaskLifecycle... allowedTaskLifecycles)
+    {
+        TaskCommandExecutor.requireCurrent(taskId);
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                taskId, stageId, commandId);
+        if (duplicate.isPresent()) {
+            return CommandResult.duplicate(requireReceipt(
+                    duplicate.orElseThrow(), actor, taskId, stageId,
+                    stageGeneration,
+                    taskEpoch, stageGeneration, stageVersion, null,
+                    cause, null, proofId)
+                    .state());
+        }
+
+        OwnerState owner = loadOwner(taskId, stageId);
+        validate(new Command(
+                commandId, actor, taskId, taskEpoch, stageId,
+                stageGeneration, stageVersion), owner);
+        if (allowedTaskLifecycles.length > 0
+                && !isOneOf(owner.taskLifecycle(), allowedTaskLifecycles)) {
+            throw rejected(INVALID_STATE,
+                    reason + " is not allowed while Task is " + owner.taskLifecycle());
+        }
+
+        State current = owner.stage();
+        StageCheckpoint checkpoint = switch (reason) {
+            case REMOTE_MERGED, REMOTE_CLOSED -> StageCheckpoint.COMPLETED;
+            case SUPERSEDED_BY_REPLAN, TASK_CANCELED -> current.checkpoint();
+            case NORMAL -> throw rejected(INVALID_STATE, "Use a structural completion command");
+        };
+        State updated = new State(
+                current.id(),
+                current.taskId(),
+                current.kind(),
+                current.generation(),
+                current.version() + 1,
+                checkpoint,
+                reason,
+                null);
+        return CommandResult.applied(store.commit(
+                commandId, cause, actor,
+                taskEpoch, stageGeneration, stageVersion, null,
+                null, proofId, current, updated));
+    }
+
+    private CommandResult<State> applied(
+            String commandId,
+            String cause,
+            String actor,
+            Long expectedTaskEpoch,
+            Long expectedStageGeneration,
+            Long expectedStageVersion,
+            StageCheckpoint sourceCheckpoint,
+            State current,
+            StageCheckpoint target,
+            ResultFence pendingResult,
+            ResultFence subjectFence,
+            String proofId)
+    {
+        StageEndReason endReason = target == StageCheckpoint.COMPLETED
+                ? StageEndReason.NORMAL
+                : null;
+        State updated = new State(
+                current.id(),
+                current.taskId(),
+                current.kind(),
+                current.generation(),
+                current.version() + 1,
+                target,
+                endReason,
+                pendingResult);
+        return CommandResult.applied(store.commit(
+                commandId, cause, actor,
+                expectedTaskEpoch, expectedStageGeneration, expectedStageVersion,
+                sourceCheckpoint, subjectFence, proofId, current, updated));
+    }
+
+    private OwnerState loadOwner(String taskId, String stageId)
+    {
+        OwnerState owner = store.findOwner(taskId, stageId)
+                .orElseThrow(() -> rejected(NOT_FOUND,
+                        "Stage not found: " + stageId + " for Task " + taskId));
+        if (!owner.taskId().equals(taskId) || !owner.stage().id().equals(stageId)) {
+            throw rejected(NOT_FOUND,
+                    "Stage not found: " + stageId + " for Task " + taskId);
+        }
+        return owner;
+    }
+
+    private void validate(Command command, OwnerState owner)
+    {
+        State current = owner.stage();
+        validateKindAndOpen(current);
+        if (owner.taskEpoch() != command.expectedTaskEpoch()) {
+            throw rejected(STALE_EPOCH, "Stale Task epoch for " + command.taskId());
+        }
+        if (!command.stageId().equals(owner.currentStageId())) {
+            throw rejected(NOT_CURRENT_STAGE, "Stage is no longer current: " + command.stageId());
+        }
+        if (current.generation() != command.expectedStageGeneration()) {
+            throw rejected(STALE_GENERATION, "Stale Stage generation: " + command.stageId());
+        }
+        if (current.version() != command.expectedStageVersion()) {
+            throw rejected(STALE_VERSION, "Stale Stage version: " + command.stageId());
+        }
+    }
+
+    private boolean matchesResult(OwnerState owner, ResultFence result)
+    {
+        State current = owner.stage();
+        return current.kind() == kind
+                && current.endReason() == null
+                && accepts(owner.taskLifecycle())
+                && owner.taskEpoch() == result.taskEpoch()
+                && result.stageId().equals(owner.currentStageId())
+                && current.generation() == result.stageGeneration()
+                && result.equals(current.pendingResult());
+    }
+
+    private boolean matchesFact(OwnerState owner, ResultFence fact)
+    {
+        State current = owner.stage();
+        return current.kind() == kind
+                && current.endReason() == null
+                && accepts(owner.taskLifecycle())
+                && owner.taskEpoch() == fact.taskEpoch()
+                && fact.stageId().equals(owner.currentStageId())
+                && current.generation() == fact.stageGeneration();
+    }
+
+    private void validateKindAndOpen(State current)
+    {
+        if (current.kind() != kind) {
+            throw rejected(WRONG_STAGE_KIND,
+                    "Expected " + kind + " Stage, got " + current.kind());
+        }
+        if (current.endReason() != null) {
+            throw rejected(INVALID_STATE, "Stage is already sealed: " + current.id());
+        }
+    }
+
+    private static CommandRejectedException rejected(
+            CommandRejectedException.Reason reason, String message)
+    {
+        return new CommandRejectedException(reason, message);
+    }
+
+    private static CommandReceipt requireReceipt(
+            CommandReceipt receipt,
+            String actor,
+            String taskId,
+            String stageId,
+            long stageGeneration,
+            Long expectedTaskEpoch,
+            Long expectedStageGeneration,
+            Long expectedStageVersion,
+            StageCheckpoint sourceCheckpoint,
+            String cause,
+            ResultFence subjectFence,
+            String proofId)
+    {
+        if (!receipt.actor().equals(actor)
+                || !receipt.taskId().equals(taskId)
+                || !receipt.state().id().equals(stageId)
+                || receipt.state().generation() != stageGeneration
+                || !same(receipt.expectedTaskEpoch(), expectedTaskEpoch)
+                || !same(receipt.expectedStageGeneration(), expectedStageGeneration)
+                || !same(receipt.expectedStageVersion(), expectedStageVersion)
+                || receipt.sourceCheckpoint() != sourceCheckpoint
+                || !receipt.cause().equals(cause)
+                || !same(receipt.subjectFence(), subjectFence)
+                || !same(receipt.proofId(), proofId)) {
+            throw rejected(COMMAND_ID_CONFLICT,
+                    "Command id was already used for another Stage command");
+        }
+        return receipt;
+    }
+
+    private static boolean same(Object left, Object right)
+    {
+        return left == null ? right == null : left.equals(right);
+    }
+
+    private static boolean isOneOf(TaskLifecycle actual, TaskLifecycle... expected)
+    {
+        for (TaskLifecycle candidate : expected) {
+            if (actual == candidate) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public record Command(
+            String commandId,
+            String actor,
+            String taskId,
+            long expectedTaskEpoch,
+            String stageId,
+            long expectedStageGeneration,
+            long expectedStageVersion)
+    {
+        public Command
+        {
+            requireText(commandId, "commandId");
+            requireText(actor, "actor");
+            requireText(taskId, "taskId");
+            requireText(stageId, "stageId");
+            if (expectedTaskEpoch < 1) {
+                throw new IllegalArgumentException("expectedTaskEpoch must be positive");
+            }
+            if (expectedStageGeneration < 1) {
+                throw new IllegalArgumentException("expectedStageGeneration must be positive");
+            }
+            if (expectedStageVersion < 0) {
+                throw new IllegalArgumentException("expectedStageVersion is negative");
+            }
+        }
+    }
+
+    /** Result commands intentionally have no aggregate-version field. */
+    public record ResultCommand(
+            String commandId, String actor, String taskId, ResultFence resultFence)
+    {
+        public ResultCommand
+        {
+            requireText(commandId, "commandId");
+            requireText(actor, "actor");
+            requireText(taskId, "taskId");
+            requireNonNull(resultFence, "resultFence is null");
+            requireText(resultFence.stageId(), "resultFence.stageId");
+        }
+    }
+
+    public record OwnerState(
+            String taskId,
+            TaskLifecycle taskLifecycle,
+            long taskEpoch,
+            String currentStageId,
+            State stage)
+    {
+        public OwnerState
+        {
+            requireText(taskId, "taskId");
+            requireNonNull(taskLifecycle, "taskLifecycle is null");
+            if (taskEpoch < 1) {
+                throw new IllegalArgumentException("taskEpoch must be positive");
+            }
+            if (!taskId.equals(requireNonNull(stage, "stage is null").taskId())) {
+                throw new IllegalArgumentException("Stage belongs to another Task");
+            }
+            if (currentStageId != null && currentStageId.isBlank()) {
+                throw new IllegalArgumentException("currentStageId is blank");
+            }
+        }
+    }
+
+    public record State(
+            String id,
+            String taskId,
+            StageKind kind,
+            long generation,
+            long version,
+            StageCheckpoint checkpoint,
+            StageEndReason endReason,
+            ResultFence pendingResult)
+    {
+        public State
+        {
+            requireText(id, "id");
+            requireText(taskId, "taskId");
+            requireNonNull(kind, "kind is null");
+            requireNonNull(checkpoint, "checkpoint is null");
+            if (generation < 1) {
+                throw new IllegalArgumentException("generation must be positive");
+            }
+            if (version < 0) {
+                throw new IllegalArgumentException("version is negative");
+            }
+            if (!checkpoint.belongsTo(kind)) {
+                throw new IllegalArgumentException("Checkpoint does not belong to " + kind);
+            }
+            if ((checkpoint == StageCheckpoint.COMPLETED) != (endReason != null)
+                    && endReason != StageEndReason.SUPERSEDED_BY_REPLAN
+                    && endReason != StageEndReason.TASK_CANCELED) {
+                throw new IllegalArgumentException("Stage completion identity is inconsistent");
+            }
+            if (endReason == StageEndReason.NORMAL
+                    && checkpoint != StageCheckpoint.COMPLETED) {
+                throw new IllegalArgumentException("Normal completion requires COMPLETED");
+            }
+            if ((endReason == StageEndReason.SUPERSEDED_BY_REPLAN
+                    || endReason == StageEndReason.TASK_CANCELED)
+                    && checkpoint == StageCheckpoint.COMPLETED) {
+                throw new IllegalArgumentException("Abnormal seal must preserve an open checkpoint");
+            }
+            if ((endReason == StageEndReason.REMOTE_MERGED
+                    || endReason == StageEndReason.REMOTE_CLOSED)
+                    && kind != StageKind.REMOTE_DEVELOPMENT) {
+                throw new IllegalArgumentException("Remote seal requires Remote Development");
+            }
+            if (endReason != null && pendingResult != null) {
+                throw new IllegalArgumentException("Sealed Stage cannot await a result");
+            }
+            if (pendingResult != null
+                    && (!id.equals(pendingResult.stageId())
+                    || generation != pendingResult.stageGeneration())) {
+                throw new IllegalArgumentException("Pending result has a stale Stage identity");
+            }
+        }
+    }
+
+    public record CommandReceipt(
+            String taskId,
+            State state,
+            String cause,
+            String actor,
+            Long expectedTaskEpoch,
+            Long expectedStageGeneration,
+            Long expectedStageVersion,
+            StageCheckpoint sourceCheckpoint,
+            ResultFence subjectFence,
+            String proofId,
+            CommandResult.Disposition disposition)
+    {
+        public CommandReceipt
+        {
+            requireText(taskId, "taskId");
+            requireNonNull(state, "state is null");
+            requireText(cause, "cause");
+            requireText(actor, "actor");
+            requireNonNull(disposition, "disposition is null");
+            if (expectedTaskEpoch != null && expectedTaskEpoch < 1) {
+                throw new IllegalArgumentException("expectedTaskEpoch must be positive");
+            }
+            if (expectedStageGeneration != null && expectedStageGeneration < 1) {
+                throw new IllegalArgumentException(
+                        "expectedStageGeneration must be positive");
+            }
+            if (expectedStageVersion != null && expectedStageVersion < 0) {
+                throw new IllegalArgumentException("expectedStageVersion is negative");
+            }
+            if ((expectedTaskEpoch == null) != (expectedStageGeneration == null)
+                    || (expectedTaskEpoch == null) != (expectedStageVersion == null)) {
+                throw new IllegalArgumentException(
+                        "Structural Stage receipt identity is incomplete");
+            }
+            if (disposition == CommandResult.Disposition.DUPLICATE) {
+                throw new IllegalArgumentException(
+                        "Durable Stage receipt cannot store a replay disposition");
+            }
+            if (!taskId.equals(state.taskId())) {
+                throw new IllegalArgumentException("Stage receipt belongs to another Task");
+            }
+            if (proofId != null && proofId.isBlank()) {
+                throw new IllegalArgumentException("proofId is blank");
+            }
+        }
+    }
+
+    /** Runtime replay disposition plus the immutable disposition stored by the first call. */
+    protected record ResultResolution(
+            CommandResult<State> result, CommandResult.Disposition originalDisposition)
+    {
+        public ResultResolution
+        {
+            requireNonNull(result, "result is null");
+            requireNonNull(originalDisposition, "originalDisposition is null");
+        }
+
+        protected boolean wasAccepted()
+        {
+            return originalDisposition == CommandResult.Disposition.APPLIED;
+        }
+    }
+
+    /** Opaque proof that the exact current Stage was durably sealed. */
+    public static final class AcceptedSeal
+    {
+        private final CommandResult<State> stage;
+        private final String taskId;
+        private final String stageId;
+        private final long stageGeneration;
+        private final StageEndReason reason;
+        private final String proofId;
+
+        private AcceptedSeal(
+                CommandResult<State> stage,
+                String taskId,
+                String stageId,
+                long stageGeneration,
+                StageEndReason reason,
+                String proofId)
+        {
+            this.stage = requireNonNull(stage, "stage is null");
+            this.taskId = requireNonNull(taskId, "taskId is null");
+            this.stageId = requireNonNull(stageId, "stageId is null");
+            this.stageGeneration = stageGeneration;
+            this.reason = requireNonNull(reason, "reason is null");
+            this.proofId = requireNonNull(proofId, "proofId is null");
+        }
+
+        public CommandResult<State> stage() { return stage; }
+
+        public String taskId() { return taskId; }
+
+        public String stageId() { return stageId; }
+
+        public long stageGeneration() { return stageGeneration; }
+
+        public StageEndReason reason() { return reason; }
+
+        public String proofId() { return proofId; }
+    }
+
+    /**
+     * Stage writer port. Owner lookup may join read-only Task facts; it never
+     * exposes Task writes. Commit atomically compares Stage version and records
+     * command id.
+     */
+    public interface Store
+    {
+        Optional<OwnerState> findOwner(String taskId, String stageId);
+
+        Optional<CommandReceipt> findCommandResult(
+                String taskId, String stageId, String commandId);
+
+        State commit(
+                String commandId,
+                String cause,
+                String actor,
+                Long expectedTaskEpoch,
+                Long expectedStageGeneration,
+                Long expectedStageVersion,
+                StageCheckpoint sourceCheckpoint,
+                ResultFence subjectFence,
+                String proofId,
+                State expected,
+                State updated);
+
+        State create(
+                String commandId,
+                String cause,
+                String actor,
+                Long expectedTaskEpoch,
+                Long expectedStageGeneration,
+                Long expectedStageVersion,
+                StageCheckpoint sourceCheckpoint,
+                ResultFence subjectFence,
+                String proofId,
+                State state);
+
+        State recordSuperseded(
+                String commandId,
+                String cause,
+                String actor,
+                Long expectedTaskEpoch,
+                Long expectedStageGeneration,
+                Long expectedStageVersion,
+                StageCheckpoint sourceCheckpoint,
+                ResultFence subjectFence,
+                String proofId,
+                State current);
+    }
+
+    private static void requireText(String value, String name)
+    {
+        requireNonNull(value, name + " is null");
+        if (value.isBlank()) {
+            throw new IllegalArgumentException(name + " is blank");
+        }
+    }
+}

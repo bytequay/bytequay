@@ -102,10 +102,19 @@ class TestDevelopmentFlowStageSteeringMigration
         consumeRepair(fixture, 1, "CI_REPAIR", "REMOTE_CI_REPAIR");
 
         fixture.commands().executeVoid("task-2", () -> {
+            fixture.jdbc().update("""
+                    INSERT INTO task_branch_sync_policy_revision(
+                        id, task_id, revision, enabled, schedule, source,
+                        attempt_limit, command_id, actor, created_at_ms)
+                    VALUES ('branch-policy-2', 'task-2', 1, 1, 'nightly',
+                        'USER_CONFIGURED', 2, 'branch-policy-command',
+                        'user', 999)
+                    """);
             var context = fixture.remote().requireRemoteContext(
                     "task-2", "remote-stage-2");
             var episode = fixture.remote().insertBranchEpisode(
-                    context, "branch-command", "base-target", "USER", 2, NOW);
+                    context, "branch-command", "base-target",
+                    "branch-policy-2", "USER_CONFIGURED", 2, NOW);
             fixture.jdbc().update("""
                     UPDATE branch_sync_effect_step
                     SET status = 'SUCCEEDED', attempt_count = 1,
@@ -524,7 +533,7 @@ class TestDevelopmentFlowStageSteeringMigration
             }
             insertFailedCi(connection, 1, 1, "head-1", "base-1");
         }
-        migrate(url, "257");
+        migrate(url, "264");
 
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl(url + "?foreign_keys=ON&busy_timeout=30000");

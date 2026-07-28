@@ -52,6 +52,7 @@ import com.bytequay.app.developmentflow.stage.persistence.SqliteRemoteRuntimeSto
 import com.bytequay.app.developmentflow.task.BrainVerdictHandoff;
 import com.bytequay.app.developmentflow.task.TaskControlHandoff;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
 import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
@@ -64,6 +65,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -82,6 +84,14 @@ public class DevelopmentFlowDomainConfig
             TaskCommandExecutor commands, TrunkManager.Store store)
     {
         return new TrunkManager(commands, store);
+    }
+
+    @Bean
+    public V2BranchSyncPolicyManager v2BranchSyncPolicyManager(
+            TaskCommandExecutor commands, JdbcTemplate jdbc)
+    {
+        return new V2BranchSyncPolicyManager(
+                commands, jdbc, Clock.systemUTC());
     }
 
     @Bean
@@ -247,14 +257,15 @@ public class DevelopmentFlowDomainConfig
     public BranchSyncRuntimeCoordinator branchSyncRuntimeCoordinator(
             TaskCommandExecutor commands,
             SqliteRemoteRuntimeStore store,
+            V2BranchSyncPolicyManager policies,
             RemoteRepairTurnRuntime repairs,
             ObjectMapper json,
             @Value("${bytequay.development-flow.branch-sync.require-brain-review:true}")
             boolean requireBrainReview)
     {
         return new BranchSyncRuntimeCoordinator(
-                commands, store, repairs, repairs, requireBrainReview, json,
-                Clock.systemUTC());
+                commands, store, policies, repairs, repairs,
+                requireBrainReview, json, Clock.systemUTC());
     }
 
     @Bean
@@ -367,9 +378,11 @@ public class DevelopmentFlowDomainConfig
             TaskCommandExecutor commands,
             LocalDevelopmentStageManager local,
             TaskManager tasks,
-            RemoteDevelopmentStageManager remote)
+            RemoteDevelopmentStageManager remote,
+            V2BranchSyncPolicyManager branchSyncPolicy)
     {
-        return new LocalToRemoteHandoff(commands, local, tasks, remote);
+        return new LocalToRemoteHandoff(
+                commands, local, tasks, remote, branchSyncPolicy);
     }
 
     @Bean

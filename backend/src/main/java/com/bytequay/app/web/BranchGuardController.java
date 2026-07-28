@@ -13,8 +13,12 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.developmentflow.compatibility.V2BranchGuardProjection;
+import com.bytequay.app.developmentflow.compatibility.V2ControlRouteStore;
+import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
 import com.bytequay.app.domain.BranchGuard;
 import com.bytequay.app.service.review.BranchGuardService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,15 +31,32 @@ import static java.util.Objects.requireNonNull;
 public class BranchGuardController
 {
     private final BranchGuardService guards;
+    private V2ControlRouteStore v2Routes;
+    private V2BranchSyncPolicyManager v2Policies;
+    private V2BranchGuardProjection v2Projection;
 
     public BranchGuardController(BranchGuardService guards)
     {
         this.guards = requireNonNull(guards, "guards is null");
     }
 
+    @Autowired
+    void setV2Controls(
+            V2ControlRouteStore v2Routes,
+            V2BranchSyncPolicyManager v2Policies,
+            V2BranchGuardProjection v2Projection)
+    {
+        this.v2Routes = requireNonNull(v2Routes, "v2Routes is null");
+        this.v2Policies = requireNonNull(v2Policies, "v2Policies is null");
+        this.v2Projection = requireNonNull(v2Projection, "v2Projection is null");
+    }
+
     @GetMapping("/api/tasks/{taskId}/guard")
     public BranchGuard guard(@PathVariable String taskId)
     {
+        if (isV2Task(taskId)) {
+            return requireV2Projection().project(taskId);
+        }
         return guards.get(taskId);
     }
 
@@ -44,7 +65,28 @@ public class BranchGuardController
     @PatchMapping("/api/tasks/{taskId}/guard")
     public BranchGuard updateGuard(@PathVariable String taskId, @RequestBody GuardPatch patch)
     {
+        if (isV2Task(taskId)) {
+            requireV2Policies().update(
+                    taskId, patch == null ? null : patch.enabled(),
+                    patch == null ? null : patch.schedule());
+            return requireV2Projection().project(taskId);
+        }
         return guards.update(taskId, patch == null ? null : patch.enabled(),
                 patch == null ? null : patch.schedule());
+    }
+
+    private boolean isV2Task(String taskId)
+    {
+        return v2Routes != null && v2Routes.isV2Task(taskId);
+    }
+
+    private V2BranchSyncPolicyManager requireV2Policies()
+    {
+        return requireNonNull(v2Policies, "V2 branch policies are not configured");
+    }
+
+    private V2BranchGuardProjection requireV2Projection()
+    {
+        return requireNonNull(v2Projection, "V2 branch projection is not configured");
     }
 }

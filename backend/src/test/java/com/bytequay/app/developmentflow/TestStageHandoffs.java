@@ -30,6 +30,7 @@ import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.V2BranchSyncPolicyManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.junit.jupiter.api.Test;
 
@@ -42,6 +43,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 class TestStageHandoffs
 {
@@ -301,11 +304,14 @@ class TestStageHandoffs
                 "local", StageKind.LOCAL_DEVELOPMENT, 2, 8,
                 StageCheckpoint.PUBLISHING, fence));
 
+        V2BranchSyncPolicyManager branchPolicy = mock(
+                V2BranchSyncPolicyManager.class);
         LocalToRemoteHandoff handoff = new LocalToRemoteHandoff(
                 executor,
                 new LocalDevelopmentStageManager(executor, stages),
                 new TaskManager(executor, tasks),
-                new RemoteDevelopmentStageManager(executor, stages));
+                new RemoteDevelopmentStageManager(executor, stages),
+                branchPolicy);
         LocalToRemoteHandoff.Command command = new LocalToRemoteHandoff.Command(
                 new StageManager.ResultCommand("publish", "dispatcher", "task", fence),
                 new TaskManager.StageAdvanceCommand(
@@ -319,6 +325,7 @@ class TestStageHandoffs
         assertThat(result.remote().orElseThrow().state())
                 .extracting(StageManager.State::kind, StageManager.State::checkpoint)
                 .containsExactly(StageKind.REMOTE_DEVELOPMENT, StageCheckpoint.WAITING_CI);
+        verify(branchPolicy).armOnFirstPushInCommand("task");
     }
 
     @Test

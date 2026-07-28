@@ -33,6 +33,7 @@ import com.bytequay.app.service.threads.TaskCommandExecutor;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.COMMAND_ID_CONFLICT;
 import static com.bytequay.app.developmentflow.CommandRejectedException.Reason.INVALID_STATE;
@@ -438,6 +439,34 @@ public final class TaskManager
                 code.resultFence(),
                 planStageId,
                 planStageGeneration));
+    }
+
+    /** Accepts one terminal provisioning failure and opens a Task blocker. */
+    public ProvisioningFailureResult acceptProvisioningFailureInCommand(
+            ProvisioningFailure failure)
+    {
+        requireNonNull(failure, "failure is null");
+        TaskCommandExecutor.requireCurrent(failure.taskId());
+        Optional<ProvisioningFailureResult> duplicate =
+                store.findProvisioningFailure(
+                        failure.taskId(), failure.operationId());
+        if (duplicate.isPresent()) {
+            ProvisioningFailureResult result = duplicate.orElseThrow();
+            if (!result.matches(failure)) {
+                throw rejected(COMMAND_ID_CONFLICT,
+                        "Provisioning failure was accepted with other evidence");
+            }
+            return result;
+        }
+        State current = load(failure.taskId());
+        if (current.lifecycle() != TaskLifecycle.PROVISIONING
+                || current.epoch() != failure.taskEpoch()
+                || current.version() != 0
+                || current.currentStageId() != null) {
+            throw rejected(INVALID_STATE,
+                    "Provisioning failure no longer owns an unstarted Task");
+        }
+        return store.acceptProvisioningFailure(failure);
     }
 
     /** Reads and freezes the exact satisfied replan request for one handoff. */
@@ -1546,6 +1575,55 @@ public final class TaskManager
         }
     }
 
+    public record ProvisioningFailure(
+            String taskId,
+            long taskEpoch,
+            String operationId,
+            int attempt,
+            String rawOutcome,
+            String rawDigest,
+            String errorMessage,
+            long recordedAtMillis)
+    {
+        public ProvisioningFailure
+        {
+            requireText(taskId, "taskId");
+            requireText(operationId, "operationId");
+            requireText(rawOutcome, "rawOutcome");
+            requireText(rawDigest, "rawDigest");
+            requireText(errorMessage, "errorMessage");
+            if (!Set.of("FAILED", "CANCELED", "INDETERMINATE")
+                    .contains(rawOutcome)
+                    || taskEpoch < 1 || attempt < 1 || recordedAtMillis < 0) {
+                throw new IllegalArgumentException(
+                        "Provisioning failure fence is invalid");
+            }
+        }
+    }
+
+    public record ProvisioningFailureResult(
+            String taskId,
+            long taskEpoch,
+            String operationId,
+            int attempt,
+            String rawOutcome,
+            String rawDigest,
+            String errorMessage,
+            String blockerId,
+            long recordedAtMillis)
+    {
+        private boolean matches(ProvisioningFailure failure)
+        {
+            return taskId.equals(failure.taskId())
+                    && taskEpoch == failure.taskEpoch()
+                    && operationId.equals(failure.operationId())
+                    && attempt == failure.attempt()
+                    && rawOutcome.equals(failure.rawOutcome())
+                    && rawDigest.equals(failure.rawDigest())
+                    && errorMessage.equals(failure.errorMessage());
+        }
+    }
+
     public record ReplanCommand(
             String commandId,
             String actor,
@@ -2306,6 +2384,19 @@ public final class TaskManager
         {
             throw new UnsupportedOperationException(
                     "Provisioning result acceptance is not supported");
+        }
+
+        default Optional<ProvisioningFailureResult> findProvisioningFailure(
+                String taskId, String operationId)
+        {
+            return Optional.empty();
+        }
+
+        default ProvisioningFailureResult acceptProvisioningFailure(
+                ProvisioningFailure failure)
+        {
+            throw new UnsupportedOperationException(
+                    "Provisioning failure acceptance is not supported");
         }
 
         /**

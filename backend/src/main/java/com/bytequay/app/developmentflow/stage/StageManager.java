@@ -555,6 +555,138 @@ public abstract class StageManager
                 current, updated));
     }
 
+    /**
+     * Arms the mandatory review of a material Plan edit. The persistence
+     * boundary uses a dedicated receipt because the generic Stage receipt
+     * cause set is intentionally closed.
+     */
+    protected final CommandResult<State> requestEditedPlanReviewInCommand(
+            Command command, String revisionId, ResultFence pendingResult)
+    {
+        requireNonNull(command, "command is null");
+        requireText(revisionId, "revisionId");
+        requireNonNull(pendingResult, "pendingResult is null");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        if (kind != StageKind.PLAN
+                || pendingResult.taskEpoch() != command.expectedTaskEpoch()
+                || !command.stageId().equals(pendingResult.stageId())
+                || pendingResult.stageGeneration()
+                    != command.expectedStageGeneration()) {
+            throw rejected(INVALID_STATE,
+                    "Edited Plan review targets another Stage owner");
+        }
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), command.stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            State state = requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(),
+                    command.stageId(), command.expectedStageGeneration(),
+                    command.expectedTaskEpoch(), command.expectedStageGeneration(),
+                    command.expectedStageVersion(), StageCheckpoint.DRAFTING,
+                    "REQUEST_EDITED_PLAN_SELF_REVIEW", pendingResult, revisionId)
+                    .state();
+            return CommandResult.duplicate(state);
+        }
+
+        OwnerState owner = loadOwner(command.taskId(), command.stageId());
+        validate(command, owner);
+        State current = owner.stage();
+        if (!accepts(owner.taskLifecycle())
+                || current.checkpoint() != StageCheckpoint.DRAFTING
+                || current.pendingResult() != null) {
+            throw rejected(INVALID_STATE,
+                    "Cannot arm edited Plan review from " + current.checkpoint());
+        }
+        State requested = new State(
+                current.id(), current.taskId(), current.kind(), current.generation(),
+                current.version() + 1, StageCheckpoint.SELF_REVIEW, null,
+                pendingResult);
+        return CommandResult.applied(store.requestEditedPlanReview(
+                command.commandId(), command.actor(), command.expectedTaskEpoch(),
+                command.expectedStageGeneration(), command.expectedStageVersion(),
+                revisionId, pendingResult, current, requested));
+    }
+
+    protected final CommandResult<State> retryPlanSelfReviewInCommand(
+            ResultCommand command,
+            String selfReviewId,
+            String replacementTurnId,
+            ResultFence replacement)
+    {
+        requireNonNull(command, "command is null");
+        requireText(selfReviewId, "selfReviewId");
+        requireText(replacementTurnId, "replacementTurnId");
+        requireNonNull(replacement, "replacement is null");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        ResultFence failed = command.resultFence();
+        if (kind != StageKind.PLAN
+                || replacement.taskEpoch() != failed.taskEpoch()
+                || !replacement.stageId().equals(failed.stageId())
+                || replacement.stageGeneration() != failed.stageGeneration()) {
+            throw rejected(INVALID_STATE,
+                    "Plan self-review replacement targets another owner");
+        }
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), failed.stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            State state = requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(),
+                    failed.stageId(), failed.stageGeneration(), null, null, null,
+                    null, "RETRY_PLAN_SELF_REVIEW", failed, selfReviewId).state();
+            if (!replacement.equals(state.pendingResult())) {
+                throw rejected(COMMAND_ID_CONFLICT,
+                        "Review retry command has another replacement");
+            }
+            return CommandResult.duplicate(state);
+        }
+        OwnerState owner = loadOwner(command.taskId(), failed.stageId());
+        State current = owner.stage();
+        if (!matchesResult(owner, failed)
+                || current.checkpoint() != StageCheckpoint.SELF_REVIEW) {
+            return CommandResult.superseded(current);
+        }
+        State requested = new State(
+                current.id(), current.taskId(), current.kind(), current.generation(),
+                current.version() + 1, current.checkpoint(), null, replacement);
+        return CommandResult.applied(store.retryPlanSelfReview(
+                command.commandId(), command.actor(), selfReviewId,
+                replacementTurnId, failed, replacement, current, requested));
+    }
+
+    protected final CommandResult<State> acceptPlanTerminalResultInCommand(
+            ResultCommand command,
+            String cause,
+            String proofId,
+            StageCheckpoint checkpoint)
+    {
+        requireNonNull(command, "command is null");
+        requireText(cause, "cause");
+        requireText(proofId, "proofId");
+        requireNonNull(checkpoint, "checkpoint is null");
+        TaskCommandExecutor.requireCurrent(command.taskId());
+        ResultFence result = command.resultFence();
+        Optional<CommandReceipt> duplicate = store.findCommandResult(
+                command.taskId(), result.stageId(), command.commandId());
+        if (duplicate.isPresent()) {
+            return CommandResult.duplicate(requireReceipt(
+                    duplicate.orElseThrow(), command.actor(), command.taskId(),
+                    result.stageId(), result.stageGeneration(), null, null, null,
+                    null, cause, result, proofId).state());
+        }
+        OwnerState owner = loadOwner(command.taskId(), result.stageId());
+        State current = owner.stage();
+        if (kind != StageKind.PLAN || !matchesResult(owner, result)
+                || current.checkpoint() != checkpoint) {
+            return CommandResult.superseded(current);
+        }
+        State cleared = new State(
+                current.id(), current.taskId(), current.kind(), current.generation(),
+                current.version() + 1, current.checkpoint(), null, null);
+        return CommandResult.applied(store.acceptPlanTerminalResult(
+                command.commandId(), command.actor(), cause, proofId,
+                result, current, cleared));
+    }
+
     /** Replaces one exact pending result after its predecessor is superseded. */
     protected final CommandResult<State> replacePendingResultInCommand(
             ResultCommand command,
@@ -1158,6 +1290,48 @@ public abstract class StageManager
         {
             throw new UnsupportedOperationException(
                     "Initial Stage result requests are not supported");
+        }
+
+        default State requestEditedPlanReview(
+                String commandId,
+                String actor,
+                long expectedTaskEpoch,
+                long expectedStageGeneration,
+                long expectedStageVersion,
+                String revisionId,
+                ResultFence pendingResult,
+                State expected,
+                State requested)
+        {
+            throw new UnsupportedOperationException(
+                    "Edited Plan review requests are not supported");
+        }
+
+        default State retryPlanSelfReview(
+                String commandId,
+                String actor,
+                String selfReviewId,
+                String replacementTurnId,
+                ResultFence failed,
+                ResultFence replacement,
+                State expected,
+                State requested)
+        {
+            throw new UnsupportedOperationException(
+                    "Plan self-review retries are not supported");
+        }
+
+        default State acceptPlanTerminalResult(
+                String commandId,
+                String actor,
+                String cause,
+                String proofId,
+                ResultFence result,
+                State expected,
+                State cleared)
+        {
+            throw new UnsupportedOperationException(
+                    "Plan terminal results are not supported");
         }
     }
 

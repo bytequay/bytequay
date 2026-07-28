@@ -119,6 +119,26 @@ public final class PlanStageManager
                 StageCheckpoint.AWAITING_APPROVAL);
     }
 
+    public CommandResult<State> retrySelfReviewInCommand(
+            ResultCommand failed,
+            String selfReviewId,
+            String replacementTurnId,
+            ResultFence replacement)
+    {
+        return retryPlanSelfReviewInCommand(
+                failed, selfReviewId, replacementTurnId, replacement);
+    }
+
+    public CommandResult<State> acceptTerminalTurnInCommand(
+            ResultCommand command,
+            String cause,
+            String proofId,
+            StageCheckpoint checkpoint)
+    {
+        return acceptPlanTerminalResultInCommand(
+                command, cause, proofId, checkpoint);
+    }
+
     public CommandResult<State> acceptBrainFindingsInCommand(
             TaskManager.AcceptedBrainVerdict accepted)
     {
@@ -166,6 +186,31 @@ public final class PlanStageManager
         return moveWithProofInCommand(
                 command.stage(), command.revisionId(), "REVISE_BEFORE_APPROVAL",
                 StageCheckpoint.AWAITING_APPROVAL, StageCheckpoint.DRAFTING);
+    }
+
+    /** Arms the mandatory review for an exact user-edited revision. */
+    public CommandResult<State> requestEditedRevisionReviewInCommand(
+            RevisionCommand command, ResultFence reviewResult)
+    {
+        requireNonNull(command, "command is null");
+        requireNonNull(reviewResult, "reviewResult is null");
+        Optional<CommandResult<State>> replay = replayStructuralInCommand(
+                command.stage(), "REQUEST_EDITED_PLAN_SELF_REVIEW", reviewResult,
+                command.revisionId(), StageCheckpoint.DRAFTING);
+        if (replay.isPresent()) {
+            return replay.orElseThrow();
+        }
+        RevisionEvidence evidence = revisions.findRevision(
+                        command.stage().taskId(), command.stage().stageId(),
+                        command.stage().expectedStageGeneration(), command.revisionId())
+                .orElseThrow(() -> new CommandRejectedException(
+                        INVALID_STATE, "Exact edited Plan revision is missing"));
+        if (!evidence.matches(command)) {
+            throw new CommandRejectedException(
+                    INVALID_STATE, "Edited Plan revision does not match its predecessor");
+        }
+        return requestEditedPlanReviewInCommand(
+                command.stage(), command.revisionId(), reviewResult);
     }
 
     AcceptedCompletion acceptApprovedForHandoffInCommand(ApprovalCommand command)

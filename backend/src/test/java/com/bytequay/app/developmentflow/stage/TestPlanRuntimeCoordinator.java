@@ -41,7 +41,6 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.ACCEPTED;
-import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.REJECTED;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Acceptance.SUPERSEDED;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Outcome.FAILED;
 import static com.bytequay.app.developmentflow.execution.DispatchTicket.Outcome.SUCCEEDED;
@@ -145,21 +144,44 @@ class TestPlanRuntimeCoordinator
     }
 
     @Test
-    void rejectsTerminalProvisionFailureUntilTaskRecoveryOwnsIt()
+    void acceptsTerminalProvisionFailureIntoAnExactTaskBlocker()
+            throws Exception
     {
+        Path repositoryRoot = tempDir.resolve("failed-provision-repo").toAbsolutePath();
+        SQLiteDataSource dataSource = database("failed-provision.db");
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc, repositoryRoot);
+        Runtime runtime = runtime(dataSource);
+        TaskCreationHandoff.Result created = runtime.creation().create(
+                creationCommand(repositoryRoot));
+        String taskId = created.task().task().id();
+        String operationId = created.task().receipt().operationId();
+        markProvisionFailurePending(jdbc, operationId, "git failed");
         DispatchTicket.OwnerReference owner = new DispatchTicket.OwnerReference(
-                DispatchTicket.OwnerKind.TASK, "task-failed",
+                DispatchTicket.OwnerKind.TASK, taskId,
                 PlanRuntimeCoordinator.PROVISION_CALLBACK);
         DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
-                1L, null, null, "provision-failed", 1,
+                1L, null, null, operationId, 1,
                 null, null, null);
-        DispatchTicket.DeliveryReceipt rejected = runtime(
-                database("failed-provision.db")).plan().deliverProvisioning(
+        DispatchTicket.DispatchResult result = new DispatchTicket.DispatchResult(
+                fence, FAILED, null, null, "git failed");
+        DispatchTicket.DeliveryReceipt accepted = runtime.plan().deliverProvisioning(
                         owner, fence, new DispatchTicket.DispatchResult(
                                 fence, FAILED, null, null, "git failed"));
 
-        assertThat(rejected.acceptance()).isEqualTo(REJECTED);
-        assertThat(rejected.evidenceJson()).contains("explicit recovery");
+        assertThat(accepted.acceptance()).isEqualTo(ACCEPTED);
+        assertThat(accepted.evidenceJson()).contains("PROVISION_FAILURE_V1");
+        assertThat(count(jdbc, "task_provision_failure_receipt")).isOne();
+        assertThat(countWhere(jdbc, "task_blocker",
+                "blocker_type = 'PROVISIONING_FAILED' AND status = 'OPEN'"))
+                .isOne();
+        assertThat(jdbc.queryForObject("""
+                SELECT status FROM provision_task_operation WHERE operation_id = ?
+                """, String.class, operationId)).isEqualTo("FAILED");
+
+        DispatchTicket.DeliveryReceipt replay = runtime(dataSource).plan()
+                .deliverProvisioning(owner, fence, result);
+        assertThat(replay).isEqualTo(accepted);
     }
 
     @Test
@@ -228,6 +250,123 @@ class TestPlanRuntimeCoordinator
                         reviewTwo.owner(), reviewTwo.fence(), reviewTwo.result());
         assertThat(replay).isEqualTo(approved);
         assertThat(count(jdbc, "task_turn")).isEqualTo(4);
+
+        Map<String, Object> latest = jdbc.queryForMap("""
+                SELECT stage.id AS stage_id, stage.generation,
+                       stage.version, revision.id AS revision_id,
+                       review.id AS review_id
+                FROM task_current_stage current
+                JOIN stage ON stage.id = current.stage_id
+                JOIN plan_revision revision ON revision.plan_stage_id = stage.id
+                JOIN plan_self_review review
+                  ON review.plan_revision_id = revision.id
+                WHERE current.task_id = ?
+                ORDER BY revision.revision DESC LIMIT 1
+                """, bootstrap.taskId());
+        SqlitePlanRuntimeStore.PlanEditReceipt edit = plan.editPlan(
+                new PlanRuntimeCoordinator.PlanEditCommand(
+                        "edit-plan-1", "user", bootstrap.taskId(),
+                        (String) latest.get("stage_id"),
+                        ((Number) latest.get("generation")).longValue(),
+                        ((Number) latest.get("version")).longValue(),
+                        (String) latest.get("revision_id"),
+                        (String) latest.get("review_id"),
+                        "1. Inspect the code.\n2. Implement safely.\n"
+                                + "3. Test rollback and rollout telemetry."));
+        assertThat(edit.revision()).isEqualTo(3);
+        assertThat(jdbc.queryForMap("""
+                SELECT checkpoint, version FROM stage WHERE id = ?
+                """, edit.stageId()))
+                .containsEntry("checkpoint", "SELF_REVIEW")
+                .containsEntry("version", 7);
+        assertThat(count(jdbc, "plan_user_edit_receipt")).isOne();
+
+        SqlitePlanRuntimeStore.PlanEditReceipt editReplay = runtime(
+                bootstrap.dataSource()).plan().editPlan(
+                        new PlanRuntimeCoordinator.PlanEditCommand(
+                                "edit-plan-1", "user", bootstrap.taskId(),
+                                edit.stageId(), edit.stageGeneration(),
+                                edit.expectedStageVersion(),
+                                edit.previousRevisionId(),
+                                (String) latest.get("review_id"), edit.content()));
+        assertThat(editReplay).isEqualTo(edit);
+
+        RunningTurn editedReview = startCurrentTurn(jdbc, bootstrap.taskId());
+        plan.recordSelfReview(
+                editedReview.turnId(), editedReview.operationId(),
+                bootstrap.taskId(), "APPROVED", List.of(), List.of(),
+                List.of());
+        deliverSucceeded(plan, jdbc, editedReview);
+        assertThat(jdbc.queryForMap("""
+                SELECT checkpoint, version FROM stage WHERE id = ?
+                """, edit.stageId()))
+                .containsEntry("checkpoint", "AWAITING_APPROVAL")
+                .containsEntry("version", 8);
+        assertThat(count(jdbc, "plan_revision")).isEqualTo(3);
+        assertThat(count(jdbc, "plan_self_review")).isEqualTo(3);
+    }
+
+    @Test
+    void retriesTheFirstSelfReviewFailureOnceThenBlocksAndClearsTheFence()
+            throws Exception
+    {
+        Bootstrapped bootstrap = bootstrap("plan-review-retry.db");
+        JdbcTemplate jdbc = bootstrap.jdbc();
+        PlanRuntimeCoordinator plan = bootstrap.runtime().plan();
+
+        RunningTurn draft = startCurrentTurn(jdbc, bootstrap.taskId());
+        plan.recordPlan(
+                draft.turnId(), draft.operationId(), bootstrap.taskId(),
+                "1. Implement.\n2. Validate.");
+        deliverSucceeded(plan, jdbc, draft);
+
+        RunningTurn firstReview = startCurrentTurn(jdbc, bootstrap.taskId());
+        DispatchTicket.DeliveryReceipt firstFailure =
+                deliverFailed(plan, jdbc, firstReview, "provider exited");
+
+        assertThat(firstFailure.evidenceJson())
+                .contains("REVIEW_RETRY_REQUESTED");
+        assertThat(countWhere(jdbc, "plan_self_review_attempt", "attempt = 2"))
+                .isOne();
+        assertThat(countWhere(jdbc, "plan_self_review", "status = 'REQUESTED'"))
+                .isOne();
+        assertThat(jdbc.queryForMap("""
+                SELECT checkpoint, version FROM stage
+                WHERE id = (SELECT stage_id FROM task_current_stage WHERE task_id = ?)
+                """, bootstrap.taskId()))
+                .containsEntry("checkpoint", "SELF_REVIEW")
+                .containsEntry("version", 3);
+
+        DispatchTicket.DeliveryReceipt firstReplay = runtime(
+                bootstrap.dataSource()).plan().deliverTaskTurn(
+                        firstReview.owner(), firstReview.fence(), firstReview.result());
+        assertThat(firstReplay).isEqualTo(firstFailure);
+
+        RunningTurn retry = startCurrentTurn(jdbc, bootstrap.taskId());
+        DispatchTicket.DeliveryReceipt secondFailure =
+                deliverFailed(plan, jdbc, retry, "provider exited again");
+
+        assertThat(secondFailure.evidenceJson()).contains("REVIEW_BLOCKED");
+        assertThat(countWhere(jdbc, "plan_self_review", "status = 'FAILED'"))
+                .isOne();
+        assertThat(countWhere(jdbc, "task_blocker", "status = 'OPEN'"))
+                .isOne();
+        assertThat(count(jdbc, "stage_plan_terminal_result")).isOne();
+        assertThat(countWhere(jdbc, "task_turn", "status = 'REQUESTED'"))
+                .isZero();
+        assertThat(jdbc.queryForMap("""
+                SELECT checkpoint, version FROM stage
+                WHERE id = (SELECT stage_id FROM task_current_stage WHERE task_id = ?)
+                """, bootstrap.taskId()))
+                .containsEntry("checkpoint", "SELF_REVIEW")
+                .containsEntry("version", 4);
+
+        DispatchTicket.DeliveryReceipt secondReplay = runtime(
+                bootstrap.dataSource()).plan().deliverTaskTurn(
+                        retry.owner(), retry.fence(), retry.result());
+        assertThat(secondReplay).isEqualTo(secondFailure);
+        assertThat(countWhere(jdbc, "plan_self_review_attempt", "attempt = 2"))
+                .isOne();
     }
 
     private Bootstrapped bootstrap(String name)
@@ -375,6 +514,49 @@ class TestPlanRuntimeCoordinator
         return receipt;
     }
 
+    private static DispatchTicket.DeliveryReceipt deliverFailed(
+            PlanRuntimeCoordinator plan,
+            JdbcTemplate jdbc,
+            RunningTurn running,
+            String error)
+    {
+        jdbc.update("""
+                UPDATE agent_execution
+                SET status = 'FAILED', finished_at_ms = ?, raw_result = ?
+                WHERE ticket_id = ? AND infrastructure_attempt = 1
+                """, NOW.plusSeconds(1).toEpochMilli(), error,
+                running.ticketId());
+        jdbc.update("""
+                UPDATE capacity_lease
+                SET released_at_ms = ?, release_reason = 'failed'
+                WHERE id = ? AND released_at_ms IS NULL
+                """, NOW.plusSeconds(1).toEpochMilli(), running.leaseId());
+        jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'RESULT_PENDING',
+                    claim_purpose = NULL, claim_owner = NULL,
+                    capacity_lease_id = NULL, claim_expires_at_ms = NULL,
+                    pending_result_outcome = 'FAILED',
+                    pending_result_payload = NULL,
+                    pending_result_evidence = NULL,
+                    pending_result_error = ?,
+                    pending_result_task_epoch = task_epoch,
+                    pending_result_stage_id = stage_id,
+                    pending_result_stage_generation = stage_generation,
+                    pending_result_operation_id = operation_id,
+                    pending_result_attempt = attempt,
+                    pending_result_expected_code_fingerprint = expected_code_fingerprint,
+                    pending_result_expected_head_sha = expected_head_sha,
+                    pending_result_expected_base_sha = expected_base_sha
+                WHERE id = ? AND status = 'RUNNING'
+                """, error, running.ticketId());
+        DispatchTicket.DispatchResult result = new DispatchTicket.DispatchResult(
+                running.fence(), FAILED, null, null, error);
+        running.result = result;
+        return plan.deliverTaskTurn(
+                running.owner(), running.fence(), result);
+    }
+
     private SQLiteDataSource database(String name)
     {
         String url = "jdbc:sqlite:" + tempDir.resolve(name)
@@ -495,6 +677,28 @@ class TestPlanRuntimeCoordinator
                     pending_result_expected_base_sha = expected_base_sha
                 WHERE operation_id = ? AND status = 'REQUESTED'
                 """, evidenceJson, evidenceJson, operationId);
+    }
+
+    private static void markProvisionFailurePending(
+            JdbcTemplate jdbc, String operationId, String error)
+    {
+        jdbc.update("""
+                UPDATE dispatch_ticket
+                SET version = version + 1, status = 'RESULT_PENDING',
+                    pending_result_outcome = 'FAILED',
+                    pending_result_payload = NULL,
+                    pending_result_evidence = NULL,
+                    pending_result_error = ?,
+                    pending_result_task_epoch = task_epoch,
+                    pending_result_stage_id = NULL,
+                    pending_result_stage_generation = NULL,
+                    pending_result_operation_id = operation_id,
+                    pending_result_attempt = attempt,
+                    pending_result_expected_code_fingerprint = NULL,
+                    pending_result_expected_head_sha = expected_head_sha,
+                    pending_result_expected_base_sha = expected_base_sha
+                WHERE operation_id = ? AND status = 'REQUESTED'
+                """, error, operationId);
     }
 
     private static int count(JdbcTemplate jdbc, String table)

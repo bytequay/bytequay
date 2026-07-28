@@ -25,14 +25,16 @@ import type {
   CiHarnessWatchSnapshotDto,
 } from './workspaceApi';
 
-export function HarnessSidebar({ workspaceName, repository, watches, selectedId, snapshot, onSelect, onNew, onNavigateGlobal, onSwitchWorkspace }: {
+export function HarnessSidebar({ workspaceName, repository, watches, selectedId, snapshot, selectedCycleId, onSelect, onNew, onOpenCycle, onNavigateGlobal, onSwitchWorkspace }: {
   workspaceName: string;
   repository: string;
   watches: CiHarnessWatchDto[];
   selectedId?: string;
   snapshot: CiHarnessWatchSnapshotDto | null;
+  selectedCycleId?: string | null;
   onSelect: (id: string) => void;
   onNew: () => void;
+  onOpenCycle?: (cycleId: string) => void;
   onNavigateGlobal?: (key: WsNavKey) => void;
   onSwitchWorkspace?: () => void;
 }) {
@@ -58,7 +60,12 @@ export function HarnessSidebar({ workspaceName, repository, watches, selectedId,
       {snapshot !== null && snapshot.cycles.length > 0 && (
         <div className="ci-harness-sidebar__cycles">
           <div className="ci-harness-sidebar__heading"><span>CYCLES</span><small>{snapshot.cycles.length}</small></div>
-          {snapshot.cycles.map(cycle => <CycleNav key={cycle.id} cycle={cycle} active={cycle.id === snapshot.activeCycle?.id} />)}
+          {snapshot.cycles.map(cycle => (
+            <CycleNav key={cycle.id} cycle={cycle}
+              active={cycle.id === snapshot.activeCycle?.id}
+              selected={cycle.id === selectedCycleId}
+              onOpen={() => onOpenCycle?.(cycle.id)} />
+          ))}
         </div>
       )}
       <WorkspaceBottomNav onNavigate={onNavigateGlobal} />
@@ -66,14 +73,21 @@ export function HarnessSidebar({ workspaceName, repository, watches, selectedId,
   );
 }
 
-function CycleNav({ cycle, active }: { cycle: CiHarnessCycleDto; active: boolean }) {
+function CycleNav({ cycle, active, selected, onOpen }: {
+  cycle: CiHarnessCycleDto;
+  active: boolean;
+  selected: boolean;
+  onOpen: () => void;
+}) {
   return (
-    <div className={`ci-harness-cycle-nav${active ? ' active' : ''}`}>
+    <button type="button" aria-pressed={selected}
+      className={`ci-harness-cycle-nav${active ? ' active' : ''}${selected ? ' selected' : ''}`}
+      onClick={onOpen}>
       <strong><span>Cycle {cycle.ordinal}</span><small>{cycle.status}</small></strong>
       {active && cycle.phaseStates.map(phase => (
         <span key={phase.phase} className={`is-${phase.status.toLowerCase()}`}><i />{phase.phase}</span>
       ))}
-    </div>
+    </button>
   );
 }
 

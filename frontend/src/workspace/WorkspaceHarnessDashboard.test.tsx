@@ -15,9 +15,15 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { PullRequestDto } from '../types';
 import { HarnessHeader, HarnessIdle } from './WorkspaceHarnessChrome';
-import { HarnessDashboard } from './WorkspaceHarnessDashboard';
+import { HarnessDashboard, type HarnessActions } from './WorkspaceHarnessDashboard';
 import { isPollableHarnessStatus } from './WorkspaceHarnessPage';
-import { workspaceApi, type CiHarnessRuleDto, type CiHarnessWatchSnapshotDto } from './workspaceApi';
+import {
+  workspaceApi,
+  type CiHarnessCycleDetailDto,
+  type CiHarnessFailureDto,
+  type CiHarnessRuleDto,
+  type CiHarnessWatchSnapshotDto,
+} from './workspaceApi';
 
 afterEach(cleanup);
 
@@ -35,13 +41,9 @@ function snapshot(status: CiHarnessWatchSnapshotDto['status']): CiHarnessWatchSn
     },
     budget: { limitMilliUsd: 5000, spentMilliUsd: 1200, cycleMilliUsd: 300, remainingMilliUsd: 3800 },
     activeCycle: null, cycles: [], milestones: [],
-    failures: status === 'needs_attention' ? [{
-      id: 'failure-1', cycleId: 'cycle-1', status: 'ESCALATED', bucket: 'unknown',
-      jobName: 'unit tests', module: 'core', signature: 'cannot find symbol',
-      logExcerpt: 'Compiler output from the failed job', targetSubject: 'Update SPI', ruleId: null,
-    }] : [],
+    failures: status === 'needs_attention' ? [escalation()] : [],
     stats: {
-      failuresByState: status === 'needs_attention' ? { ESCALATED: 1 } : {},
+      failuresByState: status === 'needs_attention' ? { escalated: 1 } : {},
       activeRules: 4, candidateRules: 1, cycleCostMilliUsd: 300, watchCostMilliUsd: 1200,
     },
     backupRef: status === 'handoff' ? 'refs/bytequay/backups/watch-1' : null,
@@ -57,16 +59,91 @@ function snapshot(status: CiHarnessWatchSnapshotDto['status']): CiHarnessWatchSn
   };
 }
 
+function escalation(): CiHarnessFailureDto {
+  return {
+    id: 'failure-1', cycleId: 'cycle-1', status: 'escalated', bucket: 'unknown',
+    jobName: 'unit tests', module: 'core', testClass: null, testMethod: null,
+    signature: 'cannot find symbol',
+    logExcerpt: 'Compiler output from the failed job', targetSubject: 'Update SPI', ruleId: null,
+    diagnosis: {
+      rootCause: 'A fork-only consumer was missed', culpritCommit: null,
+      targetSubject: 'Update SPI', edits: [{ path: 'core/Spi.java', find: 'old', replace: 'new' }],
+      signaturePattern: 'cannot find symbol', bucket: 'build', binding: 'agent',
+      verifyHint: ['build'], confidence: 0.41, needsHuman: true, rationale: 'ambiguous owner',
+    },
+    fix: null,
+    verification: {
+      passed: false, reproducible: true, reason: 'verify failed twice',
+      commands: [{ command: './mvnw -pl core test', exitCode: 1, timedOut: false, outputTail: 'BUILD FAILURE' }],
+    },
+    updatedAtMs: 1,
+  };
+}
+
 const candidate: CiHarnessRuleDto = {
   id: 'rule-1', matcherPattern: 'cannot find symbol', scope: 'core', bucket: 'build',
   binding: 'agent', status: 'candidate', origin: 'agent', priority: 50, hits: 2,
   approvedAtMs: null,
 };
 
+const active: CiHarnessRuleDto = {
+  ...candidate, id: 'rule-2', matcherPattern: 'plan mismatch', status: 'active',
+  binding: 'recipe:regen', approvedAtMs: 1,
+};
+
+function actions(overrides: Partial<HarnessActions> = {}): HarnessActions {
+  return {
+    busy: false,
+    onApproveRule: () => {},
+    onRetireRule: () => {},
+    onResolve: () => {},
+    onRetry: () => {},
+    ...overrides,
+  };
+}
+
+function cycleDetail(): CiHarnessCycleDetailDto {
+  return {
+    cycle: {
+      id: 'cycle-1', ordinal: 3, triggerKind: 'poll', status: 'handoff', phase: 'done',
+      headSha: 'abc1234def', costMilliUsd: 620, backupRef: 'refs/bytequay/backup/bump-upstream-9.9',
+      netNeutralProof: {
+        beforeHead: 'before', afterHead: 'after', beforeTree: 'tree-a', afterTree: 'tree-a',
+        emptyTreeDiff: true, rangeEquivalent: true, remoteUndiverged: true, detail: null,
+      },
+      runStatusTail: null, startedAtMs: 1, finishedAtMs: 2,
+      phaseStates: [{ phase: 'probe', status: 'done' }, { phase: 'rebase', status: 'done' }],
+    },
+    milestones: [{
+      id: 9, cycleId: 'cycle-1', phase: 'commit', kind: 'commit',
+      message: 'Committed a path-scoped fixup', detailJson: null, createdAtMs: 1,
+    }],
+    failures: [escalation()],
+  };
+}
+
+function dashboard(overrides: {
+  snapshot?: CiHarnessWatchSnapshotDto;
+  rules?: CiHarnessRuleDto[];
+  actions?: HarnessActions;
+  cycleDetail?: CiHarnessCycleDetailDto | null;
+  onCloseCycle?: () => void;
+} = {}) {
+  return (
+    <HarnessDashboard
+      snapshot={overrides.snapshot ?? snapshot('watching')}
+      rules={overrides.rules ?? []}
+      actions={overrides.actions ?? actions()}
+      cycleDetail={overrides.cycleDetail ?? null}
+      onCloseCycle={overrides.onCloseCycle ?? (() => {})} />
+  );
+}
+
 describe('HarnessDashboard', () => {
   it('renders pending bootstrap before a profile is available', () => {
-    render(<HarnessDashboard snapshot={{ ...snapshot('bootstrap'), bootstrapStatus: 'pending', bootstrapProfile: null }}
-      rules={[]} busy={false} onApproveRule={() => {}} />);
+    render(dashboard({
+      snapshot: { ...snapshot('bootstrap'), bootstrapStatus: 'pending', bootstrapProfile: null },
+    }));
 
     expect(screen.getByText('Bootstrapping project knowledge')).toBeTruthy();
     expect(screen.queryByText('Bootstrap trust profile')).toBeNull();
@@ -74,26 +151,68 @@ describe('HarnessDashboard', () => {
 
   it('renders completed bootstrap evidence before the first cycle and approves a candidate rule', () => {
     const onApproveRule = vi.fn();
-    render(<HarnessDashboard snapshot={snapshot('watching')} rules={[candidate]} busy={false}
-      onApproveRule={onApproveRule} />);
+    render(dashboard({ rules: [candidate], actions: actions({ onApproveRule }) }));
 
     expect(screen.getByText('Bootstrap trust profile')).toBeTruthy();
     expect(screen.getByText(/\.\/mvnw spotless:check/)).toBeTruthy();
     expect(screen.getByText('No failures recorded')).toBeTruthy();
     expect(screen.getByText('2 evidence hits')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Approve rule' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     expect(onApproveRule).toHaveBeenCalledWith('rule-1');
   });
 
-  it('shows escalation evidence and a copy-only handoff proof', () => {
-    const { rerender } = render(<HarnessDashboard snapshot={snapshot('needs_attention')} rules={[]} busy={false}
-      onApproveRule={() => {}} />);
-    expect(screen.getByText('Compiler output from the failed job')).toBeTruthy();
-    expect(screen.getAllByText('Update SPI')).toHaveLength(2);
+  it('filters the knowledge base by status and retires an active rule', () => {
+    const onRetireRule = vi.fn();
+    render(dashboard({ rules: [candidate, active], actions: actions({ onRetireRule }) }));
+
+    expect(screen.getByText('cannot find symbol')).toBeTruthy();
+    expect(screen.queryByText('plan mismatch')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Active/ }));
+    expect(screen.getByText('plan mismatch')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Retire' }));
+    expect(onRetireRule).toHaveBeenCalledWith('rule-2');
+  });
+
+  it('queues every escalation with a resolve and a resolve-and-run action', () => {
+    const onResolve = vi.fn();
+    const onRetry = vi.fn();
+    render(dashboard({
+      snapshot: snapshot('needs_attention'),
+      actions: actions({ onResolve, onRetry }),
+    }));
+
+    expect(screen.getByRole('heading', { name: 'Needs you' })).toBeTruthy();
+    expect(screen.getByText('A fork-only consumer was missed')).toBeTruthy();
+    expect(screen.getByText(/Verification failed: verify failed twice/)).toBeTruthy();
     expect(screen.getByText('1 escalated')).toBeTruthy();
 
-    rerender(<HarnessDashboard snapshot={{ ...snapshot('handoff'), runStatusTail: null }} rules={[]} busy={false}
-      onApproveRule={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Your decision'), {
+      target: { value: 'the SPI change is intentional' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
+    expect(onResolve).toHaveBeenCalledWith('failure-1', 'the SPI change is intentional');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve & run cycle' }));
+    expect(onRetry).toHaveBeenCalledWith('failure-1', 'the SPI change is intentional');
+  });
+
+  it('opens a failure drawer with the proposal, its edits, and the verification commands', () => {
+    render(dashboard({ snapshot: snapshot('needs_attention') }));
+
+    expect(screen.queryByRole('heading', { name: 'Proposal' })).toBeNull();
+    fireEvent.click(screen.getByRole('row', { name: /cannot find symbol/ }));
+
+    expect(screen.getByRole('heading', { name: 'Proposal' })).toBeTruthy();
+    expect(screen.getByText('core/Spi.java')).toBeTruthy();
+    expect(screen.getByText('./mvnw -pl core test')).toBeTruthy();
+    expect(screen.getByText('0.41')).toBeTruthy();
+  });
+
+  it('shows a copy-only handoff proof', () => {
+    render(dashboard({ snapshot: { ...snapshot('handoff'), runStatusTail: null } }));
+
     expect(screen.queryByText('Bootstrap trust profile')).toBeNull();
     expect(screen.getByText('History rewrite proof')).toBeTruthy();
     expect(screen.getByText('refs/bytequay/backups/watch-1')).toBeTruthy();
@@ -103,20 +222,48 @@ describe('HarnessDashboard', () => {
   });
 
   it('pins an escalated failure even while the containing cycle still runs', () => {
-    const running = {
-      ...snapshot('needs_attention'),
-      status: 'running' as const,
-    };
-    render(<HarnessDashboard snapshot={running} rules={[]} busy={false} onApproveRule={() => {}} />);
+    render(dashboard({ snapshot: { ...snapshot('needs_attention'), status: 'running' as const } }));
 
-    expect(screen.getByText('Needs you')).toBeTruthy();
-    expect(screen.getByText('Compiler output from the failed job')).toBeTruthy();
+    expect(screen.getByText('Needs you', { selector: 'strong' })).toBeTruthy();
+    expect(screen.getByText('A fork-only consumer was missed')).toBeTruthy();
   });
 
   it('renders the dedicated green completion state', () => {
-    render(<HarnessDashboard snapshot={snapshot('green')} rules={[]} busy={false} onApproveRule={() => {}} />);
+    render(dashboard({ snapshot: snapshot('green') }));
     expect(screen.getByRole('heading', { name: 'CI is green' })).toBeTruthy();
     expect(screen.getByText(/Monitoring stays on/)).toBeTruthy();
+  });
+
+  it('replaces the watch view with one cycle and returns from it', () => {
+    const onCloseCycle = vi.fn();
+    render(dashboard({ cycleDetail: cycleDetail(), onCloseCycle }));
+
+    expect(screen.getByText('Cycle 3')).toBeTruthy();
+    expect(screen.getByText(/handoff · poll · abc1234 · \$0\.62/)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Failures in this cycle' })).toBeTruthy();
+    expect(screen.getByText('Committed a path-scoped fixup')).toBeTruthy();
+    expect(screen.getByText('refs/bytequay/backup/bump-upstream-9.9')).toBeTruthy();
+    expect(screen.queryByText('Bootstrap trust profile')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '← Back to watch' }));
+    expect(onCloseCycle).toHaveBeenCalledOnce();
+  });
+
+  it('renders a question and its answer as conversation in the feed', () => {
+    render(dashboard({
+      snapshot: {
+        ...snapshot('watching'),
+        milestones: [
+          { id: 1, cycleId: null, phase: 'classify', kind: 'question', message: 'why is core red?', detailJson: null, createdAtMs: 1 },
+          { id: 2, cycleId: null, phase: 'classify', kind: 'answer', message: 'The SPI moved.', detailJson: null, createdAtMs: 2 },
+        ],
+      },
+    }));
+
+    expect(screen.getByText('why is core red?')).toBeTruthy();
+    expect(screen.getByText('The SPI moved.')).toBeTruthy();
+    expect(screen.getByText(/^You ·/)).toBeTruthy();
+    expect(screen.getByText(/^Harness ·/)).toBeTruthy();
   });
 });
 
@@ -138,6 +285,32 @@ describe('harness watch refresh contract', () => {
       path: '/api/workspaces/w1/ci-harness/watches/watch-1/run',
       method: 'POST',
       body: { steeringText: 'Prefer the module-local fixture.' },
+    });
+  });
+
+  it('posts a trimmed question and an escalation note to their own routes', async () => {
+    const request = vi.fn(async () => snapshot('watching'));
+    (window as unknown as { bridge: unknown }).bridge = { workspaceApi: request };
+
+    await workspaceApi.askHarnessWatch('w1', 'watch-1', '  what did you change?  ');
+    expect(request).toHaveBeenCalledWith({
+      path: '/api/workspaces/w1/ci-harness/watches/watch-1/ask',
+      method: 'POST',
+      body: { question: 'what did you change?' },
+    });
+
+    await workspaceApi.retryHarnessFailure('w1', 'watch-1', 'failure-1', '  intentional  ');
+    expect(request).toHaveBeenCalledWith({
+      path: '/api/workspaces/w1/ci-harness/watches/watch-1/failures/failure-1/retry',
+      method: 'POST',
+      body: { note: 'intentional' },
+    });
+
+    await workspaceApi.resolveHarnessFailure('w1', 'watch-1', 'failure-1', '   ');
+    expect(request).toHaveBeenCalledWith({
+      path: '/api/workspaces/w1/ci-harness/watches/watch-1/failures/failure-1/resolve',
+      method: 'POST',
+      body: {},
     });
   });
 });

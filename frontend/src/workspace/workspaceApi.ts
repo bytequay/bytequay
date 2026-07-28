@@ -371,6 +371,38 @@ export type CiHarnessMilestoneDto = {
   createdAtMs: number;
 };
 
+export type CiHarnessEditDto = {
+  path: string;
+  find: string;
+  replace: string | null;
+};
+
+export type CiHarnessDiagnosisDto = {
+  rootCause: string;
+  culpritCommit: string | null;
+  targetSubject: string | null;
+  edits: CiHarnessEditDto[];
+  signaturePattern: string;
+  bucket: string;
+  binding: string;
+  verifyHint: string[];
+  confidence: number;
+  needsHuman: boolean;
+  rationale: string;
+};
+
+export type CiHarnessVerificationDto = {
+  passed: boolean;
+  reproducible: boolean;
+  commands: {
+    command: string;
+    exitCode: number;
+    timedOut: boolean;
+    outputTail: string | null;
+  }[];
+  reason: string | null;
+};
+
 export type CiHarnessFailureDto = {
   id: string;
   cycleId: string;
@@ -378,10 +410,27 @@ export type CiHarnessFailureDto = {
   bucket: string;
   jobName: string;
   module: string;
+  testClass: string | null;
+  testMethod: string | null;
   signature: string;
   logExcerpt: string;
   targetSubject: string | null;
   ruleId: string | null;
+  diagnosis: CiHarnessDiagnosisDto | null;
+  fix: {
+    filesChanged: string[];
+    targetSubject: string | null;
+    verifyCommands: string[];
+    source: string | null;
+  } | null;
+  verification: CiHarnessVerificationDto | null;
+  updatedAtMs: number;
+};
+
+export type CiHarnessCycleDetailDto = {
+  cycle: CiHarnessCycleDto;
+  milestones: CiHarnessMilestoneDto[];
+  failures: CiHarnessFailureDto[];
 };
 
 export type CiHarnessStatsDto = {
@@ -943,8 +992,14 @@ export const workspaceApi = {
       path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/stop`,
       method: 'POST',
     }),
+  askHarnessWatch: (workspaceId: string, watchId: string, question: string) =>
+    window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/ask`,
+      method: 'POST',
+      body: { question: question.trim() },
+    }),
   harnessCycle: (workspaceId: string, watchId: string, cycleId: string) =>
-    window.bridge.workspaceApi<CiHarnessCycleDto>({
+    window.bridge.workspaceApi<CiHarnessCycleDetailDto>({
       path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/cycles/${enc(cycleId)}`,
     }),
   harnessRules: (workspaceId: string, watchId: string) =>
@@ -956,6 +1011,33 @@ export const workspaceApi = {
       path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/rules/${enc(ruleId)}/approve`,
       method: 'POST',
     }),
+  retireHarnessRule: (workspaceId: string, watchId: string, ruleId: string) =>
+    window.bridge.workspaceApi<CiHarnessRuleDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${enc(watchId)}/rules/${enc(ruleId)}/retire`,
+      method: 'POST',
+    }),
+  resolveHarnessFailure: (
+    workspaceId: string,
+    watchId: string,
+    failureId: string,
+    note?: string,
+  ) => window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
+    path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${
+      enc(watchId)}/failures/${enc(failureId)}/resolve`,
+    method: 'POST',
+    body: note === undefined || note.trim().length === 0 ? {} : { note: note.trim() },
+  }),
+  retryHarnessFailure: (
+    workspaceId: string,
+    watchId: string,
+    failureId: string,
+    note?: string,
+  ) => window.bridge.workspaceApi<CiHarnessWatchSnapshotDto>({
+    path: `/api/workspaces/${enc(workspaceId)}/ci-harness/watches/${
+      enc(watchId)}/failures/${enc(failureId)}/retry`,
+    method: 'POST',
+    body: note === undefined || note.trim().length === 0 ? {} : { note: note.trim() },
+  }),
   refreshRepository: (workspaceId: string) =>
     window.bridge.workspaceApi<LocalRepoStatusDto>({
       path: `/api/workspaces/${enc(workspaceId)}/refresh`,

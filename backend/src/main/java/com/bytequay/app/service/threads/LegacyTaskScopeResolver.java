@@ -11,8 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.developmentflow.execution;
+package com.bytequay.app.service.threads;
 
+import com.bytequay.app.developmentflow.execution.CapacityManager;
+import com.bytequay.app.developmentflow.execution.LegacySagaCapacity;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -23,6 +25,7 @@ import static java.util.Objects.requireNonNull;
 /** Resolves one exact persisted legacy Task capacity scope by primary key. */
 @Component
 public class LegacyTaskScopeResolver
+        implements LegacySagaCapacity.TaskScopeResolver
 {
     private final TaskStore tasks;
     private final ThreadStore threads;
@@ -33,6 +36,7 @@ public class LegacyTaskScopeResolver
         this.threads = requireNonNull(threads, "threads is null");
     }
 
+    @Override
     public CapacityManager.CapacityScope resolve(String taskId)
     {
         requireNonNull(taskId, "taskId is null");

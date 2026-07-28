@@ -31,11 +31,11 @@ import static java.util.Objects.requireNonNull;
 public class LegacySagaCapacity
 {
     private final LegacyCapacityBridge bridge;
-    private final LegacyTaskScopeResolver scopes;
+    private final TaskScopeResolver scopes;
 
     public LegacySagaCapacity(
             LegacyCapacityBridge bridge,
-            LegacyTaskScopeResolver scopes)
+            TaskScopeResolver scopes)
     {
         this.bridge = requireNonNull(bridge, "bridge is null");
         this.scopes = requireNonNull(scopes, "scopes is null");
@@ -88,6 +88,13 @@ public class LegacySagaCapacity
 
         @Override
         void close();
+    }
+
+    /** Repository-free port implemented by the legacy application boundary. */
+    @FunctionalInterface
+    public interface TaskScopeResolver
+    {
+        CapacityManager.CapacityScope resolve(String taskId);
     }
 
     private static final class BridgedAttempt

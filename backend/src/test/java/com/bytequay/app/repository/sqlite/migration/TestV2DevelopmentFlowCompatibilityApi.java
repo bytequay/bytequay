@@ -191,6 +191,12 @@ class TestV2DevelopmentFlowCompatibilityApi
         assertThat(brain.path("liveRuns").isEmpty()).isTrue();
         assertThat(brain.path("guard").path("enabled").asBoolean()).isFalse();
         assertThat(brain.path("liveRound").isNull()).isTrue();
+        JsonNode activeStages = body(stageApi.perform(
+                        get("/api/tasks/task-1/stages/active"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(activeStages).hasSize(1);
+        assertThat(activeStages.get(0).path("id").asText())
+                .isEqualTo("remote-stage-1");
 
         JsonNode trace = body(traceApi.perform(get("/api/tasks/task-1/trace"))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());

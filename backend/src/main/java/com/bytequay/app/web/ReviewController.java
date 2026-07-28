@@ -99,13 +99,19 @@ public class ReviewController
     {
         String workspaceId = body == null ? null : body.workspaceId();
         String openingTitle = body == null ? null : body.openingTitle();
-        return buildSpawn.spawn(passId, workspaceId, openingTitle);
+        List<String> selectedFindingIds = body == null
+                ? null : body.selectedFindingIds();
+        return buildSpawn.spawn(
+                passId, workspaceId, openingTitle, selectedFindingIds);
     }
 
     /** Spawn-build body — both fields optional. {@code workspaceId} null
      *  auto-resolves; {@code openingTitle} null defaults to "Fix review
      *  findings on PR #N". */
-    public record SpawnBuildRequest(String workspaceId, String openingTitle) {}
+    public record SpawnBuildRequest(
+            String workspaceId,
+            String openingTitle,
+            List<String> selectedFindingIds) {}
 
     /** Roster of LLM reviewers the dialog renders as panel chips.
      *  Configured ones come first; unconfigured ones surface so the

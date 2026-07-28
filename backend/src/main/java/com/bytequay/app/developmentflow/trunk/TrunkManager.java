@@ -211,41 +211,6 @@ public final class TrunkManager
         });
     }
 
-    /**
-     * Binds the optional Brain Turn to a delivered completion marker.
-     * TaskOutcome is a Trunk-owned artifact after inbox delivery, so this
-     * command uses the Trunk stripe and transaction but does not manufacture
-     * a lifecycle transition for an artifact-only change.
-     */
-    public CommandResult<TaskOutcomeSummaryState> bindTaskOutcomeSummary(
-            TaskOutcomeSummaryBinding binding)
-    {
-        requireNonNull(binding, "binding is null");
-        String trunkId = store.findTaskOutcomeTrunk(binding.taskOutcomeId())
-                .orElseThrow(() -> rejected(
-                        NOT_FOUND, "TaskOutcome not found: "
-                                + binding.taskOutcomeId()));
-        String scope = scope(trunkId);
-        return commands.execute(scope, () -> {
-            TaskCommandExecutor.requireCurrent(scope);
-            TaskOutcomeSummaryState current = store.requireTaskOutcomeSummary(
-                    binding.taskOutcomeId());
-            if (current.summaryThreadTurnId() != null) {
-                if (!current.summaryThreadTurnId().equals(binding.turnId())) {
-                    throw rejected(COMMAND_ID_CONFLICT,
-                            "TaskOutcome is bound to another summary ThreadTurn");
-                }
-                return CommandResult.duplicate(current);
-            }
-            if (!"FALLBACK".equals(current.summaryState())) {
-                throw rejected(INVALID_STATE,
-                        "Generated TaskOutcome cannot bind another summary Turn");
-            }
-            return CommandResult.applied(
-                    store.bindTaskOutcomeSummary(binding, current));
-        });
-    }
-
     /** Accepts exact successful Brain evidence into the completion marker. */
     public CommandResult<TaskOutcomeSummaryState> enrichTaskOutcomeSummary(
             TaskOutcomeSummaryFact fact)
@@ -267,9 +232,9 @@ public final class TrunkManager
                 }
                 return CommandResult.duplicate(current);
             }
-            if (!Objects.equals(current.summaryThreadTurnId(), fact.turnId())) {
+            if (!Objects.equals(current.summaryTaskTurnId(), fact.turnId())) {
                 throw rejected(STALE_VERSION,
-                        "TaskOutcome summary Turn fence is stale");
+                        "TaskOutcome summary TaskTurn fence is stale");
             }
             return CommandResult.applied(
                     store.enrichTaskOutcomeSummary(fact, current));
@@ -283,6 +248,40 @@ public final class TrunkManager
         requireNonNull(command, "command is null");
         String scope = scope(command.trunkId());
         return commands.execute(scope, () -> requestThreadTurnInCommand(command, scope));
+    }
+
+    /** Atomically consumes one successful planning launch disposition. */
+    public Optional<CommandResult<ThreadTurnRequestReceipt>> launchPlanningTurn(
+            String planningOperationId, ThreadTurnCommand command)
+    {
+        requireText(planningOperationId, "planningOperationId");
+        requireNonNull(command, "command is null");
+        String scope = scope(command.trunkId());
+        return commands.execute(scope, () -> {
+            TaskCommandExecutor.requireCurrent(scope);
+            if (!store.isPlanningLaunchPending(
+                    planningOperationId, command.trunkId(), command.turnId())) {
+                return Optional.empty();
+            }
+            CommandResult<ThreadTurnRequestReceipt> result =
+                    requestThreadTurnInCommand(command, scope);
+            store.markPlanningLaunch(
+                    planningOperationId, command.turnId(), command.requestedAt());
+            return Optional.of(result);
+        });
+    }
+
+    /** Durably prevents every not-yet-launched planning result for this Trunk. */
+    public int suppressPlanningLaunches(String trunkId, String reason, Instant at)
+    {
+        requireText(trunkId, "trunkId");
+        requireText(reason, "reason");
+        requireNonNull(at, "at is null");
+        String scope = scope(trunkId);
+        return commands.execute(scope, () -> {
+            TaskCommandExecutor.requireCurrent(scope);
+            return store.suppressPlanningLaunches(trunkId, reason, at);
+        });
     }
 
     private CommandResult<ThreadTurnRequestReceipt> requestThreadTurnInCommand(
@@ -538,9 +537,15 @@ public final class TrunkManager
         }
 
         State updated = new State(current.id(), target, current.version() + 1);
-        return CommandResult.applied(store.commit(
+        State committed = store.commit(
                 command.commandId(), cause, command.actor(), command.expectedVersion(),
-                current, updated));
+                current, updated);
+        if (target == TrunkLifecycle.ARCHIVED) {
+            store.suppressPlanningLaunches(
+                    command.trunkId(), "Trunk archived before turn launch",
+                    Instant.now());
+        }
+        return CommandResult.applied(committed);
     }
 
     private static String scope(String trunkId)
@@ -825,15 +830,6 @@ public final class TrunkManager
         }
     }
 
-    public record TaskOutcomeSummaryBinding(String taskOutcomeId, String turnId)
-    {
-        public TaskOutcomeSummaryBinding
-        {
-            requireText(taskOutcomeId, "taskOutcomeId");
-            requireText(turnId, "turnId");
-        }
-    }
-
     public record TaskOutcomeSummaryFact(
             String taskOutcomeId,
             String turnId,
@@ -857,7 +853,7 @@ public final class TrunkManager
             String taskOutcomeId,
             String trunkId,
             String summaryState,
-            String summaryThreadTurnId,
+            String summaryTaskTurnId,
             String summaryOperationId,
             String summaryText,
             String summaryDigest,
@@ -870,8 +866,8 @@ public final class TrunkManager
             requireText(summaryState, "summaryState");
             requireText(summaryText, "summaryText");
             requireText(summaryDigest, "summaryDigest");
-            if (summaryThreadTurnId != null) {
-                requireText(summaryThreadTurnId, "summaryThreadTurnId");
+            if (summaryTaskTurnId != null) {
+                requireText(summaryTaskTurnId, "summaryTaskTurnId");
             }
             if (summaryOperationId != null) {
                 requireText(summaryOperationId, "summaryOperationId");
@@ -883,7 +879,7 @@ public final class TrunkManager
                 }
             }
             else if (!"BRAIN_GENERATED".equals(summaryState)
-                    || summaryThreadTurnId == null
+                    || summaryTaskTurnId == null
                     || summaryOperationId == null
                     || summaryUpdatedAt == null) {
                 throw new IllegalArgumentException(
@@ -897,7 +893,7 @@ public final class TrunkManager
         private boolean matches(TaskOutcomeSummaryFact fact)
         {
             return taskOutcomeId.equals(fact.taskOutcomeId())
-                    && summaryThreadTurnId.equals(fact.turnId())
+                    && summaryTaskTurnId.equals(fact.turnId())
                     && summaryOperationId.equals(fact.operationId())
                     && summaryText.equals(fact.summaryText())
                     && summaryDigest.equals(fact.summaryDigest())
@@ -1212,6 +1208,25 @@ public final class TrunkManager
             return false;
         }
 
+        default boolean isPlanningLaunchPending(
+                String planningOperationId, String trunkId, String turnId)
+        {
+            return false;
+        }
+
+        default void markPlanningLaunch(
+                String planningOperationId, String turnId, Instant launchedAt)
+        {
+            throw new UnsupportedOperationException(
+                    "Planning launch persistence is unavailable");
+        }
+
+        default int suppressPlanningLaunches(
+                String trunkId, String reason, Instant suppressedAt)
+        {
+            return 0;
+        }
+
         default Optional<String> findTaskOutcomeTrunk(
                 String taskOutcomeId, String deliveryKey)
         {
@@ -1253,14 +1268,6 @@ public final class TrunkManager
 
         default TaskOutcomeSummaryState requireTaskOutcomeSummary(
                 String taskOutcomeId)
-        {
-            throw new UnsupportedOperationException(
-                    "TaskOutcome summary persistence is unavailable");
-        }
-
-        default TaskOutcomeSummaryState bindTaskOutcomeSummary(
-                TaskOutcomeSummaryBinding binding,
-                TaskOutcomeSummaryState current)
         {
             throw new UnsupportedOperationException(
                     "TaskOutcome summary persistence is unavailable");

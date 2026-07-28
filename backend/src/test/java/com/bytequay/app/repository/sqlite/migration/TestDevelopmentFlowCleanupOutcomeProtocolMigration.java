@@ -29,10 +29,10 @@ import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore;
 import com.bytequay.app.developmentflow.task.persistence.SqliteTaskControlRuntimeStore.ControlContext;
 import com.bytequay.app.developmentflow.trunk.SqliteTaskOutcomeSummaryStore;
+import com.bytequay.app.developmentflow.trunk.TaskOutcomeSummaryResultDeliveryPort;
 import com.bytequay.app.developmentflow.trunk.TaskOutcomeSummaryRuntime;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
-import com.bytequay.app.developmentflow.trunk.ThreadTurnResultDeliveryPort;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,6 +48,7 @@ import java.sql.Connection;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.acceptSnapshot;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.assertFails;
@@ -62,6 +63,7 @@ import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemote
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.seedWorkspaceAndTrunk;
 import static com.bytequay.app.repository.sqlite.migration.DevelopmentFlowRemoteProtocolFixture.text;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestDevelopmentFlowCleanupOutcomeProtocolMigration
 {
@@ -635,7 +637,7 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
             throws Exception
     {
         String url = remoteUrl("cleanup-delivery.db", false);
-        migrate(url, "240");
+        migrate(url, "261");
         try (Connection connection = connect(url)) {
             settleSuccessfulRuntimeCleanup(connection);
             moveCleanupTicketToResultPending(connection);
@@ -653,11 +655,32 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
         CleanupStageManager cleanup = new CleanupStageManager(commands, reflectStore(
                 "com.bytequay.app.developmentflow.stage.persistence.V2StageStore",
                 StageManager.Store.class, jdbc));
+        TrunkManager.Store trunkStore = reflectStore(
+                "com.bytequay.app.developmentflow.trunk.persistence.V2TrunkStore",
+                TrunkManager.Store.class, jdbc);
+        TrunkManager trunks = new TrunkManager(commands, trunkStore);
         SqliteCleanupOperationStore operations =
                 new SqliteCleanupOperationStore(jdbc, transactionManager);
         CleanupOperationResultDelivery delivery = new CleanupOperationResultDelivery(
                 operations,
-                new CleanupCompletionHandoff(commands, cleanup, tasks),
+                new CleanupCompletionHandoff(
+                        commands, cleanup, tasks,
+                        List.of(
+                                completion -> {
+                                    String outcomeId = "TASK_OUTCOME:"
+                                            + completion.taskId();
+                                    trunks.acceptTaskOutcome(
+                                            new TrunkManager.TaskOutcomeFact(
+                                                    outcomeId,
+                                                    "TRUNK_OUTCOME:" + outcomeId,
+                                                    "v2-task-outcome",
+                                                    completion.completedAt()));
+                                },
+                                completion -> {
+                                    throw new IllegalStateException(
+                                            "simulated post-commit observer failure");
+                                }),
+                        Clock.systemUTC()),
                 Clock.fixed(Instant.ofEpochMilli(500), ZoneOffset.UTC));
         DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
                 1L, "cleanup-stage-1", 1L,
@@ -681,7 +704,10 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 .isEqualTo(DispatchTicket.Acceptance.ACCEPTED);
 
         commitAcceptedCleanupTicket(jdbc, receipt);
-        delivery.afterDeliveryCommitted(owner, fence, result, receipt);
+        assertThatThrownBy(() -> delivery.afterDeliveryCommitted(
+                owner, fence, result, receipt))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("simulated post-commit observer failure");
         delivery.recoverCommittedDeliveries(10);
 
         assertThat(jdbcText(jdbc, "SELECT lifecycle_state FROM tasks WHERE id = 'task-1'"))
@@ -690,6 +716,20 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 .isOne();
         assertThat(jdbcNumber(jdbc, "SELECT COUNT(*) FROM trunk_outcome_inbox WHERE task_id = 'task-1'"))
                 .isOne();
+        assertThat(jdbcText(jdbc, """
+                SELECT status FROM trunk_outcome_inbox WHERE task_id = 'task-1'
+                """)).isEqualTo("DELIVERED");
+        assertThat(jdbcNumber(jdbc, """
+                SELECT COUNT(*) FROM trunk_transition
+                WHERE cause = 'ACCEPT_TASK_OUTCOME'
+                """)).isOne();
+        trunks.acceptTaskOutcome(new TrunkManager.TaskOutcomeFact(
+                "TASK_OUTCOME:task-1", "TRUNK_OUTCOME:TASK_OUTCOME:task-1",
+                "v2-task-outcome", Instant.ofEpochMilli(600)));
+        assertThat(jdbcNumber(jdbc, """
+                SELECT COUNT(*) FROM trunk_transition
+                WHERE cause = 'ACCEPT_TASK_OUTCOME'
+                """)).isOne();
         assertThat(jdbcNumber(jdbc, "SELECT COUNT(*) FROM pragma_foreign_key_check"))
                 .isZero();
         assertThat(delivery.deliver(owner, fence, result).acceptance())
@@ -774,24 +814,36 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                     'legacy-summary-operation-id', 1, 'REQUESTED', 504
                 FROM task_outcome outcome WHERE outcome.task_id = 'task-1'
                 """);
+        jdbc.update("""
+                UPDATE trunk_outcome_inbox
+                SET status = 'DELIVERED',
+                    delivered_at_ms = created_at_ms + 1,
+                    delivery_evidence = 'legacy delivery without transition'
+                WHERE task_id = 'task-1'
+                """);
 
         migrate(url, "261");
 
         assertThat(jdbcText(jdbc, """
                 SELECT operation.status || '|' || turn.status || '|'
-                    || ticket.status || '|' || ticket.delivery_acceptance
+                    || ticket.status || '|' || ticket.lane_mask || '|'
+                    || COALESCE(
+                        ticket.delivery_acceptance, 'NONE')
                 FROM task_outcome_summary_operation operation
                 JOIN task_turn turn ON turn.id = operation.task_turn_id
                 JOIN dispatch_ticket ticket
                   ON ticket.id = operation.dispatch_ticket_id
                 WHERE operation.id = 'legacy-summary-operation'
-                """)).isEqualTo("CANCELED|CANCELED|CANCELED|SUPERSEDED");
+                """)).isEqualTo("REQUESTED|REQUESTED|REQUESTED|10|NONE");
 
         assertThat(jdbcText(jdbc, """
-                SELECT status || '|' || fallback_summary_text
+                SELECT status || '|' || fallback_summary_text || '|'
+                    || legacy_delivery_evidence || '|'
+                    || (legacy_delivered_at_ms - created_at_ms)
                 FROM trunk_outcome_inbox WHERE task_id = 'task-1'
                 """))
-                .isEqualTo("PENDING|Shipped Task 1 (PR #41) — merged.");
+                .isEqualTo("PENDING|Shipped Task 1 (PR #41) — merged.|"
+                        + "legacy delivery without transition|1");
 
         TrunkManager.Store trunkStore = reflectStore(
                 "com.bytequay.app.developmentflow.trunk.persistence.V2TrunkStore",
@@ -819,45 +871,52 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
         runtime.maintain(summaryRequestedAt.plusMillis(1));
 
         assertThat(jdbcNumber(jdbc, """
-                SELECT COUNT(*) FROM thread_turn
+                SELECT COUNT(*) FROM task_turn
                 WHERE purpose = 'TASK_COMPLETION_SUMMARY'
                 """)).isOne();
         assertThat(jdbcText(jdbc, """
                 SELECT inbox.status || '|' || outcome.summary_state || '|'
-                    || (outcome.summary_thread_turn_id IS NOT NULL)
+                    || COUNT(summary.id)
                 FROM trunk_outcome_inbox inbox
                 JOIN task_outcome outcome ON outcome.id = inbox.task_outcome_id
+                LEFT JOIN task_outcome_summary_operation summary
+                  ON summary.task_outcome_id = outcome.id
                 WHERE inbox.task_id = 'task-1'
+                GROUP BY inbox.status, outcome.summary_state
                 """)).isEqualTo("DELIVERED|FALLBACK|1");
+        assertThat(jdbcNumber(jdbc, """
+                SELECT COUNT(*) FROM trunk_transition
+                WHERE cause = 'ACCEPT_TASK_OUTCOME'
+                """)).isOne();
         try (Connection connection = connect(url)) {
             assertFails(connection, """
                     INSERT INTO task_turn(
                         id, task_id, purpose, status, operation_id, attempt,
                         task_epoch, delivery_lane, launch_input, requested_at_ms)
-                    VALUES ('retired-summary', 'task-1',
+                    VALUES ('duplicate-summary', 'task-1',
                         'TASK_COMPLETION_SUMMARY', 'REQUESTED',
-                        'retired-summary-operation', 1, 1, 'API', '{}', 602)
+                        'duplicate-summary-operation', 1, 1, 'API', '{}', 602)
                     """);
         }
 
         String turnId = jdbcText(jdbc, """
-                SELECT summary_thread_turn_id FROM task_outcome
+                SELECT task_turn_id FROM task_outcome_summary_operation
                 WHERE task_id = 'task-1'
                 """);
         String operationId = jdbcText(jdbc, """
-                SELECT operation_id FROM thread_turn WHERE id = '%s'
+                SELECT operation_id FROM task_turn WHERE id = '%s'
                 """.formatted(turnId));
         String ticketId = jdbcText(jdbc, """
                 SELECT id FROM dispatch_ticket
-                WHERE owner_kind = 'THREAD_TURN' AND owner_id = '%s'
+                WHERE owner_kind = 'TASK_TURN' AND owner_id = '%s'
                 """.formatted(turnId));
         DispatchTicket.OperationFence turnFence =
                 new DispatchTicket.OperationFence(
-                        null, null, null, operationId, 1,
+                        1L, null, null, operationId, 1,
                         null, null, null);
         AgentTurnOperationHandler.RawResult payload =
                 new AgentTurnOperationHandler.RawResult(
-                        1, turnId, DispatchTicket.OwnerKind.THREAD_TURN,
+                        1, turnId, DispatchTicket.OwnerKind.TASK_TURN,
                         "TASK_COMPLETION_SUMMARY",
                         AgentTurnProviderSession.Transport.CLI,
                         "codex", "session-1", "Implemented and merged safely.",
@@ -869,20 +928,22 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                         turnFence, DispatchTicket.Outcome.SUCCEEDED,
                         json.writeValueAsString(payload), "{}", null);
         markThreadResultPending(jdbc, ticketId, turnResult);
-        ThreadTurnResultDeliveryPort turnDelivery =
-                new ThreadTurnResultDeliveryPort(
-                        trunks, new AgentTurnOwnerResultCodec(json), json,
+        TaskOutcomeSummaryResultDeliveryPort turnDelivery =
+                new TaskOutcomeSummaryResultDeliveryPort(
+                        outcomeStore, runtime,
+                        new AgentTurnOwnerResultCodec(json), json,
                         Clock.fixed(
                                 summaryRequestedAt.plusMillis(100),
                                 ZoneOffset.UTC));
         DispatchTicket.OwnerReference turnOwner =
                 new DispatchTicket.OwnerReference(
-                        DispatchTicket.OwnerKind.THREAD_TURN, turnId,
-                        "THREAD_TURN_RESULT");
+                        DispatchTicket.OwnerKind.TASK_TURN, turnId,
+                        "TASK_OUTCOME_SUMMARY_RESULT");
         DispatchTicket.DeliveryReceipt turnReceipt = turnDelivery.deliver(
                 turnOwner, turnFence, turnResult);
         markThreadResultDelivered(jdbc, ticketId, turnReceipt);
-        runtime.maintain(summaryRequestedAt.plusMillis(101));
+        turnDelivery.afterDeliveryCommitted(
+                turnOwner, turnFence, turnResult, turnReceipt);
 
         assertThat(jdbcText(jdbc, """
                 SELECT summary_state || '|' || summary_text
@@ -899,6 +960,73 @@ class TestDevelopmentFlowCleanupOutcomeProtocolMigration
                 });
         assertThat(jdbcNumber(jdbc,
                 "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
+    }
+
+    @Test
+    void upgradeKeepsExactHistoricalOutcomeVersionDespiteLaterTrunkTransition()
+            throws Exception
+    {
+        String url = remoteUrl("historical-outcome-version.db", false);
+        try (Connection connection = connect(url)) {
+            settleSuccessfulRuntimeCleanup(connection);
+            completeCleanup(connection);
+            terminalizeTask(connection);
+            execute(connection, """
+                    UPDATE trunk_outcome_inbox
+                    SET status = 'DELIVERED', delivered_at_ms = 510,
+                        delivery_evidence = 'legacy exact delivery'
+                    WHERE task_id = 'task-1'
+                    """);
+            execute(connection, """
+                    INSERT INTO trunk_transition(
+                        id, trunk_id, command_id, from_state, to_state,
+                        aggregate_version, cause, actor, occurred_at_ms)
+                    SELECT 'legacy-outcome-transition', 'trunk-1', delivery_key,
+                        'ACTIVE', 'ACTIVE', 1, 'ACCEPT_TASK_OUTCOME',
+                        'v2-task-outcome', 510
+                    FROM trunk_outcome_inbox WHERE task_id = 'task-1'
+                    """);
+            execute(connection, """
+                    UPDATE threads SET aggregate_version = 1
+                    WHERE id = 'trunk-1'
+                    """);
+            execute(connection, """
+                    INSERT INTO trunk_transition(
+                        id, trunk_id, command_id, from_state, to_state,
+                        aggregate_version, cause, actor, occurred_at_ms)
+                    VALUES ('later-trunk-transition', 'trunk-1',
+                        'later-mark-idle', 'ACTIVE', 'IDLE', 2,
+                        'MARK_IDLE', 'user', 520)
+                    """);
+            execute(connection, """
+                    UPDATE threads SET lifecycle_state = 'IDLE',
+                        aggregate_version = 2 WHERE id = 'trunk-1'
+                    """);
+        }
+
+        migrate(url, "260");
+        migrate(url, "261");
+
+        try (Connection connection = connect(url)) {
+            assertThat(text(connection, """
+                    SELECT status || '|' || returned_trunk_version || '|'
+                        || delivery_evidence || '|'
+                        || legacy_delivery_evidence || '|'
+                        || legacy_delivered_at_ms
+                    FROM trunk_outcome_inbox WHERE task_id = 'task-1'
+                    """)).isEqualTo(
+                    "DELIVERED|1|legacy exact delivery|legacy exact delivery|510");
+            assertThat(text(connection, """
+                    SELECT lifecycle_state || '|' || aggregate_version
+                    FROM threads WHERE id = 'trunk-1'
+                    """)).isEqualTo("IDLE|2");
+            assertThat(number(connection, """
+                    SELECT COUNT(*) FROM trunk_transition
+                    WHERE trunk_id = 'trunk-1'
+                    """)).isEqualTo(2);
+            assertThat(number(connection,
+                    "SELECT COUNT(*) FROM pragma_foreign_key_check")).isZero();
+        }
     }
 
     private String remoteUrl(String file, boolean sibling)

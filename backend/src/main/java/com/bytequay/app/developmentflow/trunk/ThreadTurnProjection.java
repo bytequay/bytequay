@@ -52,17 +52,24 @@ public class ThreadTurnProjection
                 UNION ALL
                 SELECT operation.reserved_thread_turn_id,
                        json_extract(operation.launch_intent, '$.purpose'),
-                       CASE operation.status
-                         WHEN 'SUCCEEDED' THEN 'REQUESTED'
+                       CASE
+                         WHEN operation.launch_disposition = 'SUPPRESSED'
+                           THEN 'CANCELED'
+                         WHEN operation.status = 'SUCCEEDED' THEN 'REQUESTED'
                          ELSE operation.status END,
                        operation.operation_id,
                        operation.semantic_attempt,
                        json_extract(operation.launch_intent, '$.transport'),
                        operation.requested_at_ms, NULL,
-                       CASE WHEN operation.status = 'SUCCEEDED'
-                         THEN NULL ELSE operation.completed_at_ms END,
-                       CASE WHEN operation.status IN ('REQUESTED', 'SUCCEEDED')
-                         THEN NULL
+                       CASE
+                         WHEN operation.launch_disposition = 'SUPPRESSED'
+                           THEN operation.launched_at_ms
+                         WHEN operation.status = 'SUCCEEDED' THEN NULL
+                         ELSE operation.completed_at_ms END,
+                       CASE
+                         WHEN operation.launch_disposition = 'SUPPRESSED'
+                           THEN operation.launch_disposition_reason
+                         WHEN operation.status IN ('REQUESTED', 'SUCCEEDED') THEN NULL
                          ELSE COALESCE(operation.error_message,
                            'Planning-base refresh ' || lower(operation.status)
                            || ' before this turn could start') END,
@@ -109,7 +116,6 @@ public class ThreadTurnProjection
                     JOIN thread_message message
                       ON message.turn_id = turn.id AND message.seq = 1
                     WHERE turn.trunk_id = ?
-                      AND turn.purpose <> 'TASK_COMPLETION_SUMMARY'
                     %s
                 )
                 SELECT turn_id, purpose, status, operation_id, attempt,
@@ -149,7 +155,6 @@ public class ThreadTurnProjection
                 JOIN trunk_thread_turn_request_receipt request
                   ON request.turn_id = turn.id
                 WHERE turn.trunk_id = ?
-                  AND turn.purpose <> 'TASK_COMPLETION_SUMMARY'
                   AND ticket.owner_kind = 'THREAD_TURN'
                   AND ticket.operation_id = turn.operation_id
                   AND ticket.status IN (
@@ -173,7 +178,6 @@ public class ThreadTurnProjection
                 JOIN trunk_thread_turn_request_receipt request
                   ON request.turn_id = turn.id
                 WHERE turn.trunk_id = ?
-                  AND turn.purpose <> 'TASK_COMPLETION_SUMMARY'
                   AND ticket.owner_kind = 'THREAD_TURN'
                   AND ticket.operation_id = turn.operation_id
                   AND ticket.status IN ('CLAIMED', 'RUNNING')
@@ -196,7 +200,6 @@ public class ThreadTurnProjection
                     JOIN trunk_thread_turn_request_receipt request
                       ON request.turn_id = turn.id
                     WHERE turn.trunk_id = ?
-                      AND turn.purpose <> 'TASK_COMPLETION_SUMMARY'
                       AND ticket.owner_kind = 'THREAD_TURN'
                       AND ticket.operation_id = turn.operation_id
                       AND ticket.status IN (%s)
@@ -243,18 +246,24 @@ public class ThreadTurnProjection
                         WHERE turn.id = operation.reserved_thread_turn_id)
                     UNION ALL
                     SELECT operation.id || ':result', 'assistant',
-                           'Planning-base refresh ' || lower(operation.status)
-                             || ' before this turn could start'
+                           CASE WHEN operation.launch_disposition = 'SUPPRESSED'
+                             THEN 'Turn canceled before launch'
+                             ELSE 'Planning-base refresh ' || lower(operation.status)
+                               || ' before this turn could start' END
                              || CASE WHEN operation.error_message IS NULL
-                               THEN '.' ELSE ': ' || operation.error_message END,
+                               THEN CASE WHEN operation.launch_disposition = 'SUPPRESSED'
+                                 THEN ': ' || operation.launch_disposition_reason
+                                 ELSE '.' END
+                               ELSE ': ' || operation.error_message END,
                            'text', NULL, NULL, operation.completed_at_ms,
                            result.returned_trunk_version, 2
                     FROM planning_base_refresh_operation operation
                     JOIN trunk_planning_base_result_receipt result
                       ON result.planning_operation_id = operation.id
                     WHERE operation.trunk_id = ?
-                      AND operation.status IN (
+                      AND (operation.status IN (
                         'FAILED', 'CANCELED', 'SUPERSEDED')
+                        OR operation.launch_disposition = 'SUPPRESSED')
                       AND operation.launched_thread_turn_id IS NULL
                       AND NOT EXISTS (
                         SELECT 1 FROM thread_turn turn
@@ -300,7 +309,6 @@ public class ThreadTurnProjection
                     LEFT JOIN trunk_thread_turn_result_receipt result
                       ON result.turn_id = turn.id
                     WHERE turn.trunk_id = ?
-                      AND turn.purpose <> 'TASK_COMPLETION_SUMMARY'
                     %s
                     %s
                 )

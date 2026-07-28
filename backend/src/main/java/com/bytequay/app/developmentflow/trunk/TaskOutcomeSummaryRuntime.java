@@ -14,10 +14,16 @@
 package com.bytequay.app.developmentflow.trunk;
 
 import com.bytequay.app.developmentflow.CommandRejectedException;
+import com.bytequay.app.developmentflow.execution.DispatchTicket;
 import com.bytequay.app.developmentflow.execution.ExecutionPorts;
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOperationHandler;
 import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnProviderSession;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -35,23 +41,27 @@ public final class TaskOutcomeSummaryRuntime
             LoggerFactory.getLogger(TaskOutcomeSummaryRuntime.class);
 
     private final TrunkManager trunks;
-    private final TrunkManager.Store trunkStore;
     private final SqliteTaskOutcomeSummaryStore store;
-    private final ThreadTurnHandoff turns;
     private final LaunchResolver launches;
+    private final ObjectMapper json;
+    private final int serverPort;
 
+    @Autowired
     public TaskOutcomeSummaryRuntime(
             TrunkManager trunks,
-            TrunkManager.Store trunkStore,
             SqliteTaskOutcomeSummaryStore store,
-            ThreadTurnHandoff turns,
-            LaunchResolver launches)
+            LaunchResolver launches,
+            ObjectMapper json,
+            @Value("${server.port:53123}") int serverPort)
     {
         this.trunks = requireNonNull(trunks, "trunks is null");
-        this.trunkStore = requireNonNull(trunkStore, "trunkStore is null");
         this.store = requireNonNull(store, "store is null");
-        this.turns = requireNonNull(turns, "turns is null");
         this.launches = requireNonNull(launches, "launches is null");
+        this.json = requireNonNull(json, "json is null");
+        if (serverPort < 1 || serverPort > 65535) {
+            throw new IllegalArgumentException("serverPort is invalid");
+        }
+        this.serverPort = serverPort;
     }
 
     @Override
@@ -73,7 +83,7 @@ public final class TaskOutcomeSummaryRuntime
 
         for (SqliteTaskOutcomeSummaryStore.Outcome outcome
                 : store.summaryCandidates(BATCH_SIZE)) {
-            launchSummary(outcome);
+            launchSummary(outcome, now);
         }
 
         for (SqliteTaskOutcomeSummaryStore.Enrichment enrichment
@@ -94,18 +104,19 @@ public final class TaskOutcomeSummaryRuntime
         }
     }
 
-    private void launchSummary(SqliteTaskOutcomeSummaryStore.Outcome outcome)
+    private void launchSummary(
+            SqliteTaskOutcomeSummaryStore.Outcome outcome, Instant requestedAt)
     {
-        String commandId = "TASK_OUTCOME_SUMMARY:" + outcome.taskOutcomeId();
         try {
-            TrunkManager.ThreadTurnRequestReceipt receipt =
-                    trunkStore.findThreadTurnRequest(
-                                    outcome.trunkId(), commandId)
-                            .orElseGet(() -> requestTurn(
-                                    outcome, commandId));
-            trunks.bindTaskOutcomeSummary(
-                    new TrunkManager.TaskOutcomeSummaryBinding(
-                            outcome.taskOutcomeId(), receipt.turnId()));
+            LaunchSpec launch = launches.resolve(outcome);
+            store.requestSummary(
+                    outcome,
+                    (turnId, operationId) -> launchInput(
+                            launch, turnId, operationId),
+                    launch.transport().name(),
+                    launch.transport() == AgentTurnProviderSession.Transport.CLI
+                            ? 9 : 10,
+                    requestedAt);
         }
         catch (CommandRejectedException failure) {
             if (failure.reason()
@@ -123,22 +134,41 @@ public final class TaskOutcomeSummaryRuntime
         }
     }
 
-    private TrunkManager.ThreadTurnRequestReceipt requestTurn(
-            SqliteTaskOutcomeSummaryStore.Outcome outcome,
-            String commandId)
+    private String launchInput(
+            LaunchSpec launch, String turnId, String operationId)
     {
-        LaunchSpec launch = launches.resolve(outcome);
-        TrunkManager.State current = trunkStore.findById(outcome.trunkId())
-                .orElseThrow(() -> new IllegalStateException(
-                        "V2 Trunk disappeared before outcome summary"));
-        return turns.request(new ThreadTurnHandoff.Request(
-                commandId, "v2-task-outcome", outcome.trunkId(),
-                outcome.workspaceId(), current.version(),
-                "TASK_COMPLETION_SUMMARY", launch.transport(),
-                launch.provider(), launch.credentialAccount(), launch.model(),
-                launch.reasoningEffort(), launch.workingDirectory(),
-                launch.systemPrompt(), launch.userMessage(), launch.prompt(),
-                null, null)).state();
+        AgentTurnProviderSession.OwnerToolEndpoint endpoint =
+                new AgentTurnProviderSession.OwnerToolEndpoint(
+                        "bytequay",
+                        "http://127.0.0.1:" + serverPort
+                                + "/api/v2/task-turns/" + turnId
+                                + "/operations/" + operationId + "/mcp",
+                        DispatchTicket.OwnerKind.TASK_TURN,
+                        turnId, operationId,
+                        AgentTurnProviderSession.ToolProfile.TASK_BRAIN_READ_ONLY,
+                        "mcp__bytequay__approval_prompt");
+        AgentTurnOperationHandler.LaunchInput input =
+                new AgentTurnOperationHandler.LaunchInput(
+                        1, launch.transport(),
+                        launch.provider(), launch.credentialAccount(), launch.model(),
+                        launch.reasoningEffort(), launch.workingDirectory().toString(),
+                        launch.systemPrompt(), launch.prompt(), endpoint);
+        try {
+            return json.writeValueAsString(input);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException(
+                    "could not freeze TaskOutcome summary launch input", e);
+        }
+    }
+
+    /** Compatibility constructor for focused migration tests. */
+    public TaskOutcomeSummaryRuntime(
+            TrunkManager trunks, TrunkManager.Store ignored,
+            SqliteTaskOutcomeSummaryStore store, ThreadTurnHandoff ignoredTurns,
+            LaunchResolver launches)
+    {
+        this(trunks, store, launches, new ObjectMapper(), 53123);
     }
 
     @FunctionalInterface

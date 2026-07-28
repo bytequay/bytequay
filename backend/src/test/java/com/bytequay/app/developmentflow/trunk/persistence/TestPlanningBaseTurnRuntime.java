@@ -165,6 +165,104 @@ class TestPlanningBaseTurnRuntime
     }
 
     @Test
+    void fixedClockRestartKeepsPlanningFifoByReturnedTrunkVersionNotUuid()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database(tempDir.resolve("fifo.db"));
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        Path repository = Files.createDirectory(tempDir.resolve("fifo-repo"));
+        V2TrunkStore trunkStore = new V2TrunkStore(jdbc);
+        PlanningBaseTurnRuntime runtime = runtime(
+                jdbc, manager(dataSource, trunkStore), trunkStore, repository);
+
+        PlanningBaseTurnRuntime.Receipt first = runtime.request(request("request-0"));
+        PlanningBaseTurnRuntime.Receipt second = runtime.request(request("request-1"));
+
+        assertThat(second.operationId()).isLessThan(first.operationId());
+        assertThat(jdbc.queryForList("""
+                SELECT returned_trunk_version
+                FROM trunk_planning_base_request_receipt
+                ORDER BY returned_trunk_version
+                """, Long.class)).containsExactly(1L, 2L);
+        assertThat(jdbc.queryForList("""
+                SELECT requested_at_ms FROM planning_base_refresh_operation
+                ORDER BY id
+                """, Long.class)).containsOnly(NOW.toEpochMilli());
+        assertThat(new SqlitePlanningBaseTurnStore(jdbc)
+                .require(second.operationId()).unlaunchedPredecessor()).isTrue();
+
+        SqliteDispatchTicketStore restarted = new SqliteDispatchTicketStore(dataSource);
+        assertThat(restarted.findEligiblePage(
+                        NOW.plusMillis(1), null, 20).tickets())
+                .extracting(DispatchTicket::id)
+                .containsExactly(first.dispatchTicketId());
+    }
+
+    @Test
+    void cancelAfterRefreshDurablySuppressesLaunchAcrossRestart()
+            throws Exception
+    {
+        SQLiteDataSource dataSource = database(tempDir.resolve("suppressed.db"));
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        seedTrunk(jdbc);
+        Path repository = Files.createDirectory(tempDir.resolve("suppressed-repo"));
+        Path planning = Files.createDirectory(tempDir.resolve("suppressed-planning"));
+        ObjectMapper json = new ObjectMapper();
+        V2TrunkStore trunkStore = new V2TrunkStore(jdbc);
+        TrunkManager manager = manager(dataSource, trunkStore);
+        PlanningBaseTurnRuntime runtime = runtime(
+                jdbc, manager, trunkStore, repository);
+        PlanningBaseTurnRuntime.Receipt requested = runtime.request(
+                request("suppress-after-refresh"));
+        DispatchTicket.OperationFence fence = new DispatchTicket.OperationFence(
+                null, null, null, requested.operationId(), 1,
+                null, null, null);
+        PlanningBaseRefreshOperationHandler.Snapshot snapshot =
+                new PlanningBaseRefreshOperationHandler.Snapshot(
+                        1, requested.operationId(), "trunk-1",
+                        repository.toString(), planning.toString(),
+                        "refs/remotes/origin/main", "abcdef0123456789",
+                        NOW.toEpochMilli());
+        DispatchTicket.DispatchResult raw = new DispatchTicket.DispatchResult(
+                fence, DispatchTicket.Outcome.SUCCEEDED,
+                json.writeValueAsString(snapshot), "{}", null);
+        DispatchTicket.OwnerReference owner = new DispatchTicket.OwnerReference(
+                DispatchTicket.OwnerKind.TRUNK, "trunk-1",
+                PlanningBaseRefreshOperationHandler.CALLBACK_ROUTE);
+        markResultPending(jdbc, requested.dispatchTicketId(), raw);
+        DispatchTicket.DeliveryReceipt accepted = runtime.deliver(owner, fence, raw);
+        markDelivered(jdbc, requested.dispatchTicketId(), accepted);
+
+        assertThat(runtime.suppressPending(
+                "trunk-1", "User canceled before provider launch")).isOne();
+        assertThat(jdbc.queryForMap("""
+                SELECT launch_disposition, launch_disposition_reason
+                FROM planning_base_refresh_operation
+                WHERE operation_id = ?
+                """, requested.operationId()))
+                .containsEntry("launch_disposition", "SUPPRESSED")
+                .containsEntry("launch_disposition_reason",
+                        "User canceled before provider launch");
+        assertThat(new ThreadTurnProjection(jdbc, json).turns("trunk-1", 10))
+                .singleElement()
+                .satisfies(turn -> {
+                    assertThat(turn.status()).isEqualTo("CANCELED");
+                    assertThat(turn.error())
+                            .isEqualTo("User canceled before provider launch");
+                });
+
+        PlanningBaseTurnRuntime restarted = runtime(
+                new JdbcTemplate(dataSource),
+                manager(dataSource, new V2TrunkStore(new JdbcTemplate(dataSource))),
+                new V2TrunkStore(new JdbcTemplate(dataSource)), repository);
+        restarted.recoverCommittedDeliveries(20);
+        assertThat(count(jdbc, "thread_turn")).isZero();
+        assertThat(new SqlitePlanningBaseTurnStore(jdbc).readyOperationIds(20))
+                .isEmpty();
+    }
+
+    @Test
     void failedRefreshKeepsTheAcceptedTurnVisibleAndTerminal()
             throws Exception
     {
@@ -331,6 +429,25 @@ class TestPlanningBaseTurnRuntime
         assertThat(jdbc.queryForObject("""
                 SELECT lifecycle_state FROM threads WHERE id = 'trunk-1'
                 """, String.class)).isEqualTo("ARCHIVED");
+        assertThat(jdbc.queryForMap("""
+                SELECT launch_disposition, launch_disposition_reason
+                FROM planning_base_refresh_operation
+                WHERE operation_id = ?
+                """, request.operationId()))
+                .containsEntry("launch_disposition", "SUPPRESSED")
+                .containsEntry("launch_disposition_reason",
+                        "Trunk archived before turn launch");
+        runtime.recoverCommittedDeliveries(20);
+        assertThat(count(jdbc, "thread_turn")).isZero();
+    }
+
+    private static PlanningBaseTurnRuntime.Request request(String commandId)
+    {
+        return new PlanningBaseTurnRuntime.Request(
+                commandId, "user", "trunk-1", "workspace-1",
+                "TRUNK_CONVERSATION", AgentTurnProviderSession.Transport.CLI,
+                "codex", null, "gpt-5.6", null, null,
+                "next", "next");
     }
 
     private PlanningBaseTurnRuntime runtime(

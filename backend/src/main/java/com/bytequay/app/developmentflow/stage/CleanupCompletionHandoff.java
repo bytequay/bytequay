@@ -17,9 +17,12 @@ import com.bytequay.app.developmentflow.CommandResult;
 import com.bytequay.app.developmentflow.task.TaskManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.app.developmentflow.CommandResult.Disposition.SUPERSEDED;
 import static java.util.Objects.requireNonNull;
 
 /** One-transaction Cleanup-Stage-to-terminal-Task handoff. */
@@ -28,27 +31,30 @@ public final class CleanupCompletionHandoff
     private final TaskCommandExecutor commands;
     private final CleanupStageManager cleanup;
     private final TaskManager tasks;
-    private final List<TaskOutcomeConsumer> outcomeConsumers;
+    private final List<PostCompletionHook> postCompletionHooks;
+    private final Clock clock;
 
     public CleanupCompletionHandoff(
             TaskCommandExecutor commands,
             CleanupStageManager cleanup,
             TaskManager tasks)
     {
-        this(commands, cleanup, tasks, ignored -> {});
+        this(commands, cleanup, tasks, List.of(), Clock.systemUTC());
     }
 
     public CleanupCompletionHandoff(
             TaskCommandExecutor commands,
             CleanupStageManager cleanup,
             TaskManager tasks,
-            TaskOutcomeConsumer... outcomeConsumers)
+            List<PostCompletionHook> postCompletionHooks,
+            Clock clock)
     {
         this.commands = requireNonNull(commands, "commands is null");
         this.cleanup = requireNonNull(cleanup, "cleanup is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
-        this.outcomeConsumers = List.of(requireNonNull(
-                outcomeConsumers, "outcomeConsumers is null"));
+        this.postCompletionHooks = List.copyOf(requireNonNull(
+                postCompletionHooks, "postCompletionHooks is null"));
+        this.clock = requireNonNull(clock, "clock is null");
     }
 
     public Result accept(Command command)
@@ -56,13 +62,25 @@ public final class CleanupCompletionHandoff
         requireNonNull(command, "command is null");
         Result result = commands.execute(
                 command.task().taskId(), () -> acceptInCommand(command));
-        // The Task command commits TaskOutcome first. The review owner then
-        // consumes that durable fact synchronously; retry/restart recovery is
-        // safe because its receipt is idempotent.
+        result.task()
+                .filter(task -> task.disposition()
+                        != SUPERSEDED)
+                .ifPresent(task -> {
+                    Completion completion = new Completion(
+                            task.state().id(), task.state().trunkId(),
+                            task.state().epoch(), task.state().lifecycle().name(),
+                            command.task().actor(), clock.instant());
+                    invokePostCompletionHooks(completion);
+                });
+        return result;
+    }
+
+    private void invokePostCompletionHooks(Completion completion)
+    {
         RuntimeException firstFailure = null;
-        for (TaskOutcomeConsumer consumer : outcomeConsumers) {
+        for (PostCompletionHook hook : postCompletionHooks) {
             try {
-                consumer.acceptTaskOutcome(command.task().taskId());
+                hook.afterCommit(completion);
             }
             catch (RuntimeException failure) {
                 if (firstFailure == null) {
@@ -76,7 +94,6 @@ public final class CleanupCompletionHandoff
         if (firstFailure != null) {
             throw firstFailure;
         }
-        return result;
     }
 
     private Result acceptInCommand(Command command)
@@ -123,9 +140,28 @@ public final class CleanupCompletionHandoff
         }
     }
 
+    /** Composable, idempotent hook invoked only after the Task transaction commits. */
     @FunctionalInterface
-    public interface TaskOutcomeConsumer
+    public interface PostCompletionHook
     {
-        void acceptTaskOutcome(String taskId);
+        void afterCommit(Completion completion);
+    }
+
+    public record Completion(
+            String taskId,
+            String trunkId,
+            long taskEpoch,
+            String terminalLifecycle,
+            String actor,
+            Instant completedAt)
+    {
+        public Completion
+        {
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(trunkId, "trunkId is null");
+            requireNonNull(terminalLifecycle, "terminalLifecycle is null");
+            requireNonNull(actor, "actor is null");
+            requireNonNull(completedAt, "completedAt is null");
+        }
     }
 }

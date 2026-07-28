@@ -115,7 +115,7 @@ class TestThreadTurnOperationHandler
     }
 
     @Test
-    void completionSummaryRunsAsTheReadOnlyBrainRole()
+    void threadTurnPurposeCannotChangeItsTrunkRole()
             throws Exception
     {
         store = new FakeStore(turn("TASK_COMPLETION_SUMMARY"));
@@ -126,12 +126,10 @@ class TestThreadTurnOperationHandler
 
         assertThat(handler.execute(context(envelope(true), false)).outcome())
                 .isEqualTo(DispatchTicket.Outcome.SUCCEEDED);
-        assertThat(provider.resolved.role()).isEqualTo(ByteQuayRole.BRAIN);
+        assertThat(provider.resolved.role()).isEqualTo(ByteQuayRole.TRUNK);
         assertThat(provider.resolved.toolNames())
-                .isEqualTo(new ToolExposurePolicy().completionSummaryTools())
-                .doesNotContain(
-                        "create_task", "record_plan", "record_review_verdict",
-                        "approval_prompt", "ask_user_question");
+                .isEqualTo(new ToolExposurePolicy().activeTools(
+                        ByteQuayRole.TRUNK, null));
     }
 
     private static ExecutionContext context(

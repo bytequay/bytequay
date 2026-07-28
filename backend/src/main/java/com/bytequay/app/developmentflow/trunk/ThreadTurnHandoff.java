@@ -56,6 +56,12 @@ public final class ThreadTurnHandoff
     public CommandResult<TrunkManager.ThreadTurnRequestReceipt> request(
             Request request)
     {
+        return trunks.requestThreadTurn(prepare(request));
+    }
+
+    /** Freezes a command without committing it, for an enclosing Trunk command. */
+    public TrunkManager.ThreadTurnCommand prepare(Request request)
+    {
         requireNonNull(request, "request is null");
         String turnId = id("turn", request.trunkId(), request.commandId());
         String operationId = id(
@@ -81,7 +87,7 @@ public final class ThreadTurnHandoff
                         request.workingDirectory().toString(),
                         request.systemPrompt(), request.compiledPrompt(), endpoint);
         String launchInput = write(input);
-        return trunks.requestThreadTurn(new TrunkManager.ThreadTurnCommand(
+        return new TrunkManager.ThreadTurnCommand(
                 request.commandId(), request.actor(), request.trunkId(),
                 request.workspaceId(), request.expectedTrunkVersion(),
                 turnId, operationId, ticketId, messageId, request.purpose(),
@@ -89,7 +95,7 @@ public final class ThreadTurnHandoff
                 request.transport() == AgentTurnProviderSession.Transport.CLI ? 1 : 2,
                 request.planningOperationId(), request.planningBaseSha(),
                 launchInput, digest(launchInput), request.userMessage(),
-                digest(request.userMessage()), clock.instant()));
+                digest(request.userMessage()), clock.instant());
     }
 
     private String write(Object value)

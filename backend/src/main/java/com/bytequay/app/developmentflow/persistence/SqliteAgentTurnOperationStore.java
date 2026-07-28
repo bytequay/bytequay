@@ -62,7 +62,10 @@ public class SqliteAgentTurnOperationStore
                        turn.purpose, turn.status, turn.operation_id, turn.attempt,
                        turn.expected_code_fingerprint, turn.expected_head_sha,
                        turn.expected_base_sha, turn.launch_input,
-                       identity.worktree_path, task.lifecycle_state,
+                       CASE WHEN turn.purpose = 'TASK_COMPLETION_SUMMARY'
+                         THEN json_extract(turn.launch_input, '$.workingDirectory')
+                         ELSE identity.worktree_path END AS worktree_path,
+                       task.lifecycle_state,
                        current.stage_id AS current_stage_id,
                        current.stage_generation AS current_stage_generation,
                        owner.completed_at_ms AS turn_stage_completed_at_ms,
@@ -154,12 +157,17 @@ public class SqliteAgentTurnOperationStore
                       ON current.task_id = task.id
                     WHERE task.id = task_turn.task_id
                       AND task.workflow_version = 'V2'
-                      AND task.lifecycle_state = 'ACTIVE'
                       AND task.epoch = task_turn.task_epoch
-                      AND (task_turn.trigger_stage_id IS NULL OR (
-                        current.stage_id = task_turn.trigger_stage_id
-                        AND current.stage_generation =
-                            task_turn.trigger_stage_generation)))
+                      AND ((task_turn.purpose = 'TASK_COMPLETION_SUMMARY'
+                            AND task.lifecycle_state IN (
+                              'COMPLETED', 'CANCELED', 'REMOTE_CLOSED')
+                            AND task_turn.trigger_stage_id IS NULL)
+                        OR (task_turn.purpose <> 'TASK_COMPLETION_SUMMARY'
+                            AND task.lifecycle_state = 'ACTIVE'
+                            AND (task_turn.trigger_stage_id IS NULL OR (
+                              current.stage_id = task_turn.trigger_stage_id
+                              AND current.stage_generation =
+                                task_turn.trigger_stage_generation)))))
                   AND EXISTS (
                     SELECT 1
                     FROM dispatch_ticket ticket
@@ -172,7 +180,10 @@ public class SqliteAgentTurnOperationStore
                     WHERE ticket.operation_id = task_turn.operation_id
                       AND ticket.owner_kind = 'TASK_TURN'
                       AND ticket.owner_id = task_turn.id
-                      AND ticket.operation_kind = 'EXECUTE_TASK_TURN'
+                      AND ticket.operation_kind = CASE task_turn.purpose
+                        WHEN 'TASK_COMPLETION_SUMMARY'
+                          THEN 'GENERATE_TASK_OUTCOME_SUMMARY'
+                        ELSE 'EXECUTE_TASK_TURN' END
                       AND ticket.task_id = task_turn.task_id
                       AND ticket.task_epoch = task_turn.task_epoch
                       AND ticket.stage_id IS task_turn.trigger_stage_id
@@ -205,14 +216,22 @@ public class SqliteAgentTurnOperationStore
                 WHERE turn.id = ? AND turn.operation_id = ?
                   AND turn.status = 'RUNNING'
                   AND task.workflow_version = 'V2'
-                  AND task.lifecycle_state = 'ACTIVE'
                   AND task.epoch = turn.task_epoch
-                  AND (turn.trigger_stage_id IS NULL OR (
-                      current.stage_id = turn.trigger_stage_id
-                      AND current.stage_generation = turn.trigger_stage_generation))
+                  AND ((turn.purpose = 'TASK_COMPLETION_SUMMARY'
+                        AND task.lifecycle_state IN (
+                          'COMPLETED', 'CANCELED', 'REMOTE_CLOSED')
+                        AND turn.trigger_stage_id IS NULL)
+                    OR (turn.purpose <> 'TASK_COMPLETION_SUMMARY'
+                        AND task.lifecycle_state = 'ACTIVE'
+                        AND (turn.trigger_stage_id IS NULL OR (
+                          current.stage_id = turn.trigger_stage_id
+                          AND current.stage_generation = turn.trigger_stage_generation))))
                   AND ticket.owner_kind = 'TASK_TURN'
                   AND ticket.owner_id = turn.id
-                  AND ticket.operation_kind = 'EXECUTE_TASK_TURN'
+                  AND ticket.operation_kind = CASE turn.purpose
+                    WHEN 'TASK_COMPLETION_SUMMARY'
+                      THEN 'GENERATE_TASK_OUTCOME_SUMMARY'
+                    ELSE 'EXECUTE_TASK_TURN' END
                   AND ticket.task_id = turn.task_id
                   AND ticket.task_epoch = turn.task_epoch
                   AND ticket.stage_id IS turn.trigger_stage_id

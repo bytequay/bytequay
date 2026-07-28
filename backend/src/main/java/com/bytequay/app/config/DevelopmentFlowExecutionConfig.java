@@ -95,6 +95,9 @@ import com.bytequay.app.developmentflow.task.V2TaskControlService;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseRefreshOperationHandler;
 import com.bytequay.app.developmentflow.trunk.PlanningBaseTurnRuntime;
 import com.bytequay.app.developmentflow.trunk.SqlitePlanningBaseTurnStore;
+import com.bytequay.app.developmentflow.trunk.SqliteTaskOutcomeSummaryStore;
+import com.bytequay.app.developmentflow.trunk.TaskOutcomeSummaryResultDeliveryPort;
+import com.bytequay.app.developmentflow.trunk.TaskOutcomeSummaryRuntime;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnHandoff;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnProjection;
 import com.bytequay.app.developmentflow.trunk.ThreadTurnResultDeliveryPort;
@@ -181,6 +184,8 @@ public class DevelopmentFlowExecutionConfig
             RemoteDevelopmentStageManager remoteManager,
             SqliteMergeOperationStore mergeOperations,
             SqliteReviewAssignmentTurnStore reviewAssignmentTurns,
+            SqliteTaskOutcomeSummaryStore outcomeSummaries,
+            TaskOutcomeSummaryRuntime outcomeSummaryRuntime,
             JdbcTemplate jdbc,
             ObjectMapper json)
     {
@@ -197,7 +202,11 @@ public class DevelopmentFlowExecutionConfig
                 new TaskTurnResultDeliveryRouter(jdbc, Map.of(
                         "PLAN_DRAFT", plan,
                         "PLAN_SELF_REVIEW", plan,
-                        "DEVELOPMENT_BRAIN_REVIEW", brainDelivery));
+                        "DEVELOPMENT_BRAIN_REVIEW", brainDelivery,
+                        "TASK_COMPLETION_SUMMARY",
+                        new TaskOutcomeSummaryResultDeliveryPort(
+                                outcomeSummaries, outcomeSummaryRuntime,
+                                codec, json, Clock.systemUTC())));
         LocalValidationResultDeliveryPort validation =
                 new LocalValidationResultDeliveryPort(localRuntime);
         PublishResultDeliveryPort publish = new PublishResultDeliveryPort(
@@ -253,6 +262,8 @@ public class DevelopmentFlowExecutionConfig
                 Map.entry(RemoteDevelopmentRuntimeCoordinator.MARK_READY_CALLBACK,
                         new RemoteMarkReadyResultDeliveryPort(remoteRuntime)),
                 Map.entry(ThreadTurnOperationHandler.CALLBACK_ROUTE, threadTurns),
+                Map.entry(TaskOutcomeSummaryResultDeliveryPort.CALLBACK_ROUTE,
+                        taskTurns),
                 Map.entry(RemoteObservationOperationHandler.CALLBACK_ROUTE,
                         observations),
                 Map.entry("REMOTE_CI_RERUN_RESULT", ciRerun),
@@ -528,6 +539,9 @@ public class DevelopmentFlowExecutionConfig
         Map<String, ExecutionPorts.OperationHandler> handlers = Map.ofEntries(
                 Map.entry(ProvisionTaskOperationHandler.OPERATION_KIND, provisioning),
                 Map.entry(AgentTurnOperationHandler.TASK_OPERATION_KIND, agentTurns),
+                Map.entry(
+                        AgentTurnOperationHandler.TASK_OUTCOME_SUMMARY_OPERATION_KIND,
+                        agentTurns),
                 Map.entry(AgentTurnOperationHandler.STAGE_OPERATION_KIND, agentTurns),
                 Map.entry(ThreadTurnOperationHandler.OPERATION_KIND, threadTurns),
                 Map.entry(PlanningBaseRefreshOperationHandler.OPERATION_KIND,

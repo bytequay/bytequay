@@ -13,11 +13,15 @@
  */
 package com.bytequay.app.developmentflow.trunk;
 
+import com.bytequay.app.developmentflow.execution.agentturn.AgentTurnOwnerResultCodec;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
 
@@ -42,8 +46,11 @@ public class SqliteTaskOutcomeSummaryStore
         return outcomes("""
                 inbox.status = 'DELIVERED'
                 AND outcome.summary_state = 'FALLBACK'
-                AND outcome.summary_thread_turn_id IS NULL
                 AND trunk.lifecycle_state <> 'ARCHIVED'
+                AND NOT EXISTS (
+                  SELECT 1 FROM task_outcome_summary_operation summary
+                  WHERE summary.task_outcome_id = outcome.id
+                    AND summary.status IN ('REQUESTED', 'SUCCEEDED'))
                 """, limit);
     }
 
@@ -99,31 +106,19 @@ public class SqliteTaskOutcomeSummaryStore
         positive(limit);
         return jdbc.query("""
                 SELECT outcome.id AS task_outcome_id,
-                       outcome.summary_thread_turn_id AS turn_id,
-                       turn.operation_id, message.body AS summary_text,
-                       result.raw_result_digest AS summary_digest,
-                       turn.finished_at_ms
+                       summary.task_turn_id AS turn_id,
+                       summary.id AS operation_id, summary.summary_text,
+                       summary.summary_digest, summary.completed_at_ms
                 FROM task_outcome outcome
-                JOIN thread_turn turn
-                  ON turn.id = outcome.summary_thread_turn_id
-                JOIN thread_message message
-                  ON message.turn_id = turn.id AND message.seq = 2
-                JOIN trunk_thread_turn_result_receipt result
-                  ON result.turn_id = turn.id
-                 AND result.operation_id = turn.operation_id
-                JOIN trunk_thread_turn_request_receipt request
-                  ON request.turn_id = turn.id
+                JOIN task_outcome_summary_operation summary
+                  ON summary.task_outcome_id = outcome.id
                 JOIN dispatch_ticket ticket
-                  ON ticket.id = request.dispatch_ticket_id
+                  ON ticket.id = summary.dispatch_ticket_id
                 WHERE outcome.summary_state = 'FALLBACK'
-                  AND turn.purpose = 'TASK_COMPLETION_SUMMARY'
-                  AND turn.status = 'SUCCEEDED'
-                  AND result.acceptance = 'ACCEPTED'
-                  AND result.terminal_status = 'SUCCEEDED'
-                  AND result.assistant_message_id = message.id
+                  AND summary.status = 'SUCCEEDED'
                   AND ticket.status = 'SUCCEEDED'
                   AND ticket.delivery_acceptance = 'ACCEPTED'
-                ORDER BY turn.finished_at_ms, outcome.id
+                ORDER BY summary.completed_at_ms, outcome.id
                 LIMIT ?
                 """, (rs, row) -> new Enrichment(
                         rs.getString("task_outcome_id"),
@@ -131,8 +126,165 @@ public class SqliteTaskOutcomeSummaryStore
                         rs.getString("operation_id"),
                         rs.getString("summary_text"),
                         rs.getString("summary_digest"),
-                        Instant.ofEpochMilli(rs.getLong("finished_at_ms"))),
+                        Instant.ofEpochMilli(rs.getLong("completed_at_ms"))),
                 limit);
+    }
+
+    @Transactional
+    public SummaryRequest requestSummary(
+            Outcome outcome, LaunchInputFactory launchInputs, String deliveryLane,
+            int laneMask, Instant requestedAt)
+    {
+        requireNonNull(outcome, "outcome is null");
+        requireNonNull(launchInputs, "launchInputs is null");
+        requireText(deliveryLane, "deliveryLane");
+        requireNonNull(requestedAt, "requestedAt is null");
+        List<SummaryRequest> existing = jdbc.query("""
+                SELECT operation.task_turn_id, operation.operation_id,
+                       operation.dispatch_ticket_id, operation.semantic_attempt
+                FROM task_outcome_summary_operation operation
+                WHERE operation.task_outcome_id = ?
+                  AND operation.status IN ('REQUESTED', 'SUCCEEDED')
+                ORDER BY operation.semantic_attempt DESC LIMIT 1
+                """, (rs, row) -> new SummaryRequest(
+                        rs.getString("task_turn_id"),
+                        rs.getString("operation_id"),
+                        rs.getString("dispatch_ticket_id"),
+                        rs.getInt("semantic_attempt")), outcome.taskOutcomeId());
+        if (!existing.isEmpty()) {
+            return existing.getFirst();
+        }
+        Integer next = jdbc.queryForObject("""
+                SELECT COALESCE(MAX(semantic_attempt), 0) + 1
+                FROM task_outcome_summary_operation
+                WHERE task_outcome_id = ?
+                """, Integer.class, outcome.taskOutcomeId());
+        int attempt = requireNonNull(next, "summary attempt is null");
+        String turnId = id("turn", outcome.taskOutcomeId(), attempt);
+        String operationId = id("operation", outcome.taskOutcomeId(), attempt);
+        String ticketId = id("ticket", outcome.taskOutcomeId(), attempt);
+        String launchInput = launchInputs.create(turnId, operationId);
+        requireText(launchInput, "launchInput");
+        long at = requestedAt.toEpochMilli();
+        jdbc.update("""
+                INSERT INTO task_turn(
+                    id, task_id, purpose, status, operation_id, attempt,
+                    task_epoch, trigger_stage_id, trigger_stage_generation,
+                    expected_code_fingerprint, expected_head_sha,
+                    expected_base_sha, delivery_lane, launch_input,
+                    requested_at_ms)
+                VALUES (?, ?, 'TASK_COMPLETION_SUMMARY', 'REQUESTED', ?, ?, ?,
+                    NULL, NULL, NULL, NULL, NULL, ?, ?, ?)
+                """, turnId, outcome.taskId(), operationId, attempt,
+                outcome.taskEpoch(), deliveryLane, launchInput, at);
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    trunk_control, exclusive_task, writer_required,
+                    workspace_id, trunk_id, task_id, task_epoch, stage_id,
+                    stage_generation, attempt, expected_code_fingerprint,
+                    expected_head_sha, expected_base_sha, status, created_at_ms)
+                VALUES (?, ?, 'GENERATE_TASK_OUTCOME_SUMMARY', 'AGENT_TURN',
+                    'TASK_TURN', ?, 'TASK_OUTCOME_SUMMARY_RESULT', ?, 0, 0, 0,
+                    ?, ?, ?, ?, NULL, NULL, ?, NULL, NULL, NULL,
+                    'REQUESTED', ?)
+                """, ticketId, operationId, turnId, laneMask,
+                outcome.workspaceId(), outcome.trunkId(), outcome.taskId(),
+                outcome.taskEpoch(), attempt, at);
+        jdbc.update("""
+                INSERT INTO task_outcome_summary_operation(
+                    id, task_outcome_id, task_id, task_epoch, task_turn_id,
+                    dispatch_ticket_id, operation_id, semantic_attempt,
+                    status, requested_at_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'REQUESTED', ?)
+                """, id("summary", outcome.taskOutcomeId(), attempt),
+                outcome.taskOutcomeId(), outcome.taskId(), outcome.taskEpoch(),
+                turnId, ticketId, operationId, attempt, at);
+        return new SummaryRequest(turnId, operationId, ticketId, attempt);
+    }
+
+    @Transactional
+    public Completion complete(
+            AgentTurnOwnerResultCodec.OwnerResult result,
+            String rawDigest, Instant completedAt)
+    {
+        requireNonNull(result, "result is null");
+        requireText(rawDigest, "rawDigest");
+        requireNonNull(completedAt, "completedAt is null");
+        List<CompletionContext> rows = jdbc.query("""
+                SELECT summary.id, summary.task_outcome_id, summary.status,
+                       summary.summary_digest, turn.status AS turn_status
+                FROM task_outcome_summary_operation summary
+                JOIN task_turn turn ON turn.id = summary.task_turn_id
+                WHERE summary.task_turn_id = ? AND summary.operation_id = ?
+                  AND summary.task_epoch = ?
+                  AND summary.semantic_attempt = ?
+                """, (rs, row) -> new CompletionContext(
+                        rs.getString("id"), rs.getString("task_outcome_id"),
+                        rs.getString("status"), rs.getString("summary_digest"),
+                        rs.getString("turn_status")), result.owner().id(),
+                result.fence().operationId(), result.fence().taskEpoch(),
+                result.fence().attempt());
+        if (rows.size() != 1) {
+            throw new IllegalStateException("Task outcome summary fence is stale");
+        }
+        CompletionContext context = rows.getFirst();
+        String status = switch (result.outcome()) {
+            case SUCCEEDED -> "SUCCEEDED";
+            case CANCELED -> "CANCELED";
+            case FAILED, INDETERMINATE -> "FAILED";
+        };
+        if (!"REQUESTED".equals(context.status())) {
+            if (!status.equals(context.status())
+                    || "SUCCEEDED".equals(status)
+                    && !rawDigest.equals(context.summaryDigest())) {
+                throw new IllegalStateException(
+                        "Task outcome summary was redelivered differently");
+            }
+            return new Completion(context.taskOutcomeId(), status, true);
+        }
+        String text = result.payload().finalText();
+        if ("SUCCEEDED".equals(status) && (text == null || text.isBlank())) {
+            throw new IllegalArgumentException(
+                    "successful Task outcome summary is blank");
+        }
+        String error = result.payload().error();
+        if ("FAILED".equals(status) && (error == null || error.isBlank())) {
+            error = "Task outcome summary provider failed";
+        }
+        long at = completedAt.toEpochMilli();
+        int turnChanged = jdbc.update("""
+                UPDATE task_turn
+                SET status = ?, finished_at_ms = ?, error_message = ?
+                WHERE id = ? AND operation_id = ?
+                  AND status IN ('REQUESTED', 'QUEUED', 'CLAIMED', 'RUNNING')
+                """, status, at, "SUCCEEDED".equals(status) ? null : error,
+                result.owner().id(), result.fence().operationId());
+        if (turnChanged != 1) {
+            throw new IllegalStateException("Task outcome summary Turn changed");
+        }
+        int operationChanged = jdbc.update("""
+                UPDATE task_outcome_summary_operation
+                SET status = ?, summary_text = ?, summary_digest = ?,
+                    error_message = ?, completed_at_ms = ?
+                WHERE id = ? AND status = 'REQUESTED'
+                """, status, "SUCCEEDED".equals(status) ? text : null,
+                "SUCCEEDED".equals(status) ? rawDigest : null,
+                "SUCCEEDED".equals(status) ? null : error,
+                at, context.id());
+        if (operationChanged != 1) {
+            throw new IllegalStateException(
+                    "Task outcome summary Operation changed");
+        }
+        return new Completion(context.taskOutcomeId(), status, false);
+    }
+
+    private static String id(String kind, String outcomeId, int attempt)
+    {
+        return UUID.nameUUIDFromBytes(("v2-task-outcome-summary:" + kind + ":"
+                + outcomeId + ":" + attempt).getBytes(StandardCharsets.UTF_8))
+                .toString();
     }
 
     private static void positive(int limit)
@@ -220,4 +372,19 @@ public class SqliteTaskOutcomeSummaryStore
             requireNonNull(finishedAt, "finishedAt is null");
         }
     }
+
+    public record SummaryRequest(
+            String turnId, String operationId, String ticketId, int attempt) {}
+
+    public record Completion(String taskOutcomeId, String status, boolean duplicate) {}
+
+    @FunctionalInterface
+    public interface LaunchInputFactory
+    {
+        String create(String turnId, String operationId);
+    }
+
+    private record CompletionContext(
+            String id, String taskOutcomeId, String status,
+            String summaryDigest, String turnStatus) {}
 }

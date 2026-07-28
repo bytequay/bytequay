@@ -59,6 +59,8 @@ public final class AgentTurnOperationHandler
 {
     public static final String TASK_OPERATION_KIND = "EXECUTE_TASK_TURN";
     public static final String STAGE_OPERATION_KIND = "EXECUTE_STAGE_TURN";
+    public static final String TASK_OUTCOME_SUMMARY_OPERATION_KIND =
+            "GENERATE_TASK_OUTCOME_SUMMARY";
 
     private static final int PAYLOAD_VERSION = 1;
 
@@ -151,10 +153,13 @@ public final class AgentTurnOperationHandler
             case CLI -> CapacityManager.CapacityLane.CLI;
             case API -> CapacityManager.CapacityLane.API;
         };
-        if (!envelope.capacityRequest().lanes().equals(Set.of(requiredLane))) {
+        Set<CapacityManager.CapacityLane> requiredLanes = completionSummary(turn)
+                ? Set.of(CapacityManager.CapacityLane.REVIEW, requiredLane)
+                : Set.of(requiredLane);
+        if (!envelope.capacityRequest().lanes().equals(requiredLanes)) {
             return failure(envelope, turn, Disposition.INVALID_LAUNCH_INPUT,
-                    input.transport() + " Agent Turn requires exactly the "
-                            + requiredLane + " capacity lane");
+                    input.transport() + " Agent Turn requires exact capacity lanes "
+                            + requiredLanes);
         }
         if (context.isCancellationRequested()) {
             return canceled(
@@ -232,7 +237,9 @@ public final class AgentTurnOperationHandler
         return new ResolvedAgentContext(
                 definition.role(), definition.version(), definition.permissionRole(),
                 stageType, definition.capabilities(), List.of(), List.of(),
-                definition.resources(), tools.activeTools(role, stageType));
+                definition.resources(), completionSummary(turn)
+                        ? tools.completionSummaryTools()
+                        : tools.activeTools(role, stageType));
     }
 
     private static PermissionResolver.RunningScope runningScope(ExactTurn turn)
@@ -596,7 +603,10 @@ public final class AgentTurnOperationHandler
             DispatchTicket.OperationFence fence = envelope.fence();
             CapacityManager.CapacityRequest capacity = envelope.capacityRequest();
             boolean stageTurn = ownerKind == DispatchTicket.OwnerKind.STAGE_TURN;
-            String expectedKind = stageTurn ? STAGE_OPERATION_KIND : TASK_OPERATION_KIND;
+            boolean completionSummary = completionSummary(this);
+            String expectedKind = stageTurn ? STAGE_OPERATION_KIND
+                    : completionSummary ? TASK_OUTCOME_SUMMARY_OPERATION_KIND
+                    : TASK_OPERATION_KIND;
             if (ownerKind != DispatchTicket.OwnerKind.TASK_TURN && !stageTurn) {
                 return "Agent Turn owner kind is unsupported";
             }
@@ -619,12 +629,16 @@ public final class AgentTurnOperationHandler
             }
             if (!taskId.equals(capacity.scope().taskId())
                     || taskEpoch != value(capacity.scope().taskEpoch())
-                    || !capacity.exclusiveTask()
+                    || capacity.exclusiveTask() == completionSummary
                     || capacity.trunkControl()
                     || stageTurn != capacity.writerRequired()) {
                 return "Agent Turn capacity scope or writer mode is invalid";
             }
-            if (!"ACTIVE".equals(taskLifecycle)
+            boolean lifecycleAllows = completionSummary
+                    ? Set.of("COMPLETED", "CANCELED", "REMOTE_CLOSED")
+                            .contains(taskLifecycle)
+                    : "ACTIVE".equals(taskLifecycle);
+            if (!lifecycleAllows
                     || !("REQUESTED".equals(turnStatus)
                     || "QUEUED".equals(turnStatus)
                     || "CLAIMED".equals(turnStatus))) {
@@ -653,6 +667,12 @@ public final class AgentTurnOperationHandler
         {
             return expected == null || expected.equals(current);
         }
+    }
+
+    private static boolean completionSummary(ExactTurn turn)
+    {
+        return turn.ownerKind() == DispatchTicket.OwnerKind.TASK_TURN
+                && "TASK_COMPLETION_SUMMARY".equals(turn.purpose());
     }
 
     public record LaunchInput(

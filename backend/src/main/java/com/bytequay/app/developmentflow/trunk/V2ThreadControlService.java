@@ -118,6 +118,8 @@ public final class V2ThreadControlService
     /** Persist cancellation first, then signal the exact active provider attempt. */
     public void interrupt(String trunkId)
     {
+        planning.suppressPending(
+                trunkId, "User canceled before provider launch");
         projection.cancelableTicketIds(trunkId).forEach(dispatcher::requestCancel);
     }
 

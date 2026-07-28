@@ -150,6 +150,7 @@ public class SessionController
     private static SessionDto dto(SessionProjection session, Instant now)
     {
         return SessionDto.from(
-                session.id(), session.run(), now, session.durableReview());
+                session.id(), session.run(), now, session.durableReview(),
+                !session.typedV2() && !session.durableReview());
     }
 }

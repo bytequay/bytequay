@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.web.server.ResponseStatusException;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
@@ -34,6 +35,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -114,6 +116,54 @@ class TestV2StageApiService
     }
 
     @Test
+    void runDetailReadsOnlyItsExactStageOrTaskTurnMessages()
+    {
+        insertAgentTicket(1, "ticket-one", "turn-one", "operation-one");
+        insertAgentTicket(2, "ticket-two", "turn-two", "operation-two");
+        jdbc.update("""
+                INSERT INTO stage_message(
+                    id, turn_id, seq, role, body, created_at_ms)
+                VALUES
+                    ('message-one', 'turn-one', 1, 'assistant',
+                     'exact stage message', 91),
+                    ('message-two', 'turn-two', 1, 'assistant',
+                     'sibling stage message', 91)
+                """);
+        insertTaskAgentTicket();
+        jdbc.update("""
+                INSERT INTO task_message(
+                    id, turn_id, seq, role, body, created_at_ms)
+                VALUES ('task-message-one', 'task-turn-one', 1, 'assistant',
+                    'exact task brain message', 93)
+                """);
+
+        StageDetailData stage = service.runDetail("v2-ticket:ticket-one");
+        StageDetailData task = service.runDetail("v2-ticket:task-ticket-one");
+
+        assertThat(stage.conversation()).extracting(row -> row.text())
+                .contains("steer", "exact stage message")
+                .doesNotContain("sibling stage message", "exact task brain message");
+        assertThat(task.conversation()).extracting(row -> row.text())
+                .contains("Review the implementation", "exact task brain message")
+                .doesNotContain("exact stage message", "sibling stage message");
+        assertThat(stage.iterations()).extracting(iteration -> iteration.id())
+                .containsExactly("turn-one");
+        assertThat(task.iterations()).extracting(iteration -> iteration.id())
+                .containsExactly("task-turn-one");
+    }
+
+    @Test
+    void unscopedTaskTurnCannotBorrowTheTasksCurrentStage()
+    {
+        insertUnscopedTaskAgentTicket();
+
+        assertThatThrownBy(() -> service.runDetail(
+                "v2-ticket:unscoped-task-ticket"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no stage-backed V2 log");
+    }
+
+    @Test
     void streamReadsNewDurableEvidenceForOnlyTheExactStage()
             throws Exception
     {
@@ -188,5 +238,56 @@ class TestV2StageApiService
                     provider, started_at_ms, heartbeat_at_ms)
                 VALUES (?, ?, 1, 'RUNNING', 'openai', 100, 100)
                 """, executionId, ticketId);
+    }
+
+    private void insertTaskAgentTicket()
+    {
+        jdbc.update("""
+                INSERT INTO task_turn(
+                    id, task_id, purpose, status, operation_id, attempt,
+                    task_epoch, trigger_stage_id, trigger_stage_generation,
+                    delivery_lane, launch_input, requested_at_ms)
+                VALUES ('task-turn-one', 'task-1',
+                    'DEVELOPMENT_BRAIN_REVIEW', 'QUEUED',
+                    'task-operation-one', 1, 1, 'remote-stage-1', 1, 'API',
+                    '{"prompt":"Review the implementation"}', 92)
+                """);
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    exclusive_task, writer_required, workspace_id, trunk_id,
+                    task_id, task_epoch, attempt, status, created_at_ms)
+                VALUES ('task-ticket-one', 'task-operation-one',
+                    'EXECUTE_TASK_TURN', 'AGENT_TURN', 'TASK_TURN',
+                    'task-turn-one', 'TASK_TURN_RESULT', 2, 1, 0,
+                    'workspace-1', 'trunk-1', 'task-1', 1, 1,
+                    'REQUESTED', 92)
+                """);
+    }
+
+    private void insertUnscopedTaskAgentTicket()
+    {
+        jdbc.update("""
+                INSERT INTO task_turn(
+                    id, task_id, purpose, status, operation_id, attempt,
+                    task_epoch, delivery_lane, launch_input, requested_at_ms)
+                VALUES ('unscoped-task-turn', 'task-1',
+                    'DEVELOPMENT_BRAIN_REVIEW', 'QUEUED',
+                    'unscoped-task-operation', 1, 1, 'API',
+                    '{"prompt":"Summarize the outcome"}', 94)
+                """);
+        jdbc.update("""
+                INSERT INTO dispatch_ticket(
+                    id, operation_id, operation_kind, async_family,
+                    owner_kind, owner_id, callback_route, lane_mask,
+                    exclusive_task, writer_required, workspace_id, trunk_id,
+                    task_id, task_epoch, attempt, status, created_at_ms)
+                VALUES ('unscoped-task-ticket', 'unscoped-task-operation',
+                    'EXECUTE_TASK_TURN', 'AGENT_TURN', 'TASK_TURN',
+                    'unscoped-task-turn', 'TASK_TURN_RESULT', 2, 1, 0,
+                    'workspace-1', 'trunk-1', 'task-1', 1, 1,
+                    'REQUESTED', 94)
+                """);
     }
 }

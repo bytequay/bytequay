@@ -27,6 +27,7 @@ public record SessionDto(
         String stageId,
         String reviewRoundId,
         boolean durableReview,
+        Controls controls,
         String kind,
         String status,
         String provider,
@@ -59,6 +60,13 @@ public record SessionDto(
     public static SessionDto from(
             String sessionId, AgentRun run, Instant now, boolean durableReview)
     {
+        return from(sessionId, run, now, durableReview, !durableReview);
+    }
+
+    public static SessionDto from(
+            String sessionId, AgentRun run, Instant now,
+            boolean durableReview, boolean controllable)
+    {
         Instant end = run.finishedAt() == null ? now : run.finishedAt();
         return new SessionDto(
                 sessionId,
@@ -68,6 +76,7 @@ public record SessionDto(
                 run.stageId(),
                 run.reviewRoundId(),
                 durableReview,
+                controls(run, controllable),
                 publicKind(run.kind()),
                 publicStatus(run.status()),
                 run.provider(),
@@ -84,6 +93,18 @@ public record SessionDto(
                 run.startedAt().toEpochMilli(),
                 run.finishedAt() == null ? null : run.finishedAt().toEpochMilli(),
                 Math.max(0L, Duration.between(run.startedAt(), end).toMillis()));
+    }
+
+    private static Controls controls(AgentRun run, boolean controllable)
+    {
+        if (!controllable) {
+            return Controls.NONE;
+        }
+        return new Controls(
+                AgentRun.STATUS_RUNNING.equals(run.status()),
+                AgentRun.STATUS_PAUSED.equals(run.status()),
+                run.isLive(),
+                !run.isLive());
     }
 
     public static boolean isPublic(AgentRun run)
@@ -118,5 +139,11 @@ public record SessionDto(
             case AgentRun.STATUS_FAILED -> "errored";
             default -> "done";
         };
+    }
+
+    public record Controls(boolean pause, boolean resume, boolean stop, boolean restart)
+    {
+        private static final Controls NONE =
+                new Controls(false, false, false, false);
     }
 }

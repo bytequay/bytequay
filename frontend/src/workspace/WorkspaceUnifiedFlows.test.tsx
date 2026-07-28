@@ -113,6 +113,30 @@ describe('workspace unified interaction flows', () => {
     expect(onOpenThread).toHaveBeenCalledWith('t1');
   });
 
+  it('hides lifecycle controls when the session owner exposes none', async () => {
+    const session: WorkspaceSessionDto = {
+      ...sessionFixture(),
+      controls: { pause: false, resume: false, stop: false, restart: false },
+    };
+    const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
+      if (request.path === '/api/workspaces/w1/sessions') return [session];
+      throw new Error(`Unexpected request: ${request.path}`);
+    });
+    setBridge(workspaceApi);
+
+    render(
+      <WorkspaceSessionsPage
+        workspaceId="w1"
+        selectedSessionId="s1"
+        onOpenThread={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole('button', { name: /Open thread/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+  });
+
   it('opens a review session through its owning pull request without a synthetic trunk', async () => {
     const session: WorkspaceSessionDto = {
       ...sessionFixture(),
@@ -122,6 +146,7 @@ describe('workspace unified interaction flows', () => {
       stageId: null,
       reviewRoundId: 'round-1',
       durableReview: true,
+      controls: { pause: false, resume: false, stop: false, restart: false },
     };
     const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
       if (request.path === '/api/workspaces/w1/sessions') return [session];
@@ -552,6 +577,7 @@ function sessionFixture(): WorkspaceSessionDto {
     taskId: 't1.k1',
     stageId: 'stage-1',
     durableReview: false,
+    controls: { pause: true, resume: false, stop: true, restart: false },
     costUsdMilli: 250,
     tokensIn: 1_000,
     tokensOut: 250,

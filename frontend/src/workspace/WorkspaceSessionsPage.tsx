@@ -401,20 +401,19 @@ function SessionDetail({
           {' · '}{compactTokens(session.tokensIn + session.tokensOut)} · {elapsed(session)}
         </span>
         <span className="wu-session-live-spacer" />
-        {!session.durableReview && session.status === 'running' && (
+        {session.controls.pause && (
           <button type="button" className="wu-session-control"
             disabled={acting} onClick={() => { void act('pause'); }}>Pause</button>
         )}
-        {!session.durableReview && session.status === 'paused' && (
+        {session.controls.resume && (
           <button type="button" className="wu-session-control"
             disabled={acting} onClick={() => { void act('resume'); }}>Resume</button>
         )}
-        {!session.durableReview && (session.status === 'done' || session.status === 'errored') && (
+        {session.controls.restart && (
           <button type="button" className="wu-session-control"
             disabled={acting} onClick={() => { void act('restart'); }}>Restart</button>
         )}
-        {!session.durableReview
-          && (session.status === 'running' || session.status === 'paused' || session.status === 'queued') && (
+        {session.controls.stop && (
           <button type="button" className="wu-session-control danger"
             disabled={acting} onClick={() => { void act('stop'); }}>Stop</button>
         )}

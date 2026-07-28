@@ -113,15 +113,22 @@ class TestStageCheckpoint
         edges.put(StageCheckpoint.PUBLISHING, Set.of(StageCheckpoint.COMPLETED));
         edges.put(StageCheckpoint.WAITING_CI, Set.of(StageCheckpoint.AWAITING_READY));
         edges.put(StageCheckpoint.AWAITING_READY,
-                Set.of(StageCheckpoint.WAITING_REMOTE_REVIEW));
+                Set.of(StageCheckpoint.WAITING_REMOTE_REVIEW,
+                        StageCheckpoint.WAITING_CI));
         edges.put(StageCheckpoint.WAITING_REMOTE_REVIEW, Set.of(
                 StageCheckpoint.ADDRESSING_REMOTE_FEEDBACK,
-                StageCheckpoint.READY_TO_MERGE));
+                StageCheckpoint.READY_TO_MERGE,
+                StageCheckpoint.WAITING_CI));
         edges.put(StageCheckpoint.ADDRESSING_REMOTE_FEEDBACK,
-                Set.of(StageCheckpoint.WAITING_CI));
-        edges.put(StageCheckpoint.READY_TO_MERGE, Set.of(StageCheckpoint.MERGING));
+                Set.of(StageCheckpoint.WAITING_CI,
+                        StageCheckpoint.WAITING_REMOTE_REVIEW));
+        edges.put(StageCheckpoint.READY_TO_MERGE, Set.of(
+                StageCheckpoint.MERGING,
+                StageCheckpoint.WAITING_CI));
         edges.put(StageCheckpoint.MERGING, Set.of(
-                StageCheckpoint.READY_TO_MERGE, StageCheckpoint.COMPLETED));
+                StageCheckpoint.READY_TO_MERGE,
+                StageCheckpoint.COMPLETED,
+                StageCheckpoint.WAITING_CI));
         edges.put(StageCheckpoint.WAITING_QUIESCENCE, Set.of(StageCheckpoint.CLEANING));
         edges.put(StageCheckpoint.CLEANING, Set.of(StageCheckpoint.COMPLETED));
         edges.put(StageCheckpoint.COMPLETED, Set.of());

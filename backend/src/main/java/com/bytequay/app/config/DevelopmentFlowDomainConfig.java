@@ -29,7 +29,9 @@ import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.task.BrainVerdictHandoff;
 import com.bytequay.app.developmentflow.task.TaskControlHandoff;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.creation.TaskCreationHandoff;
 import com.bytequay.app.developmentflow.trunk.TrunkManager;
+import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
@@ -55,6 +57,17 @@ public class DevelopmentFlowDomainConfig
             TaskCommandExecutor commands, TaskManager.Store store)
     {
         return new TaskManager(commands, store);
+    }
+
+    /** Command-side bean only; no production controller routes Task creation here yet. */
+    @Bean
+    public TaskCreationHandoff taskCreationHandoff(
+            TaskCommandExecutor commands,
+            TrunkManager trunks,
+            TaskManager tasks,
+            IdGenerator ids)
+    {
+        return new TaskCreationHandoff(commands, trunks, tasks, ids);
     }
 
     @Bean

@@ -20,6 +20,9 @@ import com.bytequay.app.developmentflow.stage.StageKind;
 import com.bytequay.app.developmentflow.stage.StageManager;
 import com.bytequay.app.developmentflow.task.TaskLifecycle;
 import com.bytequay.app.developmentflow.task.TaskManager;
+import com.bytequay.app.developmentflow.task.creation.ProvisionTarget;
+import com.bytequay.app.developmentflow.task.creation.TaskCreationInput;
+import com.bytequay.app.developmentflow.trunk.TrunkManager;
 import com.bytequay.app.service.threads.TaskCommandExecutor;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
@@ -203,6 +206,53 @@ class TestDevelopmentFlowSqliteHandoffRollback
                 String taskId, String commandId)
         {
             return Optional.empty();
+        }
+
+        @Override
+        public boolean matchesRepositoryRoot(
+                TaskCreationInput input, Path repositoryRoot)
+        {
+            return false;
+        }
+
+        @Override
+        public long nextTaskSequence(String trunkId)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Optional<TaskManager.TaskCreationReceipt> findTaskCreation(
+                String trunkId, String commandId)
+        {
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean hasTaskCreationReceipt(String taskId, String commandId)
+        {
+            return false;
+        }
+
+        @Override
+        public boolean matchesTaskCreation(
+                TrunkManager.TaskCreationCommand command,
+                TrunkManager.AuthorizedTaskCreation authorization,
+                TaskManager.TaskCreationReceipt receipt,
+                ProvisionTarget target)
+        {
+            return false;
+        }
+
+        @Override
+        public TaskManager.TaskCreationReceipt createTask(
+                TrunkManager.TaskCreationCommand command,
+                TrunkManager.AuthorizedTaskCreation authorization,
+                TaskManager.State state,
+                long taskSequence,
+                ProvisionTarget target)
+        {
+            throw new UnsupportedOperationException();
         }
 
         @Override

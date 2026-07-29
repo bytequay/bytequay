@@ -37,13 +37,16 @@ const linked: WorkspaceRelationDto = {
   indexedCommitCount: 3481,
 };
 
-function installBridge(initial: WorkspaceRelationDto | null) {
+function installBridge(
+  initial: WorkspaceRelationDto | null,
+  candidates: unknown[] = [{
+    workspaceId: 'upstream', name: 'Trino', repoFullName: 'trinodb/trino', suggested: true,
+  }],
+) {
   let relation = initial;
   const workspaceApi = vi.fn(async (request: WorkspaceApiRequest): Promise<unknown> => {
     if (request.path === '/api/workspaces/fork/relation' && request.method === undefined) return relation;
-    if (request.path === '/api/workspaces/fork/relation/candidates') return [{
-      workspaceId: 'upstream', name: 'Trino', repoFullName: 'trinodb/trino', suggested: true,
-    }];
+    if (request.path === '/api/workspaces/fork/relation/candidates') return candidates;
     if (request.path === '/api/workspaces/fork/relation' && request.method === 'PUT') {
       const body = request.body as {
         upstreamWorkspaceId: string;
@@ -84,6 +87,68 @@ describe('WorkspaceRelationsSettings', () => {
         autoFetchIntervalMinutes: 30,
       },
     });
+  });
+
+  it('centres the picker and explains a dead confirm when nothing can be linked', async () => {
+    installBridge(null, []);
+    render(<WorkspaceRelationsSettings workspaceId="fork" repoName="acme/widget" />);
+
+    expect(await screen.findByText('No upstream linked')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Link upstream workspace…' }));
+
+    // The picker sits in the middle of the window, not the top-left corner.
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.parentElement?.className).toContain('wu-modal-backdrop--centered');
+
+    // With nothing to select the confirm is disabled — the empty state has
+    // to say why, or the button just looks broken.
+    const confirm = screen.getByRole('button', { name: 'Link upstream' }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    expect(screen.getByRole('status').textContent).toMatch(/another workspace in this app/);
+  });
+
+  it('blocks a workspace that already reads from this one, and says why', async () => {
+    installBridge(null, [
+      {
+        workspaceId: 'gateway', name: 'trino-gateway', repoFullName: 'trinodb/trino-gateway',
+        suggested: true, ineligibleReason: 'already reads from this workspace, so linking back would make a cycle',
+      },
+    ]);
+    render(<WorkspaceRelationsSettings workspaceId="fork" repoName="acme/widget" />);
+
+    expect(await screen.findByText('No upstream linked')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Link upstream workspace…' }));
+
+    // Offered but disabled with the reason — not silently missing, and
+    // not selectable into a PUT the server would refuse.
+    expect(await screen.findByText(/already reads from this workspace/)).toBeTruthy();
+    expect((screen.getByRole('radio') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Link upstream' }) as HTMLButtonElement)
+      .disabled).toBe(true);
+  });
+
+  it('surfaces the server sentence from a wrapped bridge rejection', async () => {
+    const api = installBridge(null);
+    api.mockImplementation(async (request: WorkspaceApiRequest) => {
+      if (request.path === '/api/workspaces/fork/relation' && request.method === undefined) return null;
+      if (request.path === '/api/workspaces/fork/relation/candidates') {
+        return [{
+          workspaceId: 'upstream', name: 'Trino', repoFullName: 'trinodb/trino', suggested: true,
+        }];
+      }
+      throw new Error("Error invoking remote method 'workspace:api': Error: workspace request "
+        + 'PUT /api/workspaces/ws/relation returned 422: {"timestamp":"2026-07-29T12:34:16Z",'
+        + '"status":422,"message":"workspace upstream relations cannot form a cycle",'
+        + '"path":"/api/workspaces/ws/relation"}');
+    });
+    render(<WorkspaceRelationsSettings workspaceId="fork" repoName="acme/widget" />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Link upstream workspace…' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Link upstream' }));
+
+    expect(await screen.findByText('workspace upstream relations cannot form a cycle'))
+      .toBeTruthy();
+    expect(screen.queryByText(/invoking remote method/)).toBeNull();
   });
 
   it('persists capability changes through the single relation PUT contract', async () => {

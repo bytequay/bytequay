@@ -27,6 +27,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -1083,6 +1084,203 @@ public class GitRunner
     }
 
     /**
+     * Replays {@code base..HEAD} using an explicit todo list instead of
+     * whatever {@code git rebase -i} would have generated. Both editors
+     * are neutralised: {@code sequence.editor} just copies our file over
+     * git's todo, and {@code core.editor} is {@code true}(1) so a
+     * {@code reword}/conflict can never block on a terminal that isn't
+     * there. The caller owns failure handling — this returns the raw
+     * result rather than throwing so an aborting caller can read stderr.
+     */
+    public GitResult rebaseWithTodo(Path workingDir, String base, Path todoFile)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(base, "base is null");
+        requireNonNull(todoFile, "todoFile is null");
+        return run(
+                List.of("git",
+                        "-c", "core.editor=true",
+                        "-c", "sequence.editor=cp '" + todoFile + "'",
+                        "rebase", "-i", base),
+                workingDir,
+                300);
+    }
+
+    /**
+     * Publishes a branch whose history was just rewritten. Unlike
+     * {@link #pushForceWithLease} this NEVER retries without the lease:
+     * a stale lease means the remote moved while the user was editing,
+     * and overwriting it anyway is precisely what the lease exists to
+     * prevent. Returns the raw result so the caller can surface git's
+     * own rejection message.
+     */
+    public GitResult pushRewrittenBranch(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        return run(
+                List.of("git", "push", "--force-with-lease", "-u", "origin", "HEAD"),
+                workingDir,
+                300);
+    }
+
+    /** Best-effort {@code git rebase --abort}; a no-op when no rebase is
+     *  in progress, so callers can invoke it unconditionally on failure. */
+    public void rebaseAbort(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        run(List.of("git", "rebase", "--abort"), workingDir, 60);
+    }
+
+    /**
+     * Added/deleted line totals per commit on {@code revision}, keyed by
+     * full sha. One {@code git log --numstat} pass rather than a
+     * {@code git show} per row — the Commits list renders these on every
+     * row, so N round-trips would dominate the page load.
+     *
+     * <p>Merge commits report no numstat by default and come back as
+     * 0/0; binary files report {@code -} and are counted as 0.
+     */
+    public Map<String, LineStats> commitLineStats(
+            Path workingDir, String revision, int limit, int skip)
+            throws IOException, InterruptedException
+    {
+        if (limit <= 0) {
+            return Map.of();
+        }
+        List<String> args = new ArrayList<>(List.of(
+                "git", "log",
+                "--max-count=" + limit,
+                "--skip=" + Math.max(skip, 0),
+                "--numstat",
+                "--format=" + RS_SEP + "%H"));
+        if (revision != null && !revision.isBlank()) {
+            args.add(revision);
+        }
+        GitResult result = run(args, workingDir);
+        result.requireSuccess();
+        Map<String, LineStats> stats = new LinkedHashMap<>();
+        for (String record : result.stdout().split(RS_SEP, -1)) {
+            if (record.isBlank()) {
+                continue;
+            }
+            String[] lines = record.split("\n", -1);
+            String sha = lines[0].strip();
+            if (sha.isEmpty()) {
+                continue;
+            }
+            int additions = 0;
+            int deletions = 0;
+            for (int i = 1; i < lines.length; i++) {
+                String[] columns = lines[i].split("\t", 3);
+                if (columns.length < 3) {
+                    continue;
+                }
+                additions += parseNumstat(columns[0]);
+                deletions += parseNumstat(columns[1]);
+            }
+            stats.put(sha, new LineStats(additions, deletions));
+        }
+        return Map.copyOf(stats);
+    }
+
+    private static int parseNumstat(String cell)
+    {
+        try {
+            return Integer.parseInt(cell.strip());
+        }
+        catch (NumberFormatException binaryOrEmpty) {
+            return 0;
+        }
+    }
+
+    public record LineStats(int additions, int deletions) {}
+
+    /**
+     * Message bodies (everything after the subject line) per commit on
+     * {@code revision}, keyed by full sha. Separate from
+     * {@link #listCommits} so the ordinary Commits list keeps paying
+     * only for subjects; the rewrite editor needs every body up front
+     * because a reword must preserve the body it didn't touch.
+     */
+    public Map<String, String> commitBodies(
+            Path workingDir, String revision, int limit, int skip)
+            throws IOException, InterruptedException
+    {
+        if (limit <= 0) {
+            return Map.of();
+        }
+        List<String> args = new ArrayList<>(List.of(
+                "git", "log",
+                "--max-count=" + limit,
+                "--skip=" + Math.max(skip, 0),
+                "-z",
+                "--pretty=format:%H" + US_SEP + "%b"));
+        if (revision != null && !revision.isBlank()) {
+            args.add(revision);
+        }
+        GitResult result = run(args, workingDir);
+        result.requireSuccess();
+        Map<String, String> bodies = new LinkedHashMap<>();
+        for (String record : result.stdout().split(NUL_SEP, -1)) {
+            if (record.isEmpty()) {
+                continue;
+            }
+            String[] parts = record.split(US_SEP, 2);
+            if (parts.length < 2) {
+                continue;
+            }
+            bodies.put(parts[0].strip(), parts[1].strip());
+        }
+        return Map.copyOf(bodies);
+    }
+
+    /**
+     * Full shas on {@code branch} that {@code trackingRef} does not
+     * contain — i.e. the commits still safe to rewrite without a force
+     * push. Returns every listed commit when {@code trackingRef} is null
+     * (branch never pushed), which is the conservative reading: nothing
+     * is published, so nothing needs the force warning.
+     */
+    public Set<String> unpushedShas(Path workingDir, String branch, String trackingRef)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(branch, "branch is null");
+        if (trackingRef == null) {
+            trackingRef = "";
+        }
+        List<String> args = trackingRef.isBlank()
+                ? List.of("git", "rev-list", branch)
+                : List.of("git", "rev-list", branch, "^" + trackingRef);
+        GitResult result = run(args, workingDir);
+        result.requireSuccess();
+        return result.stdout().lines()
+                .map(String::strip)
+                .filter(line -> !line.isEmpty())
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * The remote-tracking ref {@code branch} publishes to — its
+     * configured upstream, falling back to {@code origin/<branch>} when
+     * no upstream is set but the ref exists anyway. Empty when the
+     * branch has never been pushed.
+     */
+    public Optional<String> trackingRef(Path workingDir, String branch)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(branch, "branch is null");
+        GitResult upstream = run(
+                List.of("git", "rev-parse", "--abbrev-ref", branch + "@{upstream}"),
+                workingDir,
+                10);
+        if (upstream.exitCode() == 0 && !upstream.stdout().isBlank()) {
+            return Optional.of(upstream.stdout().strip());
+        }
+        String fallback = "origin/" + branch;
+        return refExists(workingDir, fallback) ? Optional.of(fallback) : Optional.empty();
+    }
+
+    /**
      * Fetches the GitHub-magic {@code pull/{N}/head} ref + the PR's
      * base branch into a non-user-visible refs namespace
      * ({@code refs/bytequay/pr/{N}/{head,base}}) so the merge-tree call
@@ -1351,6 +1549,14 @@ public class GitRunner
     public List<CommitEntry> listCommits(Path workingDir, String revision, int limit)
             throws IOException, InterruptedException
     {
+        return listCommits(workingDir, revision, limit, 0);
+    }
+
+    /** As {@link #listCommits(Path, String, int)}, skipping the newest
+     *  {@code skip} commits — how the Commits list pages backwards. */
+    public List<CommitEntry> listCommits(Path workingDir, String revision, int limit, int skip)
+            throws IOException, InterruptedException
+    {
         if (limit <= 0) {
             return List.of();
         }
@@ -1362,6 +1568,7 @@ public class GitRunner
         List<String> args = new ArrayList<>(List.of(
                 "git", "log",
                 "--max-count=" + limit,
+                "--skip=" + Math.max(skip, 0),
                 "-z",
                 "--pretty=format:" + fmt));
         if (revision != null && !revision.isBlank()) {

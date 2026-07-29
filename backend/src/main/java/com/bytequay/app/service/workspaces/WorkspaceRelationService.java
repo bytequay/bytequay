@@ -253,7 +253,8 @@ public class WorkspaceRelationService
                         candidate.name(),
                         identity.fullName(),
                         suggestedRepo != null
-                                && suggestedRepo.equalsIgnoreCase(identity.fullName())));
+                                && suggestedRepo.equalsIgnoreCase(identity.fullName()),
+                        cycleReason(workspaceId, candidate.id()).orElse(null)));
             }
             catch (RuntimeException ignored) {
                 // Incomplete recovery workspaces are not valid link targets.
@@ -508,13 +509,34 @@ public class WorkspaceRelationService
 
     private void requireNoCycle(String workspaceId, String upstreamWorkspaceId)
     {
+        cycleReason(workspaceId, upstreamWorkspaceId).ifPresent(reason -> {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, reason);
+        });
+    }
+
+    /**
+     * Why making {@code upstreamWorkspaceId} the upstream of
+     * {@code workspaceId} would close a loop — walking the candidate's own
+     * upstream chain until it either ends or comes back around. Empty when
+     * the link is fine.
+     *
+     * <p>Shared by the picker and the write path so a candidate is never
+     * offered and then refused.
+     */
+    private Optional<String> cycleReason(String workspaceId, String upstreamWorkspaceId)
+    {
         Set<String> seen = new HashSet<>();
         String cursor = upstreamWorkspaceId;
+        // Hop 0 is the candidate itself (a self-link, rejected earlier);
+        // hop 1 is the candidate's own upstream, so coming back around
+        // there is the plain reverse link.
+        int hops = 0;
         while (cursor != null && seen.add(cursor)) {
             if (workspaceId.equals(cursor)) {
-                throw new ResponseStatusException(
-                        HttpStatus.UNPROCESSABLE_ENTITY,
-                        "workspace upstream relations cannot form a cycle");
+                return Optional.of(hops <= 1
+                        ? "already reads from this workspace, so linking back would make a cycle"
+                        : "reads from this workspace through another link, "
+                                + "so this would make a cycle");
             }
             List<String> next = jdbc.queryForList("""
                     SELECT upstream_workspace_id
@@ -522,7 +544,9 @@ public class WorkspaceRelationService
                     WHERE workspace_id = ?
                     """, String.class, cursor);
             cursor = next.isEmpty() ? null : next.getFirst();
+            hops++;
         }
+        return Optional.empty();
     }
 
     private static WorkspaceRelationDto mapRelation(ResultSet rs, int ignored)
@@ -563,11 +587,18 @@ public class WorkspaceRelationService
             int autoFetchIntervalMinutes,
             int indexedCommitCount) {}
 
+    /**
+     * @param ineligibleReason why this workspace cannot be the upstream,
+     *        or null when it can. Returned rather than filtered out so
+     *        the picker can say why a workspace the user expects to see
+     *        is unavailable, instead of silently omitting it.
+     */
     public record RelationCandidateDto(
             String workspaceId,
             String name,
             String repoFullName,
-            boolean suggested) {}
+            boolean suggested,
+            String ineligibleReason) {}
 
     public record UpstreamCommitsDto(
             String upstreamWorkspaceId,

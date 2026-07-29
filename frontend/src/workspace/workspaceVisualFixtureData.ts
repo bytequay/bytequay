@@ -1153,7 +1153,7 @@ function commit(
     authorName,
     authorEmail: authorName.toLowerCase().includes('agent')
       ? 'agent@bytequay.local'
-      : 'chenjian2664@example.com',
+      : '12345+chenjian2664@users.noreply.github.com',
     authoredAt: agoIso(ago),
     ...workspace,
   };
@@ -2318,6 +2318,50 @@ function workspaceResponse(frame: string, request: WorkspaceApiRequest): unknown
     return frame === '4d'
       ? [...visualBranches, branch('release/482', { lastCommitAt: agoIso(2 * day) })]
       : visualBranches;
+  }
+  if (path.includes('/working-tree/files')) {
+    return [
+      { path: 'core/trino-main/src/main/java/io/trino/operator/scalar/MathFunctions.java', status: 'M', additions: 18, deletions: 4 },
+      { path: 'frontend/src/workspace/WorkspaceCommitsPage.tsx', status: 'M', additions: 31, deletions: 9 },
+      { path: 'docs/notes/clamp.md', status: 'A', additions: 24, deletions: 0 },
+    ] satisfies LocalCommitFileDto[];
+  }
+  if (path.includes('/working-tree/diff') || path.includes('/commits/diff?')) {
+    return {
+      path: decodeURIComponent(path.slice(path.lastIndexOf('path=') + 5)),
+      truncated: false,
+      patch: [
+        '@@ -412,9 +412,7 @@ public final class MathFunctions',
+        '     public static long clampLong(long value, long low, long high)',
+        '     {',
+        '-        if (value < low) {',
+        '-            return low;',
+        '-        }',
+        '+        return Math.clamp(value, low, high);',
+        '     }',
+      ].join('\n'),
+    };
+  }
+  if (path.includes('/commits/rewritable')) {
+    // Two unpushed commits on top of two the remote has, so the LOCAL
+    // group and the origin divider both render.
+    return {
+      branch: VISUAL_BRANCH_NAME,
+      trackingRef: `origin/${VISUAL_BRANCH_NAME}`,
+      editable: true,
+      commits: visualCommits.map((value, index) => ({
+        sha: value.sha,
+        shortSha: value.shortSha,
+        subject: value.subject,
+        body: `${value.subject}\n\nPreserve compatibility while moving validation into the shared CI path.`,
+        authorName: value.authorName,
+        authorEmail: value.authorEmail,
+        authoredAt: value.authoredAt,
+        additions: 42 + index * 17,
+        deletions: 6 + index * 4,
+        pushed: index >= 2,
+      })),
+    };
   }
   if (path.includes('/commits/') && path.endsWith('/files')) {
     if (frame === '4a') {

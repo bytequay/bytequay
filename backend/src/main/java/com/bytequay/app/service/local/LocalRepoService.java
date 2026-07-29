@@ -987,6 +987,114 @@ public class LocalRepoService
                 .collect(toImmutableList());
     }
 
+    /** One row of the history editor. */
+    public record RewritableCommit(
+            String sha,
+            String shortSha,
+            String subject,
+            String body,
+            String authorName,
+            String authorEmail,
+            Instant authoredAt,
+            int additions,
+            int deletions,
+            /** False for anything the tracking ref already contains — the
+             *  editor derives its LOCAL group and force-push warning from
+             *  this, never from a stored ahead-count. */
+            boolean pushed) {}
+
+    /**
+     * @param editable false when {@code revision} isn't the checked-out
+     *                 branch, in which case the editor stays read-only —
+     *                 rebasing a branch we aren't on would need a
+     *                 throwaway worktree, which this doesn't do.
+     */
+    public record RewritableHistory(
+            String branch,
+            String trackingRef,
+            boolean editable,
+            List<RewritableCommit> commits) {}
+
+    /**
+     * The Commits history enriched with everything the rewrite editor
+     * needs that {@link #listCommits} deliberately leaves out: per-commit
+     * line counts, message bodies, and whether the tracking ref already
+     * has the commit. Three {@code git log} passes rather than one, which
+     * is why it's a separate call — the plain Commits list shouldn't pay
+     * for it.
+     *
+     * @param skip newest commits to step over, so the list can page
+     *             backwards as the user scrolls. Paging by skip rather
+     *             than by a {@code <sha>^} revision keeps {@code branch}
+     *             the real branch, which is what the pushed flag and the
+     *             tracking ref are computed against.
+     */
+    public RewritableHistory rewritableHistory(
+            String owner,
+            String repo,
+            String revision,
+            int limit,
+            int skip)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        String resolved = resolveLogRevision(path, revision);
+        String branch = (resolved == null || resolved.isBlank())
+                ? gitRunner.currentBranch(path)
+                : resolved;
+        // A remote-only branch resolves to refs/remotes/<name>; every
+        // commit on it is by definition published, and asking for its
+        // "upstream" would wrongly report the whole branch as local.
+        boolean remoteOnly = gitRunner.refExists(path, "refs/remotes/" + branch);
+        String tracking = remoteOnly
+                ? branch
+                : gitRunner.trackingRef(path, branch).orElse(null);
+        Set<String> unpushed = remoteOnly
+                ? Set.of()
+                : gitRunner.unpushedShas(path, branch, tracking);
+        Map<String, GitRunner.LineStats> stats =
+                gitRunner.commitLineStats(path, resolved, limit, skip);
+        Map<String, String> bodies = gitRunner.commitBodies(path, resolved, limit, skip);
+        List<RewritableCommit> commits = gitRunner.listCommits(path, resolved, limit, skip).stream()
+                .map(entry -> {
+                    GitRunner.LineStats line = stats.getOrDefault(
+                            entry.sha(), new GitRunner.LineStats(0, 0));
+                    return new RewritableCommit(
+                            entry.sha(),
+                            entry.shortSha(),
+                            entry.subject(),
+                            bodies.getOrDefault(entry.sha(), ""),
+                            entry.authorName(),
+                            entry.authorEmail(),
+                            parseIsoOrNull(entry.authoredAt()),
+                            line.additions(),
+                            line.deletions(),
+                            !unpushed.contains(entry.sha()));
+                })
+                .collect(toImmutableList());
+        return new RewritableHistory(
+                branch,
+                tracking,
+                branch.equals(gitRunner.currentBranch(path)),
+                commits);
+    }
+
+    /**
+     * Applies the editor's whole pending queue as one rebase. See
+     * {@link HistoryRewriter} for the atomicity guarantee — on any
+     * failure the branch is left exactly where it was, so the caller's
+     * queue is still good to retry.
+     */
+    public HistoryRewriter.RewriteResult rewriteHistory(
+            String owner,
+            String repo,
+            HistoryRewriter.RewritePlan plan)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        return new HistoryRewriter(gitRunner).rewrite(path, plan);
+    }
+
     /**
      * Merge-base of {@code branch} and {@code base} — the sha where
      * {@code branch} branched off. {@code base} is optional; when

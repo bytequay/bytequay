@@ -20,6 +20,7 @@ import type {
   LocalCommitDetailDto,
   LocalCommitDto,
   LocalCommitFileDto,
+  LocalFileDiffDto,
   LocalRepoStatusDto,
   PullRequestCommitDto,
   PullRequestDetailDto,
@@ -260,6 +261,48 @@ export type BranchComparisonDto = {
   files: LocalCommitFileDto[];
 };
 
+/** A commit as the history editor needs it: the plain Commits row plus
+ *  the message body, line counts, and whether the remote already has it. */
+export type RewritableCommitDto = {
+  sha: string;
+  shortSha: string;
+  subject: string;
+  body: string;
+  authorName: string;
+  authorEmail: string;
+  authoredAt: string | null;
+  additions: number;
+  deletions: number;
+  pushed: boolean;
+};
+
+export type RewritableHistoryDto = {
+  branch: string;
+  trackingRef: string | null;
+  /** False when `branch` isn't checked out — the editor stays read-only,
+   *  because rewriting a branch we aren't on isn't supported. */
+  editable: boolean;
+  commits: RewritableCommitDto[];
+};
+
+/** The whole staged queue as one rebase. `commits` runs OLDEST FIRST;
+ *  each entry's `picks` are the original shas folded into it, and a null
+ *  `message` keeps whatever the first pick already had. */
+export type RewritePlanDto = {
+  branch: string;
+  base: string;
+  commits: Array<{ picks: string[]; message: string | null }>;
+  forcePush: boolean;
+};
+
+export type RewriteResultDto = {
+  headSha: string;
+  pushed: boolean;
+  /** Set when a requested force push was refused — the rewrite still
+   *  landed locally, so this is a warning, not a failure. */
+  pushError: string | null;
+};
+
 export type WorkspaceBranchDto = LocalBranchDto & {
   taskId: string | null;
   taskTitle: string | null;
@@ -301,6 +344,10 @@ export type WorkspaceRelationCandidateDto = {
   name: string;
   repoFullName: string;
   suggested: boolean;
+  /** Set when this workspace cannot be the upstream — shown on a disabled
+   *  row rather than hidden, so a workspace the user expects to find is
+   *  explained instead of silently missing. */
+  ineligibleReason?: string | null;
 };
 
 export type UpstreamCommitDto = LocalCommitDto & {
@@ -892,6 +939,34 @@ export const workspaceApi = {
   commitFiles: (workspaceId: string, sha: string) =>
     window.bridge.workspaceApi<LocalCommitFileDto[]>({
       path: `/api/workspaces/${enc(workspaceId)}/commits/${enc(sha)}/files`,
+    }),
+  /** `skip` pages backwards through the history as the list scrolls. */
+  rewritableCommits: (workspaceId: string, revision?: string, limit = 100, skip = 0) =>
+    window.bridge.workspaceApi<RewritableHistoryDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/commits/rewritable?${
+        revision === undefined ? '' : `revision=${enc(revision)}&`
+      }limit=${limit}&skip=${skip}`,
+    }),
+  workingTreeFiles: (workspaceId: string) =>
+    window.bridge.workspaceApi<LocalCommitFileDto[]>({
+      path: `/api/workspaces/${enc(workspaceId)}/working-tree/files`,
+    }),
+  workingTreeDiff: (workspaceId: string, path: string) =>
+    window.bridge.workspaceApi<LocalFileDiffDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/working-tree/diff?path=${enc(path)}`,
+    }),
+  /** One file's diff across `base`..`head`. Pass `<sha>^` as the base for
+   *  a single commit — the editor uses the same call for both panes. */
+  commitRangeDiff: (workspaceId: string, base: string, head: string, path: string) =>
+    window.bridge.workspaceApi<LocalFileDiffDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/commits/diff?base=${enc(base)}&head=${
+        enc(head)}&path=${enc(path)}`,
+    }),
+  rewriteHistory: (workspaceId: string, plan: RewritePlanDto) =>
+    window.bridge.workspaceApi<RewriteResultDto>({
+      path: `/api/workspaces/${enc(workspaceId)}/commits/rewrite`,
+      method: 'POST',
+      body: plan,
     }),
   relation: (workspaceId: string) =>
     window.bridge.workspaceApi<WorkspaceRelationDto | null>({

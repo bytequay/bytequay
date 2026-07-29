@@ -34,8 +34,32 @@ export function BodyMessage({ children }: { children: ReactNode }) {
   return <div className="wu-body-message">{children}</div>;
 }
 
+/** Electron wraps a bridge rejection as `Error invoking remote method
+ *  '<channel>': Error: <cause>`, and the bridge itself appends the raw
+ *  response body. Users should see neither layer. */
+const IPC_WRAPPER = /^Error invoking remote method '[^']*':\s*(?:Error:\s*)?/;
+
+/**
+ * The server's own sentence, dug out of the layers wrapped around it.
+ * Falls back to the unwrapped text, so a plain client-side Error passes
+ * through unchanged.
+ */
 export function message(value: unknown): string {
-  return value instanceof Error ? value.message : String(value);
+  const raw = value instanceof Error ? value.message : String(value);
+  const unwrapped = raw.replace(IPC_WRAPPER, '');
+  const at = unwrapped.indexOf('{');
+  if (at >= 0) {
+    try {
+      const body = JSON.parse(unwrapped.slice(at)) as { message?: unknown };
+      if (typeof body.message === 'string' && body.message.trim().length > 0) {
+        return body.message;
+      }
+    }
+    catch {
+      // Not a JSON body after all — the unwrapped text is the best we have.
+    }
+  }
+  return unwrapped;
 }
 
 export function relative(iso: string): string {

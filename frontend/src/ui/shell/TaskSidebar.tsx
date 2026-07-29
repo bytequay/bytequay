@@ -195,7 +195,7 @@ export function TaskSidebar({
         onNavigate={navigate}
       />
 
-      <WorkspaceBottomNav activeNav="trunks" onNavigate={onNavigateGlobal} />
+      <WorkspaceBottomNav activeNav="trunks" onNavigate={onNavigateGlobal} workspaceMode />
     </aside>
   );
 }

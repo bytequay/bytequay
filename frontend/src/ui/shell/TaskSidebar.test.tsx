@@ -76,7 +76,7 @@ describe('TaskSidebar', () => {
     expect(document.querySelector('.workspace-task-stage__plan')).toBeNull();
   });
 
-  it('shows the done-count with the same bottom navigation as Home', () => {
+  it('shows the done-count with the workspace bottom navigation', () => {
     render(
       <TaskSidebar
         task={{ title: 'x', branch: 'b' }}
@@ -85,7 +85,7 @@ describe('TaskSidebar', () => {
     );
     expect(screen.getByText(/^\d+ of 11 done$/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Report a bug' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Workspace settings' })).toBeTruthy();
     expect(screen.queryByText('chenjian2664')).toBeNull();
   });
 

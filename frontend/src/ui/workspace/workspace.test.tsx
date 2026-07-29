@@ -112,7 +112,7 @@ describe('WorkspaceNavSidebar', () => {
       .toBe('330px');
   });
 
-  it('shows Settings as a normal workspace nav destination', () => {
+  it('shows Workspace settings as a normal workspace nav destination', () => {
     const onNavigate = vi.fn();
     render(
       <WorkspaceNavSidebar workspaceMode onNavigate={onNavigate}>
@@ -120,7 +120,7 @@ describe('WorkspaceNavSidebar', () => {
       </WorkspaceNavSidebar>,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Workspace settings' }));
     expect(onNavigate).toHaveBeenCalledWith('settings');
   });
 

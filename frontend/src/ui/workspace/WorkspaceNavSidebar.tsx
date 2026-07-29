@@ -75,6 +75,9 @@ const BOTTOM_NAV: { key: WsNavKey; ic: ReactNode; label: string }[] = [
   { key: 'settings', ic: <SidebarIcon kind="settings" />, label: 'Settings' },
 ];
 
+const WORKSPACE_BOTTOM_NAV = BOTTOM_NAV.map(item =>
+  item.key === 'settings' ? { ...item, label: 'Workspace settings' } : item);
+
 function WorkspaceNavRows({ items, activeNav, onNavigate, bottom = false }: {
   items: typeof TOP_NAV;
   activeNav?: WsNavKey;
@@ -116,9 +119,11 @@ export function WorkspacePrimaryNav(props: Pick<Parameters<typeof WorkspaceNavRo
   return <WorkspaceNavRows items={TOP_NAV} {...props} />;
 }
 
-/** Shared Report a bug / Notifications / Settings rows used by every left rail. */
-export function WorkspaceBottomNav(props: Pick<Parameters<typeof WorkspaceNavRows>[0], 'activeNav' | 'onNavigate'>) {
-  return <WorkspaceNavRows items={BOTTOM_NAV} bottom {...props} />;
+/** Shared Report a bug / Notifications / Settings rows used by every left rail.
+ *  `workspaceMode` swaps the Settings label to "Workspace settings" for rails
+ *  shown while inside a workspace. */
+export function WorkspaceBottomNav({ workspaceMode = false, ...props }: Pick<Parameters<typeof WorkspaceNavRows>[0], 'activeNav' | 'onNavigate'> & { workspaceMode?: boolean }) {
+  return <WorkspaceNavRows items={workspaceMode ? WORKSPACE_BOTTOM_NAV : BOTTOM_NAV} bottom {...props} />;
 }
 
 /**
@@ -216,7 +221,7 @@ export function WorkspaceNavSidebar({
             {children}
             {!workspaceMode && <div className="sb-spacer" />}
             {!hideBottomNav && (
-              <WorkspaceBottomNav activeNav={activeNav} onNavigate={onNavigate} />
+              <WorkspaceBottomNav activeNav={activeNav} onNavigate={onNavigate} workspaceMode={workspaceMode} />
             )}
           </>
         )}
